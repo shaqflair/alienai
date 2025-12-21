@@ -26,7 +26,7 @@ async function requireUser() {
   return { supabase, user: auth.user };
 }
 
-async function requireMember(supabase: any, projectId: string, userId: string) {
+async function requireMemberRole(supabase: any, projectId: string, userId: string) {
   const { data: mem, error } = await supabase
     .from("project_members")
     .select("role")
@@ -36,6 +36,11 @@ async function requireMember(supabase: any, projectId: string, userId: string) {
   if (error) throwDb(error, "project_members.select");
   if (!mem) throw new Error("Not a project member.");
   return String((mem as any)?.role ?? "viewer").toLowerCase();
+}
+
+function requireEditorOrOwner(role: string) {
+  const can = role === "owner" || role === "editor";
+  if (!can) throw new Error("You do not have permission to perform this action.");
 }
 
 export async function createArtifact(formData: FormData) {
@@ -49,7 +54,7 @@ export async function createArtifact(formData: FormData) {
   if (!project_id) throw new Error("project_id is required.");
   if (!type) throw new Error("type is required.");
 
-  await requireMember(supabase, project_id, user.id);
+  await requireMemberRole(supabase, project_id, user.id);
 
   const { data: row, error: insErr } = await supabase
     .from("artifacts")
@@ -83,9 +88,8 @@ export async function updateArtifact(formData: FormData) {
   if (!project_id) throw new Error("project_id is required.");
   if (!artifact_id) throw new Error("artifact_id is required.");
 
-  const role = await requireMember(supabase, project_id, user.id);
-  const canEdit = role === "owner" || role === "editor";
-  if (!canEdit) throw new Error("You do not have permission to edit this artifact.");
+  const role = await requireMemberRole(supabase, project_id, user.id);
+  requireEditorOrOwner(role);
 
   const { data: current, error: curErr } = await supabase
     .from("artifacts")
@@ -108,6 +112,45 @@ export async function updateArtifact(formData: FormData) {
     .eq("project_id", project_id);
 
   if (updErr) throwDb(updErr, "artifacts.update");
+
+  revalidatePath(`/projects/${project_id}/artifacts`);
+  revalidatePath(`/projects/${project_id}/artifacts/${artifact_id}`);
+}
+
+export async function submitArtifact(formData: FormData) {
+  const { supabase, user } = await requireUser();
+
+  const project_id = norm(formData.get("project_id"));
+  const artifact_id = norm(formData.get("artifact_id"));
+  if (!project_id) throw new Error("project_id is required.");
+  if (!artifact_id) throw new Error("artifact_id is required.");
+
+  const role = await requireMemberRole(supabase, project_id, user.id);
+  requireEditorOrOwner(role);
+
+  // Ensure artifact exists and is not already locked
+  const { data: current, error: curErr } = await supabase
+    .from("artifacts")
+    .select("id,is_locked")
+    .eq("id", artifact_id)
+    .eq("project_id", project_id)
+    .maybeSingle();
+  if (curErr) throwDb(curErr, "artifacts.select");
+  if (!current) throw new Error("Artifact not found.");
+  if ((current as any)?.is_locked) throw new Error("Artifact already submitted.");
+
+  // Lock it
+  const { error: lockErr } = await supabase
+    .from("artifacts")
+    .update({
+      is_locked: true,
+      locked_at: new Date().toISOString(),
+      locked_by: user.id,
+    })
+    .eq("id", artifact_id)
+    .eq("project_id", project_id);
+
+  if (lockErr) throwDb(lockErr, "artifacts.lock");
 
   revalidatePath(`/projects/${project_id}/artifacts`);
   revalidatePath(`/projects/${project_id}/artifacts/${artifact_id}`);

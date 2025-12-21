@@ -1,7 +1,7 @@
 ﻿import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
-import { updateArtifact } from "../actions";
+import { submitArtifact, updateArtifact } from "../actions";
 
 function safeParam(x: unknown): string {
   return typeof x === "string" ? x : "";
@@ -25,6 +25,14 @@ function derivedStatus(a: any) {
   return "draft";
 }
 
+function statusPill(status: string) {
+  const s = String(status ?? "").toLowerCase();
+  if (s === "approved") return { label: "✅ Approved", cls: "bg-green-50 border-green-200 text-green-800" };
+  if (s === "rejected") return { label: "❌ Rejected", cls: "bg-red-50 border-red-200 text-red-800" };
+  if (s === "submitted") return { label: "🟡 Submitted", cls: "bg-yellow-50 border-yellow-200 text-yellow-800" };
+  return { label: "📝 Draft", cls: "bg-gray-50 border-gray-200 text-gray-800" };
+}
+
 export default async function ArtifactDetailPage({
   params,
 }: {
@@ -41,6 +49,7 @@ export default async function ArtifactDetailPage({
   const artifactId = safeParam(p?.artifactId);
   if (!projectId || !artifactId) notFound();
 
+  // Gate: must be a member
   const { data: mem, error: memErr } = await supabase
     .from("project_members")
     .select("role")
@@ -53,9 +62,12 @@ export default async function ArtifactDetailPage({
   const myRole = String((mem as any)?.role ?? "viewer").toLowerCase();
   const canEdit = myRole === "owner" || myRole === "editor";
 
+  // Load artifact
   const { data: artifact, error: artErr } = await supabase
     .from("artifacts")
-    .select("id, project_id, user_id, type, title, content, created_at, updated_at, is_locked, approved_by, rejected_by")
+    .select(
+      "id, project_id, user_id, type, title, content, created_at, updated_at, is_locked, locked_at, locked_by, approved_by, rejected_by"
+    )
     .eq("id", artifactId)
     .eq("project_id", projectId)
     .maybeSingle();
@@ -63,6 +75,10 @@ export default async function ArtifactDetailPage({
   if (!artifact) notFound();
 
   const status = derivedStatus(artifact);
+  const pill = statusPill(status);
+
+  const isLocked = !!artifact.is_locked;
+  const isEditable = canEdit && !isLocked && status === "draft";
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-8 space-y-6">
@@ -75,8 +91,8 @@ export default async function ArtifactDetailPage({
             Role: <span className="font-mono">{myRole}</span>
           </span>
           <span className="opacity-40">•</span>
-          <span>
-            Status: <span className="font-mono">{status}</span>
+          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 ${pill.cls}`}>
+            {pill.label}
           </span>
         </div>
       </div>
@@ -89,13 +105,44 @@ export default async function ArtifactDetailPage({
           </span>
           <span className="opacity-40">•</span>
           <span className="text-xs">Updated: {fmtWhen(artifact.updated_at ?? artifact.created_at)}</span>
+          {artifact.locked_at ? (
+            <>
+              <span className="opacity-40">•</span>
+              <span className="text-xs">Submitted: {fmtWhen(String(artifact.locked_at))}</span>
+            </>
+          ) : null}
         </div>
       </header>
 
+      {/* Actions */}
+      <section className="border rounded-2xl bg-white p-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm text-gray-600">
+          {isEditable
+            ? "You can edit this draft."
+            : isLocked
+              ? "This artifact is submitted (locked). Edits are disabled."
+              : "View-only."}
+        </div>
+
+        {canEdit && status === "draft" ? (
+          <form action={submitArtifact}>
+            <input type="hidden" name="project_id" value={projectId} />
+            <input type="hidden" name="artifact_id" value={artifactId} />
+            <button
+              type="submit"
+              className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm"
+            >
+              Submit for approval
+            </button>
+          </form>
+        ) : null}
+      </section>
+
+      {/* Editor */}
       <section className="border rounded-2xl bg-white p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <div className="font-medium">Edit</div>
-          {!canEdit ? <div className="text-xs text-gray-500">View-only (viewer)</div> : null}
+          <div className="font-medium">Content</div>
+          {!isEditable ? <div className="text-xs text-gray-500">Read-only</div> : null}
         </div>
 
         <form action={updateArtifact} className="grid gap-4">
@@ -108,7 +155,7 @@ export default async function ArtifactDetailPage({
               name="title"
               defaultValue={String(artifact.title ?? "")}
               className="border rounded-xl px-3 py-2"
-              disabled={!canEdit}
+              disabled={!isEditable}
             />
           </label>
 
@@ -119,11 +166,11 @@ export default async function ArtifactDetailPage({
               rows={14}
               defaultValue={String(artifact.content ?? "")}
               className="border rounded-xl px-3 py-2 font-mono text-sm"
-              disabled={!canEdit}
+              disabled={!isEditable}
             />
           </label>
 
-          {canEdit ? (
+          {isEditable ? (
             <button type="submit" className="w-fit px-4 py-2 rounded-xl bg-black text-white text-sm">
               Save changes
             </button>
