@@ -41,7 +41,6 @@ export default async function ArtifactDetailPage({
   const artifactId = safeParam(p?.artifactId);
   if (!projectId || !artifactId) notFound();
 
-  // Gate: must be a member
   const { data: mem, error: memErr } = await supabase
     .from("project_members")
     .select("role")
@@ -54,12 +53,9 @@ export default async function ArtifactDetailPage({
   const myRole = String((mem as any)?.role ?? "viewer").toLowerCase();
   const canEdit = myRole === "owner" || myRole === "editor";
 
-  // Load artifact
   const { data: artifact, error: artErr } = await supabase
     .from("artifacts")
-    .select(
-      "id, project_id, user_id, type, title, content, created_at, updated_at, is_locked, approved_by, rejected_by"
-    )
+    .select("id, project_id, user_id, type, title, content, created_at, updated_at, is_locked, approved_by, rejected_by")
     .eq("id", artifactId)
     .eq("project_id", projectId)
     .maybeSingle();

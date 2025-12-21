@@ -87,14 +87,12 @@ export async function updateArtifact(formData: FormData) {
   const canEdit = role === "owner" || role === "editor";
   if (!canEdit) throw new Error("You do not have permission to edit this artifact.");
 
-  // Prevent edits if locked/submitted
   const { data: current, error: curErr } = await supabase
     .from("artifacts")
-    .select("id,is_locked,approved_by,rejected_by")
+    .select("id,is_locked")
     .eq("id", artifact_id)
     .eq("project_id", project_id)
     .maybeSingle();
-
   if (curErr) throwDb(curErr, "artifacts.select");
   if (!current) throw new Error("Artifact not found.");
   if ((current as any)?.is_locked) throw new Error("Artifact is locked (submitted).");
