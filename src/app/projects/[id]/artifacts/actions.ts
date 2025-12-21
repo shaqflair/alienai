@@ -43,19 +43,34 @@ function requireEditorOrOwner(role: string) {
   if (!can) throw new Error("You do not have permission to perform this action.");
 }
 
+const ALLOWED_TYPES = new Set(["PID", "RAID", "SOW", "STATUS", "RISKS", "ASSUMPTIONS", "ACTIONS"]);
+
 export async function createArtifact(formData: FormData) {
   const { supabase, user } = await requireUser();
 
   const project_id = norm(formData.get("project_id"));
-  const type = norm(formData.get("type"));
+  const type = norm(formData.get("type")).toUpperCase();
   const title = norm(formData.get("title")) || type || "Untitled";
   const content = norm(formData.get("content")) || "";
 
   if (!project_id) throw new Error("project_id is required.");
   if (!type) throw new Error("type is required.");
+  if (!ALLOWED_TYPES.has(type)) throw new Error(`Invalid artifact type: ${type}`);
 
+  // Member required (viewer allowed to create? your call; keep member check only)
   await requireMemberRole(supabase, project_id, user.id);
 
+  // 1) Demote any current artifact for same project+type
+  const { error: demoteErr } = await supabase
+    .from("artifacts")
+    .update({ is_current: false })
+    .eq("project_id", project_id)
+    .eq("type", type)
+    .eq("is_current", true);
+
+  if (demoteErr) throwDb(demoteErr, "artifacts.demote_current");
+
+  // 2) Insert new as current
   const { data: row, error: insErr } = await supabase
     .from("artifacts")
     .insert({
@@ -128,7 +143,6 @@ export async function submitArtifact(formData: FormData) {
   const role = await requireMemberRole(supabase, project_id, user.id);
   requireEditorOrOwner(role);
 
-  // Ensure artifact exists and is not already locked
   const { data: current, error: curErr } = await supabase
     .from("artifacts")
     .select("id,is_locked")
@@ -139,7 +153,6 @@ export async function submitArtifact(formData: FormData) {
   if (!current) throw new Error("Artifact not found.");
   if ((current as any)?.is_locked) throw new Error("Artifact already submitted.");
 
-  // Lock it
   const { error: lockErr } = await supabase
     .from("artifacts")
     .update({
