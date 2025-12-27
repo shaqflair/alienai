@@ -1,321 +1,210 @@
 ﻿import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
-import { addProjectApprover, removeProjectApprover, toggleProjectApprover } from "./actions";
+
+import AuthButton from "@/components/auth/AuthButton";
 
 function safeParam(x: unknown): string {
   return typeof x === "string" ? x : "";
 }
 
-type Role = "owner" | "editor" | "viewer" | (string & {});
-
-function normRole(x: any): Role {
-  const v = String(x ?? "").toLowerCase();
-  if (v === "owner" || v === "editor" || v === "viewer") return v;
-  return (v || "viewer") as Role;
+function fmtWhen(x: any) {
+  if (!x) return "—";
+  try {
+    const d = new Date(x);
+    if (Number.isNaN(d.getTime())) return String(x);
+    return d.toISOString().replace("T", " ").replace("Z", " UTC");
+  } catch {
+    return String(x);
+  }
 }
 
-function shortId(x: any, n = 10) {
-  const s = String(x ?? "");
-  return s.length > n ? `${s.slice(0, n)}…` : s;
-}
+type StepRow = {
+  id?: string;
+  project_id?: string;
+  step_index?: number | null;
+  title?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  // v2 fields you mentioned sometimes exist:
+  kind?: string | null;
+  role?: string | null;
+};
 
-function initialsFrom(nameOrEmail: string) {
-  const s = String(nameOrEmail ?? "").trim();
-  if (!s) return "—";
-  const parts = s.split(/[\s.@_-]+/).filter(Boolean);
-  const a = parts[0]?.[0] ?? "";
-  const b = parts[1]?.[0] ?? parts[0]?.[1] ?? "";
-  return (a + b).toUpperCase() || s.slice(0, 2).toUpperCase();
-}
-
-const ALLOWED_TYPES = ["PID", "RAID", "SOW", "STATUS", "RISKS", "ASSUMPTIONS", "ACTIONS"] as const;
+type ApproverRow = {
+  id?: string;
+  project_id?: string;
+  user_id?: string | null;
+  email?: string | null;
+  role?: string | null;
+  is_active?: boolean | null;
+  created_at?: string | null;
+};
 
 export default async function ApprovalsPage({
   params,
-  searchParams,
 }: {
   params: { id?: string } | Promise<{ id?: string }>;
-  searchParams?: Record<string, string | string[] | undefined> | Promise<Record<string, any>>;
 }) {
   const supabase = await createClient();
 
+  // ----------------------------
+  // Auth
+  // ----------------------------
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr) throw authErr;
   if (!auth?.user) redirect("/login");
 
   const p = await Promise.resolve(params as any);
-  const sp = await Promise.resolve(searchParams as any);
-
   const projectId = safeParam(p?.id);
   if (!projectId) notFound();
 
-  const banner = String(sp?.banner ?? "");
-
+  // ----------------------------
   // Load project
-  const { data: project, error: projErr } = await supabase
+  // ----------------------------
+  const { data: project, error: projectErr } = await supabase
     .from("projects")
-    .select("id,title")
+    .select("id, title")
     .eq("id", projectId)
-    .maybeSingle();
-  if (projErr) throw projErr;
-  if (!project) notFound();
+    .single();
 
-  // Gate: must be a member
-  const { data: myMem, error: myErr } = await supabase
-    .from("project_members")
-    .select("role")
+  if (projectErr || !project) notFound();
+
+  // ----------------------------
+  // Try load approvals config (safe)
+  // ----------------------------
+  let steps: StepRow[] = [];
+  let approvers: ApproverRow[] = [];
+  let stepsErr: string | null = null;
+  let approversErr: string | null = null;
+
+  const stepsResp = await supabase
+    .from("approval_steps")
+    .select("*")
     .eq("project_id", projectId)
-    .eq("user_id", auth.user.id)
-    .maybeSingle();
-  if (myErr) throw myErr;
-  if (!myMem) notFound();
-
-  const myRole = normRole((myMem as any)?.role);
-  const isOwner = myRole === "owner";
-
-  // Members list (so owners can choose who to make approver)
-  const { data: members, error: memErr } = await supabase
-    .from("project_members")
-    .select("user_id, role, created_at")
-    .eq("project_id", projectId)
-    .order("created_at", { ascending: true })
-    .limit(500);
-  if (memErr) throw memErr;
-
-  const memberUserIds = Array.from(
-    new Set((members ?? []).map((m: any) => String(m.user_id ?? "")).filter(Boolean))
-  );
-
-  // Approvers v1 (per artifact_type)
-  const { data: approvers, error: apprErr } = await supabase
-    .from("project_approvers")
-    .select("project_id,user_id,artifact_type,is_active,created_at,created_by,role_label")
-    .eq("project_id", projectId)
-    .order("artifact_type", { ascending: true })
     .order("created_at", { ascending: true });
 
-  if (apprErr) throw apprErr;
+  if (stepsResp.error) stepsErr = stepsResp.error.message;
+  else steps = (stepsResp.data ?? []) as any;
 
-  // Profiles (best-effort)
-  const idsForProfiles = Array.from(
-    new Set([...(memberUserIds ?? []), ...((approvers ?? []).map((a: any) => String(a.user_id ?? "")).filter(Boolean))])
-  );
+  const approversResp = await supabase
+    .from("project_approvers")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: true });
 
-  const { data: profiles, error: profErr } = idsForProfiles.length
-    ? await supabase.from("profiles").select("user_id, full_name, email").in("user_id", idsForProfiles)
-    : ({ data: [] as any[], error: null } as any);
-
-  if (profErr) console.warn("[profiles.select] blocked:", profErr.message);
-
-  const profileByUserId = new Map<string, any>();
-  for (const pr of profiles ?? []) {
-    if (pr?.user_id) profileByUserId.set(String(pr.user_id), pr);
-  }
-
-  function displayMember(userId: string) {
-    const pr = profileByUserId.get(userId);
-    const fullName = String(pr?.full_name ?? "").trim();
-    const email = String(pr?.email ?? "").trim();
-    return {
-      title: fullName || email || shortId(userId),
-      subtitle: fullName && email ? email : "",
-      initials: initialsFrom(fullName || email || userId),
-    };
-  }
-
-  const grouped = new Map<string, any[]>();
-  for (const a of approvers ?? []) {
-    const t = String(a.artifact_type ?? "").toUpperCase() || "—";
-    if (!grouped.has(t)) grouped.set(t, []);
-    grouped.get(t)!.push(a);
-  }
+  if (approversResp.error) approversErr = approversResp.error.message;
+  else approvers = (approversResp.data ?? []) as any;
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-8 space-y-6">
-      <div className="flex items-center justify-between text-sm text-gray-500">
-        <Link className="underline" href={`/projects/${projectId}`}>
-          ← Back to Project
-        </Link>
-        <div>
-          Role: <span className="font-mono">{myRole}</span>
-        </div>
-      </div>
-
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold">Approvals — {project.title}</h1>
-
-        <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600">
-          <Link className="underline" href={`/projects/${projectId}`}>
-            Project
-          </Link>
-          <span className="opacity-40">•</span>
-          <Link className="underline" href={`/projects/${projectId}/members`}>
-            Members
-          </Link>
-          <span className="opacity-40">•</span>
-          <Link className="underline" href={`/projects/${projectId}/artifacts`}>
-            Artifacts
-          </Link>
-          <span className="opacity-40">•</span>
-          <Link className="underline font-medium" href={`/projects/${projectId}/approvals`}>
-            Approvals
-          </Link>
-        </div>
-
-        <p className="text-sm text-gray-600">
-          <b>Approvals v1:</b> Assign approvers per <code>artifact_type</code>. Approvers can approve/reject (but not their own work).
-        </p>
-      </header>
-
-      {banner ? (
-        <section className="border rounded-2xl p-4 bg-green-50 border-green-200 text-sm">
-          ✅ {banner.replaceAll("_", " ")}
-        </section>
-      ) : null}
-
-      {/* Owner tool: add approver */}
-      {isOwner ? (
-        <section className="border rounded-2xl bg-white p-5 space-y-4">
-          <div className="font-medium">Add approver</div>
-          <div className="text-sm text-gray-600">
-            Choose a project member and which artifact type they can approve.
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm text-gray-600">
+            <Link href={`/projects/${projectId}`} className="hover:underline">
+              Project
+            </Link>
+            <span>/</span>
+            <span>Approvals</span>
           </div>
 
-          <form action={addProjectApprover} className="flex flex-wrap items-center gap-2">
-            <input type="hidden" name="project_id" value={projectId} />
-
-            <select name="user_id" className="border rounded-xl px-3 py-2 min-w-[280px]" required>
-              <option value="" disabled selected>
-                Select member…
-              </option>
-              {(memberUserIds ?? []).map((uid) => {
-                const d = displayMember(uid);
-                const isMe = uid === auth.user.id;
-                return (
-                  <option key={uid} value={uid}>
-                    {d.title}{isMe ? " (You)" : ""}
-                  </option>
-                );
-              })}
-            </select>
-
-            <select name="artifact_type" className="border rounded-xl px-3 py-2" defaultValue="PID" required>
-              {ALLOWED_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-
-            <button className="px-4 py-2 rounded-xl bg-black text-white text-sm" type="submit">
-              Add / Reactivate
-            </button>
-          </form>
-
-          <p className="text-xs text-gray-500">
-            This writes to <code>project_approvers</code> with <code>is_active=true</code>.
-          </p>
-        </section>
-      ) : (
-        <section className="border rounded-2xl bg-white p-5">
-          <div className="text-sm text-gray-600">Only owners can add/remove/toggle approvers.</div>
-        </section>
-      )}
-
-      {/* Current approvers */}
-      <section className="border rounded-2xl bg-white overflow-hidden">
-        <div className="flex items-center justify-between border-b bg-gray-50 px-5 py-3">
-          <div className="font-medium">Approvers (by artifact type)</div>
-          <div className="text-xs text-gray-500">{(approvers ?? []).length} rows</div>
+          <h1 className="mt-1 text-xl font-semibold">Approvals</h1>
+          <p className="text-sm text-gray-600 truncate">{project.title}</p>
         </div>
 
-        {(approvers ?? []).length === 0 ? (
-          <div className="p-5 text-sm text-gray-600">No approvers set yet.</div>
+        <AuthButton />
+      </div>
+
+      {/* Quick links */}
+      <div className="flex flex-wrap gap-2">
+        <Link
+          href={`/projects/${projectId}/settings`}
+          className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50"
+        >
+          Project settings
+        </Link>
+        <Link
+          href={`/projects/${projectId}/members`}
+          className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50"
+        >
+          Members
+        </Link>
+      </div>
+
+      {/* Steps */}
+      <section className="rounded-xl border bg-white">
+        <div className="p-4">
+          <div className="text-base font-semibold">Approval steps</div>
+          <div className="text-sm text-gray-600">
+            Your configured chain (v1/v2). If this is blank, it usually means steps aren’t created yet.
+          </div>
+        </div>
+
+        {stepsErr ? (
+          <div className="border-t p-4 text-sm text-red-600">
+            Could not load <code>approval_steps</code>: {stepsErr}
+          </div>
+        ) : steps.length === 0 ? (
+          <div className="border-t p-4 text-sm text-gray-600">No steps found.</div>
         ) : (
-          <div className="divide-y">
-            {ALLOWED_TYPES.map((t) => {
-              const rows = grouped.get(t) ?? [];
-              return (
-                <div key={t} className="px-5 py-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="font-medium">{t}</div>
-                    <div className="text-xs text-gray-500">{rows.length} approver(s)</div>
+          <div className="border-t divide-y">
+            {steps.map((s, idx) => (
+              <div key={s.id ?? String(idx)} className="p-4 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-medium">
+                    Step {s.step_index ?? idx + 1}: {s.title ?? s.kind ?? "Untitled"}
                   </div>
-
-                  {rows.length === 0 ? (
-                    <div className="text-sm text-gray-500">None assigned.</div>
-                  ) : (
-                    <div className="divide-y border rounded-2xl overflow-hidden">
-                      {rows.map((a: any) => {
-                        const uid = String(a.user_id ?? "");
-                        const disp = displayMember(uid);
-                        const isActive = !!a.is_active;
-                        const isMe = uid === auth.user.id;
-
-                        return (
-                          <div key={`${uid}-${t}`} className="px-4 py-3 flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className="h-9 w-9 rounded-full bg-gray-100 border flex items-center justify-center text-xs font-medium text-gray-700">
-                                {disp.initials}
-                              </div>
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <div className="font-medium truncate">{disp.title}</div>
-                                  {isMe ? <span className="text-xs text-gray-500">(You)</span> : null}
-                                  {isActive ? (
-                                    <span className="text-xs rounded-full border px-2 py-0.5 bg-green-50 border-green-200 text-green-800">
-                                      Active
-                                    </span>
-                                  ) : (
-                                    <span className="text-xs rounded-full border px-2 py-0.5 bg-gray-50 border-gray-200 text-gray-700">
-                                      Inactive
-                                    </span>
-                                  )}
-                                </div>
-                                {disp.subtitle ? <div className="text-xs text-gray-500 truncate">{disp.subtitle}</div> : null}
-                              </div>
-                            </div>
-
-                            {isOwner ? (
-                              <div className="flex items-center gap-2">
-                                <form action={toggleProjectApprover}>
-                                  <input type="hidden" name="project_id" value={projectId} />
-                                  <input type="hidden" name="user_id" value={uid} />
-                                  <input type="hidden" name="artifact_type" value={t} />
-                                  <input type="hidden" name="next_active" value={String(!isActive)} />
-                                  <button className="border rounded-xl px-3 py-2 text-sm" type="submit">
-                                    {isActive ? "Disable" : "Enable"}
-                                  </button>
-                                </form>
-
-                                <form action={removeProjectApprover}>
-                                  <input type="hidden" name="project_id" value={projectId} />
-                                  <input type="hidden" name="user_id" value={uid} />
-                                  <input type="hidden" name="artifact_type" value={t} />
-                                  <button className="px-3 py-2 text-sm text-red-600" type="submit">
-                                    Remove
-                                  </button>
-                                </form>
-                              </div>
-                            ) : (
-                              <div className="text-xs text-gray-500">—</div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                  <div className="text-sm text-gray-600">
+                    Role: {s.role ?? "—"} · Status: {s.status ?? "—"}
+                  </div>
                 </div>
-              );
-            })}
+                <div className="text-xs text-gray-500 whitespace-nowrap">
+                  Updated: {fmtWhen(s.updated_at)}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </section>
 
-      <p className="text-xs text-gray-500">
-        Note: Visibility depends on your RLS. If profiles are blocked, we fall back to user IDs.
-      </p>
-    </main>
+      {/* Approvers */}
+      <section className="rounded-xl border bg-white">
+        <div className="p-4">
+          <div className="text-base font-semibold">Project approvers</div>
+          <div className="text-sm text-gray-600">
+            People who can approve/reject/request changes (depends on your workflow rules).
+          </div>
+        </div>
+
+        {approversErr ? (
+          <div className="border-t p-4 text-sm text-red-600">
+            Could not load <code>project_approvers</code>: {approversErr}
+          </div>
+        ) : approvers.length === 0 ? (
+          <div className="border-t p-4 text-sm text-gray-600">No approvers found.</div>
+        ) : (
+          <div className="border-t divide-y">
+            {approvers.map((a, idx) => (
+              <div key={a.id ?? String(idx)} className="p-4 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-medium truncate">
+                    {a.email ?? a.user_id ?? "Unknown"}
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    Role: {a.role ?? "approver"} · Active: {String(a.is_active ?? true)}
+                  </div>
+                </div>
+                <div className="text-xs text-gray-500 whitespace-nowrap">
+                  Added: {fmtWhen(a.created_at)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
+

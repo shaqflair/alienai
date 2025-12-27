@@ -1,7 +1,23 @@
-﻿import Link from "next/link";
+﻿// src/app/projects/[id]/artifacts/[artifactId]/page.tsx
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
-import { submitArtifact, updateArtifact, approveArtifact, rejectArtifact, addArtifactComment } from "../actions";
+
+import { updateArtifact, addArtifactComment } from "../actions";
+import ProjectCharterEditorForm from "@/components/editors/ProjectCharterEditorForm";
+import { PROJECT_CHARTER_TEMPLATE } from "@/components/editors/charter-template";
+
+import {
+  submitArtifactForApproval,
+  approveArtifact,
+  requestChangesArtifact,
+  rejectFinalArtifact,
+  addSuggestion,
+  applySuggestion,
+  dismissSuggestion,
+  renameArtifactTitle,
+} from "./approval-actions";
 
 function safeParam(x: unknown): string {
   return typeof x === "string" ? x : "";
@@ -19,6 +35,13 @@ function fmtWhen(x: string | null) {
 }
 
 function derivedStatus(a: any) {
+  const s = String(a?.approval_status ?? "").toLowerCase();
+  if (s === "approved") return "approved";
+  if (s === "rejected") return "rejected";
+  if (s === "changes_requested") return "changes_requested";
+  if (s === "submitted") return "submitted";
+
+  // legacy fallbacks
   if (a?.approved_by) return "approved";
   if (a?.rejected_by) return "rejected";
   if (a?.is_locked) return "submitted";
@@ -28,7 +51,9 @@ function derivedStatus(a: any) {
 function statusPill(status: string) {
   const s = String(status ?? "").toLowerCase();
   if (s === "approved") return { label: "✅ Approved", cls: "bg-green-50 border-green-200 text-green-800" };
-  if (s === "rejected") return { label: "❌ Rejected", cls: "bg-red-50 border-red-200 text-red-800" };
+  if (s === "rejected") return { label: "⛔ Rejected (Final)", cls: "bg-red-50 border-red-200 text-red-800" };
+  if (s === "changes_requested")
+    return { label: "🛠 Changes requested (CR)", cls: "bg-blue-50 border-blue-200 text-blue-800" };
   if (s === "submitted") return { label: "🟡 Submitted", cls: "bg-yellow-50 border-yellow-200 text-yellow-800" };
   return { label: "📝 Draft", cls: "bg-gray-50 border-gray-200 text-gray-800" };
 }
@@ -42,10 +67,21 @@ function initialsFrom(nameOrEmail: string) {
   return (a + b).toUpperCase() || s.slice(0, 2).toUpperCase();
 }
 
+function isProjectCharterType(type: any) {
+  const t = String(type ?? "").toLowerCase();
+  return t === "project_charter" || t === "project charter" || t === "charter" || t === "projectcharter" || t === "pid";
+}
+
+function safeJsonDoc(x: any) {
+  if (!x || typeof x !== "object") return null;
+  if (x.type !== "doc" || !Array.isArray(x.content)) return null;
+  return x;
+}
+
 export default async function ArtifactDetailPage({
   params,
 }: {
-  params: { id?: string; artifactId?: string } | Promise<{ id?: string; artifactId?: string }>;
+  params: Promise<{ id?: string; artifactId?: string }>;
 }) {
   const supabase = await createClient();
 
@@ -53,10 +89,10 @@ export default async function ArtifactDetailPage({
   if (authErr) throw authErr;
   if (!auth?.user) redirect("/login");
 
-  const p = await Promise.resolve(params as any);
-  const projectId = safeParam(p?.id);
-  const artifactId = safeParam(p?.artifactId);
-  if (!projectId || !artifactId) notFound();
+  const { id, artifactId: aid } = await params;
+  const projectId = safeParam(id);
+  const artifactId = safeParam(aid);
+  if (!projectId || !artifactId || projectId === "undefined" || artifactId === "undefined") notFound();
 
   // Member gate
   const { data: mem, error: memErr } = await supabase
@@ -71,21 +107,11 @@ export default async function ArtifactDetailPage({
   const myRole = String((mem as any)?.role ?? "viewer").toLowerCase();
   const canEditByRole = myRole === "owner" || myRole === "editor";
 
-  // Approver gate (flat v1 list)
-  const { data: approverRow } = await supabase
-    .from("project_approvers")
-    .select("id")
-    .eq("project_id", projectId)
-    .eq("user_id", auth.user.id)
-    .maybeSingle();
-
-  const isApprover = !!approverRow;
-
-  // Artifact
+  // Artifact (include content_json for charter)
   const { data: artifact, error: artErr } = await supabase
     .from("artifacts")
     .select(
-      "id, project_id, user_id, type, title, content, created_at, updated_at, is_locked, locked_at, locked_by, approved_by, approved_at, rejected_by, rejected_at, rejection_reason"
+      "id, project_id, user_id, type, title, content, content_json, created_at, updated_at, is_locked, locked_at, locked_by, approval_status, approved_by, approved_at, rejected_by, rejected_at, rejection_reason"
     )
     .eq("id", artifactId)
     .eq("project_id", projectId)
@@ -95,18 +121,50 @@ export default async function ArtifactDetailPage({
 
   const status = derivedStatus(artifact);
   const pill = statusPill(status);
+  const isAuthor = String((artifact as any).user_id) === auth.user.id;
 
-  const isAuthor = String(artifact.user_id) === auth.user.id;
+  // Approver gate (flat approvers v1)
+  const { data: approverRow, error: apprErr } = await supabase
+    .from("project_approvers")
+    .select("project_id")
+    .eq("project_id", projectId)
+    .eq("user_id", auth.user.id)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (apprErr) console.warn("[project_approvers.select] blocked:", apprErr.message);
 
-  // Editing rules:
-  // - owner/editor can edit only while draft (not locked)
-  const isEditable = canEditByRole && !artifact.is_locked && status === "draft";
+  const isApprover = !!approverRow;
 
-  // Approval rules:
-  // - approver + submitted + NOT author
-  const canApproveOrReject = isApprover && status === "submitted" && !isAuthor;
+  // Edit rules
+  const isEditable = canEditByRole && !(artifact as any).is_locked && (status === "draft" || status === "changes_requested");
 
-  // Comments (best effort; RLS allows members to read)
+  // ✅ Lock layout once submitted/approved/rejected (anything not Draft/CR)
+  const lockLayout = status === "submitted" || status === "approved" || status === "rejected";
+
+  // Submit/resubmit rules: author OR owner/editor (approver alone cannot submit)
+  const canSubmitOrResubmit =
+    !(artifact as any).is_locked && (status === "draft" || status === "changes_requested") && (isAuthor || canEditByRole);
+
+  // Decisions
+  const canDecide = isApprover && status === "submitted" && !isAuthor;
+
+  // Title rename rule (author OR owner/editor) only when unlocked + draft/CR
+  const canRenameTitle =
+    !(artifact as any).is_locked && (status === "draft" || status === "changes_requested") && (isAuthor || canEditByRole);
+
+  // Exports: generally safe to allow to any project member
+  const canExport = true;
+
+  // Suggestions
+  const { data: suggestions } = await supabase
+    .from("artifact_suggestions")
+    .select("id, actor_user_id, anchor, range, suggested_text, style, status, created_at")
+    .eq("project_id", projectId)
+    .eq("artifact_id", artifactId)
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  // Comments
   const { data: comments } = await supabase
     .from("artifact_comments")
     .select("id, actor_user_id, action, body, created_at")
@@ -115,8 +173,16 @@ export default async function ArtifactDetailPage({
     .order("created_at", { ascending: true })
     .limit(500);
 
-  // Profiles for comment authors (best effort)
-  const ids = Array.from(new Set((comments ?? []).map((c: any) => String(c.actor_user_id ?? "")).filter(Boolean)));
+  // Profiles (best effort)
+  const ids = Array.from(
+    new Set(
+      [
+        ...(comments ?? []).map((c: any) => String(c.actor_user_id ?? "")),
+        ...(suggestions ?? []).map((s: any) => String(s.actor_user_id ?? "")),
+      ].filter(Boolean)
+    )
+  );
+
   const { data: profiles, error: profErr } = ids.length
     ? await supabase.from("profiles").select("user_id, full_name, email").in("user_id", ids)
     : ({ data: [] as any[], error: null } as any);
@@ -131,7 +197,81 @@ export default async function ArtifactDetailPage({
     const email = String(pr?.email ?? "").trim();
     const title = fullName || email || uid.slice(0, 8) + "…";
     return { title, initials: initialsFrom(fullName || email || uid) };
-    }
+  }
+
+  /* ---------------------------
+     Inline Server Actions
+  ---------------------------- */
+  async function submitAction() {
+    "use server";
+    await submitArtifactForApproval(projectId, artifactId);
+    revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+  }
+
+  async function approveAction() {
+    "use server";
+    await approveArtifact(projectId, artifactId);
+    revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+  }
+
+  async function requestChangesAction(formData: FormData) {
+    "use server";
+    const reason = String(formData.get("reason") ?? "").trim() || undefined;
+    await requestChangesArtifact(projectId, artifactId, reason);
+    revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+  }
+
+  async function rejectFinalAction(formData: FormData) {
+    "use server";
+    const reason = String(formData.get("reason") ?? "").trim() || undefined;
+    const confirm = String(formData.get("confirm") ?? "").trim().toUpperCase();
+    if (confirm !== "REJECT") throw new Error('Type REJECT to confirm a final rejection.');
+    await rejectFinalArtifact(projectId, artifactId, reason);
+    revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+  }
+
+  async function addSuggestionAction(formData: FormData) {
+    "use server";
+    await addSuggestion(formData);
+    revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+  }
+
+  async function applySuggestionAction(formData: FormData) {
+    "use server";
+    await applySuggestion(formData);
+    revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+  }
+
+  async function dismissSuggestionAction(formData: FormData) {
+    "use server";
+    await dismissSuggestion(formData);
+    revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+  }
+
+  async function renameTitleAction(formData: FormData) {
+    "use server";
+    await renameArtifactTitle(formData);
+    revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+  }
+
+  const charterMode = isProjectCharterType((artifact as any).type);
+
+  const charterInitial =
+    // ✅ v2 canonical JSON (from the updated editor)
+    (artifact as any).content_json ||
+    // ✅ legacy tiptap-like doc
+    safeJsonDoc((artifact as any).content_json) ||
+    (() => {
+      const raw = (artifact as any).content_json;
+      if (typeof raw === "string") {
+        try {
+          return JSON.parse(raw) || PROJECT_CHARTER_TEMPLATE;
+        } catch {
+          return PROJECT_CHARTER_TEMPLATE;
+        }
+      }
+      return PROJECT_CHARTER_TEMPLATE;
+    })();
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-8 space-y-6">
@@ -140,39 +280,61 @@ export default async function ArtifactDetailPage({
           ← Back to Artifacts
         </Link>
         <div className="flex items-center gap-3">
+          {isApprover ? (
+            <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs bg-blue-50 border-blue-200 text-blue-800">
+              Approver
+            </span>
+          ) : null}
           <span>
             Role: <span className="font-mono">{myRole}</span>
           </span>
-          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 ${pill.cls}`}>
-            {pill.label}
-          </span>
+          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 ${pill.cls}`}>{pill.label}</span>
         </div>
       </div>
 
       <header className="space-y-2">
-        <h1 className="text-2xl font-semibold">{artifact.title || artifact.type || "Artifact"}</h1>
+        {canRenameTitle ? (
+          <form action={renameTitleAction} className="flex flex-wrap gap-2 items-center">
+            <input type="hidden" name="project_id" value={projectId} />
+            <input type="hidden" name="artifact_id" value={artifactId} />
+            <input
+              name="title"
+              defaultValue={String((artifact as any).title ?? "")}
+              className="w-full md:w-[520px] text-2xl font-semibold border rounded-xl px-3 py-2"
+              placeholder="Artifact title…"
+            />
+            <button type="submit" className="px-4 py-2 rounded-xl bg-black text-white text-sm">
+              Save name
+            </button>
+          </form>
+        ) : (
+          <h1 className="text-2xl font-semibold">{(artifact as any).title || (artifact as any).type || "Artifact"}</h1>
+        )}
+
         <div className="text-sm text-gray-600 flex flex-wrap items-center gap-2">
           <span className="inline-flex items-center rounded border px-2 py-0.5 bg-gray-50">
-            Type: <span className="ml-1 font-mono">{String(artifact.type ?? "—")}</span>
+            Type: <span className="ml-1 font-mono">{String((artifact as any).type ?? "—")}</span>
           </span>
           <span className="opacity-40">•</span>
-          <span className="text-xs">Updated: {fmtWhen(artifact.updated_at ?? artifact.created_at)}</span>
-          {artifact.locked_at ? (
+          <span className="text-xs">
+            Updated: {fmtWhen(String((artifact as any).updated_at ?? (artifact as any).created_at ?? null))}
+          </span>
+          {(artifact as any).locked_at ? (
             <>
               <span className="opacity-40">•</span>
-              <span className="text-xs">Submitted: {fmtWhen(String(artifact.locked_at))}</span>
+              <span className="text-xs">Submitted: {fmtWhen(String((artifact as any).locked_at))}</span>
             </>
           ) : null}
-          {artifact.approved_at ? (
+          {(artifact as any).approved_at ? (
             <>
               <span className="opacity-40">•</span>
-              <span className="text-xs">Approved: {fmtWhen(String(artifact.approved_at))}</span>
+              <span className="text-xs">Approved: {fmtWhen(String((artifact as any).approved_at))}</span>
             </>
           ) : null}
-          {artifact.rejected_at ? (
+          {(artifact as any).rejected_at ? (
             <>
               <span className="opacity-40">•</span>
-              <span className="text-xs">Rejected: {fmtWhen(String(artifact.rejected_at))}</span>
+              <span className="text-xs">Decision: {fmtWhen(String((artifact as any).rejected_at))}</span>
             </>
           ) : null}
         </div>
@@ -183,111 +345,176 @@ export default async function ArtifactDetailPage({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-gray-600">
             {isEditable
-              ? "Draft: you can edit and submit."
+              ? "Editable: owners/editors can update and submit/resubmit."
               : status === "submitted"
-                ? isAuthor
-                  ? "Submitted: waiting for another approver (you cannot approve your own artifact)."
-                  : isApprover
-                    ? "Submitted: you can approve or reject."
-                    : "Submitted: waiting for approval."
-                : status === "approved"
-                  ? "Approved."
-                  : status === "rejected"
-                    ? "Rejected: unlocked for edits and resubmission."
-                    : "View-only."}
+              ? isAuthor
+                ? "Submitted: waiting for another approver (you cannot approve your own artifact)."
+                : isApprover
+                ? `Submitted: you can approve, request changes (CR) or reject final.`
+                : "Submitted: waiting for approval."
+              : status === "changes_requested"
+              ? "Changes requested (CR): owners/editors update, raise CR, then resubmit."
+              : status === "approved"
+              ? "Approved + baselined."
+              : status === "rejected"
+              ? "Rejected (final)."
+              : "View-only."}
           </div>
 
-          {/* Submit button (authoring path) */}
-          {canEditByRole && status === "draft" ? (
-            <form action={submitArtifact}>
-              <input type="hidden" name="project_id" value={projectId} />
-              <input type="hidden" name="artifact_id" value={artifactId} />
-              <button className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm" type="submit">
-                Submit for approval
-              </button>
-            </form>
-          ) : null}
+          {/* ✅ Submit + Export buttons */}
+          <div className="flex flex-wrap items-center gap-2">
+            {canSubmitOrResubmit ? (
+              <form action={submitAction}>
+                <button className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm" type="submit">
+                  {status === "changes_requested" ? "Resubmit for approval" : "Submit for approval"}
+                </button>
+              </form>
+            ) : null}
+
+            {canExport ? (
+              <>
+                <a
+                  href={`/projects/${projectId}/artifacts/${artifactId}/export/pptx`}
+                  className="px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm"
+                  title="Download PowerPoint"
+                >
+                  Export PPT
+                </a>
+                <a
+                  href={`/projects/${projectId}/artifacts/${artifactId}/export/pdf`}
+                  className="px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm"
+                  title="Download PDF"
+                >
+                  Export PDF
+                </a>
+                <a
+                  href={`/projects/${projectId}/artifacts/${artifactId}/export/docx`}
+                  className="px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm"
+                  title="Download Word"
+                >
+                  Export Word
+                </a>
+              </>
+            ) : null}
+          </div>
         </div>
 
-        {/* Approve/Reject (approver path) */}
-        {canApproveOrReject ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            <form action={approveArtifact} className="border rounded-2xl p-4 space-y-2">
-              <input type="hidden" name="project_id" value={projectId} />
-              <input type="hidden" name="artifact_id" value={artifactId} />
+        {canDecide ? (
+          <div className="grid gap-3 md:grid-cols-3">
+            <form action={approveAction} className="border rounded-2xl p-4 space-y-2">
               <div className="font-medium">Approve</div>
-              <textarea
-                name="comment"
-                rows={3}
-                placeholder="Optional approval comment…"
-                className="w-full border rounded-xl px-3 py-2 text-sm"
-              />
+              <div className="text-xs text-gray-500">Approves the current step. Final step promotes baseline.</div>
               <button className="px-4 py-2 rounded-xl bg-black text-white text-sm" type="submit">
                 Approve
               </button>
             </form>
 
-            <form action={rejectArtifact} className="border rounded-2xl p-4 space-y-2">
-              <input type="hidden" name="project_id" value={projectId} />
-              <input type="hidden" name="artifact_id" value={artifactId} />
-              <div className="font-medium">Reject</div>
+            <form action={requestChangesAction} className="border rounded-2xl p-4 space-y-2">
+              <div className="font-medium">Request Changes (CR)</div>
               <textarea
                 name="reason"
                 rows={3}
-                placeholder="Required rejection reason…"
+                placeholder="Reason / what to change…"
                 className="w-full border rounded-xl px-3 py-2 text-sm"
                 required
               />
-              <button className="px-4 py-2 rounded-xl border border-red-200 text-red-700 text-sm hover:bg-red-50" type="submit">
-                Reject
+              <button
+                className="px-4 py-2 rounded-xl border border-blue-200 text-blue-800 text-sm hover:bg-blue-50"
+                type="submit"
+              >
+                Request changes
+              </button>
+            </form>
+
+            <form action={rejectFinalAction} className="border rounded-2xl p-4 space-y-2">
+              <div className="font-medium">Reject (Final)</div>
+              <textarea
+                name="reason"
+                rows={2}
+                placeholder="Reason (recommended)…"
+                className="w-full border rounded-xl px-3 py-2 text-sm"
+              />
+              <input
+                name="confirm"
+                placeholder='Type "REJECT" to confirm'
+                className="w-full border rounded-xl px-3 py-2 text-sm"
+                required
+              />
+              <button
+                className="px-4 py-2 rounded-xl border border-red-200 text-red-700 text-sm hover:bg-red-50"
+                type="submit"
+              >
+                Reject final
               </button>
             </form>
           </div>
         ) : null}
       </section>
 
-      {/* Editor */}
+      {/* Content */}
       <section className="border rounded-2xl bg-white p-6 space-y-4">
         <div className="flex items-center justify-between">
           <div className="font-medium">Content</div>
           {!isEditable ? <div className="text-xs text-gray-500">Read-only</div> : null}
         </div>
 
-        <form action={updateArtifact} className="grid gap-4">
-          <input type="hidden" name="project_id" value={projectId} />
-          <input type="hidden" name="artifact_id" value={artifactId} />
+        {charterMode ? (
+          <ProjectCharterEditorForm
+            projectId={projectId}
+            artifactId={artifactId}
+            initialJson={charterInitial}
+            readOnly={!isEditable}
+            lockLayout={lockLayout}
+          />
+        ) : isEditable ? (
+          <form action={updateArtifact} className="grid gap-4">
+            <input type="hidden" name="project_id" value={projectId} />
+            <input type="hidden" name="artifact_id" value={artifactId} />
 
-          <label className="grid gap-2">
-            <span className="text-sm font-medium">Title</span>
-            <input name="title" defaultValue={String(artifact.title ?? "")} className="border rounded-xl px-3 py-2" disabled={!isEditable} />
-          </label>
+            <label className="grid gap-2">
+              <span className="text-sm font-medium">Title</span>
+              <input
+                name="title"
+                defaultValue={String((artifact as any).title ?? "")}
+                className="border rounded-xl px-3 py-2"
+              />
+            </label>
 
-          <label className="grid gap-2">
-            <span className="text-sm font-medium">Content</span>
-            <textarea
-              name="content"
-              rows={14}
-              defaultValue={String(artifact.content ?? "")}
-              className="border rounded-xl px-3 py-2 font-mono text-sm"
-              disabled={!isEditable}
-            />
-          </label>
+            <label className="grid gap-2">
+              <span className="text-sm font-medium">Content</span>
+              <textarea
+                name="content"
+                rows={14}
+                defaultValue={String((artifact as any).content ?? "")}
+                className="border rounded-xl px-3 py-2 font-mono text-sm"
+              />
+            </label>
 
-          {isEditable ? (
             <button type="submit" className="w-fit px-4 py-2 rounded-xl bg-black text-white text-sm">
               Save changes
             </button>
-          ) : null}
-        </form>
+          </form>
+        ) : (
+          <div className="grid gap-2">
+            {String((artifact as any).content ?? "").trim().length === 0 ? (
+              <div className="text-sm text-gray-600">No content yet.</div>
+            ) : null}
+
+            <textarea
+              rows={14}
+              readOnly
+              value={String((artifact as any).content ?? "")}
+              className="border rounded-xl px-3 py-2 font-mono text-sm bg-gray-50 whitespace-pre-wrap"
+            />
+          </div>
+        )}
       </section>
 
       {/* Comments */}
       <section className="border rounded-2xl bg-white p-6 space-y-4">
         <div className="flex items-center justify-between">
           <div className="font-medium">Comments</div>
-          <div className="text-xs text-gray-500">
-            {isApprover ? "Approvers can comment." : "Read-only."}
-          </div>
+          <div className="text-xs text-gray-500">{isApprover ? `Approvers can comment.` : "Read-only."}</div>
         </div>
 
         {isApprover ? (
@@ -295,8 +522,17 @@ export default async function ArtifactDetailPage({
             <input type="hidden" name="project_id" value={projectId} />
             <input type="hidden" name="artifact_id" value={artifactId} />
             <input type="hidden" name="action" value="comment" />
-            <textarea name="body" rows={3} className="border rounded-xl px-3 py-2 text-sm" placeholder="Write a comment…" required />
-            <button className="w-fit px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm" type="submit">
+            <textarea
+              name="body"
+              rows={3}
+              className="border rounded-xl px-3 py-2 text-sm"
+              placeholder="Write a comment…"
+              required
+            />
+            <button
+              className="w-fit px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm"
+              type="submit"
+            >
               Add comment
             </button>
           </form>

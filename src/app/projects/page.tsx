@@ -28,10 +28,10 @@ function fmtDateIso(x: string) {
 
 function fmtRole(role?: string | null) {
   const v = String(role ?? "").toLowerCase();
-  if (v === "owner") return { label: "Owner", cls: "bg-gray-50 border-gray-200" };
-  if (v === "editor") return { label: "Editor", cls: "bg-blue-50 border-blue-200" };
-  if (v === "viewer") return { label: "Viewer", cls: "bg-yellow-50 border-yellow-200" };
-  return { label: role ? String(role) : "Member", cls: "bg-gray-50 border-gray-200" };
+  if (v === "owner") return { label: "Owner", cls: "bg-gray-50 border-gray-200 text-gray-800" };
+  if (v === "editor") return { label: "Editor", cls: "bg-blue-50 border-blue-200 text-blue-800" };
+  if (v === "viewer") return { label: "Viewer", cls: "bg-yellow-50 border-yellow-200 text-yellow-800" };
+  return { label: role ? String(role) : "Member", cls: "bg-gray-50 border-gray-200 text-gray-800" };
 }
 
 function canEditProjectTitle(role?: string | null) {
@@ -39,27 +39,43 @@ function canEditProjectTitle(role?: string | null) {
   return v === "owner" || v === "editor";
 }
 
-export default async function ProjectsPage() {
+function inviteBanner(invite?: string | null) {
+  const v = String(invite ?? "").toLowerCase();
+  if (!v) return null;
+
+  if (v === "accepted") return { tone: "success", msg: "✅ You’ve joined the organisation." };
+  if (v === "expired") return { tone: "warn", msg: "⚠️ Invite expired. Ask the owner to resend the invite." };
+  if (v === "invalid") return { tone: "error", msg: "❌ Invite invalid or already used. Ask the owner to resend it." };
+  if (v === "email-mismatch")
+    return {
+      tone: "error",
+      msg: "❌ This invite was sent to a different email address. Sign in with the invited email, or ask the owner to re-invite you.",
+    };
+  if (v === "failed") return { tone: "error", msg: "❌ Invite acceptance failed. Please try again or ask the owner to resend." };
+
+  return null;
+}
+
+export default async function ProjectsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ invite?: string }> | { invite?: string };
+}) {
   const supabase = await createClient();
 
-  const { data: auth, error: authErr } = await supabase.auth.getUser();
-  if (authErr) {
-    return (
-      <main className="mx-auto max-w-4xl p-6">
-        <h1 className="text-2xl font-semibold">Projects</h1>
-        <p className="mt-3 text-sm text-red-600">Auth error: {authErr.message}</p>
-      </main>
-    );
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect(`/login?next=${encodeURIComponent("/projects")}`);
   }
-  if (!auth?.user) redirect("/login");
 
-  const userId = auth.user.id;
+  const sp = (await searchParams) ?? {};
+  const banner = inviteBanner((sp as any)?.invite);
 
-  /**
-   * ✅ RLS-safe listing:
-   * Start from project_members (membership boundary), then join projects via explicit FK name.
-   * FK constraint: project_members_project_id_fkey
-   */
+  const userId = user.id;
+
   const { data, error } = await supabase
     .from("project_members")
     .select(
@@ -110,6 +126,19 @@ export default async function ProjectsPage() {
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">AlienAI Projects</h1>
         <p className="text-sm opacity-70">Create a project, then generate and approve artifacts.</p>
+
+        {banner ? (
+          <div
+            className={[
+              "mt-4 rounded-lg border px-4 py-3 text-sm",
+              banner.tone === "success" ? "border-green-200 bg-green-50" : "",
+              banner.tone === "warn" ? "border-yellow-200 bg-yellow-50" : "",
+              banner.tone === "error" ? "border-red-200 bg-red-50" : "",
+            ].join(" ")}
+          >
+            {banner.msg}
+          </div>
+        ) : null}
       </header>
 
       {/* Create project */}
@@ -129,12 +158,7 @@ export default async function ProjectsPage() {
 
           <label className="grid gap-2">
             <span className="text-sm font-medium">Delivery type</span>
-            <select
-              name="delivery_type"
-              required
-              className="rounded border border-gray-200 px-3 py-2"
-              defaultValue=""
-            >
+            <select name="delivery_type" required className="rounded border border-gray-200 px-3 py-2" defaultValue="">
               <option value="" disabled>
                 Select…
               </option>
@@ -144,17 +168,13 @@ export default async function ProjectsPage() {
             </select>
           </label>
 
-          <button
-            type="submit"
-            className="w-fit rounded border border-gray-200 px-4 py-2 hover:bg-gray-50 transition"
-          >
+          <button type="submit" className="w-fit rounded border border-gray-200 px-4 py-2 hover:bg-gray-50 transition">
             Create project
           </button>
         </form>
 
         <p className="text-xs opacity-60">
-          Note: the creator will automatically be added as <b>owner</b> in{" "}
-          <code>project_members</code>.
+          Note: the creator will automatically be added as <b>owner</b> in <code>project_members</code>.
         </p>
       </section>
 
@@ -179,7 +199,7 @@ export default async function ProjectsPage() {
                   <div className="min-w-0 flex-1 space-y-2">
                     {/* Title row */}
                     {canEdit ? (
-                      <form action={updateProjectTitle} className="flex items-center gap-2">
+                      <form className="flex items-center gap-2">
                         <input type="hidden" name="project_id" value={p.id} />
                         <input
                           name="title"
@@ -187,17 +207,31 @@ export default async function ProjectsPage() {
                           className="w-full rounded border border-gray-200 px-2 py-1 font-semibold"
                         />
                         <button
+                          formAction={updateProjectTitle}
                           type="submit"
                           className="rounded border border-gray-200 px-3 py-1 text-sm hover:bg-gray-50 transition shrink-0"
                           title="Save project name"
                         >
                           Save
                         </button>
+
+                        <Link
+                          className="text-sm underline hover:opacity-80 transition shrink-0"
+                          href={`/projects/${p.id}`}
+                          title="Open project"
+                        >
+                          Open →
+                        </Link>
                       </form>
                     ) : (
-                      <div className="font-semibold truncate">
-                        <Link className="underline hover:opacity-80 transition" href={`/projects/${p.id}`}>
-                          {p.title}
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="font-semibold truncate">
+                          <Link className="underline hover:opacity-80 transition" href={`/projects/${p.id}`}>
+                            {p.title}
+                          </Link>
+                        </div>
+                        <Link className="text-sm underline hover:opacity-80 transition shrink-0" href={`/projects/${p.id}`}>
+                          Open →
                         </Link>
                       </div>
                     )}
@@ -206,9 +240,7 @@ export default async function ProjectsPage() {
                       <span className="inline-flex items-center rounded border border-gray-200 bg-gray-50 px-2 py-0.5">
                         {p.delivery_type}
                       </span>
-                      <span
-                        className={`inline-flex items-center rounded border px-2 py-0.5 ${roleChip.cls}`}
-                      >
+                      <span className={`inline-flex items-center rounded border px-2 py-0.5 ${roleChip.cls}`}>
                         {roleChip.label}
                       </span>
                       <span>• Created: {fmtDateIso(p.created_at)}</span>
@@ -217,7 +249,7 @@ export default async function ProjectsPage() {
                     {/* Quick links */}
                     <div className="flex flex-wrap items-center gap-3 text-sm">
                       <Link className="underline hover:opacity-80 transition" href={`/projects/${p.id}`}>
-                        Open
+                        Overview
                       </Link>
                       <Link className="underline hover:opacity-80 transition" href={`/projects/${p.id}/artifacts`}>
                         Artifacts
@@ -235,10 +267,6 @@ export default async function ProjectsPage() {
                       ) : null}
                     </div>
                   </div>
-
-                  <Link className="text-sm underline hover:opacity-80 transition shrink-0" href={`/projects/${p.id}`}>
-                    Open →
-                  </Link>
                 </div>
               );
             })}

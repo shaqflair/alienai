@@ -1,5 +1,7 @@
+﻿// src/app/projects/[id]/artifacts/[artifactId]/export/excel/route.ts
 import { NextResponse } from "next/server";
 
+// âœ… Node runtime (safe for Buffer-based exporters; redirect is fine too)
 export const runtime = "nodejs";
 
 function safeParam(x: unknown): string {
@@ -8,18 +10,22 @@ function safeParam(x: unknown): string {
 
 export async function GET(
   req: Request,
-  ctx: { params: { id?: string; artifactId?: string } }
+  ctx: { params: Promise<{ id: string; artifactId: string }> } // âœ… MUST match folder names
 ) {
-  const projectId = safeParam(ctx?.params?.id);
-  const artifactId = safeParam(ctx?.params?.artifactId);
+  const { id, artifactId } = await params;
+  const projectId = safeParam(id);
+  const artifactIdSafe = safeParam(artifactId);
 
   if (!projectId || !artifactId) {
     return NextResponse.json({ error: "Missing params" }, { status: 400 });
   }
 
-  // Redirect to the canonical XLSX route
+  // âœ… Redirect to the canonical XLSX route (use 307 to preserve method)
   return NextResponse.redirect(
     new URL(`/projects/${projectId}/artifacts/${artifactId}/export/xlsx`, req.url),
-    { status: 302 }
+    { status: 307 }
   );
 }
+
+
+

@@ -1,318 +1,264 @@
-﻿"use server";
+﻿// src/app/projects/[id]/artifacts/actions.ts
+"use server";
 
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 
-function norm(x: FormDataEntryValue | null) {
-  return String(x ?? "").trim();
+function safeParam(x: unknown): string {
+  return typeof x === "string" ? x.trim() : "";
 }
 
-function throwDb(error: any, label: string): never {
-  const code = error?.code ?? "";
-  const msg = error?.message ?? "";
-  const hint = error?.hint ?? "";
-  const details = error?.details ?? "";
-  throw new Error(
-    `[${label}] ${code} ${msg}${hint ? ` | hint: ${hint}` : ""}${details ? ` | details: ${details}` : ""}`
-  );
+function derivedStatus(a: any) {
+  const s = String(a?.approval_status ?? "").toLowerCase();
+  if (s === "approved") return "approved";
+  if (s === "rejected") return "rejected";
+  if (s === "changes_requested") return "changes_requested";
+  if (s === "submitted") return "submitted";
+
+  // fallback to legacy columns if present
+  if (a?.approved_by) return "approved";
+  if (a?.rejected_by) return "rejected";
+  if (a?.is_locked) return "submitted";
+  return "draft";
 }
 
-async function requireUser() {
-  const supabase = await createClient();
+async function requireAuthAndMembership(supabase: any, projectId: string) {
   const { data: auth, error: authErr } = await supabase.auth.getUser();
-  if (authErr) throwDb(authErr, "auth.getUser");
-  if (!auth?.user) redirect("/login");
-  return { supabase, user: auth.user };
-}
+  if (authErr) throw authErr;
+  if (!auth?.user) throw new Error("Not authenticated");
 
-async function requireMemberRole(supabase: any, projectId: string, userId: string) {
-  const { data: mem, error } = await supabase
+  const userId = auth.user.id;
+
+  const { data: mem, error: memErr } = await supabase
     .from("project_members")
     .select("role")
     .eq("project_id", projectId)
     .eq("user_id", userId)
     .maybeSingle();
-  if (error) throwDb(error, "project_members.select");
-  if (!mem) throw new Error("Not a project member.");
-  return String((mem as any)?.role ?? "viewer").toLowerCase();
+
+  if (memErr) throw memErr;
+  if (!mem) throw new Error("Not a project member");
+
+  const role = String((mem as any)?.role ?? "viewer").toLowerCase();
+  const canEditByRole = role === "owner" || role === "editor";
+
+  return { userId, role, canEditByRole };
 }
 
-function requireEditorOrOwner(role: string) {
-  const can = role === "owner" || role === "editor";
-  if (!can) throw new Error("You do not have permission to perform this action.");
+async function fetchArtifact(supabase: any, projectId: string, artifactId: string) {
+  const { data: artifact, error } = await supabase
+    .from("artifacts")
+    .select(
+      "id, project_id, user_id, type, title, content, content_json, is_locked, approval_status, approved_by, rejected_by, is_current"
+    )
+    .eq("id", artifactId)
+    .eq("project_id", projectId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!artifact) throw new Error("Artifact not found");
+
+  return artifact;
 }
 
-async function requireApprover(supabase: any, projectId: string, userId: string) {
-  const { data, error } = await supabase
-    .from("project_approvers")
+function assertEditable(canEditByRole: boolean, artifact: any) {
+  const status = derivedStatus(artifact);
+  const isEditable =
+    canEditByRole && !artifact.is_locked && (status === "draft" || status === "changes_requested");
+
+  if (!isEditable) {
+    throw new Error("Artifact is not editable (locked or not in Draft/CR, or insufficient role).");
+  }
+
+  return status;
+}
+
+/**
+ * Create artifact (used by /artifacts/new/page.tsx).
+ * - Ensures one current artifact per (project_id, type) by redirecting to existing current if present.
+ * - Only owner/editor can create.
+ */
+export async function createArtifact(formData: FormData) {
+  const supabase = await createClient();
+
+  const projectId = safeParam(formData.get("project_id"));
+  const type = safeParam(formData.get("type"));
+  const title = safeParam(formData.get("title")) || "";
+
+  if (!projectId) throw new Error("Missing project_id");
+  if (!type) throw new Error("Missing type");
+
+  const { userId, canEditByRole } = await requireAuthAndMembership(supabase, projectId);
+  if (!canEditByRole) throw new Error("You do not have permission to create artifacts for this project.");
+
+  // If a current artifact already exists for this type, reuse it
+  const { data: existing, error: exErr } = await supabase
+    .from("artifacts")
     .select("id")
     .eq("project_id", projectId)
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (error) throwDb(error, "project_approvers.select");
-  if (!data) throw new Error("You are not an approver for this project.");
-}
-
-const ALLOWED_TYPES = new Set(["PID", "RAID", "SOW", "STATUS", "RISKS", "ASSUMPTIONS", "ACTIONS"]);
-
-export async function createArtifact(formData: FormData) {
-  const { supabase, user } = await requireUser();
-
-  const project_id = norm(formData.get("project_id"));
-  const type = norm(formData.get("type")).toUpperCase();
-  const title = norm(formData.get("title")) || type || "Untitled";
-  const content = norm(formData.get("content")) || "";
-
-  if (!project_id) throw new Error("project_id is required.");
-  if (!type) throw new Error("type is required.");
-  if (!ALLOWED_TYPES.has(type)) throw new Error(`Invalid artifact type: ${type}`);
-
-  await requireMemberRole(supabase, project_id, user.id);
-
-  // Demote any current artifact for same project+type
-  const { error: demoteErr } = await supabase
-    .from("artifacts")
-    .update({ is_current: false })
-    .eq("project_id", project_id)
     .eq("type", type)
-    .eq("is_current", true);
+    .eq("is_current", true)
+    .maybeSingle();
 
-  if (demoteErr) throwDb(demoteErr, "artifacts.demote_current");
+  if (exErr) throw exErr;
 
-  const { data: row, error: insErr } = await supabase
+  if (existing?.id) {
+    redirect(`/projects/${projectId}/artifacts/${existing.id}`);
+  }
+
+  const { data: created, error: insErr } = await supabase
     .from("artifacts")
     .insert({
-      project_id,
-      user_id: user.id,
+      project_id: projectId,
+      user_id: userId,
       type,
-      title,
-      content,
-      is_locked: false,
+      title: title || type,
+      content: "",
       is_current: true,
+      approval_status: "draft",
+      status: "draft",
+      is_locked: false,
     })
     .select("id")
-    .maybeSingle();
+    .single();
 
-  if (insErr) throwDb(insErr, "artifacts.insert");
-  if (!row?.id) throw new Error("Artifact created but no id returned.");
+  if (insErr) throw insErr;
+  if (!created?.id) throw new Error("Artifact insert succeeded but returned no id.");
 
-  revalidatePath(`/projects/${project_id}/artifacts`);
-  redirect(`/projects/${project_id}/artifacts/${row.id}`);
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath(`/projects/${projectId}/artifacts`);
+  redirect(`/projects/${projectId}/artifacts/${created.id}`);
 }
 
+/**
+ * Update artifact (SAFE: never overwrites missing fields with "").
+ * IMPORTANT: Disabled inputs are not submitted; this prevents blank artifacts.
+ */
 export async function updateArtifact(formData: FormData) {
-  const { supabase, user } = await requireUser();
+  const supabase = await createClient();
 
-  const project_id = norm(formData.get("project_id"));
-  const artifact_id = norm(formData.get("artifact_id"));
-  const title = norm(formData.get("title"));
-  const content = String(formData.get("content") ?? "");
+  const projectId = safeParam(formData.get("project_id"));
+  const artifactId = safeParam(formData.get("artifact_id"));
+  if (!projectId || !artifactId) throw new Error("Missing project_id/artifact_id");
 
-  if (!project_id) throw new Error("project_id is required.");
-  if (!artifact_id) throw new Error("artifact_id is required.");
+  const { canEditByRole } = await requireAuthAndMembership(supabase, projectId);
+  const artifact = await fetchArtifact(supabase, projectId, artifactId);
+  assertEditable(canEditByRole, artifact);
 
-  const role = await requireMemberRole(supabase, project_id, user.id);
-  requireEditorOrOwner(role);
+  const titleRaw = formData.get("title");
+  const contentRaw = formData.get("content");
 
-  const { data: current, error: curErr } = await supabase
-    .from("artifacts")
-    .select("id,is_locked")
-    .eq("id", artifact_id)
-    .eq("project_id", project_id)
-    .maybeSingle();
-  if (curErr) throwDb(curErr, "artifacts.select");
-  if (!current) throw new Error("Artifact not found.");
-  if ((current as any)?.is_locked) throw new Error("Artifact is locked (submitted).");
+  const patch: any = {
+    updated_at: new Date().toISOString(),
+  };
 
-  const patch: any = {};
-  if (title !== "") patch.title = title;
-  patch.content = content;
+  // Only update fields that actually arrived in the form submission
+  if (typeof titleRaw === "string") patch.title = titleRaw;
+  if (typeof contentRaw === "string") patch.content = contentRaw;
 
-  const { error: updErr } = await supabase
+  const keys = Object.keys(patch).filter((k) => k !== "updated_at");
+  if (keys.length === 0) {
+    revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+    return;
+  }
+
+  const { error } = await supabase
     .from("artifacts")
     .update(patch)
-    .eq("id", artifact_id)
-    .eq("project_id", project_id);
+    .eq("id", artifactId)
+    .eq("project_id", projectId);
 
-  if (updErr) throwDb(updErr, "artifacts.update");
+  if (error) throw error;
 
-  revalidatePath(`/projects/${project_id}/artifacts`);
-  revalidatePath(`/projects/${project_id}/artifacts/${artifact_id}`);
+  revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
 }
 
-export async function submitArtifact(formData: FormData) {
-  const { supabase, user } = await requireUser();
+/**
+ * Update artifact JSON content (for structured editors like Project Charter).
+ * Requires: public.artifacts.content_json (jsonb) exists.
+ */
+export async function updateArtifactJson(formData: FormData) {
+  const supabase = await createClient();
 
-  const project_id = norm(formData.get("project_id"));
-  const artifact_id = norm(formData.get("artifact_id"));
-  if (!project_id) throw new Error("project_id is required.");
-  if (!artifact_id) throw new Error("artifact_id is required.");
+  const projectId = safeParam(formData.get("project_id"));
+  const artifactId = safeParam(formData.get("artifact_id"));
+  const contentJsonRaw = safeParam(formData.get("content_json"));
 
-  const role = await requireMemberRole(supabase, project_id, user.id);
-  requireEditorOrOwner(role);
+  if (!projectId || !artifactId) throw new Error("Missing project_id/artifact_id");
+  if (!contentJsonRaw) throw new Error("Missing content_json");
 
-  const { data: current, error: curErr } = await supabase
-    .from("artifacts")
-    .select("id,is_locked")
-    .eq("id", artifact_id)
-    .eq("project_id", project_id)
-    .maybeSingle();
-  if (curErr) throwDb(curErr, "artifacts.select");
-  if (!current) throw new Error("Artifact not found.");
-  if ((current as any)?.is_locked) throw new Error("Artifact already submitted.");
+  const { canEditByRole } = await requireAuthAndMembership(supabase, projectId);
+  const artifact = await fetchArtifact(supabase, projectId, artifactId);
+  assertEditable(canEditByRole, artifact);
 
-  const { error: lockErr } = await supabase
+  let parsed: any;
+  try {
+    parsed = JSON.parse(contentJsonRaw);
+  } catch {
+    throw new Error("content_json must be valid JSON.");
+  }
+
+  const { error } = await supabase
     .from("artifacts")
     .update({
-      is_locked: true,
-      locked_at: new Date().toISOString(),
-      locked_by: user.id,
+      content_json: parsed,
+      updated_at: new Date().toISOString(),
     })
-    .eq("id", artifact_id)
-    .eq("project_id", project_id);
+    .eq("id", artifactId)
+    .eq("project_id", projectId);
 
-  if (lockErr) throwDb(lockErr, "artifacts.lock");
+  if (error) throw error;
 
-  revalidatePath(`/projects/${project_id}/artifacts`);
-  revalidatePath(`/projects/${project_id}/artifacts/${artifact_id}`);
+  revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
 }
 
+/**
+ * Save structured JSON (alias).
+ * NOTE: Keep one function in UI imports (recommended: use updateArtifactJson).
+ */
+export async function saveArtifactJson(formData: FormData) {
+  // Keep as alias so older imports don’t break
+  return updateArtifactJson(formData);
+}
+
+/**
+ * Add a comment (approvers only, matches your UI).
+ */
 export async function addArtifactComment(formData: FormData) {
-  const { supabase, user } = await requireUser();
+  const supabase = await createClient();
 
-  const project_id = norm(formData.get("project_id"));
-  const artifact_id = norm(formData.get("artifact_id"));
-  const body = norm(formData.get("body"));
-  const action = norm(formData.get("action")) || "comment";
+  const projectId = safeParam(formData.get("project_id"));
+  const artifactId = safeParam(formData.get("artifact_id"));
+  const action = safeParam(formData.get("action")) || "comment";
+  const body = safeParam(formData.get("body"));
 
-  if (!project_id) throw new Error("project_id is required.");
-  if (!artifact_id) throw new Error("artifact_id is required.");
-  if (!body) throw new Error("Comment is required.");
+  if (!projectId || !artifactId) throw new Error("Missing project_id/artifact_id");
+  if (!body.trim()) throw new Error("Comment body is required");
 
-  await requireMemberRole(supabase, project_id, user.id);
-  await requireApprover(supabase, project_id, user.id);
+  const { userId } = await requireAuthAndMembership(supabase, projectId);
+
+  // Approver gate (flat approvers v1)
+  const { data: approverRow, error: apprErr } = await supabase
+    .from("project_approvers")
+    .select("project_id")
+    .eq("project_id", projectId)
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (apprErr) throw apprErr;
+  if (!approverRow) throw new Error("Only active approvers can comment.");
 
   const { error } = await supabase.from("artifact_comments").insert({
-    project_id,
-    artifact_id,
-    actor_user_id: user.id,
+    project_id: projectId,
+    artifact_id: artifactId,
+    actor_user_id: userId,
     action,
     body,
   });
 
-  if (error) throwDb(error, "artifact_comments.insert");
+  if (error) throw error;
 
-  revalidatePath(`/projects/${project_id}/artifacts/${artifact_id}`);
-}
-
-export async function approveArtifact(formData: FormData) {
-  const { supabase, user } = await requireUser();
-
-  const project_id = norm(formData.get("project_id"));
-  const artifact_id = norm(formData.get("artifact_id"));
-  const comment = norm(formData.get("comment")); // optional
-
-  if (!project_id) throw new Error("project_id is required.");
-  if (!artifact_id) throw new Error("artifact_id is required.");
-
-  await requireMemberRole(supabase, project_id, user.id);
-  await requireApprover(supabase, project_id, user.id);
-
-  const { data: a, error: aErr } = await supabase
-    .from("artifacts")
-    .select("id,user_id,is_locked,approved_by,rejected_by")
-    .eq("id", artifact_id)
-    .eq("project_id", project_id)
-    .maybeSingle();
-  if (aErr) throwDb(aErr, "artifacts.select");
-  if (!a) throw new Error("Artifact not found.");
-
-  if (!a.is_locked) throw new Error("Artifact must be submitted before it can be approved.");
-  if (String(a.user_id) === user.id) throw new Error("Owners/approvers cannot approve their own artifact.");
-  if (a.approved_by) throw new Error("Artifact is already approved.");
-
-  const { error: updErr } = await supabase
-    .from("artifacts")
-    .update({
-      approved_by: user.id,
-      approved_at: new Date().toISOString(),
-      rejected_by: null,
-      rejected_at: null,
-      rejection_reason: null,
-    })
-    .eq("id", artifact_id)
-    .eq("project_id", project_id);
-
-  if (updErr) throwDb(updErr, "artifacts.approve");
-
-  if (comment) {
-    const { error: cErr } = await supabase.from("artifact_comments").insert({
-      project_id,
-      artifact_id,
-      actor_user_id: user.id,
-      action: "approve",
-      body: comment,
-    });
-    if (cErr) throwDb(cErr, "artifact_comments.insert(approve)");
-  }
-
-  revalidatePath(`/projects/${project_id}/artifacts`);
-  revalidatePath(`/projects/${project_id}/artifacts/${artifact_id}`);
-}
-
-export async function rejectArtifact(formData: FormData) {
-  const { supabase, user } = await requireUser();
-
-  const project_id = norm(formData.get("project_id"));
-  const artifact_id = norm(formData.get("artifact_id"));
-  const reason = norm(formData.get("reason")); // required
-
-  if (!project_id) throw new Error("project_id is required.");
-  if (!artifact_id) throw new Error("artifact_id is required.");
-  if (!reason) throw new Error("Rejection comment is required.");
-
-  await requireMemberRole(supabase, project_id, user.id);
-  await requireApprover(supabase, project_id, user.id);
-
-  const { data: a, error: aErr } = await supabase
-    .from("artifacts")
-    .select("id,user_id,is_locked,approved_by")
-    .eq("id", artifact_id)
-    .eq("project_id", project_id)
-    .maybeSingle();
-  if (aErr) throwDb(aErr, "artifacts.select");
-  if (!a) throw new Error("Artifact not found.");
-
-  if (!a.is_locked) throw new Error("Artifact must be submitted before it can be rejected.");
-  if (String(a.user_id) === user.id) throw new Error("Owners/approvers cannot reject their own artifact.");
-  if (a.approved_by) throw new Error("Artifact is already approved.");
-
-  // Reject AND unlock so author can edit & resubmit
-  const { error: updErr } = await supabase
-    .from("artifacts")
-    .update({
-      rejected_by: user.id,
-      rejected_at: new Date().toISOString(),
-      rejection_reason: reason,
-      is_locked: false,
-      locked_at: null,
-      locked_by: null,
-    })
-    .eq("id", artifact_id)
-    .eq("project_id", project_id);
-
-  if (updErr) throwDb(updErr, "artifacts.reject");
-
-  const { error: cErr } = await supabase.from("artifact_comments").insert({
-    project_id,
-    artifact_id,
-    actor_user_id: user.id,
-    action: "reject",
-    body: reason,
-  });
-  if (cErr) throwDb(cErr, "artifact_comments.insert(reject)");
-
-  revalidatePath(`/projects/${project_id}/artifacts`);
-  revalidatePath(`/projects/${project_id}/artifacts/${artifact_id}`);
+  revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
 }

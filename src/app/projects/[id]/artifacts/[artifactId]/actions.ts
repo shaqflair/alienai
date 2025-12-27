@@ -1,3 +1,4 @@
+// src/app/projects/[id]/artifacts/actions.ts
 "use server";
 
 import { redirect } from "next/navigation";
@@ -23,9 +24,7 @@ function throwDb(error: any, label: string): never {
   const hint = error?.hint ?? "";
   const details = error?.details ?? "";
   throw new Error(
-    `[${label}] ${code} ${msg}${hint ? ` | hint: ${hint}` : ""}${
-      details ? ` | details: ${details}` : ""
-    }`
+    `[${label}] ${code} ${msg}${hint ? ` | hint: ${hint}` : ""}${details ? ` | details: ${details}` : ""}`
   );
 }
 
@@ -60,7 +59,7 @@ async function loadArtifact(supabase: any, artifactId: string) {
   const { data, error } = await supabase
     .from("artifacts")
     .select(
-      "id,project_id,type,content,version,approval_status,is_locked,created_at,parent_artifact_id,root_artifact_id,is_current,is_baseline,revision_reason,revision_type"
+      "id,project_id,type,title,content,content_json,version,approval_status,is_locked,created_at,updated_at,parent_artifact_id,root_artifact_id,is_current,is_baseline,revision_reason,revision_type"
     )
     .eq("id", artifactId)
     .single();
@@ -72,7 +71,6 @@ async function loadArtifact(supabase: any, artifactId: string) {
 
 /**
  * Best-effort audit (won't break app if table/policies differ).
- * If you want debug-throw again, tell me and I’ll switch it back.
  */
 async function auditBestEffort(
   supabase: any,
@@ -102,24 +100,16 @@ async function auditBestEffort(
       to_is_current: input.to_is_current ?? null,
       meta: input.meta ?? {},
     });
-    if (error) {
-      // swallow in prod mode
-      // console.error is not reliable in server actions depending on env
-    }
+    void error;
   } catch {
     // ignore
   }
 }
 
 /**
- * Your DB constraint is: one_current_per_project_type
- * So before inserting a "current", we demote current for (project_id,type).
+ * DB constraint: one_current_per_project_type
  */
-async function demoteCurrentForProjectType(
-  supabase: any,
-  projectId: string,
-  type: string
-) {
+async function demoteCurrentForProjectType(supabase: any, projectId: string, type: string) {
   const { error } = await supabase
     .from("artifacts")
     .update({ is_current: false })
@@ -130,11 +120,7 @@ async function demoteCurrentForProjectType(
   if (error) throwDb(error, "artifacts.demoteCurrentForProjectType");
 }
 
-async function nextVersionForRoot(
-  supabase: any,
-  rootId: string,
-  fallback = 1
-): Promise<number> {
+async function nextVersionForRoot(supabase: any, rootId: string, fallback = 1): Promise<number> {
   const { data, error } = await supabase
     .from("artifacts")
     .select("version")
@@ -146,6 +132,15 @@ async function nextVersionForRoot(
 
   const maxV = Number((data ?? [])[0]?.version ?? fallback);
   return (Number.isFinite(maxV) ? maxV : fallback) + 1;
+}
+
+function canEditArtifactRow(a: any) {
+  const st = String(a?.approval_status ?? "draft").toLowerCase();
+  if (Boolean(a?.is_locked)) return { ok: false, reason: "Artifact is locked." };
+  if (!(st === "draft" || st === "changes_requested"))
+    return { ok: false, reason: "Only Draft / Changes Requested can be edited." };
+  if (!Boolean(a?.is_current)) return { ok: false, reason: "Only current version can be edited." };
+  return { ok: true as const, status: st };
 }
 
 /* =========================
@@ -167,7 +162,7 @@ export async function createArtifact(formData: FormData) {
   // Is there already a current artifact for this project + type?
   const { data: existing, error: exErr } = await supabase
     .from("artifacts")
-    .select("id,content,version,root_artifact_id,approval_status")
+    .select("id,content,version,root_artifact_id,approval_status,content_json")
     .eq("project_id", projectId)
     .eq("type", rawType)
     .eq("is_current", true)
@@ -179,11 +174,7 @@ export async function createArtifact(formData: FormData) {
   // If exists -> create v+1 under same root
   if (existing?.id) {
     const rootId = String(existing.root_artifact_id ?? existing.id);
-    const nextV = await nextVersionForRoot(
-      supabase,
-      rootId,
-      Number(existing.version ?? 1)
-    );
+    const nextV = await nextVersionForRoot(supabase, rootId, Number(existing.version ?? 1));
 
     await demoteCurrentForProjectType(supabase, projectId, rawType);
 
@@ -194,6 +185,7 @@ export async function createArtifact(formData: FormData) {
         user_id: user.id,
         type: rawType,
         content: content || (existing.content ?? ""),
+        content_json: existing.content_json ?? null,
         approval_status: "draft",
         is_locked: false,
         version: nextV,
@@ -203,6 +195,7 @@ export async function createArtifact(formData: FormData) {
         parent_artifact_id: existing.id,
         revision_type: "revise",
         revision_reason: "New draft created",
+        updated_at: new Date().toISOString(),
       })
       .select("id")
       .single();
@@ -236,6 +229,7 @@ export async function createArtifact(formData: FormData) {
       user_id: user.id,
       type: rawType,
       content,
+      content_json: null,
       approval_status: "draft",
       is_locked: false,
       version: 1,
@@ -243,16 +237,15 @@ export async function createArtifact(formData: FormData) {
       is_baseline: false,
       root_artifact_id: null,
       parent_artifact_id: null,
+      updated_at: new Date().toISOString(),
     })
     .select("id")
     .single();
 
   if (error) throwDb(error, "artifacts.create.insert");
 
-  const { error: upErr } = await supabase
-    .from("artifacts")
-    .update({ root_artifact_id: inserted.id })
-    .eq("id", inserted.id);
+  // backfill root
+  const { error: upErr } = await supabase.from("artifacts").update({ root_artifact_id: inserted.id }).eq("id", inserted.id);
   if (upErr) throwDb(upErr, "artifacts.create.backfill_root");
 
   await auditBestEffort(supabase, {
@@ -273,7 +266,7 @@ export async function createArtifact(formData: FormData) {
 }
 
 /* =========================
-   UPDATE (edit save)
+   UPDATE (text save)
 ========================= */
 
 export async function updateArtifact(formData: FormData) {
@@ -290,14 +283,14 @@ export async function updateArtifact(formData: FormData) {
   const a = await loadArtifact(supabase, artifactId);
   if (String(a.project_id ?? "") !== projectId) throw new Error("Project mismatch");
 
-  const status = String(a.approval_status ?? "draft").toLowerCase();
-  if (Boolean(a.is_locked)) throw new Error("Artifact is locked.");
-  if (!(status === "draft" || status === "changes_requested")) {
-    throw new Error("Only Draft / Changes Requested can be edited.");
-  }
-  if (!Boolean(a.is_current)) throw new Error("Only current version can be edited.");
+  const edit = canEditArtifactRow(a);
+  if (!edit.ok) throw new Error(edit.reason);
 
-  const { error } = await supabase.from("artifacts").update({ content }).eq("id", artifactId);
+  const { error } = await supabase
+    .from("artifacts")
+    .update({ content, updated_at: new Date().toISOString() })
+    .eq("id", artifactId);
+
   if (error) throwDb(error, "artifacts.update");
 
   await auditBestEffort(supabase, {
@@ -306,11 +299,67 @@ export async function updateArtifact(formData: FormData) {
     actor_user_id: user.id,
     actor_email: user.email,
     action: "update_content",
-    from_status: status,
-    to_status: status,
+    from_status: edit.status,
+    to_status: edit.status,
     from_is_current: Boolean(a.is_current),
     to_is_current: Boolean(a.is_current),
     meta: { before_len: String(a.content ?? "").length, after_len: content.length },
+  });
+
+  revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+}
+
+/* =========================
+   ✅ UPDATE JSON (Project Charter editor)
+   - Your ProjectCharterEditorForm calls this
+========================= */
+
+export async function updateArtifactJson(formData: FormData) {
+  const projectId = normStr(formData.get("project_id"));
+  const artifactId = normStr(formData.get("artifact_id"));
+  const jsonStr = normStr(formData.get("content_json"));
+
+  if (!projectId) throw new Error("Missing project_id");
+  if (!artifactId) throw new Error("Missing artifact_id");
+  if (!jsonStr) throw new Error("Missing content_json");
+
+  const { supabase, user } = await requireUser();
+  await requireRole(supabase, projectId, ["owner", "editor"]);
+
+  const a = await loadArtifact(supabase, artifactId);
+  if (String(a.project_id ?? "") !== projectId) throw new Error("Project mismatch");
+
+  const edit = canEditArtifactRow(a);
+  if (!edit.ok) throw new Error(edit.reason);
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch {
+    throw new Error("content_json must be valid JSON.");
+  }
+
+  const { error } = await supabase
+    .from("artifacts")
+    .update({
+      content_json: parsed,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", artifactId);
+
+  if (error) throwDb(error, "artifacts.updateArtifactJson");
+
+  await auditBestEffort(supabase, {
+    project_id: projectId,
+    artifact_id: artifactId,
+    actor_user_id: user.id,
+    actor_email: user.email,
+    action: "update_content_json",
+    from_status: edit.status,
+    to_status: edit.status,
+    from_is_current: Boolean(a.is_current),
+    to_is_current: Boolean(a.is_current),
+    meta: { json_bytes: jsonStr.length },
   });
 
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
@@ -373,12 +422,8 @@ export async function generateArtifactAI(formData: FormData) {
   const a = await loadArtifact(supabase, artifactId);
   if (String(a.project_id ?? "") !== projectId) throw new Error("Project mismatch");
 
-  const status = String(a.approval_status ?? "draft").toLowerCase();
-  if (!Boolean(a.is_current)) throw new Error("Only current version can be generated.");
-  if (Boolean(a.is_locked)) throw new Error("Artifact is locked.");
-  if (!(status === "draft" || status === "changes_requested")) {
-    throw new Error("AI Generate allowed only for Draft / Changes Requested.");
-  }
+  const edit = canEditArtifactRow(a);
+  if (!edit.ok) throw new Error(edit.reason);
 
   const stamp = new Date().toISOString();
   const header = `\n\n---\n🤖 AI Draft (${stamp})\n`;
@@ -388,7 +433,11 @@ export async function generateArtifactAI(formData: FormData) {
   const before = String(a.content ?? "");
   const after = before + header + ptxt + body;
 
-  const { error } = await supabase.from("artifacts").update({ content: after }).eq("id", artifactId);
+  const { error } = await supabase
+    .from("artifacts")
+    .update({ content: after, updated_at: new Date().toISOString() })
+    .eq("id", artifactId);
+
   if (error) throwDb(error, "artifacts.generateArtifactAI.update");
 
   await auditBestEffort(supabase, {
@@ -397,8 +446,8 @@ export async function generateArtifactAI(formData: FormData) {
     actor_user_id: user.id,
     actor_email: user.email,
     action: "generate_ai",
-    from_status: status,
-    to_status: status,
+    from_status: edit.status,
+    to_status: edit.status,
     from_is_current: Boolean(a.is_current),
     to_is_current: Boolean(a.is_current),
     meta: { prompt: prompt || null, before_len: before.length, after_len: after.length },
@@ -436,6 +485,7 @@ export async function reviseArtifact(formData: FormData) {
       user_id: user.id,
       type: src.type,
       content: src.content ?? "",
+      content_json: src.content_json ?? null,
       approval_status: "draft",
       is_locked: false,
       root_artifact_id: rootId,
@@ -445,6 +495,7 @@ export async function reviseArtifact(formData: FormData) {
       is_baseline: false,
       revision_reason,
       revision_type,
+      updated_at: new Date().toISOString(),
     })
     .select("id")
     .single();
@@ -469,8 +520,7 @@ export async function reviseArtifact(formData: FormData) {
 }
 
 /* =========================
-   ✅ RESTORE THIS VERSION (4.1)
-   IMPORTANT: this is the missing export causing your error
+   RESTORE VERSION
 ========================= */
 
 export async function restoreArtifactVersion(formData: FormData) {
@@ -491,7 +541,6 @@ export async function restoreArtifactVersion(formData: FormData) {
   const rootId = String(target.root_artifact_id ?? target.id);
   const nextV = await nextVersionForRoot(supabase, rootId, Number(target.version ?? 1));
 
-  // Must demote by (project_id,type) to satisfy unique current constraint
   await demoteCurrentForProjectType(supabase, projectId, type);
 
   const { data: inserted, error: insErr } = await supabase
@@ -501,6 +550,7 @@ export async function restoreArtifactVersion(formData: FormData) {
       user_id: user.id,
       type,
       content: target.content ?? "",
+      content_json: target.content_json ?? null,
       approval_status: "draft",
       is_locked: false,
       version: nextV,
@@ -510,6 +560,7 @@ export async function restoreArtifactVersion(formData: FormData) {
       parent_artifact_id: target.id,
       revision_type: "restore",
       revision_reason: reason,
+      updated_at: new Date().toISOString(),
     })
     .select("id")
     .single();
@@ -555,7 +606,7 @@ export async function lockArtifact(artifactId: string) {
 
   const { error } = await supabase
     .from("artifacts")
-    .update({ is_locked: true, approval_status: "submitted" })
+    .update({ is_locked: true, approval_status: "submitted", updated_at: new Date().toISOString() })
     .eq("id", artifactId);
 
   if (error) throwDb(error, "artifacts.lockArtifact");
@@ -594,15 +645,23 @@ export async function approveArtifact(artifactId: string) {
   const rootId = String(a.root_artifact_id ?? a.id);
 
   // unset any existing baseline
-  await supabase
+  const { error: unsetErr } = await supabase
     .from("artifacts")
     .update({ is_baseline: false })
     .eq("root_artifact_id", rootId)
     .eq("is_baseline", true);
 
+  if (unsetErr) throwDb(unsetErr, "artifacts.approveArtifact.unsetBaseline");
+
   const { error } = await supabase
     .from("artifacts")
-    .update({ approval_status: "approved", is_locked: true, is_baseline: true, is_current: true })
+    .update({
+      approval_status: "approved",
+      is_locked: true,
+      is_baseline: true,
+      is_current: true,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", artifactId);
 
   if (error) throwDb(error, "artifacts.approveArtifact");
@@ -648,6 +707,7 @@ export async function rejectArtifact(artifactId: string, reason: string) {
       is_locked: false,
       revision_reason: msg,
       revision_type: "review",
+      updated_at: new Date().toISOString(),
     })
     .eq("id", artifactId);
 

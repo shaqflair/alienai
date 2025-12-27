@@ -1,4 +1,4 @@
-﻿"use server";
+"use server";
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -30,12 +30,13 @@ export async function createProject(formData: FormData) {
   if (!title) throw new Error("Title is required.");
   if (!delivery_type) throw new Error("Delivery type is required.");
 
-  // Create project
+  // ✅ Create project (force return exactly one row)
   const { data: proj, error: projErr } = await supabase
     .from("projects")
     .insert({ title, delivery_type })
     .select("id")
-    .maybeSingle();
+    .single();
+
   if (projErr) throwDb(projErr, "projects.insert");
   if (!proj?.id) throw new Error("Project insert succeeded but returned no id.");
 
@@ -45,7 +46,16 @@ export async function createProject(formData: FormData) {
     user_id: auth.user.id,
     role: "owner",
   });
-  if (memErr) throwDb(memErr, "project_members.insert");
+
+  // If your DB already adds owner via trigger, you may get a duplicate key here.
+  // In that case, ignore only that specific error.
+  if (memErr) {
+    const msg = String(memErr.message ?? "").toLowerCase();
+    const code = String((memErr as any).code ?? "");
+    const isDuplicate =
+      code === "23505" || msg.includes("duplicate key") || msg.includes("unique constraint");
+    if (!isDuplicate) throwDb(memErr, "project_members.insert");
+  }
 
   revalidatePath("/projects");
   redirect(`/projects/${proj.id}`);
@@ -70,6 +80,7 @@ export async function updateProjectTitle(formData: FormData) {
     .eq("project_id", project_id)
     .eq("user_id", auth.user.id)
     .maybeSingle();
+
   if (memErr) throwDb(memErr, "project_members.select");
 
   const role = String((mem as any)?.role ?? "").toLowerCase();
