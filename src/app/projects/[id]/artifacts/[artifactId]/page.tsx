@@ -50,12 +50,12 @@ function derivedStatus(a: any) {
 
 function statusPill(status: string) {
   const s = String(status ?? "").toLowerCase();
-  if (s === "approved") return { label: "✅ Approved", cls: "bg-green-50 border-green-200 text-green-800" };
-  if (s === "rejected") return { label: "⛔ Rejected (Final)", cls: "bg-red-50 border-red-200 text-red-800" };
+  if (s === "approved") return { label: "✅ Approved", cls: "bg-gray-100 border-gray-200 text-gray-900" };
+  if (s === "rejected") return { label: "⛔ Rejected (Final)", cls: "bg-gray-100 border-gray-200 text-gray-900" };
   if (s === "changes_requested")
-    return { label: "🛠 Changes requested (CR)", cls: "bg-blue-50 border-blue-200 text-blue-800" };
-  if (s === "submitted") return { label: "🟡 Submitted", cls: "bg-yellow-50 border-yellow-200 text-yellow-800" };
-  return { label: "📝 Draft", cls: "bg-gray-50 border-gray-200 text-gray-800" };
+    return { label: "🛠 Changes requested (CR)", cls: "bg-gray-100 border-gray-200 text-gray-900" };
+  if (s === "submitted") return { label: "🟡 Submitted", cls: "bg-gray-100 border-gray-200 text-gray-900" };
+  return { label: "📝 Draft", cls: "bg-gray-100 border-gray-200 text-gray-900" };
 }
 
 function initialsFrom(nameOrEmail: string) {
@@ -72,10 +72,106 @@ function isProjectCharterType(type: any) {
   return t === "project_charter" || t === "project charter" || t === "charter" || t === "projectcharter" || t === "pid";
 }
 
+// legacy tiptap doc check (kept for backward compatibility)
 function safeJsonDoc(x: any) {
   if (!x || typeof x !== "object") return null;
-  if (x.type !== "doc" || !Array.isArray(x.content)) return null;
+  if ((x as any).type !== "doc" || !Array.isArray((x as any).content)) return null;
   return x;
+}
+
+/**
+ * ✅ Always force project title into whatever charter JSON we have.
+ * - Works for v2, template, legacy objects, or empty.
+ * - Prevents meta.project_title showing "(from project)" placeholders in the UI.
+ */
+function forceProjectTitleIntoCharter(raw: any, projectTitle: string, clientName?: string) {
+  const title = String(projectTitle ?? "").trim();
+  const client = String(clientName ?? "").trim();
+
+  // If raw is a useful object, clone + set meta
+  if (raw && typeof raw === "object") {
+    const next = structuredClone(raw) as any;
+    next.meta = next.meta && typeof next.meta === "object" ? next.meta : {};
+    next.meta.project_title = title; // ✅ force (do not keep placeholder)
+    if (client && !next.meta.customer_account) next.meta.customer_account = client;
+    return next;
+  }
+
+  // raw is null/primitive -> return minimal object the editor will normalize
+  return {
+    version: 2,
+    type: "project_charter",
+    meta: { project_title: title, customer_account: client || "" },
+    sections: [],
+  };
+}
+
+/**
+ * ✅ Canonicalize to stored v2 shape for the editor.
+ * Handles:
+ * - proper stored v2: {version:2,type,meta,sections}
+ * - common "saved" shape: {meta,sections,legacy_raw} (missing version/type)
+ */
+function ensureCharterV2Stored(raw: any) {
+  if (raw && typeof raw === "object" && Number((raw as any).version) === 2 && Array.isArray((raw as any).sections)) {
+    return raw;
+  }
+
+  if (raw && typeof raw === "object" && Array.isArray((raw as any).sections)) {
+    return {
+      version: 2,
+      type: "project_charter",
+      meta: (raw as any).meta ?? {},
+      sections: (raw as any).sections ?? [],
+    };
+  }
+
+  return raw;
+}
+
+/**
+ * ✅ Get best possible initial JSON for the editor.
+ * Prefers artifacts.content_json.
+ * Falls back to legacy artifacts.content if it contains JSON.
+ * Otherwise falls back to template.
+ */
+function getCharterInitialRaw(artifact: any) {
+  const cj = artifact?.content_json;
+
+  // content_json as object
+  if (cj && typeof cj === "object") return cj;
+
+  // content_json as stringified JSON
+  if (typeof cj === "string") {
+    try {
+      return JSON.parse(cj);
+    } catch {
+      // ignore
+    }
+  }
+
+  // legacy: some old records store JSON in content
+  const legacy = artifact?.content;
+
+  if (legacy && typeof legacy === "object") return legacy;
+
+  if (typeof legacy === "string") {
+    const s = legacy.trim();
+    if (s.startsWith("{") || s.startsWith("[")) {
+      try {
+        return JSON.parse(s);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  // tiptap object (rare case)
+  const tiptap = safeJsonDoc(cj);
+  if (tiptap) return tiptap;
+
+  // final fallback
+  return PROJECT_CHARTER_TEMPLATE;
 }
 
 export default async function ArtifactDetailPage({
@@ -94,6 +190,18 @@ export default async function ArtifactDetailPage({
   const artifactId = safeParam(aid);
   if (!projectId || !artifactId || projectId === "undefined" || artifactId === "undefined") notFound();
 
+  // ✅ Fetch project (ONLY real columns you said you have)
+  const { data: project, error: projErr } = await supabase
+    .from("projects")
+    .select("id, title, client_name, client_logo_url, brand_primary_color")
+    .eq("id", projectId)
+    .maybeSingle();
+  if (projErr) throw projErr;
+  if (!project) notFound();
+
+  const projectTitleFromProject = String((project as any).title ?? "").trim();
+  const clientName = String((project as any).client_name ?? "").trim();
+
   // Member gate
   const { data: mem, error: memErr } = await supabase
     .from("project_members")
@@ -107,11 +215,36 @@ export default async function ArtifactDetailPage({
   const myRole = String((mem as any)?.role ?? "viewer").toLowerCase();
   const canEditByRole = myRole === "owner" || myRole === "editor";
 
-  // Artifact (include content_json for charter)
+  // Artifact (include content_json for charter + version control columns)
   const { data: artifact, error: artErr } = await supabase
     .from("artifacts")
     .select(
-      "id, project_id, user_id, type, title, content, content_json, created_at, updated_at, is_locked, locked_at, locked_by, approval_status, approved_by, approved_at, rejected_by, rejected_at, rejection_reason"
+      [
+        "id",
+        "project_id",
+        "user_id",
+        "type",
+        "title",
+        "content",
+        "content_json",
+        "created_at",
+        "updated_at",
+        "is_locked",
+        "locked_at",
+        "locked_by",
+        "approval_status",
+        "approved_by",
+        "approved_at",
+        "rejected_by",
+        "rejected_at",
+        "rejection_reason",
+        // ✅ versioning columns
+        "version",
+        "parent_artifact_id",
+        "root_artifact_id",
+        "is_current",
+        "is_baseline",
+      ].join(", ")
     )
     .eq("id", artifactId)
     .eq("project_id", projectId)
@@ -132,28 +265,39 @@ export default async function ArtifactDetailPage({
     .eq("is_active", true)
     .maybeSingle();
   if (apprErr) console.warn("[project_approvers.select] blocked:", apprErr.message);
-
   const isApprover = !!approverRow;
 
   // Edit rules
-  const isEditable = canEditByRole && !(artifact as any).is_locked && (status === "draft" || status === "changes_requested");
+  const isEditable =
+    canEditByRole && !(artifact as any).is_locked && (status === "draft" || status === "changes_requested");
 
-  // ✅ Lock layout once submitted/approved/rejected (anything not Draft/CR)
+  // ✅ Lock layout once submitted/approved/rejected
   const lockLayout = status === "submitted" || status === "approved" || status === "rejected";
 
-  // Submit/resubmit rules: author OR owner/editor (approver alone cannot submit)
+  // Submit/resubmit rules
   const canSubmitOrResubmit =
-    !(artifact as any).is_locked && (status === "draft" || status === "changes_requested") && (isAuthor || canEditByRole);
+    !(artifact as any).is_locked &&
+    (status === "draft" || status === "changes_requested") &&
+    (isAuthor || canEditByRole);
 
   // Decisions
   const canDecide = isApprover && status === "submitted" && !isAuthor;
 
-  // Title rename rule (author OR owner/editor) only when unlocked + draft/CR
+  // Title rename rule
   const canRenameTitle =
-    !(artifact as any).is_locked && (status === "draft" || status === "changes_requested") && (isAuthor || canEditByRole);
+    !(artifact as any).is_locked &&
+    (status === "draft" || status === "changes_requested") &&
+    (isAuthor || canEditByRole);
 
-  // Exports: generally safe to allow to any project member
+  // Exports: safe to allow to any project member
   const canExport = true;
+
+  // ✅ Create revision rule (Option B: from approved/rejected current, non-baseline)
+  const canCreateRevision =
+    canEditByRole &&
+    !!(artifact as any).is_current &&
+    !(artifact as any).is_baseline &&
+    (status === "approved" || status === "rejected");
 
   // Suggestions
   const { data: suggestions } = await supabase
@@ -230,48 +374,143 @@ export default async function ArtifactDetailPage({
     revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
   }
 
-  async function addSuggestionAction(formData: FormData) {
-    "use server";
-    await addSuggestion(formData);
-    revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
-  }
-
-  async function applySuggestionAction(formData: FormData) {
-    "use server";
-    await applySuggestion(formData);
-    revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
-  }
-
-  async function dismissSuggestionAction(formData: FormData) {
-    "use server";
-    await dismissSuggestion(formData);
-    revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
-  }
-
   async function renameTitleAction(formData: FormData) {
     "use server";
     await renameArtifactTitle(formData);
     revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
   }
 
+  /**
+   * ✅ Create a NEW revision record (draft, current) from this artifact.
+   * - Retires current (for this project+type) by setting is_current=false
+   * - Inserts a new artifact:
+   *    parent_artifact_id = current.id
+   *    root_artifact_id = current.root_artifact_id ?? current.id
+   *    version = (current.version ?? 1) + 1
+   *    approval_status/status = draft
+   *    unlocked
+   *
+   * NOTE: This is implemented without an RPC. If you later add an RPC, you can swap this body out.
+   */
+  async function createRevisionAction() {
+    "use server";
+
+    const supabase2 = await createClient();
+    const { data: auth2, error: authErr2 } = await supabase2.auth.getUser();
+    if (authErr2) throw authErr2;
+    if (!auth2?.user) redirect("/login");
+
+    // Re-check membership role server-side
+    const { data: mem2, error: memErr2 } = await supabase2
+      .from("project_members")
+      .select("role")
+      .eq("project_id", projectId)
+      .eq("user_id", auth2.user.id)
+      .maybeSingle();
+
+    if (memErr2) throw memErr2;
+    const myRole2 = String((mem2 as any)?.role ?? "viewer").toLowerCase();
+    if (!(myRole2 === "owner" || myRole2 === "editor")) throw new Error("Only owners/editors can create revisions.");
+
+    // Load the current artifact fresh (avoid stale UI state)
+    const { data: a0, error: aErr } = await supabase2
+      .from("artifacts")
+      .select(
+        [
+          "id",
+          "project_id",
+          "user_id",
+          "type",
+          "title",
+          "content",
+          "content_json",
+          "approval_status",
+          "is_locked",
+          "is_current",
+          "is_baseline",
+          "root_artifact_id",
+          "version",
+        ].join(", ")
+      )
+      .eq("id", artifactId)
+      .eq("project_id", projectId)
+      .maybeSingle();
+
+    if (aErr) throw aErr;
+    if (!a0) throw new Error("Artifact not found.");
+    if (!a0.type) throw new Error("Artifact type missing.");
+
+    const st = String(a0.approval_status ?? "draft").toLowerCase();
+    const allowed = (st === "approved" || st === "rejected") && !!a0.is_current && !a0.is_baseline;
+    if (!allowed) {
+      throw new Error("You can only create a revision from a current, non-baseline artifact that is approved or rejected.");
+    }
+
+    // 1) retire current for this project+type (prevents unique constraint conflict on (project_id,type) where is_current=true)
+    const { error: retireErr } = await supabase2
+      .from("artifacts")
+      .update({ is_current: false })
+      .eq("project_id", projectId)
+      .eq("type", a0.type)
+      .eq("is_current", true);
+
+    if (retireErr) {
+      throw new Error(`[artifacts.update(retire_current)] ${retireErr.code ?? ""} ${retireErr.message}`);
+    }
+
+    const rootId = String((a0 as any).root_artifact_id ?? a0.id);
+    const nextVersion = Number((a0 as any).version ?? 1) + 1;
+
+    // 2) insert the new revision (draft + current + unlocked)
+    const nowIso = new Date().toISOString();
+    const { data: inserted, error: insErr } = await supabase2
+      .from("artifacts")
+      .insert({
+        project_id: projectId,
+        user_id: auth2.user.id, // author of revision = creator
+        type: a0.type,
+        title: a0.title ?? null,
+        content: String(a0.content ?? ""), // NOT NULL
+        content_json: (a0 as any).content_json ?? null,
+
+        version: nextVersion,
+        parent_artifact_id: a0.id,
+        root_artifact_id: rootId,
+
+        approval_status: "draft",
+        status: "draft",
+
+        is_locked: false,
+        locked_at: null,
+        locked_by: null,
+
+        is_current: true,
+        is_baseline: false,
+
+        created_at: nowIso,
+        updated_at: nowIso,
+      })
+      .select("id")
+      .single();
+
+    if (insErr) {
+      throw new Error(`[artifacts.insert(revision)] ${insErr.code ?? ""} ${insErr.message}`);
+    }
+
+    const newId = String((inserted as any).id);
+
+    revalidatePath(`/projects/${projectId}/artifacts`);
+    revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+    revalidatePath(`/projects/${projectId}/artifacts/${newId}`);
+
+    redirect(`/projects/${projectId}/artifacts/${newId}`);
+  }
+
   const charterMode = isProjectCharterType((artifact as any).type);
 
-  const charterInitial =
-    // ✅ v2 canonical JSON (from the updated editor)
-    (artifact as any).content_json ||
-    // ✅ legacy tiptap-like doc
-    safeJsonDoc((artifact as any).content_json) ||
-    (() => {
-      const raw = (artifact as any).content_json;
-      if (typeof raw === "string") {
-        try {
-          return JSON.parse(raw) || PROJECT_CHARTER_TEMPLATE;
-        } catch {
-          return PROJECT_CHARTER_TEMPLATE;
-        }
-      }
-      return PROJECT_CHARTER_TEMPLATE;
-    })();
+  // ✅ Build initial JSON, canonicalize to stored v2, then force project title into meta (no placeholders)
+  const charterInitialRaw = ensureCharterV2Stored(getCharterInitialRaw(artifact));
+  const charterInitial = forceProjectTitleIntoCharter(charterInitialRaw, projectTitleFromProject, clientName);
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-8 space-y-6">
@@ -281,7 +520,7 @@ export default async function ArtifactDetailPage({
         </Link>
         <div className="flex items-center gap-3">
           {isApprover ? (
-            <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs bg-blue-50 border-blue-200 text-blue-800">
+            <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs bg-gray-100 border-gray-200 text-gray-900">
               Approver
             </span>
           ) : null}
@@ -350,10 +589,10 @@ export default async function ArtifactDetailPage({
               ? isAuthor
                 ? "Submitted: waiting for another approver (you cannot approve your own artifact)."
                 : isApprover
-                ? `Submitted: you can approve, request changes (CR) or reject final.`
+                ? "Submitted: you can approve, request changes (CR) or reject final."
                 : "Submitted: waiting for approval."
               : status === "changes_requested"
-              ? "Changes requested (CR): owners/editors update, raise CR, then resubmit."
+              ? "Changes requested (CR): owners/editors update, then resubmit."
               : status === "approved"
               ? "Approved + baselined."
               : status === "rejected"
@@ -361,12 +600,24 @@ export default async function ArtifactDetailPage({
               : "View-only."}
           </div>
 
-          {/* ✅ Submit + Export buttons */}
           <div className="flex flex-wrap items-center gap-2">
             {canSubmitOrResubmit ? (
               <form action={submitAction}>
                 <button className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm" type="submit">
                   {status === "changes_requested" ? "Resubmit for approval" : "Submit for approval"}
+                </button>
+              </form>
+            ) : null}
+
+            {/* ✅ Create revision (Option B) */}
+            {canCreateRevision ? (
+              <form action={createRevisionAction}>
+                <button
+                  className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm"
+                  type="submit"
+                  title="Creates a new draft revision from this approved/rejected current artifact"
+                >
+                  Create revision
                 </button>
               </form>
             ) : null}
@@ -419,7 +670,7 @@ export default async function ArtifactDetailPage({
                 required
               />
               <button
-                className="px-4 py-2 rounded-xl border border-blue-200 text-blue-800 text-sm hover:bg-blue-50"
+                className="px-4 py-2 rounded-xl border border-gray-200 text-gray-900 text-sm hover:bg-gray-50"
                 type="submit"
               >
                 Request changes
@@ -441,7 +692,7 @@ export default async function ArtifactDetailPage({
                 required
               />
               <button
-                className="px-4 py-2 rounded-xl border border-red-200 text-red-700 text-sm hover:bg-red-50"
+                className="px-4 py-2 rounded-xl border border-gray-200 text-gray-900 text-sm hover:bg-gray-50"
                 type="submit"
               >
                 Reject final
@@ -529,10 +780,7 @@ export default async function ArtifactDetailPage({
               placeholder="Write a comment…"
               required
             />
-            <button
-              className="w-fit px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm"
-              type="submit"
-            >
+            <button className="w-fit px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm" type="submit">
               Add comment
             </button>
           </form>

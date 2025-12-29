@@ -1,0 +1,52 @@
+﻿import "server-only";
+
+type PuppeteerCore = typeof import("puppeteer-core");
+
+function isTruthy(x: any) {
+  return x === true || x === "true" || x === "1" || x === 1;
+}
+
+/**
+ * Production-safe browser launcher:
+ * - Serverless: puppeteer-core + @sparticuz/chromium
+ * - Local Windows: set PUPPETEER_EXECUTABLE_PATH (Chrome/Edge) OR set PDF_USE_FULL_PUPPETEER=true and install puppeteer
+ */
+export async function launchBrowser() {
+  const executablePathEnv =
+    process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_EXECUTABLE_PATH;
+
+  // Optionally use full puppeteer locally (downloads Chromium automatically)
+  if (isTruthy(process.env.PDF_USE_FULL_PUPPETEER)) {
+    try {
+      const puppeteer = (await import("puppeteer")) as any;
+      return puppeteer.launch({
+        headless: true,
+        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      });
+    } catch {
+      // fall through to puppeteer-core
+    }
+  }
+
+  const puppeteer = (await import("puppeteer-core")) as PuppeteerCore;
+
+  // Local: use installed Chrome/Edge path if provided
+  if (executablePathEnv) {
+    return puppeteer.launch({
+      headless: true,
+      executablePath: executablePathEnv,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+  }
+
+  // Serverless: Sparticuz Chromium
+  const chromium = await import("@sparticuz/chromium");
+  const executablePath = await chromium.executablePath();
+
+  return puppeteer.launch({
+    headless: chromium.headless,
+    executablePath,
+    args: chromium.args,
+    defaultViewport: chromium.defaultViewport,
+  });
+}

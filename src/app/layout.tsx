@@ -3,7 +3,6 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 import AppHeader from "@/components/AppHeader";
-import { acceptInvitesForCurrentUser } from "@/app/actions/accept-invites";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -20,14 +19,11 @@ export const metadata: Metadata = {
   description: "AI-powered project governance",
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Auto-claim any pending project invites for this user
-  await acceptInvitesForCurrentUser();
-
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>

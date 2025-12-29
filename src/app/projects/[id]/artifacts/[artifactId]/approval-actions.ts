@@ -1,9 +1,11 @@
-// src/app/projects/[id]/artifacts/[artifactId]/approval-actions.ts
 "use server";
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
+
+// ✅ Charter submit validation
+import { assertCharterReadyForSubmit } from "@/lib/charter/charter-validation";
 
 /* ---------------------------
    Helpers
@@ -74,7 +76,7 @@ async function getArtifact(supabase: any, artifactId: string) {
   const { data, error } = await supabase
     .from("artifacts")
     .select(
-      "id, project_id, user_id, type, title, content, is_locked, approval_status, submitted_at, submitted_by, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, is_current, is_baseline, root_artifact_id, parent_artifact_id, version, updated_at"
+      "id, project_id, user_id, type, title, content, content_json, is_locked, approval_status, submitted_at, submitted_by, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, is_current, is_baseline, root_artifact_id, parent_artifact_id, version, updated_at"
     )
     .eq("id", artifactId)
     .maybeSingle();
@@ -104,6 +106,11 @@ async function writeAuditLog(
     after: args.after ?? null,
   });
   if (error) throwDb(error, "artifact_audit_log.insert");
+}
+
+function isProjectCharterType(type: any) {
+  const t = String(type ?? "").toLowerCase();
+  return t === "project_charter" || t === "project charter" || t === "charter" || t === "projectcharter" || t === "pid";
 }
 
 /* ---------------------------
@@ -223,7 +230,6 @@ async function recordDecision(
 
 /* ---------------------------
    Suggestions (approver "edits")
-   - Optional range: { start, end } for true inline replace
 ---------------------------- */
 export async function addSuggestion(formData: FormData) {
   const { supabase, user } = await requireUser();
@@ -237,7 +243,6 @@ export async function addSuggestion(formData: FormData) {
   const bold = String(formData.get("bold") ?? "").toLowerCase() === "true";
   const italic = String(formData.get("italic") ?? "").toLowerCase() === "true";
 
-  // Optional range (numbers)
   const range_start_raw = formData.get("range_start");
   const range_end_raw = formData.get("range_end");
 
@@ -257,7 +262,6 @@ export async function addSuggestion(formData: FormData) {
   const rs = range_start_raw !== null ? clampInt(range_start_raw, 0, contentLen) : null;
   const re = range_end_raw !== null ? clampInt(range_end_raw, 0, contentLen) : null;
 
-  // Only store range if both are valid and end >= start and anchor is content-ish
   const anchorLower = anchor.toLowerCase();
   if ((anchorLower === "content" || anchorLower === "general") && rs !== null && re !== null && re >= rs) {
     range = { start: rs, end: re };
@@ -288,14 +292,6 @@ export async function addSuggestion(formData: FormData) {
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
 }
 
-/* ---------------------------
-   Apply / Dismiss suggestions (owners/editors)
-   Apply = mark applied + auto-apply into artifact:
-   - anchor=title => set artifacts.title = suggested_text
-   - anchor=content/general:
-       * if range exists => replace substring [start,end) with suggested_text
-       * else => append a stamped block (safe)
----------------------------- */
 export async function applySuggestion(formData: FormData) {
   const { supabase, user } = await requireUser();
 
@@ -341,51 +337,36 @@ export async function applySuggestion(formData: FormData) {
   if (!suggestedText) throw new Error("Suggestion is empty.");
 
   const beforeArtifact = { title: a0.title, content: a0.content };
-  const nowIso = new Date().toISOString();
 
   if (anchor === "title") {
-    const { error: upArtErr } = await supabase
-      .from("artifacts")
-      .update({ title: suggestedText, updated_at: nowIso })
-      .eq("id", artifactId);
-
+    const { error: upArtErr } = await supabase.from("artifacts").update({ title: suggestedText }).eq("id", artifactId);
     if (upArtErr) throwDb(upArtErr, "artifacts.update(apply_title)");
   } else {
     const content = String(a0.content ?? "");
     const range = (s0 as any).range as any;
 
     let nextContent = content;
-    let appliedMode: "range_replace" | "append" = "append";
 
-    // ✅ Range replace if present and valid
     if (range && typeof range === "object") {
       const start = clampInt((range as any).start, 0, content.length);
       const end = clampInt((range as any).end, 0, content.length);
 
       if (start !== null && end !== null && end >= start) {
-        // Replace [start, end)
         nextContent = content.slice(0, start) + suggestedText + content.slice(end);
-        appliedMode = "range_replace";
+      } else {
+        const stamp = new Date().toISOString().replace("T", " ").replace("Z", " UTC");
+        nextContent =
+          content +
+          `\n\n---\nAPPLIED SUGGESTION [${anchor}] by ${user.id} @ ${stamp}\n${suggestedText}\n`;
       }
-    }
-
-    // Fallback safe append
-    if (appliedMode === "append") {
+    } else {
       const stamp = new Date().toISOString().replace("T", " ").replace("Z", " UTC");
-      const who = user.email ? ` (${user.email})` : "";
-      const block =
-        `\n\n---\n` +
-        `APPLIED SUGGESTION [${anchor}] by ${user.id}${who} @ ${stamp}\n` +
-        `${suggestedText}\n`;
-
-      nextContent = content + block;
+      nextContent =
+        content +
+        `\n\n---\nAPPLIED SUGGESTION [${anchor}] by ${user.id} @ ${stamp}\n${suggestedText}\n`;
     }
 
-    const { error: upArtErr } = await supabase
-      .from("artifacts")
-      .update({ content: nextContent, updated_at: nowIso })
-      .eq("id", artifactId);
-
+    const { error: upArtErr } = await supabase.from("artifacts").update({ content: nextContent }).eq("id", artifactId);
     if (upArtErr) throwDb(upArtErr, "artifacts.update(apply_content)");
   }
 
@@ -395,7 +376,6 @@ export async function applySuggestion(formData: FormData) {
     .eq("id", suggestionId)
     .eq("project_id", projectId)
     .eq("artifact_id", artifactId);
-
   if (upSugErr) throwDb(upSugErr, "artifact_suggestions.update(applied)");
 
   await writeAuditLog(supabase, {
@@ -415,7 +395,6 @@ export async function applySuggestion(formData: FormData) {
       suggestion_status: "applied",
       anchor,
       applied_to: anchor === "title" ? "title" : "content",
-      applied_mode: anchor === "title" ? "replace_title" : "range_or_append",
     },
   });
 
@@ -456,7 +435,6 @@ export async function dismissSuggestion(formData: FormData) {
     .eq("id", suggestionId)
     .eq("project_id", projectId)
     .eq("artifact_id", artifactId);
-
   if (upErr) throwDb(upErr, "artifact_suggestions.update(dismissed)");
 
   await writeAuditLog(supabase, {
@@ -472,7 +450,7 @@ export async function dismissSuggestion(formData: FormData) {
 }
 
 /* ---------------------------
-   Artifact name/title editable (rename)
+   Artifact title rename
 ---------------------------- */
 export async function renameArtifactTitle(formData: FormData) {
   const { supabase, user } = await requireUser();
@@ -497,11 +475,7 @@ export async function renameArtifactTitle(formData: FormData) {
   const unlocked = !a0.is_locked && (approvalStatus === "draft" || approvalStatus === "changes_requested");
   if (!unlocked) throw new Error("You can only rename when the artifact is unlocked (draft or changes requested).");
 
-  const { error } = await supabase
-    .from("artifacts")
-    .update({ title, updated_at: new Date().toISOString() })
-    .eq("id", artifactId);
-
+  const { error } = await supabase.from("artifacts").update({ title }).eq("id", artifactId);
   if (error) throwDb(error, "artifacts.update(rename_title)");
 
   await writeAuditLog(supabase, {
@@ -529,7 +503,6 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
 
   const isAuthor = String(a0.user_id) === user.id;
 
-  // ✅ HARD RULE: only author/owner/editor submit/resubmit
   if (!canSubmitByRole(myRole, isAuthor)) {
     throw new Error("Approvers can’t submit/resubmit. Only the author or project owners/editors can submit.");
   }
@@ -537,6 +510,12 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
   const st = String(a0.approval_status ?? "draft").toLowerCase();
   if (!(st === "draft" || st === "changes_requested")) {
     throw new Error(`Cannot submit from status: ${st}`);
+  }
+
+  // ✅ Server-side validation gate for Project Charter
+  if (isProjectCharterType(a0.type)) {
+    // For your new v2, content is in content_json; this blocks submit until required sections are filled
+    assertCharterReadyForSubmit(a0.content_json);
   }
 
   // resubmission resets approval run
@@ -626,11 +605,13 @@ export async function approveArtifact(projectId: string, artifactId: string) {
       approval_status: "approved",
       approved_at: new Date().toISOString(),
       approved_by: user.id,
+      // keep locked; it was locked on submit
     })
     .eq("id", artifactId);
 
   if (upErr) throwDb(upErr, "artifacts.update(final_approve)");
 
+  // ✅ Create baseline snapshot (including content_json)
   const baselineId = await promoteApprovedToBaseline(supabase, {
     projectId,
     approvedArtifactId: artifactId,
@@ -764,6 +745,7 @@ export async function rejectFinalArtifact(projectId: string, artifactId: string,
 
 /* ---------------------------
    Baseline promotion (internal)
+   ✅ Copy content_json into baseline snapshot
 ---------------------------- */
 async function promoteApprovedToBaseline(
   supabase: any,
@@ -775,7 +757,7 @@ async function promoteApprovedToBaseline(
   // Retire existing baseline (current)
   const { error: retireErr } = await supabase
     .from("artifacts")
-    .update({ is_current: false, updated_at: new Date().toISOString() })
+    .update({ is_current: false })
     .eq("project_id", projectId)
     .eq("type", artifactType)
     .eq("is_baseline", true)
@@ -792,7 +774,10 @@ async function promoteApprovedToBaseline(
       user_id: a0.user_id ?? actorId,
       type: a0.type,
       title: a0.title,
-      content: a0.content,
+      content: String(a0.content ?? ""),
+
+      // ✅ IMPORTANT: snapshot structured content
+      content_json: a0.content_json ?? null,
 
       is_locked: true,
       locked_at: new Date().toISOString(),
@@ -810,8 +795,6 @@ async function promoteApprovedToBaseline(
       is_baseline: true,
 
       status: "approved",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
     })
     .select("id")
     .single();

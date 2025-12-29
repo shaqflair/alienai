@@ -1,4 +1,3 @@
-// src/app/projects/[id]/approvals/actions.ts
 "use server";
 
 import { redirect } from "next/navigation";
@@ -63,6 +62,12 @@ export async function addProjectApprover(formData: FormData) {
 
   const myRole = await requireMemberRole(supabase, project_id, user.id);
   requireOwner(myRole);
+
+  // ✅ OPTIONAL SAFEGUARD: prevent owner adding themselves as approver
+  // Remove this block if you WANT owners to also be approvers.
+  if (user_id === user.id) {
+    throw new Error("You can’t add yourself as an approver. Ask another owner to add you if required.");
+  }
 
   // Ensure target is a member
   const { data: targetMem, error: tErr } = await supabase
@@ -160,6 +165,12 @@ export async function removeProjectApprover(formData: FormData) {
 
   const myRole = await requireMemberRole(supabase, project_id, user.id);
   requireOwner(myRole);
+
+  // ✅ OPTIONAL SAFEGUARD: prevent removing yourself
+  // Remove this block if you want owners to be able to remove themselves.
+  if (user_id === user.id) {
+    throw new Error("You can’t remove yourself as an approver.");
+  }
 
   const { error } = await supabase
     .from("project_approvers")

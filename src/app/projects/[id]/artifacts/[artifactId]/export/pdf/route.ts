@@ -1,29 +1,31 @@
 // src/app/projects/[id]/artifacts/[artifactId]/export/pdf/route.ts
 import "server-only";
 
-import path from "path";
-import fs from "fs";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import PDFDocument from "pdfkit";
+import { createAdminClient } from "@/utils/supabase/admin";
+import { launchBrowser } from "@/lib/pdf/puppeteer-launch";
+import { makeEtag } from "@/lib/pdf/etag";
+import { renderProjectCharterHtml, type CharterData, type PdfBrand } from "@/lib/pdf/charter-html";
+import { isCharterExportReady } from "@/lib/charter/export-ready";
 
-// ✅ IMPORTANT: pdfkit + Buffer requires Node runtime
 export const runtime = "nodejs";
 
 /**
- * NOTE (critical):
- * - In Next 16 dev, Turbopack can cause recursion/stack-overflow with pdfkit/fontkit/puppeteer.
- *   If you see "Maximum call stack size exceeded", run dev with:
- *     next dev --no-turbo
- *
- * - pdfkit sometimes tries to load built-in Helvetica.afm via fontkit in a way bundlers can break.
- *   Best practice: register your own TTF and set it as the default font before writing any text.
- *   Put a font here:
- *     public/fonts/Inter-Regular.ttf
+ * ✅ This file contains NO JSX.
+ * If you still see: Expected '>', got 'className'
+ * it means JSX exists in a different route handler file.
+ * Search your repo for: className=
+ * and check route handler files under src/app/.../route.ts
  */
 
-function safeParam(x: unknown) {
+function safeParam(x: unknown): string {
   return typeof x === "string" ? x : "";
+}
+
+async function unwrapParams(p: any) {
+  if (!p) return {};
+  return typeof p?.then === "function" ? await p : p;
 }
 
 function safeHexColor(x: unknown, fallback = "#E60000") {
@@ -32,538 +34,228 @@ function safeHexColor(x: unknown, fallback = "#E60000") {
   return fallback;
 }
 
-function derivedStatus(a: any) {
-  const s = String(a?.approval_status ?? "").toLowerCase();
-  if (s === "approved") return "approved";
-  if (s === "rejected") return "rejected";
-  if (s === "changes_requested") return "changes_requested";
-  if (s === "submitted") return "submitted";
-  if (a?.approved_by) return "approved";
-  if (a?.rejected_by) return "rejected";
-  if (a?.is_locked) return "submitted";
+function fallbackIdsFromUrl(url: string) {
+  const u = new URL(url);
+  const parts = u.pathname.split("/").filter(Boolean);
+  const pIdx = parts.indexOf("projects");
+  const aIdx = parts.indexOf("artifacts");
+  return {
+    projectId: pIdx >= 0 ? safeParam(parts[pIdx + 1]) : "",
+    artifactId: aIdx >= 0 ? safeParam(parts[aIdx + 1]) : "",
+  };
+}
+
+function parseArtifactContent(content: any) {
+  if (content == null) return null;
+  if (typeof content === "object") return content;
+
+  if (typeof content === "string") {
+    const s = content.trim();
+    if (!s) return "";
+    try {
+      if ((s.startsWith("{") && s.endsWith("}")) || (s.startsWith("[") && s.endsWith("]"))) {
+        return JSON.parse(s);
+      }
+    } catch {
+      // keep as string
+    }
+    return content;
+  }
+
+  return content;
+}
+
+function inferStatusFromRaw(raw: any): string {
+  const s = String(raw?.approval_status ?? raw?.approvalStatus ?? raw?.status ?? "")
+    .trim()
+    .toLowerCase();
+  if (!s) return "draft";
+  if (s === "changes requested") return "changes_requested";
+  if (["approved", "submitted", "rejected", "changes_requested", "draft"].includes(s)) return s;
   return "draft";
 }
 
-function watermarkTextFromStatus(status: string) {
-  const s = String(status ?? "").toLowerCase();
-  if (s === "approved") return "";
-  if (s === "submitted") return "SUBMITTED";
-  if (s === "changes_requested") return "CHANGES REQUESTED";
-  if (s === "rejected") return "REJECTED";
-  return "DRAFT";
+function fileSafe(name: string) {
+  return String(name ?? "document")
+    .replace(/[^\w\-]+/g, "_")
+    .replace(/_+/g, "_")
+    .slice(0, 80);
 }
 
-function niceStatus(status: string) {
-  const s = String(status ?? "").toLowerCase();
-  if (s === "changes_requested") return "CHANGES REQUESTED";
-  return s.toUpperCase();
+async function fetchBranding(admin: any, projectId: string) {
+  const { data: project, error } = await admin
+    .from("projects")
+    .select("id, client_name, client_logo_url, brand_primary_color, title")
+    .eq("id", projectId)
+    .maybeSingle();
+
+  if (error) console.error("[PDF] projects.select (branding) error:", error);
+
+  const clientName = project?.client_name || "Client";
+  const brandColor = safeHexColor(project?.brand_primary_color, "#E60000");
+  const productName = "AlienAI";
+  const logoDataUri: string | null = project?.client_logo_url || null;
+
+  const brand: PdfBrand = { clientName, brandColor, productName, logoDataUri };
+  return { brand, project };
 }
 
-function fmtDateOnly(x: string | null | undefined) {
-  if (!x) return "";
-  try {
-    const d = new Date(x);
-    if (Number.isNaN(d.getTime())) return String(x);
-    return d.toISOString().slice(0, 10);
-  } catch {
-    return String(x);
-  }
-}
+async function fetchArtifact(admin: any, artifactId: string) {
+  const { data, error } = await admin
+    .from("artifacts")
+    .select("id, project_id, user_id, type, title, content, content_json, created_at, updated_at, approval_status, status")
+    .eq("id", artifactId)
+    .maybeSingle();
 
-async function fetchLogoBuffer(url?: string | null): Promise<Buffer | null> {
-  const u = String(url ?? "").trim();
-  if (!u) return null;
-  try {
-    const res = await fetch(u, { cache: "no-store" });
-    if (!res.ok) return null;
-    const ab = await res.arrayBuffer();
-    return Buffer.from(ab);
-  } catch {
+  if (error) {
+    console.error("[PDF] artifacts.select error:", error);
     return null;
   }
-}
-
-function addDiagonalWatermark(doc: PDFDocument, text: string) {
-  if (!text) return;
-
-  const pageW = doc.page.width;
-  const pageH = doc.page.height;
-
-  doc.save();
-  doc.fillColor("#D9D9D9");
-  doc.fontSize(64);
-  doc.translate(pageW / 2, pageH / 2);
-  doc.rotate(-35);
-  doc.text(text, -pageW / 2, -20, { width: pageW, align: "center" });
-  doc.restore();
-}
-
-type PdfBrand = {
-  clientName: string;
-  logoBuf?: Buffer | null;
-  brandColor: string; // #RRGGBB
-};
-
-function drawPdfHeader(doc: PDFDocument, brand: PdfBrand) {
-  const left = doc.page.margins.left;
-  const right = doc.page.width - doc.page.margins.right;
-
-  // top bar
-  doc.save();
-  doc.fillColor("#F5F5F5");
-  doc.rect(0, 0, doc.page.width, 42).fill();
-  doc.restore();
-
-  // accent line
-  doc.save();
-  doc.fillColor(brand.brandColor);
-  doc.rect(0, 40, doc.page.width, 2).fill();
-  doc.restore();
-
-  doc.fillColor("#222");
-  doc.fontSize(11).text(brand.clientName || "Client", left, 14, {
-    width: right - left - 170,
-  });
-
-  if (brand.logoBuf) {
-    try {
-      doc.image(brand.logoBuf, right - 150, 7, { fit: [150, 28] });
-    } catch {
-      // ignore
-    }
-  }
-
-  // push content below header
-  doc.y = Math.max(doc.y, 55);
-}
-
-function drawPdfFooter(doc: PDFDocument, brand: PdfBrand) {
-  const left = doc.page.margins.left;
-  const bottom = doc.page.height - doc.page.margins.bottom;
-  const today = new Date().toISOString().slice(0, 10);
-
-  doc.fillColor("#666");
-  doc.fontSize(8).text(
-    `Confidential – ${brand.clientName} – Generated by AlienAI – ${today}`,
-    left,
-    bottom + 10,
-    {
-      width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
-      align: "left",
-    }
-  );
-}
-
-/** Legacy charter table extraction (tiptap-like) */
-function cellText(node: any): string {
-  if (!node) return "";
-  if (node.type === "text") return String(node.text ?? "");
-  const kids = Array.isArray(node.content) ? node.content : [];
-  return kids.map(cellText).join("");
-}
-
-function extractTable(doc: any) {
-  const table = (doc?.content ?? []).find((n: any) => n?.type === "table");
-  return table ?? null;
-}
-
-/** Canonical v2 support */
-function getSectionsFromContentJson(content_json: any) {
-  if (
-    content_json &&
-    typeof content_json === "object" &&
-    Array.isArray((content_json as any).sections)
-  ) {
-    return (content_json as any).sections.map((s: any, idx: number) => ({
-      key: String(s?.key ?? `section_${idx + 1}`),
-      title: String(s?.title ?? `Section ${idx + 1}`),
-      content_json: s?.content_json ?? {},
-    }));
-  }
-  return [{ key: "content", title: "Content", content_json: content_json ?? {} }];
-}
-
-function stringifyFallback(x: any) {
-  if (!x) return "";
-  if (typeof x === "string") return x;
-  try {
-    return JSON.stringify(x, null, 2);
-  } catch {
-    return String(x);
-  }
-}
-
-type ApprovalRow = {
-  role: string;
-  name: string;
-  decision: "Approved" | "Rejected" | "Changes requested" | "Pending";
-  date: string;
-  comment: string;
-};
-
-async function buildApprovalRowsFromAudit(
-  supabase: any,
-  projectId: string,
-  artifactId: string
-): Promise<ApprovalRow[]> {
-  const { data: approvers } = await supabase
-    .from("project_approvers")
-    .select("user_id, role")
-    .eq("project_id", projectId)
-    .eq("is_active", true);
-
-  const approverList =
-    approvers?.map((a: any) => ({
-      user_id: String(a.user_id),
-      role: String(a.role ?? "Approver"),
-    })) ?? [];
-
-  const ids = Array.from(new Set(approverList.map((a) => a.user_id).filter(Boolean)));
-
-  const { data: profiles } = ids.length
-    ? await supabase.from("profiles").select("user_id, full_name, email").in("user_id", ids)
-    : ({ data: [] } as any);
-
-  const byId = new Map<string, any>();
-  for (const p of profiles ?? []) byId.set(String(p.user_id), p);
-
-  const displayName = (uid: string, fallbackEmail?: string) => {
-    const p = byId.get(uid);
-    return (
-      String(p?.full_name ?? "").trim() ||
-      String(p?.email ?? "").trim() ||
-      (fallbackEmail ? String(fallbackEmail).trim() : "") ||
-      uid.slice(0, 8) + "…"
-    );
-  };
-
-  const { data: auditRows } = await supabase
-    .from("artifact_audit")
-    .select(
-      "actor_user_id, actor_email, on_behalf_of_user_id, on_behalf_of_email, action, meta, created_at"
-    )
-    .eq("project_id", projectId)
-    .eq("artifact_id", artifactId)
-    .order("created_at", { ascending: false })
-    .limit(500);
-
-  const latestByApprover = new Map<string, any>();
-  for (const row of auditRows ?? []) {
-    const effectiveUserId = String(row?.on_behalf_of_user_id ?? row?.actor_user_id ?? "");
-    if (!effectiveUserId) continue;
-    if (latestByApprover.has(effectiveUserId)) continue;
-
-    const action = String(row?.action ?? "").toLowerCase();
-    if (action.includes("approve") || action.includes("reject") || action.includes("change")) {
-      latestByApprover.set(effectiveUserId, row);
-    }
-  }
-
-  const mapDecision = (action: string): ApprovalRow["decision"] => {
-    const a = String(action ?? "").toLowerCase();
-    if (a.includes("approve")) return "Approved";
-    if (a.includes("reject")) return "Rejected";
-    if (a.includes("change")) return "Changes requested";
-    return "Pending";
-  };
-
-  const commentFromMeta = (meta: any) => {
-    const m = meta && typeof meta === "object" ? meta : {};
-    return (
-      String(m.reason ?? "").trim() ||
-      String(m.comment ?? "").trim() ||
-      String(m.note ?? "").trim() ||
-      String(m.rejection_reason ?? "").trim() ||
-      ""
-    );
-  };
-
-  const rows: ApprovalRow[] = approverList.map((a) => {
-    const ev = latestByApprover.get(a.user_id);
-    return {
-      role: a.role || "Approver",
-      name: displayName(a.user_id, ev?.on_behalf_of_email || ev?.actor_email),
-      decision: ev ? mapDecision(String(ev.action ?? "")) : "Pending",
-      date: ev ? fmtDateOnly(ev.created_at ?? null) : "",
-      comment: ev ? commentFromMeta(ev.meta) : "",
-    };
-  });
-
-  if (rows.length === 0) {
-    rows.push({
-      role: "—",
-      name: "No approvers configured",
-      decision: "Pending",
-      date: "",
-      comment: "Add active approvers in Project Approvals.",
-    });
-  }
-
-  return rows;
-}
-
-function registerDefaultFont(doc: PDFDocument) {
-  // ✅ Strong fix: always use a real TTF to avoid pdfkit built-in font asset lookups.
-  const fontPath = path.join(process.cwd(), "public", "fonts", "Inter-Regular.ttf");
-  if (fs.existsSync(fontPath)) {
-    doc.registerFont("Inter", fontPath);
-    doc.font("Inter");
-    return;
-  }
-
-  // Fallback: Helvetica (may still work if bundling is okay)
-  // If you still get Helvetica.afm errors, add the TTF above.
-  try {
-    doc.font("Helvetica");
-  } catch {
-    // last resort: do nothing
-  }
+  return data ?? null;
 }
 
 export async function GET(
   req: Request,
-  ctx: { params: Promise<{ id: string; artifactId: string }> }
+  ctx: { params: { id?: string; artifactId?: string } | Promise<any> }
 ) {
-  // ✅ Correct param usage (no free variable named "params")
-  const { id, artifactId } = await ctx.params;
+  const p = await unwrapParams(ctx.params);
 
-  const projectId = safeParam(id).trim();
-  const aid = safeParam(artifactId).trim();
+  let projectId = safeParam(p?.id);
+  let artifactId = safeParam(p?.artifactId);
 
-  if (!projectId || !aid) {
-    return NextResponse.json({ error: "Missing params" }, { status: 400 });
+  if (!projectId || !artifactId) {
+    const fb = fallbackIdsFromUrl(req.url);
+    projectId = projectId || fb.projectId;
+    artifactId = artifactId || fb.artifactId;
   }
 
+  if (!projectId || !artifactId) return new NextResponse("Missing project/artifact id", { status: 400 });
+
+  // Auth gate (PDF export is not public)
   const supabase = await createClient();
+  const { data: auth, error: authErr } = await supabase.auth.getUser();
+  if (authErr) console.error("[PDF] auth.getUser error:", authErr);
+  if (!auth?.user) return new NextResponse("Unauthorized", { status: 401 });
 
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth?.user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  const admin = createAdminClient();
 
-  // Membership check
-  const { data: mem, error: memErr } = await supabase
-    .from("project_members")
-    .select("role")
-    .eq("project_id", projectId)
-    .eq("user_id", auth.user.id)
-    .maybeSingle();
-
-  if (memErr) return NextResponse.json({ error: memErr.message }, { status: 500 });
-  if (!mem) return NextResponse.json({ error: "Not a project member" }, { status: 403 });
-
-  // Branding columns
-  const { data: project, error: projErr } = await supabase
+  // Pull project title so the PDF always shows the project name correctly
+  const { data: projectTitleRow, error: projErr } = await admin
     .from("projects")
-    .select("id, title, client_name, client_logo_url, brand_primary_color")
+    .select("id,title")
     .eq("id", projectId)
     .maybeSingle();
-  if (projErr) console.warn("[projects.select]", projErr.message);
 
-  const clientName =
-    String(project?.client_name ?? "").trim() ||
-    String(project?.title ?? "").trim() ||
-    "Client";
+  if (projErr) console.error("[PDF] projects.select (title) error:", projErr);
 
-  const logoUrl = String(project?.client_logo_url ?? "").trim() || null;
-  const brandColor = safeHexColor(project?.brand_primary_color, "#E60000");
-  const logoBuf = await fetchLogoBuffer(logoUrl);
+  const projectTitleFromProject = String(projectTitleRow?.title ?? "").trim();
 
-  // Artifact
-  const { data: artifact, error: artErr } = await supabase
-    .from("artifacts")
-    .select("id,title,content_json,approval_status,approved_by,rejected_by,is_locked,version")
-    .eq("id", aid)
-    .eq("project_id", projectId)
-    .maybeSingle();
+  const [brandRes, artifact] = await Promise.all([fetchBranding(admin, projectId), fetchArtifact(admin, artifactId)]);
 
-  if (artErr) return NextResponse.json({ error: artErr.message }, { status: 500 });
-  if (!artifact) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!artifact) return new NextResponse("Not found (artifact missing)", { status: 404 });
+  if (safeParam(artifact.project_id) !== projectId) return new NextResponse("Not found (project mismatch)", { status: 404 });
 
-  const status = derivedStatus(artifact);
-  const watermark = watermarkTextFromStatus(status);
+  const raw = parseArtifactContent(artifact.content_json ?? artifact.content);
 
-  const titleText = String(artifact.title ?? "Project Charter");
-  const fileBase = titleText
-    .replace(/[^\w\-]+/g, "-")
-    .replace(/\-+/g, "-")
-    .replace(/^\-|\-$/g, "");
-  const fileName = `${fileBase || "project-charter"}-${niceStatus(status)}.pdf`;
+  // ✅ Export readiness gate (prevents blank PDFs)
+  const v2 = raw && typeof raw === "object" ? raw : null;
 
-  const sections = getSectionsFromContentJson((artifact as any).content_json);
-
-  // legacy table if present
-  let tableNode: any | null = null;
-  for (const s of sections) {
-    tableNode = extractTable(s.content_json);
-    if (tableNode) break;
+  // Hard stop: must be v2-like { meta, sections }
+  if (!v2?.meta || !Array.isArray(v2?.sections)) {
+    return new NextResponse(
+      "Project Charter is not in v2 format.\n\nOpen the charter, click 'Upgrade to v2', then 'Save charter', and try exporting again.",
+      { status: 400, headers: { "Content-Type": "text/plain; charset=utf-8" } }
+    );
   }
 
-  const approvalRows = await buildApprovalRowsFromAudit(supabase, projectId, aid);
+  const report = isCharterExportReady(v2);
+  if (!report.ready) {
+    return new NextResponse(
+      `Project Charter is incomplete for export.\n\nMissing:\n- ${report.missing.join(
+        "\n- "
+      )}\n\nOpen the charter, complete the missing parts, click 'Save charter', then export again.`,
+      { status: 400, headers: { "Content-Type": "text/plain; charset=utf-8" } }
+    );
+  }
 
+  const charter: CharterData = {
+    projectTitle:
+      projectTitleFromProject ||
+      raw?.meta?.project_title ||
+      raw?.projectTitle ||
+      raw?.title ||
+      "Project Charter",
+    projectCode: raw?.projectCode ?? raw?.project_code ?? null,
+    version: raw?.version
+      ? String(raw.version)
+      : (artifact as any)?.version
+      ? String((artifact as any).version)
+      : null,
+    status: inferStatusFromRaw(raw),
+    preparedBy: raw?.preparedBy ?? raw?.prepared_by ?? null,
+    approvedBy: raw?.approvedBy ?? raw?.approved_by ?? null,
+    lastUpdated: artifact.updated_at ?? artifact.created_at ?? null,
+    raw,
+  };
+
+  const brand = brandRes.brand;
+
+  const etag = makeEtag({
+    v: 4,
+    projectId,
+    artifactId,
+    brand,
+    artifact: {
+      id: artifact.id,
+      project_id: artifact.project_id,
+      type: artifact.type,
+      updated_at: artifact.updated_at ?? artifact.created_at,
+      content_len: typeof artifact.content === "string" ? artifact.content.length : null,
+      content_json_hint: artifact.content_json ? "json" : null,
+    },
+    charterHints: { title: charter.projectTitle, status: charter.status, version: charter.version },
+  });
+
+  const inm = req.headers.get("if-none-match");
+  if (inm && inm === etag) {
+    return new NextResponse(null, {
+      status: 304,
+      headers: { ETag: etag, "Cache-Control": "private, max-age=0, must-revalidate" },
+    });
+  }
+
+  const { html, headerTemplate, footerTemplate } = renderProjectCharterHtml({ brand, charter });
+
+  const browser = await launchBrowser();
   try {
-    const doc = new PDFDocument({ margin: 40, size: "A4" });
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1240, height: 1754 });
+    await page.setContent(html, { waitUntil: ["domcontentloaded", "networkidle0"] });
 
-    // ✅ Register a real font ASAP (before any doc.text calls)
-    registerDefaultFont(doc);
-
-    const chunks: Buffer[] = [];
-    doc.on("data", (c) => chunks.push(c));
-    const done = new Promise<Buffer>((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
-
-    const brand: PdfBrand = { clientName, logoBuf, brandColor };
-
-    const applyPageChrome = () => {
-      drawPdfHeader(doc, brand);
-      addDiagonalWatermark(doc, watermark);
-      drawPdfFooter(doc, brand);
-    };
-
-    applyPageChrome();
-    doc.on("pageAdded", () => {
-      // after a new page is created, re-apply font + chrome
-      registerDefaultFont(doc);
-      applyPageChrome();
+    const pdfBuffer = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      displayHeaderFooter: true,
+      headerTemplate,
+      footerTemplate,
+      margin: { top: "90px", bottom: "70px", left: "36px", right: "36px" },
     });
 
-    // Title
-    doc.fillColor("#000");
-    doc.fontSize(18).text(titleText);
-    doc.moveDown(0.25);
-    doc.fontSize(10).fillColor("#444").text(
-      `Status: ${niceStatus(status)}    Version: ${String((artifact as any).version ?? "—")}`
-    );
-    doc.moveDown(0.75);
-    doc.fillColor("#000");
+    const filename = `${fileSafe(charter.projectTitle || "Project-Charter")}.pdf`;
 
-    // Content
-    if (!tableNode) {
-      doc.fontSize(11).text("No structured charter table found. Exporting section content instead.");
-      doc.moveDown(0.75);
-
-      for (const s of sections) {
-        if (doc.y > doc.page.height - doc.page.margins.bottom - 140) doc.addPage();
-        doc.fillColor("#000").fontSize(13).text(s.title);
-        doc.moveDown(0.25);
-        doc.fillColor("#222").fontSize(9).text(stringifyFallback(s.content_json) || "—");
-        doc.moveDown(0.8);
-      }
-    } else {
-      const rows = (tableNode.content ?? []).filter((r: any) => r?.type === "tableRow");
-      const pageW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-
-      // assume 4 columns
-      const colW = pageW / 4;
-      const rowH = 22;
-      let y = doc.y + 10;
-
-      const drawCell = (x: number, y0: number, w: number, h: number, text: string, header = false) => {
-        if (header) {
-          doc.save();
-          doc.fillColor("#F2F2F2");
-          doc.rect(x, y0, w, h).fill();
-          doc.restore();
-        }
-
-        doc.save();
-        doc.strokeColor("#000");
-        doc.rect(x, y0, w, h).stroke();
-        doc.restore();
-
-        doc.fillColor("#000").fontSize(9).text(text || " ", x + 4, y0 + 6, {
-          width: w - 8,
-          height: h - 8,
-        });
-      };
-
-      for (const r of rows) {
-        const cells = (r.content ?? []).filter((c: any) => c?.type === "tableCell" || c?.type === "tableHeader");
-        let x = doc.page.margins.left;
-
-        if (y + rowH > doc.page.height - doc.page.margins.bottom) {
-          doc.addPage();
-          y = doc.y + 10;
-        }
-
-        for (const c of cells) {
-          const colspan = Math.max(1, Number(c?.attrs?.colspan ?? 1));
-          const w = colW * colspan;
-          const isHeader = c.type === "tableHeader";
-          const text = (c.content ?? []).map(cellText).join("").trim();
-          drawCell(x, y, w, rowH, text, isHeader);
-          x += w;
-        }
-
-        y += rowH;
-      }
-
-      doc.y = y + 10;
-    }
-
-    // Approvals page
-    doc.addPage();
-
-    doc.fillColor("#000");
-    doc.fontSize(16).text("Approvals");
-    doc.moveDown(0.25);
-    doc.fontSize(9).fillColor("#444").text("Source: artifact_audit (latest decision per approver).");
-    doc.moveDown(0.8);
-
-    const tableW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-    const colWs = [0.16, 0.20, 0.14, 0.10, 0.40].map((p) => tableW * p);
-    const rowH2 = 20;
-    let y2 = doc.y;
-
-    const drawRow = (values: string[], header = false) => {
-      let x = doc.page.margins.left;
-
-      if (y2 + rowH2 > doc.page.height - doc.page.margins.bottom) {
-        doc.addPage();
-        y2 = doc.y;
-      }
-
-      for (let i = 0; i < values.length; i++) {
-        if (header) {
-          doc.save();
-          doc.fillColor("#F2F2F2");
-          doc.rect(x, y2, colWs[i], rowH2).fill();
-          doc.restore();
-        }
-
-        doc.save();
-        doc.strokeColor("#000");
-        doc.rect(x, y2, colWs[i], rowH2).stroke();
-        doc.restore();
-
-        doc.fillColor("#000").fontSize(header ? 9 : 8).text(values[i] || "—", x + 4, y2 + 6, {
-          width: colWs[i] - 8,
-          height: rowH2 - 8,
-        });
-
-        x += colWs[i];
-      }
-
-      y2 += rowH2;
-    };
-
-    drawRow(["Role", "Approver", "Decision", "Date", "Comment"], true);
-    for (const r of approvalRows.slice(0, 25)) {
-      drawRow([r.role, r.name, r.decision, r.date || "—", r.comment || "—"], false);
-    }
-
-    doc.end();
-    const pdf = await done;
-
-    return new NextResponse(pdf, {
+    return new NextResponse(pdfBuffer, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${fileName}"`,
-        "Cache-Control": "no-store",
+        "Content-Disposition": `inline; filename="${filename}"`,
+        "Cache-Control": "private, max-age=0, must-revalidate",
+        ETag: etag,
       },
     });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: String(e?.message ?? e), stack: String(e?.stack ?? "") },
-      { status: 500 }
-    );
+    console.error("[PDF] puppeteer render error:", e);
+    return new NextResponse(`PDF render failed: ${String(e?.message ?? e)}`, { status: 500 });
+  } finally {
+    await browser.close().catch(() => {});
   }
 }

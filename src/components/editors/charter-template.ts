@@ -43,20 +43,58 @@ export const PROJECT_CHARTER_TEMPLATE_V1: JSONDoc = {
         row([th("Project Title"), cell(""), th("Project Manager"), cell("")]),
         row([th("Project Start Date"), cell(""), th("Project End Date"), cell("")]),
         row([th("Project Sponsor"), cell(""), th("Customer / Account"), cell("")]),
-        row([th("Business Need", { colspan: 4 })]),
+
+        row([th("Business Case", { colspan: 4 })]),
         row([cell("", { colspan: 4 })]),
-        row([th("Project Scope", { colspan: 2 }), th("Deliverables", { colspan: 2 })]),
-        row([cell("", { colspan: 2 }), cell("1.", { colspan: 2 })]),
-        row([cell("", { colspan: 2 }), cell("2.", { colspan: 2 })]),
-        row([th("Risks & Issues", { colspan: 2 }), th("Assumptions / Dependencies", { colspan: 2 })]),
-        row([cell("1.", { colspan: 2 }), cell("1.", { colspan: 2 })]),
-        row([cell("2.", { colspan: 2 }), cell("2.", { colspan: 2 })]),
-        row([th("Financials", { colspan: 4 })]),
-        row([cell("Budget to complete this project:", { colspan: 2 }), cell("", { colspan: 2 })]),
-        row([th("Milestones Schedule", { colspan: 4 })]),
-        row([th("Milestone"), th("Target Completion Date"), th("Actual Date"), th("Notes")]),
+
+        row([th("Objectives", { colspan: 4 })]),
+        row([cell("1.", { colspan: 4 })]),
+        row([cell("2.", { colspan: 4 })]),
+
+        row([th("Scope", { colspan: 4 })]),
+        row([cell("In Scope:\n- ", { colspan: 4 })]),
+        row([cell("Out of Scope:\n- ", { colspan: 4 })]),
+
+        row([th("Key Deliverables", { colspan: 4 })]),
+        row([cell("1.", { colspan: 4 })]),
+        row([cell("2.", { colspan: 4 })]),
+
+        row([th("Milestones & Timeline", { colspan: 4 })]),
+        row([th("Milestone"), th("Target Date"), th("Actual Date"), th("Notes")]),
         row([cell("Milestone 1"), cell(""), cell(""), cell("")]),
         row([cell("Milestone 2"), cell(""), cell(""), cell("")]),
+
+        row([th("Financials", { colspan: 4 })]),
+        row([th("Item"), th("Baseline (£)"), th("Forecast (£)"), th("Notes")]),
+        row([cell("Budget"), cell(""), cell(""), cell("")]),
+        row([cell("Contingency"), cell(""), cell(""), cell("")]),
+
+        row([th("Risks", { colspan: 4 })]),
+        row([cell("1.", { colspan: 4 })]),
+        row([cell("2.", { colspan: 4 })]),
+
+        row([th("Issues", { colspan: 4 })]),
+        row([cell("1.", { colspan: 4 })]),
+        row([cell("2.", { colspan: 4 })]),
+
+        row([th("Assumptions", { colspan: 4 })]),
+        row([cell("1.", { colspan: 4 })]),
+        row([cell("2.", { colspan: 4 })]),
+
+        row([th("Dependencies", { colspan: 4 })]),
+        row([cell("1.", { colspan: 4 })]),
+        row([cell("2.", { colspan: 4 })]),
+
+        row([th("Project Team", { colspan: 4 })]),
+        row([th("Role"), th("Name"), th("Organisation"), th("Responsibility")]),
+        row([cell("Project Manager"), cell(""), cell(""), cell("")]),
+        row([cell("Technical Lead"), cell(""), cell(""), cell("")]),
+
+        row([th("Stakeholders", { colspan: 4 })]),
+        row([th("Stakeholder"), th("Role"), th("Interest"), th("Influence")]),
+        row([cell(""), cell(""), cell(""), cell("")]),
+        row([cell(""), cell(""), cell(""), cell("")]),
+
         row([th("Approval / Review Committee", { colspan: 4 })]),
         row([th("Role"), th("Name"), th("Date"), th("Signature")]),
         row([cell("Project Manager"), cell(""), cell(""), cell("")]),
@@ -68,14 +106,10 @@ export const PROJECT_CHARTER_TEMPLATE_V1: JSONDoc = {
 
 /* ------------------------------
    Canonical (v2) Section Template
-   (Used by the new Section editor)
+   (Used by the current Section editor)
+   ✅ SAME STRUCTURE, just new sections
 ------------------------------ */
 
-/**
- * v2 shape expected by the new UI:
- * - sections[] drives the tabs + headers + slide mapping
- * - each section has either bullets or rows (table-like)
- */
 export const PROJECT_CHARTER_TEMPLATE_V2: any = {
   version: 2,
   type: "project_charter",
@@ -88,46 +122,66 @@ export const PROJECT_CHARTER_TEMPLATE_V2: any = {
     customer_account: "",
   },
   sections: [
+    { key: "business_case", title: "Business Case", bullets: "" },
+
+    { key: "objectives", title: "Objectives", bullets: "1.\n2.\n3." },
+
     {
-      key: "business_need",
-      title: "Business Need",
-      bullets: "",
+      key: "scope",
+      title: "Scope",
+      bullets: "In Scope:\n- \n\nOut of Scope:\n- ",
     },
+
+    { key: "key_deliverables", title: "Key Deliverables", bullets: "1.\n2.\n3." },
+
     {
-      key: "scope_assumptions",
-      title: "Scope & Assumptions",
-      bullets: "",
-    },
-    {
-      key: "key_milestones",
-      title: "Key Milestones",
-      // rows/table style for milestones
-      columns: ["Milestone", "Target Completion Date", "Actual Date", "Notes"],
+      key: "milestones_timeline",
+      title: "Milestones & Timeline",
+      columns: ["Milestone", "Target Date", "Actual Date", "Notes"],
       rows: [
         ["Milestone 1", "", "", ""],
         ["Milestone 2", "", "", ""],
       ],
     },
+
     {
       key: "financials",
       title: "Financials",
-      bullets: "Budget to complete this project: ",
+      columns: ["Item", "Baseline (£)", "Forecast (£)", "Notes"],
+      rows: [
+        ["Budget", "", "", ""],
+        ["Contingency", "", "", ""],
+      ],
     },
+
+    { key: "risks", title: "Risks", bullets: "1.\n2." },
+
+    { key: "issues", title: "Issues", bullets: "1.\n2." },
+
+    { key: "assumptions", title: "Assumptions", bullets: "1.\n2." },
+
+    { key: "dependencies", title: "Dependencies", bullets: "1.\n2." },
+
     {
-      key: "top_risks_issues",
-      title: "Top Risks & Issues",
-      bullets: "1.\n2.",
+      key: "project_team",
+      title: "Project Team",
+      columns: ["Role", "Name", "Organisation", "Responsibility"],
+      rows: [
+        ["Project Manager", "", "", ""],
+        ["Technical Lead", "", "", ""],
+      ],
     },
+
     {
-      key: "dependencies",
-      title: "Dependencies",
-      bullets: "1.\n2.",
+      key: "stakeholders",
+      title: "Stakeholders",
+      columns: ["Stakeholder", "Role", "Interest", "Influence"],
+      rows: [
+        ["", "", "", ""],
+        ["", "", "", ""],
+      ],
     },
-    {
-      key: "decision_ask",
-      title: "Decision / Ask",
-      bullets: "",
-    },
+
     {
       key: "approval",
       title: "Approval / Review Committee",
@@ -141,5 +195,4 @@ export const PROJECT_CHARTER_TEMPLATE_V2: any = {
 };
 
 // Keep backward compatibility for existing imports
-// (Editor should now use V2; legacy exports/classic can use V1)
 export const PROJECT_CHARTER_TEMPLATE = PROJECT_CHARTER_TEMPLATE_V2;

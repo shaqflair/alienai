@@ -12,12 +12,7 @@ const nextConfig: NextConfig = {
     // optional in dev:
     "puppeteer",
   ],
-
-  /**
-   * Recommended for production deployments (Docker / many serverless setups).
-   * Safe to include even if you don't use it.
-   */
-  output: "standalone",
 };
 
 export default nextConfig;
+

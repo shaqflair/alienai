@@ -1,17 +1,31 @@
 import { Resend } from "resend";
 
-function requireEnv(name: string) {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing env var: ${name}`);
-  return v;
+/**
+ * Ensure required environment variables exist.
+ * Fails fast at runtime if misconfigured.
+ */
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing environment variable: ${name}`);
+  }
+  return value;
 }
 
-export function getResendClient() {
+/**
+ * Returns a singleton-safe Resend client
+ * Used for transactional emails (invites, alerts, etc.)
+ */
+export function getResendClient(): Resend {
   const apiKey = requireEnv("RESEND_API_KEY");
   return new Resend(apiKey);
 }
 
-export function getFromAddress() {
-  // Safer to avoid quotes in .env for this
+/**
+ * The verified "from" address/domain in Resend
+ * Example: "AlienAI <invites@alienai.app>"
+ */
+export function getFromAddress(): string {
   return requireEnv("RESEND_FROM");
 }
+

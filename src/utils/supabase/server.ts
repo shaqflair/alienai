@@ -1,8 +1,24 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
+type CookieStoreLike = {
+  getAll: () => Array<{ name: string; value: string }>;
+  set: (name: string, value: string, options?: any) => void;
+};
+
+/**
+ * Next can provide cookies() as sync or async depending on build/runtime.
+ * This helper safely unwraps either form.
+ */
+async function getCookieStore(): Promise<CookieStoreLike> {
+  const maybe = cookies() as any;
+  // If cookies() returns a Promise/thenable, await it; otherwise use it directly.
+  const store = typeof maybe?.then === "function" ? await maybe : maybe;
+  return store as CookieStoreLike;
+}
+
 export async function createClient() {
-  const cookieStore = await cookies();
+  const cookieStore = await getCookieStore();
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -16,6 +32,7 @@ export async function createClient() {
   return createServerClient(url, anonKey, {
     cookies: {
       getAll() {
+        // cookieStore is now guaranteed to be the resolved store
         return cookieStore.getAll();
       },
       setAll(cookiesToSet) {
@@ -24,8 +41,7 @@ export async function createClient() {
             cookieStore.set(name, value, options);
           });
         } catch {
-          // ❗ This can fail in Server Components during render
-          // Safe to ignore – cookies will still be set on the response
+          // Can fail in some server render contexts; safe to ignore
         }
       },
     },
