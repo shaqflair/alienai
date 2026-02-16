@@ -1,7 +1,7 @@
 // src/components/editors/ProjectCharterEditor.tsx
 "use client";
 
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 
@@ -10,6 +10,22 @@ import { Table } from "@tiptap/extension-table";
 import { TableRow } from "@tiptap/extension-table-row";
 import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
+
+export type ImproveWithAIPayload = {
+  mode: "selection" | "cell" | "doc";
+  text: string; // plain text extracted
+  html: string; // html snapshot (helpful for LLM)
+  json: any; // json snapshot (helpful for LLM)
+  meta: {
+    from: number;
+    to: number;
+    hasSelection: boolean;
+    readOnly: boolean;
+    lockLayout: boolean;
+    selectionText?: string;
+    createdAtIso: string;
+  };
+};
 
 function makeDefaultCharterDoc() {
   return {
@@ -25,9 +41,7 @@ function makeDefaultCharterDoc() {
               {
                 type: "tableCell",
                 attrs: { colspan: 4, rowspan: 1, colwidth: [240, 240, 240, 240] },
-                content: [
-                  { type: "paragraph", content: [{ type: "text", text: "PROJECT CHARTER" }] },
-                ],
+                content: [{ type: "paragraph", content: [{ type: "text", text: "PROJECT CHARTER" }] }],
               },
             ],
           },
@@ -55,31 +69,17 @@ function makeDefaultCharterDoc() {
             type: "tableRow",
             content: [
               { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "Project Sponsor" }] }] },
-              { type: "tableCell", attrs: { colspan: 3 }, content: [{ type: "paragraph", content: [{ type: "text", text: "" }] }] },
-            ],
-          },
-
-          // Business Need
-          {
-            type: "tableRow",
-            content: [
-              {
-                type: "tableHeader",
-                attrs: { colspan: 4 },
-                content: [{ type: "paragraph", content: [{ type: "text", text: "Business Need" }] }],
-              },
-            ],
-          },
-          {
-            type: "tableRow",
-            content: [
               {
                 type: "tableCell",
-                attrs: { colspan: 4 },
+                attrs: { colspan: 3 },
                 content: [{ type: "paragraph", content: [{ type: "text", text: "" }] }],
               },
             ],
           },
+
+          // Business Need
+          { type: "tableRow", content: [{ type: "tableHeader", attrs: { colspan: 4 }, content: [{ type: "paragraph", content: [{ type: "text", text: "Business Need" }] }] }] },
+          { type: "tableRow", content: [{ type: "tableCell", attrs: { colspan: 4 }, content: [{ type: "paragraph", content: [{ type: "text", text: "" }] }] }] },
 
           // Scope vs Deliverables
           {
@@ -128,26 +128,11 @@ function makeDefaultCharterDoc() {
           },
 
           // Financials
-          {
-            type: "tableRow",
-            content: [
-              { type: "tableHeader", attrs: { colspan: 4 }, content: [{ type: "paragraph", content: [{ type: "text", text: "Financials" }] }] },
-            ],
-          },
-          {
-            type: "tableRow",
-            content: [
-              { type: "tableCell", attrs: { colspan: 4 }, content: [{ type: "paragraph", content: [{ type: "text", text: "Budget to complete this project" }] }] },
-            ],
-          },
+          { type: "tableRow", content: [{ type: "tableHeader", attrs: { colspan: 4 }, content: [{ type: "paragraph", content: [{ type: "text", text: "Financials" }] }] }] },
+          { type: "tableRow", content: [{ type: "tableCell", attrs: { colspan: 4 }, content: [{ type: "paragraph", content: [{ type: "text", text: "Budget to complete this project" }] }] }] },
 
           // Milestones
-          {
-            type: "tableRow",
-            content: [
-              { type: "tableHeader", attrs: { colspan: 4 }, content: [{ type: "paragraph", content: [{ type: "text", text: "Milestones Schedule" }] }] },
-            ],
-          },
+          { type: "tableRow", content: [{ type: "tableHeader", attrs: { colspan: 4 }, content: [{ type: "paragraph", content: [{ type: "text", text: "Milestones Schedule" }] }] }] },
           {
             type: "tableRow",
             content: [
@@ -177,12 +162,7 @@ function makeDefaultCharterDoc() {
           },
 
           // Approvals
-          {
-            type: "tableRow",
-            content: [
-              { type: "tableHeader", attrs: { colspan: 4 }, content: [{ type: "paragraph", content: [{ type: "text", text: "Approval / Review Committee" }] }] },
-            ],
-          },
+          { type: "tableRow", content: [{ type: "tableHeader", attrs: { colspan: 4 }, content: [{ type: "paragraph", content: [{ type: "text", text: "Approval / Review Committee" }] }] }] },
           {
             type: "tableRow",
             content: [
@@ -225,27 +205,118 @@ function hasTable(doc: any) {
   return Array.isArray(c) && c.some((n: any) => n?.type === "table");
 }
 
+function safeTextBetween(editor: any, from: number, to: number) {
+  try {
+    return editor.state.doc.textBetween(from, to, "\n", "\n").trim();
+  } catch {
+    return "";
+  }
+}
+
+function buildImprovePayload(editor: any, readOnly: boolean, lockLayout: boolean): ImproveWithAIPayload {
+  const { from, to, empty } = editor.state.selection;
+
+  const jsonDoc = editor.getJSON();
+  const htmlDoc = editor.getHTML();
+
+  if (!empty) {
+    const text = safeTextBetween(editor, from, to);
+    return {
+      mode: "selection",
+      text,
+      html: htmlDoc,
+      json: jsonDoc,
+      meta: {
+        from,
+        to,
+        hasSelection: true,
+        readOnly,
+        lockLayout,
+        selectionText: text,
+        createdAtIso: new Date().toISOString(),
+      },
+    };
+  }
+
+  const window = 250;
+  const start = Math.max(0, from - window);
+  const end = Math.min(editor.state.doc.content.size, from + window);
+  const nearText = safeTextBetween(editor, start, end);
+
+  if (nearText) {
+    return {
+      mode: "cell",
+      text: nearText,
+      html: htmlDoc,
+      json: jsonDoc,
+      meta: {
+        from: start,
+        to: end,
+        hasSelection: false,
+        readOnly,
+        lockLayout,
+        selectionText: nearText,
+        createdAtIso: new Date().toISOString(),
+      },
+    };
+  }
+
+  const allText = (editor.getText?.() ?? "").trim();
+  return {
+    mode: "doc",
+    text: allText,
+    html: htmlDoc,
+    json: jsonDoc,
+    meta: {
+      from: 0,
+      to: editor.state.doc.content.size,
+      hasSelection: false,
+      readOnly,
+      lockLayout,
+      selectionText: allText,
+      createdAtIso: new Date().toISOString(),
+    },
+  };
+}
+
+function stableSig(x: any) {
+  try {
+    return JSON.stringify(x ?? {});
+  } catch {
+    return String(x ?? "");
+  }
+}
+
 export default function ProjectCharterEditor({
   initialJson,
   onChange,
   readOnly = false,
   lockLayout = false,
+  onImproveWithAI,
+  improveEnabled = true,
+  improveLoading = false,
 }: {
   initialJson: any;
   onChange: (doc: any) => void;
   readOnly?: boolean;
   lockLayout?: boolean;
+  onImproveWithAI?: (payload: ImproveWithAIPayload) => void;
+  improveEnabled?: boolean;
+  improveLoading?: boolean;
 }) {
+  const canEdit = !readOnly && !lockLayout;
+
   const content = useMemo(() => {
     if (!isDocLike(initialJson)) return makeDefaultCharterDoc();
     if (!hasTable(initialJson)) return makeDefaultCharterDoc();
     return initialJson;
   }, [initialJson]);
 
-  const editor = useEditor({
-    immediatelyRender: false, // avoids hydration mismatch with Next.js
+  const contentSig = useMemo(() => stableSig(content), [content]);
 
-    editable: !readOnly,
+  const editor = useEditor({
+    immediatelyRender: false,
+    editable: canEdit,
     extensions: [
       StarterKit.configure({
         heading: false,
@@ -260,7 +331,11 @@ export default function ProjectCharterEditor({
       TableCell,
     ],
     content,
-    onUpdate: ({ editor }) => onChange(editor.getJSON()),
+    onUpdate: ({ editor }) => {
+      // When locked/readOnly, we still allow the view, but avoid emitting changes.
+      if (!canEdit) return;
+      onChange(editor.getJSON());
+    },
     editorProps: {
       attributes: {
         class: "focus:outline-none max-w-none text-sm",
@@ -268,22 +343,55 @@ export default function ProjectCharterEditor({
     },
   });
 
-  // Auto-heal if table deleted (only when layout NOT locked)
+  // Ensure table exists (unless locked)
   useEffect(() => {
     if (!editor) return;
     if (lockLayout) return;
-
     const json = editor.getJSON();
     if (!hasTable(json)) editor.commands.setContent(makeDefaultCharterDoc(), false);
   }, [editor, lockLayout]);
 
+  // Keep editor in sync if parent swaps initialJson (e.g., after migrate/save),
+  // but don't clobber active typing.
+  const lastAppliedSigRef = useRef<string>("");
+  useEffect(() => {
+    if (!editor) return;
+
+    // First mount / first apply
+    if (!lastAppliedSigRef.current) {
+      lastAppliedSigRef.current = contentSig;
+      return;
+    }
+
+    if (contentSig === lastAppliedSigRef.current) return;
+
+    // If user is actively focused, avoid overwriting their cursor.
+    if (editor.isFocused) return;
+
+    try {
+      editor.commands.setContent(content, false);
+      lastAppliedSigRef.current = contentSig;
+    } catch {
+      // ignore
+    }
+  }, [editor, content, contentSig]);
+
   if (!editor) return null;
 
-  const showToolbar = !readOnly && !lockLayout;
+  const showToolbar = canEdit;
 
   return (
     <div className="space-y-3">
-      {showToolbar ? <Toolbar editor={editor} /> : null}
+      {showToolbar ? (
+        <Toolbar
+          editor={editor}
+          readOnly={readOnly}
+          lockLayout={lockLayout}
+          onImproveWithAI={onImproveWithAI}
+          improveEnabled={!!improveEnabled}
+          improveLoading={!!improveLoading}
+        />
+      ) : null}
 
       <div className="rounded-lg border border-neutral-300 bg-white p-3 overflow-auto">
         <EditorContent editor={editor} />
@@ -302,14 +410,10 @@ export default function ProjectCharterEditor({
           vertical-align: top;
           word-break: break-word;
         }
-
-        /* Light green headers */
         .ProseMirror th {
           background: #dcfce7;
           font-weight: 700;
         }
-
-        /* Yellow title band (first row) */
         .ProseMirror table tr:first-child td {
           background: #facc15;
           font-weight: 900;
@@ -317,12 +421,10 @@ export default function ProjectCharterEditor({
           font-size: 18px;
           letter-spacing: 0.5px;
         }
-
         .ProseMirror td:focus, .ProseMirror th:focus {
           outline: 2px solid rgba(0,0,0,0.15);
           outline-offset: -2px;
         }
-
         .ProseMirror .column-resize-handle {
           position: absolute;
           right: -2px;
@@ -340,8 +442,25 @@ export default function ProjectCharterEditor({
   );
 }
 
-function Toolbar({ editor }: { editor: any }) {
-  const btn = "rounded border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-100";
+function Toolbar({
+  editor,
+  readOnly,
+  lockLayout,
+  onImproveWithAI,
+  improveEnabled,
+  improveLoading,
+}: {
+  editor: any;
+  readOnly: boolean;
+  lockLayout: boolean;
+  onImproveWithAI?: (payload: ImproveWithAIPayload) => void;
+  improveEnabled: boolean;
+  improveLoading: boolean;
+}) {
+  const btn = "rounded border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-100 disabled:opacity-60";
+  const btnPrimary = "rounded border border-neutral-300 px-2 py-1 text-xs bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-60";
+
+  const canImprove = !!onImproveWithAI && improveEnabled && !readOnly && !lockLayout;
 
   return (
     <div className="flex flex-wrap gap-2 items-center">
@@ -407,6 +526,21 @@ function Toolbar({ editor }: { editor: any }) {
       >
         Reset Layout
       </button>
+
+      {canImprove ? (
+        <>
+          <span className="mx-1 h-4 w-px bg-neutral-300" />
+          <button
+            type="button"
+            className={btnPrimary}
+            disabled={improveLoading}
+            onClick={() => onImproveWithAI?.(buildImprovePayload(editor, readOnly, lockLayout))}
+            title="Improve the selected text (or current cell / doc) using AI"
+          >
+            {improveLoading ? "✨ Improving…" : "✨ Improve with AI"}
+          </button>
+        </>
+      ) : null}
     </div>
   );
 }

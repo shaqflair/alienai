@@ -1,0 +1,1037 @@
+/* src/app/projects/[id]/raid/raid.css */
+/* Notion-ish RAID UI (light, airy, grid-forward) */
+
+:root {
+  /* fallback tokens if global tokens aren't present */
+  --cr-border: rgba(17, 24, 39, 0.10);
+  --cr-card: #ffffff;
+  --cr-panel: #ffffff;
+  --cr-text: #111827;
+  --cr-muted: rgba(17, 24, 39, 0.62);
+  --cr-faint: rgba(17, 24, 39, 0.45);
+  --cr-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+  --cr-r-2: 16px;
+
+  /* RAID look */
+  --raid-bg: #fbfbfc;
+  --raid-grid: rgba(17, 24, 39, 0.06);
+  --raid-row: rgba(17, 24, 39, 0.04);
+  --raid-pill: rgba(17, 24, 39, 0.06);
+  --raid-focus: rgba(99, 102, 241, 0.14);
+
+  /* priority chips */
+  --pri-low-bg: rgba(34, 197, 94, 0.10);
+  --pri-low-br: rgba(34, 197, 94, 0.28);
+  --pri-med-bg: rgba(250, 204, 21, 0.12);
+  --pri-med-br: rgba(250, 204, 21, 0.30);
+  --pri-high-bg: rgba(251, 146, 60, 0.14);
+  --pri-high-br: rgba(251, 146, 60, 0.34);
+  --pri-crit-bg: rgba(239, 68, 68, 0.12);
+  --pri-crit-br: rgba(239, 68, 68, 0.34);
+
+  /* status chips */
+  --st-open-bg: rgba(96, 165, 250, 0.10);
+  --st-open-br: rgba(96, 165, 250, 0.28);
+
+  --st-prog-bg: rgba(167, 139, 250, 0.12);
+  --st-prog-br: rgba(167, 139, 250, 0.30);
+
+  --st-mit-bg: rgba(34, 197, 94, 0.10);
+  --st-mit-br: rgba(34, 197, 94, 0.28);
+
+  --st-closed-bg: rgba(17, 24, 39, 0.06);
+  --st-closed-br: rgba(17, 24, 39, 0.18);
+
+  --st-invalid-bg: rgba(239, 68, 68, 0.10);
+  --st-invalid-br: rgba(239, 68, 68, 0.28);
+
+  /* ✅ Dot colour tokens for chip dot */
+  --raid-status-open: rgba(96, 165, 250, 0.95);
+  --raid-status-progress: rgba(167, 139, 250, 0.95);
+  --raid-status-mitigated: rgba(34, 197, 94, 0.95);
+  --raid-status-closed: rgba(17, 24, 39, 0.55);
+  --raid-status-invalid: rgba(239, 68, 68, 0.95);
+
+  --raid-pri-none: rgba(148, 163, 184, 0.95);
+  --raid-pri-low: rgba(34, 197, 94, 0.95);
+  --raid-pri-medium: rgba(250, 204, 21, 0.95);
+  --raid-pri-high: rgba(251, 146, 60, 0.95);
+  --raid-pri-critical: rgba(239, 68, 68, 0.95);
+
+  /* ✅ generic danger token */
+  --danger: #b42318;
+}
+
+/* ---------------- page wrapper ---------------- */
+
+.raidWrap {
+  width: 100%;
+  padding: 14px 16px;
+  display: grid;
+  gap: 14px;
+  background: transparent;
+}
+
+/* ---------------- top bar (clean, compact) ---------------- */
+
+.raidTopBar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 14px;
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-r-2);
+  background: var(--cr-card);
+  box-shadow: var(--cr-shadow);
+}
+
+@media (max-width: 920px) {
+  .raidTopBar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+.raidTopLeft {
+  min-width: 0;
+}
+
+.raidTopRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.raidTitleRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.raidTitle {
+  font-size: 16px;
+  font-weight: 950;
+  letter-spacing: -0.02em;
+  color: var(--cr-text);
+}
+
+.raidMeta {
+  font-size: 12px;
+  color: var(--cr-muted);
+}
+
+.raidSub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--cr-muted);
+}
+
+.raidMsg {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--cr-text);
+}
+
+.raidError {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #b42318;
+  background: rgba(180, 35, 24, 0.08);
+  border: 1px solid rgba(180, 35, 24, 0.18);
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+
+/* ---------------- buttons (Notion-ish) ---------------- */
+
+.raidBtn {
+  appearance: none;
+  border: 1px solid var(--cr-border);
+  background: #fff;
+  color: var(--cr-text);
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+}
+
+.raidBtn:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.raidBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.raidBtnPrimary {
+  border-color: rgba(99, 102, 241, 0.22);
+  background: rgba(99, 102, 241, 0.10);
+}
+
+.raidBtnPrimary:hover {
+  background: rgba(99, 102, 241, 0.14);
+}
+
+.raidBtnGhost {
+  border-color: rgba(17, 24, 39, 0.10);
+  background: rgba(17, 24, 39, 0.03);
+}
+
+.raidBtnGhost:hover {
+  background: rgba(17, 24, 39, 0.05);
+}
+
+/* ---------------- cards (section containers) ---------------- */
+
+.raidGrid {
+  display: grid;
+  gap: 14px;
+}
+
+.raidCard {
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-r-2);
+  background: var(--cr-card);
+  box-shadow: var(--cr-shadow);
+  overflow: hidden;
+}
+
+.raidCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--cr-border);
+  background: rgba(0, 0, 0, 0.01);
+}
+
+/* ---------------- table wrapper ---------------- */
+
+.raidTableWrap {
+  overflow: auto;
+  background: var(--raid-bg);
+}
+
+/* Notion-ish grid feel */
+.raidTable {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+  min-width: 1140px;
+}
+
+/* header */
+.raidTable th {
+  text-align: left;
+  font-size: 12px;
+  color: rgba(17, 24, 39, 0.64);
+  font-weight: 900;
+  padding: 10px 10px;
+  border-bottom: 1px solid var(--raid-grid);
+  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  white-space: nowrap;
+}
+
+/* cells */
+.raidTable td {
+  padding: 10px 10px;
+  border-bottom: 1px solid var(--raid-grid);
+  vertical-align: top;
+  background: transparent;
+}
+
+/* row hover = subtle */
+.raidTable tbody tr:hover td {
+  background: rgba(0, 0, 0, 0.015);
+}
+
+/* ✅ row focus ring (for keyboard shortcut context) */
+.raidTable tbody tr:focus-within td,
+.raidTable tbody tr:focus td {
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.raidTable tbody tr:focus-within,
+.raidTable tbody tr:focus {
+  outline: none;
+}
+
+/* ✅ focused row (from digest / click) */
+.raidRowFocused td {
+  background: rgba(99, 102, 241, 0.06) !important;
+}
+
+.raidRowFocused {
+  box-shadow: inset 0 0 0 2px rgba(99, 102, 241, 0.28);
+}
+
+/* empty */
+.raidEmpty {
+  padding: 14px;
+  font-size: 12px;
+  color: var(--cr-muted);
+}
+
+.raidRowBusy {
+  opacity: 0.70;
+}
+
+/* ---------------- inputs (Notion-ish flat) ---------------- */
+
+.raidInput,
+.raidSelect {
+  width: 100%;
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  border-radius: 10px;
+  padding: 8px 9px;
+  font-size: 13px;
+  background: #fff;
+  color: var(--cr-text);
+}
+
+.raidInput:focus,
+.raidSelect:focus,
+.raidTextArea:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--raid-focus);
+  border-color: rgba(99, 102, 241, 0.35);
+}
+
+.raidInputError {
+  border-color: rgba(180, 35, 24, 0.35);
+  background: rgba(180, 35, 24, 0.04);
+}
+
+/* widen key fields (Owner/Status/Priority expand) */
+.raidOwnerCol {
+  min-width: 200px;
+}
+
+.raidStatusCol {
+  min-width: 170px;
+}
+
+.raidPriorityCol {
+  min-width: 150px;
+}
+
+/* reduce number columns */
+.raidLikelyCol,
+.raidSevCol {
+  width: 88px;
+  min-width: 88px;
+  max-width: 88px;
+}
+
+.raidNum {
+  width: 76px;
+  min-width: 76px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.raidDate {
+  width: 140px;
+}
+
+.raidTiny {
+  font-size: 12px;
+  color: var(--cr-muted);
+  white-space: nowrap;
+}
+
+/* multiline fields */
+.raidTextArea {
+  width: 100%;
+  min-width: 220px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  background: #fff;
+  color: var(--cr-text);
+  line-height: 1.35;
+  resize: vertical;
+  overflow: auto;
+}
+
+.raidDesc,
+.raidResp {
+  min-height: 38px;
+}
+
+/* ---------------- ID pill (MAIN TABLE) ---------------- */
+/* ✅ Reverted to compact — NO Copy/Link on main page */
+
+.raidIdCell {
+  width: 120px;
+  white-space: nowrap;
+}
+
+.raidIdPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(17, 24, 39, 0.10);
+  background: rgba(17, 24, 39, 0.04);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  color: rgba(17, 24, 39, 0.86);
+}
+
+/* remove clutter styles that belonged to the digest */
+.raidIdText,
+.raidRowDot,
+.raidMiniBtn,
+.raidMiniLink {
+  display: none !important;
+}
+
+/* ---------------- score styling ---------------- */
+
+.raidScore {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 950;
+}
+
+.raidScoreBadge {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  background: rgba(17, 24, 39, 0.03);
+  font-size: 12px;
+}
+
+.raidScoreBadge[data-tone="g"] {
+  border-color: rgba(34, 197, 94, 0.28);
+  background: rgba(34, 197, 94, 0.10);
+}
+
+.raidScoreBadge[data-tone="a"] {
+  border-color: rgba(250, 204, 21, 0.30);
+  background: rgba(250, 204, 21, 0.12);
+}
+
+.raidScoreBadge[data-tone="r"] {
+  border-color: rgba(239, 68, 68, 0.34);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+/* ---------------- CHIPS (Status + Priority) ---------------- */
+
+/* Base chip look (used by select) */
+.raidChip {
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+  white-space: nowrap;
+  text-overflow: clip;
+  overflow: visible;
+
+  transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
+
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+
+  background-image: linear-gradient(45deg, transparent 50%, rgba(17, 24, 39, 0.55) 50%),
+    linear-gradient(135deg, rgba(17, 24, 39, 0.55) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 28px;
+}
+
+/* priority chips */
+.raidPriority[data-pri="low"] {
+  border-color: var(--pri-low-br);
+  background: var(--pri-low-bg);
+}
+
+.raidPriority[data-pri="medium"] {
+  border-color: var(--pri-med-br);
+  background: var(--pri-med-bg);
+}
+
+.raidPriority[data-pri="high"] {
+  border-color: var(--pri-high-br);
+  background: var(--pri-high-bg);
+}
+
+.raidPriority[data-pri="critical"] {
+  border-color: var(--pri-crit-br);
+  background: var(--pri-crit-bg);
+}
+
+/* status chips */
+.raidStatus[data-st="open"] {
+  border-color: var(--st-open-br);
+  background: var(--st-open-bg);
+}
+
+.raidStatus[data-st="inprogress"] {
+  border-color: var(--st-prog-br);
+  background: var(--st-prog-bg);
+}
+
+.raidStatus[data-st="mitigated"] {
+  border-color: var(--st-mit-br);
+  background: var(--st-mit-bg);
+}
+
+.raidStatus[data-st="closed"] {
+  border-color: var(--st-closed-br);
+  background: var(--st-closed-bg);
+}
+
+.raidStatus[data-st="invalid"] {
+  border-color: var(--st-invalid-br);
+  background: var(--st-invalid-bg);
+}
+
+/* ---------------- AI rollup column ---------------- */
+
+.raidRollup {
+  max-width: 520px;
+  color: var(--cr-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------------- actions ---------------- */
+
+.raidActions {
+  display: inline-flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.raidChipLink {
+  text-decoration: none;
+}
+
+/* "Project P-xxxx" pill in top bar (NOT the same as status/priority chips) */
+.raidProjectChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(17, 24, 39, 0.10);
+  background: rgba(17, 24, 39, 0.04);
+  color: rgba(17, 24, 39, 0.86);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.raidProjectChip:hover {
+  background: rgba(17, 24, 39, 0.06);
+}
+
+/* ---------------- inline AI panel ---------------- */
+
+.raidAiRow td {
+  background: rgba(99, 102, 241, 0.04);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.10);
+}
+
+.raidAiPanel {
+  border: 1px solid rgba(99, 102, 241, 0.16);
+  background: #fff;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.raidAiPanelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(17, 24, 39, 0.08);
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.raidAiBody {
+  padding: 14px;
+}
+
+.raidAiTiny {
+  font-size: 11px;
+  color: var(--cr-faint);
+}
+
+.raidAiRecs {
+  display: grid;
+  gap: 10px;
+}
+
+.raidAiRecCard {
+  border: 1px solid rgba(17, 24, 39, 0.10);
+  background: rgba(17, 24, 39, 0.015);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+/* ---------------- column resizer (header drag) ---------------- */
+
+.raidThResizable {
+  position: relative;
+  user-select: none;
+}
+
+.raidColResizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 100%;
+  cursor: col-resize;
+  opacity: 0.30;
+}
+
+.raidColResizer:hover {
+  opacity: 0.85;
+}
+
+body.raidResizing {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+/* ===================================================================== */
+/* Weekly Digest Modal — Notion LIGHT THEME (DRAWER) */
+/* ===================================================================== */
+
+.raidDigestOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(17, 24, 39, 0.28);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 56px 18px;
+}
+
+.raidDigestModal {
+  width: min(980px, 100%);
+  max-height: calc(100vh - 110px);
+  overflow: hidden;
+  border-radius: var(--cr-r-2);
+  border: 1px solid var(--cr-border);
+  background: var(--cr-card);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.10);
+  color: var(--cr-text);
+}
+
+.raidDigestHeader {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--cr-border);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+}
+
+.raidDigestTitle {
+  font-size: 13px;
+  font-weight: 950;
+  color: var(--cr-text);
+  letter-spacing: -0.01em;
+}
+
+.raidDigestSub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--cr-muted);
+}
+
+.raidDigestDate {
+  font-size: 12px;
+  color: var(--cr-muted);
+  white-space: nowrap;
+}
+
+.raidDigestCloseBtn {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  border: 1px solid var(--cr-border);
+  background: #fff;
+  color: var(--cr-text);
+  cursor: pointer;
+  line-height: 1;
+  font-weight: 950;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+}
+
+.raidDigestCloseBtn:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.raidDigestBody {
+  padding: 14px 14px 16px;
+  overflow: auto;
+  max-height: calc(100vh - 180px);
+}
+
+.raidDigestGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 860px) {
+  .raidDigestGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.raidDigestSection {
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--cr-border);
+  background: rgba(17, 24, 39, 0.015);
+}
+
+.raidDigestLabelRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.raidDigestLabel {
+  font-size: 12px;
+  font-weight: 950;
+  color: var(--cr-text);
+}
+
+.raidDigestPill {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(17, 24, 39, 0.10);
+  background: rgba(17, 24, 39, 0.04);
+  color: rgba(17, 24, 39, 0.78);
+  font-weight: 900;
+}
+
+.raidDigestList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.raidDigestEmpty {
+  opacity: 0.7;
+}
+
+/* ✅ digest row: dot + id + copy + link + title */
+.raidDigestItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.raidDigestDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--dot, rgba(148, 163, 184, 0.95));
+  box-shadow: 0 0 0 3px rgba(17, 24, 39, 0.04);
+  flex: 0 0 auto;
+}
+
+.raidDigestIdPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(17, 24, 39, 0.10);
+  background: rgba(17, 24, 39, 0.04);
+  font-weight: 950;
+  font-size: 12px;
+  color: rgba(17, 24, 39, 0.86);
+  text-decoration: none;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.raidDigestIdPill:hover {
+  background: rgba(17, 24, 39, 0.06);
+}
+
+.raidDigestCopyBtn {
+  border: 1px solid rgba(17, 24, 39, 0.10);
+  background: #fff;
+  color: rgba(17, 24, 39, 0.86);
+  border-radius: 10px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.raidDigestCopyBtn:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.raidDigestItemText {
+  color: var(--cr-text);
+  text-decoration: none;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+}
+
+.raidDigestItemText:hover {
+  text-decoration: underline;
+}
+
+/* -------------------------------------------------------
+   FORCE RAID LIGHT THEME (prevents dark-theme first-paint)
+   ------------------------------------------------------- */
+
+.raidRouteLight {
+  color-scheme: light;
+
+  --cr-text: #111827;
+  --cr-muted: rgba(17, 24, 39, 0.62);
+  --cr-faint: rgba(17, 24, 39, 0.45);
+  --cr-card: #ffffff;
+  --cr-panel: #ffffff;
+  --raid-bg: #fbfbfc;
+}
+
+.raidRouteLight,
+.raidRouteLight * {
+  color: var(--cr-text);
+}
+
+.raidRouteLight .raidTopBar,
+.raidRouteLight .raidCard,
+.raidRouteLight .raidCardHeader,
+.raidRouteLight .raidTableWrap,
+.raidRouteLight .raidTable th {
+  background: #fff !important;
+  border-color: var(--cr-border) !important;
+}
+
+.raidRouteLight .raidTableWrap {
+  background: var(--raid-bg) !important;
+}
+
+.raidRouteLight input,
+.raidRouteLight textarea,
+.raidRouteLight select {
+  color: var(--cr-text) !important;
+  background: #ffffff !important;
+  border-color: rgba(17, 24, 39, 0.12) !important;
+}
+
+.raidRouteLight input::placeholder,
+.raidRouteLight textarea::placeholder {
+  color: rgba(17, 24, 39, 0.45) !important;
+}
+
+.raidRouteLight .raidChip {
+  filter: none !important;
+}
+
+.raidRouteLight .raidBtn,
+.raidRouteLight .raidProjectChip {
+  background: #fff !important;
+  color: #111827 !important;
+  border: 1px solid rgba(17, 24, 39, 0.12) !important;
+}
+
+.raidRouteLight select option {
+  background-color: #ffffff !important;
+  color: #111827 !important;
+}
+
+.raidRouteLight select {
+  color-scheme: light;
+}
+
+/* =========================================================
+   RAID: dot colour mapping from your data-st / data-pri attrs
+   ========================================================= */
+
+select.raidStatus[data-st="open"] { --dot: var(--raid-status-open); }
+select.raidStatus[data-st="inprogress"] { --dot: var(--raid-status-progress); }
+select.raidStatus[data-st="mitigated"] { --dot: var(--raid-status-mitigated); }
+select.raidStatus[data-st="closed"] { --dot: var(--raid-status-closed); }
+select.raidStatus[data-st="invalid"] { --dot: var(--raid-status-invalid); }
+
+select.raidPriority[data-pri=""] { --dot: var(--raid-pri-none); }
+select.raidPriority[data-pri="low"] { --dot: var(--raid-pri-low); }
+select.raidPriority[data-pri="medium"] { --dot: var(--raid-pri-medium); }
+select.raidPriority[data-pri="high"] { --dot: var(--raid-pri-high); }
+select.raidPriority[data-pri="critical"] { --dot: var(--raid-pri-critical); }
+
+/* =========================================================
+   ✅ FINAL OVERRIDE: chip dot + chevron (single source of truth)
+   Must be LAST in file
+   ========================================================= */
+
+select.raidChip.raidSelectWithDot {
+  padding-left: 30px;
+  padding-right: 28px;
+
+  background-image:
+    radial-gradient(circle, var(--dot, rgba(148,163,184,.95)) 0 4px, transparent 5px),
+    linear-gradient(45deg, transparent 50%, rgba(17, 24, 39, 0.55) 50%),
+    linear-gradient(135deg, rgba(17, 24, 39, 0.55) 50%, transparent 50%);
+  background-position: 12px 50%, calc(100% - 16px) 55%, calc(100% - 11px) 55%;
+  background-size: 10px 10px, 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.raidRouteLight select.raidChip.raidSelectWithDot {
+  background-image:
+    radial-gradient(circle, var(--dot, rgba(148,163,184,.95)) 0 4px, transparent 5px),
+    linear-gradient(45deg, transparent 50%, rgba(17, 24, 39, 0.55) 50%),
+    linear-gradient(135deg, rgba(17, 24, 39, 0.55) 50%, transparent 50%) !important;
+  background-repeat: no-repeat !important;
+  background-position: 12px 50%, calc(100% - 16px) 55%, calc(100% - 11px) 55% !important;
+  background-size: 10px 10px, 5px 5px, 5px 5px !important;
+}
+
+/* =========================
+   Group header (sidebar-ish)
+   ========================= */
+
+.raidGroupHeader {
+  padding: 8px 10px;
+}
+
+.raidGroupLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.raidGroupRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.raidIconBtn {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid rgba(17, 24, 39, 0.10);
+  background: #fff;
+  color: rgba(17, 24, 39, 0.75);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.raidIconBtn:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.raidIconBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.raidIconBtnPrimary {
+  border-color: rgba(99, 102, 241, 0.22);
+  background: rgba(99, 102, 241, 0.10);
+}
+
+.raidIconBtnPrimary:hover {
+  background: rgba(99, 102, 241, 0.14);
+}
+
+.raidChevron {
+  transition: transform 160ms ease;
+}
+
+.raidChevron.isOpen {
+  transform: rotate(90deg);
+}
+
+.raidGroupPill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 950;
+  border: 1px solid rgba(17, 24, 39, 0.10);
+  background: rgba(17, 24, 39, 0.04);
+}
+
+.raidGroupPill--risk { background: rgba(167, 139, 250, 0.14); border-color: rgba(167, 139, 250, 0.28); }
+.raidGroupPill--assumption { background: rgba(244, 114, 182, 0.14); border-color: rgba(244, 114, 182, 0.28); }
+.raidGroupPill--issue { background: rgba(250, 204, 21, 0.18); border-color: rgba(250, 204, 21, 0.30); }
+.raidGroupPill--dependency { background: rgba(17, 24, 39, 0.05); border-color: rgba(17, 24, 39, 0.12); }
+
+.raidGroupCount {
+  font-size: 12px;
+  color: rgba(17, 24, 39, 0.55);
+  font-weight: 900;
+}
+
+.raidGroupHintInline {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--cr-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.raidDots {
+  font-weight: 950;
+  letter-spacing: 1px;
+  transform: translateY(-1px);
+}

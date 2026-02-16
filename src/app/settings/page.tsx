@@ -1,22 +1,40 @@
 ﻿// src/app/settings/page.tsx
 import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
-import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
 import { createOrganisation, inviteToOrganisation, renameOrganisation } from "@/app/actions/org-admin";
 
-type Role = "owner" | "editor" | "viewer";
+type Role = "owner" | "admin" | "member";
+
 type OrgRow = {
-  org_id: string;
-  role: Role;
-  organizations: { id: string; name: string } | null;
+  organisation_id: string;
+  role: string;
+  organisations: { id: string; name: string } | null;
 };
+
+function sbErrText(e: any) {
+  if (!e) return "Unknown error";
+  if (typeof e === "string") return e;
+  if (e instanceof Error) return e.message;
+  if (typeof e?.message === "string") return e.message;
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
+}
+
+function normalizeRole(x: any): Role {
+  const v = String(x || "").trim().toLowerCase();
+  if (v === "owner") return "owner";
+  if (v === "admin") return "admin";
+  return "member";
+}
 
 function roleBadge(role: Role) {
   if (role === "owner") return { label: "Owner", cls: "bg-gray-50 border-gray-200" };
-  if (role === "editor") return { label: "Editor", cls: "bg-blue-50 border-blue-200" };
-  return { label: "Viewer", cls: "bg-yellow-50 border-yellow-200" };
+  if (role === "admin") return { label: "Admin", cls: "bg-blue-50 border-blue-200" };
+  return { label: "Member", cls: "bg-yellow-50 border-yellow-200" };
 }
 
 export default async function SettingsPage() {
@@ -26,18 +44,19 @@ export default async function SettingsPage() {
     data: { user },
     error: authErr,
   } = await supabase.auth.getUser();
-  if (authErr) throw authErr;
+
+  if (authErr) throw new Error(sbErrText(authErr));
   if (!user) redirect("/login");
 
   const activeOrgId = await getActiveOrgId();
 
   const { data, error: memErr } = await supabase
-    .from("org_members")
+    .from("organisation_members")
     .select(
       `
-      org_id,
+      organisation_id,
       role,
-      organizations:organizations (
+      organisations:organisations (
         id,
         name
       )
@@ -45,61 +64,27 @@ export default async function SettingsPage() {
     )
     .eq("user_id", user.id);
 
-  if (memErr) throw memErr;
+  if (memErr) throw new Error(sbErrText(memErr));
 
   const memberships = ((data ?? []) as OrgRow[])
     .map((r) => {
-      if (!r.organizations) return null;
-      return { orgId: r.organizations.id, orgName: r.organizations.name, role: r.role };
+      if (!r.organisations) return null;
+      return {
+        orgId: r.organisations.id,
+        orgName: r.organisations.name,
+        role: normalizeRole(r.role),
+      };
     })
     .filter(Boolean) as Array<{ orgId: string; orgName: string; role: Role }>;
 
   const active = memberships.find((m) => m.orgId === activeOrgId) ?? memberships[0] ?? null;
   const myRole = active?.role ?? null;
-  const isOwner = myRole === "owner";
-
-  // ---------------------------
-  // Inline Server Actions
-  // ---------------------------
-  async function setActiveOrgAction(formData: FormData) {
-    "use server";
-    const orgId = String(formData.get("org_id") ?? "").trim();
-    if (!orgId) return;
-
-    // Light validation: ensure the user is a member of this org
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) redirect("/login");
-
-    const { data: member, error } = await supabase
-      .from("org_members")
-      .select("org_id")
-      .eq("user_id", user.id)
-      .eq("org_id", orgId)
-      .maybeSingle();
-
-    if (error) throw error;
-    if (!member) throw new Error("You are not a member of that organisation.");
-
-    // Persist selection (cookie). Your getActiveOrgId() should read this; if it already does, this will work immediately.
-    cookies().set("active_org_id", orgId, {
-      path: "/",
-      sameSite: "lax",
-      httpOnly: true,
-      secure: true,
-    });
-
-    revalidatePath("/settings");
-    redirect("/settings");
-  }
+  const isOwnerOrAdmin = myRole === "owner" || myRole === "admin";
 
   return (
     <main className="mx-auto max-w-3xl p-6 space-y-6">
       <h1 className="text-2xl font-semibold">Settings</h1>
 
-      {/* Your orgs + switcher */}
       <section className="rounded-lg border bg-white p-5 space-y-3">
         <div className="text-sm font-medium">Your organisations</div>
 
@@ -132,8 +117,9 @@ export default async function SettingsPage() {
                   </div>
 
                   {!isActive ? (
-                    <form action={setActiveOrgAction}>
+                    <form method="post" action="/api/active-org">
                       <input type="hidden" name="org_id" value={m.orgId} />
+                      <input type="hidden" name="next" value="/settings" />
                       <button className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50" type="submit">
                         Set active
                       </button>
@@ -145,12 +131,9 @@ export default async function SettingsPage() {
           </div>
         )}
 
-        <div className="text-xs opacity-60">
-          Owner-only settings appear only if your role is Owner for the active organisation.
-        </div>
+        <div className="text-xs opacity-60">Admin/Owner settings appear only if you have access on the active org.</div>
       </section>
 
-      {/* Active org + role */}
       <section className="rounded-lg border bg-white p-5 space-y-3">
         <div className="text-sm font-medium">Active organisation</div>
         <div className="flex items-center gap-2">
@@ -161,22 +144,17 @@ export default async function SettingsPage() {
             </span>
           ) : null}
         </div>
-        <div className="text-xs opacity-60">
-          If you can’t see the right org here, switch it in “Your organisations” above.
-        </div>
       </section>
 
-      {/* Owner-only org management */}
       <section className="rounded-lg border bg-white p-5 space-y-5">
         <h2 className="text-lg font-medium">Organisation management</h2>
 
         {!active ? (
           <div className="text-sm text-gray-700">Select an active organisation first.</div>
-        ) : !isOwner ? (
-          <div className="text-sm text-gray-700">You don’t have Owner access for the active organisation.</div>
+        ) : !isOwnerOrAdmin ? (
+          <div className="text-sm text-gray-700">You don’t have Admin/Owner access for the active organisation.</div>
         ) : (
           <>
-            {/* Create org */}
             <form action={createOrganisation} className="space-y-2">
               <div className="text-sm font-medium">Create new organisation</div>
               <div className="flex gap-2">
@@ -190,12 +168,8 @@ export default async function SettingsPage() {
                   Create
                 </button>
               </div>
-              <div className="text-xs opacity-60">
-                After creating, switch active org in “Your organisations”.
-              </div>
             </form>
 
-            {/* Rename active org */}
             <form action={renameOrganisation} className="space-y-2">
               <div className="text-sm font-medium">Rename active organisation</div>
               <input type="hidden" name="org_id" value={active.orgId} />
@@ -212,11 +186,9 @@ export default async function SettingsPage() {
               </div>
             </form>
 
-            {/* Invite */}
             <form action={inviteToOrganisation} className="space-y-2">
               <div className="text-sm font-medium">Invite member</div>
               <input type="hidden" name="org_id" value={active.orgId} />
-
               <div className="grid gap-2 sm:grid-cols-[1fr_160px_120px]">
                 <input
                   name="email"
@@ -225,19 +197,15 @@ export default async function SettingsPage() {
                   className="rounded-md border px-3 py-2 text-sm"
                   required
                 />
-                <select name="role" defaultValue="viewer" className="rounded-md border px-3 py-2 text-sm">
-                  <option value="viewer">Viewer</option>
-                  <option value="editor">Editor</option>
-                  <option value="owner">Owner</option>
+                <select name="role" defaultValue="member" className="rounded-md border px-3 py-2 text-sm">
+                  <option value="member">Member</option>
+                  <option value="admin">Admin</option>
                 </select>
                 <button className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50" type="submit">
                   Invite
                 </button>
               </div>
-
-              <div className="text-xs opacity-60">
-                This creates a pending invite record. Email sending can be added next.
-              </div>
+              <div className="text-xs opacity-60">Invites are currently disabled in code; this will error until enabled.</div>
             </form>
           </>
         )}

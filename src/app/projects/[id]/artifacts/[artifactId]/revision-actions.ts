@@ -26,15 +26,40 @@ export async function createArtifactRevision(args: { projectId: string; artifact
   // owner/editor only
   const { data: mem, error: memErr } = await supabase
     .from("project_members")
-    .select("role")
+    .select("role, is_active")
     .eq("project_id", projectId)
     .eq("user_id", auth.user.id)
+    .eq("is_active", true)
     .maybeSingle();
 
   if (memErr) throw memErr;
 
   const role = String((mem as any)?.role ?? "viewer").toLowerCase();
   if (!(role === "owner" || role === "editor")) throw new Error("Forbidden");
+
+  // ✅ Safety: only create revision from the CURRENT artifact, and only once it's finalised
+  const { data: a0, error: aErr } = await supabase
+    .from("artifacts")
+    .select("id, project_id, is_current, is_baseline, is_locked, approval_status")
+    .eq("id", artifactId)
+    .eq("project_id", projectId)
+    .maybeSingle();
+
+  if (aErr) throw aErr;
+  if (!a0) throw new Error("Artifact not found.");
+
+  if (!(a0 as any).is_current) {
+    throw new Error("Only the current version can be revised.");
+  }
+  if ((a0 as any).is_baseline) {
+    throw new Error("Baselines cannot be revised directly.");
+  }
+
+  const st = String((a0 as any).approval_status ?? "").toLowerCase();
+  // Matches UI: create revision only after approved/rejected (final)
+  if (!(st === "approved" || st === "rejected")) {
+    throw new Error("You can only create a revision after the artifact is approved or rejected.");
+  }
 
   const { data, error } = await supabase.rpc("create_artifact_revision", {
     p_project_id: projectId,

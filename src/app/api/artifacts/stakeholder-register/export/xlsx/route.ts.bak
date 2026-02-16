@@ -1,0 +1,202 @@
+// src/app/api/artifacts/stakeholder-register/export/xlsx/route.ts
+import "server-only";
+
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/utils/supabase/server";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+/* ──────────────────────────────────────────────── Helpers ──────────────────────────────────────────────── */
+function jsonErr(message: string, status = 400, details?: Record<string, unknown>) {
+  return NextResponse.json({ ok: false, error: message, details }, { status });
+}
+
+function formatUkDateTime(date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}, ${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
+}
+
+function sanitizeFilename(input: string): string {
+  return (
+    String(input || "stakeholder-register")
+      .replace(/[^a-z0-9._-]+/gi, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_|_$/g, "")
+      .slice(0, 120) || "stakeholder-register"
+  );
+}
+
+function safeStr(x: any): string {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function normalizeChannelList(x: any): string {
+  if (Array.isArray(x)) return x.map((v) => safeStr(v)).filter(Boolean).join(", ");
+  return safeStr(x);
+}
+
+type StakeholderRowForExport = {
+  id: string;
+  name: string;
+  role?: string | null;
+  influence_level?: string | null;
+  contact_info?: any | null;
+};
+
+export async function POST(req: NextRequest) {
+  let ExcelJS: any;
+  try {
+    ExcelJS = await import("exceljs");
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: `Missing dependency "exceljs". Install it to enable XLSX export.` },
+      { status: 501 }
+    );
+  }
+
+  try {
+    const body = await req.json().catch(() => ({}));
+    const projectId = String(body?.projectId || "").trim();
+    const artifactId = String(body?.artifactId || "").trim();
+    if (!projectId) return jsonErr("Missing projectId", 400);
+    if (!artifactId) return jsonErr("Missing artifactId", 400);
+
+    const supabase = await createClient();
+
+    const { data: project } = await supabase
+      .from("projects")
+      .select("id,name,human_id")
+      .eq("id", projectId)
+      .single();
+
+    const { data: artifact } = await supabase
+      .from("artifacts")
+      .select("id,title")
+      .eq("id", artifactId)
+      .single();
+
+    const { data: stakeholders, error } = await supabase
+      .from("stakeholders")
+      .select("id,name,role,influence_level,contact_info")
+      .eq("project_id", projectId)
+      .eq("artifact_id", artifactId)
+      .order("created_at", { ascending: true });
+
+    if (error) return jsonErr(error.message || "Failed to load stakeholders", 500);
+
+    const rows = (Array.isArray(stakeholders) ? stakeholders : []) as StakeholderRowForExport[];
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "AlienAI";
+    workbook.created = new Date();
+
+    const sheet = workbook.addWorksheet("Stakeholder Register", {
+      views: [{ state: "frozen", ySplit: 1 }],
+    });
+
+    // Meta row (optional) – keep it light
+    const title = "Stakeholder Register";
+    const metaProject = `${safeStr(project?.name)}${project?.human_id ? ` (${safeStr(project.human_id)})` : ""}`;
+    sheet.addRow([title]);
+    sheet.addRow([`Project: ${metaProject}`]);
+    sheet.addRow([`Generated: ${formatUkDateTime()}`]);
+    sheet.addRow([]); // spacer
+
+    // Header row
+    const headers = [
+      "Name",
+      "Point of Contact",
+      "Role",
+      "Internal/External",
+      "Title/Role",
+      "Impact Level",
+      "Influence Level",
+      "Mapping",
+      "Involvement Milestone",
+      "Stakeholder Impact",
+      "Channels",
+      "Group",
+    ];
+
+    const headerRowIndex = sheet.rowCount + 1;
+    sheet.addRow(headers);
+
+    // Column widths (reasonable defaults)
+    const widths = [22, 24, 16, 16, 18, 12, 14, 18, 20, 28, 24, 14];
+    widths.forEach((w, i) => (sheet.getColumn(i + 1).width = w));
+
+    // Style header
+    const headerRow = sheet.getRow(headerRowIndex);
+    headerRow.font = { bold: true };
+    headerRow.alignment = { vertical: "middle", horizontal: "left", wrapText: true };
+    headerRow.eachCell((cell: any) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F4F6" } }; // light gray
+      cell.border = {
+        top: { style: "thin", color: { argb: "FFE5E7EB" } },
+        left: { style: "thin", color: { argb: "FFE5E7EB" } },
+        bottom: { style: "thin", color: { argb: "FFE5E7EB" } },
+        right: { style: "thin", color: { argb: "FFE5E7EB" } },
+      };
+    });
+
+    // Data rows
+    for (const r of rows) {
+      const c = r?.contact_info && typeof r.contact_info === "object" ? r.contact_info : {};
+      sheet.addRow([
+        safeStr(r?.name),
+        safeStr(c?.point_of_contact),
+        safeStr(r?.role),
+        safeStr(c?.internal_external),
+        safeStr(c?.title_role),
+        safeStr(c?.impact_level || "Medium"),
+        safeStr(r?.influence_level),
+        safeStr(c?.stakeholder_mapping),
+        safeStr(c?.involvement_milestone),
+        safeStr(c?.stakeholder_impact),
+        normalizeChannelList(c?.channels),
+        safeStr(c?.group || "Project"),
+      ]);
+    }
+
+    // Style body borders & wrap
+    const startBody = headerRowIndex + 1;
+    const endBody = sheet.rowCount;
+    for (let i = startBody; i <= endBody; i++) {
+      const row = sheet.getRow(i);
+      row.alignment = { vertical: "top", horizontal: "left", wrapText: true };
+      row.eachCell((cell: any) => {
+        cell.border = {
+          top: { style: "thin", color: { argb: "FFE5E7EB" } },
+          left: { style: "thin", color: { argb: "FFE5E7EB" } },
+          bottom: { style: "thin", color: { argb: "FFE5E7EB" } },
+          right: { style: "thin", color: { argb: "FFE5E7EB" } },
+        };
+      });
+    }
+
+    // Auto filter
+    sheet.autoFilter = {
+      from: { row: headerRowIndex, column: 1 },
+      to: { row: headerRowIndex, column: headers.length },
+    };
+
+    const buf = await workbook.xlsx.writeBuffer();
+
+    const baseName = sanitizeFilename(artifact?.title || project?.name || "Stakeholder_Register");
+    const filename = `${baseName}_Stakeholder_Register.xlsx`;
+
+    return new NextResponse(Buffer.from(buf), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (e: any) {
+    return jsonErr(e?.message || "Failed to export XLSX", 500);
+  }
+}

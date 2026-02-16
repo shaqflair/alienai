@@ -1,23 +1,17 @@
+// src/middleware.ts
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 export async function middleware(req: NextRequest) {
-  // IMPORTANT: forward request headers
-  const res = NextResponse.next({
-    request: {
-      headers: req.headers,
-    },
-  });
+  let res = NextResponse.next({ request: { headers: req.headers } });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return req.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
+        getAll: () => req.cookies.getAll(),
+        setAll: (cookiesToSet) => {
           cookiesToSet.forEach(({ name, value, options }) => {
             res.cookies.set(name, value, options);
           });
@@ -26,7 +20,7 @@ export async function middleware(req: NextRequest) {
     }
   );
 
-  // CRITICAL: refresh/validate session for SSR
+  // 🔑 This refreshes session cookies for server components
   await supabase.auth.getUser();
 
   return res;
@@ -34,6 +28,9 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    /*
+      Skip _next/static, _next/image, favicon, etc.
+    */
+    "/((?!_next/static|_next/image|favicon.ico).*)",
   ],
 };

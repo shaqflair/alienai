@@ -14,6 +14,20 @@ const nextConfig: NextConfig = {
   ],
 
   /**
+   * ✅ Allow next/image to load remote images from Supabase Storage
+   * (Fixes: Invalid src prop ... hostname is not configured)
+   */
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "bjsyepwyaghnnderckgk.supabase.co",
+        pathname: "/storage/v1/object/public/**",
+      },
+    ],
+  },
+
+  /**
    * Recommended for production deployments (Docker / many serverless setups).
    * Safe to include even if you don't use it.
    */

@@ -1,0 +1,27 @@
+.lessonsWrap { padding: 24px; }
+.lessonsHeader { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom: 14px; }
+.lessonsTitle { font-size: 18px; font-weight: 650; }
+
+.lessonsTable { width: 100%; border: 1px solid rgba(0,0,0,.10); border-radius: 12px; overflow: hidden; background: #fff; }
+.lessonsTable table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.lessonsTable thead th { background: #fafafa; text-align: left; padding: 10px 12px; color: #666; font-weight: 600; border-bottom: 1px solid rgba(0,0,0,.08); }
+.lessonsTable tbody td { padding: 10px 12px; border-bottom: 1px solid rgba(0,0,0,.06); vertical-align: middle; }
+.lessonsTable tbody tr:hover { background: #fafafa; }
+
+.pill { display:inline-flex; align-items:center; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; border: 1px solid transparent; }
+.pill.red { background:#fce8e6; color:#c5221f; }
+.pill.green { background:#e6f4ea; color:#137333; }
+.pill.purple { background:#f3e8fd; color:#6f42c1; }
+.pill.gray { background:#eef2f7; color:#445; }
+
+.btn { height: 34px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(0,0,0,.12); background:#fff; font-weight: 600; cursor:pointer; }
+.btn:hover { background:#f7f7f7; }
+
+.modalOverlay { position:fixed; inset:0; background: rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; padding: 20px; }
+.modal { width: min(780px, 100%); background:#fff; border-radius: 16px; border: 1px solid rgba(0,0,0,.12); box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+.modalHd { padding: 14px 16px; border-bottom: 1px solid rgba(0,0,0,.08); display:flex; justify-content:space-between; align-items:center; }
+.modalBd { padding: 14px 16px; display:grid; gap: 12px; }
+.modalRow { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.input, .select, .textarea { width:100%; border: 1px solid rgba(0,0,0,.14); border-radius: 10px; padding: 10px 10px; font-size: 13px; background:#fff; }
+.textarea { min-height: 110px; resize: vertical; }
+.modalFt { padding: 14px 16px; border-top: 1px solid rgba(0,0,0,.08); display:flex; justify-content:flex-end; gap: 10px; }

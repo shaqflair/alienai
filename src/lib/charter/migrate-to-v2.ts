@@ -1,5 +1,8 @@
-import type { CharterV2, CharterMeta, CharterSection } from "@/app/projects/[id]/artifacts/[artifactId]/charter-v2-actions";
-import { buildEmptyCharterV2, validateCharterV2 } from "@/app/projects/[id]/artifacts/[artifactId]/charter-v2-actions";
+// src/lib/charter/migrate-to-v2.ts
+
+import type { CharterV2 } from "@/lib/charter/charter-v2";
+import type { CharterMeta, CharterSection } from "@/components/editors/ProjectCharterSectionEditor";
+import { buildEmptyCharterV2 } from "@/lib/charter/charter-v2-helpers";
 
 function normKey(x: any) {
   return String(x ?? "").trim().toLowerCase();
@@ -18,17 +21,15 @@ function pmText(node: any): string {
 
 /**
  * Best-effort extract of meta fields from a ProseMirror "PROJECT CHARTER" table.
- * This is heuristic, but it works for the common structure you showed in your PDF.
+ * Heuristic but works for common table structures.
  */
 function extractMetaFromProseMirror(raw: any): Partial<CharterMeta> {
   const meta: Partial<CharterMeta> = {};
   if (!isProseMirrorDoc(raw)) return meta;
 
-  // Find first table
   const table = raw.content?.find((n: any) => n?.type === "table");
   if (!table?.content) return meta;
 
-  // Collect rows as [cellsText...]
   const rows: string[][] = [];
   for (const tr of table.content) {
     if (tr?.type !== "tableRow" || !Array.isArray(tr.content)) continue;
@@ -36,10 +37,8 @@ function extractMetaFromProseMirror(raw: any): Partial<CharterMeta> {
     rows.push(cells);
   }
 
-  // Try map labels -> values (very common pattern: header then empty cell)
   const flat = rows.flat().map((s) => s.trim()).filter(Boolean);
 
-  // naive pairing helper
   const findAfter = (label: string) => {
     const i = flat.findIndex((x) => x.toLowerCase() === label.toLowerCase());
     if (i >= 0 && flat[i + 1]) return flat[i + 1];
@@ -56,34 +55,77 @@ function extractMetaFromProseMirror(raw: any): Partial<CharterMeta> {
   return meta;
 }
 
+function looksLikeV2(raw: any) {
+  return !!raw && typeof raw === "object" && Array.isArray(raw.sections);
+}
+
+/**
+ * Minimal v2 normalizer:
+ * - ensures meta is object
+ * - ensures sections is array
+ * - normalizes section keys/titles
+ * - preserves legacy_raw if present
+ */
+function normalizeV2(raw: any, projectTitleFallback?: string): CharterV2 {
+  const metaIn = raw?.meta && typeof raw.meta === "object" ? raw.meta : {};
+  const sectionsIn = Array.isArray(raw?.sections) ? raw.sections : [];
+
+  const base = buildEmptyCharterV2(projectTitleFallback ?? "");
+
+  const mergedMeta = {
+    ...base.meta,
+    ...metaIn,
+    project_title: String(
+      metaIn?.project_title || projectTitleFallback || base.meta.project_title || ""
+    ).trim(),
+  };
+
+  const byKey = new Map<string, any>();
+  for (const sec of sectionsIn) byKey.set(normKey(sec?.key), sec);
+
+  // keep required skeleton order, but merge any content that exists
+  const mergedSections = (base.sections ?? []).map((s0: any) => {
+    const k = normKey(s0.key);
+    const existing = byKey.get(k);
+    const title = String(existing?.title ?? s0.title ?? "").trim() || s0.key;
+
+    // if base is table, keep table; if bullets, keep bullets
+    const out: any = { ...s0, ...existing, key: k, title };
+
+    return out;
+  });
+
+  return {
+    meta: mergedMeta,
+    sections: mergedSections,
+    legacy_raw: raw?.legacy_raw ?? undefined,
+  };
+}
+
 /**
  * Create/repair a valid v2 charter structure:
- * - If already v2 => normalize
+ * - If already v2-ish => normalize/repair
  * - Else build empty v2 skeleton and preserve legacy under legacy_raw
  */
-export function migrateCharterAnyToV2(args: {
-  raw: any; // content_json or content
-  projectTitleFallback?: string;
-}): CharterV2 {
+export function migrateCharterAnyToV2(args: { raw: any; projectTitleFallback?: string }): CharterV2 {
   const { raw, projectTitleFallback } = args;
 
-  // If already v2 (or close), normalize and return
-  const normalized = validateCharterV2(raw, projectTitleFallback);
-  const looksV2 = !!raw && typeof raw === "object" && !!raw.meta && Array.isArray(raw.sections);
-  if (looksV2) {
+  // If already v2-ish, normalize and return
+  if (looksLikeV2(raw)) {
+    const normalized = normalizeV2(raw, projectTitleFallback);
     return {
       ...normalized,
-      legacy_raw: (raw as any).legacy_raw,
+      legacy_raw: (raw as any)?.legacy_raw,
     };
   }
 
   // Otherwise: build empty charter v2
-  const base = buildEmptyCharterV2(projectTitleFallback);
+  const base = buildEmptyCharterV2(projectTitleFallback ?? "");
 
-  // Best-effort: meta extraction from ProseMirror doc/table
+  // Best-effort meta extraction from ProseMirror doc/table
   const extractedMeta = extractMetaFromProseMirror(raw);
 
-  // If raw has a "meta" object (even if not v2), merge it too
+  // If raw has a meta object (even if not v2), merge it too
   const rawMeta = raw?.meta && typeof raw.meta === "object" ? raw.meta : null;
 
   const out: CharterV2 = {
@@ -104,11 +146,11 @@ export function migrateCharterAnyToV2(args: {
   };
 
   // Keep section titles stable even if keys differ
-  out.sections = (out.sections ?? []).map((s: CharterSection) => ({
-    ...s,
-    key: normKey(s.key),
-    title: String(s.title ?? "").trim() || s.key,
-  }));
+  out.sections = (out.sections ?? []).map((sec: any) => ({
+    ...sec,
+    key: normKey(sec.key),
+    title: String(sec.title ?? "").trim() || sec.key,
+  })) as CharterSection[];
 
   return out;
 }

@@ -1,279 +1,848 @@
+﻿// src/components/editors/ProjectCharterSectionEditor.tsx
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Sparkles,
+  RefreshCw,
+  AlertCircle,
+  CheckCircle2,
+  Table as TableIcon,
+  List,
+  FileText,
+  Plus,
+  Trash2,
+  Calendar as CalendarIcon,
+} from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { format, parse, isValid } from "date-fns";
+
+/* =========================================================
+   Types (matches ProjectCharterEditorFormLazy contract)
+========================================================= */
 
 type RowObj = { type: "header" | "data"; cells: string[] };
 
-export type CharterMeta = {
-  project_title?: string;
-  project_manager?: string;
-  project_start_date?: string;
-  project_end_date?: string;
-  project_sponsor?: string;
-  customer_account?: string;
-};
-
-export type CharterSection = {
+export type V2Section = {
   key: string;
   title: string;
-  table?: { columns: number; rows: RowObj[] };
   bullets?: string;
+  table?: { columns: number; rows: RowObj[] };
 };
+
+export type ImproveSectionPayload = {
+  sectionKey: string;
+  sectionTitle: string;
+  section: V2Section;
+  selectedText?: string;
+  notes?: string;
+};
+
+type Props = {
+  meta: Record<string, any>;
+  onMetaChange: (meta: Record<string, any>) => void;
+
+  sections: V2Section[];
+  onChange: (sections: V2Section[]) => void;
+
+  readOnly?: boolean;
+
+  completenessByKey?: Record<
+    string,
+    { completeness0to100?: number; issues?: Array<{ severity: "info" | "warn" | "error"; message: string }> }
+  >;
+
+  onImproveSection?: (payload: ImproveSectionPayload) => void;
+  onRegenerateSection?: (sectionKey: string) => void;
+
+  aiDisabled?: boolean;
+  aiLoadingKey?: string | null;
+
+  includeContextForAI?: boolean;
+};
+
+/* =========================================================
+   Small helpers
+========================================================= */
 
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
-/**
- * ✅ IMMUTABLE normalization:
- * - clones rows + cells
- * - treats missing/invalid rows safely
- * - guarantees header row + at least one data row
- */
-function ensureRows(columns: number, rows: RowObj[]) {
-  const cols = Math.max(1, Number(columns || 1));
+function clampInt(n: any, min: number, max: number, fallback: number) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(v)));
+}
 
-  const inputRows = Array.isArray(rows) ? rows : [];
+function ensureHeaderRow(table: { columns: number; rows: RowObj[] }) {
+  const rows = Array.isArray(table?.rows) ? table.rows.slice() : [];
+  const cols = Math.max(1, clampInt(table?.columns, 1, 24, 2));
 
-  // Deep clone rows + cells to avoid mutating original objects
-  let next: RowObj[] = inputRows.map((r: any, idx: number) => {
-    const t = String(r?.type ?? "").toLowerCase();
-    const type: "header" | "data" =
-      t === "header" ? "header" : t === "data" ? "data" : idx === 0 ? "header" : "data";
+  if (!rows.length || rows[0]?.type !== "header") {
+    const headerCells = Array.from({ length: cols }, (_, i) => `Column ${i + 1}`);
+    return { columns: cols, rows: [{ type: "header", cells: headerCells }, ...rows] };
+  }
 
-    const cells = Array.from({ length: cols }, (_, i) => safeStr(r?.cells?.[i] ?? ""));
-    return { type, cells };
+  // normalize header cell lengths
+  const header = rows[0];
+  const hc = Array.isArray(header.cells) ? header.cells.slice() : [];
+  while (hc.length < cols) hc.push(`Column ${hc.length + 1}`);
+  header.cells = hc.slice(0, cols);
+
+  // ensure there is at least one data row
+  const hasData = rows.some((r) => r.type === "data");
+  if (!hasData) rows.push({ type: "data", cells: Array.from({ length: cols }, () => "") });
+
+  // normalize all rows to correct col length
+  const norm = rows.map((r) => {
+    const cells = Array.isArray(r.cells) ? r.cells.slice() : [];
+    while (cells.length < cols) cells.push("");
+    return { ...r, cells: cells.slice(0, cols) };
   });
 
-  if (!next.length) {
-    next = [
-      { type: "header", cells: Array.from({ length: cols }, () => "") },
-      { type: "data", cells: Array.from({ length: cols }, () => "") },
-    ];
-  }
-
-  // Ensure first row is header
-  if (next[0]?.type !== "header") {
-    next = [{ type: "header", cells: Array.from({ length: cols }, () => "") }, ...next];
-  }
-
-  // Ensure at least one data row exists
-  if (!next.some((r) => r.type === "data")) {
-    next = [...next, { type: "data", cells: Array.from({ length: cols }, () => "") }];
-  }
-
-  return { columns: cols, rows: next };
+  return { columns: cols, rows: norm };
 }
+
+/* =========================================================
+   Guards: prevent accidental structural delete
+========================================================= */
+
+/**
+ * We allow normal text editing inside the cell,
+ * but we *stop propagation* so no parent/table handler can interpret
+ * Backspace/Delete/Enter as "delete row/col" or "add row".
+ */
+function guardTableCellKeys(e: React.KeyboardEvent<HTMLInputElement>) {
+  if (e.key === "Backspace" || e.key === "Delete") {
+    e.stopPropagation();
+    return;
+  }
+  if (e.key === "Enter") {
+    // prevent any outer handler adding rows / weird focus jumps
+    e.stopPropagation();
+    return;
+  }
+}
+
+/* =========================================================
+   UK date helpers (dd/mm/yyyy)
+========================================================= */
+
+function isIsoDateOnly(v: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(v);
+}
+function isIsoDateTime(v: string) {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v);
+}
+function isUkDate(v: string) {
+  return /^\d{2}\/\d{2}\/\d{4}$/.test(v);
+}
+
+function parseUkDate(v: string): Date | null {
+  if (!v) return null;
+  if (isUkDate(v)) {
+    const [day, month, year] = v.split("/").map(Number);
+    const d = new Date(year, month - 1, day);
+    return isValid(d) ? d : null;
+  }
+  if (isIsoDateOnly(v) || isIsoDateTime(v)) {
+    const d = new Date(isIsoDateOnly(v) ? `${v}T00:00:00` : v);
+    return isValid(d) ? d : null;
+  }
+  // Try parsing dd-mm-yyyy or dd.mm.yyyy
+  const m = v.match(/^(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{4})$/);
+  if (m) {
+    const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+    return isValid(d) ? d : null;
+  }
+  return null;
+}
+
+function toUkDateDisplay(value: string) {
+  const s = safeStr(value).trim();
+  if (!s) return "";
+
+  if (isUkDate(s)) return s;
+
+  if (isIsoDateOnly(s) || isIsoDateTime(s)) {
+    const d = new Date(isIsoDateOnly(s) ? `${s}T00:00:00` : s);
+    if (!Number.isNaN(d.getTime())) {
+      try {
+        return format(d, "dd/MM/yyyy");
+      } catch {}
+    }
+  }
+
+  const m = s.match(/^(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{4})$/);
+  if (m) {
+    const dd = String(m[1]).padStart(2, "0");
+    const mm = String(m[2]).padStart(2, "0");
+    const yyyy = String(m[3]);
+    return `${dd}/${mm}/${yyyy}`;
+  }
+
+  return s;
+}
+
+function formatDateToUk(date: Date | undefined): string {
+  if (!date || !isValid(date)) return "";
+  return format(date, "dd/MM/yyyy");
+}
+
+function normalizeUkDateInput(value: string) {
+  return toUkDateDisplay(value);
+}
+
+function headerSuggestsDate(header: string) {
+  const h = safeStr(header).toLowerCase();
+  return h.includes("date");
+}
+
+/* =========================================================
+   Bullets helpers (auto bullet on Enter)
+========================================================= */
+
+function insertAtCursor(el: HTMLTextAreaElement, insert: string, afterCaretOffset = 0) {
+  const start = el.selectionStart ?? 0;
+  const end = el.selectionEnd ?? start;
+  const before = el.value.slice(0, start);
+  const after = el.value.slice(end);
+  const next = before + insert + after;
+  const nextPos = start + insert.length + afterCaretOffset;
+  return { next, nextPos };
+}
+
+function currentLinePrefix(text: string, cursorPos: number) {
+  const before = text.slice(0, cursorPos);
+  const lastNl = before.lastIndexOf("\n");
+  const line = before.slice(lastNl + 1);
+  const trimmed = line.trimStart();
+  const hasBullet = trimmed.startsWith("•") || trimmed.startsWith("-") || trimmed.startsWith("*");
+  const indent = line.match(/^\s*/)?.[0] ?? "";
+  const markerMatch = trimmed.match(/^([•\-\*])\s*/);
+  const marker = markerMatch?.[1] ?? "•";
+  return { indent, hasBullet, marker };
+}
+
+/* =========================================================
+   Component
+========================================================= */
 
 export default function ProjectCharterSectionEditor({
   meta,
   onMetaChange,
   sections,
   onChange,
-  readOnly,
+  readOnly = false,
   completenessByKey,
-}: {
-  meta: CharterMeta;
-  onMetaChange: (meta: CharterMeta) => void;
-  sections: CharterSection[];
-  onChange: (sections: CharterSection[]) => void;
-  readOnly?: boolean;
-  completenessByKey?: Record<string, boolean>;
-}) {
-  const complete = completenessByKey ?? {};
+  onImproveSection,
+  onRegenerateSection,
+  aiDisabled = false,
+  aiLoadingKey = null,
+}: Props) {
+  const safeSections = useMemo(() => (Array.isArray(sections) ? sections : []), [sections]);
 
-  const normalized = useMemo(() => {
-    return (sections ?? []).map((s) => {
-      const t = s.table ? ensureRows(s.table.columns, s.table.rows) : null;
-      return { ...s, table: t ?? undefined };
-    });
-  }, [sections]);
-
-  function setSection(idx: number, next: Partial<CharterSection>) {
-    const arr = normalized.map((s) => ({ ...s })); // clone section objects
-    arr[idx] = { ...arr[idx], ...next };
+  function patchSection(idx: number, next: Partial<V2Section>) {
+    if (readOnly) return;
+    const arr = safeSections.slice();
+    const cur = arr[idx] || { key: "", title: "" };
+    arr[idx] = { ...cur, ...next };
     onChange(arr);
   }
 
-  function addRow(idx: number) {
-    const s = normalized[idx];
-    if (!s.table) return;
-    const t = ensureRows(s.table.columns, s.table.rows);
-    const nextT = {
-      columns: t.columns,
-      rows: [...t.rows, { type: "data", cells: Array.from({ length: t.columns }, () => "") }],
-    };
-    setSection(idx, { table: nextT });
+  function patchTable(idx: number, nextTable: { columns: number; rows: RowObj[] }) {
+    patchSection(idx, { table: ensureHeaderRow(nextTable), bullets: undefined });
   }
 
-  function removeRow(idx: number, rowIdx: number) {
-    const s = normalized[idx];
-    if (!s.table) return;
-    if (rowIdx === 0) return; // never remove header
-
-    const t = ensureRows(s.table.columns, s.table.rows);
-    let rows = t.rows.filter((_, i) => i !== rowIdx);
-
-    // keep at least one data row
-    if (!rows.some((r) => r.type === "data")) {
-      rows = [...rows, { type: "data", cells: Array.from({ length: t.columns }, () => "") }];
-    }
-
-    setSection(idx, { table: { columns: t.columns, rows } });
+  function patchBullets(idx: number, text: string) {
+    patchSection(idx, { bullets: text, table: undefined });
   }
+
+  function addTableRow(idx: number) {
+    if (readOnly) return;
+    const s = safeSections[idx];
+    const t = ensureHeaderRow(s?.table ?? { columns: 2, rows: [] });
+    t.rows.push({ type: "data", cells: Array.from({ length: t.columns }, () => "") });
+    patchTable(idx, t);
+  }
+
+  function delTableRow(idx: number, rowIndexInData: number) {
+    if (readOnly) return;
+    const s = safeSections[idx];
+    const t = ensureHeaderRow(s?.table ?? { columns: 2, rows: [] });
+
+    const dataIdxs = t.rows
+      .map((r, i) => ({ r, i }))
+      .filter((x) => x.r.type === "data")
+      .map((x) => x.i);
+
+    const target = dataIdxs[rowIndexInData];
+    if (target == null) return;
+
+    const nextRows = t.rows.slice();
+    nextRows.splice(target, 1);
+
+    const stillHasData = nextRows.some((r) => r.type === "data");
+    if (!stillHasData) nextRows.push({ type: "data", cells: Array.from({ length: t.columns }, () => "") });
+
+    patchTable(idx, { columns: t.columns, rows: nextRows });
+  }
+
+  function addColumn(idx: number) {
+    if (readOnly) return;
+    const s = safeSections[idx];
+    const t = ensureHeaderRow(s?.table ?? { columns: 2, rows: [] });
+    const cols = Math.min(24, (t.columns || 2) + 1);
+    const nextRows = t.rows.map((r) => ({
+      ...r,
+      cells: [...(r.cells ?? []), r.type === "header" ? `Column ${cols}` : ""],
+    }));
+    patchTable(idx, { columns: cols, rows: nextRows });
+  }
+
+  function delColumn(idx: number, colIndex: number) {
+    if (readOnly) return;
+    const s = safeSections[idx];
+    const t = ensureHeaderRow(s?.table ?? { columns: 2, rows: [] });
+    if (t.columns <= 1) return;
+
+    const cols = t.columns - 1;
+    const nextRows = t.rows.map((r) => {
+      const cells = (r.cells ?? []).slice();
+      cells.splice(colIndex, 1);
+      return { ...r, cells };
+    });
+
+    patchTable(idx, { columns: cols, rows: nextRows });
+  }
+
+  const [metaOpen, setMetaOpen] = useState(true);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6 p-6 bg-slate-50/50 min-h-screen">
       {/* Meta */}
-      <div className="border rounded-2xl p-4 bg-white">
-        <div className="font-semibold mb-3">Project details</div>
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-100 rounded-lg">
+              <FileText className="h-4 w-4 text-indigo-600" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-slate-900">Charter Details</div>
+              <div className="text-xs text-slate-500">Project metadata</div>
+            </div>
+          </div>
 
-        <div className="grid gap-3 md:grid-cols-2">
-          <label className="grid gap-1 text-sm">
-            <span className="text-neutral-600">Project title</span>
-            <input
-              disabled={readOnly}
-              className="border rounded-xl px-3 py-2"
-              value={safeStr(meta?.project_title)}
-              onChange={(e) => onMetaChange({ ...meta, project_title: e.target.value })}
-            />
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            <span className="text-neutral-600">Customer account</span>
-            <input
-              disabled={readOnly}
-              className="border rounded-xl px-3 py-2"
-              value={safeStr(meta?.customer_account)}
-              onChange={(e) => onMetaChange({ ...meta, customer_account: e.target.value })}
-            />
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            <span className="text-neutral-600">Project manager</span>
-            <input
-              disabled={readOnly}
-              className="border rounded-xl px-3 py-2"
-              value={safeStr(meta?.project_manager)}
-              onChange={(e) => onMetaChange({ ...meta, project_manager: e.target.value })}
-            />
-          </label>
-
-          <label className="grid gap-1 text-sm">
-            <span className="text-neutral-600">Sponsor</span>
-            <input
-              disabled={readOnly}
-              className="border rounded-xl px-3 py-2"
-              value={safeStr(meta?.project_sponsor)}
-              onChange={(e) => onMetaChange({ ...meta, project_sponsor: e.target.value })}
-            />
-          </label>
+          <button
+            type="button"
+            className="text-xs font-medium text-slate-600 hover:text-indigo-600 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-100"
+            onClick={() => setMetaOpen((v) => !v)}
+          >
+            {metaOpen ? "Hide" : "Show"}
+          </button>
         </div>
+
+        {metaOpen && (
+          <div className="p-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <MetaField
+                label="Project Title"
+                value={safeStr(meta?.project_title)}
+                disabled={readOnly}
+                onChange={(v) => onMetaChange({ ...meta, project_title: v })}
+              />
+              <MetaField
+                label="Project Manager"
+                value={safeStr(meta?.project_manager)}
+                disabled={readOnly}
+                onChange={(v) => onMetaChange({ ...meta, project_manager: v })}
+              />
+              <MetaField
+                label="Sponsor"
+                value={safeStr(meta?.sponsor)}
+                disabled={readOnly}
+                onChange={(v) => onMetaChange({ ...meta, sponsor: v })}
+              />
+              <MetaField
+                label="Dates (free text)"
+                value={safeStr(meta?.dates)}
+                disabled={readOnly}
+                onChange={(v) => onMetaChange({ ...meta, dates: v })}
+                placeholder="e.g., Start 01/03/2026 • End 30/06/2026"
+              />
+            </div>
+
+            <div className="mt-4 text-xs text-slate-400 flex items-center gap-2">
+              <Sparkles className="h-3 w-3" />
+              These fields power your exports and help AI context.
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Sections */}
-      <div className="space-y-4">
-        {normalized.map((s, idx) => {
-          const isDone = !!complete[String(s.key ?? "").toLowerCase()];
+      <div className="space-y-5">
+        {safeSections.map((sec, idx) => {
+          const key = safeStr(sec?.key).trim();
+          const title = safeStr(sec?.title).trim() || key || `Section ${idx + 1}`;
+
+          const isTable = !!sec?.table?.rows?.length;
+          const comp = completenessByKey?.[key];
+          const score = clampInt(comp?.completeness0to100, 0, 100, 0);
+
+          const icon = isTable ? (
+            <div className="p-2 bg-blue-50 rounded-lg">
+              <TableIcon className="h-4 w-4 text-blue-600" />
+            </div>
+          ) : (
+            <div className="p-2 bg-emerald-50 rounded-lg">
+              <List className="h-4 w-4 text-emerald-600" />
+            </div>
+          );
+
           return (
-            <div key={s.key} className="border rounded-2xl bg-white p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <div className="font-semibold text-lg">{s.title}</div>
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full border ${
-                        isDone ? "bg-green-50 border-green-200 text-green-700" : "bg-gray-50 border-gray-200 text-gray-600"
-                      }`}
-                      title={isDone ? "Complete" : "Incomplete"}
-                    >
-                      {isDone ? "✓ Complete" : "• Incomplete"}
-                    </span>
+            <div
+              key={`${key || "sec"}_${idx}`}
+              className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden hover:shadow-md transition-shadow"
+            >
+              <div className="px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50/50 to-white flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-3">
+                    {icon}
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <div className="text-sm font-semibold text-slate-900">{title}</div>
+
+                      {completenessByKey && key ? (
+                        <span
+                          className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${
+                            score >= 80
+                              ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                              : score >= 40
+                              ? "bg-amber-50 border-amber-200 text-amber-700"
+                              : "bg-rose-50 border-rose-200 text-rose-700"
+                          }`}
+                          title="Completeness score"
+                        >
+                          {score}%
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="text-xs text-neutral-500 break-all">key: {s.key}</div>
+
+                  {key && comp?.issues?.length ? (
+                    <div className="mt-3 flex items-start gap-2 text-xs">
+                      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
+                      <div className="space-y-1">
+                        {comp.issues.slice(0, 2).map((it, i) => (
+                          <div key={i} className="text-slate-600">
+                            <span className={`font-medium ${
+                              it.severity === "error" ? "text-rose-600" : 
+                              it.severity === "warn" ? "text-amber-600" : "text-blue-600"
+                            }`}>
+                              {it.severity.toUpperCase()}:
+                            </span> {it.message}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* AI actions */}
+                <div className="flex items-center gap-2 shrink-0">
+                  {onImproveSection ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={readOnly || aiDisabled}
+                      onClick={() =>
+                        onImproveSection({
+                          sectionKey: key,
+                          sectionTitle: title,
+                          section: sec,
+                          selectedText: "",
+                        })
+                      }
+                      className="rounded-lg border-indigo-200 hover:bg-indigo-50 hover:border-indigo-300"
+                      title="Improve this section with AI"
+                    >
+                      <Sparkles className="h-4 w-4 mr-2 text-indigo-600" />
+                      Improve
+                    </Button>
+                  ) : null}
+
+                  {onRegenerateSection ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={readOnly || aiDisabled || !key || aiLoadingKey === key}
+                      onClick={() => key && onRegenerateSection(key)}
+                      className="rounded-lg border-slate-200 hover:bg-slate-50"
+                      title="Regenerate this section with AI"
+                    >
+                      <RefreshCw className={`h-4 w-4 mr-2 ${aiLoadingKey === key ? "animate-spin text-indigo-600" : "text-slate-600"}`} />
+                      {aiLoadingKey === key ? "Working..." : "Regenerate"}
+                    </Button>
+                  ) : null}
                 </div>
               </div>
 
-              {/* Bullets */}
-              {!s.table ? (
-                <div className="mt-3">
-                  <textarea
-                    disabled={readOnly}
-                    rows={6}
-                    className="w-full border rounded-xl px-3 py-2 text-sm"
-                    placeholder="Add bullet points (one per line)…"
-                    value={safeStr(s.bullets)}
-                    onChange={(e) => setSection(idx, { bullets: e.target.value })}
+              <div className="p-5">
+                {isTable ? (
+                  <TableEditor
+                    value={ensureHeaderRow(sec.table!)}
+                    readOnly={readOnly}
+                    onChange={(t) => patchTable(idx, t)}
+                    onAddRow={() => addTableRow(idx)}
+                    onAddCol={() => addColumn(idx)}
+                    onDelCol={(c) => delColumn(idx, c)}
+                    onDelRow={(dataRowIndex) => delTableRow(idx, dataRowIndex)}
                   />
-                  <div className="text-xs text-neutral-500 mt-1">Tip: one bullet per line.</div>
-                </div>
-              ) : (
-                // Table
-                <div className="mt-3 space-y-2">
-                  <div className="overflow-auto">
-                    <table className="min-w-full border rounded-xl overflow-hidden">
-                      <tbody>
-                        {s.table.rows.map((r, rIdx) => (
-                          <tr key={rIdx} className={r.type === "header" ? "bg-gray-50" : ""}>
-                            {r.cells.map((c, cIdx) => (
-                              <td key={cIdx} className="border p-0 align-top">
-                                <input
-                                  disabled={readOnly}
-                                  className={`w-full px-3 py-2 text-sm outline-none ${
-                                    r.type === "header" ? "font-medium bg-gray-50" : "bg-white"
-                                  }`}
-                                  value={safeStr(c)}
-                                  onChange={(e) => {
-                                    const t = ensureRows(s.table!.columns, s.table!.rows);
-                                    const rows = t.rows.map((row, i) =>
-                                      i === rIdx
-                                        ? {
-                                            ...row,
-                                            cells: row.cells.map((cell, j) => (j === cIdx ? e.target.value : cell)),
-                                          }
-                                        : row
-                                    );
-                                    setSection(idx, { table: { columns: t.columns, rows } });
-                                  }}
-                                />
-                              </td>
-                            ))}
+                ) : (
+                  <BulletsEditor value={safeStr(sec?.bullets)} readOnly={readOnly} onChange={(v) => patchBullets(idx, v)} />
+                )}
 
-                            {!readOnly && r.type === "data" ? (
-                              <td className="border px-2 py-1">
-                                <button
-                                  type="button"
-                                  className="text-xs px-2 py-1 rounded-lg border hover:bg-gray-50"
-                                  onClick={() => removeRow(idx, rIdx)}
-                                  title="Remove row"
-                                >
-                                  Remove
-                                </button>
-                              </td>
-                            ) : r.type === "header" && !readOnly ? (
-                              <td className="border px-2 py-1 text-xs text-neutral-400"> </td>
-                            ) : null}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                {key && completenessByKey && score >= 80 ? (
+                  <div className="mt-4 flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 border border-emerald-100">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Looks good for export.
                   </div>
-
-                  {!readOnly ? (
-                    <button
-                      type="button"
-                      className="text-sm px-3 py-2 rounded-xl border hover:bg-gray-50"
-                      onClick={() => addRow(idx)}
-                    >
-                      + Add row
-                    </button>
-                  ) : null}
-                </div>
-              )}
+                ) : null}
+              </div>
             </div>
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   UI bits
+========================================================= */
+
+function MetaField({
+  label,
+  value,
+  onChange,
+  disabled,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+        {label}
+      </label>
+      <input
+        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 disabled:bg-slate-50 disabled:text-slate-400 transition-all"
+        value={value}
+        disabled={!!disabled}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  );
+}
+
+function BulletsEditor({
+  value,
+  readOnly,
+  onChange,
+}: {
+  value: string;
+  readOnly: boolean;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="text-xs font-medium text-slate-500 flex items-center gap-2">
+        <List className="h-3 w-3" />
+        Bullets / notes (one per line)
+      </div>
+      <textarea
+        className="w-full min-h-[160px] rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 disabled:bg-slate-50 disabled:text-slate-400 resize-y transition-all leading-relaxed"
+        value={value}
+        disabled={readOnly}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="• Add bullet points here..."
+        onKeyDown={(e) => {
+          if (readOnly) return;
+
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+
+            const el = e.currentTarget;
+            const pos = el.selectionStart ?? el.value.length;
+            const { indent, marker } = currentLinePrefix(el.value, pos);
+
+            const insert = `\n${indent}${marker} `;
+            const { next, nextPos } = insertAtCursor(el, insert);
+            onChange(next);
+
+            requestAnimationFrame(() => {
+              try {
+                el.selectionStart = el.selectionEnd = nextPos;
+              } catch {}
+            });
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+/* =========================================================
+   Date Picker Cell Component
+========================================================= */
+
+function DatePickerCell({
+  value,
+  onChange,
+  disabled,
+  placeholder = "dd/mm/yyyy",
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  
+  const date = useMemo(() => parseUkDate(value), [value]);
+  const displayValue = useMemo(() => toUkDateDisplay(value), [value]);
+
+  const handleSelect = (selectedDate: Date | undefined) => {
+    if (selectedDate && isValid(selectedDate)) {
+      onChange(formatDateToUk(selectedDate));
+    }
+    setOpen(false);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    // Allow typing, validate on blur
+    onChange(val);
+  };
+
+  const handleBlur = () => {
+    const normalized = normalizeUkDateInput(value);
+    if (normalized !== value) {
+      onChange(normalized);
+    }
+  };
+
+  if (disabled) {
+    return (
+      <div className="w-full px-3 py-2 text-sm text-slate-600 bg-slate-50 rounded-md border border-slate-200">
+        {displayValue || placeholder}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="text"
+        className="flex-1 min-w-0 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-all"
+        value={displayValue}
+        placeholder={placeholder}
+        onChange={handleInputChange}
+        onBlur={handleBlur}
+        onKeyDown={guardTableCellKeys}
+      />
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="p-2 rounded-md border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-colors text-slate-500 hover:text-indigo-600"
+            title="Pick date"
+          >
+            <CalendarIcon className="h-4 w-4" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0" align="end">
+          <Calendar
+            mode="single"
+            selected={date || undefined}
+            onSelect={handleSelect}
+            initialFocus
+            className="rounded-lg border-0"
+          />
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+/* =========================================================
+   Table Editor with Date Picker Support
+========================================================= */
+
+function TableEditor({
+  value,
+  readOnly,
+  onChange,
+  onAddRow,
+  onAddCol,
+  onDelRow,
+  onDelCol,
+}: {
+  value: { columns: number; rows: RowObj[] };
+  readOnly: boolean;
+  onChange: (t: { columns: number; rows: RowObj[] }) => void;
+  onAddRow: () => void;
+  onAddCol: () => void;
+  onDelRow: (dataRowIndex: number) => void;
+  onDelCol: (colIndex: number) => void;
+}) {
+  const t = ensureHeaderRow(value);
+  const header = t.rows[0].cells;
+  const dataRows = t.rows.filter((r) => r.type === "data");
+
+  const dateCols = useMemo(() => {
+    const idxs = new Set<number>();
+    header.forEach((h, i) => {
+      if (headerSuggestsDate(h)) idxs.add(i);
+    });
+    return idxs;
+  }, [header.join("|")]);
+
+  function setHeader(col: number, v: string) {
+    const next = ensureHeaderRow(t);
+    next.rows[0].cells[col] = v;
+    onChange(next);
+  }
+
+  function setCell(dataRowIndex: number, col: number, v: string) {
+    const next = ensureHeaderRow(t);
+    const dataIdxs = next.rows
+      .map((r, i) => ({ r, i }))
+      .filter((x) => x.r.type === "data")
+      .map((x) => x.i);
+
+    const rowIdx = dataIdxs[dataRowIndex];
+    if (rowIdx == null) return;
+
+    next.rows[rowIdx].cells[col] = v;
+    onChange(next);
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+        <table className="w-full text-sm border-collapse">
+          <thead className="bg-slate-50 border-b border-slate-200">
+            <tr>
+              {header.map((h, i) => (
+                <th key={i} className="px-4 py-3 text-left align-middle border-r border-slate-100 last:border-r-0">
+                  <div className="flex items-center gap-2">
+                    <input
+                      className="w-full bg-transparent outline-none font-semibold text-slate-700 placeholder:text-slate-400"
+                      value={safeStr(h)}
+                      disabled={readOnly}
+                      onChange={(e) => setHeader(i, e.target.value)}
+                      onKeyDown={guardTableCellKeys}
+                      placeholder={`Column ${i + 1}`}
+                    />
+
+                    {!readOnly && t.columns > 1 ? (
+                      <button
+                        type="button"
+                        className="shrink-0 rounded-md p-1.5 hover:bg-rose-100 text-slate-400 hover:text-rose-600 transition-colors"
+                        title="Delete this column"
+                        onClick={() => onDelCol(i)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
+                  </div>
+                </th>
+              ))}
+              {!readOnly ? <th className="w-16 px-2 py-3 bg-slate-50" /> : null}
+            </tr>
+          </thead>
+
+          <tbody className="divide-y divide-slate-100">
+            {dataRows.map((r, ri) => (
+              <tr key={ri} className="hover:bg-slate-50/50 transition-colors">
+                {header.map((_, ci) => {
+                  const isDate = dateCols.has(ci);
+                  const raw = safeStr(r.cells?.[ci]);
+
+                  return (
+                    <td key={ci} className="px-4 py-3 align-top border-r border-slate-100 last:border-r-0">
+                      {isDate ? (
+                        <DatePickerCell
+                          value={raw}
+                          onChange={(v) => setCell(ri, ci, v)}
+                          disabled={readOnly}
+                        />
+                      ) : (
+                        <input
+                          className="w-full outline-none bg-transparent text-slate-700 placeholder:text-slate-400"
+                          value={raw}
+                          disabled={readOnly}
+                          onChange={(e) => setCell(ri, ci, e.target.value)}
+                          onKeyDown={guardTableCellKeys}
+                        />
+                      )}
+                    </td>
+                  );
+                })}
+
+                {!readOnly ? (
+                  <td className="px-2 py-3 text-center">
+                    <button
+                      type="button"
+                      onClick={() => onDelRow(ri)}
+                      className="rounded-md p-2 hover:bg-rose-100 text-slate-400 hover:text-rose-600 transition-colors"
+                      title="Delete row"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </td>
+                ) : null}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {!readOnly ? (
+        <div className="flex flex-wrap gap-3 items-center">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={onAddRow} 
+            className="rounded-lg border-slate-300 hover:bg-slate-50 hover:border-slate-400"
+          >
+            <Plus className="h-4 w-4 mr-1.5" /> Add Row
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={onAddCol} 
+            className="rounded-lg border-slate-300 hover:bg-slate-50 hover:border-slate-400"
+          >
+            <Plus className="h-4 w-4 mr-1.5" /> Add Column
+          </Button>
+          
+          <div className="ml-auto text-xs text-slate-400">
+            {dataRows.length} row{dataRows.length !== 1 ? "s" : ""} × {header.length} column{header.length !== 1 ? "s" : ""}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

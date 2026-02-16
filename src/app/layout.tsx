@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AlienAI",
+  title: "Λ L I Ξ N Λ",
   description: "AI-powered project governance",
 };
 

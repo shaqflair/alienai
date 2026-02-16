@@ -1,65 +1,46 @@
 // src/app/projects/page.tsx
-import Link from "next/link";
+import "server-only";
+
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
-import { createProject, updateProjectTitle } from "./actions";
 
-type MemberProjectRow = {
-  project_id: string;
-  role: string | null;
-  projects: {
-    id: string;
-    title: string;
-    delivery_type: string;
-    created_at: string;
-  } | null;
-};
+import { createProject } from "./actions";
 
-function fmtDateIso(x: string) {
-  if (!x) return "—";
-  try {
-    const d = new Date(x);
-    if (Number.isNaN(d.getTime())) return String(x);
-    return d.toISOString().replace("T", " ").replace("Z", " UTC");
-  } catch {
-    return String(x);
-  }
-}
+import ProjectsHeader from "./_components/ProjectsHeader";
+import ProjectsResults from "./_components/ProjectsResults";
 
-function fmtRole(role?: string | null) {
-  const v = String(role ?? "").toLowerCase();
-  if (v === "owner") return { label: "Owner", cls: "bg-gray-50 border-gray-200 text-gray-800" };
-  if (v === "editor") return { label: "Editor", cls: "bg-blue-50 border-blue-200 text-blue-800" };
-  if (v === "viewer") return { label: "Viewer", cls: "bg-yellow-50 border-yellow-200 text-yellow-800" };
-  return { label: role ? String(role) : "Member", cls: "bg-gray-50 border-gray-200 text-gray-800" };
-}
-
-function canEditProjectTitle(role?: string | null) {
-  const v = String(role ?? "").toLowerCase();
-  return v === "owner" || v === "editor";
-}
-
-function inviteBanner(invite?: string | null) {
-  const v = String(invite ?? "").toLowerCase();
-  if (!v) return null;
-
-  if (v === "accepted") return { tone: "success", msg: "✅ You’ve joined the organisation." };
-  if (v === "expired") return { tone: "warn", msg: "⚠️ Invite expired. Ask the owner to resend the invite." };
-  if (v === "invalid") return { tone: "error", msg: "❌ Invite invalid or already used. Ask the owner to resend it." };
-  if (v === "email-mismatch")
-    return {
-      tone: "error",
-      msg: "❌ This invite was sent to a different email address. Sign in with the invited email, or ask the owner to re-invite you.",
-    };
-  if (v === "failed") return { tone: "error", msg: "❌ Invite acceptance failed. Please try again or ask the owner to resend." };
-
-  return null;
-}
+import {
+  buildQs,
+  flashFromQuery,
+  inviteBanner,
+  norm,
+  safeStr,
+  type MemberProjectRow,
+  type ProjectListRow,
+} from "./_lib/projects-utils";
 
 export default async function ProjectsPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ invite?: string }> | { invite?: string };
+  searchParams?:
+    | Promise<{
+        invite?: string;
+        q?: string;
+        view?: string;
+        sort?: string;
+        err?: string;
+        msg?: string;
+        pid?: string;
+      }>
+    | {
+        invite?: string;
+        q?: string;
+        view?: string;
+        sort?: string;
+        err?: string;
+        msg?: string;
+        pid?: string;
+      };
 }) {
   const supabase = await createClient();
 
@@ -67,12 +48,19 @@ export default async function ProjectsPage({
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
-    redirect(`/login?next=${encodeURIComponent("/projects")}`);
-  }
+  if (!user) redirect(`/login?next=${encodeURIComponent("/projects")}`);
 
   const sp = (await searchParams) ?? {};
   const banner = inviteBanner((sp as any)?.invite);
+
+  const q = safeStr((sp as any)?.q).trim();
+  const view = norm((sp as any)?.view) === "grid" ? "grid" : "list";
+  const sort = norm((sp as any)?.sort) === "title_asc" ? "title_asc" : "created_desc";
+
+  const err = safeStr((sp as any)?.err).trim();
+  const msg = safeStr((sp as any)?.msg).trim();
+  const pid = safeStr((sp as any)?.pid).trim();
+  const flash = flashFromQuery(err, msg);
 
   const userId = user.id;
 
@@ -85,194 +73,215 @@ export default async function ProjectsPage({
       projects:projects!project_members_project_id_fkey (
         id,
         title,
-        delivery_type,
-        created_at
+        project_code,
+        start_date,
+        finish_date,
+        created_at,
+        organisation_id,
+        status,
+        deleted_at
       )
     `
     )
     .eq("user_id", userId)
+    .is("projects.deleted_at", null)
     .order("created_at", { foreignTable: "projects", ascending: false });
 
   if (error) {
     return (
-      <main className="mx-auto max-w-4xl p-6">
-        <h1 className="text-2xl font-semibold">Projects</h1>
-        <p className="mt-3 text-sm text-red-600">Error: {error.message}</p>
+      <main className="min-h-screen bg-gray-50 text-gray-900">
+        <div className="mx-auto max-w-6xl px-6 py-10">
+          <h1 className="text-2xl font-semibold text-gray-900">Projects</h1>
+          <p className="mt-3 text-sm text-red-600">Error: {error.message}</p>
+        </div>
       </main>
     );
   }
 
-  const rows = ((data ?? []) as MemberProjectRow[])
+  const rows: ProjectListRow[] = ((data ?? []) as MemberProjectRow[])
     .map((r) => {
       if (!r.projects) return null;
       return {
         id: r.projects.id,
         title: r.projects.title,
-        delivery_type: r.projects.delivery_type,
+        project_code: r.projects.project_code,
+        start_date: r.projects.start_date,
+        finish_date: r.projects.finish_date,
         created_at: r.projects.created_at,
+        organisation_id: r.projects.organisation_id,
+        status: r.projects.status ?? "active",
         myRole: r.role ?? "viewer",
       };
     })
-    .filter(Boolean) as Array<{
-    id: string;
-    title: string;
-    delivery_type: string;
-    created_at: string;
-    myRole: string;
-  }>;
+    .filter(Boolean) as ProjectListRow[];
+
+  const orgIds = Array.from(new Set(rows.map((r) => String(r.organisation_id || "")).filter(Boolean)));
+
+  const orgAdminSet = new Set<string>();
+
+  if (orgIds.length) {
+    const { data: memRows } = await supabase
+      .from("organisation_members")
+      .select("organisation_id, role")
+      .eq("user_id", userId)
+      .in("organisation_id", orgIds);
+
+    for (const m of memRows ?? []) {
+      const oid = String((m as any)?.organisation_id || "");
+      const role = String((m as any)?.role || "").toLowerCase();
+      if (oid && role === "admin") orgAdminSet.add(oid);
+    }
+  }
+
+  const filtered = (() => {
+    if (!q) return rows;
+    const nq = norm(q);
+    return rows.filter((p) => {
+      const hay = `${p.title} ${String(p.project_code ?? "")} ${p.id}`.toLowerCase();
+      return hay.includes(nq);
+    });
+  })();
+
+  const sorted = (() => {
+    const arr = [...filtered];
+    if (sort === "title_asc") {
+      arr.sort((a, b) => safeStr(a.title).localeCompare(safeStr(b.title)));
+    } else {
+      arr.sort((a, b) => safeStr(b.created_at).localeCompare(safeStr(a.created_at)));
+    }
+    return arr;
+  })();
+
+  const inviteParam = safeStr((sp as any)?.invite).trim();
+
+  function baseQs(next: Record<string, string | undefined>) {
+    return buildQs({ ...next, invite: inviteParam || undefined });
+  }
+
+  // ✅ Cyan border style matching reference image (#00B8DB)
+  const panelGlow =
+    "bg-white text-gray-900 rounded-2xl border-2 border-[#00B8DB] shadow-[0_4px_20px_rgba(0,184,219,0.15)]";
 
   return (
-    <main className="mx-auto max-w-4xl p-6 space-y-8">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">AlienAI Projects</h1>
-        <p className="text-sm opacity-70">Create a project, then generate and approve artifacts.</p>
+    <main className="projects-theme-cyan relative min-h-screen bg-gray-50 text-gray-900 overflow-x-hidden">
+      {/* Global cyan overrides for circled controls (Global artifacts + search/sort buttons + title visibility) */}
+      <style
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{
+          __html: `
+            .projects-theme-cyan { --accent: #00B8DB; }
 
-        {banner ? (
-          <div
-            className={[
-              "mt-4 rounded-lg border px-4 py-3 text-sm",
-              banner.tone === "success" ? "border-green-200 bg-green-50" : "",
-              banner.tone === "warn" ? "border-yellow-200 bg-yellow-50" : "",
-              banner.tone === "error" ? "border-red-200 bg-red-50" : "",
-            ].join(" ")}
-          >
-            {banner.msg}
+            /* Ensure whatever heading ProjectsHeader uses is visible */
+            .projects-theme-cyan h1,
+            .projects-theme-cyan [data-page-title="projects"],
+            .projects-theme-cyan .page-title {
+              color: #0f172a !important;
+            }
+            .projects-theme-cyan .text-white\\/80,
+            .projects-theme-cyan .text-white\\/70,
+            .projects-theme-cyan .text-slate-200,
+            .projects-theme-cyan .text-slate-300 {
+              color: #64748b !important;
+            }
+
+            /* "Global artifacts" link/button (commonly points to /artifacts) */
+            .projects-theme-cyan a[href="/artifacts"],
+            .projects-theme-cyan a[href^="/artifacts?"],
+            .projects-theme-cyan a[href="/app/artifacts"],
+            .projects-theme-cyan a[href^="/app/artifacts?"] {
+              background: var(--accent) !important;
+              border-color: var(--accent) !important;
+              color: #fff !important;
+              box-shadow: 0 10px 30px rgba(0,184,219,0.25) !important;
+            }
+            .projects-theme-cyan a[href="/artifacts"]:hover,
+            .projects-theme-cyan a[href^="/artifacts?"]:hover,
+            .projects-theme-cyan a[href="/app/artifacts"]:hover,
+            .projects-theme-cyan a[href^="/app/artifacts?"]:hover {
+              filter: brightness(0.95) !important;
+            }
+
+            /* Buttons that were "blue" on this page -> make them cyan */
+            .projects-theme-cyan .bg-blue-600 { background-color: var(--accent) !important; }
+            .projects-theme-cyan .hover\\:bg-blue-700:hover { background-color: #00a5c4 !important; }
+            .projects-theme-cyan .border-blue-600 { border-color: var(--accent) !important; }
+            .projects-theme-cyan .text-blue-600 { color: var(--accent) !important; }
+            .projects-theme-cyan .ring-blue-500\\/20 { --tw-ring-color: rgba(0,184,219,0.20) !important; }
+          `,
+        }}
+      />
+
+      <div className="relative mx-auto max-w-6xl px-6 py-10 space-y-8">
+        <ProjectsHeader
+          banner={banner}
+          flash={flash}
+          dismissHref={`/projects${baseQs({ q, sort, view })}`}
+        />
+
+        {/* Create project */}
+        <section className={`p-6 md:p-8 space-y-5 ${panelGlow}`}>
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold text-gray-900">Create a project</h2>
+            <p className="text-sm text-gray-500">Create a new workspace with dates and governance defaults.</p>
           </div>
-        ) : null}
-      </header>
 
-      {/* Create project */}
-      <section className="rounded-lg border border-gray-200 bg-white p-6 space-y-4">
-        <h2 className="text-lg font-medium">Create a project</h2>
+          <form action={createProject} className="grid gap-4 max-w-2xl">
+            <label className="grid gap-2">
+              <span className="text-sm font-semibold text-gray-700">Project name</span>
+              <input
+                name="title"
+                placeholder="e.g. Project Venus"
+                required
+                className="rounded-lg bg-white border border-gray-300 px-4 py-3 text-gray-900 placeholder:text-gray-400 focus:border-[#00B8DB] focus:ring-2 focus:ring-[#00B8DB]/20 outline-none transition-colors"
+              />
+            </label>
 
-        <form action={createProject} className="grid gap-4 max-w-lg">
-          <label className="grid gap-2">
-            <span className="text-sm font-medium">Project name</span>
-            <input
-              name="title"
-              placeholder="e.g. SD-WAN"
-              required
-              className="rounded border border-gray-200 px-3 py-2"
-            />
-          </label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label className="grid gap-2">
+                <span className="text-sm font-semibold text-gray-700">Project start date</span>
+                <input
+                  name="start_date"
+                  type="date"
+                  required
+                  className="rounded-lg bg-white border border-gray-300 px-4 py-3 text-gray-900 focus:border-[#00B8DB] focus:ring-2 focus:ring-[#00B8DB]/20 outline-none transition-colors"
+                />
+              </label>
 
-          <label className="grid gap-2">
-            <span className="text-sm font-medium">Delivery type</span>
-            <select name="delivery_type" required className="rounded border border-gray-200 px-3 py-2" defaultValue="">
-              <option value="" disabled>
-                Select…
-              </option>
-              <option value="SAP">SAP</option>
-              <option value="SD-WAN">SD-WAN</option>
-              <option value="Cloud">Cloud</option>
-            </select>
-          </label>
+              <label className="grid gap-2">
+                <span className="text-sm font-semibold text-gray-700">Project finish date</span>
+                <input
+                  name="finish_date"
+                  type="date"
+                  className="rounded-lg bg-white border border-gray-300 px-4 py-3 text-gray-900 focus:border-[#00B8DB] focus:ring-2 focus:ring-[#00B8DB]/20 outline-none transition-colors"
+                />
+              </label>
+            </div>
 
-          <button type="submit" className="w-fit rounded border border-gray-200 px-4 py-2 hover:bg-gray-50 transition">
-            Create project
-          </button>
-        </form>
+            <button
+              type="submit"
+              className="w-fit rounded-lg bg-[#00B8DB] px-5 py-2.5 font-semibold text-white hover:bg-[#00a5c4] transition shadow-lg shadow-[#00B8DB]/25"
+            >
+              Create project
+            </button>
+          </form>
+        </section>
 
-        <p className="text-xs opacity-60">
-          Note: the creator will automatically be added as <b>owner</b> in <code>project_members</code>.
-        </p>
-      </section>
-
-      {/* List */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-medium">Your projects</h2>
-
-        {!rows.length ? (
-          <div className="rounded-lg border border-gray-200 bg-white p-6">
-            <p className="text-sm opacity-70">No projects yet.</p>
-          </div>
-        ) : (
-          <div className="rounded-lg border border-gray-200 bg-white divide-y">
-            {rows.map((p) => {
-              const myRole = p.myRole;
-              const roleChip = fmtRole(myRole);
-              const canEdit = canEditProjectTitle(myRole);
-              const isOwner = String(myRole ?? "").toLowerCase() === "owner";
-
-              return (
-                <div key={p.id} className="p-5 flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1 space-y-2">
-                    {/* Title row */}
-                    {canEdit ? (
-                      <form className="flex items-center gap-2">
-                        <input type="hidden" name="project_id" value={p.id} />
-                        <input
-                          name="title"
-                          defaultValue={p.title}
-                          className="w-full rounded border border-gray-200 px-2 py-1 font-semibold"
-                        />
-                        <button
-                          formAction={updateProjectTitle}
-                          type="submit"
-                          className="rounded border border-gray-200 px-3 py-1 text-sm hover:bg-gray-50 transition shrink-0"
-                          title="Save project name"
-                        >
-                          Save
-                        </button>
-
-                        <Link
-                          className="text-sm underline hover:opacity-80 transition shrink-0"
-                          href={`/projects/${p.id}`}
-                          title="Open project"
-                        >
-                          Open →
-                        </Link>
-                      </form>
-                    ) : (
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="font-semibold truncate">
-                          <Link className="underline hover:opacity-80 transition" href={`/projects/${p.id}`}>
-                            {p.title}
-                          </Link>
-                        </div>
-                        <Link className="text-sm underline hover:opacity-80 transition shrink-0" href={`/projects/${p.id}`}>
-                          Open →
-                        </Link>
-                      </div>
-                    )}
-
-                    <div className="text-xs opacity-70 flex flex-wrap items-center gap-2">
-                      <span className="inline-flex items-center rounded border border-gray-200 bg-gray-50 px-2 py-0.5">
-                        {p.delivery_type}
-                      </span>
-                      <span className={`inline-flex items-center rounded border px-2 py-0.5 ${roleChip.cls}`}>
-                        {roleChip.label}
-                      </span>
-                      <span>• Created: {fmtDateIso(p.created_at)}</span>
-                    </div>
-
-                    {/* Quick links */}
-                    <div className="flex flex-wrap items-center gap-3 text-sm">
-                      <Link className="underline hover:opacity-80 transition" href={`/projects/${p.id}`}>
-                        Overview
-                      </Link>
-                      <Link className="underline hover:opacity-80 transition" href={`/projects/${p.id}/artifacts`}>
-                        Artifacts
-                      </Link>
-                      <Link className="underline hover:opacity-80 transition" href={`/projects/${p.id}/members`}>
-                        Members
-                      </Link>
-                      <Link className="underline hover:opacity-80 transition" href={`/projects/${p.id}/approvals`}>
-                        Approvals
-                      </Link>
-                      {isOwner ? (
-                        <Link className="underline hover:opacity-80 transition" href={`/projects/${p.id}/doa`}>
-                          DOA (holiday cover)
-                        </Link>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
+        {/* Results */}
+        <div className="text-gray-900">
+          <ProjectsResults
+            rows={sorted}
+            view={view}
+            q={q}
+            sort={sort}
+            pid={pid}
+            err={err}
+            msg={msg}
+            orgAdminSet={orgAdminSet}
+            baseHrefForDismiss={`/projects${baseQs({ q, sort, view })}`}
+            panelGlow={panelGlow}
+          />
+        </div>
+      </div>
     </main>
   );
 }

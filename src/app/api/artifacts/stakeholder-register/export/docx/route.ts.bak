@@ -1,0 +1,288 @@
+// src/app/api/artifacts/stakeholder-register/export/docx/route.ts
+import "server-only";
+
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/utils/supabase/server";
+import {
+  Document,
+  Packer,
+  Paragraph,
+  TextRun,
+  Table,
+  TableRow,
+  TableCell,
+  WidthType,
+  BorderStyle,
+  VerticalAlign,
+  AlignmentType,
+  Header,
+  Footer,
+  PageNumber,
+} from "docx";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+/* ──────────────────────────────────────────────── Helpers ──────────────────────────────────────────────── */
+function jsonErr(message: string, status = 400, details?: Record<string, unknown>) {
+  return NextResponse.json({ ok: false, error: message, details }, { status });
+}
+
+function formatUkDateTime(date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}, ${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
+}
+
+function sanitizeFilename(input: string): string {
+  return (
+    String(input || "stakeholder-register")
+      .replace(/[^a-z0-9._-]+/gi, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_|_$/g, "")
+      .slice(0, 120) || "stakeholder-register"
+  );
+}
+
+function safeStr(x: any): string {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function normalizeChannelList(x: any): string {
+  if (Array.isArray(x)) return x.map((v) => safeStr(v)).filter(Boolean).join(", ");
+  return safeStr(x);
+}
+
+/* ──────────────────────────────────────────────── Styling Helpers ──────────────────────────────────────────────── */
+function paragraphLine(
+  text: string,
+  opts?: { size?: number; bold?: boolean; color?: string; after?: number; align?: AlignmentType }
+) {
+  return new Paragraph({
+    children: [
+      new TextRun({
+        text,
+        size: opts?.size ?? 22,
+        bold: !!opts?.bold,
+        color: opts?.color,
+      }),
+    ],
+    spacing: { after: opts?.after ?? 140 },
+    alignment: opts?.align,
+  });
+}
+
+function makeStyledTable(rows: TableRow[]) {
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: {
+      top: { style: BorderStyle.SINGLE, size: 8, color: "c7d2fe" },
+      bottom: { style: BorderStyle.SINGLE, size: 8, color: "c7d2fe" },
+      left: { style: BorderStyle.SINGLE, size: 8, color: "c7d2fe" },
+      right: { style: BorderStyle.SINGLE, size: 8, color: "c7d2fe" },
+      insideHorizontal: { style: BorderStyle.SINGLE, size: 4, color: "e5e7eb" },
+      insideVertical: { style: BorderStyle.SINGLE, size: 4, color: "e5e7eb" },
+    },
+    rows,
+  });
+}
+
+function cell(text: string, opts?: { bold?: boolean; colSpan?: number }) {
+  return new TableCell({
+    children: [
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: text || " ",
+            bold: !!opts?.bold,
+            size: 20, // smaller to fit many columns
+          }),
+        ],
+      }),
+    ],
+    verticalAlign: VerticalAlign.TOP,
+    columnSpan: opts?.colSpan,
+  });
+}
+
+type StakeholderRowForExport = {
+  id: string;
+  name: string;
+  role?: string | null;
+  influence_level?: string | null;
+  contact_info?: any | null;
+};
+
+async function generateDocxBuffer(input: {
+  title: string;
+  projectName: string;
+  projectHumanId?: string;
+  generatedAt: string;
+  rows: StakeholderRowForExport[];
+}) {
+  const { title, projectName, projectHumanId, generatedAt, rows } = input;
+
+  const headers = [
+    "Name",
+    "Point of Contact",
+    "Role",
+    "Type",
+    "Title/Role",
+    "Impact",
+    "Influence",
+    "Mapping",
+    "Milestone",
+    "Impact Notes",
+    "Channels",
+    "Group",
+  ];
+
+  const headerRow = new TableRow({
+    children: headers.map((h) => cell(h, { bold: true })),
+    tableHeader: true,
+  });
+
+  const dataRows =
+    rows.length > 0
+      ? rows.map((r) => {
+          const c = r?.contact_info && typeof r.contact_info === "object" ? r.contact_info : {};
+          return new TableRow({
+            children: [
+              cell(safeStr(r?.name)),
+              cell(safeStr(c?.point_of_contact)),
+              cell(safeStr(r?.role)),
+              cell(safeStr(c?.internal_external)),
+              cell(safeStr(c?.title_role)),
+              cell(safeStr(c?.impact_level || "Medium")),
+              cell(safeStr(r?.influence_level)),
+              cell(safeStr(c?.stakeholder_mapping)),
+              cell(safeStr(c?.involvement_milestone)),
+              cell(safeStr(c?.stakeholder_impact)),
+              cell(normalizeChannelList(c?.channels)),
+              cell(safeStr(c?.group || "Project")),
+            ],
+          });
+        })
+      : [
+          new TableRow({
+            children: [cell("No stakeholders found.", { colSpan: headers.length })],
+          }),
+        ];
+
+  const table = makeStyledTable([headerRow, ...dataRows]);
+
+  const doc = new Document({
+    sections: [
+      {
+        properties: {
+          page: { margin: { top: 1440, bottom: 1440, left: 900, right: 900 } }, // slightly smaller margins
+        },
+        headers: {
+          default: new Header({
+            children: [
+              new Paragraph({
+                children: [
+                  new TextRun({
+                    text: `${title} — ${projectName}${projectHumanId ? ` (${projectHumanId})` : ""}`,
+                    bold: true,
+                    size: 22,
+                  }),
+                ],
+                alignment: AlignmentType.LEFT,
+              }),
+            ],
+          }),
+        },
+        footers: {
+          default: new Footer({
+            children: [
+              new Paragraph({
+                children: [
+                  new TextRun({ text: `Generated ${generatedAt} • Page `, size: 18, color: "6b7280" }),
+                  PageNumber.CURRENT,
+                  new TextRun({ text: ` of `, size: 18, color: "6b7280" }),
+                  PageNumber.TOTAL_PAGES,
+                ],
+                alignment: AlignmentType.RIGHT,
+              }),
+            ],
+          }),
+        },
+        children: [
+          new Paragraph({
+            children: [new TextRun({ text: title, bold: true, size: 44 })],
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 350 },
+          }),
+          paragraphLine(`Project: ${projectName}`, { size: 26 }),
+          paragraphLine(`Project ID: ${projectHumanId || "—"}`, { size: 22 }),
+          paragraphLine(`Generated: ${generatedAt}`, { size: 22, after: 450 }),
+          table,
+        ],
+      },
+    ],
+  });
+
+  return await Packer.toBuffer(doc);
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const projectId = String(body?.projectId || "").trim();
+    const artifactId = String(body?.artifactId || "").trim();
+    if (!projectId) return jsonErr("Missing projectId", 400);
+    if (!artifactId) return jsonErr("Missing artifactId", 400);
+
+    const supabase = await createClient();
+
+    const { data: project } = await supabase
+      .from("projects")
+      .select("id,name,human_id")
+      .eq("id", projectId)
+      .single();
+
+    const { data: artifact } = await supabase
+      .from("artifacts")
+      .select("id,title")
+      .eq("id", artifactId)
+      .single();
+
+    const { data: stakeholders, error } = await supabase
+      .from("stakeholders")
+      .select("id,name,role,influence_level,contact_info")
+      .eq("project_id", projectId)
+      .eq("artifact_id", artifactId)
+      .order("created_at", { ascending: true });
+
+    if (error) return jsonErr(error.message || "Failed to load stakeholders", 500);
+
+    const rows = (Array.isArray(stakeholders) ? stakeholders : []) as StakeholderRowForExport[];
+
+    const title = "Stakeholder Register";
+    const generatedAt = formatUkDateTime();
+
+    const docxBuffer = await generateDocxBuffer({
+      title,
+      projectName: safeStr(project?.name) || "Project",
+      projectHumanId: safeStr(project?.human_id) || "",
+      generatedAt,
+      rows,
+    });
+
+    const baseName = sanitizeFilename(artifact?.title || project?.name || "Stakeholder_Register");
+    const filename = `${baseName}_Stakeholder_Register.docx`;
+
+    return new NextResponse(docxBuffer, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (e: any) {
+    return jsonErr(e?.message || "Failed to export Word document", 500);
+  }
+}

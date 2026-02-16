@@ -7,9 +7,10 @@ import { createClient } from "@/utils/supabase/server";
 // ✅ Charter submit validation
 import { assertCharterReadyForSubmit } from "@/lib/charter/charter-validation";
 
-/* ---------------------------
+/* =========================================================
    Helpers
----------------------------- */
+========================================================= */
+
 function throwDb(error: any, label: string): never {
   const code = error?.code ?? "";
   const msg = error?.message ?? "";
@@ -17,6 +18,20 @@ function throwDb(error: any, label: string): never {
   const details = error?.details ?? "";
   throw new Error(
     `[${label}] ${code} ${msg}${hint ? ` | hint: ${hint}` : ""}${details ? ` | details: ${details}` : ""}`
+  );
+}
+
+function safeStr(x: any) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function isMissingColumnError(errMsg: string, col: string) {
+  const m = String(errMsg || "").toLowerCase();
+  const c = col.toLowerCase();
+  return (
+    (m.includes("column") && m.includes(c) && m.includes("does not exist")) ||
+    (m.includes("could not find") && m.includes(c)) ||
+    (m.includes("unknown column") && m.includes(c))
   );
 }
 
@@ -31,9 +46,10 @@ async function requireUser() {
 async function requireMemberRole(supabase: any, projectId: string, userId: string) {
   const { data: mem, error } = await supabase
     .from("project_members")
-    .select("role")
+    .select("role, is_active")
     .eq("project_id", projectId)
     .eq("user_id", userId)
+    .eq("is_active", true)
     .maybeSingle();
 
   if (error) throwDb(error, "project_members.select");
@@ -41,42 +57,51 @@ async function requireMemberRole(supabase: any, projectId: string, userId: strin
   return String((mem as any)?.role ?? "viewer").toLowerCase();
 }
 
-function requireOwnerOrEditor(role: string) {
-  if (!(role === "owner" || role === "editor")) throw new Error("Only owners/editors can do that.");
-}
-
-async function isActiveProjectApprover(supabase: any, projectId: string, userId: string) {
-  const { data, error } = await supabase
-    .from("project_approvers")
-    .select("user_id")
-    .eq("project_id", projectId)
-    .eq("user_id", userId)
-    .eq("is_active", true)
-    .maybeSingle();
-
-  if (error) throwDb(error, "project_approvers.select");
-  return !!data;
-}
-
 function canSubmitByRole(myRole: string, isAuthor: boolean) {
-  // ✅ Owners/editors + author can submit/resubmit.
-  // Approvers alone cannot submit/resubmit.
+  // ✅ Author OR owner/editor can submit/resubmit
   return isAuthor || myRole === "owner" || myRole === "editor";
 }
 
-function clampInt(x: any, min: number, max: number) {
-  const n = Number(x);
-  if (!Number.isFinite(n)) return null;
-  const v = Math.trunc(n);
-  if (v < min || v > max) return null;
-  return v;
+/**
+ * ✅ Approver policy for NOW (no approver tables exist):
+ * - Owners approve (strong governance default)
+ * - If you want owners+editors, set to true.
+ */
+const INCLUDE_EDITORS_AS_APPROVERS = false;
+
+function canApproveByRole(myRole: string) {
+  if (INCLUDE_EDITORS_AS_APPROVERS) return myRole === "owner" || myRole === "editor";
+  return myRole === "owner";
 }
 
 async function getArtifact(supabase: any, artifactId: string) {
   const { data, error } = await supabase
     .from("artifacts")
     .select(
-      "id, project_id, user_id, type, title, content, content_json, is_locked, approval_status, submitted_at, submitted_by, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, is_current, is_baseline, root_artifact_id, parent_artifact_id, version, updated_at"
+      [
+        "id",
+        "project_id",
+        "user_id",
+        "type",
+        "title",
+        "content",
+        "content_json",
+        "is_locked",
+        "approval_status",
+        "submitted_at",
+        "submitted_by",
+        "approved_at",
+        "approved_by",
+        "rejected_at",
+        "rejected_by",
+        "rejection_reason",
+        "is_current",
+        "is_baseline",
+        "root_artifact_id",
+        "parent_artifact_id",
+        "version",
+        "updated_at",
+      ].join(", ")
     )
     .eq("id", artifactId)
     .maybeSingle();
@@ -108,129 +133,47 @@ async function writeAuditLog(
   if (error) throwDb(error, "artifact_audit_log.insert");
 }
 
+/* =========================================================
+   Artifact type helpers
+========================================================= */
+
 function isProjectCharterType(type: any) {
   const t = String(type ?? "").toLowerCase();
   return t === "project_charter" || t === "project charter" || t === "charter" || t === "projectcharter" || t === "pid";
 }
 
-/* ---------------------------
-   Steps v2
----------------------------- */
-type Step = {
-  id: string;
-  project_id: string;
-  step_order: number;
-  step_name: string;
-  requires_all: boolean;
-  min_approvals: number | null;
-  is_active: boolean;
-};
-
-async function getActiveSteps(supabase: any, projectId: string): Promise<Step[]> {
-  const { data, error } = await supabase
-    .from("approval_steps")
-    .select("id, project_id, step_order, step_name, requires_all, min_approvals, is_active")
-    .eq("project_id", projectId)
-    .eq("is_active", true)
-    .order("step_order", { ascending: true });
-
-  if (error) throwDb(error, "approval_steps.select");
-  return (data ?? []) as Step[];
+function isClosureReportType(type: any) {
+  const t = String(type ?? "").toLowerCase().trim();
+  return (
+    t === "project_closure_report" ||
+    t === "project closure report" ||
+    t === "closure_report" ||
+    t === "closure report" ||
+    t === "project_closeout" ||
+    t === "closeout" ||
+    t === "close_out" ||
+    t === "status_dashboard" ||
+    t === "status dashboard"
+  );
 }
 
-async function ensureDefaultStepsIfMissing(supabase: any, projectId: string) {
-  const steps = await getActiveSteps(supabase, projectId);
-  if (steps.length > 0) return;
-
-  const { error } = await supabase.from("approval_steps").insert([
-    {
-      project_id: projectId,
-      step_order: 1,
-      step_name: "Approval",
-      requires_all: true,
-      min_approvals: null,
-      is_active: true,
-    },
-  ]);
-  if (error) throwDb(error, "approval_steps.insert(default)");
+function isApprovalEligibleArtifact(type: any) {
+  // ✅ Governance: ONLY charter + closure participate in approvals
+  return isProjectCharterType(type) || isClosureReportType(type);
 }
 
-async function getActiveApproverCount(supabase: any, projectId: string): Promise<number> {
-  const { data, error } = await supabase
-    .from("project_approvers")
-    .select("user_id")
-    .eq("project_id", projectId)
-    .eq("is_active", true);
+/* =========================================================
+   Suggestions (unchanged)
+========================================================= */
 
-  if (error) throwDb(error, "project_approvers.select(active)");
-  return (data ?? []).length;
+function clampInt(x: any, min: number, max: number) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return null;
+  const v = Math.trunc(n);
+  if (v < min || v > max) return null;
+  return v;
 }
 
-async function computeCurrentStep(
-  supabase: any,
-  projectId: string,
-  artifactId: string
-): Promise<{ steps: Step[]; current: Step | null; isFinalComplete: boolean }> {
-  await ensureDefaultStepsIfMissing(supabase, projectId);
-  const steps = await getActiveSteps(supabase, projectId);
-  if (steps.length === 0) return { steps, current: null, isFinalComplete: true };
-
-  const approverCount = await getActiveApproverCount(supabase, projectId);
-
-  for (const step of steps) {
-    const { data: approvals, error } = await supabase
-      .from("approval_decisions")
-      .select("approver_user_id")
-      .eq("project_id", projectId)
-      .eq("artifact_id", artifactId)
-      .eq("step_id", step.id)
-      .eq("decision", "approved");
-
-    if (error) throwDb(error, "approval_decisions.select(approved)");
-
-    const approvedCount = (approvals ?? []).length;
-    const required = step.requires_all ? approverCount : Math.max(1, Number(step.min_approvals ?? 1));
-    const isStepComplete = approvedCount >= required;
-
-    if (!isStepComplete) return { steps, current: step, isFinalComplete: false };
-  }
-
-  return { steps, current: null, isFinalComplete: true };
-}
-
-async function recordDecision(
-  supabase: any,
-  args: {
-    projectId: string;
-    artifactId: string;
-    stepId: string;
-    approverUserId: string;
-    decision: "approved" | "rejected";
-    reason?: string;
-  }
-) {
-  const { projectId, artifactId, stepId, approverUserId, decision, reason } = args;
-
-  const { error } = await supabase
-    .from("approval_decisions")
-    .upsert(
-      {
-        project_id: projectId,
-        artifact_id: artifactId,
-        step_id: stepId,
-        approver_user_id: approverUserId,
-        decision,
-        reason: reason ?? null,
-      },
-      { onConflict: "artifact_id,step_id,approver_user_id" }
-    );
-
-  if (error) throwDb(error, "approval_decisions.upsert");
-}
-
-/* ---------------------------
-   Suggestions (approver "edits")
----------------------------- */
 export async function addSuggestion(formData: FormData) {
   const { supabase, user } = await requireUser();
 
@@ -249,8 +192,10 @@ export async function addSuggestion(formData: FormData) {
   if (!projectId || !artifactId) throw new Error("project_id and artifact_id are required.");
   if (!suggested_text) throw new Error("suggested_text is required.");
 
-  const ok = await isActiveProjectApprover(supabase, projectId, user.id);
-  if (!ok) throw new Error("Only active approvers can add suggestions.");
+  const myRole = await requireMemberRole(supabase, projectId, user.id);
+  if (!(myRole === "owner" || myRole === "editor")) {
+    throw new Error("Only project owners/editors can add suggestions.");
+  }
 
   const a0 = await getArtifact(supabase, artifactId);
   if (String(a0.project_id) !== projectId) throw new Error("Artifact does not belong to this project.");
@@ -299,16 +244,14 @@ export async function applySuggestion(formData: FormData) {
   const artifactId = String(formData.get("artifact_id") ?? "").trim();
   const suggestionId = String(formData.get("suggestion_id") ?? "").trim();
 
-  if (!projectId || !artifactId || !suggestionId) {
-    throw new Error("project_id, artifact_id, suggestion_id are required.");
-  }
+  if (!projectId || !artifactId || !suggestionId) throw new Error("project_id, artifact_id, suggestion_id are required.");
 
   const myRole = await requireMemberRole(supabase, projectId, user.id);
-  requireOwnerOrEditor(myRole);
+  if (!(myRole === "owner" || myRole === "editor")) throw new Error("Only owners/editors can apply suggestions.");
 
   const { data: s0, error: sErr } = await supabase
     .from("artifact_suggestions")
-    .select("id, status, anchor, range, suggested_text, style, actor_user_id, created_at")
+    .select("id, status, anchor, range, suggested_text, style")
     .eq("id", suggestionId)
     .eq("project_id", projectId)
     .eq("artifact_id", artifactId)
@@ -328,9 +271,7 @@ export async function applySuggestion(formData: FormData) {
 
   const approvalStatus = String(a0.approval_status ?? "draft").toLowerCase();
   const canMutateArtifact = !a0.is_locked && (approvalStatus === "draft" || approvalStatus === "changes_requested");
-  if (!canMutateArtifact) {
-    throw new Error("You can only apply suggestions into the artifact when it is unlocked (draft or changes requested).");
-  }
+  if (!canMutateArtifact) throw new Error("You can only apply suggestions when the artifact is unlocked (draft/CR).");
 
   const anchor = String((s0 as any).anchor ?? "content").toLowerCase();
   const suggestedText = String((s0 as any).suggested_text ?? "").trim();
@@ -350,20 +291,13 @@ export async function applySuggestion(formData: FormData) {
     if (range && typeof range === "object") {
       const start = clampInt((range as any).start, 0, content.length);
       const end = clampInt((range as any).end, 0, content.length);
-
       if (start !== null && end !== null && end >= start) {
         nextContent = content.slice(0, start) + suggestedText + content.slice(end);
       } else {
-        const stamp = new Date().toISOString().replace("T", " ").replace("Z", " UTC");
-        nextContent =
-          content +
-          `\n\n---\nAPPLIED SUGGESTION [${anchor}] by ${user.id} @ ${stamp}\n${suggestedText}\n`;
+        nextContent = content + `\n\n---\nAPPLIED SUGGESTION [${anchor}]\n${suggestedText}\n`;
       }
     } else {
-      const stamp = new Date().toISOString().replace("T", " ").replace("Z", " UTC");
-      nextContent =
-        content +
-        `\n\n---\nAPPLIED SUGGESTION [${anchor}] by ${user.id} @ ${stamp}\n${suggestedText}\n`;
+      nextContent = content + `\n\n---\nAPPLIED SUGGESTION [${anchor}]\n${suggestedText}\n`;
     }
 
     const { error: upArtErr } = await supabase.from("artifacts").update({ content: nextContent }).eq("id", artifactId);
@@ -383,19 +317,8 @@ export async function applySuggestion(formData: FormData) {
     artifact_id: artifactId,
     actor_id: user.id,
     action: "suggestion_applied_to_artifact",
-    before: {
-      suggestion_id: suggestionId,
-      suggestion_status: status0,
-      anchor,
-      suggestion_range: (s0 as any).range ?? null,
-      artifact: beforeArtifact,
-    },
-    after: {
-      suggestion_id: suggestionId,
-      suggestion_status: "applied",
-      anchor,
-      applied_to: anchor === "title" ? "title" : "content",
-    },
+    before: { suggestion_id: suggestionId, suggestion_status: status0, anchor, artifact: beforeArtifact },
+    after: { suggestion_id: suggestionId, suggestion_status: "applied", applied_to: anchor === "title" ? "title" : "content" },
   });
 
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
@@ -411,7 +334,7 @@ export async function dismissSuggestion(formData: FormData) {
   if (!projectId || !artifactId || !suggestionId) throw new Error("project_id, artifact_id, suggestion_id are required.");
 
   const myRole = await requireMemberRole(supabase, projectId, user.id);
-  requireOwnerOrEditor(myRole);
+  if (!(myRole === "owner" || myRole === "editor")) throw new Error("Only owners/editors can dismiss suggestions.");
 
   const { data: s0, error: sErr } = await supabase
     .from("artifact_suggestions")
@@ -420,6 +343,7 @@ export async function dismissSuggestion(formData: FormData) {
     .eq("project_id", projectId)
     .eq("artifact_id", artifactId)
     .maybeSingle();
+
   if (sErr) throwDb(sErr, "artifact_suggestions.select(dismiss)");
   if (!s0) throw new Error("Suggestion not found.");
 
@@ -435,6 +359,7 @@ export async function dismissSuggestion(formData: FormData) {
     .eq("id", suggestionId)
     .eq("project_id", projectId)
     .eq("artifact_id", artifactId);
+
   if (upErr) throwDb(upErr, "artifact_suggestions.update(dismissed)");
 
   await writeAuditLog(supabase, {
@@ -449,9 +374,10 @@ export async function dismissSuggestion(formData: FormData) {
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
 }
 
-/* ---------------------------
-   Artifact title rename
----------------------------- */
+/* =========================================================
+   Artifact title rename (unchanged)
+========================================================= */
+
 export async function renameArtifactTitle(formData: FormData) {
   const { supabase, user } = await requireUser();
 
@@ -490,9 +416,10 @@ export async function renameArtifactTitle(formData: FormData) {
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
 }
 
-/* ---------------------------
-   Approvals
----------------------------- */
+/* =========================================================
+   Approvals — Artifact-native (NO chain tables)
+========================================================= */
+
 export async function submitArtifactForApproval(projectId: string, artifactId: string) {
   const { supabase, user } = await requireUser();
   if (!projectId || !artifactId) throw new Error("projectId and artifactId are required.");
@@ -501,45 +428,44 @@ export async function submitArtifactForApproval(projectId: string, artifactId: s
   const a0 = await getArtifact(supabase, artifactId);
   if (String(a0.project_id) !== projectId) throw new Error("Artifact does not belong to this project.");
 
-  const isAuthor = String(a0.user_id) === user.id;
+  // ✅ Only current versions can submit
+  if (!a0.is_current) throw new Error("Only the current version can be submitted.");
 
-  if (!canSubmitByRole(myRole, isAuthor)) {
-    throw new Error("Approvers can’t submit/resubmit. Only the author or project owners/editors can submit.");
+  // ✅ Only Charter + Closure can submit
+  if (!isApprovalEligibleArtifact(a0.type)) {
+    throw new Error("Submit for approval is only enabled for Project Charter and Project Closure Report.");
   }
+
+  const isAuthor = String(a0.user_id) === user.id;
+  if (!canSubmitByRole(myRole, isAuthor)) throw new Error("Only the author or project owners/editors can submit/resubmit.");
 
   const st = String(a0.approval_status ?? "draft").toLowerCase();
-  if (!(st === "draft" || st === "changes_requested")) {
-    throw new Error(`Cannot submit from status: ${st}`);
-  }
+  if (!(st === "draft" || st === "changes_requested")) throw new Error(`Cannot submit from status: ${st}`);
 
-  // ✅ Server-side validation gate for Project Charter
+  // ✅ Charter validation
   if (isProjectCharterType(a0.type)) {
-    // For your new v2, content is in content_json; this blocks submit until required sections are filled
     assertCharterReadyForSubmit(a0.content_json);
   }
 
-  // resubmission resets approval run
-  const { error: delErr } = await supabase
-    .from("approval_decisions")
-    .delete()
-    .eq("project_id", projectId)
-    .eq("artifact_id", artifactId);
-  if (delErr) throwDb(delErr, "approval_decisions.delete(resubmit_reset)");
-
-  await ensureDefaultStepsIfMissing(supabase, projectId);
+  const nowIso = new Date().toISOString();
 
   const { error: upErr } = await supabase
     .from("artifacts")
     .update({
       approval_status: "submitted",
-      submitted_at: new Date().toISOString(),
+      submitted_at: nowIso,
       submitted_by: user.id,
+
       is_locked: true,
-      locked_at: new Date().toISOString(),
+      locked_at: nowIso,
       locked_by: user.id,
+
+      // clear any prior outcomes
       rejected_at: null,
       rejected_by: null,
       rejection_reason: null,
+      approved_at: null,
+      approved_by: null,
     })
     .eq("id", artifactId);
 
@@ -561,57 +487,48 @@ export async function approveArtifact(projectId: string, artifactId: string) {
   const { supabase, user } = await requireUser();
   if (!projectId || !artifactId) throw new Error("projectId and artifactId are required.");
 
-  await requireMemberRole(supabase, projectId, user.id);
-
-  const isApprover = await isActiveProjectApprover(supabase, projectId, user.id);
-  if (!isApprover) throw new Error("You are not an active approver for this project.");
+  const myRole = await requireMemberRole(supabase, projectId, user.id);
 
   const a0 = await getArtifact(supabase, artifactId);
   if (String(a0.project_id) !== projectId) throw new Error("Artifact does not belong to this project.");
+
+  // ✅ Only Charter + Closure participate
+  if (!isApprovalEligibleArtifact(a0.type)) throw new Error("This artifact does not use approvals.");
+
+  // ✅ Approver policy: owners (or owners+editors if enabled)
+  if (!canApproveByRole(myRole)) throw new Error("You are not an eligible approver for this project.");
+
+  // ✅ cannot approve own artifact
   if (String(a0.user_id) === user.id) throw new Error("You cannot approve your own artifact.");
 
   const st = String(a0.approval_status ?? "").toLowerCase();
   if (st !== "submitted") throw new Error("Artifact is not currently submitted for approval.");
 
-  const { current } = await computeCurrentStep(supabase, projectId, artifactId);
-  if (!current) return;
+  const nowIso = new Date().toISOString();
 
-  await recordDecision(supabase, {
-    projectId,
-    artifactId,
-    stepId: current.id,
-    approverUserId: user.id,
-    decision: "approved",
-  });
+  const { error: upErr } = await supabase
+    .from("artifacts")
+    .update({
+      approval_status: "approved",
+      approved_at: nowIso,
+      approved_by: user.id,
+      // keep locked (it was locked on submit)
+      is_locked: true,
+    })
+    .eq("id", artifactId);
+
+  if (upErr) throwDb(upErr, "artifacts.update(approve)");
 
   await writeAuditLog(supabase, {
     project_id: projectId,
     artifact_id: artifactId,
     actor_id: user.id,
     action: "approve",
-    before: { step_id: current.id, step_order: current.step_order, approval_status: a0.approval_status },
-    after: { step_id: current.id, step_order: current.step_order, decision: "approved" },
+    before: { approval_status: a0.approval_status, is_locked: a0.is_locked },
+    after: { approval_status: "approved", approved_by: user.id, approved_at: nowIso },
   });
 
-  const post = await computeCurrentStep(supabase, projectId, artifactId);
-  if (!post.isFinalComplete) {
-    revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
-    return;
-  }
-
-  const { error: upErr } = await supabase
-    .from("artifacts")
-    .update({
-      approval_status: "approved",
-      approved_at: new Date().toISOString(),
-      approved_by: user.id,
-      // keep locked; it was locked on submit
-    })
-    .eq("id", artifactId);
-
-  if (upErr) throwDb(upErr, "artifacts.update(final_approve)");
-
-  // ✅ Create baseline snapshot (including content_json)
+  // ✅ Baseline snapshot (same as before)
   const baselineId = await promoteApprovedToBaseline(supabase, {
     projectId,
     approvedArtifactId: artifactId,
@@ -635,36 +552,24 @@ export async function requestChangesArtifact(projectId: string, artifactId: stri
   const { supabase, user } = await requireUser();
   if (!projectId || !artifactId) throw new Error("projectId and artifactId are required.");
 
-  await requireMemberRole(supabase, projectId, user.id);
-
-  const isApprover = await isActiveProjectApprover(supabase, projectId, user.id);
-  if (!isApprover) throw new Error("You are not an active approver for this project.");
+  const myRole = await requireMemberRole(supabase, projectId, user.id);
 
   const a0 = await getArtifact(supabase, artifactId);
   if (String(a0.project_id) !== projectId) throw new Error("Artifact does not belong to this project.");
+  if (!isApprovalEligibleArtifact(a0.type)) throw new Error("This artifact does not use approvals.");
+  if (!canApproveByRole(myRole)) throw new Error("You are not an eligible approver for this project.");
   if (String(a0.user_id) === user.id) throw new Error("You cannot request changes on your own artifact.");
 
   const st = String(a0.approval_status ?? "").toLowerCase();
   if (st !== "submitted") throw new Error("Artifact is not currently submitted for approval.");
 
-  const { current } = await computeCurrentStep(supabase, projectId, artifactId);
-
-  if (current) {
-    await recordDecision(supabase, {
-      projectId,
-      artifactId,
-      stepId: current.id,
-      approverUserId: user.id,
-      decision: "rejected",
-      reason,
-    });
-  }
+  const nowIso = new Date().toISOString();
 
   const { error: upErr } = await supabase
     .from("artifacts")
     .update({
       approval_status: "changes_requested",
-      rejected_at: new Date().toISOString(),
+      rejected_at: nowIso,
       rejected_by: user.id,
       rejection_reason: reason ?? null,
       is_locked: false,
@@ -680,8 +585,8 @@ export async function requestChangesArtifact(projectId: string, artifactId: stri
     artifact_id: artifactId,
     actor_id: user.id,
     action: "request_changes",
-    before: { step_id: current?.id ?? null, step_order: current?.step_order ?? null, approval_status: a0.approval_status },
-    after: { approval_status: "changes_requested", reason: reason ?? null },
+    before: { approval_status: a0.approval_status, is_locked: a0.is_locked },
+    after: { approval_status: "changes_requested", reason: reason ?? null, is_locked: false },
   });
 
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
@@ -691,36 +596,24 @@ export async function rejectFinalArtifact(projectId: string, artifactId: string,
   const { supabase, user } = await requireUser();
   if (!projectId || !artifactId) throw new Error("projectId and artifactId are required.");
 
-  await requireMemberRole(supabase, projectId, user.id);
-
-  const isApprover = await isActiveProjectApprover(supabase, projectId, user.id);
-  if (!isApprover) throw new Error("You are not an active approver for this project.");
+  const myRole = await requireMemberRole(supabase, projectId, user.id);
 
   const a0 = await getArtifact(supabase, artifactId);
   if (String(a0.project_id) !== projectId) throw new Error("Artifact does not belong to this project.");
+  if (!isApprovalEligibleArtifact(a0.type)) throw new Error("This artifact does not use approvals.");
+  if (!canApproveByRole(myRole)) throw new Error("You are not an eligible approver for this project.");
   if (String(a0.user_id) === user.id) throw new Error("You cannot reject your own artifact.");
 
   const st = String(a0.approval_status ?? "").toLowerCase();
   if (st !== "submitted") throw new Error("Artifact is not currently submitted for approval.");
 
-  const { current } = await computeCurrentStep(supabase, projectId, artifactId);
-
-  if (current) {
-    await recordDecision(supabase, {
-      projectId,
-      artifactId,
-      stepId: current.id,
-      approverUserId: user.id,
-      decision: "rejected",
-      reason,
-    });
-  }
+  const nowIso = new Date().toISOString();
 
   const { error: upErr } = await supabase
     .from("artifacts")
     .update({
       approval_status: "rejected",
-      rejected_at: new Date().toISOString(),
+      rejected_at: nowIso,
       rejected_by: user.id,
       rejection_reason: reason ?? null,
       is_locked: false,
@@ -736,17 +629,17 @@ export async function rejectFinalArtifact(projectId: string, artifactId: string,
     artifact_id: artifactId,
     actor_id: user.id,
     action: "reject_final",
-    before: { step_id: current?.id ?? null, step_order: current?.step_order ?? null, approval_status: a0.approval_status },
-    after: { approval_status: "rejected", reason: reason ?? null },
+    before: { approval_status: a0.approval_status, is_locked: a0.is_locked },
+    after: { approval_status: "rejected", reason: reason ?? null, is_locked: false },
   });
 
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
 }
 
-/* ---------------------------
+/* =========================================================
    Baseline promotion (internal)
-   ✅ Copy content_json into baseline snapshot
----------------------------- */
+========================================================= */
+
 async function promoteApprovedToBaseline(
   supabase: any,
   args: { projectId: string; approvedArtifactId: string; artifactType: string | null; actorId: string }
@@ -775,8 +668,6 @@ async function promoteApprovedToBaseline(
       type: a0.type,
       title: a0.title,
       content: String(a0.content ?? ""),
-
-      // ✅ IMPORTANT: snapshot structured content
       content_json: a0.content_json ?? null,
 
       is_locked: true,

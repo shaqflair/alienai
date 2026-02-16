@@ -1,79 +1,338 @@
 // src/app/projects/[id]/artifacts/page.tsx
-import Link from "next/link";
+import "server-only";
+
 import { notFound, redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
 
-import DeleteDraftButton from "@/components/artifacts/DeleteDraftButton";
+import ArtifactBoardClient, {
+  type ArtifactBoardRow,
+  type Phase,
+  type UiStatus,
+} from "@/components/artifacts/ArtifactBoardClient";
+
+/* =========================================================
+   helpers
+========================================================= */
 
 function safeParam(x: unknown): string {
-  return typeof x === "string" ? x : "";
+  if (typeof x === "string") return x;
+  if (Array.isArray(x) && typeof x[0] === "string") return x[0];
+  return "";
 }
 
-function fmtWhen(x: string | null) {
-  if (!x) return "—";
+function safeStr(x: unknown) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function safeLower(x: unknown) {
+  return safeStr(x).trim().toLowerCase();
+}
+
+function looksLikeUuid(s: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(s || "").trim()
+  );
+}
+
+function isMissingColumnError(errMsg: string, col: string) {
+  const m = String(errMsg || "").toLowerCase();
+  const c = col.toLowerCase();
+  return (
+    (m.includes("column") && m.includes(c) && m.includes("does not exist")) ||
+    (m.includes("could not find") && m.includes(c)) ||
+    (m.includes("unknown column") && m.includes(c))
+  );
+}
+
+function isInvalidInputSyntaxError(err: any) {
+  return String(err?.code || "").trim() === "22P02";
+}
+
+function shapeErr(err: any) {
+  if (!err) return { kind: "empty", raw: err };
+  if (err instanceof Error)
+    return { kind: "Error", name: err.name, message: err.message, stack: err.stack };
+  return {
+    kind: typeof err,
+    code: err?.code,
+    message: err?.message,
+    details: err?.details,
+    hint: err?.hint,
+    status: err?.status,
+    raw: err,
+  };
+}
+
+function normalizeProjectIdentifier(input: string) {
+  let v = safeStr(input).trim();
   try {
-    const d = new Date(x);
-    if (Number.isNaN(d.getTime())) return String(x);
-    return d.toISOString().replace("T", " ").replace("Z", " UTC");
-  } catch {
-    return String(x);
+    v = decodeURIComponent(v);
+  } catch {}
+  v = v.trim();
+
+  // allow "P-100011" / "PRJ-100011" / etc -> "100011"
+  const m = v.match(/(\d{3,})$/);
+  if (m?.[1]) return m[1];
+
+  return v;
+}
+
+function extractDigitsAsNumber(input: string): number | null {
+  const s = normalizeProjectIdentifier(input);
+  const m = String(s).match(/^\d+$/);
+  if (!m) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.floor(n);
+}
+
+/**
+ * Deterministic resolver:
+ * - UUID → use directly (no projects lookup needed)
+ * - else → digits → projects.project_code = <number>
+ * - else → optional fallbacks to slug/reference columns (best-effort + tolerant)
+ */
+async function resolveProject(supabase: any, identifier: string): Promise<{
+  projectUuid: string | null;
+  project: any | null;
+  projectHumanId: string;
+}> {
+  const raw = safeStr(identifier).trim();
+  if (!raw || raw === "undefined" || raw === "null") {
+    return { projectUuid: null, project: null, projectHumanId: "" };
+  }
+
+  // UUID fast path
+  if (looksLikeUuid(raw)) {
+    return { projectUuid: raw, project: null, projectHumanId: raw };
+  }
+
+  // Primary human-id path: project_code (numeric)
+  const codeNum = extractDigitsAsNumber(raw);
+  if (codeNum != null) {
+    const { data, error } = await supabase
+      .from("projects")
+      .select("id,title,name,project_code,client_name,organisation_id,finish_date,end_date")
+      .eq("project_code", codeNum)
+      .maybeSingle();
+
+    if (error) {
+      // 22P02 shouldn't happen here (numeric), but tolerate anyway
+      if (isInvalidInputSyntaxError(error)) {
+        return { projectUuid: null, project: null, projectHumanId: "" };
+      }
+      throw error;
+    }
+
+    if (data?.id) {
+      const human = safeStr(data.project_code).trim()
+        ? `P-${String(Number(data.project_code)).padStart(5, "0")}`
+        : normalizeProjectIdentifier(raw);
+
+      return { projectUuid: String(data.id), project: data, projectHumanId: human };
+    }
+  }
+
+  // Optional fallbacks (only if those columns exist)
+  const fallbacks = ["slug", "reference", "ref", "code", "human_id"] as const;
+
+  for (const col of fallbacks) {
+    const { data, error } = await supabase
+      .from("projects")
+      .select("id,title,name,project_code,client_name,organisation_id,finish_date,end_date")
+      .eq(col, raw)
+      .maybeSingle();
+
+    if (error) {
+      if (isMissingColumnError(error.message, col)) continue;
+      if (isInvalidInputSyntaxError(error)) continue;
+      throw error;
+    }
+
+    if (data?.id) {
+      const human = safeStr(data.project_code).trim()
+        ? `P-${String(Number(data.project_code)).padStart(5, "0")}`
+        : normalizeProjectIdentifier(raw);
+
+      return { projectUuid: String(data.id), project: data, projectHumanId: human };
+    }
+  }
+
+  return { projectUuid: null, project: null, projectHumanId: "" };
+}
+
+/* =========================================================
+   mapping helpers
+========================================================= */
+
+function canonType(x: any) {
+  const raw = safeStr(x).trim().toLowerCase();
+  if (!raw) return "";
+
+  const t = raw
+    .replace(/\s+/g, " ")
+    .replace(/[\/]+/g, " / ")
+    .replace(/[_-]+/g, "_")
+    .trim();
+
+  if (t === "status_dashboard" || t === "status dashboard") return "PROJECT_CLOSURE_REPORT";
+
+  if (t === "project_charter" || t === "project charter" || t === "charter" || t === "projectcharter" || t === "pid")
+    return "PROJECT_CHARTER";
+
+  if (t === "stakeholder_register" || t === "stakeholder register" || t === "stakeholders" || t === "stakeholder")
+    return "STAKEHOLDER_REGISTER";
+
+  if (t === "wbs" || t === "work breakdown structure" || t === "work_breakdown_structure") return "WBS";
+
+  if (
+    t === "schedule" ||
+    t === "roadmap" ||
+    t === "gantt" ||
+    t === "schedule / roadmap" ||
+    t === "schedule_roadmap" ||
+    t === "schedule_road_map"
+  )
+    return "SCHEDULE";
+
+  if (
+    t === "change_requests" ||
+    t === "change requests" ||
+    t === "change_request" ||
+    t === "change request" ||
+    t === "change_log" ||
+    t === "change log" ||
+    t === "kanban"
+  )
+    return "CHANGE_REQUESTS";
+
+  if (t === "raid" || t === "raid_log" || t === "raid log" || t === "raid_register" || t === "raid register") return "RAID";
+
+  if (
+    t === "lessons_learned" ||
+    t === "lessons learned" ||
+    t === "lesson learned" ||
+    t === "lessons" ||
+    t === "lesson" ||
+    t === "retrospective" ||
+    t === "retro"
+  )
+    return "LESSONS_LEARNED";
+
+  if (
+    t === "project_closure_report" ||
+    t === "project closure report" ||
+    t === "closure_report" ||
+    t === "closure report" ||
+    t === "project_closeout" ||
+    t === "closeout" ||
+    t === "close_out"
+  )
+    return "PROJECT_CLOSURE_REPORT";
+
+  return raw.toUpperCase().replace(/\s+/g, "_");
+}
+
+function phaseForCanonType(typeKey: string): Phase {
+  switch (typeKey) {
+    case "PROJECT_CHARTER":
+      return "Initiating";
+    case "STAKEHOLDER_REGISTER":
+    case "WBS":
+    case "SCHEDULE":
+      return "Planning";
+    case "RAID":
+    case "CHANGE_REQUESTS":
+      return "Monitoring & Controlling";
+    case "LESSONS_LEARNED":
+    case "PROJECT_CLOSURE_REPORT":
+      return "Closing";
+    default:
+      return "Planning";
   }
 }
 
-function derivedStatus(a: any) {
-  const s = String(a?.approval_status ?? "").toLowerCase();
-  if (s === "approved") return "approved";
-  if (s === "rejected") return "rejected";
-  if (s === "changes_requested") return "changes_requested";
-  if (s === "submitted") return "submitted";
-
-  if (a?.approved_by) return "approved";
-  if (a?.rejected_by) return "rejected";
-  if (a?.is_locked) return "submitted";
-  return "draft";
+function uiStatusFromArtifact(a: any): UiStatus {
+  const approval = safeLower(a?.approval_status);
+  if (approval === "approved" || a?.is_baseline) return "Approved";
+  if (approval === "submitted" || approval === "review" || approval === "in_review") return "In review";
+  if (approval === "rejected") return "Blocked";
+  if (a?.is_locked) return "In review";
+  return "Draft";
 }
 
-function statusPill(status: string) {
-  const s = String(status ?? "").toLowerCase();
-  if (s === "approved") return { label: "✅ Approved", cls: "bg-green-50 border-green-200 text-green-800" };
-  if (s === "rejected") return { label: "⛔ Rejected (Final)", cls: "bg-red-50 border-red-200 text-red-800" };
-  if (s === "changes_requested")
-    return { label: "🛠 Changes requested (CR)", cls: "bg-blue-50 border-blue-200 text-blue-800" };
-  if (s === "submitted") return { label: "🟡 Submitted", cls: "bg-yellow-50 border-yellow-200 text-yellow-800" };
-  return { label: "📝 Draft", cls: "bg-gray-50 border-gray-200 text-gray-800" };
+function progressFromArtifact(a: any) {
+  const approval = safeLower(a?.approval_status);
+  if (a?.is_baseline) return 100;
+  if (approval === "approved") return 95;
+  if (approval === "submitted" || approval === "review" || approval === "in_review") return 70;
+  if (approval === "changes_requested") return 45;
+  if (approval === "rejected") return 0;
+  if (a?.is_locked) return 70;
+  return 20;
 }
 
-function typePill(type: any) {
-  const t = String(type ?? "—").toUpperCase();
-  return { label: t, cls: "bg-white border-gray-200 text-gray-800" };
+function fmtUkDateOnly(iso: string) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  try {
+    return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
+  } catch {
+    return iso;
+  }
 }
 
-function canCreate(role: string) {
-  const r = String(role ?? "").toLowerCase();
-  return r === "owner" || r === "editor";
+const PHASE_ORDER: Phase[] = ["Initiating", "Planning", "Executing", "Monitoring & Controlling", "Closing"];
+const TYPE_ORDER = [
+  "PROJECT_CHARTER",
+  "STAKEHOLDER_REGISTER",
+  "WBS",
+  "SCHEDULE",
+  "CHANGE_REQUESTS",
+  "RAID",
+  "LESSONS_LEARNED",
+  "PROJECT_CLOSURE_REPORT",
+];
+
+function typeRank(t: string) {
+  const i = TYPE_ORDER.indexOf(t);
+  return i === -1 ? 999 : i;
+}
+function phaseRank(p: Phase) {
+  const i = PHASE_ORDER.indexOf(p);
+  return i === -1 ? 999 : i;
+}
+function safeDateSortKey(x: any): number {
+  const s = safeStr(x ?? "").trim();
+  if (!s) return 0;
+  const t = new Date(s).getTime();
+  return Number.isFinite(t) ? t : 0;
 }
 
-const ARTIFACT_TYPES = [
-  { type: "CHANGE_REQUESTS", label: "Change Requests" },
-  { type: "PROJECT_CHARTER", label: "Project Charter" },
-  { type: "RAID", label: "RAID Log" },
-  { type: "SCHEDULE", label: "Schedule / Roadmap" },
-  { type: "WBS", label: "Work Breakdown Structure" },
-  { type: "STAKEHOLDER_REGISTER", label: "Stakeholder Register" },
-  { type: "LESSONS_LEARNED", label: "Lessons Learned" },
-  { type: "STATUS_DASHBOARD", label: "Status Dashboard" },
-] as const;
+type ArtifactBoardRowWithActions = ArtifactBoardRow & {
+  canDeleteDraft?: boolean;
+  canClone?: boolean;
+  approvalStatus?: string;
+  isLocked?: boolean;
+  deletedAt?: string | null;
+};
 
-function labelForType(type: string) {
-  const t = String(type ?? "").trim().toUpperCase();
-  return ARTIFACT_TYPES.find((x) => x.type === t)?.label ?? (type || "Artifact");
+function canDeleteDraftFromArtifact(a: any): boolean {
+  const approval = safeLower(a?.approval_status);
+  const isDraft = approval === "" || approval === "draft" || approval === "new";
+  const locked = Boolean(a?.is_locked);
+  const baseline = Boolean(a?.is_baseline);
+  return isDraft && !locked && !baseline;
 }
+
+/* =========================================================
+   page
+========================================================= */
 
 export default async function ArtifactsPage({
   params,
 }: {
-  params: { id?: string } | Promise<{ id?: string }>;
+  params: Promise<{ id?: string }>;
 }) {
   const supabase = await createClient();
 
@@ -81,249 +340,191 @@ export default async function ArtifactsPage({
   if (authErr) throw authErr;
   if (!auth?.user) redirect("/login");
 
-  const p = await Promise.resolve(params as any);
-  const projectId = safeParam(p?.id);
-  if (!projectId) notFound();
+  const { id } = await params;
+  const projectIdentifier = safeParam(id);
 
+  if (!projectIdentifier || projectIdentifier === "undefined" || projectIdentifier === "null") notFound();
+
+  let resolved: { projectUuid: string | null; project: any | null; projectHumanId: string };
+  try {
+    resolved = await resolveProject(supabase, projectIdentifier);
+  } catch (e) {
+    console.error("[ArtifactsPage] resolveProject error:", shapeErr(e), { projectIdentifier });
+    notFound();
+  }
+
+  if (!resolved?.projectUuid) notFound();
+  const projectUuid = String(resolved.projectUuid);
+
+  // ✅ membership gate first (real access check)
   const { data: mem, error: memErr } = await supabase
     .from("project_members")
-    .select("role")
-    .eq("project_id", projectId)
+    .select("role, is_active")
+    .eq("project_id", projectUuid)
     .eq("user_id", auth.user.id)
+    .eq("is_active", true)
     .maybeSingle();
 
   if (memErr) throw memErr;
   if (!mem) notFound();
 
-  const myRole = String((mem as any)?.role ?? "viewer").toLowerCase();
-  const canAdd = canCreate(myRole);
+  const role = safeLower((mem as any)?.role);
+  const canEditProject = role === "owner" || role === "editor";
 
-  const { data: approverAny, error: apprErr } = await supabase
-    .from("project_approvers")
-    .select("artifact_type")
-    .eq("project_id", projectId)
-    .eq("user_id", auth.user.id)
-    .eq("is_active", true)
-    .limit(1);
+  // ✅ best-effort project meta if UUID path didn’t fetch it
+  let project = resolved.project ?? null;
+  if (!project) {
+    const { data: p, error: pErr } = await supabase
+      .from("projects")
+      .select("id,title,name,project_code,client_name,organisation_id,finish_date,end_date")
+      .eq("id", projectUuid)
+      .maybeSingle();
+    if (!pErr && p?.id) project = p;
+  }
 
-  if (apprErr) console.warn("[project_approvers.select] blocked:", apprErr.message);
-  const isApproverAny = (approverAny ?? []).length > 0;
+  const projectHumanId =
+    safeStr(resolved.projectHumanId).trim() || normalizeProjectIdentifier(projectIdentifier);
 
-  const { data: project, error: projErr } = await supabase
-    .from("projects")
-    .select("id,title")
-    .eq("id", projectId)
-    .maybeSingle();
-  if (projErr) throw projErr;
+  const projectName = safeStr((project as any)?.title ?? (project as any)?.name ?? "").trim() || "Project";
+  const projectCodeRaw = safeStr((project as any)?.project_code ?? "").trim();
+  const projectCode = projectCodeRaw
+    ? `P-${String(Number(projectCodeRaw)).padStart(5, "0")}`
+    : projectHumanId;
 
+  const projectFinishDateIso = safeStr((project as any)?.finish_date ?? (project as any)?.end_date ?? "").trim();
+  const dueDisplay = projectFinishDateIso ? fmtUkDateOnly(projectFinishDateIso) : "—";
+
+  // artifacts
   const { data: artifacts, error: artErr } = await supabase
     .from("artifacts")
     .select(
-      "id,type,title,created_at,updated_at,is_current,is_baseline,is_locked,locked_at,approval_status,approved_by,rejected_by"
+      [
+        "id",
+        "project_id",
+        "user_id",
+        "type",
+        "title",
+        "updated_at",
+        "created_at",
+        "is_current",
+        "is_baseline",
+        "approval_status",
+        "is_locked",
+        "deleted_at",
+      ].join(", ")
     )
-    .eq("project_id", projectId)
-    .order("is_current", { ascending: false })
-    .order("updated_at", { ascending: false })
-    .limit(300);
+    .eq("project_id", projectUuid)
+    .is("deleted_at", null)
+    .order("updated_at", { ascending: false });
 
   if (artErr) throw artErr;
 
-  const list = (artifacts ?? []).map((a: any) => {
-    const status = derivedStatus(a);
-    return {
-      ...a,
-      _status: status,
-      _statusPill: statusPill(status),
-      _typePill: typePill(a.type),
-    };
-  });
+  const arts = (artifacts ?? []) as any[];
 
-  const stats = list.reduce(
-    (acc: any, a: any) => {
-      acc.total += 1;
-      acc[a._status] = (acc[a._status] ?? 0) + 1;
-      return acc;
-    },
-    { total: 0, draft: 0, submitted: 0, changes_requested: 0, approved: 0, rejected: 0 }
-  );
+  // owners
+  const userIds = Array.from(new Set(arts.map((a) => safeStr(a?.user_id).trim()).filter(Boolean)));
+  const ownerMap: Record<string, { name?: string; email?: string }> = {};
 
-  async function createArtifactAction(formData: FormData) {
-    "use server";
+  if (userIds.length) {
+    const { data: profs, error: profErr } = await supabase
+      .from("profiles")
+      .select("user_id, full_name, email")
+      .in("user_id", userIds);
 
-    const typeRaw = String(formData.get("type") ?? "").trim();
-    const type = (typeRaw || "PROJECT_CHARTER").toUpperCase();
-
-    const supabase = await createClient();
-    const { data: auth2, error: authErr2 } = await supabase.auth.getUser();
-    if (authErr2) throw authErr2;
-    if (!auth2?.user) redirect("/login");
-
-    const { data: mem2, error: memErr2 } = await supabase
-      .from("project_members")
-      .select("role")
-      .eq("project_id", projectId)
-      .eq("user_id", auth2.user.id)
-      .maybeSingle();
-
-    if (memErr2) throw memErr2;
-    const role2 = String((mem2 as any)?.role ?? "viewer").toLowerCase();
-    if (!(role2 === "owner" || role2 === "editor")) throw new Error("Only owners/editors can create artifacts.");
-
-    const { error: retireErr } = await supabase
-      .from("artifacts")
-      .update({ is_current: false })
-      .eq("project_id", projectId)
-      .eq("type", type)
-      .eq("is_current", true);
-
-    if (retireErr) throw new Error(`[artifacts.update(retire_current)] ${retireErr.code} ${retireErr.message}`);
-
-    const nowIso = new Date().toISOString();
-    const title = `${labelForType(type)} — ${nowIso.slice(0, 10)}`;
-
-    const { data: inserted, error: insErr } = await supabase
-      .from("artifacts")
-      .insert({
-        project_id: projectId,
-        user_id: auth2.user.id,
-        type,
-        title,
-        content: "",
-        approval_status: "draft",
-        status: "draft",
-        is_locked: false,
-        locked_at: null,
-        locked_by: null,
-        is_current: true,
-        is_baseline: false,
-        created_at: nowIso,
-      })
-      .select("id")
-      .single();
-
-    if (insErr) throw new Error(`[artifacts.insert] ${insErr.code} ${insErr.message}`);
-
-    revalidatePath(`/projects/${projectId}/artifacts`);
-    redirect(`/projects/${projectId}/artifacts/${inserted.id}`);
+    if (!profErr) {
+      for (const p of (profs ?? []) as any[]) {
+        const uid = safeStr(p?.user_id).trim();
+        if (!uid) continue;
+        ownerMap[uid] = {
+          name: safeStr(p?.full_name).trim() || undefined,
+          email: safeStr(p?.email).trim() || undefined,
+        };
+      }
+    }
   }
 
+  // group by type
+  const byType = new Map<string, any[]>();
+  for (const a of arts) {
+    const t = canonType(a?.type);
+    if (!t) continue;
+    const arr = byType.get(t) ?? [];
+    arr.push(a);
+    byType.set(t, arr);
+  }
+
+  const picked: any[] = [];
+
+  for (const [, list] of byType.entries()) {
+    const sorted = [...list].sort((a, b) => {
+      const ad = safeDateSortKey(a?.updated_at) || safeDateSortKey(a?.created_at);
+      const bd = safeDateSortKey(b?.updated_at) || safeDateSortKey(b?.created_at);
+      return bd - ad;
+    });
+
+    const current = sorted.find((x) => !!x?.is_current);
+    const drafts = sorted.filter((x) => safeLower(x?.approval_status) === "draft" && !x?.is_baseline);
+
+    const seen = new Set<string>();
+    const pushOnce = (x: any) => {
+      const id = safeStr(x?.id).trim();
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      picked.push(x);
+    };
+
+    if (current) pushOnce(current);
+    else if (sorted[0]) pushOnce(sorted[0]);
+
+    for (const d of drafts.slice(0, 2)) pushOnce(d);
+  }
+
+  const rows: ArtifactBoardRowWithActions[] = picked
+    .filter((a) => safeStr(a?.id).trim())
+    .map((a) => {
+      const id = safeStr(a.id).trim();
+      const t = canonType(a?.type) || safeStr(a?.type).trim() || "—";
+      const owner = ownerMap[safeStr(a?.user_id).trim()] ?? {};
+
+      const approvalStatus = safeLower(a?.approval_status) || "";
+      const isLocked = Boolean(a?.is_locked);
+
+      return {
+        id,
+        artifactType: t,
+        title: safeStr(a?.title).trim() || t,
+        ownerEmail: owner.email ?? "",
+        ownerName: owner.name ?? undefined,
+        progress: progressFromArtifact(a),
+        status: uiStatusFromArtifact(a),
+        phase: phaseForCanonType(t),
+        due: dueDisplay,
+        isBaseline: !!a?.is_baseline,
+
+        canDeleteDraft: canEditProject && canDeleteDraftFromArtifact(a),
+        canClone: canEditProject,
+        approvalStatus,
+        isLocked,
+        deletedAt: (a as any)?.deleted_at ?? null,
+      };
+    })
+    .sort((a, b) => {
+      const pr = phaseRank(a.phase) - phaseRank(b.phase);
+      if (pr !== 0) return pr;
+
+      const tr = typeRank(a.artifactType) - typeRank(b.artifactType);
+      if (tr !== 0) return tr;
+
+      return a.title.localeCompare(b.title);
+    });
+
   return (
-    <main className="mx-auto max-w-6xl px-6 py-8 space-y-6">
-      <div className="flex items-center justify-between text-sm text-gray-500">
-        <Link className="underline" href={`/projects/${projectId}`}>
-          ← Back to Project
-        </Link>
-
-        <div className="flex items-center gap-3">
-          {isApproverAny ? (
-            <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs bg-blue-50 border-blue-200 text-blue-800">
-              Approver
-            </span>
-          ) : null}
-
-          <div>
-            Role: <span className="font-mono">{myRole}</span>
-          </div>
-        </div>
-      </div>
-
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold">Artifacts — {project?.title ?? "Project"}</h1>
-
-        <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
-          <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs bg-gray-50 border-gray-200">
-            Total: <span className="ml-1 font-mono">{stats.total}</span>
-          </span>
-          <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs bg-gray-50 border-gray-200">
-            Draft: <span className="ml-1 font-mono">{stats.draft}</span>
-          </span>
-          <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs bg-yellow-50 border-yellow-200 text-yellow-800">
-            Submitted: <span className="ml-1 font-mono">{stats.submitted}</span>
-          </span>
-          <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs bg-blue-50 border-blue-200 text-blue-800">
-            CR: <span className="ml-1 font-mono">{stats.changes_requested}</span>
-          </span>
-          <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs bg-green-50 border-green-200 text-green-800">
-            Approved: <span className="ml-1 font-mono">{stats.approved}</span>
-          </span>
-          <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs bg-red-50 border-red-200 text-red-800">
-            Rejected: <span className="ml-1 font-mono">{stats.rejected}</span>
-          </span>
-        </div>
-      </header>
-
-      <section className="border rounded-2xl bg-white overflow-hidden">
-        <div className="flex items-center justify-between border-b bg-gray-50 px-5 py-3 gap-3">
-          <div className="font-medium">All artifacts</div>
-
-          {canAdd ? (
-            <form action={createArtifactAction} className="flex items-center gap-2">
-              <select name="type" className="border rounded-xl px-3 py-2 text-sm bg-white" defaultValue="PROJECT_CHARTER">
-                {ARTIFACT_TYPES.map((a) => (
-                  <option key={a.type} value={a.type}>
-                    {a.label}
-                  </option>
-                ))}
-              </select>
-
-              <button type="submit" className="px-3 py-2 rounded-xl bg-black text-white text-sm">
-                + Create
-              </button>
-            </form>
-          ) : (
-            <span className="text-xs text-gray-500">Only owners/editors can create artifacts</span>
-          )}
-        </div>
-
-        {list.length === 0 ? (
-          <div className="p-5 text-sm text-gray-600">No artifacts yet.</div>
-        ) : (
-          <div className="divide-y">
-            {list.map((a: any) => {
-              const canDeleteThis = canAdd && a._status === "draft" && !a.is_locked && !a.is_baseline;
-
-              return (
-                <div key={a.id} className="px-5 py-4 flex items-center justify-between gap-4">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2 min-w-0">
-                      <div className="font-medium truncate">{a.title || a.type || "Untitled artifact"}</div>
-
-                      {a.is_current ? (
-                        <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs bg-black text-white border-black">
-                          Current
-                        </span>
-                      ) : null}
-
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${a._typePill.cls}`}>
-                        {a._typePill.label}
-                      </span>
-
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${a._statusPill.cls}`}>
-                        {a._statusPill.label}
-                      </span>
-                    </div>
-
-                    <div className="text-xs text-gray-500">
-                      Updated: {fmtWhen(a.updated_at ?? a.created_at)}
-                      {a.locked_at ? <> • Submitted: {fmtWhen(String(a.locked_at))}</> : null}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3 shrink-0">
-                    <Link className="underline text-sm" href={`/projects/${projectId}/artifacts/${a.id}`}>
-                      Open →
-                    </Link>
-
-                    {canDeleteThis ? (
-                      <DeleteDraftButton projectId={projectId} artifactId={a.id} />
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-    </main>
+    <ArtifactBoardClient
+      projectHumanId={projectHumanId}
+      projectUuid={projectUuid}
+      projectName={projectName}
+      projectCode={projectCode}
+      rows={rows}
+    />
   );
 }

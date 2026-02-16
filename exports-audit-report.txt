@@ -1,0 +1,55 @@
+﻿=== EXPORTS AUDIT REPORT ===
+Root: C:\dev\alienai\src\lib\exports
+Generated: 2026-02-12 19:39:18
+
+== Files referencing Puppeteer / Chromium ==
+C:\dev\alienai\src\lib\exports\_shared\puppeteer.ts
+C:\dev\alienai\src\lib\exports\change\exportChangeRequestPdfBuffer.ts
+C:\dev\alienai\src\lib\exports\change\index.ts
+C:\dev\alienai\src\lib\exports\charter\exportCharterPdf.ts
+C:\dev\alienai\src\lib\exports\charter\exportCharterPdfBuffer.ts
+C:\dev\alienai\src\lib\exports\closure-report\pdf.ts
+C:\dev\alienai\src\lib\exports\lessons\exportLessonsPdf.ts
+C:\dev\alienai\src\lib\exports\pdf\renderPdf.ts
+C:\dev\alienai\src\lib\exports\pdf-utils.ts
+C:\dev\alienai\src\lib\exports\raid\exportRaidPdf.ts
+C:\dev\alienai\src\lib\exports\shared\registerPdfShell.ts
+
+== networkidle0 occurrences (and auto-replaced to networkidle2) ==
+C:\dev\alienai\src\lib\exports\change\exportChangeRequestPdfBuffer.ts:75  await page.setContent(html, { waitUntil: "networkidle0" });
+C:\dev\alienai\src\lib\exports\charter\exportCharterPdf.ts:524  await page.setContent(html, { waitUntil: "networkidle0" });
+C:\dev\alienai\src\lib\exports\charter\exportCharterPdfBuffer.ts:178  await page.setContent(html, { waitUntil: "networkidle0" });
+C:\dev\alienai\src\lib\exports\closure-report\pdf.ts:784  await page.setContent(html, { waitUntil: "networkidle0" });
+C:\dev\alienai\src\lib\exports\lessons\exportLessonsPdf.ts:322  await page.setContent(html, { waitUntil: ["domcontentloaded", "networkidle0"] });
+C:\dev\alienai\src\lib\exports\pdf\renderPdf.ts:27  // networkidle0 is crucial: it waits for all images/fonts to load
+C:\dev\alienai\src\lib\exports\pdf\renderPdf.ts:28  await page.setContent(html, { waitUntil: "networkidle0" });
+C:\dev\alienai\src\lib\exports\pdf-utils.ts:33  await page.setContent(html, { waitUntil: "networkidle0" });
+C:\dev\alienai\src\lib\exports\raid\exportRaidPdf.ts:156  await page.setContent(html, { waitUntil: "networkidle0" });
+
+== Files importing both puppeteer and puppeteer-core (manual clean recommended) ==
+C:\dev\alienai\src\lib\exports\_shared\puppeteer.ts
+C:\dev\alienai\src\lib\exports\charter\exportCharterPdf.ts
+C:\dev\alienai\src\lib\exports\charter\exportCharterPdfBuffer.ts
+C:\dev\alienai\src\lib\exports\closure-report\pdf.ts
+C:\dev\alienai\src\lib\exports\lessons\exportLessonsPdf.ts
+C:\dev\alienai\src\lib\exports\pdf\renderPdf.ts
+C:\dev\alienai\src\lib\exports\pdf-utils.ts
+C:\dev\alienai\src\lib\exports\raid\exportRaidPdf.ts
+
+== Files defining function launchBrowser() (manual refactor recommended) ==
+C:\dev\alienai\src\lib\exports\_shared\puppeteer.ts
+C:\dev\alienai\src\lib\exports\charter\exportCharterPdf.ts
+C:\dev\alienai\src\lib\exports\charter\exportCharterPdfBuffer.ts
+C:\dev\alienai\src\lib\exports\closure-report\pdf.ts
+C:\dev\alienai\src\lib\exports\lessons\exportLessonsPdf.ts
+
+== Advisory: setContent(...) uses networkidle2 (consider adding timeouts) ==
+C:\dev\alienai\src\lib\exports\change\exportChangeRequestPdfBuffer.ts:75  await page.setContent(html, { waitUntil: "networkidle2" });
+C:\dev\alienai\src\lib\exports\charter\exportCharterPdf.ts:524  await page.setContent(html, { waitUntil: "networkidle2" });
+C:\dev\alienai\src\lib\exports\charter\exportCharterPdfBuffer.ts:178  await page.setContent(html, { waitUntil: "networkidle2" });
+C:\dev\alienai\src\lib\exports\closure-report\pdf.ts:784  await page.setContent(html, { waitUntil: "networkidle2" });
+C:\dev\alienai\src\lib\exports\lessons\exportLessonsPdf.ts:322  await page.setContent(html, { waitUntil: ["domcontentloaded", "networkidle2"] });
+C:\dev\alienai\src\lib\exports\pdf\renderPdf.ts:28  await page.setContent(html, { waitUntil: "networkidle2" });
+C:\dev\alienai\src\lib\exports\pdf-utils.ts:33  await page.setContent(html, { waitUntil: "networkidle2" });
+C:\dev\alienai\src\lib\exports\raid\exportRaidPdf.ts:156  await page.setContent(html, { waitUntil: "networkidle2" });
+

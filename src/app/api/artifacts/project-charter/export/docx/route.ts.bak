@@ -1,0 +1,285 @@
+﻿import "server-only";
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/utils/supabase/server";
+import {
+  Document,
+  Packer,
+  Paragraph,
+  TextRun,
+  Table,
+  TableRow,
+  TableCell,
+  WidthType,
+  BorderStyle,
+  VerticalAlign,
+  AlignmentType,
+  Header,
+  Footer,
+  PageNumber,
+} from "docx";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+/* ──────────────────────────────────────────────── Helpers ──────────────────────────────────────────────── */
+function jsonErr(message: string, status = 400, details?: Record<string, unknown>) {
+  return NextResponse.json({ ok: false, error: message, details }, { status });
+}
+
+function safeJson<T = unknown>(value: unknown): T | null {
+  if (!value) return null;
+  if (typeof value === "object") return value as T;
+  try {
+    return JSON.parse(String(value)) as T;
+  } catch {
+    return null;
+  }
+}
+
+function formatUkDateTime(date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}, ${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
+}
+
+function sanitizeFilename(input: string): string {
+  return (
+    String(input || "project-charter")
+      .replace(/[^a-z0-9._-]+/gi, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_|_$/g, "")
+      .slice(0, 100) || "project-charter"
+  );
+}
+
+function safeString(x: any): string {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+type RowObj = { type: "header" | "data"; cells: string[] };
+
+function bulletsToLines(text: string) {
+  return String(text || "")
+    .split("\n")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function buildTableFromSection(section: any): { columns: number; rows: RowObj[] } | null {
+  if (section?.table?.rows && Array.isArray(section.table.rows)) {
+    const cols = Math.max(1, Number(section.table.columns || 1));
+    const rows = section.table.rows as RowObj[];
+    if (!rows.length) return null;
+    return { columns: cols, rows };
+  }
+
+  if (Array.isArray(section?.columns) || Array.isArray(section?.rows)) {
+    const cols = Array.isArray(section.columns) ? section.columns.map(safeString) : [];
+    const rows = Array.isArray(section.rows) ? section.rows : [];
+    const colCount = Math.max(1, cols.length || rows?.[0]?.length || 1);
+
+    if (!cols.length && !rows.length) return null;
+
+    const out: RowObj[] = [];
+    out.push({ type: "header", cells: Array.from({ length: colCount }, (_, i) => safeString(cols[i] ?? "")) });
+
+    for (const r of rows) {
+      out.push({
+        type: "data",
+        cells: Array.from({ length: colCount }, (_, i) => safeString((r ?? [])[i] ?? "")),
+      });
+    }
+
+    if (out.length === 1) out.push({ type: "data", cells: Array.from({ length: colCount }, () => "") });
+
+    return { columns: colCount, rows: out };
+  }
+
+  return null;
+}
+
+/* ──────────────────────────────────────────────── Styling Helpers ──────────────────────────────────────────────── */
+function sectionHeading(text: string, opts?: { before?: number; after?: number; size?: number }) {
+  return new Paragraph({
+    children: [new TextRun({ text, bold: true, size: opts?.size ?? 36 })],
+    spacing: { before: opts?.before ?? 600, after: opts?.after ?? 200 },
+  });
+}
+
+function paragraphLine(
+  text: string,
+  opts?: { size?: number; bold?: boolean; color?: string; after?: number; align?: AlignmentType }
+) {
+  return new Paragraph({
+    children: [
+      new TextRun({
+        text,
+        size: opts?.size ?? 24,
+        bold: !!opts?.bold,
+        color: opts?.color,
+      }),
+    ],
+    spacing: { after: opts?.after ?? 160 },
+    alignment: opts?.align,
+  });
+}
+
+function makeStyledTable(rows: TableRow[]) {
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: {
+      top: { style: BorderStyle.SINGLE, size: 8, color: "c7d2fe" },
+      bottom: { style: BorderStyle.SINGLE, size: 8, color: "c7d2fe" },
+      left: { style: BorderStyle.SINGLE, size: 8, color: "c7d2fe" },
+      right: { style: BorderStyle.SINGLE, size: 8, color: "c7d2fe" },
+      insideHorizontal: { style: BorderStyle.SINGLE, size: 4, color: "e5e7eb" },
+      insideVertical: { style: BorderStyle.SINGLE, size: 4, color: "e5e7eb" },
+    },
+    rows,
+  });
+}
+
+function cell(text: string, opts?: { bold?: boolean; colSpan?: number }) {
+  return new TableCell({
+    children: [new Paragraph({ children: [new TextRun({ text: text || " ", bold: !!opts?.bold })] })],
+    verticalAlign: VerticalAlign.CENTER,
+    columnSpan: opts?.colSpan,
+  });
+}
+
+function buildTableDocx(table: { columns: number; rows: RowObj[] }) {
+  const header = table.rows.find((r) => r.type === "header")?.cells ?? [];
+  const data = table.rows.filter((r) => r.type === "data");
+  const colCount = Math.max(1, table.columns || header.length || data?.[0]?.cells?.length || 1);
+
+  const headerRow = new TableRow({
+    children: Array.from({ length: colCount }, (_, i) => cell(safeString(header[i] ?? " "), { bold: true })),
+    tableHeader: true,
+  });
+
+  const dataRows =
+    data.length > 0
+      ? data.map(
+          (r) =>
+            new TableRow({
+              children: Array.from({ length: colCount }, (_, i) => cell(safeString((r.cells ?? [])[i] ?? "—"))),
+            })
+        )
+      : [
+          new TableRow({
+            children: [cell("No rows recorded", { colSpan: colCount })],
+          }),
+        ];
+
+  return makeStyledTable([headerRow, ...dataRows]);
+}
+
+/* ──────────────────────────────────────────────── Build DOCX ──────────────────────────────────────────────── */
+async function generateDocxBuffer(
+  docData: any,
+  meta: { projectName: string; projectCode: string; organisationName: string; generatedAt: string; pmName?: string }
+) {
+  const sections = Array.isArray(docData?.sections) ? docData.sections : [];
+  const pm = meta.pmName || docData?.meta?.pm_name || "—";
+
+  const doc = new Document({
+    sections: [
+      {
+        properties: {
+          page: { margin: { top: 1440, bottom: 1440, left: 1440, right: 1440 } },
+        },
+        headers: {
+          default: new Header({
+            children: [
+              new Paragraph({
+                children: [new TextRun({ text: meta.projectName, bold: true, size: 32 })],
+                alignment: AlignmentType.CENTER,
+              }),
+            ],
+          }),
+        },
+        footers: {
+          default: new Footer({
+            children: [
+              new Paragraph({
+                children: [
+                  new TextRun({ text: `Page `, size: 18, color: "6b7280" }),
+                  PageNumber.CURRENT,
+                  new TextRun({ text: ` of `, size: 18, color: "6b7280" }),
+                  PageNumber.TOTAL_PAGES,
+                  new TextRun({ text: ` • Generated ${meta.generatedAt}`, size: 18, color: "6b7280" }),
+                ],
+                alignment: AlignmentType.RIGHT,
+              }),
+            ],
+          }),
+        },
+        children: [
+          new Paragraph({
+            children: [new TextRun({ text: "Project Charter", bold: true, size: 48 })],
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 400 },
+          }),
+          paragraphLine(`Project: ${meta.projectName}`, { size: 28 }),
+          paragraphLine(`Project ID: ${meta.projectCode}`),
+          paragraphLine(`Organisation: ${meta.organisationName}`),
+          paragraphLine(`Project Manager: ${pm}`, { after: 600 }),
+
+          ...sections.flatMap((sec: any) => {
+            const title = safeString(sec?.title || sec?.key || "Section");
+            const table = buildTableFromSection(sec);
+            if (table) return [sectionHeading(title), buildTableDocx(table)];
+
+            const bullets = bulletsToLines(safeString(sec?.bullets || ""));
+            return [
+              sectionHeading(title),
+              ...(bullets.length 
+                ? bullets.map(b => new Paragraph({ children: [new TextRun({ text: b, size: 24 })], bullet: { level: 0 } }))
+                : [paragraphLine("No content recorded", { color: "6b7280" })]
+              )
+            ];
+          }),
+        ],
+      },
+    ],
+  });
+
+  return await Packer.toBuffer(doc);
+}
+
+/* ──────────────────────────────────────────────── Route Handler ──────────────────────────────────────────────── */
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const artifactId = String(body?.artifact_id || "").trim();
+    if (!artifactId) return jsonErr("Missing artifact_id", 400);
+
+    const supabase = await createClient();
+    const { data: artifact } = await supabase.from("artifacts").select("*").eq("id", artifactId).single();
+    if (!artifact) return jsonErr("Artifact not found", 404);
+
+    const docData = safeJson(artifact.content_json) || safeJson(body?.content_json);
+    if (!docData) return jsonErr("No valid content found", 400);
+
+    const generatedAt = formatUkDateTime();
+    const docxBuffer = await generateDocxBuffer(docData, {
+      projectName: artifact.title || "Project",
+      projectCode: "—",
+      organisationName: "—",
+      generatedAt,
+    });
+
+    const filename = `${sanitizeFilename(artifact.title)}_Charter.docx`;
+
+    return new NextResponse(docxBuffer, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+      },
+    });
+  } catch (error: any) {
+    return jsonErr(error.message || "Failed to generate Word document", 500);
+  }
+}

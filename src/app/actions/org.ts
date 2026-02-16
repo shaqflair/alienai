@@ -16,10 +16,11 @@ export async function setActiveOrg(formData: FormData) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  // ✅ FIX: use organisation_members
   const { data: membership } = await supabase
-    .from("org_members")
-    .select("org_id")
-    .eq("org_id", orgId)
+    .from("organisation_members")
+    .select("organisation_id")
+    .eq("organisation_id", orgId)
     .eq("user_id", user.id)
     .maybeSingle();
 

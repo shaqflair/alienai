@@ -1,4 +1,5 @@
-﻿import { redirect } from "next/navigation";
+﻿// src/app/login/page.tsx
+import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 
 // If you already have an auth UI component, import it here.
@@ -10,7 +11,7 @@ type SP = { next?: string };
 export default async function AuthPage({
   searchParams,
 }: {
-  searchParams?: Promise<SP> | SP;
+  searchParams?: SP | Promise<SP>;
 }) {
   const supabase = await createClient();
 
@@ -18,7 +19,11 @@ export default async function AuthPage({
     data: { user },
   } = await supabase.auth.getUser();
 
-  const sp = (await searchParams) ?? {};
+  // Next can pass searchParams as an object; keep Promise support just in case
+  const sp = (searchParams && typeof (searchParams as any)?.then === "function"
+    ? await (searchParams as Promise<SP>)
+    : (searchParams as SP | undefined)) ?? {};
+
   const nextUrl = sp.next ?? "/projects";
 
   // If already logged in, go to destination

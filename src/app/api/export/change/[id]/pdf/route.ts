@@ -1,0 +1,59 @@
+import "server-only";
+
+import { NextRequest, NextResponse } from "next/server";
+import { exportChangeRequestPdfBuffer } from "@/lib/exports/change/exportChangeRequestPdfBuffer";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
+function jsonErr(message: string, status = 400, details?: any) {
+  return NextResponse.json({ ok: false, error: message, details }, { status });
+}
+
+function safeStr(x: any) {
+  if (typeof x === "string") return x.trim();
+  if (x == null) return "";
+  return String(x);
+}
+
+function inferChangeIdFromPath(req: NextRequest) {
+  const pathname = new URL(req.url).pathname; // /api/export/change/<id>/pdf
+  const parts = pathname.split("/").filter(Boolean);
+  const pdfIdx = parts.lastIndexOf("pdf");
+  if (pdfIdx > 0) return safeStr(parts[pdfIdx - 1]);
+  return "";
+}
+
+export async function GET(req: NextRequest, ctx: any) {
+  try {
+    const routeId = safeStr(ctx?.params?.id);
+    const pathId = inferChangeIdFromPath(req);
+
+    const url = new URL(req.url);
+    const queryId = safeStr(
+      url.searchParams.get("id") ||
+        url.searchParams.get("changeId") ||
+        url.searchParams.get("change_id")
+    );
+
+    const changeId = routeId || pathId || queryId;
+    if (!changeId) return jsonErr("Missing change id", 400, { routeId, pathId });
+
+    const { buffer, filename } = await exportChangeRequestPdfBuffer(changeId);
+
+    return new NextResponse(buffer, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (e: any) {
+    const msg = String(e?.message || "Failed to generate PDF");
+    const status =
+      Number(e?.status) || (msg === "Unauthorized" ? 401 : msg === "Forbidden" ? 403 : 500);
+    return jsonErr(msg, status);
+  }
+}

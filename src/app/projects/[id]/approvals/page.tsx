@@ -1,210 +1,112 @@
-﻿import Link from "next/link";
+﻿import "server-only";
+
 import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
+import { getActiveOrgId } from "@/utils/org/active-org";
 
-import AuthButton from "@/components/auth/AuthButton";
+import OrgApprovalsAdminPanel from "@/components/approvals/OrgApprovalsAdminPanel";
 
-function safeParam(x: unknown): string {
-  return typeof x === "string" ? x : "";
+export const runtime = "nodejs";
+
+function asUuidOrEmpty(x: any) {
+  const s = String(x ?? "").trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)
+    ? s
+    : "";
 }
 
-function fmtWhen(x: any) {
-  if (!x) return "—";
-  try {
-    const d = new Date(x);
-    if (Number.isNaN(d.getTime())) return String(x);
-    return d.toISOString().replace("T", " ").replace("Z", " UTC");
-  } catch {
-    return String(x);
-  }
-}
-
-type StepRow = {
-  id?: string;
-  project_id?: string;
-  step_index?: number | null;
-  title?: string | null;
-  status?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  // v2 fields you mentioned sometimes exist:
-  kind?: string | null;
-  role?: string | null;
-};
-
-type ApproverRow = {
-  id?: string;
-  project_id?: string;
-  user_id?: string | null;
-  email?: string | null;
-  role?: string | null;
-  is_active?: boolean | null;
-  created_at?: string | null;
-};
-
-export default async function ApprovalsPage({
-  params,
-}: {
-  params: { id?: string } | Promise<{ id?: string }>;
+export default async function ApprovalsPage(props: {
+  params: Promise<{ id: string }> | { id: string };
 }) {
-  const supabase = await createClient();
-
-  // ----------------------------
-  // Auth
-  // ----------------------------
-  const { data: auth, error: authErr } = await supabase.auth.getUser();
-  if (authErr) throw authErr;
-  if (!auth?.user) redirect("/login");
-
-  const p = await Promise.resolve(params as any);
-  const projectId = safeParam(p?.id);
+  const params = await Promise.resolve(props.params);
+  const projectId = asUuidOrEmpty(params?.id);
   if (!projectId) notFound();
 
-  // ----------------------------
-  // Load project
-  // ----------------------------
-  const { data: project, error: projectErr } = await supabase
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  // Validate project + get organisation_id
+  const { data: proj, error: projErr } = await supabase
     .from("projects")
-    .select("id, title")
+    .select("id, organisation_id")
     .eq("id", projectId)
-    .single();
+    .maybeSingle();
 
-  if (projectErr || !project) notFound();
+  if (projErr) {
+    return (
+      <main className="px-6 py-6">
+        <h1 className="text-xl font-semibold text-slate-100">Approvals</h1>
+        <p className="mt-3 text-sm text-rose-300">{projErr.message}</p>
+      </main>
+    );
+  }
+  if (!proj) notFound();
 
-  // ----------------------------
-  // Try load approvals config (safe)
-  // ----------------------------
-  let steps: StepRow[] = [];
-  let approvers: ApproverRow[] = [];
-  let stepsErr: string | null = null;
-  let approversErr: string | null = null;
-
-  const stepsResp = await supabase
-    .from("approval_steps")
-    .select("*")
+  // Project membership check
+  const { data: pm } = await supabase
+    .from("project_members")
+    .select("project_id")
     .eq("project_id", projectId)
-    .order("created_at", { ascending: true });
+    .eq("user_id", user.id)
+    .is("removed_at", null)
+    .maybeSingle();
 
-  if (stepsResp.error) stepsErr = stepsResp.error.message;
-  else steps = (stepsResp.data ?? []) as any;
+  if (!pm) {
+    return (
+      <main className="px-6 py-6">
+        <h1 className="text-xl font-semibold text-slate-100">Approvals</h1>
+        <p className="mt-3 text-sm text-slate-300">You do not have access to this project.</p>
+      </main>
+    );
+  }
 
-  const approversResp = await supabase
-    .from("project_approvers")
-    .select("*")
-    .eq("project_id", projectId)
-    .order("created_at", { ascending: true });
+  const cookieOrgId = asUuidOrEmpty(await getActiveOrgId());
+  const projectOrgId = asUuidOrEmpty((proj as any).organisation_id);
 
-  if (approversResp.error) approversErr = approversResp.error.message;
-  else approvers = (approversResp.data ?? []) as any;
+  // Prefer cookie if valid, else fall back to project’s org
+  const organisationId = cookieOrgId || projectOrgId;
+
+  if (!organisationId) {
+    return (
+      <main className="px-6 py-6">
+        <h1 className="text-xl font-semibold text-slate-100">Approvals</h1>
+        <p className="mt-3 text-sm text-amber-200">
+          No organisation found (cookie missing and project has no organisation_id).
+        </p>
+      </main>
+    );
+  }
+
+  // Fetch org name
+  const { data: orgRow } = await supabase
+    .from("organisations")
+    .select("id, name")
+    .eq("id", organisationId)
+    .maybeSingle();
+
+  const organisationName = (orgRow as any)?.name ?? undefined;
+
+  // Determine admin (org membership role)
+  const { data: memRow } = await supabase
+    .from("organisation_members")
+    .select("role")
+    .eq("organisation_id", organisationId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const isAdmin = String((memRow as any)?.role ?? "").toLowerCase() === "admin";
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm text-gray-600">
-            <Link href={`/projects/${projectId}`} className="hover:underline">
-              Project
-            </Link>
-            <span>/</span>
-            <span>Approvals</span>
-          </div>
-
-          <h1 className="mt-1 text-xl font-semibold">Approvals</h1>
-          <p className="text-sm text-gray-600 truncate">{project.title}</p>
-        </div>
-
-        <AuthButton />
-      </div>
-
-      {/* Quick links */}
-      <div className="flex flex-wrap gap-2">
-        <Link
-          href={`/projects/${projectId}/settings`}
-          className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50"
-        >
-          Project settings
-        </Link>
-        <Link
-          href={`/projects/${projectId}/members`}
-          className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50"
-        >
-          Members
-        </Link>
-      </div>
-
-      {/* Steps */}
-      <section className="rounded-xl border bg-white">
-        <div className="p-4">
-          <div className="text-base font-semibold">Approval steps</div>
-          <div className="text-sm text-gray-600">
-            Your configured chain (v1/v2). If this is blank, it usually means steps aren’t created yet.
-          </div>
-        </div>
-
-        {stepsErr ? (
-          <div className="border-t p-4 text-sm text-red-600">
-            Could not load <code>approval_steps</code>: {stepsErr}
-          </div>
-        ) : steps.length === 0 ? (
-          <div className="border-t p-4 text-sm text-gray-600">No steps found.</div>
-        ) : (
-          <div className="border-t divide-y">
-            {steps.map((s, idx) => (
-              <div key={s.id ?? String(idx)} className="p-4 flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="font-medium">
-                    Step {s.step_index ?? idx + 1}: {s.title ?? s.kind ?? "Untitled"}
-                  </div>
-                  <div className="text-sm text-gray-600">
-                    Role: {s.role ?? "—"} · Status: {s.status ?? "—"}
-                  </div>
-                </div>
-                <div className="text-xs text-gray-500 whitespace-nowrap">
-                  Updated: {fmtWhen(s.updated_at)}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Approvers */}
-      <section className="rounded-xl border bg-white">
-        <div className="p-4">
-          <div className="text-base font-semibold">Project approvers</div>
-          <div className="text-sm text-gray-600">
-            People who can approve/reject/request changes (depends on your workflow rules).
-          </div>
-        </div>
-
-        {approversErr ? (
-          <div className="border-t p-4 text-sm text-red-600">
-            Could not load <code>project_approvers</code>: {approversErr}
-          </div>
-        ) : approvers.length === 0 ? (
-          <div className="border-t p-4 text-sm text-gray-600">No approvers found.</div>
-        ) : (
-          <div className="border-t divide-y">
-            {approvers.map((a, idx) => (
-              <div key={a.id ?? String(idx)} className="p-4 flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="font-medium truncate">
-                    {a.email ?? a.user_id ?? "Unknown"}
-                  </div>
-                  <div className="text-sm text-gray-600">
-                    Role: {a.role ?? "approver"} · Active: {String(a.is_active ?? true)}
-                  </div>
-                </div>
-                <div className="text-xs text-gray-500 whitespace-nowrap">
-                  Added: {fmtWhen(a.created_at)}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-    </div>
+    <main className="px-6 py-6">
+      {/* ✅ FIX: pass the correct prop names expected by OrgApprovalsAdminPanel */}
+      <OrgApprovalsAdminPanel
+        organisationId={organisationId}
+        organisationName={organisationName}
+        isAdmin={isAdmin}
+      />
+    </main>
   );
 }
-

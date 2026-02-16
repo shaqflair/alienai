@@ -1,0 +1,211 @@
+﻿import "server-only";
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/utils/supabase/server";
+
+// Puppeteer / Chromium
+import puppeteer from "puppeteer";
+import puppeteerCore from "puppeteer-core";
+import chromium from "@sparticuz/chromium";
+
+// ✅ External renderer (closure-report pattern)
+import { renderProjectCharterHtml } from "@/lib/exports/renderProjectCharterHtml";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+/* ──────────────────────────────────────────────── Helpers ──────────────────────────────────────────────── */
+function jsonErr(message: string, status = 400, details?: any) {
+  return NextResponse.json({ ok: false, error: message, details }, { status });
+}
+
+function safeJson(x: any): any {
+  if (!x) return null;
+  if (typeof x === "object") return x;
+  try {
+    return JSON.parse(String(x));
+  } catch {
+    return null;
+  }
+}
+
+function formatUkDateTime(date = new Date()) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}, ${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
+}
+
+function sanitizeFilename(name: string) {
+  return (
+    String(name || "project-charter")
+      .replace(/[^a-z0-9._-]+/gi, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_|_$/g, "")
+      .slice(0, 100) || "project-charter"
+  );
+}
+
+function escapeHtml(str: string) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function looksMissingColumn(err: any) {
+  const msg = String(err?.message || err || "").toLowerCase();
+  return msg.includes("column") && msg.includes("does not exist");
+}
+
+/* ──────────────────────────────────────────────── Browser Launcher ──────────────────────────────────────────────── */
+async function launchBrowser() {
+  const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.AWS_REGION;
+
+  if (isServerless) {
+    return puppeteerCore.launch({
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless,
+      ignoreHTTPSErrors: true,
+    });
+  }
+
+  // Local dev
+  return puppeteer.launch({
+    headless: "new",
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  });
+}
+
+/* ──────────────────────────────────────────────── Org Logo Resolver ──────────────────────────────────────────────── */
+async function resolveOrganisationLogoUrl(supabase: any, organisation_id?: string | null) {
+  const envLogo =
+    process.env.CHARTER_REPORT_LOGO_URL ||
+    process.env.NEXT_PUBLIC_CHARTER_REPORT_LOGO_URL ||
+    process.env.CLOSURE_REPORT_LOGO_URL ||
+    process.env.NEXT_PUBLIC_CLOSURE_REPORT_LOGO_URL ||
+    "https://your-domain.com/images/logo.png";
+
+  if (!organisation_id) return envLogo;
+
+  // 1) Try logo_url
+  {
+    const { data, error } = await supabase.from("organisations").select("logo_url").eq("id", organisation_id).single();
+    if (!error && data?.logo_url) return String(data.logo_url);
+  }
+
+  // 2) Try logo
+  {
+    const { data, error } = await supabase.from("organisations").select("logo").eq("id", organisation_id).single();
+    if (!error && data?.logo) return String(data.logo);
+  }
+
+  return envLogo;
+}
+
+/* ──────────────────────────────────────────────── Main Handler ──────────────────────────────────────────────── */
+export async function POST(req: NextRequest) {
+  let browser: any = null;
+
+  try {
+    const body = await req.json().catch(() => ({}));
+    const artifact_id = String(body?.artifact_id || "").trim();
+    if (!artifact_id) return jsonErr("Missing artifact_id in request body", 400);
+
+    const supabase = await createClient();
+
+    // Fetch artifact
+    const { data: artifact, error: artifactErr } = await supabase
+      .from("artifacts")
+      .select("id, project_id, title, content_json")
+      .eq("id", artifact_id)
+      .single();
+
+    if (artifactErr || !artifact) return jsonErr(artifactErr?.message || "Artifact not found", 404);
+
+    const doc = safeJson(artifact.content_json) || safeJson(body?.content_json);
+
+    if (!doc) return jsonErr("No valid content found", 400);
+
+    let projectName = artifact.title || "Project";
+    let projectCode = "—";
+    let organisationName = "—";
+    let organisationId: string | null = null;
+
+    if (artifact.project_id) {
+      const { data: project } = await supabase
+        .from("projects")
+        .select("title, project_code, organisation_id")
+        .eq("id", artifact.project_id)
+        .single();
+
+      if (project) {
+        projectName = project.title || projectName;
+        projectCode = project.project_code || projectCode;
+        organisationId = project.organisation_id || null;
+
+        if (organisationId) {
+          const { data: org } = await supabase.from("organisations").select("name").eq("id", organisationId).single();
+          if (org?.name) organisationName = org.name;
+        }
+      }
+    }
+
+    const logoUrl = await resolveOrganisationLogoUrl(supabase, organisationId);
+    const generatedAt = formatUkDateTime();
+
+    const finalised = String(doc?.meta?.status || "").toLowerCase().includes("approved") || !!doc?.meta?.signed;
+    const watermarkText = finalised ? "FINAL" : "DRAFT";
+    const pmName = String(doc?.meta?.pm_name || doc?.meta?.pm || "").trim();
+
+    // Generate HTML via central renderer
+    const html = renderProjectCharterHtml({
+      doc,
+      meta: {
+        projectName: escapeHtml(projectName),
+        projectCode: escapeHtml(projectCode),
+        organisationName: escapeHtml(organisationName),
+        generated: generatedAt,
+        logoUrl: escapeHtml(logoUrl),
+        watermarkText: escapeHtml(watermarkText),
+        pmName: escapeHtml(pmName || "—"),
+      },
+    });
+
+    browser = await launchBrowser();
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.emulateMediaType("screen");
+
+    const pdf = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      displayHeaderFooter: true,
+      headerTemplate: "<div></div>",
+      footerTemplate: `
+        <div style="width:100%; padding:0 15mm; font-family:Arial; font-size:10px; color:#6b7280;">
+          <div style="display:flex; justify-content:flex-end; align-items:center;">
+            Page <span class="pageNumber"></span> of <span class="totalPages"></span>
+          </div>
+        </div>`,
+      margin: { top: "12mm", right: "15mm", bottom: "16mm", left: "15mm" },
+    });
+
+    const baseName = projectCode !== "—" ? `Project_${projectCode}` : `Project_${sanitizeFilename(projectName)}`;
+
+    return new NextResponse(pdf, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${baseName}_Project_Charter.pdf"`,
+      },
+    });
+  } catch (err: any) {
+    return jsonErr(err?.message || "Failed to generate PDF", 500);
+  } finally {
+    if (browser) await browser.close();
+  }
+}
