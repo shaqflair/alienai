@@ -1,7 +1,16 @@
-// src/app/api/change/[id]/submit/route.ts
+﻿// src/app/api/change/[id]/submit/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+
+        param($m)
+        $inner = $m.Groups[1].Value
+        if ($inner -match '\bNextRequest\b') { return $m.Value }
+        if ($inner -match '\bNextResponse\b') {
+          # insert NextRequest right after opening brace
+          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
+        }
+        return $m.Value
+      
 import {
   sb,
   requireUser,
@@ -30,8 +39,9 @@ function isBadIdString(x: string) {
  *  - body.id / body.change_id (body)
  */
 function pickChangeId(req: Request, ctx: any, body: any): string | null {
-  // 1) ctx.params.id
-  const p = safeStr(ctx?.params?.id).trim();
+  // 1) id
+  const { id } = await ctx.params;
+    const p = safeStr(id).trim();
   if (!isBadIdString(p)) return p;
 
   // 2) URL path: .../change/<id>/submit  (id is the segment BEFORE "submit")
@@ -607,7 +617,7 @@ async function createChainAndStepsFromRules(
    Route
 ========================================================= */
 
-export async function POST(req: Request, ctx: { params: { id?: string } }) {
+export async function POST(req: NextRequest, ctx: { params: { id?: string } }) {
   try {
     let body: any = {};
     try {
@@ -819,3 +829,4 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
     return NextResponse.json({ ok: false, error: msg }, { status: msg === "Unauthorized" ? 401 : 500 });
   }
 }
+

@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -43,7 +43,7 @@ async function requireAuthAndMembership(projectId: string) {
  * POST /api/ai/sla/check
  * Body: { projectId, days?: number }
  */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const projectId = safeStr(body?.projectId).trim();
@@ -111,4 +111,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
   }
 }
+
 

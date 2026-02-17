@@ -1,4 +1,4 @@
-// src/app/api/ai/wbs/expand/route.ts
+﻿// src/app/api/ai/wbs/expand/route.ts
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -92,7 +92,7 @@ function templatesFor(deliverable: string): Child[] {
     ];
   }
 
-  // Default – useful generic decomposition
+  // Default â€“ useful generic decomposition
   return [
     { deliverable: "Define requirements & acceptance criteria", effort: "S", tags: ["planning"] },
     { deliverable: "Design / approach", effort: "M", tags: ["planning"] },
@@ -102,7 +102,7 @@ function templatesFor(deliverable: string): Child[] {
   ];
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const row = body?.row ?? {};
@@ -119,4 +119,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e?.message ?? "AI expand failed" }, { status: 500 });
   }
 }
+
 

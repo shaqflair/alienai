@@ -1,10 +1,12 @@
-// src/app/api/change/[id]/comments/route.ts
+﻿// src/app/api/change/[id]/comments/route.ts
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { sb, requireUser, requireProjectRole, safeStr } from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
+
+type RouteCtx = { params: Promise<{ id: string }> };
 
 function jsonOk(payload: any) {
   return NextResponse.json({ ok: true, ...payload }, { status: 200 });
@@ -152,7 +154,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         change_id: changeId,
         project_id: projectId,
         artifact_id: targetArtifactId,
-        body: commentBody.slice(0, 8000), // ✅ guard
+        body: commentBody.slice(0, 8000), // âœ… guard
         author_id: user.id,
         author_name: authorName.slice(0, 200),
       })
@@ -175,3 +177,4 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return jsonErr(msg, status);
   }
 }
+

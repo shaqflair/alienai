@@ -1,4 +1,4 @@
-// src/app/api/approvals/org-users/route.ts
+﻿// src/app/api/approvals/org-users/route.ts
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -13,7 +13,7 @@ function err(msg: string, status = 400) {
   return NextResponse.json({ ok: false, error: msg }, { status });
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const supabase = await sb();
     const user = await requireAuth(supabase);
@@ -63,4 +63,5 @@ export async function GET(req: Request) {
     return err(msg, status);
   }
 }
+
 

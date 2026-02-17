@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -51,7 +51,7 @@ function isTruthyParam(v: string) {
   return s === "1" || s === "true" || s === "yes" || s === "y";
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const projectId = safeStr(url.searchParams.get("projectId")).trim();
@@ -106,7 +106,7 @@ export async function GET(req: Request) {
     const currentType = safeStr((artifact as any)?.type).trim();
 
     if (currentCreatedAt && currentType) {
-      // If in future you want includeDraft to change behaviour, this is where you’d branch.
+      // If in future you want includeDraft to change behaviour, this is where youâ€™d branch.
       // For now: we DO include drafts by default (safe), but you can tighten later.
       // You could add: .neq("approval_status","draft") unless includeDraftBool
       const prevQ = sb
@@ -161,4 +161,5 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: e?.message || "Export failed" }, { status: 500 });
   }
 }
+
 

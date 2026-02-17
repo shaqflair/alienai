@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -32,7 +32,7 @@ async function roleForProject(supabase: any, projectId: string, userId: string) 
   return role;
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();
     const user = await requireUser(supabase);
@@ -74,4 +74,5 @@ export async function POST(req: Request) {
     return jsonError(msg, status);
   }
 }
+
 

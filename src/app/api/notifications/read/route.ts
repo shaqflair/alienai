@@ -1,4 +1,4 @@
-// src/app/api/notifications/read/route.ts
+﻿// src/app/api/notifications/read/route.ts
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -22,7 +22,7 @@ function isUuid(x: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(x);
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();
     const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
     const id = String(body?.id || "").trim();
     if (!isUuid(id)) return err("Invalid id", 400);
 
-    // ✅ Update only if it's yours (and only if currently unread to avoid extra writes)
+    // âœ… Update only if it's yours (and only if currently unread to avoid extra writes)
     const { data, error } = await supabase
       .from("notifications")
       .update({
@@ -74,4 +74,5 @@ export async function POST(req: Request) {
     return err(e?.message || "Unexpected error", 500);
   }
 }
+
 

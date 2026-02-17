@@ -1,4 +1,4 @@
-// src/app/api/approvals/groups/route.ts
+﻿// src/app/api/approvals/groups/route.ts
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { sb, requireAuth, requireOrgAdmin, requireOrgMember, safeStr } from "@/lib/approvals/admin-helpers";
@@ -12,7 +12,7 @@ function err(msg: string, status = 400) {
   return NextResponse.json({ ok: false, error: msg }, { status });
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const supabase = await sb();
     const user = await requireAuth(supabase);
@@ -43,7 +43,7 @@ export async function GET(req: Request) {
   }
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const supabase = await sb();
     const user = await requireAuth(supabase);
@@ -80,7 +80,7 @@ export async function POST(req: Request) {
   }
 }
 
-export async function PATCH(req: Request) {
+export async function PATCH(req: NextRequest) {
   try {
     const supabase = await sb();
     const user = await requireAuth(supabase);
@@ -117,7 +117,7 @@ export async function PATCH(req: Request) {
   }
 }
 
-export async function DELETE(req: Request) {
+export async function DELETE(req: NextRequest) {
   try {
     const supabase = await sb();
     const user = await requireAuth(supabase);
@@ -147,4 +147,5 @@ export async function DELETE(req: Request) {
     return err(msg, s);
   }
 }
+
 

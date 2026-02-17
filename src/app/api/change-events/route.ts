@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import {
   sb,
@@ -60,7 +60,7 @@ function normalizeStatus(x: unknown) {
  * GET /api/change-events?projectId=UUID&changeId=UUID
  * Reads timeline
  */
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const supabase = await sb();
     const user = await requireUser(supabase);
@@ -120,7 +120,7 @@ export async function GET(req: Request) {
  *   payload?: object
  * }
  */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const supabase = await sb();
     const user = await requireUser(supabase);
@@ -286,4 +286,5 @@ export async function POST(req: Request) {
     return jsonErr(safeStr(e?.message) || "Failed to add event", 500);
   }
 }
+
 

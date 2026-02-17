@@ -1,4 +1,4 @@
-// src/app/api/ai/wbs/assist/route.ts
+﻿// src/app/api/ai/wbs/assist/route.ts
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -136,7 +136,7 @@ function assistantForRow(input: {
   };
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const projectId = safeStr(body?.projectId).trim();
@@ -162,4 +162,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e?.message ?? "assist failed" }, { status: 500 });
   }
 }
+
 

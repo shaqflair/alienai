@@ -1,4 +1,4 @@
-// src/app/api/raid/digest/route.ts
+﻿// src/app/api/raid/digest/route.ts
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -57,11 +57,11 @@ function pickTitle(row: any) {
   const t = safeStr(row?.title).trim();
   if (t) return t;
   const d = safeStr(row?.description).trim();
-  if (d) return d.length > 80 ? d.slice(0, 77) + "…" : d;
+  if (d) return d.length > 80 ? d.slice(0, 77) + "â€¦" : d;
   return "Untitled";
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const projectId = safeStr(url.searchParams.get("projectId")).trim();
   if (!projectId) return jsonErr("Missing projectId", 400);
@@ -69,14 +69,14 @@ export async function GET(req: Request) {
 
   const supabase = await createClient();
 
-  // ✅ fetch a real project display header (falls back safely)
+  // âœ… fetch a real project display header (falls back safely)
   const { data: projectRow } = await supabase
     .from("projects")
     .select("id,title,project_code,client_name")
     .eq("id", projectId)
     .maybeSingle();
 
-  // ✅ fetch RAID items (INCLUDES public_id so UI can show human id)
+  // âœ… fetch RAID items (INCLUDES public_id so UI can show human id)
   const { data, error } = await supabase
     .from("raid_items")
     .select("id,public_id,type,title,description,priority,probability,severity,status,updated_at,due_date,owner_label,owner_id")
@@ -91,7 +91,7 @@ export async function GET(req: Request) {
 
     return {
       id: safeStr(r?.id),
-      public_id: safeStr(r?.public_id) || null, // ✅ human id for UI
+      public_id: safeStr(r?.public_id) || null, // âœ… human id for UI
       type: normType(r?.type),
       title: pickTitle(r),
       description: safeStr(r?.description) || null,
@@ -111,7 +111,7 @@ export async function GET(req: Request) {
     };
   });
 
-  // helpers to slice + sort “top” items
+  // helpers to slice + sort â€œtopâ€ items
   const byScoreDesc = (a: any, b: any) => (b?.score ?? -1) - (a?.score ?? -1);
   const byDueAsc = (a: any, b: any) => String(a?.due_date || "").localeCompare(String(b?.due_date || ""));
 
@@ -153,4 +153,5 @@ export async function GET(req: Request) {
 
   return jsonOk({ digest });
 }
+
 

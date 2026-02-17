@@ -1,7 +1,16 @@
-// src/app/api/stakeholders/[id]/route.ts
+﻿// src/app/api/stakeholders/[id]/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+
+        param($m)
+        $inner = $m.Groups[1].Value
+        if ($inner -match '\bNextRequest\b') { return $m.Value }
+        if ($inner -match '\bNextResponse\b') {
+          # insert NextRequest right after opening brace
+          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
+        }
+        return $m.Value
+      
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -135,7 +144,7 @@ async function syncArtifactContentJson(supabase: any, projectId: string, artifac
    DELETE /api/stakeholders/:id?projectId=...&artifactId=...
 ---------------------------------------- */
 
-export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> | { id: string } }) {
+export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> | { id: string } }) {
   const supabase = await createClient();
 
   try {
@@ -160,7 +169,7 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
     if (authErr) return jsonError(authErr.message, 401);
     if (!auth?.user) return jsonError("Unauthorized", 401);
 
-    // 2) membership + role (project-level) — hide existence for non-members
+    // 2) membership + role (project-level) â€” hide existence for non-members
     const { data: mem, error: memErr } = await supabase
       .from("project_members")
       .select("role, removed_at")
@@ -189,7 +198,7 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
 
     if (!deleted) return jsonError("Not found", 404);
 
-    // ✅ CRITICAL: keep artifacts.content_json in sync so exports/UI don't go stale
+    // âœ… CRITICAL: keep artifacts.content_json in sync so exports/UI don't go stale
     try {
       await syncArtifactContentJson(supabase, projectId, artifactId);
     } catch (e: any) {
@@ -222,3 +231,4 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
     return jsonError(String(e?.message ?? "Unknown error"), 500);
   }
 }
+

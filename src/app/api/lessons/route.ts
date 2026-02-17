@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -102,7 +102,7 @@ async function resolveProjectUuid(sb: any, projectId: string) {
 
 /* ---------------- handlers ---------------- */
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const sb = await createClient();
 
   const url = new URL(req.url);
@@ -145,7 +145,7 @@ export async function GET(req: Request) {
   return jsonOk({ items: data ?? [] });
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const sb = await createClient();
 
   const body = await req.json().catch(() => ({} as any));
@@ -181,4 +181,5 @@ export async function POST(req: Request) {
 
   return jsonOk({ item: data }, 201);
 }
+
 

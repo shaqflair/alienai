@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -19,7 +19,7 @@ function safeLower(x: any) {
   return safeStr(x).trim().toLowerCase();
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     // 1) Require signed-in user (we verify invite email belongs to them)
     const sb = await createClient();
@@ -88,4 +88,5 @@ export async function POST(req: Request) {
     return err(e?.message || "Unknown error", 500);
   }
 }
+
 

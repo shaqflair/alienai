@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import {
@@ -11,6 +11,8 @@ import {
 } from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
+
+type RouteCtx = { params: Promise<{ id: string }> };
 
 function isDecision(x: string) {
   const v = String(x || "").trim().toLowerCase();
@@ -66,13 +68,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const memberRole = await requireProjectRole(supabase, projectId, user.id);
     if (!memberRole) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
-    // ✅ Approver group only
+    // âœ… Approver group only
     const approverRole = await requireApproverForProject(supabase, projectId, user.id);
     if (!approverRole) {
       return NextResponse.json({ ok: false, error: "Forbidden: approval group only" }, { status: 403 });
     }
 
-    // ✅ Gate: decide only in Review
+    // âœ… Gate: decide only in Review
     if (lane !== "review") {
       return NextResponse.json(
         { ok: false, error: "Only items in 'review' can be approved/rejected/reworked" },
@@ -80,7 +82,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       );
     }
 
-    // ✅ Must be submitted
+    // âœ… Must be submitted
     if (currentDecision !== "submitted") {
       if (currentDecision === "approved" || currentDecision === "rejected" || currentDecision === "rework") {
         return NextResponse.json({ ok: false, error: "Decision already recorded" }, { status: 409 });
@@ -99,7 +101,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       updated_at: now,
     };
 
-    // ✅ Governance lane + lifecycle
+    // âœ… Governance lane + lifecycle
     if (decision === "approved") {
       patch.delivery_status = "in_progress";
       patch.status = "in_progress";
@@ -133,7 +135,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
     if (updErr) throw new Error(updErr.message);
 
-    // Audit (best effort — don’t let audit kill the decision)
+    // Audit (best effort â€” donâ€™t let audit kill the decision)
     try {
       await logChangeEvent(
         supabase,
@@ -186,3 +188,4 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
+

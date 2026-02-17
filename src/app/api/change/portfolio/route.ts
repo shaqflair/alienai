@@ -1,4 +1,4 @@
-// src/app/api/change/portfolio/route.ts
+﻿// src/app/api/change/portfolio/route.ts
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -43,7 +43,7 @@ function daysAgoIso(days: number) {
   return d.toISOString();
 }
 
-/** ✅ UK display dd/mm/yyyy (or dd/mm/yyyy hh:mm) */
+/** âœ… UK display dd/mm/yyyy (or dd/mm/yyyy hh:mm) */
 function fmtUkDateTime(x: any, withTime = false): string | null {
   if (!x) return null;
   const s = String(x).trim();
@@ -124,7 +124,7 @@ function parseCursor(cursor: string | null) {
 
 /* ---------------- handler ---------------- */
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient();
 
@@ -234,7 +234,7 @@ export async function GET(req: Request) {
 
     const rows = Array.isArray(data) ? data : [];
 
-    // ✅ Add UK date display fields (keep raw ISO too)
+    // âœ… Add UK date display fields (keep raw ISO too)
     const items = rows.map((r: any) => {
       const created_at = r?.created_at ?? null;
       const updated_at = r?.updated_at ?? null;
@@ -274,4 +274,5 @@ export async function GET(req: Request) {
     return jsonErr(safeStr(e?.message) || "Failed to load portfolio changes", 500);
   }
 }
+
 

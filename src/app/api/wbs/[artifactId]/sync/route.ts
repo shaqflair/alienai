@@ -1,6 +1,15 @@
-import "server-only";
+﻿import "server-only";
 
-import { NextResponse } from "next/server";
+
+        param($m)
+        $inner = $m.Groups[1].Value
+        if ($inner -match '\bNextRequest\b') { return $m.Value }
+        if ($inner -match '\bNextResponse\b') {
+          # insert NextRequest right after opening brace
+          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
+        }
+        return $m.Value
+      
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -111,7 +120,7 @@ async function deleteStaleRows(
   return { ok: true, deleted: toDeleteIds.length };
 }
 
-export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: string }> }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ artifactId?: string }> }) {
   try {
     const { artifactId } = await ctx.params;
     const aId = safeStr(artifactId).trim();
@@ -159,11 +168,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: s
       stack.push({ level: lvl, rowId });
     }
 
-    // 1) Upsert “flat” rows (parent assigned later after we know DB ids)
+    // 1) Upsert â€œflatâ€ rows (parent assigned later after we know DB ids)
     const upsertPayload = sliced.map((r: any, i: number) => {
       const sourceRowId = safeStr(r?.id).trim() || `row_${i}`;
 
-      // ✅ accept due_date / dueDate / end_date / endDate / end
+      // âœ… accept due_date / dueDate / end_date / endDate / end
       const due =
         r?.due_date ??
         r?.dueDate ??
@@ -174,7 +183,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: s
 
       const dueDate = parseIsoDateOnlyOrNull(due);
 
-      // ✅ accept deliverable or name/title as fallback
+      // âœ… accept deliverable or name/title as fallback
       const name =
         safeStr(r?.deliverable).trim() ||
         safeStr(r?.name).trim() ||
@@ -189,10 +198,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: s
         name: name.slice(0, 500),
         description: safeStr(r?.description).trim() || null,
 
-        // ✅ accept owner_label or owner
+        // âœ… accept owner_label or owner
         owner: (safeStr(r?.owner_label).trim() || safeStr(r?.owner).trim()) || null,
 
-        // ✅ stored as ISO date only (DB)
+        // âœ… stored as ISO date only (DB)
         due_date: dueDate,
 
         estimated_effort: mapEffortToNumeric(r?.effort),
@@ -245,7 +254,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: s
       // upsert by id
       const pu = await supabase.from("wbs_items").upsert(parentUpdates, { onConflict: "id" });
       if (pu.error) {
-        // tolerant: don’t fail the whole sync if parent patching has issues
+        // tolerant: donâ€™t fail the whole sync if parent patching has issues
         return jsonOk({
           synced: upsertPayload.length,
           parentPatched: false,
@@ -281,3 +290,4 @@ export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: s
     return jsonErr(e?.message ?? "Unknown error", 500);
   }
 }
+

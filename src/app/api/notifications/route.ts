@@ -1,4 +1,4 @@
-// src/app/api/notifications/route.ts
+﻿// src/app/api/notifications/route.ts
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -219,7 +219,7 @@ async function hydrateProjectMeta(supabase: any, itemsRaw: any[] | null | undefi
   };
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient();
     const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -269,7 +269,7 @@ export async function GET(req: Request) {
 
     const { items, meta: hydrateMeta } = await hydrateProjectMeta(supabase, itemsRaw);
 
-    // ✅ Robust unread count (count-only)
+    // âœ… Robust unread count (count-only)
     let unreadCount = 0;
     let unreadCountMode: "exact" | "fallback_rows" | "fallback_items" = "exact";
 
@@ -348,4 +348,5 @@ export async function GET(req: Request) {
     return err(e?.message || "Unexpected error", 500);
   }
 }
+
 

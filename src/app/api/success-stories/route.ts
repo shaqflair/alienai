@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -32,7 +32,7 @@ function asNum(x: any) {
 }
 
 function moneyGBP(n: number) {
-  return "£" + Math.round(n).toLocaleString("en-GB");
+  return "Â£" + Math.round(n).toLocaleString("en-GB");
 }
 
 /** ISO timestamp for query filters (fine to stay ISO for DB comparisons) */
@@ -42,7 +42,7 @@ function sinceIso(days: number) {
   return d.toISOString();
 }
 
-/** ✅ UK date display (dd/mm/yyyy) from ISO yyyy-mm-dd or timestamp-ish strings */
+/** âœ… UK date display (dd/mm/yyyy) from ISO yyyy-mm-dd or timestamp-ish strings */
 function fmtDateUK(x: any): string | null {
   if (!x) return null;
   const s = String(x).trim();
@@ -92,11 +92,11 @@ type Story = {
   /** kept for backwards-compat (ISO-ish), used for sorting */
   happened_at?: string | null;
 
-  /** ✅ UI-friendly UK date */
+  /** âœ… UI-friendly UK date */
   happened_at_uk?: string | null;
 };
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const supabase = await createClient();
 
   const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -109,7 +109,7 @@ export async function GET(req: Request) {
   const category = safeStr(url.searchParams.get("category")).trim();
   const fv = asNum(url.searchParams.get("fv")); // optional: forecast variance from tile
 
-  // ✅ projects user can see
+  // âœ… projects user can see
   const { data: memberRows, error: memErr } = await supabase
     .from("project_members")
     .select("project_id, projects:projects(id,title)")
@@ -279,7 +279,7 @@ export async function GET(req: Request) {
         const published = Boolean(l?.is_published);
         const isPositive = impact === "Positive" || String(l?.category || "") === "what_went_well";
 
-        // ✅ keep Success Stories uplifting: require either published OR positive
+        // âœ… keep Success Stories uplifting: require either published OR positive
         if (!published && !isPositive) continue;
 
         const pid = String(l?.project_id || "");
@@ -348,7 +348,7 @@ export async function GET(req: Request) {
   // Sort newest first (robust)
   filtered.sort((a, b) => isoDateOnly(b.happened_at) .localeCompare(isoDateOnly(a.happened_at)));
 
-  // ✅ ensure UK date always present (even if happened_at was blank/odd)
+  // âœ… ensure UK date always present (even if happened_at was blank/odd)
   for (const s of filtered) {
     if (!s.happened_at_uk) s.happened_at_uk = fmtDateUK(s.happened_at) || null;
   }
@@ -363,4 +363,5 @@ export async function GET(req: Request) {
     },
   });
 }
+
 

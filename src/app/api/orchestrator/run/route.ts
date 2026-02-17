@@ -1,10 +1,10 @@
-import { NextResponse, type NextRequest } from "next/server";
+﻿import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { runOrchestrator } from "@/lib/orchestrator";
 
 export const runtime = "nodejs";
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const body = await req.json();
   const { projectId, artifactId } = body;
 
@@ -32,4 +32,5 @@ export async function POST(req: Request) {
 
   return NextResponse.json(result);
 }
+
 

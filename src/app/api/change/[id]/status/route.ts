@@ -1,6 +1,15 @@
-// src/app/api/change/[id]/status/route.ts
+﻿// src/app/api/change/[id]/status/route.ts
 import "server-only";
-import { NextResponse } from "next/server";
+
+        param($m)
+        $inner = $m.Groups[1].Value
+        if ($inner -match '\bNextRequest\b') { return $m.Value }
+        if ($inner -match '\bNextResponse\b') {
+          # insert NextRequest right after opening brace
+          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
+        }
+        return $m.Value
+      
 import { sb, requireUser, requireProjectRole, canEdit, safeStr, logChangeEvent } from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
@@ -78,7 +87,7 @@ async function insertTimelineEvent(
  * - POST /reject (reject)
  * - POST /request-changes (request changes)
  */
-export async function PATCH(req: Request, ctx: { params: Promise<{ id?: string }> }) {
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id?: string }> }) {
   try {
     const supabase = await sb();
     const user = await requireUser(supabase);
@@ -198,7 +207,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id?: string }
     const upd = await supabase.from("change_requests").update(patch).eq("id", id).select("*").single();
     if (upd.error) throw upd.error;
 
-    // ✅ Audit log (best effort) — only if we have an artifactId value
+    // âœ… Audit log (best effort) â€” only if we have an artifactId value
     // This avoids the NOT NULL constraint error.
     try {
       if (artifactId) {
@@ -219,7 +228,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id?: string }
       // swallow
     }
 
-    // ✅ Timeline event (best effort)
+    // âœ… Timeline event (best effort)
     await insertTimelineEvent(supabase, {
       project_id: projectId,
       change_id: id,
@@ -240,3 +249,4 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id?: string }
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
+

@@ -1,4 +1,4 @@
-// src/app/api/stakeholders/snapshot/route.ts
+﻿// src/app/api/stakeholders/snapshot/route.ts
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -45,7 +45,7 @@ function toRowObj5(r: any) {
  *
  * Writes artifacts.content_json as v2 sections -> main_table (columns=5).
  */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();
     const body = await req.json().catch(() => null);
@@ -107,4 +107,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
+
 

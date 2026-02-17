@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -16,7 +16,7 @@ function jsonErr(error: string, status = 400, meta?: any) {
  * GET /api/artifacts/audit?artifact_id=...
  * Returns grouped audit events for an artifact.
  */
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const artifact_id = url.searchParams.get("artifact_id");
@@ -95,4 +95,5 @@ export async function GET(req: Request) {
     return jsonErr("Unexpected error", 500, { message: String(e?.message || e) });
   }
 }
+
 

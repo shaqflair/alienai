@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -114,7 +114,7 @@ function deriveSourceKeys(args: {
   return { source_type: null as string | null, source_id: null as string | null };
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object") return err("Invalid JSON body", 400);
 
@@ -348,4 +348,5 @@ export async function POST(req: Request) {
     hint: (insErr as any).hint || null,
   });
 }
+
 

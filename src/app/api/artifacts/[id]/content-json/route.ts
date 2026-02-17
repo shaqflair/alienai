@@ -1,7 +1,16 @@
-// src/app/api/artifacts/[id]/content-json/route.ts
+﻿// src/app/api/artifacts/[id]/content-json/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+
+        param($m)
+        $inner = $m.Groups[1].Value
+        if ($inner -match '\bNextRequest\b') { return $m.Value }
+        if ($inner -match '\bNextResponse\b') {
+          # insert NextRequest right after opening brace
+          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
+        }
+        return $m.Value
+      
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -22,7 +31,7 @@ function jsonOk(data: any, status = 200) {
   return NextResponse.json({ ok: true, ...data }, { status });
 }
 
-/* ───────────────────────── Membership gate ───────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Membership gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 async function requireAuthAndMembership(supabase: any, projectId: string) {
   const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -45,7 +54,7 @@ async function requireAuthAndMembership(supabase: any, projectId: string) {
   return { userId: auth.user.id, role, canEdit };
 }
 
-/* ───────────────────────── Stakeholder helpers (for summary) ───────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Stakeholder helpers (for summary) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function stakeholderRowsFromDoc(contentJson: any): any[] {
   const cj = contentJson && typeof contentJson === "object" ? contentJson : null;
@@ -81,13 +90,13 @@ function stakeholderGroupNames(contentJson: any): string[] {
   );
 }
 
-/** ✅ Searchable human summary for the `content` column (WBS + Schedule + Stakeholder Register supported). */
+/** âœ… Searchable human summary for the `content` column (WBS + Schedule + Stakeholder Register supported). */
 function makeSummary(title: string, contentJson: any) {
   const t = title || "Artifact";
   const type = safeStr(contentJson?.type).trim();
   const version = contentJson?.version != null ? `v${String(contentJson.version)}` : "";
   const meta = [type, version].filter(Boolean).join(" ");
-  const metaText = meta ? ` • ${meta}` : "";
+  const metaText = meta ? ` â€¢ ${meta}` : "";
 
   const cjType = safeStr(contentJson?.type).trim().toLowerCase();
   const isStakeholderDoc = cjType === "stakeholder_register" || cjType === "stakeholder-register";
@@ -109,13 +118,13 @@ function makeSummary(title: string, contentJson: any) {
 
     const countText = `${rows.length} stakeholder(s)`;
     const groupText = groups.length
-      ? ` • groups: ${groups.slice(0, 6).join(", ")}${groups.length > 6 ? "…" : ""}`
+      ? ` â€¢ groups: ${groups.slice(0, 6).join(", ")}${groups.length > 6 ? "â€¦" : ""}`
       : "";
     const topText = names.length
-      ? ` • top: ${names.slice(0, 6).join(", ")}${names.length > 6 ? "…" : ""}`
+      ? ` â€¢ top: ${names.slice(0, 6).join(", ")}${names.length > 6 ? "â€¦" : ""}`
       : "";
 
-    return `${t}${metaText} • ${countText}${groupText}${topText}`;
+    return `${t}${metaText} â€¢ ${countText}${groupText}${topText}`;
   }
 
   const wbsRows = Array.isArray(contentJson?.rows) ? contentJson.rows : [];
@@ -145,34 +154,34 @@ function makeSummary(title: string, contentJson: any) {
   if (isScheduleDoc) {
     const countText = `${items.length} item(s)`;
     const phaseText = phaseNames.length
-      ? ` • phases: ${phaseNames.slice(0, 6).join(", ")}${phaseNames.length > 6 ? "…" : ""}`
+      ? ` â€¢ phases: ${phaseNames.slice(0, 6).join(", ")}${phaseNames.length > 6 ? "â€¦" : ""}`
       : "";
-    return `${t}${metaText} • ${countText}${phaseText}`;
+    return `${t}${metaText} â€¢ ${countText}${phaseText}`;
   }
 
   if (isWbsDoc) {
     const countText = `${wbsCount} item(s)`;
-    const topText = wbsTop.length ? ` • top: ${wbsTop.slice(0, 6).join(", ")}${wbsTop.length > 6 ? "…" : ""}` : "";
-    return `${t}${metaText} • ${countText}${topText}`;
+    const topText = wbsTop.length ? ` â€¢ top: ${wbsTop.slice(0, 6).join(", ")}${wbsTop.length > 6 ? "â€¦" : ""}` : "";
+    return `${t}${metaText} â€¢ ${countText}${topText}`;
   }
 
   const countText = items.length || phases.length ? `${items.length} item(s)` : `${wbsCount} item(s)`;
   const phaseText = phaseNames.length
-    ? ` • phases: ${phaseNames.slice(0, 6).join(", ")}${phaseNames.length > 6 ? "…" : ""}`
+    ? ` â€¢ phases: ${phaseNames.slice(0, 6).join(", ")}${phaseNames.length > 6 ? "â€¦" : ""}`
     : "";
   const topText =
-    !phaseNames.length && wbsTop.length ? ` • top: ${wbsTop.slice(0, 6).join(", ")}${wbsTop.length > 6 ? "…" : ""}` : "";
+    !phaseNames.length && wbsTop.length ? ` â€¢ top: ${wbsTop.slice(0, 6).join(", ")}${wbsTop.length > 6 ? "â€¦" : ""}` : "";
 
-  return `${t}${metaText} • ${countText}${phaseText}${topText}`;
+  return `${t}${metaText} â€¢ ${countText}${phaseText}${topText}`;
 }
 
-/** ✅ Canonical type per your schema: COALESCE(artifact_type, type) */
+/** âœ… Canonical type per your schema: COALESCE(artifact_type, type) */
 function canonicalArtifactType(row: any) {
   const a = safeStr(row?.artifact_type).trim();
   return (a || safeStr(row?.type).trim()).toLowerCase();
 }
 
-/** ✅ Tight compatibility rules (includes Stakeholder Register) */
+/** âœ… Tight compatibility rules (includes Stakeholder Register) */
 function isTypeCompatible(canonicalType: string, contentJson: any) {
   const cjType = safeStr(contentJson?.type).trim().toLowerCase();
   if (!cjType) return true; // allow missing, but block explicit mismatches
@@ -188,12 +197,12 @@ function isTypeCompatible(canonicalType: string, contentJson: any) {
   return true;
 }
 
-/* ───────────────────────── Column existence helper ───────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Column existence helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 async function hasArtifactColumn(supabase: any, columnName: string): Promise<boolean> {
   // Uses Postgres information_schema via RPC-less query:
   // In Supabase, direct select from information_schema is usually allowed for authenticated,
-  // but if it’s blocked in your setup, we just return false.
+  // but if itâ€™s blocked in your setup, we just return false.
   try {
     const { data, error } = await supabase
       .from("information_schema.columns")
@@ -210,13 +219,13 @@ async function hasArtifactColumn(supabase: any, columnName: string): Promise<boo
   }
 }
 
-/* ───────────────────────── Routes ───────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /**
  * GET /api/artifacts/:id/content-json?projectId=...
  * projectId is optional: if missing, we resolve from artifacts row (and still enforce membership).
  */
-export async function GET(req: Request, ctx: { params: Promise<{ id?: string }> | { id?: string } }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string }> | { id?: string } }) {
   try {
     const supabase = await createClient();
     const params = await Promise.resolve(ctx.params as any);
@@ -283,7 +292,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id?: string }> 
  * - projectId is optional: if missing, resolve from artifact row.
  * - Optional concurrency: header If-Match: <artifact.updated_at from GET>
  */
-export async function POST(req: Request, ctx: { params: Promise<{ id?: string }> | { id?: string } }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id?: string }> | { id?: string } }) {
   try {
     const supabase = await createClient();
     const params = await Promise.resolve(ctx.params as any);
@@ -341,7 +350,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       });
     }
 
-    // ✅ Optimistic concurrency
+    // âœ… Optimistic concurrency
     const ifMatch = safeStr(req.headers.get("if-match")).trim();
     if (ifMatch && safeStr((art as any).updated_at).trim() !== ifMatch) {
       return jsonErr("Conflict: artifact was updated by someone else. Refresh and retry.", 409, {
@@ -362,8 +371,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     if (title) patch.title = title;
     if (canSetLastSavedAt) patch.last_saved_at = new Date().toISOString();
 
-    // ✅ Do NOT set updated_at manually (trigger does it)
-    // ✅ Enforce atomic concurrency by also filtering updated_at in the UPDATE
+    // âœ… Do NOT set updated_at manually (trigger does it)
+    // âœ… Enforce atomic concurrency by also filtering updated_at in the UPDATE
     let q = supabase.from("artifacts").update(patch).eq("id", artifactId).eq("project_id", projectId);
     if (ifMatch) q = q.eq("updated_at", ifMatch);
 
@@ -392,3 +401,4 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     return jsonErr(msg, status);
   }
 }
+

@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -25,7 +25,7 @@ function sbErrText(e: any) {
   }
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const sb = await createClient();
 
   const { data: auth, error: authErr } = await sb.auth.getUser();
@@ -60,4 +60,5 @@ export async function POST(req: Request) {
 
   return jsonOk({ organisation: org });
 }
+
 

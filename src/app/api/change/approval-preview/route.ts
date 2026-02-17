@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { sb, requireUser, requireProjectRole } from "@/lib/change/server-helpers";
@@ -22,7 +22,7 @@ type PreviewStep = {
   source: "template" | "artifact";
 };
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const supabase = sb();
 
   try {
@@ -196,4 +196,5 @@ export async function POST(req: Request) {
     );
   }
 }
+
 

@@ -1,6 +1,15 @@
-// src/app/api/change/[id]/export/route.ts
+﻿// src/app/api/change/[id]/export/route.ts
 import "server-only";
-import { NextResponse } from "next/server";
+
+        param($m)
+        $inner = $m.Groups[1].Value
+        if ($inner -match '\bNextRequest\b') { return $m.Value }
+        if ($inner -match '\bNextResponse\b') {
+          # insert NextRequest right after opening brace
+          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
+        }
+        return $m.Value
+      
 import { sb, requireUser, requireProjectRole, safeStr } from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
@@ -91,10 +100,10 @@ function toWordHtml(row: any) {
   </style>
 </head>
 <body>
-  <h1>${htmlEscape(crId)} — ${htmlEscape(title)}</h1>
+  <h1>${htmlEscape(crId)} â€” ${htmlEscape(title)}</h1>
   <div class="meta">
-    Priority: ${htmlEscape(row?.priority ?? "Medium")} • Status: ${htmlEscape(row?.delivery_status ?? row?.status ?? "new")}
-    • Updated: ${htmlEscape(row?.updated_at ?? "")}
+    Priority: ${htmlEscape(row?.priority ?? "Medium")} â€¢ Status: ${htmlEscape(row?.delivery_status ?? row?.status ?? "new")}
+    â€¢ Updated: ${htmlEscape(row?.updated_at ?? "")}
   </div>
 
   <div class="sec">
@@ -141,9 +150,10 @@ function toWordHtml(row: any) {
 </html>`;
 }
 
-export async function GET(req: Request, ctx: { params: { id?: string } }) {
+export async function GET(req: NextRequest, ctx: { params: { id?: string } }) {
   try {
-    const id = safeStr(ctx?.params?.id).trim();
+    const { id } = await ctx.params;
+    const id = safeStr(id).trim();
     if (!id) return err("Missing id", 400);
 
     const url = new URL(req.url);
@@ -163,7 +173,7 @@ export async function GET(req: Request, ctx: { params: { id?: string } }) {
 
     const filenameBase = clamp(crDisplayId(row) || "change-request", 80).replace(/\s+/g, "_");
 
-    // Simple Word export (HTML-as-doc) – works immediately in Word
+    // Simple Word export (HTML-as-doc) â€“ works immediately in Word
     if (format === "docx" || format === "word") {
       const html = toWordHtml(row);
       return new NextResponse(html, {
@@ -192,3 +202,4 @@ export async function GET(req: Request, ctx: { params: { id?: string } }) {
     return err(safeStr(e?.message) || "Export failed", 500);
   }
 }
+

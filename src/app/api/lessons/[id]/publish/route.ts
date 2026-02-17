@@ -1,5 +1,14 @@
-import "server-only";
-import { NextResponse } from "next/server";
+﻿import "server-only";
+
+        param($m)
+        $inner = $m.Groups[1].Value
+        if ($inner -match '\bNextRequest\b') { return $m.Value }
+        if ($inner -match '\bNextResponse\b') {
+          # insert NextRequest right after opening brace
+          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
+        }
+        return $m.Value
+      
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -49,7 +58,7 @@ async function requireEditor(sb: any, project_id: string) {
 
 /* ---------------- route ---------------- */
 
-export async function POST(req: Request, ctx: { params: Promise<{ id: string }> | { id: string } }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> | { id: string } }) {
   const { id: rawId } = await Promise.resolve(ctx.params);
   const id = safeStr(rawId).trim();
 
@@ -79,7 +88,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     .filter(Boolean)
     .slice(0, 20);
 
-  // ✅ only set published_at/by when publishing; clear when unpublishing
+  // âœ… only set published_at/by when publishing; clear when unpublishing
   const patch: any = {
     is_published: publish,
     published_at: publish ? new Date().toISOString() : null,
@@ -98,3 +107,4 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   return jsonOk({ item: data });
 }
+

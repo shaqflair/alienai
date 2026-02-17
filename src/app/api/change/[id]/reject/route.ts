@@ -1,7 +1,16 @@
-// src/app/api/change/[id]/reject/route.ts
+﻿// src/app/api/change/[id]/reject/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+
+        param($m)
+        $inner = $m.Groups[1].Value
+        if ($inner -match '\bNextRequest\b') { return $m.Value }
+        if ($inner -match '\bNextResponse\b') {
+          # insert NextRequest right after opening brace
+          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
+        }
+        return $m.Value
+      
 import {
   sb,
   requireUser,
@@ -105,9 +114,10 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
    Route
 ========================================================= */
 
-export async function POST(req: Request, ctx: { params: { id?: string } }) {
+export async function POST(req: NextRequest, ctx: { params: { id?: string } }) {
   try {
-    const id = safeStr(ctx?.params?.id).trim();
+    const { id } = await ctx.params;
+    const id = safeStr(id).trim();
     if (!id) return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
 
     const supabase = await sb();
@@ -187,7 +197,7 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
       );
     }
 
-    // ✅ Canonical approver check (member-id enforced inside server-helpers) + pending step
+    // âœ… Canonical approver check (member-id enforced inside server-helpers) + pending step
     const { pending, onBehalfOf } = await requireApproverForPendingArtifactStep({
       supabase,
       artifactId,
@@ -196,7 +206,7 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
 
     const effectiveApproverUserId = onBehalfOf ?? user.id;
 
-    // ✅ Record rejected decision (idempotent)
+    // âœ… Record rejected decision (idempotent)
     await recordArtifactApprovalDecision({
       supabase,
       chainId: pending.chainId,
@@ -207,7 +217,7 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
       reason: note || null,
     });
 
-    // ✅ Recompute => will mark chain/artifact rejected
+    // âœ… Recompute => will mark chain/artifact rejected
     const state = await recomputeApprovalState({
       supabase,
       artifactId,
@@ -325,3 +335,4 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
+

@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { exportChangeRequestXlsxBuffer } from "@/lib/exports/change/exportChangeRequestXlsxBuffer";
@@ -27,7 +27,8 @@ function inferChangeIdFromPath(req: NextRequest) {
 
 export async function GET(req: NextRequest, ctx: any) {
   try {
-    const routeId = safeStr(ctx?.params?.id);
+    const { id } = await ctx.params;
+    const routeId = safeStr(id).trim();
     const pathId = inferChangeIdFromPath(req);
 
     const url = new URL(req.url);
@@ -59,3 +60,4 @@ export async function GET(req: NextRequest, ctx: any) {
     return jsonErr(msg, status);
   }
 }
+

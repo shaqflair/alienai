@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -25,7 +25,7 @@ async function requireAdmin(sb: any, userId: string, organisationId: string) {
   if (!data || String(data.role) !== "admin") throw new Error("Admin permission required");
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const sb = await createClient();
   const { data: auth } = await sb.auth.getUser();
   if (!auth?.user) return err("Not authenticated", 401);
@@ -35,7 +35,7 @@ export async function GET(req: Request) {
   if (!organisationId) return err("Missing organisationId", 400);
 
   // Admin can see all members; non-admin can still see themselves if you want.
-  // We’ll require admin for list to keep it simple:
+  // Weâ€™ll require admin for list to keep it simple:
   try {
     await requireAdmin(sb, auth.user.id, organisationId);
   } catch (e: any) {
@@ -52,7 +52,7 @@ export async function GET(req: Request) {
   return ok({ items: data ?? [] });
 }
 
-export async function PATCH(req: Request) {
+export async function PATCH(req: NextRequest) {
   const sb = await createClient();
   const { data: auth } = await sb.auth.getUser();
   if (!auth?.user) return err("Not authenticated", 401);
@@ -103,7 +103,7 @@ export async function PATCH(req: Request) {
   return ok({ member: data });
 }
 
-export async function DELETE(req: Request) {
+export async function DELETE(req: NextRequest) {
   const sb = await createClient();
   const { data: auth } = await sb.auth.getUser();
   if (!auth?.user) return err("Not authenticated", 401);
@@ -146,4 +146,5 @@ export async function DELETE(req: Request) {
   if (error) return err(error.message, 400);
   return ok({ removed: true });
 }
+
 

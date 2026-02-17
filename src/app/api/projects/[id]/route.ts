@@ -1,7 +1,16 @@
-// src/app/api/projects/[id]/route.ts
+﻿// src/app/api/projects/[id]/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+
+        param($m)
+        $inner = $m.Groups[1].Value
+        if ($inner -match '\bNextRequest\b') { return $m.Value }
+        if ($inner -match '\bNextResponse\b') {
+          # insert NextRequest right after opening brace
+          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
+        }
+        return $m.Value
+      
 import { sb, requireUser, requireProjectRole, safeStr } from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
@@ -81,9 +90,9 @@ async function resolveProjectUuid(supabase: any, identifier: string): Promise<st
  * Returns project meta for header display.
  * Requires: user is authenticated + member of project.
  */
-export async function GET(_req: Request, ctx: { params: any }) {
+export async function GET(_req: NextRequest, ctx: { params: any }) {
   try {
-    // Next.js can pass params as object or Promise in some setups — support both.
+    // Next.js can pass params as object or Promise in some setups â€” support both.
     const rawParams = ctx?.params && typeof ctx.params?.then === "function" ? await ctx.params : ctx.params;
 
     const rawId = safeStr(rawParams?.id).trim();
@@ -92,11 +101,11 @@ export async function GET(_req: Request, ctx: { params: any }) {
     const supabase = await sb();
     const user = await requireUser(supabase);
 
-    // ✅ Resolve UUID from either uuid OR project_code
+    // âœ… Resolve UUID from either uuid OR project_code
     const projectUuid = await resolveProjectUuid(supabase, rawId);
     if (!projectUuid) return jsonErr("Not found", 404, { input: rawId });
 
-    // ✅ membership/role gate must be checked on UUID
+    // âœ… membership/role gate must be checked on UUID
     const role = await (requireProjectRole as any)(supabase, projectUuid, user.id).catch(async () => {
       // fallback signature support (older helper)
       return await (requireProjectRole as any)(supabase, projectUuid);
@@ -127,3 +136,4 @@ export async function GET(_req: Request, ctx: { params: any }) {
     return jsonErr(safeStr(e?.message) || "Failed to load project", 500);
   }
 }
+

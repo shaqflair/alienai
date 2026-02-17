@@ -1,4 +1,4 @@
-// src/app/api/portfolio/health/route.ts
+﻿// src/app/api/portfolio/health/route.ts
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -376,7 +376,7 @@ async function fetchFlowScore(supabase: any, projectIds: string[], days = 30) {
 
 /* ---------------- route ---------------- */
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient();
 
@@ -388,7 +388,7 @@ export async function GET(req: Request) {
     const daysParam = clampDays(url.searchParams.get("days"));
     const windowDays: 7 | 14 | 30 | 60 = daysParam === "all" ? 60 : daysParam;
 
-    // ✅ unified active-project scope:
+    // âœ… unified active-project scope:
     // - membership-based (project_members)
     // - filters out deleted + closed projects (projects.status !== 'active' OR closed_at set)
     const scoped = await resolveActiveProjectScope(supabase, auth.user.id);
@@ -449,11 +449,11 @@ export async function GET(req: Request) {
         label: "Schedule",
         score: schedulePart.score,
         detail: scheduleKpis
-          ? `Due: ${num(scheduleKpis.milestones_due_window)} • Overdue: ${num(
+          ? `Due: ${num(scheduleKpis.milestones_due_window)} â€¢ Overdue: ${num(
               scheduleKpis.milestones_overdue
-            )} • CP overdue: ${num(scheduleKpis.critical_overdue)} • Avg slip: ${num(
+            )} â€¢ CP overdue: ${num(scheduleKpis.critical_overdue)} â€¢ Avg slip: ${num(
               scheduleKpis.avg_slip_days
-            )}d • AI high-risk due: ${num(scheduleKpis.ai_high_risk_due_window)}`
+            )}d â€¢ AI high-risk due: ${num(scheduleKpis.ai_high_risk_due_window)}`
           : schedulePart.note || "No schedule signal.",
       },
       {
@@ -461,7 +461,7 @@ export async function GET(req: Request) {
         label: "RAID",
         score: raidPart,
         detail: raid.ok
-          ? `High exposure open: ${raid.open_high} • Overdue: ${raid.overdue} • SLA ≥70%: ${raid.sla_high}`
+          ? `High exposure open: ${raid.open_high} â€¢ Overdue: ${raid.overdue} â€¢ SLA â‰¥70%: ${raid.sla_high}`
           : raid.error || "RAID signal unavailable.",
       },
       {
@@ -527,4 +527,5 @@ export async function GET(req: Request) {
     return jsonErr(String(e?.message || e || "Portfolio health failed"), 500);
   }
 }
+
 

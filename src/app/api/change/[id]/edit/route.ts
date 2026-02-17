@@ -1,7 +1,16 @@
-// src/app/api/change/[id]/edit/route.ts
+﻿// src/app/api/change/[id]/edit/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+
+        param($m)
+        $inner = $m.Groups[1].Value
+        if ($inner -match '\bNextRequest\b') { return $m.Value }
+        if ($inner -match '\bNextResponse\b') {
+          # insert NextRequest right after opening brace
+          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
+        }
+        return $m.Value
+      
 import {
   sb,
   requireUser,
@@ -80,17 +89,18 @@ async function emitAiEvent(req: Request, body: any) {
   }
 }
 
-export async function PATCH(req: Request, ctx: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
   try {
     const supabase = await sb();
     const user = await requireUser(supabase);
 
-    const changeId = safeStr(ctx?.params?.id).trim();
+    const { id } = await ctx.params;
+    const changeId = safeStr(id).trim();
     if (!changeId) return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
 
     const body = await req.json().catch(() => ({}));
 
-    // ✅ Governance: never allow status/decision/delivery edits here
+    // âœ… Governance: never allow status/decision/delivery edits here
     if (containsGovernanceFields(body)) {
       return NextResponse.json(
         {
@@ -120,7 +130,7 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
     if (!role) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
     if (!canEdit(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
-    // ✅ Lock on decision_status only (governance lock)
+    // âœ… Lock on decision_status only (governance lock)
     if (decisionStatus === "submitted") {
       return NextResponse.json(
         {
@@ -160,7 +170,7 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
       patch.priority = normalizePriority(body?.priority);
     }
 
-    // tags / impact_analysis are NOT NULL in schema → safe defaults
+    // tags / impact_analysis are NOT NULL in schema â†’ safe defaults
     patch.tags = tags;
     patch.impact_analysis = impact_analysis;
 
@@ -215,7 +225,7 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
       // swallow
     }
 
-    // ✅ Recompute AI and persist (best effort)
+    // âœ… Recompute AI and persist (best effort)
     try {
       const computed = await computeChangeAIFields({ supabase, projectId, changeRow: updated.data });
 
@@ -272,3 +282,4 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
+

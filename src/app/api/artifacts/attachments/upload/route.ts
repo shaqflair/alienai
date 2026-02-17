@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -71,7 +71,7 @@ async function requireAuthAndEdit(supabase: any, projectId: string) {
 
 /* ---------------- handler ---------------- */
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();
     const service = createServiceClient();
@@ -132,7 +132,7 @@ export async function POST(req: Request) {
       newItems.push({
         label: null,
         url: signed.signedUrl,
-        // ✅ keep the storage path so we can delete later reliably
+        // âœ… keep the storage path so we can delete later reliably
         path,
         filename: safeName,
         size_bytes: (f as any).size ?? null,
@@ -164,4 +164,5 @@ export async function POST(req: Request) {
     return jsonErr(msg, status);
   }
 }
+
 

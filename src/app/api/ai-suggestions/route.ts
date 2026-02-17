@@ -1,4 +1,4 @@
-// src/app/api/ai-suggestions/route.ts
+﻿// src/app/api/ai-suggestions/route.ts
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -53,7 +53,7 @@ const ALLOWED_STATUSES = new Set(["proposed", "suggested", "accepted", "dismisse
  * GET /api/ai-suggestions?projectId=...&status=suggested|accepted|dismissed|proposed
  * Returns project suggestions.
  */
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const projectId = String(searchParams.get("projectId") ?? "").trim();
@@ -90,13 +90,13 @@ export async function GET(req: Request) {
  * POST /api/ai-suggestions
  * Body: { projectId, id, status: "accepted"|"dismissed" }
  *
- * ✅ uses:
+ * âœ… uses:
  * - updated_at
  * - actioned_by
  * - decided_at (accepted)
  * - rejected_at (dismissed)
  */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const projectId = String(body?.projectId ?? "").trim();
@@ -150,4 +150,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
   }
 }
+
 

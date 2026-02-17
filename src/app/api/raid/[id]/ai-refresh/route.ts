@@ -1,10 +1,21 @@
-// src/app/api/raid/[id]/ai-refresh/route.ts
+﻿// src/app/api/raid/[id]/ai-refresh/route.ts
 import "server-only";
-import { NextResponse } from "next/server";
+
+        param($m)
+        $inner = $m.Groups[1].Value
+        if ($inner -match '\bNextRequest\b') { return $m.Value }
+        if ($inner -match '\bNextResponse\b') {
+          # insert NextRequest right after opening brace
+          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
+        }
+        return $m.Value
+      
 import { createClient } from "@/utils/supabase/server";
 import OpenAI from "openai";
 
 export const runtime = "nodejs";
+
+type RouteCtx = { params: Promise<{ id: string }> };
 
 function jsonOk(data: any, status = 200) {
   return NextResponse.json({ ok: true, ...data }, { status });
@@ -46,7 +57,7 @@ function getTemperature() {
   return Math.max(0, Math.min(2, t));
 }
 
-/** ✅ accept either key name */
+/** âœ… accept either key name */
 function getApiKey() {
   const a = safeStr(process.env.WIRE_AI_API_KEY).trim();
   const b = safeStr(process.env.OPENAI_API_KEY).trim();
@@ -60,7 +71,7 @@ function isOpenAIProvider() {
 
 function shortenErr(e: any) {
   const msg = safeStr(e?.message) || String(e || "");
-  return msg.length > 280 ? msg.slice(0, 277) + "…" : msg;
+  return msg.length > 280 ? msg.slice(0, 277) + "â€¦" : msg;
 }
 
 async function insertNotification(supabase: any, payload: any) {
@@ -135,7 +146,7 @@ function aiQualityScore(input: {
   return Math.max(0, Math.min(100, Math.round(q)));
 }
 
-export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const raidId = safeStr(id).trim();
   if (!raidId) return jsonErr("Missing id", 400);
@@ -174,7 +185,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   const hasPlan = Boolean(safeStr(item.response_plan).trim());
   const band = severityBand(score);
 
-  // ✅ best-effort score history
+  // âœ… best-effort score history
   try {
     await supabase.from("raid_item_scores").insert({
       raid_item_id: item.id,
@@ -187,7 +198,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     console.warn("[raid ai-refresh score insert]", e?.message || e);
   }
 
-  // ✅ WoW trend best-effort
+  // âœ… WoW trend best-effort
   let wow_delta: number | null = null;
   let wow_prev_score: number | null = null;
   try {
@@ -293,13 +304,13 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 
     const wowTxt =
       typeof wow_delta === "number"
-        ? ` • WoW ${wow_delta > 0 ? "↑" : wow_delta < 0 ? "↓" : "→"}${Math.abs(wow_delta)}`
+        ? ` â€¢ WoW ${wow_delta > 0 ? "â†‘" : wow_delta < 0 ? "â†“" : "â†’"}${Math.abs(wow_delta)}`
         : "";
 
     aiOut = {
-      rollup: `${type} • Score ${score} (${band}) • L${probability}/S${severity}${
-        priority ? ` • Priority: ${priority}` : " • Priority: —"
-      } • Plan: ${hasPlan ? "✅" : "⚠️ missing"} • Status: ${status}`,
+      rollup: `${type} â€¢ Score ${score} (${band}) â€¢ L${probability}/S${severity}${
+        priority ? ` â€¢ Priority: ${priority}` : " â€¢ Priority: â€”"
+      } â€¢ Plan: ${hasPlan ? "âœ…" : "âš ï¸ missing"} â€¢ Status: ${status}`,
       summary: `AI unavailable; using fallback rollup${wowTxt}. Try again.`,
       recommendations: [
         hasPlan ? "Confirm triggers and review cadence." : "Add response plan (mitigation + trigger + owner + due date).",
@@ -311,7 +322,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     };
   }
 
-  // ✅ AI versioning + quality scoring
+  // âœ… AI versioning + quality scoring
   const ai_version = "raid-ai-openai-v2";
   const ai_quality = aiQualityScore({
     owner_label: item.owner_label,
@@ -338,7 +349,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     temperature,
     wow: { delta: wow_delta, prev_score: wow_prev_score },
 
-    // ✅ IMPORTANT: include score in inputs for client-side "score changed?" checks
+    // âœ… IMPORTANT: include score in inputs for client-side "score changed?" checks
     inputs: { probability, severity, score, priority: priority || null, status, type },
 
     last_run_at: new Date().toISOString(),
@@ -354,7 +365,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     ai: nextAi,
   };
 
-  // ✅ Persist AI & mark ai_dirty false
+  // âœ… Persist AI & mark ai_dirty false
   async function updateRaid(withDirty: boolean) {
     const payload: any = {
       ai_rollup: aiOut.rollup,
@@ -382,7 +393,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 
   const updated = out.data;
 
-  // ✅ Write AI run history (audit/diff)
+  // âœ… Write AI run history (audit/diff)
   try {
     await supabase.from("raid_ai_runs").insert({
       raid_item_id: item.id,
@@ -398,7 +409,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     console.warn("[raid ai-refresh history insert]", e?.message || e);
   }
 
-  // ✅ Notify on high score / critical
+  // âœ… Notify on high score / critical
   const shouldNotify = score >= 70 || priority === "Critical";
   if (shouldNotify) {
     const notifyUserId = item.owner_id || actorId;
@@ -409,7 +420,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
         artifact_id: null,
         type: "raid_alert",
         title: `RAID alert: ${type} (${band})`,
-        body: `${description} — Score ${score} (L${probability}/S${severity})${priority ? ` — ${priority}` : ""}. ${
+        body: `${description} â€” Score ${score} (L${probability}/S${severity})${priority ? ` â€” ${priority}` : ""}. ${
           aiOut.recommendations?.[0] || ""
         }`,
         link: `/projects/${item.project_id}/raid`,
@@ -440,3 +451,4 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 
   return jsonOk({ item: updated, ai: nextAi });
 }
+

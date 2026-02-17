@@ -1,4 +1,4 @@
-// src/app/api/stakeholders/seed-from-charter/route.ts
+﻿// src/app/api/stakeholders/seed-from-charter/route.ts
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -71,7 +71,7 @@ function normalizeInfluenceToDb(x: unknown): "high" | "medium" | "low" | null {
   return "medium";
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();
 
@@ -189,4 +189,5 @@ export async function POST(req: Request) {
     );
   }
 }
+
 

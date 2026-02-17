@@ -1,5 +1,14 @@
-import "server-only";
-import { NextResponse } from "next/server";
+﻿import "server-only";
+
+        param($m)
+        $inner = $m.Groups[1].Value
+        if ($inner -match '\bNextRequest\b') { return $m.Value }
+        if ($inner -match '\bNextResponse\b') {
+          # insert NextRequest right after opening brace
+          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
+        }
+        return $m.Value
+      
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -42,3 +51,4 @@ export async function DELETE(_: Request, { params }: { params: { id: string } })
 
   return ok({ deleted: true });
 }
+

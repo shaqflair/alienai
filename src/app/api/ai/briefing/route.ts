@@ -1,4 +1,4 @@
-// src/app/api/ai/briefing/route.ts
+﻿// src/app/api/ai/briefing/route.ts
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -16,7 +16,7 @@ function jsonErr(error: string, status = 400, meta?: any) {
 }
 
 /**
- * ✅ days can be 7/14/30/60 or "all"
+ * âœ… days can be 7/14/30/60 or "all"
  * - number => windowed
  * - "all"  => unbounded (ALL)
  */
@@ -85,7 +85,7 @@ function pct(n: number) {
 
 function prettyStage(x: any) {
   const s = String(x ?? "").trim();
-  if (!s) return "—";
+  if (!s) return "â€”";
   return s.replaceAll("_", " ");
 }
 
@@ -105,7 +105,7 @@ function href(path: string, params?: Record<string, string | number | boolean | 
 }
 
 /**
- * ✅ WBS routing rules in your app:
+ * âœ… WBS routing rules in your app:
  * - /wbs redirects to /artifacts
  * - For list-mode and quick-filters:
  *   - Always include view=list
@@ -117,7 +117,7 @@ function wbsListHref(params?: Record<string, any>) {
 }
 
 /* ------------------------------------------------------------------ */
-/* ✅ project scope helpers (exclude closed/deleted)                    */
+/* âœ… project scope helpers (exclude closed/deleted)                    */
 /* ------------------------------------------------------------------ */
 
 function uniqStrings(xs: any[]): string[] {
@@ -143,7 +143,7 @@ function looksMissingColumn(err: any) {
 }
 
 /**
- * ✅ Filter membership ids down to ACTIVE projects (defensive hardening).
+ * âœ… Filter membership ids down to ACTIVE projects (defensive hardening).
  *
  * Primary schema expectation:
  * - status: 'active' | 'closed' (or similar)
@@ -153,7 +153,7 @@ function looksMissingColumn(err: any) {
  * If the projects query fails (RLS / missing cols), we fall back safely.
  *
  * IMPORTANT: This is used even if resolveActiveProjectScope already tries to filter,
- * so we never “count” closed/deleted projects by accident.
+ * so we never â€œcountâ€ closed/deleted projects by accident.
  */
 async function filterActiveProjectIds(supabase: any, projectIds: string[]) {
   const ids = uniqStrings(projectIds);
@@ -169,7 +169,7 @@ async function filterActiveProjectIds(supabase: any, projectIds: string[]) {
 
     if (error) {
       if (looksMissingColumn(error) || looksMissingRelation(error)) throw error;
-      // can't read projects (RLS etc) → keep ids (don't zero the UI)
+      // can't read projects (RLS etc) â†’ keep ids (don't zero the UI)
       return { ok: false, error: error.message, projectIds: ids };
     }
 
@@ -184,7 +184,7 @@ async function filterActiveProjectIds(supabase: any, projectIds: string[]) {
       const deletedAt = (r as any)?.deleted_at;
       const closedAt = (r as any)?.closed_at;
 
-      // ✅ exclude anything not active
+      // âœ… exclude anything not active
       if (deletedAt) continue;
       if (status && status !== "active") continue;
 
@@ -211,7 +211,7 @@ async function filterActiveProjectIds(supabase: any, projectIds: string[]) {
 }
 
 /* ------------------------------------------------------------------ */
-/* ✅ WBS stats computed from artifacts.content_json (single source)    */
+/* âœ… WBS stats computed from artifacts.content_json (single source)    */
 /* ------------------------------------------------------------------ */
 
 type WbsRow = {
@@ -502,7 +502,7 @@ async function computeWbsStatsFromArtifacts(supabase: any, projectIds: string[],
 }
 
 /* ------------------------------------------------------------------ */
-/* ✅ Approvals signals (best-effort)                                   */
+/* âœ… Approvals signals (best-effort)                                   */
 /* ------------------------------------------------------------------ */
 
 async function computeApprovalsPending(supabase: any, projectIds: string[]) {
@@ -545,7 +545,7 @@ async function computeApprovalsPending(supabase: any, projectIds: string[]) {
 }
 
 /* ------------------------------------------------------------------ */
-/* ✅ Feeds/Activity signals (best-effort, non-breaking)                */
+/* âœ… Feeds/Activity signals (best-effort, non-breaking)                */
 /* ------------------------------------------------------------------ */
 
 type FeedSignals = {
@@ -630,7 +630,7 @@ async function computeFeedSignals(supabase: any, projectIds: string[]): Promise<
 }
 
 /* ------------------------------------------------------------------ */
-/* ✅ Flow warning signals (HIGH predictive value)                      */
+/* âœ… Flow warning signals (HIGH predictive value)                      */
 /* ------------------------------------------------------------------ */
 
 type FlowSignals = {
@@ -795,15 +795,15 @@ function buildExecutiveAiWarningBody(args: { windowLabel: string; agg: FlowAgg }
 
   if (top.length > 0) {
     body =
-      `• Blockers signal\n attaching: ${top.find((w) => w.kind === "blockers")?.detail || "—"}\n\n` +
-      `• Bottleneck signal\n ${top.find((w) => w.kind === "bottleneck")?.detail || "—"}\n\n` +
-      `• Slippage risk\n ${top.find((w) => w.kind === "throughput_forecast")?.detail || "—"}\n\n` +
-      `👉 Action: Reduce WIP limits and unblock upstream dependencies to restore flow.`;
+      `â€¢ Blockers signal\n attaching: ${top.find((w) => w.kind === "blockers")?.detail || "â€”"}\n\n` +
+      `â€¢ Bottleneck signal\n ${top.find((w) => w.kind === "bottleneck")?.detail || "â€”"}\n\n` +
+      `â€¢ Slippage risk\n ${top.find((w) => w.kind === "throughput_forecast")?.detail || "â€”"}\n\n` +
+      `ðŸ‘‰ Action: Reduce WIP limits and unblock upstream dependencies to restore flow.`;
   } else {
     body =
-      `• No major flow risks detected\n` +
+      `â€¢ No major flow risks detected\n` +
       `Delivery is currently stable.\n\n` +
-      `👉 Action: Maintain cadence and monitor early signals.`;
+      `ðŸ‘‰ Action: Maintain cadence and monitor early signals.`;
   }
 
   return `AI Predictions & Warnings (Next ${windowLabel} Days)\n\n${body}`.trim();
@@ -836,7 +836,7 @@ function buildFlowWarnings(args: {
       severity: sev,
       score: 100,
       title: "Cycle-time outliers (early slip risk)",
-      detail: `${agg.outlierCount} work item(s) are aged >2× average cycle time and due within ${windowLabel}d.${varText}`,
+      detail: `${agg.outlierCount} work item(s) are aged >2Ã— average cycle time and due within ${windowLabel}d.${varText}`,
       evidence: { outlierCount: agg.outlierCount, cycleVariancePct: agg.cycleVariancePct },
       href: href("/insights/ai-warning", { days: 30 }),
     });
@@ -909,7 +909,7 @@ function buildFlowWarnings(args: {
       severity: sev,
       score: 70,
       title: "Throughput-based slip forecast",
-      detail: `${p}% chance due-soon commitments slip (based on aging + throughput). Due in 30d: ${agg.due30Open} • Expected throughput (30d): ${exp}.`,
+      detail: `${p}% chance due-soon commitments slip (based on aging + throughput). Due in 30d: ${agg.due30Open} â€¢ Expected throughput (30d): ${exp}.`,
       evidence: { slip_probability: p, due_30_open: agg.due30Open, expected_done_30d: exp },
       href: href("/insights/ai-warning", { days: 30 }),
     });
@@ -939,7 +939,7 @@ function buildFlowWarnings(args: {
       severity: sev,
       score: 35,
       title: "Work planning hygiene impacting predictability",
-      detail: `${parts.join(" • ")}. Forecast confidence is reduced until planning hygiene improves.`,
+      detail: `${parts.join(" â€¢ ")}. Forecast confidence is reduced until planning hygiene improves.`,
       evidence: { wbsMissingEffort, wbsStalled },
       href: wbsMissingEffort > 0 ? wbsListHref({ missingEffort: 1 }) : wbsListHref({ stalled: 1 }),
     });
@@ -965,7 +965,7 @@ function buildFlowWarnings(args: {
 
 /* ------------------------------------------------------------------ */
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient();
 
@@ -982,7 +982,7 @@ export async function GET(req: Request) {
     const scoped = await resolveActiveProjectScope(supabase, userId);
     const scopedIdsRaw = uniqStrings(scoped?.projectIds || []);
 
-    // ✅ Hard guarantee: only ACTIVE projects are counted/queried
+    // âœ… Hard guarantee: only ACTIVE projects are counted/queried
     const activeFilter = await filterActiveProjectIds(supabase, scopedIdsRaw);
     const projectIds = activeFilter.projectIds;
 
@@ -1013,11 +1013,11 @@ export async function GET(req: Request) {
       return res;
     }
 
-    // ✅ Keep RPC for change signals and any existing aggregates you already compute there.
+    // âœ… Keep RPC for change signals and any existing aggregates you already compute there.
     // IMPORTANT: No RAID duplication in briefing.
     const rpcDays = daysParam === "all" ? 60 : daysParam; // RPC expects number
     const { data, error } = await supabase.rpc("get_portfolio_insights", {
-      p_project_ids: projectIds, // ✅ active-only
+      p_project_ids: projectIds, // âœ… active-only
       p_days: rpcDays,
     });
     if (error) throw new Error(error.message);
@@ -1026,10 +1026,10 @@ export async function GET(req: Request) {
     const cr = panel?.change_requests || {};
     const rpcWbs = panel?.wbs || {};
 
-    // ✅ WBS computed from artifacts.content_json (active-only)
+    // âœ… WBS computed from artifacts.content_json (active-only)
     const wbsFromArtifacts = await computeWbsStatsFromArtifacts(supabase, projectIds, days);
 
-    // ✅ Approvals + Feeds + Flow telemetry signals (active-only)
+    // âœ… Approvals + Feeds + Flow telemetry signals (active-only)
     const [approvalsPending, feeds, flow] = await Promise.all([
       computeApprovalsPending(supabase, projectIds),
       computeFeedSignals(supabase, projectIds),
@@ -1065,7 +1065,7 @@ export async function GET(req: Request) {
     const insights: Insight[] = [];
 
     /* ------------------------------------------------------------
-     * ✅ AI PREDICTION & WARNINGS (Executive-friendly)
+     * âœ… AI PREDICTION & WARNINGS (Executive-friendly)
      * ------------------------------------------------------------ */
     {
       const windowLabel = daysParam === "all" ? "60" : String(daysParam);
@@ -1210,8 +1210,8 @@ export async function GET(req: Request) {
           severity: wbsOverdue > 0 ? "high" : wbsDue7 + wbsDue14 > 0 ? "medium" : "info",
           title: "WBS pulse",
           body:
-            `Completed: ${wbsDone} • Remaining: ${wbsRemaining} • Overdue: ${wbsOverdue}. ` +
-            `Due in 7d: ${wbsDue7} • 14d: ${wbsDue14} • 30d: ${wbsDue30} • 60d: ${wbsDue60}.`,
+            `Completed: ${wbsDone} â€¢ Remaining: ${wbsRemaining} â€¢ Overdue: ${wbsOverdue}. ` +
+            `Due in 7d: ${wbsDue7} â€¢ 14d: ${wbsDue14} â€¢ 30d: ${wbsDue30} â€¢ 60d: ${wbsDue60}.`,
           href: href("/wbs/pulse", { days: daysParam }),
           meta: {
             wbsTotalLeaves: wbsTotal,
@@ -1250,7 +1250,7 @@ export async function GET(req: Request) {
       insights,
       meta: {
         days: daysParam,
-        projectCount: projectIds.length, // ✅ active-only count
+        projectCount: projectIds.length, // âœ… active-only count
         scope: {
           ...(scoped?.meta || {}),
           scopedIds: scopedIdsRaw.length,
@@ -1275,4 +1275,5 @@ export async function GET(req: Request) {
     return res;
   }
 }
+
 

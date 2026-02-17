@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -19,7 +19,7 @@ function num(x: any, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const supabase = await createClient();
   const url = new URL(req.url);
 
@@ -100,4 +100,5 @@ export async function GET(req: Request) {
 
   return NextResponse.json({ ok: true, days, panel, count: planned });
 }
+
 

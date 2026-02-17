@@ -1,4 +1,4 @@
-// src/app/api/wireai/generate/route.ts
+﻿// src/app/api/wireai/generate/route.ts
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -569,7 +569,7 @@ function isWeeklyRequest(body: any) {
   return false;
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
 
   // ? Weekly Report path (separate payload contract)
@@ -680,7 +680,7 @@ export async function POST(req: Request) {
             columns: 4,
             rows: [
               { type: "header", cells: ["Decision", "Owner", "Date", "Notes"] },
-              { type: "data", cells: ["No key decisions this period", "PMO", fallbackTo, "—"] },
+              { type: "data", cells: ["No key decisions this period", "PMO", fallbackTo, "â€”"] },
             ],
           },
           operationalBlockers: "",
@@ -909,4 +909,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e?.message ?? "AI generate failed" }, { status: 500 });
   }
 }
+
 

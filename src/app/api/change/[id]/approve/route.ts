@@ -1,4 +1,4 @@
-// src/app/api/change/[id]/approve/route.ts
+﻿// src/app/api/change/[id]/approve/route.ts
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -14,6 +14,8 @@ import {
 } from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
+
+type RouteCtx = { params: Promise<{ id: string }> };
 
 /* =========================================================
    helpers (holiday-cover safe)
@@ -197,7 +199,7 @@ export async function POST(
       );
     }
 
-    // ✅ Canonical approver check + pending step
+    // âœ… Canonical approver check + pending step
     const { pending, onBehalfOf } = await requireApproverForPendingArtifactStep({
       supabase,
       artifactId,
@@ -206,7 +208,7 @@ export async function POST(
 
     const effectiveApproverUserId = onBehalfOf ?? user.id;
 
-    // ✅ Write decision (idempotent per approver per step)
+    // âœ… Write decision (idempotent per approver per step)
     await recordArtifactApprovalDecision({
       supabase,
       chainId: pending.chainId,
@@ -217,7 +219,7 @@ export async function POST(
       reason: note || null,
     });
 
-    // ✅ Recompute step/chain/artifact state
+    // âœ… Recompute step/chain/artifact state
     const state = await recomputeApprovalState({
       supabase,
       artifactId,
@@ -359,3 +361,4 @@ export async function POST(
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
+

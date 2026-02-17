@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -46,7 +46,7 @@ async function requireAuthAndMembership(projectId: string) {
 /**
  * GET /api/suggestions?projectId=...&artifactId=...&status=proposed|suggested|rejected|all&targetArtifactType=...&includeTest=1
  */
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
 
@@ -57,7 +57,7 @@ export async function GET(req: Request) {
     const limitRaw = Number(url.searchParams.get("limit") ?? "20");
     const limit = Math.max(1, Math.min(200, Number.isFinite(limitRaw) ? limitRaw : 20));
 
-    // ✅ hide ui_test unless explicitly requested or in dev
+    // âœ… hide ui_test unless explicitly requested or in dev
     const includeTestParam = safeLower(url.searchParams.get("includeTest") ?? "");
     const includeTest = includeTestParam === "1" || includeTestParam === "true" || process.env.NODE_ENV === "development";
 
@@ -101,7 +101,7 @@ export async function GET(req: Request) {
     if (targetArtifactType) q = q.eq("target_artifact_type", targetArtifactType);
     if (status !== "all") q = q.eq("status", status);
 
-    // ✅ hide ui_test by default
+    // âœ… hide ui_test by default
     if (!includeTest) {
       // supabase-js filter for NOT EQUAL:
       q = q.neq("suggestion_type", "ui_test");
@@ -115,4 +115,5 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
   }
 }
+
 

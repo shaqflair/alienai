@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -43,7 +43,7 @@ function addUtcDays(dateISO: string, days: number) {
   return utcDateOnlyISO(dt);
 }
 
-/** ✅ UK display dd/mm/yyyy from ISO yyyy-mm-dd or timestamp-ish strings */
+/** âœ… UK display dd/mm/yyyy from ISO yyyy-mm-dd or timestamp-ish strings */
 function fmtDateUK(x: any): string | null {
   if (!x) return null;
   const s = String(x).trim();
@@ -84,7 +84,7 @@ function num(x: any, fallback = 0) {
 }
 
 /**
- * ✅ Deep-link should go to the schedule ARTIFACT if present.
+ * âœ… Deep-link should go to the schedule ARTIFACT if present.
  * Default:
  *   /projects/:projectId/artifacts/:artifactId?focus=milestone&milestoneId=:id
  * Fallback:
@@ -111,7 +111,7 @@ function safeIsoDateOnly(x: any): string | null {
   return utcDateOnlyISO(d);
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const supabase = await createClient();
   const url = new URL(req.url);
 
@@ -158,7 +158,7 @@ export async function GET(req: Request) {
   }
 
   // =========================
-  // ✅ KPI rollup (SINGLE RPC)
+  // âœ… KPI rollup (SINGLE RPC)
   // =========================
   let kpis = {
     planned: 0,
@@ -189,7 +189,7 @@ export async function GET(req: Request) {
   }
 
   // =========================
-  // ✅ Milestones list
+  // âœ… Milestones list
   // =========================
   let q = supabase
     .from("schedule_milestones")
@@ -215,7 +215,7 @@ export async function GET(req: Request) {
   const todayStr = utcDateOnlyISO(new Date());
   const toStr = addUtcDays(todayStr, days);
 
-  // ✅ window must be AND-bounded
+  // âœ… window must be AND-bounded
   if (scope === "window") {
     q = q.or(
       `and(end_date.gte.${todayStr},end_date.lte.${toStr}),and(end_date.is.null,start_date.gte.${todayStr},start_date.lte.${toStr})`
@@ -230,7 +230,7 @@ export async function GET(req: Request) {
     q = q.not("status", "ilike", "%canceled%");
   }
 
-  // ✅ status filter (chips)
+  // âœ… status filter (chips)
   if (status) {
     if (status === "at_risk") {
       q = q.or("status.ilike.%at_risk%,status.ilike.%at risk%");
@@ -288,7 +288,7 @@ export async function GET(req: Request) {
       project_title: m?.projects?.title || "Project",
       milestone_name: safeStr(m.milestone_name) || "(untitled)",
 
-      // ✅ dates: return ISO + UK display fields
+      // âœ… dates: return ISO + UK display fields
       due_date: due_iso, // yyyy-mm-dd
       due_date_uk: fmtDateUK(due_iso),
 
@@ -332,4 +332,5 @@ export async function GET(req: Request) {
     items: out,
   });
 }
+
 

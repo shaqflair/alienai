@@ -1,9 +1,20 @@
-import "server-only";
+﻿import "server-only";
 
-import { NextResponse } from "next/server";
+
+        param($m)
+        $inner = $m.Groups[1].Value
+        if ($inner -match '\bNextRequest\b') { return $m.Value }
+        if ($inner -match '\bNextResponse\b') {
+          # insert NextRequest right after opening brace
+          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
+        }
+        return $m.Value
+      
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
+
+type RouteCtx = { params: Promise<{ id: string }> };
 
 function safeParam(x: unknown): string {
   return typeof x === "string" ? x : "";
@@ -13,15 +24,15 @@ async function safeJson(req: Request) {
   return await req.json().catch(() => ({}));
 }
 
-export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const supabase = await createClient();
 
-  // ✅ Auth
+  // âœ… Auth
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr) return NextResponse.json({ ok: false, error: authErr.message }, { status: 401 });
   if (!auth?.user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-  // ✅ Next.js: params is a Promise
+  // âœ… Next.js: params is a Promise
   const { id: rawId } = await ctx.params;
   const id = safeParam(rawId);
   if (!id) return NextResponse.json({ ok: false, error: "Missing suggestion id" }, { status: 400 });
@@ -30,7 +41,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const projectId = safeParam(body?.projectId);
   if (!projectId) return NextResponse.json({ ok: false, error: "Missing projectId" }, { status: 400 });
 
-  // ✅ Membership check
+  // âœ… Membership check
   const { data: mem, error: memErr } = await supabase
     .from("project_members")
     .select("role")
@@ -41,7 +52,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (memErr) return NextResponse.json({ ok: false, error: memErr.message }, { status: 500 });
   if (!mem) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
-  // ✅ Fetch current status (idempotent)
+  // âœ… Fetch current status (idempotent)
   const { data: existing, error: getErr } = await supabase
     .from("ai_suggestions")
     .select("id,status")
@@ -65,7 +76,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const nowIso = new Date().toISOString();
 
-  // ✅ DB constraint allows: proposed | applied | rejected | suggested
+  // âœ… DB constraint allows: proposed | applied | rejected | suggested
   const updatePatch: Record<string, any> = {
     status: "rejected",
     decided_at: nowIso,
@@ -86,3 +97,4 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   return NextResponse.json({ ok: true, suggestion: data });
 }
+

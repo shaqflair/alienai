@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -15,7 +15,7 @@ function safeStr(x: any) {
   return typeof x === "string" ? x : "";
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient();
     const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -27,7 +27,7 @@ export async function GET(req: Request) {
     const projectId = safeStr(url.searchParams.get("projectId")).trim();
     const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit") || 12)));
 
-    // ✅ Scope: projects user can access (prevents over-fetch when RLS is permissive)
+    // âœ… Scope: projects user can access (prevents over-fetch when RLS is permissive)
     const { data: pmRows, error: pmErr } = await supabase
       .from("project_members")
       .select("project_id, role")
@@ -85,7 +85,7 @@ export async function GET(req: Request) {
     if (projectId) {
       q.eq("project_id", projectId);
     } else {
-      // ✅ only approvals tied to projects user can access
+      // âœ… only approvals tied to projects user can access
       q.in("project_id", projectIds);
     }
 
@@ -111,15 +111,15 @@ export async function GET(req: Request) {
         // embedded change
         change: r.change ?? null,
 
-        // ✅ convenient nav (your HomePage viewHref can use this or keep its logic)
+        // âœ… convenient nav (your HomePage viewHref can use this or keep its logic)
         href: pid && cid ? `/projects/${pid}/change/${cid}` : "",
 
-        // ✅ member role context (useful for UI gating)
+        // âœ… member role context (useful for UI gating)
         myRole: roleByProject.get(pid) || "viewer",
       };
     });
 
-    // ✅ Your HomeData type expects these (optional but helpful)
+    // âœ… Your HomeData type expects these (optional but helpful)
     const roleSet = new Set<string>();
     for (const r of roleByProject.values()) roleSet.add(r);
 
@@ -135,4 +135,5 @@ export async function GET(req: Request) {
     return err(msg, s);
   }
 }
+
 

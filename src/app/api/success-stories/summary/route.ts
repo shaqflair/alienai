@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
@@ -58,7 +58,7 @@ function asNum(x: any, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-/** ✅ UK display date (dd/mm/yyyy) */
+/** âœ… UK display date (dd/mm/yyyy) */
 function fmtDateUK(x: any): string | null {
   if (!x) return null;
   const s = String(x).trim();
@@ -447,7 +447,7 @@ async function computeSummary(
   };
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient();
     const user = await requireUser(supabase);
@@ -479,7 +479,7 @@ export async function GET(req: Request) {
     const allowedSet = new Set(allowedProjects.map((p) => p.id));
 
     if (projectId && !allowedSet.has(projectId)) {
-      // Don’t leak other org project existence
+      // Donâ€™t leak other org project existence
       return jsonOk({
         days,
         score: 0,
@@ -549,4 +549,5 @@ export async function GET(req: Request) {
     return jsonErr(e?.message || "Unknown error", 500);
   }
 }
+
 

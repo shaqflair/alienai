@@ -1,4 +1,4 @@
-// src/app/api/portfolio/raid-list/route.ts
+﻿// src/app/api/portfolio/raid-list/route.ts
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -49,7 +49,7 @@ function isoDateUTC(d: Date) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-/** ✅ UK date display (dd/mm/yyyy) from ISO yyyy-mm-dd or timestamp-ish strings */
+/** âœ… UK date display (dd/mm/yyyy) from ISO yyyy-mm-dd or timestamp-ish strings */
 function fmtDateUK(x: any): string | null {
   if (!x) return null;
   const s = String(x).trim();
@@ -90,15 +90,15 @@ function num(x: any, fallback = 0) {
 
 function currencySymbol(code: any) {
   const c = String(code || "GBP").trim().toUpperCase();
-  if (c === "GBP" || c === "UKP") return "£";
-  if (c === "EUR") return "€";
+  if (c === "GBP" || c === "UKP") return "Â£";
+  if (c === "EUR") return "â‚¬";
   if (c === "USD") return "$";
-  if (c === "NGN") return "₦";
-  if (c === "GHS") return "GH₵";
-  return "£";
+  if (c === "NGN") return "â‚¦";
+  if (c === "GHS") return "GHâ‚µ";
+  return "Â£";
 }
 
-/** ✅ Clean tooltip text so UI doesn’t render raw JSON chaos */
+/** âœ… Clean tooltip text so UI doesnâ€™t render raw JSON chaos */
 function buildScoreTooltip(components: any, modelVersion: any, scoredAt: any) {
   const lines: string[] = [];
   if (modelVersion) lines.push(`Model: ${String(modelVersion)}`);
@@ -167,7 +167,7 @@ type Fin = {
 
 /* ---------------- handler ---------------- */
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const supabase = await createClient();
   const url = new URL(req.url);
 
@@ -177,14 +177,14 @@ export async function GET(req: Request) {
   const type = safeType(url.searchParams.get("type"));
   const status = safeStatus(url.searchParams.get("status"));
 
-  // ✅ auth
+  // âœ… auth
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   const userId = auth?.user?.id;
   if (authErr || !userId) {
     return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
   }
 
-  // ✅ ACTIVE + accessible project scope (membership + not deleted/closed)
+  // âœ… ACTIVE + accessible project scope (membership + not deleted/closed)
   const scoped = await resolveActiveProjectScope(supabase, userId);
   const projectIds = scoped.projectIds;
 
@@ -325,7 +325,7 @@ export async function GET(req: Request) {
       .limit(Math.min(5000, maxItems));
 
     if (fErr) {
-      // ✅ Do not fail the endpoint if this table isn't ready yet
+      // âœ… Do not fail the endpoint if this table isn't ready yet
       finOptionalError = looksMissingRelation(fErr) ? "raid_financials missing" : fErr.message;
     } else {
       for (const f of fins || []) {
@@ -434,4 +434,5 @@ export async function GET(req: Request) {
     },
   });
 }
+
 

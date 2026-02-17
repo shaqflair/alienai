@@ -1,4 +1,4 @@
-// src/app/api/stakeholders/route.ts
+﻿// src/app/api/stakeholders/route.ts
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -122,7 +122,7 @@ function inferMapping(influence?: string, impact?: string) {
 }
 
 /**
- * ✅ IMPORTANT:
+ * âœ… IMPORTANT:
  * Exporters currently expect: { version: 1, type: "stakeholder_register", rows: [...] }
  */
 function buildStakeholderRegisterContentJson(stakeholders: any[]) {
@@ -195,7 +195,7 @@ async function syncArtifactContentJson(supabase: any, projectId: string, artifac
 /**
  * GET /api/stakeholders?projectId=...&artifactId=...
  */
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const projectId = safeStr(url.searchParams.get("projectId")).trim();
@@ -239,7 +239,7 @@ export async function GET(req: Request) {
  *  - "upsert" (default): inserts/updates submitted items; does NOT delete anything.
  *  - "replace": inserts/updates submitted items AND deletes any existing rows for the artifact not in the submitted list.
  */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const projectId = safeStr(body?.projectId).trim();
@@ -262,7 +262,7 @@ export async function POST(req: Request) {
     if (!role) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
     if (!canWrite(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
-    // ✅ Build candidate rows (including optional id)
+    // âœ… Build candidate rows (including optional id)
     const candidates = items
       .map((it: any) => {
         const name = String(it?.name ?? "").trim();
@@ -331,7 +331,7 @@ export async function POST(req: Request) {
     }
 
     /**
-     * ✅ CRITICAL FIX:
+     * âœ… CRITICAL FIX:
      * Your client sends existing DB ids for edits, but your old server ignored them and upserted by (artifact_id,name_key),
      * which causes "rename" to insert new rows.
      *
@@ -363,7 +363,7 @@ export async function POST(req: Request) {
       return r;
     });
 
-    // ✅ Upsert by id (PK). Unique (artifact_id,name_key) still protects duplicates.
+    // âœ… Upsert by id (PK). Unique (artifact_id,name_key) still protects duplicates.
     const { data: savedRows, error: upErr } = await supabase
       .from("stakeholders")
       .upsert(upserts, { onConflict: "id" })
@@ -398,7 +398,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // ✅ Update artifacts.content_json so exports render correctly
+    // âœ… Update artifacts.content_json so exports render correctly
     await syncArtifactContentJson(supabase, projectId, artifactId);
 
     // Fire AI event (non-blocking)
@@ -433,7 +433,7 @@ export async function POST(req: Request) {
 /**
  * DELETE /api/stakeholders?projectId=...&artifactId=...
  */
-export async function DELETE(req: Request) {
+export async function DELETE(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const projectId = safeStr(url.searchParams.get("projectId")).trim();
@@ -465,4 +465,5 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
   }
 }
+
 

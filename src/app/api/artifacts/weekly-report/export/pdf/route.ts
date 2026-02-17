@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -16,7 +16,7 @@ function safeStr(x: any) {
   return String(x ?? "").trim();
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const projectId = safeStr(url.searchParams.get("projectId"));
   const artifactId = safeStr(url.searchParams.get("artifactId"));
@@ -61,4 +61,5 @@ export async function GET(req: Request) {
     },
   });
 }
+
 

@@ -1,7 +1,16 @@
-// src/app/api/change/[id]/attachments/route.ts
+﻿// src/app/api/change/[id]/attachments/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+
+        param($m)
+        $inner = $m.Groups[1].Value
+        if ($inner -match '\bNextRequest\b') { return $m.Value }
+        if ($inner -match '\bNextResponse\b') {
+          # insert NextRequest right after opening brace
+          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
+        }
+        return $m.Value
+      
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -51,7 +60,7 @@ async function resolveChangeRequest(supabase: any, rawChangeId: string) {
   } else if (looksLikePublicCr(raw)) {
     resp = await q.eq("public_id", raw.toLowerCase()).maybeSingle();
   } else {
-    // Unknown identifier format – avoid hitting uuid columns with junk
+    // Unknown identifier format â€“ avoid hitting uuid columns with junk
     throw new Error("Invalid change id");
   }
 
@@ -103,7 +112,7 @@ function filenameFromStorageObjectName(objName: string) {
   return n;
 }
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id?: string }> }) {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id?: string }> }) {
   try {
     const { id } = await ctx.params;
     const rawId = safeStr(id).trim();
@@ -224,7 +233,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id?: string }>
   }
 }
 
-export async function POST(req: Request, ctx: { params: Promise<{ id?: string }> }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id?: string }> }) {
   try {
     const { id } = await ctx.params;
     const rawId = safeStr(id).trim();
@@ -274,7 +283,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       if (insErr) throw insErr;
       rec = ins;
     } catch {
-      // ok — storage upload already succeeded
+      // ok â€” storage upload already succeeded
     }
 
     const { data: signed } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 30);
@@ -301,7 +310,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
   }
 }
 
-export async function DELETE(req: Request, ctx: { params: Promise<{ id?: string }> }) {
+export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id?: string }> }) {
   try {
     const { id } = await ctx.params;
     const rawId = safeStr(id).trim();
@@ -356,7 +365,7 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id?: string 
         await supabase.from("change_attachments").delete().eq("change_id", access.changeId).eq("path", path);
       }
     } catch {
-      // ok — storage already removed the file
+      // ok â€” storage already removed the file
     }
 
     return jsonOk({ deleted: true, path });
@@ -375,3 +384,4 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id?: string 
     return jsonErr(msg, code);
   }
 }
+

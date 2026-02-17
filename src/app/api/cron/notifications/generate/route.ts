@@ -1,4 +1,4 @@
-// src/app/api/cron/notifications/generate/route.ts
+﻿// src/app/api/cron/notifications/generate/route.ts
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -30,7 +30,7 @@ function s(x: any) {
  * - safe no-op (returns ok) to unblock deployments
  * - You can extend this to generate notifications from due items / approvals / AI events
  */
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     assertCronAuth(req);
 
@@ -55,8 +55,9 @@ export async function GET(req: Request) {
   }
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   // allow POST too (some cron systems prefer POST)
   return GET(req);
 }
+
 

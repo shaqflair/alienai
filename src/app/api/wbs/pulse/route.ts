@@ -1,4 +1,4 @@
-// src/app/api/wbs/pulse/route.ts
+﻿// src/app/api/wbs/pulse/route.ts
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -372,7 +372,7 @@ async function filterActiveProjectIds(supabase: any, projectIds: string[]) {
 
 /* ---------------- route ---------------- */
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient();
 
@@ -386,11 +386,11 @@ export async function GET(req: Request) {
     const daysParam = clampDays(url.searchParams.get("days"));
     const days = daysParam === "all" ? null : daysParam;
 
-    // ✅ member projects
+    // âœ… member projects
     const mem = await fetchMemberProjectIds(supabase, userId);
     if (!mem.ok) return jsonErr(mem.error || "Failed to resolve membership", 500);
 
-    // ✅ active-only (exclude closed/deleted)
+    // âœ… active-only (exclude closed/deleted)
     const filtered = await filterActiveProjectIds(supabase, mem.projectIds);
     const projectIds = filtered.projectIds;
 
@@ -406,7 +406,7 @@ export async function GET(req: Request) {
       });
     }
 
-    // ✅ pull WBS artifacts (scoped)
+    // âœ… pull WBS artifacts (scoped)
     // keep a sensible cap
     const { data: rows, error } = await supabase
       .from("artifacts")
@@ -490,4 +490,5 @@ export async function GET(req: Request) {
     return jsonErr(String(e?.message || e || "Failed"), 500);
   }
 }
+
 

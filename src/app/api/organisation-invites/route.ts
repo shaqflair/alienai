@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import crypto from "crypto";
@@ -34,7 +34,7 @@ function isUuid(x: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test((x || "").trim());
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const sb = await createClient();
   const { data: auth, error: authErr } = await sb.auth.getUser();
   if (authErr) return bad(sbErrText(authErr), 401);
@@ -60,7 +60,7 @@ export async function GET(req: Request) {
   return ok({ items: data ?? [] });
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const sb = await createClient();
   const { data: auth, error: authErr } = await sb.auth.getUser();
   if (authErr) return bad(sbErrText(authErr), 401);
@@ -105,7 +105,7 @@ export async function POST(req: Request) {
   return ok({ invite: data });
 }
 
-export async function PATCH(req: Request) {
+export async function PATCH(req: NextRequest) {
   const sb = await createClient();
   const { data: auth, error: authErr } = await sb.auth.getUser();
   if (authErr) return bad(sbErrText(authErr), 401);
@@ -129,4 +129,5 @@ export async function PATCH(req: Request) {
   if (error) return bad(sbErrText(error), 400);
   return ok({ invite: data });
 }
+
 

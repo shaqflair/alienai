@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -14,7 +14,7 @@ function safeStr(x: any) {
   return typeof x === "string" ? x : "";
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const supabase = await createClient();
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr) return jsonErr(authErr.message, 401);
@@ -25,7 +25,7 @@ export async function POST(req: Request) {
 
   if (!itemName) return jsonErr("Missing itemName", 400);
 
-  // ✅ simple heuristic placeholder:
+  // âœ… simple heuristic placeholder:
   // You can replace this with: fetch to your AI orchestrator + project context + historical averages.
   // For now we give a reasonable guess.
   const lower = itemName.toLowerCase();
@@ -39,4 +39,5 @@ export async function POST(req: Request) {
 
   return jsonOk({ hours });
 }
+
 

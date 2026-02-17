@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient as createSbJsClient } from "@supabase/supabase-js";
@@ -19,7 +19,7 @@ function isUuid(x: string) {
 /**
  * GET /api/suggestions/explain?suggestionId=...
  */
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const suggestionId = url.searchParams.get("suggestionId")?.trim();
@@ -72,4 +72,5 @@ export async function GET(req: Request) {
     );
   }
 }
+
 

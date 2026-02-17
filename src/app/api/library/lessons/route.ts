@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -14,7 +14,7 @@ function safeStr(x: any) {
   return typeof x === "string" ? x : "";
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const sb = await createClient();
 
   const { data: auth, error: authErr } = await sb.auth.getUser();
@@ -61,4 +61,5 @@ export async function GET(req: Request) {
 
   return jsonOk({ items: data ?? [] });
 }
+
 

@@ -1,7 +1,16 @@
-// src/app/api/change/[id]/route.ts
+﻿// src/app/api/change/[id]/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+
+        param($m)
+        $inner = $m.Groups[1].Value
+        if ($inner -match '\bNextRequest\b') { return $m.Value }
+        if ($inner -match '\bNextResponse\b') {
+          # insert NextRequest right after opening brace
+          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
+        }
+        return $m.Value
+      
 import {
   sb,
   requireUser,
@@ -99,7 +108,8 @@ function pickId(req: Request, ctx: any, body: any): string | null {
     if (u && u !== "null" && u !== "undefined") return u;
   } catch {}
 
-  const p = safeStr(ctx?.params?.id).trim();
+  const { id } = await ctx.params;
+    const p = safeStr(id).trim();
   if (p && p !== "null" && p !== "undefined") return p;
 
   const b = safeStr(body?.id ?? body?.change_id).trim();
@@ -251,7 +261,7 @@ function readNarrativeFields(body: any) {
 }
 
 /* =========================
-   Option B — review_by helpers
+   Option B â€” review_by helpers
 ========================= */
 
 function toDateOnlyString(input: any): string | null {
@@ -320,7 +330,7 @@ async function updateWithStripRetry(supabase: any, id: string, update: Record<st
    DELETE
 ========================= */
 
-export async function DELETE(req: Request, ctx: any) {
+export async function DELETE(req: NextRequest, ctx: any) {
   try {
     const id = pickId(req, ctx, null);
     if (!id) return err("Missing id", { status: 400, code: "missing_id" });
@@ -397,7 +407,7 @@ export async function DELETE(req: Request, ctx: any) {
    GET single
 ========================= */
 
-export async function GET(req: Request, ctx: any) {
+export async function GET(req: NextRequest, ctx: any) {
   try {
     const id = pickId(req, ctx, null);
     if (!id) return err("Missing id", { status: 400, code: "missing_id" });
@@ -438,7 +448,7 @@ export async function GET(req: Request, ctx: any) {
    UPDATE (PATCH/POST)
 ========================= */
 
-export async function POST(req: Request, ctx: any) {
+export async function POST(req: NextRequest, ctx: any) {
   try {
     let body: any = {};
     try {
@@ -520,7 +530,7 @@ export async function POST(req: Request, ctx: any) {
       update.links = { ...baseLinks, assignee_name: clamp(body.assignee.trim(), 140) };
     }
 
-    // ✅ Option B: review_by (date)
+    // âœ… Option B: review_by (date)
     {
       const rb = readReviewBy(body);
       if (rb.present) {
@@ -589,7 +599,7 @@ export async function POST(req: Request, ctx: any) {
 
     update.updated_at = new Date().toISOString();
 
-    // ✅ FAST PATH:
+    // âœ… FAST PATH:
     // delivery_status + lane_sort (and updated_at) should NOT trigger AI recompute
     const keys = Object.keys(update);
     const FAST_MOVE_KEYS = new Set(["delivery_status", "lane_sort", "updated_at"]);
@@ -614,7 +624,7 @@ export async function POST(req: Request, ctx: any) {
       return ok({ item: updatedRow, data: updatedRow, role, id: (updatedRow as any)?.id ?? id });
     }
 
-    // ✅ For substantive edits, recompute AI best-effort
+    // âœ… For substantive edits, recompute AI best-effort
     try {
       const computed = await computeChangeAIFields({ supabase, projectId, changeRow: updatedRow });
 
@@ -662,6 +672,7 @@ export async function POST(req: Request, ctx: any) {
   }
 }
 
-export async function PATCH(req: Request, ctx: any) {
+export async function PATCH(req: NextRequest, ctx: any) {
   return POST(req, ctx);
 }
+

@@ -1,7 +1,16 @@
-// src/app/api/change/[id]/request-changes/route.ts
+﻿// src/app/api/change/[id]/request-changes/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+
+        param($m)
+        $inner = $m.Groups[1].Value
+        if ($inner -match '\bNextRequest\b') { return $m.Value }
+        if ($inner -match '\bNextResponse\b') {
+          # insert NextRequest right after opening brace
+          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
+        }
+        return $m.Value
+      
 import {
   sb,
   requireUser,
@@ -109,12 +118,13 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
  * POST /api/change/:id/request-changes
  * Optionally accepts { note }
  */
-export async function POST(req: Request, ctx: { params: { id?: string } }) {
+export async function POST(req: NextRequest, ctx: { params: { id?: string } }) {
   try {
     const supabase = await sb();
     const user = await requireUser(supabase);
 
-    const id = safeStr(ctx?.params?.id).trim();
+    const { id } = await ctx.params;
+    const id = safeStr(id).trim();
     if (!id) return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
 
     const body = await req.json().catch(() => ({}));
@@ -162,12 +172,12 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
     if (!role) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
     if (!isOwner(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
-    // ✅ Idempotent: already rework
+    // âœ… Idempotent: already rework
     if (decisionStatus === "rework") {
       return NextResponse.json({ ok: true, item: cr, data: cr });
     }
 
-    // ✅ only request changes when decision_status=submitted
+    // âœ… only request changes when decision_status=submitted
     if (decisionStatus !== "submitted") {
       return NextResponse.json(
         { ok: false, error: `Cannot request changes when decision_status=${decisionStatus || "(null)"}` },
@@ -175,7 +185,7 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
       );
     }
 
-    // ✅ strict: only from Review lane (submit put it there)
+    // âœ… strict: only from Review lane (submit put it there)
     if (fromLane && fromLane !== "review") {
       return NextResponse.json(
         { ok: false, error: `Only changes in Review can be sent back for rework (current lane=${fromLane}).` },
@@ -183,7 +193,7 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
       );
     }
 
-    // ✅ Ensure artifact_id exists
+    // âœ… Ensure artifact_id exists
     const artifactId = await ensureArtifactIdForChangeRequest(supabase, cr);
     if (!artifactId) {
       return NextResponse.json(
@@ -400,3 +410,4 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
+

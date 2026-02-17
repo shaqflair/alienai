@@ -1,5 +1,14 @@
-import "server-only";
-import { NextResponse } from "next/server";
+﻿import "server-only";
+
+        param($m)
+        $inner = $m.Groups[1].Value
+        if ($inner -match '\bNextRequest\b') { return $m.Value }
+        if ($inner -match '\bNextResponse\b') {
+          # insert NextRequest right after opening brace
+          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
+        }
+        return $m.Value
+      
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -61,7 +70,7 @@ async function requireEditor(sb: any, project_id: string) {
   return { ok: true, uid };
 }
 
-export async function PATCH(req: Request, ctx: { params?: { id?: string } }) {
+export async function PATCH(req: NextRequest, ctx: { params?: { id?: string } }) {
   const id = extractId(req, ctx?.params);
 
   if (!isUuid(id)) {
@@ -100,7 +109,7 @@ export async function PATCH(req: Request, ctx: { params?: { id?: string } }) {
     "impact",
     "severity",
     "project_stage",
-    "action_owner_label", // ✅ free text owner
+    "action_owner_label", // âœ… free text owner
   ]) {
     if (!(k in body)) continue;
 
@@ -135,7 +144,7 @@ export async function PATCH(req: Request, ctx: { params?: { id?: string } }) {
   return jsonOk({ item: data });
 }
 
-export async function DELETE(req: Request, ctx: { params?: { id?: string } }) {
+export async function DELETE(req: NextRequest, ctx: { params?: { id?: string } }) {
   const id = extractId(req, ctx?.params);
 
   if (!isUuid(id)) {
@@ -166,3 +175,4 @@ export async function DELETE(req: Request, ctx: { params?: { id?: string } }) {
 
   return jsonOk({ deleted: true });
 }
+

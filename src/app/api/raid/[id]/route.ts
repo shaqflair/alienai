@@ -1,9 +1,20 @@
-import "server-only";
+﻿import "server-only";
 
-import { NextResponse } from "next/server";
+
+        param($m)
+        $inner = $m.Groups[1].Value
+        if ($inner -match '\bNextRequest\b') { return $m.Value }
+        if ($inner -match '\bNextResponse\b') {
+          # insert NextRequest right after opening brace
+          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
+        }
+        return $m.Value
+      
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
+
+type RouteCtx = { params: Promise<{ id: string }> };
 
 /* ---------------- utils ---------------- */
 
@@ -133,7 +144,7 @@ function canonArtifactType(typeParam: string) {
 
 /* ---------------- handler ---------------- */
 
-export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
 
@@ -144,7 +155,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
     const supabase = await createClient();
 
-    // ✅ Resolve UUID from UUID OR project_code OR P-XXXX
+    // âœ… Resolve UUID from UUID OR project_code OR P-XXXX
     const projectUuid = await resolveProjectUuid(supabase, projectIdentifier);
     if (!projectUuid) {
       return NextResponse.json(
@@ -163,7 +174,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     const typeCanon = canonArtifactType(typeParamRaw || "wbs");
     const isCurrent = currentParam ?? true;
 
-    // ✅ Type matching: try canon + raw variants so casing doesn't break results
+    // âœ… Type matching: try canon + raw variants so casing doesn't break results
     const raw = safeStr(typeParamRaw).trim();
     const typeCandidates = Array.from(
       new Set(
@@ -178,7 +189,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       )
     );
 
-    // ✅ IMPORTANT: Do not select columns that may not exist (status was breaking you)
+    // âœ… IMPORTANT: Do not select columns that may not exist (status was breaking you)
     // Use approval_status / is_locked if you have them.
     let q = supabase
       .from("artifacts")
@@ -209,3 +220,4 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
+

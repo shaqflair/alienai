@@ -1,4 +1,4 @@
-// src/app/api/approvals/resolve/route.ts
+﻿// src/app/api/approvals/resolve/route.ts
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { sb, requireAuth, requireOrgMember, safeStr, loadProfilesByUserIds } from "@/lib/approvals/admin-helpers";
@@ -24,7 +24,7 @@ function inBand(amount: number, min: any, max: any) {
   return a >= mn && a <= mx;
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const supabase = await sb();
     const user = await requireAuth(supabase);
@@ -132,4 +132,5 @@ export async function POST(req: Request) {
     return err(msg, s);
   }
 }
+
 

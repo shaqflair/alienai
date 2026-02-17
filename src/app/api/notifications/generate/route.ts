@@ -1,4 +1,4 @@
-// src/app/api/cron/notifications/generate/route.ts
+﻿// src/app/api/cron/notifications/generate/route.ts
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -66,7 +66,7 @@ function isClosedRaidStatus(s: any) {
 
 /**
  * Your DB uses an enum for notifications.type.
- * We don’t need to import the enum type in TS — just ensure we only emit valid labels.
+ * We donâ€™t need to import the enum type in TS â€” just ensure we only emit valid labels.
  */
 type NotifRow = {
   user_id: string;
@@ -427,7 +427,7 @@ function checkCronSecret(req: Request) {
 
 /* ---------------- handlers ---------------- */
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     if (!isDevTrigger(req)) return err("Forbidden", 403, { hint: "Use ?dev=1 in non-production only" });
 
@@ -469,7 +469,7 @@ export async function GET(req: Request) {
   }
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const gate = checkCronSecret(req);
     if (!gate.ok) return err(gate.reason, 403);
@@ -511,4 +511,5 @@ export async function POST(req: Request) {
     return err(String(e?.message || "Failed"), 500);
   }
 }
+
 

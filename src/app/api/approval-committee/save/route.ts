@@ -1,4 +1,4 @@
-// src/app/api/approval-committee/save/route.ts
+﻿// src/app/api/approval-committee/save/route.ts
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -25,7 +25,7 @@ async function requireAuthAndMembership(supabase: any, projectId: string) {
   if (!mem) throw new Error("Not found");
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const supabase = createClient();
     const body = await req.json().catch(() => ({}));
@@ -61,4 +61,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 500 });
   }
 }
+
 

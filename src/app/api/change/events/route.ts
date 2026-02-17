@@ -1,4 +1,4 @@
-// src/app/api/ai/events/route.ts
+﻿// src/app/api/ai/events/route.ts
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -70,10 +70,10 @@ function buildChangeAiSummary(args: {
     days > 0 ? `Estimated +${days} day(s) impact (based on current inputs).` : `No schedule slip currently flagged.`;
 
   const costTxt =
-    cost > 0 ? `Estimated cost impact ~£${cost.toLocaleString("en-GB")}.` : `No cost impact currently flagged.`;
+    cost > 0 ? `Estimated cost impact ~Â£${cost.toLocaleString("en-GB")}.` : `No cost impact currently flagged.`;
 
   const scopeTxt = desc
-    ? `Scope summary: ${desc.length > 140 ? desc.slice(0, 140) + "…" : desc}`
+    ? `Scope summary: ${desc.length > 140 ? desc.slice(0, 140) + "â€¦" : desc}`
     : `Add a short summary to improve scope clarity.`;
 
   let nextAction = "";
@@ -93,17 +93,17 @@ function buildChangeAiSummary(args: {
 
   const alternatives = [
     {
-      title: "Option A — Proceed with mitigations",
+      title: "Option A â€” Proceed with mitigations",
       summary: "Proceed as requested, but add mitigations and approvals to reduce delivery risk.",
       tradeoff: "Fastest path, but risk depends on quality of mitigations.",
     },
     {
-      title: "Option B — Phase the change",
+      title: "Option B â€” Phase the change",
       summary: "Deliver in smaller increments to reduce risk and control schedule impact.",
       tradeoff: "Lower risk, but more coordination and governance steps.",
     },
     {
-      title: "Option C — Defer / redesign",
+      title: "Option C â€” Defer / redesign",
       summary: "Defer until prerequisites are ready or redesign scope to reduce cost/schedule impact.",
       tradeoff: "May protect delivery, but delays benefit realization.",
     },
@@ -142,12 +142,12 @@ function buildDraftAssistFromPayload(payload: any) {
   const riskLevel = safeStr(interview?.riskLevel).trim() || "Medium";
   const rollback = safeStr(interview?.rollback).trim();
 
-  // Keep it “PMO clean”, not verbose.
+  // Keep it â€œPMO cleanâ€, not verbose.
   const outSummary =
     summary ||
     (about
-      ? `${about}${why ? ` — ${why}` : ""}`.slice(0, 1200)
-      : "Describe the change in 2–3 lines for quick scanning.");
+      ? `${about}${why ? ` â€” ${why}` : ""}`.slice(0, 1200)
+      : "Describe the change in 2â€“3 lines for quick scanning.");
 
   const justification =
     safeStr(payload?.justification).trim() ||
@@ -207,7 +207,7 @@ function buildDraftAssistFromPayload(payload: any) {
   };
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();
     const body = await req.json().catch(() => ({} as any));
@@ -253,7 +253,7 @@ export async function POST(req: Request) {
         rationale: `Smoke test suggestion generated from /api/ai/events.`,
         sig,
         payload: {
-          message: "If you can see this suggestion, the AI events → suggestions pipeline works.",
+          message: "If you can see this suggestion, the AI events â†’ suggestions pipeline works.",
           created_from: "smoke_test",
           artifact_id: artifactId,
         },
@@ -281,7 +281,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, handled: true, eventType });
     }
 
-    // ✅ Draft assist can be PRE-CREATE (no changeId yet)
+    // âœ… Draft assist can be PRE-CREATE (no changeId yet)
     if (eventType === "change_draft_assist_requested") {
       const changeId =
         safeStr(artifactId).trim() ||
@@ -311,10 +311,10 @@ export async function POST(req: Request) {
         });
       }
 
-      // If change exists already, fall through to “load change + upsert summary” below
+      // If change exists already, fall through to â€œload change + upsert summaryâ€ below
     }
 
-    // ✅ CHANGE AI: write into change_ai_summaries (requires changeId)
+    // âœ… CHANGE AI: write into change_ai_summaries (requires changeId)
     if (
       eventType === "change_ai_scan_requested" ||
       eventType === "change_created" ||
@@ -385,7 +385,7 @@ export async function POST(req: Request) {
           item: up,
           model: ai.model,
           ai: {
-            summary: ai.summary.scope, // better “summary” than headline-only
+            summary: ai.summary.scope, // better â€œsummaryâ€ than headline-only
             justification: ai.rationale,
             financial: ai.summary.cost,
             schedule: ai.summary.schedule,
@@ -411,4 +411,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 500 });
   }
 }
+
 
