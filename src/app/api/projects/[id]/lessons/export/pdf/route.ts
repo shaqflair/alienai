@@ -14,7 +14,7 @@ function safeStr(x: any) {
 
 export async function GET(
   req: NextRequest, 
-  ctx: { params: Promise<{ id: string }> | { id: string } }
+  ctx: { params: Promise<{ id: string }> }
 ) {
   const url = new URL(req.url);
   const { id } = await Promise.resolve(ctx.params);
@@ -48,3 +48,4 @@ export async function GET(
     );
   }
 }
+

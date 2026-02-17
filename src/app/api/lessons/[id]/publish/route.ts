@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -49,7 +49,7 @@ async function requireEditor(sb: any, project_id: string) {
 
 /* ---------------- route ---------------- */
 
-export async function POST(req: Request, ctx: { params: Promise<{ id: string }> | { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: rawId } = await Promise.resolve(ctx.params);
   const id = safeStr(rawId).trim();
 
@@ -79,7 +79,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     .filter(Boolean)
     .slice(0, 20);
 
-  // ✅ only set published_at/by when publishing; clear when unpublishing
+  // âœ… only set published_at/by when publishing; clear when unpublishing
   const patch: any = {
     is_published: publish,
     published_at: publish ? new Date().toISOString() : null,
@@ -98,3 +98,4 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   return jsonOk({ item: data });
 }
+

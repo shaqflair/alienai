@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 
@@ -88,7 +88,7 @@ async function proxy(req: NextRequest, formatRaw: string) {
 
 export async function GET(
   req: NextRequest,
-  ctx: { params: Promise<{ format?: string }> | { format?: string } }
+  ctx: { params: Promise<{ format?: string }> }
 ) {
   const params = await Promise.resolve(ctx.params as any);
   return proxy(req, safeStr(params?.format));
@@ -96,8 +96,9 @@ export async function GET(
 
 export async function POST(
   req: NextRequest,
-  ctx: { params: Promise<{ format?: string }> | { format?: string } }
+  ctx: { params: Promise<{ format?: string }> }
 ) {
   const params = await Promise.resolve(ctx.params as any);
   return proxy(req, safeStr(params?.format));
 }
+
