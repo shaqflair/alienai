@@ -33,16 +33,21 @@ export async function POST(req: Request) {
     const issues: Issue[] = [];
 
     // Basic sanity
-    if (rows.length === 0) issues.push({ severity: "high", message: "WBS has no rows. Add at least Level 1 deliverables." });
+    if (rows.length === 0) {
+      issues.push({ severity: "high", message: "WBS has no rows. Add at least Level 1 deliverables." });
+    }
 
     // Artifact due date recommended
-    if (!hasValue(due)) issues.push({ severity: "medium", message: "Artifact due date is empty. Set a target date for the WBS." });
+    if (!hasValue(due)) {
+      issues.push({ severity: "medium", message: "Artifact due date is empty. Set a target date for the WBS." });
+    }
 
     // Check leaves: deliverable, owner, due date
     const leafs = rows
       .map((r: any, idx: number) => ({ r, idx }))
-      .filter(({ idx }) => !isParent(rows, idx))
-      .map(({ r }) => r);
+      // ✅ FIX: explicitly type destructured idx to avoid implicit any in Next.js 16 TS build
+      .filter(({ idx }: { idx: number }) => !isParent(rows, idx))
+      .map(({ r }: { r: any }) => r);
 
     for (const r of leafs) {
       const id = safeStr(r?.id);
@@ -51,11 +56,17 @@ export async function POST(req: Request) {
       const dueDate = safeStr(r?.due_date);
       const status = safeLower(r?.status);
 
-      if (!del.trim()) issues.push({ severity: "high", message: "Leaf work package missing deliverable name.", rowId: id });
+      if (!del.trim()) {
+        issues.push({ severity: "high", message: "Leaf work package missing deliverable name.", rowId: id });
+      }
 
-      if (!owner.trim()) issues.push({ severity: "high", message: `Work package "${del || "Unnamed"}" has no owner.`, rowId: id });
+      if (!owner.trim()) {
+        issues.push({ severity: "high", message: `Work package "${del || "Unnamed"}" has no owner.`, rowId: id });
+      }
 
-      if (!dueDate.trim()) issues.push({ severity: "medium", message: `Work package "${del || "Unnamed"}" has no due date.`, rowId: id });
+      if (!dueDate.trim()) {
+        issues.push({ severity: "medium", message: `Work package "${del || "Unnamed"}" has no due date.`, rowId: id });
+      }
 
       if (status === "blocked" && !safeStr(r?.description).trim()) {
         issues.push({
@@ -97,8 +108,12 @@ export async function POST(req: Request) {
 
     // Too shallow / too deep check
     const maxLevel = rows.reduce((m: number, r: any) => Math.max(m, Number(r?.level ?? 0)), 0);
-    if (maxLevel < 2) issues.push({ severity: "medium", message: "WBS is very shallow (max level < 2). Decompose into work packages." });
-    if (maxLevel > 6) issues.push({ severity: "low", message: "WBS is very deep (level > 6). Consider simplifying for readability." });
+    if (maxLevel < 2) {
+      issues.push({ severity: "medium", message: "WBS is very shallow (max level < 2). Decompose into work packages." });
+    }
+    if (maxLevel > 6) {
+      issues.push({ severity: "low", message: "WBS is very deep (level > 6). Consider simplifying for readability." });
+    }
 
     // Return
     return NextResponse.json({ issues });
