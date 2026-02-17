@@ -30,8 +30,12 @@ export async function POST(
   }
 
   const { data: auth, error: authErr } = await supabase.auth.getUser();
-  if (authErr) return NextResponse.json({ error: authErr.message }, { status: 500 });
-  if (!auth?.user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  if (authErr) {
+    return NextResponse.json({ error: authErr.message }, { status: 500 });
+  }
+  if (!auth?.user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
 
   // Member gate
   const { data: mem, error: memErr } = await supabase
@@ -69,7 +73,7 @@ export async function POST(
   }
 
   const ext = extFromMime(mime);
-  const path = `${projectId}/client-logo.${ext}`; // canonical path per project
+  const path = `${projectId}/client-logo.${ext}`;
 
   const bytes = new Uint8Array(await file.arrayBuffer());
 
