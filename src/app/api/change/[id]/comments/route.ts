@@ -1,7 +1,7 @@
 // src/app/api/change/[id]/comments/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { sb, requireUser, requireProjectRole, safeStr } from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
@@ -27,9 +27,10 @@ function canComment(role: string) {
  * GET /api/change/:id/comments
  * Load comments for a change request (viewers+ can read)
  */
-export async function GET(_req: Request, ctx: { params: { id?: string } }) {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const changeId = safeStr(ctx?.params?.id).trim();
+    const { id } = await ctx.params;
+    const changeId = safeStr(id).trim();
     if (!changeId) return jsonErr("Missing change id", 400);
 
     const supabase = await sb();
@@ -52,8 +53,6 @@ export async function GET(_req: Request, ctx: { params: { id?: string } }) {
     const role = await requireProjectRole(supabase, projectId, user.id);
     if (!role) return jsonErr("Forbidden", 403);
 
-    // Expected table: change_comments
-    // columns: id, change_id, body, author_id, author_name, created_at, artifact_id, project_id (optional)
     const { data, error } = await supabase
       .from("change_comments")
       .select("id, change_id, body, created_at, author_id, author_name, artifact_id")
@@ -93,9 +92,10 @@ export async function GET(_req: Request, ctx: { params: { id?: string } }) {
  * Comments are allowed even when the change is locked for approval (submitted)
  * but only editors/owners can post.
  */
-export async function POST(req: Request, ctx: { params: { id?: string } }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const changeId = safeStr(ctx?.params?.id).trim();
+    const { id } = await ctx.params;
+    const changeId = safeStr(id).trim();
     if (!changeId) return jsonErr("Missing change id", 400);
 
     const supabase = await sb();
