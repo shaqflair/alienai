@@ -1,6 +1,6 @@
-﻿"use client";
+﻿// src/components/ai/AiSuggestionCard.tsx
+"use client";
 
-// src/components/ai/AiSuggestionCard.tsx
 import React, { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -48,38 +48,29 @@ function statusVariant(s: SuggestionStatus): "default" | "secondary" | "outline"
 
 export default function AiSuggestionCard({
   suggestion,
-  projectId,
-  onChanged,
+  canAct,
+  onAccept,
+  onDismiss,
 }: {
   suggestion: AiSuggestion;
-  projectId: string;
-  onChanged?: () => void;
+  canAct: boolean;
+  onAccept: () => Promise<void> | void;
+  onDismiss: () => Promise<void> | void;
 }) {
   const [busy, setBusy] = useState<null | "accept" | "dismiss">(null);
   const conf = useMemo(() => pct(suggestion.confidence), [suggestion.confidence]);
 
-  async function act(next: "accepted" | "dismissed") {
+  async function act(kind: "accept" | "dismiss") {
     try {
-      setBusy(next === "accepted" ? "accept" : "dismiss");
-
-      const res = await fetch("/api/ai-suggestions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ projectId, id: suggestion.id, status: next }),
-      });
-
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) {
-        throw new Error(json?.error || `Request failed (${res.status})`);
-      }
-
-      onChanged?.();
-    } catch (e: any) {
-      alert(String(e?.message ?? e));
+      setBusy(kind);
+      if (kind === "accept") await onAccept();
+      else await onDismiss();
     } finally {
       setBusy(null);
     }
   }
+
+  const statusLower = String(suggestion.status || "").toLowerCase();
 
   return (
     <div className="rounded-2xl border bg-white p-4 shadow-sm">
@@ -96,7 +87,7 @@ export default function AiSuggestionCard({
           </div>
 
           {suggestion.rationale ? (
-            <p className="mt-2 text-sm text-gray-800 whitespace-pre-line">{suggestion.rationale}</p>
+            <p className="mt-2 whitespace-pre-line text-sm text-gray-800">{suggestion.rationale}</p>
           ) : (
             <p className="mt-2 text-sm text-muted-foreground">No rationale provided.</p>
           )}
@@ -113,8 +104,8 @@ export default function AiSuggestionCard({
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <Button
           size="sm"
-          disabled={busy !== null || String(suggestion.status).toLowerCase() === "accepted"}
-          onClick={() => act("accepted")}
+          disabled={!canAct || busy !== null || statusLower === "accepted"}
+          onClick={() => act("accept")}
         >
           {busy === "accept" ? "Accepting..." : "Accept"}
         </Button>
@@ -122,8 +113,8 @@ export default function AiSuggestionCard({
         <Button
           size="sm"
           variant="outline"
-          disabled={busy !== null || String(suggestion.status).toLowerCase() === "dismissed"}
-          onClick={() => act("dismissed")}
+          disabled={!canAct || busy !== null || statusLower === "dismissed"}
+          onClick={() => act("dismiss")}
         >
           {busy === "dismiss" ? "Dismissing..." : "Dismiss"}
         </Button>
