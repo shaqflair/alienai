@@ -1,5 +1,5 @@
 import "server-only";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import {
   sb,
   requireUser,
@@ -286,3 +286,4 @@ export async function POST(req: Request) {
     return jsonErr(safeStr(e?.message) || "Failed to add event", 500);
   }
 }
+

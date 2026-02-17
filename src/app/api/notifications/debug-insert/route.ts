@@ -1,6 +1,6 @@
-Ôªøimport "server-only";
+import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
@@ -22,7 +22,7 @@ export async function POST() {
   const { data: auth, error: authErr } = await sb.auth.getUser();
   if (authErr || !auth?.user) return err("Not authenticated", 401, { authErr: authErr?.message || null });
 
-  // Quick env sanity (common reason inserts ‚Äúdo nothing‚Äù)
+  // Quick env sanity (common reason inserts ìdo nothingî)
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
   const hasServiceKey = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
 
@@ -81,3 +81,4 @@ export async function POST() {
 
   return ok({ inserted });
 }
+

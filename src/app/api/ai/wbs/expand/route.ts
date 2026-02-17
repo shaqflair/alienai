@@ -1,7 +1,7 @@
 // src/app/api/ai/wbs/expand/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 
@@ -119,3 +119,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e?.message ?? "AI expand failed" }, { status: 500 });
   }
 }
+

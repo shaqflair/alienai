@@ -1,5 +1,5 @@
-﻿// src/app/api/notifications/kpis/route.ts
-import { NextResponse } from "next/server";
+// src/app/api/notifications/kpis/route.ts
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { resolveActiveProjectScope } from "@/lib/server/project-scope";
 
@@ -45,7 +45,7 @@ function daysAgoIso(days: number) {
  * Apply scope safely.
  *
  * IMPORTANT:
- * - Your LIST route can “hydrate” project_id using artifact_id → artifacts.project_id.
+ * - Your LIST route can �hydrate� project_id using artifact_id ? artifacts.project_id.
  * - KPIs route does NOT hydrate; therefore many rows may have project_id NULL.
  *
  * To keep KPIs consistent with the list:
@@ -120,7 +120,7 @@ export async function GET(req: Request) {
 
     const qUnread = applyScope(applyWindow(base().eq("is_read", false), sinceIso), projectIds);
 
-    // ✅ Use bucket ONLY (matches your generator; avoids fragile OR syntax)
+    // ? Use bucket ONLY (matches your generator; avoids fragile OR syntax)
     const qOverdueUnread = applyScope(
       applyWindow(base().eq("is_read", false).eq("bucket", "overdue"), sinceIso),
       projectIds
@@ -201,3 +201,4 @@ export async function GET(req: Request) {
     return err("Failed", 500);
   }
 }
+

@@ -1,6 +1,6 @@
 // src/app/api/portfolio/raid-list/route.ts
 import "server-only";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { resolveActiveProjectScope } from "@/lib/server/project-scope";
 
@@ -434,3 +434,4 @@ export async function GET(req: Request) {
     },
   });
 }
+

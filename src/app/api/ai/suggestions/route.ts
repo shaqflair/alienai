@@ -1,6 +1,6 @@
 // src/app/api/ai/suggestions/route.ts
 import "server-only";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -79,3 +79,4 @@ export async function PATCH(req: Request) {
 
   return NextResponse.json({ ok: true });
 }
+

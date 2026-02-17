@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export async function GET(req: Request) {
@@ -17,3 +17,4 @@ export async function GET(req: Request) {
 
   return NextResponse.redirect(new URL(next, url.origin));
 }
+

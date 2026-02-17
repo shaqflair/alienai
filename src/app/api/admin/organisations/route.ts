@@ -1,5 +1,5 @@
-﻿import "server-only";
-import { NextResponse } from "next/server";
+import "server-only";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 
@@ -32,3 +32,4 @@ export async function GET() {
 
   return NextResponse.json({ ok: true, items: data ?? [] });
 }
+

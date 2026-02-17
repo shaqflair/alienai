@@ -1,7 +1,7 @@
 // src/app/api/ai/suggestions/apply/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { createClient as createSbJsClient } from "@supabase/supabase-js";
 
@@ -484,3 +484,4 @@ function deepClone<T>(x: T): T {
     return x;
   }
 }
+

@@ -1,7 +1,7 @@
 // src/app/api/ai/events/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -2215,3 +2215,4 @@ export async function POST(req: Request) {
     );
   }
 }
+

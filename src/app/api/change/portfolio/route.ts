@@ -1,6 +1,6 @@
 // src/app/api/change/portfolio/route.ts
 import "server-only";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -274,3 +274,4 @@ export async function GET(req: Request) {
     return jsonErr(safeStr(e?.message) || "Failed to load portfolio changes", 500);
   }
 }
+

@@ -1,4 +1,4 @@
-﻿// src/app/api/artifacts/lessons/export/xlsx/route.ts
+// src/app/api/artifacts/lessons/export/xlsx/route.ts
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -41,3 +41,4 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: e?.message || "Lessons XLSX export failed" }, { status: 500 });
   }
 }
+

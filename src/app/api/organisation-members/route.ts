@@ -1,5 +1,5 @@
 import "server-only";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -146,3 +146,4 @@ export async function DELETE(req: Request) {
   if (error) return err(error.message, 400);
   return ok({ removed: true });
 }
+

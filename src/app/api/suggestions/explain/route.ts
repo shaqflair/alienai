@@ -1,6 +1,6 @@
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient as createSbJsClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -72,3 +72,4 @@ export async function GET(req: Request) {
     );
   }
 }
+

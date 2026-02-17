@@ -1,7 +1,7 @@
 // src/app/api/ai/suggestions/list/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -68,3 +68,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, stage, error: e?.message ?? "Unknown error" }, { status: 500 });
   }
 }
+

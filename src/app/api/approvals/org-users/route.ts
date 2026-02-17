@@ -1,7 +1,7 @@
 // src/app/api/approvals/org-users/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { sb, requireAuth, requireOrgMember, safeStr, loadProfilesByUserIds } from "@/lib/approvals/admin-helpers";
 
 export const runtime = "nodejs";
@@ -63,3 +63,4 @@ export async function GET(req: Request) {
     return err(msg, status);
   }
 }
+

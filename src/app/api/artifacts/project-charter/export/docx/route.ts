@@ -1,4 +1,4 @@
-ï»¿// src/app/api/artifacts/charter/export/docx/route.ts
+// src/app/api/artifacts/charter/export/docx/route.ts
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -51,21 +51,21 @@ async function buildMeta(supabase: any, artifactId: string, projectId?: string |
     projectRow = p ?? null;
   }
 
-  const projectCode = projectRow?.project_code ? `P-${String(projectRow.project_code).padStart(5, "0")}` : "â€”";
+  const projectCode = projectRow?.project_code ? `P-${String(projectRow.project_code).padStart(5, "0")}` : "—";
 
-  let orgName = "â€”";
+  let orgName = "—";
   const orgId = projectRow?.organisation_id;
   if (orgId) {
     const { data: org } = await supabase.from("organisations").select("name").eq("id", orgId).single();
-    orgName = org?.name || "â€”";
+    orgName = org?.name || "—";
   }
 
   const meta: CharterExportMeta = {
     projectName: (artifact as any).title || projectRow?.title || "Project",
     projectCode,
     organisationName: orgName,
-    clientName: projectRow?.client_name || "â€”",
-    pmName: doc?.meta?.pm_name || "â€”",
+    clientName: projectRow?.client_name || "—",
+    pmName: doc?.meta?.pm_name || "—",
     status: doc?.meta?.status || "Draft",
     generated: formatUkDateTime(),
     generatedDate: formatUkDate(),
@@ -127,3 +127,4 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   return handle(req);
 }
+

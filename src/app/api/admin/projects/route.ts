@@ -1,5 +1,5 @@
-﻿import "server-only";
-import { NextResponse } from "next/server";
+import "server-only";
+import { NextResponse, type NextRequest } from "next/server";
 import { requirePlatformAdmin } from "@/lib/auth/requirePlatformAdmin";
 import { createAdminClient } from "@/utils/supabase/admin";
 
@@ -28,3 +28,4 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
+

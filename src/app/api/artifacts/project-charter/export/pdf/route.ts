@@ -1,4 +1,4 @@
-﻿// src/app/api/artifacts/charter/export/pdf/route.ts
+// src/app/api/artifacts/charter/export/pdf/route.ts
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -27,3 +27,4 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   return GET(req);
 }
+

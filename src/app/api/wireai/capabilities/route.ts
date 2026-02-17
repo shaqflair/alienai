@@ -1,6 +1,6 @@
 // src/app/api/wireai/capabilities/route.ts
 import "server-only";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 
@@ -13,3 +13,4 @@ export async function GET() {
     provider: process.env.AI_PROVIDER || "openai",
   });
 }
+

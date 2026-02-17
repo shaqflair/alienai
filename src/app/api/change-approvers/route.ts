@@ -1,6 +1,6 @@
 // src/app/api/change-approvers/route.ts
 import "server-only";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { sb, requireUser, requireProjectRole, safeStr } from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
@@ -213,3 +213,4 @@ export async function GET(req: Request) {
     return jsonErr(safeStr(e?.message) || "Failed", 500);
   }
 }
+

@@ -1,5 +1,5 @@
 import "server-only";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { getOpenAIClient, getOpenAIModel, getOpenAITemperature } from "@/lib/ai/openai";
 
@@ -211,3 +211,4 @@ export async function POST(req: Request) {
     return jsonErr(e?.message || "AI generation failed", 500);
   }
 }
+

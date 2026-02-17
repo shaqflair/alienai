@@ -1,6 +1,6 @@
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
@@ -88,3 +88,4 @@ export async function POST(req: Request) {
     return err(e?.message || "Unknown error", 500);
   }
 }
+

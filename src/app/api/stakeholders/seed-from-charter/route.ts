@@ -1,7 +1,7 @@
-﻿// src/app/api/stakeholders/seed-from-charter/route.ts
+// src/app/api/stakeholders/seed-from-charter/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -77,14 +77,14 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const projectId = safeStr(body?.projectId).trim();
-    const artifactId = safeStr(body?.artifactId).trim(); // ✅ this is the Stakeholder Register artifact id
+    const artifactId = safeStr(body?.artifactId).trim(); // ? this is the Stakeholder Register artifact id
 
     if (!projectId) return NextResponse.json({ ok: false, error: "Missing projectId" }, { status: 400 });
     if (!artifactId) return NextResponse.json({ ok: false, error: "Missing artifactId" }, { status: 400 });
 
     await requireAuthAndMembership(supabase, projectId);
 
-    // ✅ 1) Find the *latest* Project Charter artifact for this project
+    // ? 1) Find the *latest* Project Charter artifact for this project
     // We select a small set and pick the newest charter by created_at (or fallback to first match).
     const { data: arts, error: artsErr } = await supabase
       .from("artifacts")
@@ -114,7 +114,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, inserted: 0, reason: "No stakeholders found in charter section" });
     }
 
-    // ✅ 2) Existing stakeholders for THIS register artifact scope
+    // ? 2) Existing stakeholders for THIS register artifact scope
     const { data: existing, error: exErr } = await supabase
       .from("stakeholders")
       .select("name_key")
@@ -125,7 +125,7 @@ export async function POST(req: Request) {
 
     const existingKeys = new Set((existing ?? []).map((x: any) => normNameKey(x?.name_key)));
 
-    // ✅ 3) Build inserts (skip blanks + skip duplicates)
+    // ? 3) Build inserts (skip blanks + skip duplicates)
     const inserts = extracted
       .map((r) => {
         const name = safeStr(r.stakeholder).trim();
@@ -135,9 +135,9 @@ export async function POST(req: Request) {
 
         return {
           project_id: projectId,
-          artifact_id: artifactId, // ✅ register artifact scope
+          artifact_id: artifactId, // ? register artifact scope
           name,
-          name_key, // ✅ NOT NULL
+          name_key, // ? NOT NULL
           role: safeStr(r.role_interest).trim() || null,
           influence_level: normalizeInfluenceToDb(r.influence),
           expectations: null,
@@ -161,7 +161,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, inserted: 0, reason: "No missing stakeholders to merge" });
     }
 
-    // ✅ 4) Prefer upsert if you have (project_id, artifact_id, name_key) unique constraint
+    // ? 4) Prefer upsert if you have (project_id, artifact_id, name_key) unique constraint
     const { error: upErr } = await supabase
       .from("stakeholders")
       .upsert(inserts, { onConflict: "project_id,artifact_id,name_key" });
@@ -189,3 +189,4 @@ export async function POST(req: Request) {
     );
   }
 }
+

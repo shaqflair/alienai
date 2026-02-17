@@ -1,7 +1,7 @@
 // src/app/api/approvals/delegations/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 function jsonOk(data: any, status = 200) {
@@ -173,3 +173,4 @@ export async function DELETE(req: Request) {
     return jsonErr(msg, s);
   }
 }
+

@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import { NextRequest } from "next/server";
 import { exportChangeRegisterXlsx } from "@/lib/exports/xlsx/changeRegisterXlsx";
@@ -18,3 +18,4 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   return exportChangeRegisterXlsx(req);
 }
+

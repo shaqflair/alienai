@@ -1,7 +1,7 @@
-﻿// src/app/api/cron/notifications/generate/route.ts
+// src/app/api/cron/notifications/generate/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -66,7 +66,7 @@ function isClosedRaidStatus(s: any) {
 
 /**
  * Your DB uses an enum for notifications.type.
- * We don’t need to import the enum type in TS — just ensure we only emit valid labels.
+ * We don�t need to import the enum type in TS � just ensure we only emit valid labels.
  */
 type NotifRow = {
   user_id: string;
@@ -179,7 +179,7 @@ async function generateForUser(params: { svc: any; userId: string; windowDays: n
     return { userId, generated: 0, deleted, meta: { projectCount: 0, windowDays, scopeMeta } };
   }
 
-  // ✅ One lookup: project code + name for tiles
+  // ? One lookup: project code + name for tiles
   const projectMeta = await getProjectMetaMap(svc, projectIds);
   const proj = (projectId: string) =>
     projectMeta.get(projectId) ?? { project_code: null, project_name: null };
@@ -388,7 +388,7 @@ async function generateForUser(params: { svc: any; userId: string; windowDays: n
     }
   }
 
-  // ✅ No upsert. We do a clean regen each run.
+  // ? No upsert. We do a clean regen each run.
   const deleted = await deleteGeneratedForUser(svc, userId);
   const generated = await insertBatch(svc, rows);
 
@@ -511,3 +511,4 @@ export async function POST(req: Request) {
     return err(String(e?.message || "Failed"), 500);
   }
 }
+

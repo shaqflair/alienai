@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { runOrchestrator } from "@/lib/orchestrator";
 
@@ -32,3 +32,4 @@ export async function POST(req: Request) {
 
   return NextResponse.json(result);
 }
+

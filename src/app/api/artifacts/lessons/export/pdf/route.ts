@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -51,3 +51,4 @@ export async function GET(req: NextRequest) {
     );
   }
 }
+

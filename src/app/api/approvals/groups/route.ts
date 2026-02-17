@@ -1,6 +1,6 @@
 // src/app/api/approvals/groups/route.ts
 import "server-only";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { sb, requireAuth, requireOrgAdmin, requireOrgMember, safeStr } from "@/lib/approvals/admin-helpers";
 
 export const runtime = "nodejs";
@@ -147,3 +147,4 @@ export async function DELETE(req: Request) {
     return err(msg, s);
   }
 }
+

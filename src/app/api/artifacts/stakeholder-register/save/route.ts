@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -156,3 +156,4 @@ export async function POST(req: NextRequest) {
     return jsonErr("Save failed", 500, { message: String(e?.message ?? e) });
   }
 }
+

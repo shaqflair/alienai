@@ -1,5 +1,5 @@
-﻿import "server-only";
-import { NextResponse } from "next/server";
+import "server-only";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { resolveActiveProjectScope } from "@/lib/server/project-scope";
 
@@ -196,3 +196,4 @@ export async function GET(req: Request) {
     meta: { project_count: projectIds.length, active_only: true, used_fallback: true, rpc_error: panelErr.message, scope: scoped.meta },
   });
 }
+

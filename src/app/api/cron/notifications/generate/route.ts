@@ -1,7 +1,7 @@
-﻿// src/app/api/cron/notifications/generate/route.ts
+// src/app/api/cron/notifications/generate/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -36,7 +36,7 @@ export async function GET(req: Request) {
 
     const sb = await createClient();
 
-    // ✅ If you later add logic, keep it server-only.
+    // ? If you later add logic, keep it server-only.
     // Example placeholder "health check" query (doesn't change data):
     // const { count } = await sb.from("notifications").select("id", { count: "exact", head: true });
 
@@ -59,3 +59,4 @@ export async function POST(req: Request) {
   // allow POST too (some cron systems prefer POST)
   return GET(req);
 }
+

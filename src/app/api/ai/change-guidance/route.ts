@@ -1,6 +1,6 @@
 // src/app/api/ai/change-guidance/route.ts
 import "server-only";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { sb, requireUser, requireProjectRole, safeStr } from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
@@ -182,3 +182,4 @@ export async function POST(req: Request) {
     return err(safeStr(e?.message) || "AI guidance failed", 500);
   }
 }
+

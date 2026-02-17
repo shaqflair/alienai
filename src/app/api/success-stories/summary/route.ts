@@ -1,6 +1,6 @@
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
 
@@ -549,3 +549,4 @@ export async function GET(req: Request) {
     return jsonErr(e?.message || "Unknown error", 500);
   }
 }
+
