@@ -20,7 +20,7 @@ function extFromMime(mime: string) {
 
 export async function POST(
   req: Request,
-  { params }: { params: { id?: string } }
+  { params }: { params: Promise<{ id?: string }>}
 ) {
   const supabase = await createClient();
 
@@ -109,3 +109,4 @@ export async function POST(
 
   return NextResponse.json({ publicUrl }, { status: 200 });
 }
+

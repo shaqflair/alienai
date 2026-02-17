@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -8,7 +8,7 @@ function safeStr(x: any) {
   return typeof x === "string" ? x : "";
 }
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }>}) {
   try {
     const supabase = createClient();
 
@@ -38,3 +38,4 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ ok: false, error: e?.message || "Server error" }, { status: 500 });
   }
 }
+

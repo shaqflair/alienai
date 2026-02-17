@@ -1,4 +1,4 @@
-// src/app/api/change/[id]/reject/route.ts
+﻿// src/app/api/change/[id]/reject/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -105,7 +105,7 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
    Route
 ========================================================= */
 
-export async function POST(req: Request, ctx: { params: { id?: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>}) {
   try {
     const id = safeStr(ctx?.params?.id).trim();
     if (!id) return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
@@ -187,7 +187,7 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
       );
     }
 
-    // ✅ Canonical approver check (member-id enforced inside server-helpers) + pending step
+    // âœ… Canonical approver check (member-id enforced inside server-helpers) + pending step
     const { pending, onBehalfOf } = await requireApproverForPendingArtifactStep({
       supabase,
       artifactId,
@@ -196,7 +196,7 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
 
     const effectiveApproverUserId = onBehalfOf ?? user.id;
 
-    // ✅ Record rejected decision (idempotent)
+    // âœ… Record rejected decision (idempotent)
     await recordArtifactApprovalDecision({
       supabase,
       chainId: pending.chainId,
@@ -207,7 +207,7 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
       reason: note || null,
     });
 
-    // ✅ Recompute => will mark chain/artifact rejected
+    // âœ… Recompute => will mark chain/artifact rejected
     const state = await recomputeApprovalState({
       supabase,
       artifactId,
@@ -325,3 +325,4 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
+

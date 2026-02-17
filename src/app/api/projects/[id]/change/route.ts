@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 import { NextResponse } from "next/server";
 import { sb, safeStr, jsonError, requireUser, requireProjectRole, canEdit, normalizeImpactAnalysis } from "@/lib/change/server-helpers";
 
@@ -75,7 +75,7 @@ export async function GET(_req: Request, ctx: { params: { projectId: string } })
   }
 }
 
-export async function POST(req: Request, ctx: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }>}) {
   try {
     const supabase = await sb();
     const user = await requireUser(supabase);
@@ -123,3 +123,4 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
+

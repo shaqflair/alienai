@@ -1,4 +1,4 @@
-// src/app/api/change/[id]/delivery-status/route.ts
+﻿// src/app/api/change/[id]/delivery-status/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -112,7 +112,7 @@ function canMoveDelivery(args: { decision: string; from: string; to: string }) {
    GET single CR (optional)
 ========================= */
 
-export async function GET(_req: Request, ctx: { params: { id: string } }) {
+export async function GET(_req: Request, ctx: { params: Promise<{ id: string }>}) {
   try {
     const id = safeId(ctx?.params?.id);
     if (!id) return err("Missing id", { status: 400 });
@@ -138,7 +138,7 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
    POST: delivery_status ONLY
 ========================= */
 
-export async function POST(req: Request, ctx: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }>}) {
   try {
     const id = safeId(ctx?.params?.id);
     if (!id) return err("Missing id", { status: 400 });
@@ -240,6 +240,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
   }
 }
 
-export async function PATCH(req: Request, ctx: { params: { id: string } }) {
+export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>}) {
   return POST(req, ctx);
 }
+

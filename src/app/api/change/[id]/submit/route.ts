@@ -1,4 +1,4 @@
-// src/app/api/change/[id]/submit/route.ts
+﻿// src/app/api/change/[id]/submit/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -607,7 +607,7 @@ async function createChainAndStepsFromRules(
    Route
 ========================================================= */
 
-export async function POST(req: Request, ctx: { params: { id?: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>}) {
   try {
     let body: any = {};
     try {
@@ -819,3 +819,4 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
     return NextResponse.json({ ok: false, error: msg }, { status: msg === "Unauthorized" ? 401 : 500 });
   }
 }
+

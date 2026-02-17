@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -23,7 +23,7 @@ async function requireAdmin(sb: any, userId: string, organisationId: string) {
   if (!data || String(data.role) !== "admin") throw new Error("Admin permission required");
 }
 
-export async function DELETE(_: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_: Request, { params }: { params: Promise<{ id: string }>}) {
   const sb = await createClient();
   const { data: auth } = await sb.auth.getUser();
   if (!auth?.user) return err("Not authenticated", 401);
@@ -42,3 +42,4 @@ export async function DELETE(_: Request, { params }: { params: { id: string } })
 
   return ok({ deleted: true });
 }
+
