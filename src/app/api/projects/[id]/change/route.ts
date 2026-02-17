@@ -1,15 +1,27 @@
-﻿import "server-only";
-import { NextResponse } from "next/server";
-import { sb, safeStr, jsonError, requireUser, requireProjectRole, canEdit, normalizeImpactAnalysis } from "@/lib/change/server-helpers";
+// src/app/api/projects/[id]/change/route.ts
+import "server-only";
+import { NextRequest, NextResponse } from "next/server";
+import {
+  sb,
+  safeStr,
+  jsonError,
+  requireUser,
+  requireProjectRole,
+  canEdit,
+  normalizeImpactAnalysis,
+} from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
 
-export async function GET(_req: Request, ctx: { params: { projectId: string } }) {
+type RouteCtx = { params: Promise<{ id: string }> };
+
+export async function GET(_req: NextRequest, ctx: RouteCtx) {
   try {
     const supabase = await sb();
     const user = await requireUser(supabase);
 
-    const projectId = safeStr(ctx?.params?.projectId).trim();
+    const { id } = await ctx.params;
+    const projectId = safeStr(id).trim();
     if (!projectId) return jsonError("Missing projectId", 400);
 
     const role = await requireProjectRole(supabase, projectId, user.id);
@@ -17,7 +29,9 @@ export async function GET(_req: Request, ctx: { params: { projectId: string } })
 
     const { data, error } = await supabase
       .from("change_requests")
-      .select("id, project_id, requester_id, title, description, proposed_change, impact_analysis, status, priority, tags, approver_id, approval_date, created_at, updated_at")
+      .select(
+        "id, project_id, requester_id, title, description, proposed_change, impact_analysis, status, priority, tags, approver_id, approval_date, created_at, updated_at"
+      )
       .eq("project_id", projectId)
       .order("updated_at", { ascending: false })
       .limit(500);
@@ -75,12 +89,13 @@ export async function GET(_req: Request, ctx: { params: { projectId: string } })
   }
 }
 
-export async function POST(req: Request, ctx: { params: Promise<{ id: string }>}) {
+export async function POST(req: NextRequest, ctx: RouteCtx) {
   try {
     const supabase = await sb();
     const user = await requireUser(supabase);
 
-    const projectId = safeStr(ctx?.params?.projectId).trim();
+    const { id } = await ctx.params;
+    const projectId = safeStr(id).trim();
     if (!projectId) return jsonError("Missing projectId", 400);
 
     const role = await requireProjectRole(supabase, projectId, user.id);
@@ -111,7 +126,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }>}
         priority,
         tags,
       })
-      .select("id, project_id, requester_id, title, description, proposed_change, impact_analysis, status, priority, tags, created_at, updated_at")
+      .select(
+        "id, project_id, requester_id, title, description, proposed_change, impact_analysis, status, priority, tags, created_at, updated_at"
+      )
       .single();
 
     if (error) throw new Error(error.message);
@@ -123,4 +140,3 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }>}
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
-
