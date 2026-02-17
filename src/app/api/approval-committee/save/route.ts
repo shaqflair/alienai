@@ -27,13 +27,21 @@ async function requireAuthAndMembership(supabase: any, projectId: string) {
 
 export async function POST(req: Request) {
   try {
-    const supabase = createClient();
+    // ✅ FIX: createClient() is async in your server helper
+    const supabase = await createClient();
+
     const body = await req.json().catch(() => ({}));
 
-    const projectId = safeStr(body?.projectId).trim();
-    const row = body?.row ?? null;
+    const projectId = safeStr((body as any)?.projectId).trim();
+    const row = (body as any)?.row ?? null;
 
-    if (!projectId || !row) return NextResponse.json({ ok: false, error: "Missing projectId/row" }, { status: 400 });
+    if (!projectId || !row) {
+      return NextResponse.json(
+        { ok: false, error: "Missing projectId/row" },
+        { status: 400 }
+      );
+    }
+
     await requireAuthAndMembership(supabase, projectId);
 
     const payload = {
@@ -58,6 +66,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, id: data?.id ?? null });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 500 }
+    );
   }
 }
