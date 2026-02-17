@@ -1,9 +1,9 @@
-// src/app/api/suggestions/[id]/accept/route.ts
+﻿// src/app/api/suggestions/[id]/accept/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { applySuggestionPatch } from "@/lib/ai/patch-apply";
+import { applyPatch } from "@/lib/ai/patch-apply";
 import { runOrchestrator } from "@/lib/orchestrator";
 
 export const runtime = "nodejs";
@@ -111,11 +111,11 @@ async function getOrCreateTargetArtifact(supabase: any, projectId: string, artif
 }
 
 /**
- * ✅ Auto-apply governance roles into canonical table: public.stakeholders
+ * âœ… Auto-apply governance roles into canonical table: public.stakeholders
  * Patch shape we generate for governance:
  * { kind:"add_rows", mode:"append", rows:[[name, role, influence, expectations], ...] }
  *
- * ✅ Stakeholder Register requirement: Sponsor ONLY (no Approver)
+ * âœ… Stakeholder Register requirement: Sponsor ONLY (no Approver)
  */
 async function applyStakeholderGovernanceToDb(args: {
   supabase: any;
@@ -129,7 +129,7 @@ async function applyStakeholderGovernanceToDb(args: {
   const rows = Array.isArray(patch?.rows) ? patch.rows : [];
   if (!rows.length) return { ok: true, upserted: 0 };
 
-  // ✅ Only Sponsor rows are allowed/required
+  // âœ… Only Sponsor rows are allowed/required
   const sponsorOnly = rows.filter((r: any) => safeLower(r?.[1]) === "project sponsor");
   if (!sponsorOnly.length) return { ok: true, upserted: 0 };
 
@@ -142,7 +142,7 @@ async function applyStakeholderGovernanceToDb(args: {
 
       if (!name || !role) return null;
 
-      // ✅ Make key artifact-scoped AND role-scoped so "TBC" doesn't collide
+      // âœ… Make key artifact-scoped AND role-scoped so "TBC" doesn't collide
       const name_key = slugNameKey(`${name}-${role}`);
 
       return {
@@ -173,7 +173,7 @@ async function applyStakeholderGovernanceToDb(args: {
 
   if (!payload.length) return { ok: true, upserted: 0 };
 
-  // ✅ IMPORTANT: artifact-scoped uniqueness
+  // âœ… IMPORTANT: artifact-scoped uniqueness
   const { error } = await supabase
     .from("stakeholders")
     .upsert(payload as any[], { onConflict: "project_id,artifact_id,name_key" });
@@ -185,12 +185,12 @@ async function applyStakeholderGovernanceToDb(args: {
 export async function POST(req: Request, ctx: any) {
   const supabase = await createClient();
 
-  // ✅ Auth required
+  // âœ… Auth required
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr) return NextResponse.json({ ok: false, error: authErr.message }, { status: 500 });
   if (!auth?.user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-  // ✅ Next params can be Promise in some versions
+  // âœ… Next params can be Promise in some versions
   const params = ctx?.params && typeof ctx.params?.then === "function" ? await ctx.params : ctx?.params;
   const id = safeStr(params?.id).trim();
   if (!id) return NextResponse.json({ ok: false, error: "Missing suggestion id" }, { status: 400 });
@@ -214,7 +214,7 @@ export async function POST(req: Request, ctx: any) {
     return NextResponse.json({ ok: false, error: "Invalid projectId" }, { status: 400 });
   }
 
-  // ✅ Membership/permission check
+  // âœ… Membership/permission check
   try {
     await requireProjectMembership(supabase, projectId, auth.user.id);
   } catch (e: any) {
@@ -236,7 +236,7 @@ export async function POST(req: Request, ctx: any) {
   const suggestionType = safeLower((sug as any).suggestion_type);
   const patch = (sug as any).patch ?? null;
 
-  // ✅ Determine artifactId for stakeholder DB apply
+  // âœ… Determine artifactId for stakeholder DB apply
   const effectiveArtifactId = safeStr((sug as any).artifact_id || bodyArtifactId).trim();
 
   // ============================
@@ -309,7 +309,7 @@ export async function POST(req: Request, ctx: any) {
   // DEFAULT: Apply patch to artifacts.content_json
   // ============================
   const target = await getOrCreateTargetArtifact(supabase, projectId, targetType);
-  const nextJson = applySuggestionPatch((target as any).content_json, patch);
+  await applyPatch(patch, projectId);
 
   const { error: updErr } = await supabase
     .from("artifacts")
@@ -347,3 +347,6 @@ export async function POST(req: Request, ctx: any) {
     orchestrator: orch,
   });
 }
+
+
+
