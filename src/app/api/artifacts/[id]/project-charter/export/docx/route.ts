@@ -1,6 +1,6 @@
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import {
   Document,
@@ -32,13 +32,13 @@ export const maxDuration = 60;
 /* ──────────────────────────────────────────────── Constants & Theme ──────────────────────────────────────────────── */
 const THEME = {
   colors: {
-    primary: "1e3a5f",      // Deep navy
-    secondary: "2c5282",    // Medium blue
-    accent: "3182ce",       // Bright blue
-    text: "1a202c",         // Near black
-    textLight: "4a5568",    // Gray
-    border: "cbd5e0",       // Light gray
-    headerBg: "edf2f7",     // Very light gray
+    primary: "1e3a5f", // Deep navy
+    secondary: "2c5282", // Medium blue
+    accent: "3182ce", // Bright blue
+    text: "1a202c", // Near black
+    textLight: "4a5568", // Gray
+    border: "cbd5e0", // Light gray
+    headerBg: "edf2f7", // Very light gray
     white: "ffffff",
   },
   fonts: {
@@ -53,7 +53,7 @@ const THEME = {
     heading3: 24,
     body: 22,
     small: 20,
-  }
+  },
 };
 
 /* ──────────────────────────────────────────────── Helpers ──────────────────────────────────────────────── */
@@ -62,7 +62,9 @@ function safeStr(x: unknown): string {
 }
 
 function isUuid(x: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test((x || "").trim());
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    (x || "").trim()
+  );
 }
 
 function jsonErr(error: string, status = 400, meta?: any) {
@@ -81,7 +83,9 @@ function safeJson<T = unknown>(value: unknown): T | null {
 
 function formatUkDateTime(date = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}, ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}, ${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
 }
 
 function formatDate(date = new Date()): string {
@@ -99,7 +103,7 @@ function sanitizeFilename(input: string): string {
   );
 }
 
-function resolveArtifactId(req: Request, params: any): string {
+function resolveArtifactId(req: Request | NextRequest, params: any): string {
   const fromParams = safeStr(params?.id ?? params?.artifactId).trim();
   if (fromParams) return fromParams;
 
@@ -134,7 +138,11 @@ async function requireAuthAndMembership(supabase: any, projectId: string) {
 }
 
 /* ──────────────────────────────────────────────── Advanced Document Builders ──────────────────────────────────────────────── */
-function createBorders(style: BorderStyle = BorderStyle.SINGLE, size: number = 8, color: string = THEME.colors.border) {
+function createBorders(
+  style: BorderStyle = BorderStyle.SINGLE,
+  size: number = 8,
+  color: string = THEME.colors.border
+) {
   return {
     top: { style, size, color },
     bottom: { style, size, color },
@@ -149,14 +157,17 @@ function createShading(color: string, type: ShadingType = ShadingType.CLEAR) {
   return { fill: color, type };
 }
 
-function textRun(text: string, options: {
-  bold?: boolean;
-  size?: number;
-  color?: string;
-  font?: string;
-  caps?: boolean;
-  underline?: UnderlineType;
-} = {}): TextRun {
+function textRun(
+  text: string,
+  options: {
+    bold?: boolean;
+    size?: number;
+    color?: string;
+    font?: string;
+    caps?: boolean;
+    underline?: UnderlineType;
+  } = {}
+): TextRun {
   return new TextRun({
     text: text || "—",
     font: options.font || THEME.fonts.primary,
@@ -168,13 +179,17 @@ function textRun(text: string, options: {
   });
 }
 
-function paragraph(children: (TextRun | Paragraph)[], options: {
-  alignment?: AlignmentType;
-  spacing?: { before?: number; after?: number; line?: number };
-  heading?: HeadingLevel;
-  border?: any;
-  shading?: any;
-} = {}): Paragraph {
+function paragraph(
+  children: (TextRun | Paragraph)[],
+  options: {
+    alignment?: AlignmentType;
+    spacing?: { before?: number; after?: number; line?: number };
+    heading?: HeadingLevel;
+    border?: any;
+    shading?: any;
+    bullet?: { level: number };
+  } = {}
+): Paragraph {
   return new Paragraph({
     children: children as any,
     alignment: options.alignment,
@@ -182,6 +197,7 @@ function paragraph(children: (TextRun | Paragraph)[], options: {
     heading: options.heading,
     border: options.border,
     shading: options.shading,
+    bullet: options.bullet,
   });
 }
 
@@ -194,11 +210,10 @@ function createCoverPage(meta: {
   pmName: string;
   version?: string;
   classification?: string;
-}): Paragraph[] {
+}): (Paragraph | Table)[] {
   const classification = meta.classification || "INTERNAL";
-  
+
   return [
-    // Top classification banner
     paragraph([textRun(classification, { bold: true, color: THEME.colors.primary, size: 20 })], {
       alignment: AlignmentType.CENTER,
       spacing: { after: 400 },
@@ -207,49 +222,38 @@ function createCoverPage(meta: {
       },
     }),
 
-    // Spacer
     paragraph([], { spacing: { before: 2000 } }),
 
-    // Organization
-    paragraph([textRun(meta.organisationName.toUpperCase(), { 
-      bold: true, 
-      size: 28, 
-      color: THEME.colors.secondary,
-      caps: true 
-    })], {
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 400 },
-    }),
+    paragraph(
+      [
+        textRun(meta.organisationName.toUpperCase(), {
+          bold: true,
+          size: 28,
+          color: THEME.colors.secondary,
+          caps: true,
+        }),
+      ],
+      {
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 400 },
+      }
+    ),
 
-    // Document Type
-    paragraph([textRun("PROJECT CHARTER", { 
-      bold: true, 
-      size: 72, 
-      color: THEME.colors.primary 
-    })], {
+    paragraph([textRun("PROJECT CHARTER", { bold: true, size: 72, color: THEME.colors.primary })], {
       alignment: AlignmentType.CENTER,
       spacing: { after: 600 },
     }),
 
-    // Project Name
-    paragraph([textRun(meta.projectName, { 
-      size: 48, 
-      color: THEME.colors.text 
-    })], {
+    paragraph([textRun(meta.projectName, { size: 48, color: THEME.colors.text })], {
       alignment: AlignmentType.CENTER,
       spacing: { after: 200 },
     }),
 
-    // Project Code
-    paragraph([textRun(`Project Code: ${meta.projectCode}`, { 
-      size: 28, 
-      color: THEME.colors.textLight 
-    })], {
+    paragraph([textRun(`Project Code: ${meta.projectCode}`, { size: 28, color: THEME.colors.textLight })], {
       alignment: AlignmentType.CENTER,
       spacing: { after: 1200 },
     }),
 
-    // Metadata Table
     new Table({
       width: { size: 60, type: WidthType.PERCENTAGE },
       alignment: AlignmentType.CENTER,
@@ -312,37 +316,41 @@ function createExecutiveSummary(docData: any): Paragraph[] {
 }
 
 function createSectionHeading(title: string, level: 1 | 2 | 3 = 1): Paragraph {
-  const sizes = {
-    1: THEME.sizes.heading1,
-    2: THEME.sizes.heading2,
-    3: THEME.sizes.heading3,
-  };
-  
+  const sizes = { 1: THEME.sizes.heading1, 2: THEME.sizes.heading2, 3: THEME.sizes.heading3 } as const;
+
   const spacing = {
     1: { before: 600, after: 300 },
     2: { before: 400, after: 200 },
     3: { before: 300, after: 200 },
-  };
+  } as const;
 
-  return paragraph([textRun(title, { 
-    bold: true, 
-    size: sizes[level], 
-    color: level === 1 ? THEME.colors.primary : THEME.colors.text 
-  })], {
-    spacing: spacing[level],
-    border: level === 1 ? {
-      bottom: { style: BorderStyle.SINGLE, size: 6, color: THEME.colors.accent },
-    } : undefined,
-  });
+  return paragraph(
+    [
+      textRun(title, {
+        bold: true,
+        size: sizes[level],
+        color: level === 1 ? THEME.colors.primary : THEME.colors.text,
+      }),
+    ],
+    {
+      spacing: spacing[level],
+      border:
+        level === 1
+          ? {
+              bottom: { style: BorderStyle.SINGLE, size: 6, color: THEME.colors.accent },
+            }
+          : undefined,
+    }
+  );
 }
 
 function createMetadataTable(data: Record<string, string>): Table {
   const entries = Object.entries(data).filter(([_, v]) => v && v !== "—");
-  
+
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     borders: createBorders(BorderStyle.SINGLE, 4, THEME.colors.border),
-    rows: entries.map(([key, value]) => 
+    rows: entries.map(([key, value]) =>
       new TableRow({
         children: [
           new TableCell({
@@ -364,10 +372,8 @@ function createMetadataTable(data: Record<string, string>): Table {
 
 function createStyledTable(tableData: { columns: number; rows: any[] }, title?: string): (Paragraph | Table)[] {
   const elements: (Paragraph | Table)[] = [];
-  
-  if (title) {
-    elements.push(createSectionHeading(title, 2));
-  }
+
+  if (title) elements.push(createSectionHeading(title, 2));
 
   const headerRow = tableData.rows.find((r) => r.type === "header");
   const dataRows = tableData.rows.filter((r) => r.type === "data");
@@ -375,62 +381,72 @@ function createStyledTable(tableData: { columns: number; rows: any[] }, title?: 
 
   const rows: TableRow[] = [];
 
-  // Header
   if (headerRow) {
-    rows.push(new TableRow({
-      children: Array.from({ length: colCount }, (_, i) => 
-        new TableCell({
-          children: [paragraph([textRun(safeStr(headerRow.cells[i]), { 
-            bold: true, 
-            color: THEME.colors.white,
-            size: THEME.sizes.small 
-          })])],
-          shading: createShading(THEME.colors.primary),
-          verticalAlign: VerticalAlign.CENTER,
-          borders: createBorders(BorderStyle.SINGLE, 4, THEME.colors.primary),
-        })
-      ),
-      tableHeader: true,
-    }));
+    rows.push(
+      new TableRow({
+        children: Array.from({ length: colCount }, (_, i) =>
+          new TableCell({
+            children: [
+              paragraph([
+                textRun(safeStr(headerRow.cells[i]), {
+                  bold: true,
+                  color: THEME.colors.white,
+                  size: THEME.sizes.small,
+                }),
+              ]),
+            ],
+            shading: createShading(THEME.colors.primary),
+            verticalAlign: VerticalAlign.CENTER,
+            borders: createBorders(BorderStyle.SINGLE, 4, THEME.colors.primary),
+          })
+        ),
+        tableHeader: true,
+      })
+    );
   }
 
-  // Data
   if (dataRows.length > 0) {
     dataRows.forEach((row, idx) => {
       const isEven = idx % 2 === 0;
-      rows.push(new TableRow({
-        children: Array.from({ length: colCount }, (_, i) => 
-          new TableCell({
-            children: [paragraph([textRun(safeStr(row.cells[i]), { size: THEME.sizes.small })])],
-            shading: isEven ? createShading(THEME.colors.white) : createShading(THEME.colors.headerBg),
-            verticalAlign: VerticalAlign.CENTER,
-            borders: createBorders(BorderStyle.SINGLE, 4, THEME.colors.border),
-          })
-        ),
-      }));
+      rows.push(
+        new TableRow({
+          children: Array.from({ length: colCount }, (_, i) =>
+            new TableCell({
+              children: [paragraph([textRun(safeStr(row.cells[i]), { size: THEME.sizes.small })])],
+              shading: isEven ? createShading(THEME.colors.white) : createShading(THEME.colors.headerBg),
+              verticalAlign: VerticalAlign.CENTER,
+              borders: createBorders(BorderStyle.SINGLE, 4, THEME.colors.border),
+            })
+          ),
+        })
+      );
     });
   } else {
-    rows.push(new TableRow({
-      children: [
-        new TableCell({
-          children: [paragraph([textRun("No data available", { color: THEME.colors.textLight })])],
-          columnSpan: colCount,
-          shading: createShading(THEME.colors.headerBg),
-        }),
-      ],
-    }));
+    rows.push(
+      new TableRow({
+        children: [
+          new TableCell({
+            children: [paragraph([textRun("No data available", { color: THEME.colors.textLight })])],
+            columnSpan: colCount,
+            shading: createShading(THEME.colors.headerBg),
+          }),
+        ],
+      })
+    );
   }
 
-  elements.push(new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows,
-  }));
+  elements.push(
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows,
+    })
+  );
 
   return elements;
 }
 
 function createBulletList(items: string[], level: number = 0): Paragraph[] {
-  return items.map((item) => 
+  return items.map((item) =>
     paragraph([textRun(item, { size: THEME.sizes.body })], {
       spacing: { after: 120 },
       bullet: { level },
@@ -438,11 +454,11 @@ function createBulletList(items: string[], level: number = 0): Paragraph[] {
   );
 }
 
-function createApprovalSection(): Paragraph[] {
+function createApprovalSection(): (Paragraph | Table)[] {
   return [
     new Paragraph({ children: [new PageBreak()] }),
     createSectionHeading("Approval", 1),
-    
+
     paragraph([textRun("This charter is approved by the following stakeholders:", { size: THEME.sizes.body })], {
       spacing: { after: 400 },
     }),
@@ -475,16 +491,18 @@ function createApprovalSection(): Paragraph[] {
             }),
           ],
         }),
-        ...Array(4).fill(null).map(() => 
-          new TableRow({
-            children: [
-              new TableCell({ children: [paragraph([])], height: { value: 800, rule: "atLeast" } }),
-              new TableCell({ children: [paragraph([])] }),
-              new TableCell({ children: [paragraph([])] }),
-              new TableCell({ children: [paragraph([])] }),
-            ],
-          })
-        ),
+        ...Array(4)
+          .fill(null)
+          .map(() =>
+            new TableRow({
+              children: [
+                new TableCell({ children: [paragraph([])] as any }),
+                new TableCell({ children: [paragraph([])] as any }),
+                new TableCell({ children: [paragraph([])] as any }),
+                new TableCell({ children: [paragraph([])] as any }),
+              ],
+            })
+          ),
       ],
     }),
   ];
@@ -505,57 +523,57 @@ async function generateWorldClassDocx(
   const sections = Array.isArray(docData?.sections) ? docData.sections : [];
   const pm = meta.pmName || "—";
 
-  // Build document children
   const children: (Paragraph | Table)[] = [
-    ...createCoverPage({
+    ...(createCoverPage({
       ...meta,
       pmName: pm,
       classification: docData?.classification || "INTERNAL",
       version: meta.version || "1.0",
-    }),
+    }) as any),
 
-    // Document Control
     createSectionHeading("Document Control", 1),
     createMetadataTable({
       "Project Name": meta.projectName,
       "Project Code": meta.projectCode,
       "Project Manager": pm,
-      "Organization": meta.organisationName,
+      Organization: meta.organisationName,
       "Last Updated": meta.generatedAt,
-      "Version": meta.version || "1.0",
-      "Status": docData?.status || "Draft",
+      Version: meta.version || "1.0",
+      Status: docData?.status || "Draft",
     }),
 
-    // Executive Summary
     ...createExecutiveSummary(docData),
 
-    // Sections
     ...sections.flatMap((sec: any, idx: number) => {
       const title = safeStr(sec?.title || sec?.key || `Section ${idx + 1}`);
       const table = sec?.table ? createStyledTable(sec.table, title) : null;
-      
+
       if (table) return table;
 
-      // Handle different content types
       const content: (Paragraph | Table)[] = [createSectionHeading(title, 1)];
 
       if (sec?.description) {
-        content.push(paragraph([textRun(sec.description, { size: THEME.sizes.body })], {
-          spacing: { after: 200 },
-        }));
+        content.push(
+          paragraph([textRun(sec.description, { size: THEME.sizes.body })], {
+            spacing: { after: 200 },
+          })
+        );
       }
 
       if (Array.isArray(sec?.items)) {
-        content.push(...createBulletList(sec.items.map((i: any) => 
-          typeof i === "string" ? i : i.text || i.name || JSON.stringify(i)
-        )));
+        content.push(
+          ...createBulletList(
+            sec.items.map((i: any) => (typeof i === "string" ? i : i.text || i.name || JSON.stringify(i)))
+          )
+        );
       } else if (sec?.content) {
-        content.push(paragraph([textRun(String(sec.content), { size: THEME.sizes.body })], {
-          spacing: { after: 200, line: 360 },
-        }));
+        content.push(
+          paragraph([textRun(String(sec.content), { size: THEME.sizes.body })], {
+            spacing: { after: 200, line: 360 },
+          })
+        );
       }
 
-      // Metadata table for structured data
       if (sec?.metadata && typeof sec.metadata === "object") {
         content.push(createMetadataTable(sec.metadata));
       }
@@ -563,8 +581,7 @@ async function generateWorldClassDocx(
       return content;
     }),
 
-    // Add approval section if not present
-    ...createApprovalSection(),
+    ...(createApprovalSection() as any),
   ];
 
   const doc = new Document({
@@ -586,7 +603,7 @@ async function generateWorldClassDocx(
             color: THEME.colors.text,
           },
           paragraph: {
-            spacing: { line: 276, after: 200 }, // 1.15 line spacing
+            spacing: { line: 276, after: 200 },
           },
         },
       },
@@ -603,9 +620,7 @@ async function generateWorldClassDocx(
             bold: true,
             color: THEME.colors.primary,
           },
-          paragraph: {
-            spacing: { before: 480, after: 240 },
-          },
+          paragraph: { spacing: { before: 480, after: 240 } },
         },
         {
           id: "Heading2",
@@ -619,115 +634,151 @@ async function generateWorldClassDocx(
             bold: true,
             color: THEME.colors.secondary,
           },
-          paragraph: {
-            spacing: { before: 360, after: 200 },
-          },
+          paragraph: { spacing: { before: 360, after: 200 } },
         },
       ],
     },
 
-    sections: [{
-      properties: {
-        page: {
-          margin: {
-            top: convertInchesToTwip(1),
-            bottom: convertInchesToTwip(1),
-            left: convertInchesToTwip(1.25),
-            right: convertInchesToTwip(1.25),
+    sections: [
+      {
+        properties: {
+          page: {
+            margin: {
+              top: convertInchesToTwip(1),
+              bottom: convertInchesToTwip(1),
+              left: convertInchesToTwip(1.25),
+              right: convertInchesToTwip(1.25),
+            },
           },
         },
-      },
 
-      headers: {
-        default: new Header({
-          children: [
-            new Table({
-              width: { size: 100, type: WidthType.PERCENTAGE },
-              borders: {
-                bottom: { style: BorderStyle.SINGLE, size: 6, color: THEME.colors.primary },
-              },
-              rows: [
-                new TableRow({
-                  children: [
-                    new TableCell({
-                      children: [paragraph([textRun(meta.organisationName, { 
-                        bold: true, 
-                        color: THEME.colors.primary,
-                        size: 20 
-                      })], { alignment: AlignmentType.LEFT })],
-                      width: { size: 50, type: WidthType.PERCENTAGE },
-                      borders: { bottom: { style: BorderStyle.NIL } },
-                    }),
-                    new TableCell({
-                      children: [paragraph([textRun("CONFIDENTIAL", { 
-                        bold: true, 
-                        color: THEME.colors.textLight,
-                        size: 20 
-                      })], { alignment: AlignmentType.RIGHT })],
-                      width: { size: 50, type: WidthType.PERCENTAGE },
-                      borders: { bottom: { style: BorderStyle.NIL } },
-                    }),
-                  ],
-                }),
-              ],
-            }),
-          ],
-        }),
-      },
+        headers: {
+          default: new Header({
+            children: [
+              new Table({
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                borders: {
+                  bottom: { style: BorderStyle.SINGLE, size: 6, color: THEME.colors.primary },
+                },
+                rows: [
+                  new TableRow({
+                    children: [
+                      new TableCell({
+                        children: [
+                          paragraph(
+                            [
+                              textRun(meta.organisationName, {
+                                bold: true,
+                                color: THEME.colors.primary,
+                                size: 20,
+                              }),
+                            ],
+                            { alignment: AlignmentType.LEFT }
+                          ),
+                        ],
+                        width: { size: 50, type: WidthType.PERCENTAGE },
+                        borders: { bottom: { style: BorderStyle.NIL } },
+                      }),
+                      new TableCell({
+                        children: [
+                          paragraph(
+                            [
+                              textRun("CONFIDENTIAL", {
+                                bold: true,
+                                color: THEME.colors.textLight,
+                                size: 20,
+                              }),
+                            ],
+                            { alignment: AlignmentType.RIGHT }
+                          ),
+                        ],
+                        width: { size: 50, type: WidthType.PERCENTAGE },
+                        borders: { bottom: { style: BorderStyle.NIL } },
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+        },
 
-      footers: {
-        default: new Footer({
-          children: [
-            new Table({
-              width: { size: 100, type: WidthType.PERCENTAGE },
-              borders: {
-                top: { style: BorderStyle.SINGLE, size: 4, color: THEME.colors.border },
-              },
-              rows: [
-                new TableRow({
-                  children: [
-                    new TableCell({
-                      children: [paragraph([textRun(`${meta.projectCode} | ${meta.projectName}`, { 
-                        size: 18, 
-                        color: THEME.colors.textLight 
-                      })], { alignment: AlignmentType.LEFT })],
-                      width: { size: 33, type: WidthType.PERCENTAGE },
-                      borders: { top: { style: BorderStyle.NIL } },
-                    }),
-                    new TableCell({
-                      children: [paragraph([textRun(`Page `, { size: 18, color: THEME.colors.textLight }), 
-                        PageNumber.CURRENT,
-                        textRun(` of `, { size: 18, color: THEME.colors.textLight }),
-                        PageNumber.TOTAL_PAGES
-                      ], { alignment: AlignmentType.CENTER })],
-                      width: { size: 33, type: WidthType.PERCENTAGE },
-                      borders: { top: { style: BorderStyle.NIL } },
-                    }),
-                    new TableCell({
-                      children: [paragraph([textRun(`Generated: ${meta.generatedAt}`, { 
-                        size: 18, 
-                        color: THEME.colors.textLight 
-                      })], { alignment: AlignmentType.RIGHT })],
-                      width: { size: 34, type: WidthType.PERCENTAGE },
-                      borders: { top: { style: BorderStyle.NIL } },
-                    }),
-                  ],
-                }),
-              ],
-            }),
-          ],
-        }),
-      },
+        footers: {
+          default: new Footer({
+            children: [
+              new Table({
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                borders: {
+                  top: { style: BorderStyle.SINGLE, size: 4, color: THEME.colors.border },
+                },
+                rows: [
+                  new TableRow({
+                    children: [
+                      new TableCell({
+                        children: [
+                          paragraph(
+                            [
+                              textRun(`${meta.projectCode} | ${meta.projectName}`, {
+                                size: 18,
+                                color: THEME.colors.textLight,
+                              }),
+                            ],
+                            { alignment: AlignmentType.LEFT }
+                          ),
+                        ],
+                        width: { size: 33, type: WidthType.PERCENTAGE },
+                        borders: { top: { style: BorderStyle.NIL } },
+                      }),
+                      new TableCell({
+                        children: [
+                          paragraph(
+                            [
+                              textRun(`Page `, { size: 18, color: THEME.colors.textLight }),
+                              PageNumber.CURRENT,
+                              textRun(` of `, { size: 18, color: THEME.colors.textLight }),
+                              PageNumber.TOTAL_PAGES,
+                            ] as any,
+                            { alignment: AlignmentType.CENTER }
+                          ),
+                        ],
+                        width: { size: 33, type: WidthType.PERCENTAGE },
+                        borders: { top: { style: BorderStyle.NIL } },
+                      }),
+                      new TableCell({
+                        children: [
+                          paragraph(
+                            [
+                              textRun(`Generated: ${meta.generatedAt}`, {
+                                size: 18,
+                                color: THEME.colors.textLight,
+                              }),
+                            ],
+                            { alignment: AlignmentType.RIGHT }
+                          ),
+                        ],
+                        width: { size: 34, type: WidthType.PERCENTAGE },
+                        borders: { top: { style: BorderStyle.NIL } },
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+        },
 
-      children,
-    }],
+        children,
+      },
+    ],
   });
 
   return await Packer.toBuffer(doc);
 }
 
 /* ──────────────────────────────────────────────── Route Handler ──────────────────────────────────────────────── */
-async function handle(req: Request, { params }: { params: { id?: string; artifactId?: string } }) {
+type RouteCtx = { params: Promise<{ id: string }> };
+
+async function handle(req: NextRequest, params: { id?: string; artifactId?: string }) {
   try {
     const supabase = await createClient();
     const artifactId = resolveArtifactId(req, params);
@@ -741,7 +792,6 @@ async function handle(req: Request, { params }: { params: { id?: string; artifac
 
     await requireAuthAndMembership(supabase, projectId);
 
-    // Fetch artifact
     const { data: art, error: artErr } = await supabase
       .from("artifacts")
       .select("id, project_id, title, content_json, version, status")
@@ -752,7 +802,6 @@ async function handle(req: Request, { params }: { params: { id?: string; artifac
     if (artErr) throw new Error(artErr.message);
     if (!art) return jsonErr("Not found", 404);
 
-    // Parse content
     const stored = safeJson((art as any).content_json);
     const provided = safeJson(body?.content_json ?? body?.contentJson);
     const docData = provided || stored;
@@ -763,7 +812,6 @@ async function handle(req: Request, { params }: { params: { id?: string; artifac
       });
     }
 
-    // Fetch project details
     let projectName = safeStr((art as any).title) || "Project";
     let projectCode = "—";
     let organisationName = "—";
@@ -782,16 +830,12 @@ async function handle(req: Request, { params }: { params: { id?: string; artifac
 
       const orgId = (project as any).organisation_id;
       if (orgId) {
-        const { data: org } = await supabase
-          .from("organisations")
-          .select("name")
-          .eq("id", orgId)
-          .maybeSingle();
+        const { data: org } = await supabase.from("organisations").select("name").eq("id", orgId).maybeSingle();
         organisationName = safeStr((org as any)?.name) || organisationName;
       }
     }
 
-    const pmName = 
+    const pmName =
       safeStr(docData?.meta?.pm_name) ||
       safeStr(docData?.meta?.project_manager) ||
       safeStr(docData?.meta?.pm) ||
@@ -819,7 +863,7 @@ async function handle(req: Request, { params }: { params: { id?: string; artifac
         "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "Content-Disposition": `attachment; filename="${filename}"`,
         "Cache-Control": "no-store, no-cache, must-revalidate",
-        "Pragma": "no-cache",
+        Pragma: "no-cache",
       },
     });
   } catch (e: any) {
@@ -830,10 +874,12 @@ async function handle(req: Request, { params }: { params: { id?: string; artifac
   }
 }
 
-export async function GET(req: Request, ctx: { params: { id?: string; artifactId?: string } }) {
-  return handle(req, ctx);
+export async function GET(request: NextRequest, context: RouteCtx) {
+  const params = await context.params;
+  return handle(request, params);
 }
 
-export async function POST(req: Request, ctx: { params: { id?: string; artifactId?: string } }) {
-  return handle(req, ctx);
+export async function POST(request: NextRequest, context: RouteCtx) {
+  const params = await context.params;
+  return handle(request, params);
 }
