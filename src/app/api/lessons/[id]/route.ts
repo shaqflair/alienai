@@ -1,5 +1,6 @@
+// src/app/api/lessons/[id]/route.ts
 import "server-only";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -61,8 +62,16 @@ async function requireEditor(sb: any, project_id: string) {
   return { ok: true, uid };
 }
 
-export async function PATCH(req: Request, ctx: { params?: { id?: string } }) {
-  const id = extractId(req, ctx?.params);
+/**
+ * Next.js 16 typed route handlers expect:
+ * - request: NextRequest
+ * - context.params: Promise<{ id: string }>
+ */
+type RouteCtx = { params: Promise<{ id: string }> };
+
+export async function PATCH(req: NextRequest, ctx: RouteCtx) {
+  const { id: paramId } = await ctx.params;
+  const id = extractId(req, { id: paramId });
 
   if (!isUuid(id)) {
     return jsonErr("Invalid id", 400, {
@@ -101,10 +110,10 @@ export async function PATCH(req: Request, ctx: { params?: { id?: string } }) {
     "severity",
     "project_stage",
     "action_owner_label", // ✅ free text owner
-  ]) {
+  ] as const) {
     if (!(k in body)) continue;
 
-    const v = safeStr(body[k]);
+    const v = safeStr((body as any)[k]);
 
     if (k === "category" || k === "description") {
       if (!v.trim()) return jsonErr(`${k} cannot be empty`, 400);
@@ -135,8 +144,9 @@ export async function PATCH(req: Request, ctx: { params?: { id?: string } }) {
   return jsonOk({ item: data });
 }
 
-export async function DELETE(req: Request, ctx: { params?: { id?: string } }) {
-  const id = extractId(req, ctx?.params);
+export async function DELETE(req: NextRequest, ctx: RouteCtx) {
+  const { id: paramId } = await ctx.params;
+  const id = extractId(req, { id: paramId });
 
   if (!isUuid(id)) {
     return jsonErr("Invalid id", 400, {
