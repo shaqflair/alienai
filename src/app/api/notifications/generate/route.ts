@@ -66,7 +66,7 @@ function isClosedRaidStatus(s: any) {
 
 /**
  * Your DB uses an enum for notifications.type.
- * We don’t need to import the enum type in TS — just ensure we only emit valid labels.
+ * We donâ€™t need to import the enum type in TS â€” just ensure we only emit valid labels.
  */
 type NotifRow = {
   user_id: string;

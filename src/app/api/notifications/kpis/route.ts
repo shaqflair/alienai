@@ -45,7 +45,7 @@ function daysAgoIso(days: number) {
  * Apply scope safely.
  *
  * IMPORTANT:
- * - Your LIST route can ìhydrateî project_id using artifact_id ? artifacts.project_id.
+ * - Your LIST route can ‚Äúhydrate‚Äù project_id using artifact_id ? artifacts.project_id.
  * - KPIs route does NOT hydrate; therefore many rows may have project_id NULL.
  *
  * To keep KPIs consistent with the list:

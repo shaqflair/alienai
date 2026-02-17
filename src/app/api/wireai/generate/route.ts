@@ -680,7 +680,7 @@ export async function POST(req: Request) {
             columns: 4,
             rows: [
               { type: "header", cells: ["Decision", "Owner", "Date", "Notes"] },
-              { type: "data", cells: ["No key decisions this period", "PMO", fallbackTo, "—"] },
+              { type: "data", cells: ["No key decisions this period", "PMO", fallbackTo, "â€”"] },
             ],
           },
           operationalBlockers: "",
