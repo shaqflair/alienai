@@ -63,7 +63,9 @@ type DepPath = { predId: string; succId: string; a: Anchor };
 ──────────────────────────────────────────────── */
 
 function uuidish() {
-  return crypto?.randomUUID?.() ?? `s_${Math.random().toString(16).slice(2)}_${Date.now()}`;
+  return (
+    crypto?.randomUUID?.() ?? `s_${Math.random().toString(16).slice(2)}_${Date.now()}`
+  );
 }
 
 function safeStr(x: unknown): string {
@@ -631,7 +633,9 @@ export default function ScheduleGanttEditor({
     }
 
     next.start = safeStr(next.start);
-    next.dependencies = Array.isArray(next.dependencies) ? next.dependencies.map((x) => safeStr(x)).filter(Boolean) : [];
+    next.dependencies = Array.isArray(next.dependencies)
+      ? next.dependencies.map((x) => safeStr(x)).filter(Boolean)
+      : [];
 
     if (next.type !== "milestone") {
       const s = parseISODate(next.start);
@@ -1414,6 +1418,55 @@ export default function ScheduleGanttEditor({
     return <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />;
   };
 
+  const PlusIcon = ({ className = "" }: { className?: string }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 5v14M5 12h14"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+
+  const AddPillButton = ({
+    tone,
+    label,
+    icon,
+    onClick,
+    title,
+  }: {
+    tone: "orange" | "blue" | "purple";
+    label: string;
+    icon: React.ReactNode;
+    onClick: () => void;
+    title?: string;
+  }) => {
+    const base =
+      "inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border shadow-sm transition-all " +
+      "focus:outline-none focus:ring-2 focus:ring-offset-2 active:scale-[0.99]";
+    const toneCls =
+      tone === "orange"
+        ? "text-orange-700 bg-white border-orange-200 hover:bg-orange-50 focus:ring-orange-200"
+        : tone === "purple"
+          ? "text-purple-700 bg-white border-purple-200 hover:bg-purple-50 focus:ring-purple-200"
+          : "text-blue-700 bg-white border-blue-200 hover:bg-blue-50 focus:ring-blue-200";
+
+    return (
+      <button onClick={onClick} className={`${base} ${toneCls}`} title={title}>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-flex items-center justify-center w-4 h-4 rounded-md bg-slate-900/0">
+            {icon}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <PlusIcon className="w-3.5 h-3.5" />
+            {label}
+          </span>
+        </span>
+      </button>
+    );
+  };
+
   /* ────────────────────────────────────────────────
      Render
   ───────────────────────────────────────────────── */
@@ -1426,9 +1479,7 @@ export default function ScheduleGanttEditor({
           <div className="min-w-0 flex-1">
             <h1 className="text-xl font-semibold text-slate-900 truncate">{titleText}</h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              {projectStartDate && projectFinishDate
-                ? `${projectStartDate} → ${projectFinishDate}`
-                : "Schedule / Roadmap"}
+              {projectStartDate && projectFinishDate ? `${projectStartDate} → ${projectFinishDate}` : "Schedule / Roadmap"}
             </p>
           </div>
 
@@ -1770,6 +1821,8 @@ export default function ScheduleGanttEditor({
                             placeholder="Phase name"
                             style={{ textOverflow: "ellipsis" }}
                           />
+
+                          {/* Meta (kept) */}
                           <div className="flex items-center gap-2 mt-1">
                             <span className="text-xs text-slate-500">{items.length} items</span>
                             {!isCollapsed && <span className="text-xs font-medium text-emerald-600">{pct}%</span>}
@@ -1794,29 +1847,47 @@ export default function ScheduleGanttEditor({
                         )}
                       </div>
 
+                      {/* ✅ ACTION-FIRST: make creation obvious */}
                       {!isCollapsed && !readOnly && (
-                        <div className="flex items-center gap-1 mt-3">
-                          <button
-                            onClick={() => addItem(ph.id, "milestone")}
-                            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-orange-700 bg-orange-50 hover:bg-orange-100 rounded transition-colors"
-                          >
-                            <div className="w-2 h-2 rotate-45 bg-orange-500 rounded-[1px]" />
-                            Milestone
-                          </button>
-                          <button
-                            onClick={() => addItem(ph.id, "task")}
-                            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded transition-colors"
-                          >
-                            <div className="w-2 h-2 rounded-full bg-blue-500" />
-                            Task
-                          </button>
-                          <button
-                            onClick={() => addItem(ph.id, "deliverable")}
-                            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 rounded transition-colors"
-                          >
-                            <div className="w-2 h-2 rounded-sm bg-purple-500" />
-                            Deliverable
-                          </button>
+                        <div className="mt-3">
+                          <div className="flex items-center justify-between">
+                            <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                              Create in this phase
+                            </div>
+                            {items.length === 0 && (
+                              <div className="text-[11px] text-slate-400">
+                                No items yet
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                            <AddPillButton
+                              tone="orange"
+                              label="Milestone"
+                              icon={<div className="w-2.5 h-2.5 rotate-45 bg-orange-500 rounded-[2px]" />}
+                              onClick={() => addItem(ph.id, "milestone")}
+                              title="Add a milestone (key checkpoint) in this phase"
+                            />
+                            <AddPillButton
+                              tone="blue"
+                              label="Task"
+                              icon={<div className="w-2.5 h-2.5 rounded-full bg-blue-500" />}
+                              onClick={() => addItem(ph.id, "task")}
+                              title="Add a task (work activity) in this phase"
+                            />
+                            <AddPillButton
+                              tone="purple"
+                              label="Deliverable"
+                              icon={<div className="w-2.5 h-2.5 rounded-sm bg-purple-500" />}
+                              onClick={() => addItem(ph.id, "deliverable")}
+                              title="Add a deliverable (output) in this phase"
+                            />
+                          </div>
+
+                          <div className="mt-2 text-[11px] text-slate-400">
+                            Tip: click a bar to edit • drag to move • resize end for duration
+                          </div>
                         </div>
                       )}
 

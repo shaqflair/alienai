@@ -26,6 +26,75 @@ function typeLabel(t: "task" | "milestone" | "deliverable") {
   return "Task";
 }
 
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+// ✅ UK date-time for "Generated" row (dd/mm/yy HH:MM)
+function fmtUkDateTime(d: Date) {
+  const dd = pad2(d.getDate());
+  const mm = pad2(d.getMonth() + 1);
+  const yy = String(d.getFullYear()).slice(-2);
+  const hh = pad2(d.getHours());
+  const mi = pad2(d.getMinutes());
+  return `${dd}/${mm}/${yy} ${hh}:${mi}`;
+}
+
+function isDoneStatus(statusRaw: any) {
+  const s = String(statusRaw || "").toLowerCase().trim();
+  return s === "done" || s === "completed" || s === "complete" || s === "approved";
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, n));
+}
+
+/**
+ * ✅ EXEC PROGRESS LOGIC (Option A)
+ * - Done => 100
+ * - Milestone => 0/100 only
+ * - Deliverable => 0 until done, else 100
+ * - Task => time-elapsed % (inclusive days), capped at 95 unless done
+ */
+function getProgressPercentExec(it: any, now: Date): number | "" {
+  const type = String(it?.type || "").toLowerCase();
+  const done = isDoneStatus(it?.status);
+
+  // 1) Done overrides everything
+  if (done) return 100;
+
+  // 2) Milestones (binary)
+  if (type === "milestone") return 0;
+
+  // 3) Deliverables (exec rule A)
+  if (type === "deliverable") return 0;
+
+  // 4) Tasks => timeline %
+  const s = it?.start instanceof Date ? it.start : null;
+  const e = it?.end instanceof Date ? it.end : null;
+  if (!s) return "";
+
+  const start = startOfDayUTC(s);
+  const end = startOfDayUTC(e ?? s);
+  const today = startOfDayUTC(now);
+
+  // Not started
+  if (today.getTime() < start.getTime()) return 0;
+
+  // Duration inclusive
+  const durationDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / DAY_MS) + 1);
+
+  // Overdue but not done
+  if (today.getTime() > end.getTime()) return 95;
+
+  // Elapsed inclusive (day 7 of 14 => 50%)
+  const elapsedDays = Math.max(0, Math.round((today.getTime() - start.getTime()) / DAY_MS) + 1);
+  const pct = Math.round((elapsedDays / durationDays) * 100);
+
+  // Never show 100 unless done
+  return clamp(pct, 0, 95);
+}
+
 export type RenderScheduleXlsxArgs = {
   title?: string;
   pmName?: string;
@@ -69,12 +138,75 @@ export async function renderScheduleXlsx(args: RenderScheduleXlsxArgs): Promise<
   wb.creator = "Project Management System";
   wb.created = new Date();
 
+  const phaseNameById = new Map(phases.map((p) => [p.id, p.name]));
+
+  // Build item lookup for dependency names
+  const itemById = new Map<string, any>();
+  for (const it of allItems) {
+    const id = safeStr((it as any).id || "");
+    if (!id) continue;
+    itemById.set(id, it);
+  }
+
+  function dependencyLabels(depIds: any): string {
+    const arr = Array.isArray(depIds) ? depIds : [];
+    if (!arr.length) return "";
+    return arr
+      .map((raw) => safeStr(raw))
+      .filter(Boolean)
+      .map((id) => {
+        const dep = itemById.get(id);
+        if (!dep) return id;
+        const name = safeStr(dep.name || id);
+        const phase = phaseNameById.get(dep.phaseId || "") || safeStr(dep.phaseId || "");
+        return phase ? `${name} (${phase})` : name;
+      })
+      .join("; ");
+  }
+
+  // ✅ Phase progress + overall progress (exec-style)
+  const now = new Date();
+
+  type ProgAgg = { total: number; done: number; sumPct: number; countPct: number };
+  const phaseAgg = new Map<string, ProgAgg>();
+  const overall: ProgAgg = { total: 0, done: 0, sumPct: 0, countPct: 0 };
+
+  for (const it of items) {
+    const type = String(it?.type || "").toLowerCase();
+    if (type === "milestone") continue; // exclude milestones from phase/overall progress
+
+    const phaseId = safeStr(it?.phaseId || "");
+    if (!phaseId) continue;
+
+    const pct = getProgressPercentExec(it, now);
+    const isDone = isDoneStatus(it?.status);
+
+    const a = phaseAgg.get(phaseId) || { total: 0, done: 0, sumPct: 0, countPct: 0 };
+    a.total += 1;
+    if (isDone) a.done += 1;
+    if (pct !== "") {
+      a.sumPct += pct;
+      a.countPct += 1;
+    }
+    phaseAgg.set(phaseId, a);
+
+    overall.total += 1;
+    if (isDone) overall.done += 1;
+    if (pct !== "") {
+      overall.sumPct += pct;
+      overall.countPct += 1;
+    }
+  }
+
+  const overallPct =
+    overall.countPct > 0 ? Math.round(overall.sumPct / overall.countPct) : 0;
+
   /* =========================
      Overview
   ========================= */
   const wsOverview = wb.addWorksheet("Overview", { views: [{ showGridLines: false }] });
   wsOverview.columns = [
-    { header: "Key", key: "k", width: 26 },
+    { header: "Key", key: "k", width: 30 },
     { header: "Value", key: "v", width: 60 },
   ];
 
@@ -90,11 +222,13 @@ export async function renderScheduleXlsx(args: RenderScheduleXlsxArgs): Promise<
   const overviewRows: Array<[string, string]> = [
     ["Project Manager", pmName || ""],
     ["Phases", String(phases.length)],
-    ["Items", String(items.length)],
+    ["Items (filtered)", String(items.length)],
     ["Window Start", minDate ? fmtUkDate(minDate) : ""],
     ["Window End", maxDate ? fmtUkDate(maxDate) : ""],
     ["Filtered Window", args.viewStart && args.viewEnd ? `${fmtUkDate(args.viewStart)} – ${fmtUkDate(args.viewEnd)}` : ""],
-    ["Generated (UTC)", new Date().toISOString().replace("T", " ").replace("Z", " UTC")],
+    ["Overall Progress (exec)", `${overallPct}%`],
+    ["Overall Done / Total (excl. milestones)", `${overall.done}/${overall.total}`],
+    ["Generated", fmtUkDateTime(new Date())],
   ];
 
   let rr = 3;
@@ -112,6 +246,46 @@ export async function renderScheduleXlsx(args: RenderScheduleXlsxArgs): Promise<
     rr++;
   }
 
+  // ✅ Phase Progress section
+  rr += 1;
+
+  wsOverview.getCell(`A${rr}`).value = "Phase Progress (exec)";
+  wsOverview.getCell(`A${rr}`).font = { name: "Segoe UI", size: 12, bold: true, color: { argb: "FF0F172A" } };
+  wsOverview.getCell(`A${rr}`).alignment = { vertical: "middle", horizontal: "left" };
+  rr += 1;
+
+  // table header
+  const hdrA = wsOverview.getCell(`A${rr}`);
+  const hdrB = wsOverview.getCell(`B${rr}`);
+  hdrA.value = "Phase";
+  hdrB.value = "Progress %  |  Done/Total";
+  for (const c of [hdrA, hdrB]) {
+    c.font = { name: "Segoe UI", size: 11, bold: true, color: { argb: "FF0F172A" } };
+    c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
+    c.border = { bottom: { style: "thin", color: { argb: "FFE2E8F0" } } };
+    c.alignment = { vertical: "middle", horizontal: "left" };
+  }
+  rr += 1;
+
+  const phasesOrdered = [...phases].sort((a, b) => safeStr(a.name).localeCompare(safeStr(b.name)));
+  for (const p of phasesOrdered) {
+    const a = phaseAgg.get(p.id);
+    const pct = a && a.countPct > 0 ? Math.round(a.sumPct / a.countPct) : 0;
+    const done = a?.done ?? 0;
+    const total = a?.total ?? 0;
+
+    const c1 = wsOverview.getCell(`A${rr}`);
+    c1.value = safeStr(p.name || p.id);
+    c1.font = { name: "Segoe UI", size: 11, color: { argb: "FF0F172A" } };
+    c1.alignment = { vertical: "middle", horizontal: "left" };
+
+    const c2 = wsOverview.getCell(`B${rr}`);
+    c2.value = `${pct}%  |  ${done}/${total}`;
+    c2.font = { name: "Segoe UI", size: 11, color: { argb: "FF475569" } };
+    c2.alignment = { vertical: "middle", horizontal: "left" };
+    rr++;
+  }
+
   /* =========================
      Schedule
   ========================= */
@@ -125,7 +299,7 @@ export async function renderScheduleXlsx(args: RenderScheduleXlsxArgs): Promise<
     { header: "Duration (days)", key: "dur", width: 16 },
     { header: "Status", key: "status", width: 16 },
     { header: "Progress %", key: "prog", width: 12 },
-    { header: "Dependencies", key: "deps", width: 26 },
+    { header: "Dependencies", key: "deps", width: 34 },
     { header: "Notes", key: "notes", width: 60 },
   ];
 
@@ -138,7 +312,6 @@ export async function renderScheduleXlsx(args: RenderScheduleXlsxArgs): Promise<
     cell.border = { bottom: { style: "thin", color: { argb: "FFE2E8F0" } } };
   });
 
-  const phaseNameById = new Map(phases.map((p) => [p.id, p.name]));
   const itemsSorted = [...items].sort((a, b) => {
     const pa = phaseNameById.get(a.phaseId || "") || "";
     const pb = phaseNameById.get(b.phaseId || "") || "";
@@ -156,6 +329,8 @@ export async function renderScheduleXlsx(args: RenderScheduleXlsxArgs): Promise<
     const e = it.end ?? it.start;
     const dur = Math.max(0, Math.round((startOfDayUTC(e).getTime() - startOfDayUTC(s).getTime()) / DAY_MS) + 1);
 
+    const pct = getProgressPercentExec(it, now);
+
     const row = ws.addRow({
       phase,
       item: it.name,
@@ -164,8 +339,8 @@ export async function renderScheduleXlsx(args: RenderScheduleXlsxArgs): Promise<
       end: it.end ? e : null,
       dur: it.type === "milestone" ? 0 : dur,
       status: statusLabel(it.status || ""),
-      prog: typeof it.progress === "number" ? Math.round(it.progress * 100) : "",
-      deps: (it.dependencies || []).join(", "),
+      prog: pct === "" ? "" : pct,
+      deps: dependencyLabels((it as any).dependencies),
       notes: (it as any).notes || "",
     });
 
@@ -192,10 +367,11 @@ export async function renderScheduleXlsx(args: RenderScheduleXlsxArgs): Promise<
     statusCell.alignment = { vertical: "middle", horizontal: "center" };
 
     const progCell = row.getCell("prog");
-    if (typeof it.progress === "number") {
-      progCell.value = Math.round(it.progress * 100);
+    if (pct !== "") {
+      progCell.value = pct;
       progCell.numFmt = '0"%"';
       progCell.font = { name: "Segoe UI", size: 10, bold: true, color: { argb: "FF0F172A" } };
+      progCell.alignment = { vertical: "middle", horizontal: "center" };
     }
   }
 
