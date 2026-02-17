@@ -22,7 +22,6 @@ import {
   FileText,
   AlertCircle,
   CheckCircle2,
-  MoreHorizontal,
 } from "lucide-react";
 
 /* ============================
@@ -55,6 +54,8 @@ type ApiResp =
       nextCursor: string | null;
       facets?: { types?: string[] };
     };
+
+type ApiOk = Extract<ApiResp, { ok: true }>;
 
 /* ============================
    Utilities
@@ -195,6 +196,10 @@ function safeParseJson(txt: string): any {
   }
 }
 
+function isOkResp(x: any): x is ApiOk {
+  return !!x && typeof x === "object" && (x as any).ok === true;
+}
+
 /* ============================
    Hooks
 ============================ */
@@ -211,9 +216,6 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
 /* ============================
    Visual System (Premium Light)
 ============================ */
-
-const CYAN = "#00B8DB";
-const BORDER_CYAN = `border-[${CYAN}]`;
 
 const typeConfig: Record<string, { icon: React.ReactNode; bg: string; text: string; border: string }> = {
   charter: {
@@ -281,7 +283,9 @@ function StatusBadge({ status }: { status?: string }) {
     statusConfig.default;
 
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${config.bg} ${config.text}`}>
+    <span
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${config.bg} ${config.text}`}
+    >
       <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`} />
       {displayStatus(status)}
     </span>
@@ -409,9 +413,7 @@ function cmpBase(a: string, b: string) {
 
 function StatCard({ label, value, trend }: { label: string; value: string | number; trend?: string }) {
   return (
-    <div
-      className={`bg-white rounded-xl border p-5 shadow-sm hover:shadow-md transition-shadow border-[#00B8DB]`}
-    >
+    <div className="bg-white rounded-xl border p-5 shadow-sm hover:shadow-md transition-shadow border-[#00B8DB]">
       <div className="text-sm text-gray-500 font-medium">{label}</div>
       <div className="mt-2 flex items-baseline gap-2">
         <span className="text-2xl font-bold text-gray-900">{value}</span>
@@ -476,7 +478,7 @@ export default function ArtifactsPage() {
     if (aid0 && looksLikeUuid(aid0)) setHighlightId(aid0);
 
     hydrated.current = true;
-  }, []);
+  }, [searchParams]);
 
   const urlState = useMemo(
     () => ({
@@ -502,7 +504,7 @@ export default function ArtifactsPage() {
 
     const qs = sp.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname);
-  }, [urlStateDebounced]);
+  }, [urlStateDebounced, pathname, router]);
 
   const apiParams = useMemo(() => {
     const sp = new URLSearchParams();
@@ -525,13 +527,15 @@ export default function ArtifactsPage() {
       const j = safeParseJson(txt) as ApiResp | null;
 
       if (!r.ok) throw new Error((j as any)?.error || `Load failed (${r.status})`);
-      if (!j || (j as any).ok !== true) throw new Error("API returned invalid response");
+      if (!isOkResp(j)) throw new Error(safeStr((j as any)?.error) || "API returned invalid response");
 
-      setItems(j.items || []);
-      setCursor(j.nextCursor ?? null);
+      const ok = j;
 
-      const facet = (j.facets?.types || []).filter(Boolean);
-      const inferred = Array.from(new Set((j.items || []).map((x) => safeStr(x.type)).filter(Boolean))).sort((a, b) =>
+      setItems(ok.items || []);
+      setCursor(ok.nextCursor ?? null);
+
+      const facet = (ok.facets?.types || []).filter(Boolean);
+      const inferred = Array.from(new Set((ok.items || []).map((x) => safeStr(x.type)).filter(Boolean))).sort((a, b) =>
         a.localeCompare(b)
       );
       setTypes(facet.length ? facet : inferred);
@@ -559,14 +563,16 @@ export default function ArtifactsPage() {
       const j = safeParseJson(txt) as ApiResp | null;
 
       if (!r.ok) throw new Error((j as any)?.error || `Load failed (${r.status})`);
-      if (!j || (j as any).ok !== true) throw new Error("API returned invalid response");
+      if (!isOkResp(j)) throw new Error(safeStr((j as any)?.error) || "API returned invalid response");
+
+      const ok = j;
 
       setItems((prev) => {
         const seen = new Set(prev.map((x) => x.id));
-        const next = (j.items || []).filter((x) => !seen.has(x.id));
+        const next = (ok.items || []).filter((x) => !seen.has(x.id));
         return [...prev, ...next];
       });
-      setCursor(j.nextCursor ?? null);
+      setCursor(ok.nextCursor ?? null);
     } catch (e: any) {
       setError(e?.message || "Failed to load more");
     } finally {
@@ -577,6 +583,7 @@ export default function ArtifactsPage() {
   useEffect(() => {
     if (!hydrated.current) return;
     loadFirst();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiParams]);
 
   /* ---------------- Derived State ---------------- */
@@ -749,7 +756,11 @@ export default function ArtifactsPage() {
           <StatCard label="Total Artifacts" value={stats.total} trend="+12%" />
           <StatCard label="This Week" value={stats.thisWeek} />
           <StatCard label="Projects" value={stats.projects} />
-          <StatCard label="Needs Attention" value={stats.needsAttention} trend={stats.needsAttentionTrend || undefined} />
+          <StatCard
+            label="Needs Attention"
+            value={stats.needsAttention}
+            trend={stats.needsAttentionTrend || undefined}
+          />
         </div>
 
         {/* Expandable Filters */}
