@@ -1,14 +1,14 @@
 // src/app/api/ai/suggestions/apply/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { createClient as createSbJsClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
 function safeStr(x: unknown) {
-  return typeof x === "string" ? x : "";
+  return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 function safeLower(x: unknown) {
   return safeStr(x).trim().toLowerCase();
@@ -23,7 +23,28 @@ function adminClient() {
   return createSbJsClient(url, key, { auth: { persistSession: false } });
 }
 
-export async function POST(req: Request) {
+function canEditRole(role: string) {
+  const r = safeLower(role);
+  return r === "owner" || r === "admin" || r === "editor";
+}
+
+async function requireProjectMembership(supabase: any, projectId: string, userId: string) {
+  const { data: mem, error: memErr } = await supabase
+    .from("project_members")
+    .select("role, removed_at")
+    .eq("project_id", projectId)
+    .eq("user_id", userId)
+    .is("removed_at", null)
+    .maybeSingle();
+
+  if (memErr) throw new Error(memErr.message);
+  if (!mem) return null;
+
+  const role = safeLower((mem as any).role ?? "viewer");
+  return { role, canEdit: canEditRole(role) };
+}
+
+export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
 
@@ -41,6 +62,15 @@ export async function POST(req: Request) {
     if (authErr) return NextResponse.json({ ok: false, error: authErr.message }, { status: 401 });
     if (!auth?.user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
+    // 1b) Membership gate (DON'T rely on admin client for access control)
+    const mem = await requireProjectMembership(supabase, projectId, auth.user.id);
+    if (!mem) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+
+    // If you want to restrict "apply suggestion" to editors/owners only:
+    if (!mem.canEdit) {
+      return NextResponse.json({ ok: false, error: "Requires editor/owner" }, { status: 403 });
+    }
+
     // 2) Admin client for DB writes (bypass RLS)
     const supabaseAdmin = adminClient();
 
@@ -57,46 +87,75 @@ export async function POST(req: Request) {
     if (sugErr) return NextResponse.json({ ok: false, error: sugErr.message }, { status: 500 });
     if (!sug) return NextResponse.json({ ok: false, error: "Suggestion not found" }, { status: 404 });
 
+    // Ensure suggestion belongs to artifact (defensive)
+    if (safeStr((sug as any).artifact_id).trim() && safeStr((sug as any).artifact_id).trim() !== artifactId) {
+      return NextResponse.json({ ok: false, error: "Suggestion does not belong to this artifact" }, { status: 400 });
+    }
+
     const sugStatus = safeLower((sug as any).status);
     if (sugStatus !== "proposed" && sugStatus !== "suggested") {
       return NextResponse.json(
-        { ok: false, error: `Suggestion is not actionable (status=${(sug as any).status})` },
+        { ok: false, error: `Suggestion is not actionable (status=${safeStr((sug as any).status)})` },
         { status: 400 }
       );
     }
-// inside your POST after you load suggestion(s)...
 
-if (st === "add_stakeholder") {
-  const p = suggestion.payload ?? {};
-  const name = String(p?.name ?? "").trim();
-  if (!name) throw new Error("Missing payload.name");
+    const suggestionType = safeLower((sug as any).suggestion_type);
+    const patch = (sug as any).patch ?? null;
 
-  // Insert stakeholder (admin client), but only after membership check already done
-  const { data: created, error: cErr } = await admin
-    .from("stakeholders")
-    .insert({
-      project_id: projectId,
-      name,
-      role: String(p?.role ?? "") || null,
-      influence_level: String(p?.influence_level ?? "") || null,
-      stakeholder_impact: String(p?.stakeholder_impact ?? "") || null,
-      source: String(p?.source ?? "ai"),
-    })
-    .select("id")
-    .maybeSingle();
+    // 3b) Optional fast-path: add_stakeholder suggestions that target canonical stakeholders table
+    // We support payload in either:
+    // - patch.payload
+    // - patch.data
+    // - patch (direct object)
+    if (suggestionType === "add_stakeholder") {
+      const payload = (patch && typeof patch === "object" ? (patch.payload ?? patch.data ?? patch) : {}) as any;
 
-  if (cErr) throw new Error(cErr.message);
+      const name = safeStr(payload?.name).trim();
+      if (!name) {
+        return NextResponse.json({ ok: false, error: "Missing payload.name for add_stakeholder" }, { status: 400 });
+      }
 
-  // mark suggestion applied
-  const { error: uErr } = await admin
-    .from("ai_suggestions")
-    .update({ status: "applied" })
-    .eq("id", suggestion.id);
+      const role = safeStr(payload?.role).trim() || null;
+      const point_of_contact = safeStr(payload?.point_of_contact ?? payload?.poc).trim() || null;
 
-  if (uErr) throw new Error(uErr.message);
+      const { data: created, error: cErr } = await supabaseAdmin
+        .from("stakeholders")
+        .insert({
+          project_id: projectId,
+          artifact_id: artifactId,
+          name,
+          role,
+          point_of_contact,
+          source: safeStr(payload?.source).trim() || "ai",
+        })
+        .select("id")
+        .maybeSingle();
 
-  return NextResponse.json({ ok: true, applied: true, stakeholderId: created?.id ?? null });
-}
+      if (cErr) return NextResponse.json({ ok: false, error: cErr.message }, { status: 500 });
+
+      const nowIso = new Date().toISOString();
+      const { error: uErr } = await supabaseAdmin
+        .from("ai_suggestions")
+        .update({
+          status: "applied",
+          actioned_by: auth.user.id,
+          decided_at: nowIso,
+          rejected_at: null,
+          updated_at: nowIso,
+        })
+        .eq("id", suggestionId)
+        .eq("project_id", projectId);
+
+      if (uErr) {
+        return NextResponse.json(
+          { ok: true, applied: true, stakeholderId: created?.id ?? null, warning: `Failed to mark applied: ${uErr.message}` },
+          { status: 200 }
+        );
+      }
+
+      return NextResponse.json({ ok: true, applied: true, stakeholderId: created?.id ?? null });
+    }
 
     // 4) Load target artifact (admin)
     const { data: artifact, error: artErr } = await supabaseAdmin
@@ -112,7 +171,6 @@ if (st === "add_stakeholder") {
     const artifactType = safeLower((artifact as any).type);
     const currentJson = (artifact as any).content_json ?? {};
 
-    const patch = (sug as any).patch ?? null;
     const suggestionTargetType = safeLower((sug as any).target_artifact_type);
 
     // ✅ Normalize stakeholder governance patches to the 5-column stakeholder register table shape
@@ -124,7 +182,7 @@ if (st === "add_stakeholder") {
 
     // Apply patch to artifact JSON
     const updatedJson = applySuggestionToArtifactJson(currentJson, {
-      kind: normalizedPatch?.kind ?? null,
+      kind: normalizedPatch?.kind ?? normalizedPatch?.type ?? null,
       mode: normalizedPatch?.mode ?? "append",
       rows: Array.isArray(normalizedPatch?.rows) ? normalizedPatch.rows : [],
       bullets: typeof normalizedPatch?.bullets === "string" ? normalizedPatch.bullets : "",
@@ -228,7 +286,7 @@ function normalizeStakeholderPatchIfNeeded(opts: {
 
   if (!isStakeholderRegisterArtifact || !isStakeholderTarget) return patch;
 
-  const kind = safeLower(patch?.kind);
+  const kind = safeLower(patch?.kind ?? patch?.type);
   if (kind !== "add_rows") return patch;
 
   const rows: any[] = Array.isArray(patch?.rows) ? patch.rows : [];
@@ -257,7 +315,7 @@ function normalizeStakeholderPatchIfNeeded(opts: {
     })
     .filter(Boolean);
 
-  return { ...(patch ?? {}), rows: mapped };
+  return { ...(patch ?? {}), kind: "add_rows", rows: mapped };
 }
 
 /* =========================================================
@@ -280,13 +338,14 @@ async function maybePersistStakeholdersFromAddRows(opts: {
     artifactType === "stakeholders" ||
     artifactType === "stakeholder";
 
-  const isStakeholderTarget = suggestionTargetType === "stakeholder_register" || suggestionTargetType.includes("stakeholder");
+  const isStakeholderTarget =
+    suggestionTargetType === "stakeholder_register" || suggestionTargetType.includes("stakeholder");
 
   if (!isStakeholderRegisterArtifact || !isStakeholderTarget) {
     return { attempted: false, inserted: 0 };
   }
 
-  const kind = safeLower(patch?.kind);
+  const kind = safeLower(patch?.kind ?? patch?.type);
   if (kind !== "add_rows") return { attempted: false, inserted: 0 };
 
   const rows: any[] = Array.isArray(patch?.rows) ? patch.rows : [];
@@ -294,8 +353,6 @@ async function maybePersistStakeholdersFromAddRows(opts: {
 
   // After normalization, rows are 5-col:
   // [Stakeholder, Point of Contact, Role, Internal/External, Title/Role]
-  // We will persist what we KNOW exists in public.stakeholders:
-  // project_id, artifact_id, name, role, point_of_contact
   const inserts = rows
     .map((r: any) => {
       const name = safeStr(r?.[0]).trim() || "TBC";
