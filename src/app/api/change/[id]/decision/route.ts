@@ -1,6 +1,6 @@
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import {
   sb,
   requireUser,
@@ -22,9 +22,10 @@ function isMissingRelation(errMsg: string) {
   return m.includes("does not exist") && m.includes("relation");
 }
 
-export async function POST(req: Request, ctx: { params: { id?: string } }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const changeId = safeStr(ctx?.params?.id).trim();
+    const { id } = await ctx.params;
+    const changeId = safeStr(id).trim();
     if (!changeId) return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
 
     const body = await req.json().catch(() => ({}));
@@ -59,6 +60,8 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
     const lane = safeStr((row as any).delivery_status).trim().toLowerCase();
     const currentDecision = safeStr((row as any).decision_status).trim().toLowerCase();
 
+    if (!projectId) return NextResponse.json({ ok: false, error: "Missing project_id" }, { status: 500 });
+
     // Must be a project member at all
     const memberRole = await requireProjectRole(supabase, projectId, user.id);
     if (!memberRole) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
@@ -79,7 +82,6 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
 
     // ✅ Must be submitted
     if (currentDecision !== "submitted") {
-      // idempotent: if already decided, return a helpful response
       if (currentDecision === "approved" || currentDecision === "rejected" || currentDecision === "rework") {
         return NextResponse.json({ ok: false, error: "Decision already recorded" }, { status: 409 });
       }
@@ -98,15 +100,12 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
     };
 
     // ✅ Governance lane + lifecycle
-    // - approved: review -> in_progress (delivery), status in_progress
-    // - rejected: review -> analysis (delivery), status rejected
-    // - rework:   review -> analysis (delivery), status analysis
     if (decision === "approved") {
       patch.delivery_status = "in_progress";
       patch.status = "in_progress";
     } else if (decision === "rejected") {
       patch.delivery_status = "analysis";
-      patch.status = "rejected"; // align with your reject route + DB constraint
+      patch.status = "rejected";
     } else {
       patch.delivery_status = "analysis";
       patch.status = "analysis";
@@ -136,22 +135,25 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
 
     // Audit (best effort — don’t let audit kill the decision)
     try {
-      await logChangeEvent(supabase, {
-        projectId,
-        ...(artifactId ? { artifactId } : {}),
-        changeRequestId: changeId,
-        actorUserId: user.id,
-        actorRole: approverRole,
-        eventType: decision, // approved | rejected | rework
-        fromValue: "submitted",
-        toValue: decision,
-        note: rationale.slice(0, 1200),
-        payload: {
-          delivery_status_before: lane,
-          delivery_status_after: updated?.delivery_status,
-          decision_status: decision,
-        },
-      } as any);
+      await logChangeEvent(
+        supabase,
+        {
+          projectId,
+          ...(artifactId ? { artifactId } : {}),
+          changeRequestId: changeId,
+          actorUserId: user.id,
+          actorRole: approverRole,
+          eventType: decision,
+          fromValue: "submitted",
+          toValue: decision,
+          note: rationale.slice(0, 1200),
+          payload: {
+            delivery_status_before: lane,
+            delivery_status_after: (updated as any)?.delivery_status ?? null,
+            decision_status: decision,
+          },
+        } as any
+      );
     } catch {
       // swallow
     }
@@ -171,7 +173,7 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
       });
 
       if ((ins as any)?.error && !isMissingRelation(safeStr((ins as any).error.message))) {
-        // swallow (best-effort)
+        // swallow
       }
     } catch {
       // swallow
@@ -180,6 +182,7 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
     return NextResponse.json({ ok: true, item: updated });
   } catch (e: any) {
     const msg = safeStr(e?.message) || "Server error";
-    return NextResponse.json({ ok: false, error: msg }, { status: msg === "Unauthorized" ? 401 : 500 });
+    const status = msg === "Unauthorized" ? 401 : msg === "Forbidden" ? 403 : msg === "Not found" ? 404 : 500;
+    return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
