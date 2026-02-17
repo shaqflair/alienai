@@ -1,5 +1,5 @@
-﻿import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import "server-only";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { getOpenAIClient, getOpenAIModel, getOpenAITemperature } from "@/lib/ai/openai";
 
@@ -66,7 +66,7 @@ async function collectSignals(sb: any, project_id: string) {
 }
 
 function buildPrompt(signals: { raid: any[]; changes: any[] }) {
-  // Keep prompt compact & â€œenterpriseâ€
+  // Keep prompt compact & “enterprise”
   const raidTop = signals.raid.slice(0, 120);
   const crTop = signals.changes.slice(0, 120);
 
@@ -118,7 +118,7 @@ async function generateLessonsWithOpenAI(signals: { raid: any[]; changes: any[] 
   const resp = await openai.responses.create({
     model,
     temperature,
-    // â€œjsonâ€ helps but we still hard-parse defensively
+    // “json” helps but we still hard-parse defensively
     response_format: { type: "json_object" },
     input: [
       {
@@ -147,7 +147,7 @@ async function generateLessonsWithOpenAI(signals: { raid: any[]; changes: any[] 
   return arr;
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const project_id = safeStr(body.project_id);
@@ -211,5 +211,3 @@ export async function POST(req: NextRequest) {
     return jsonErr(e?.message || "AI generation failed", 500);
   }
 }
-
-

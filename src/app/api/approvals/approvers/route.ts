@@ -1,6 +1,6 @@
-﻿// src/app/api/approvals/approvers/route.ts
+// src/app/api/approvals/approvers/route.ts
 import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { sb, requireAuth, requireOrgAdmin, requireOrgMember, safeStr } from "@/lib/approvals/admin-helpers";
 
 export const runtime = "nodejs";
@@ -16,7 +16,7 @@ function normEmail(x: string) {
   return safeStr(x).trim().toLowerCase();
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const supabase = await sb();
     const user = await requireAuth(supabase);
@@ -75,7 +75,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const supabase = await sb();
     const user = await requireAuth(supabase);
@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function DELETE(req: NextRequest) {
+export async function DELETE(req: Request) {
   try {
     const supabase = await sb();
     const user = await requireAuth(supabase);
@@ -148,5 +148,3 @@ export async function DELETE(req: NextRequest) {
     return err(msg, s);
   }
 }
-
-

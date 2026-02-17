@@ -1,5 +1,5 @@
-﻿import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import "server-only";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -14,7 +14,7 @@ function safeStr(x: any) {
   return typeof x === "string" ? x : "";
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const projectId = safeStr(searchParams.get("projectId"));
   if (!projectId) return jsonErr("projectId required", 400);
@@ -30,13 +30,13 @@ export async function GET(req: NextRequest) {
   const rows = data ?? [];
   const countBy = (key: string) =>
     rows.reduce((acc: any, r: any) => {
-      const k = String(r[key] || "â€”");
+      const k = String(r[key] || "—");
       acc[k] = (acc[k] || 0) + 1;
       return acc;
     }, {});
 
   const monthly = rows.reduce((acc: any, r: any) => {
-    const ym = String(r.created_at || "").slice(0, 7) || "â€”";
+    const ym = String(r.created_at || "").slice(0, 7) || "—";
     acc[ym] = (acc[ym] || 0) + 1;
     return acc;
   }, {});
@@ -54,5 +54,3 @@ export async function GET(req: NextRequest) {
     monthlyTrend: monthly,
   });
 }
-
-

@@ -1,7 +1,7 @@
-﻿// src/app/api/approvals/delegations/route.ts
+// src/app/api/approvals/delegations/route.ts
 import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 function jsonOk(data: any, status = 200) {
@@ -58,7 +58,7 @@ async function requireOrgAdmin(sb: any, orgId: string, userId: string) {
  *  - organisation_id, from_user_id, to_user_id, starts_at, ends_at, reason, is_active, created_by, created_at
  */
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const sb = await createClient();
     await requireAuth(sb);
@@ -90,7 +90,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const sb = await createClient();
     const user = await requireAuth(sb);
@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function DELETE(req: NextRequest) {
+export async function DELETE(req: Request) {
   try {
     const sb = await createClient();
     const user = await requireAuth(sb);
@@ -154,7 +154,7 @@ export async function DELETE(req: NextRequest) {
     const orgId = await getOrgIdFromProject(sb, projectId);
     await requireOrgAdmin(sb, orgId, user.id);
 
-    // âœ… soft-disable (matches table design)
+    // ✅ soft-disable (matches table design)
     const { error } = await sb
       .from("approver_delegations")
       .update({ is_active: false })
@@ -173,5 +173,3 @@ export async function DELETE(req: NextRequest) {
     return jsonErr(msg, s);
   }
 }
-
-

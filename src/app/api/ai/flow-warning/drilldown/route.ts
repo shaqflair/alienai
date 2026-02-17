@@ -1,6 +1,6 @@
-﻿// src/app/api/ai/flow-warning/drilldown/route.ts
+// src/app/api/ai/flow-warning/drilldown/route.ts
 import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -59,7 +59,7 @@ function ms(n: any) {
   return Number.isFinite(v) ? v : 0;
 }
 
-/** âœ… UK display dd/mm/yyyy (or dd/mm/yyyy hh:mm) */
+/** ✅ UK display dd/mm/yyyy (or dd/mm/yyyy hh:mm) */
 function fmtUkDateTime(x: any, withTime = false): string | null {
   if (!x) return null;
   const s = String(x).trim();
@@ -259,7 +259,7 @@ function computeBlockedSecondsFromEvents(args: {
   };
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const supabase = await createClient();
 
@@ -301,7 +301,7 @@ export async function GET(req: NextRequest) {
       return res;
     }
 
-    // âœ… Only ACTIVE projects
+    // ✅ Only ACTIVE projects
     const { project_map, activeIds } = await loadProjectsMap(supabase, memberProjectIds);
 
     let projectIds = activeIds;
@@ -532,5 +532,3 @@ export async function GET(req: NextRequest) {
     return res;
   }
 }
-
-

@@ -1,5 +1,5 @@
-﻿import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import "server-only";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -66,7 +66,7 @@ async function bestEffortEvent(supabase: any, row: any, userId: string, newStatu
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const supabase = await createClient();
 
@@ -212,5 +212,3 @@ export async function POST(req: NextRequest) {
     return jsonErr(e?.message || "Decision failed", 500);
   }
 }
-
-

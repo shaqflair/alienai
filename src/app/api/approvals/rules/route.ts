@@ -1,5 +1,5 @@
-﻿import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import "server-only";
+import { NextResponse } from "next/server";
 import { sb, requireAuth, requireOrgAdmin, requireOrgMember, safeStr } from "@/lib/approvals/admin-helpers";
 
 export const runtime = "nodejs";
@@ -39,7 +39,7 @@ function assertAllowedArtifactType(artifactType: string) {
   return null;
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const supabase = await sb();
     const user = await requireAuth(supabase);
@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
 
     if (error) throw new Error(error.message);
 
-    // âœ… IMPORTANT: UI expects { rules: [...] }
+    // ✅ IMPORTANT: UI expects { rules: [...] }
     return ok({ rules: data ?? [] });
   } catch (e: any) {
     const msg = String(e?.message || e || "Error");
@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const supabase = await sb();
     const user = await requireAuth(supabase);
@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function PATCH(req: NextRequest) {
+export async function PATCH(req: Request) {
   try {
     const supabase = await sb();
     const user = await requireAuth(supabase);
@@ -217,7 +217,7 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-export async function DELETE(req: NextRequest) {
+export async function DELETE(req: Request) {
   try {
     const supabase = await sb();
     const user = await requireAuth(supabase);
@@ -249,5 +249,3 @@ export async function DELETE(req: NextRequest) {
     return err(msg, s);
   }
 }
-
-

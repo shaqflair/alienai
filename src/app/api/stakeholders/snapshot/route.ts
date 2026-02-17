@@ -1,7 +1,7 @@
-﻿// src/app/api/stakeholders/snapshot/route.ts
+// src/app/api/stakeholders/snapshot/route.ts
 import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -45,7 +45,7 @@ function toRowObj5(r: any) {
  *
  * Writes artifacts.content_json as v2 sections -> main_table (columns=5).
  */
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const supabase = await createClient();
     const body = await req.json().catch(() => null);
@@ -107,5 +107,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
-
-

@@ -1,6 +1,6 @@
-﻿// src/app/api/portfolio/raid-panel/route.ts
+// src/app/api/portfolio/raid-panel/route.ts
 import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { resolveActiveProjectScope } from "@/lib/server/project-scope";
 
@@ -60,18 +60,18 @@ function emptyPanel(days: number) {
   };
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   const supabase = await createClient();
   const url = new URL(req.url);
   const days = clampDays(url.searchParams.get("days"));
 
-  // âœ… auth
+  // ✅ auth
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr || !auth?.user) {
     return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
   }
 
-  // âœ… ACTIVE projects in scope (membership + not deleted + not closed)
+  // ✅ ACTIVE projects in scope (membership + not deleted + not closed)
   const scoped = await resolveActiveProjectScope(supabase, auth.user.id);
   const projectIds = scoped.projectIds;
 
@@ -83,7 +83,7 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // âœ… Preferred: single RPC that returns BOTH totals + hi/crit breakdown
+  // ✅ Preferred: single RPC that returns BOTH totals + hi/crit breakdown
   const { data: panelData, error: panelErr } = await supabase.rpc("get_portfolio_raid_panel", {
     p_project_ids: projectIds,
     p_days: days,
@@ -102,7 +102,7 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // âœ… Fallback: hi/crit function + compute totals directly (all priorities)
+  // ✅ Fallback: hi/crit function + compute totals directly (all priorities)
   const { data: hiData, error: hiErr } = await supabase.rpc("get_portfolio_raid_hi_crit", {
     p_project_ids: projectIds,
     p_days: days,
@@ -166,5 +166,3 @@ export async function GET(req: NextRequest) {
     },
   });
 }
-
-

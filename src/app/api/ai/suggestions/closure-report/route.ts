@@ -1,7 +1,7 @@
-﻿// src/app/api/ai/suggestions/closure-report/route.ts
+// src/app/api/ai/suggestions/closure-report/route.ts
 import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -67,7 +67,7 @@ function buildSuggestions(doc: any): AiSuggestion[] {
       id: uid("wrn"),
       severity: "warning",
       title: "Lessons Learned missing",
-      description: "Capture what went well, what didnâ€™t go well, and surprises/risks.",
+      description: "Capture what went well, what didn’t go well, and surprises/risks.",
       reason: "Lessons Learned improves repeatability and reduces future risk.",
       action_type: "flag_section",
       action_payload: { section: "lessons_learned" },
@@ -121,7 +121,7 @@ function buildSuggestions(doc: any): AiSuggestion[] {
   return out;
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const artifactId = s(url.searchParams.get("artifact_id")).trim();
@@ -154,5 +154,3 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: e?.message || "Failed" }, { status: 500 });
   }
 }
-
-

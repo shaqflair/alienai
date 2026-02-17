@@ -1,7 +1,7 @@
-﻿// src/app/api/portfolio/health/route.ts
+// src/app/api/portfolio/health/route.ts
 import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { resolveActiveProjectScope } from "@/lib/server/project-scope";
 
@@ -376,7 +376,7 @@ async function fetchFlowScore(supabase: any, projectIds: string[], days = 30) {
 
 /* ---------------- route ---------------- */
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const supabase = await createClient();
 
@@ -388,7 +388,7 @@ export async function GET(req: NextRequest) {
     const daysParam = clampDays(url.searchParams.get("days"));
     const windowDays: 7 | 14 | 30 | 60 = daysParam === "all" ? 60 : daysParam;
 
-    // âœ… unified active-project scope:
+    // ✅ unified active-project scope:
     // - membership-based (project_members)
     // - filters out deleted + closed projects (projects.status !== 'active' OR closed_at set)
     const scoped = await resolveActiveProjectScope(supabase, auth.user.id);
@@ -449,11 +449,11 @@ export async function GET(req: NextRequest) {
         label: "Schedule",
         score: schedulePart.score,
         detail: scheduleKpis
-          ? `Due: ${num(scheduleKpis.milestones_due_window)} â€¢ Overdue: ${num(
+          ? `Due: ${num(scheduleKpis.milestones_due_window)} • Overdue: ${num(
               scheduleKpis.milestones_overdue
-            )} â€¢ CP overdue: ${num(scheduleKpis.critical_overdue)} â€¢ Avg slip: ${num(
+            )} • CP overdue: ${num(scheduleKpis.critical_overdue)} • Avg slip: ${num(
               scheduleKpis.avg_slip_days
-            )}d â€¢ AI high-risk due: ${num(scheduleKpis.ai_high_risk_due_window)}`
+            )}d • AI high-risk due: ${num(scheduleKpis.ai_high_risk_due_window)}`
           : schedulePart.note || "No schedule signal.",
       },
       {
@@ -461,7 +461,7 @@ export async function GET(req: NextRequest) {
         label: "RAID",
         score: raidPart,
         detail: raid.ok
-          ? `High exposure open: ${raid.open_high} â€¢ Overdue: ${raid.overdue} â€¢ SLA â‰¥70%: ${raid.sla_high}`
+          ? `High exposure open: ${raid.open_high} • Overdue: ${raid.overdue} • SLA ≥70%: ${raid.sla_high}`
           : raid.error || "RAID signal unavailable.",
       },
       {
@@ -527,5 +527,3 @@ export async function GET(req: NextRequest) {
     return jsonErr(String(e?.message || e || "Portfolio health failed"), 500);
   }
 }
-
-

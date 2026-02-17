@@ -1,20 +1,9 @@
-﻿import "server-only";
+import "server-only";
 
-
-        param($m)
-        $inner = $m.Groups[1].Value
-        if ($inner -match '\bNextRequest\b') { return $m.Value }
-        if ($inner -match '\bNextResponse\b') {
-          # insert NextRequest right after opening brace
-          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
-        }
-        return $m.Value
-      
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
-
-type RouteCtx = { params: Promise<{ id: string }> };
 
 /* ---------------- utils ---------------- */
 
@@ -122,7 +111,7 @@ function canonArtifactType(typeParam: string) {
 
 /* ---------------- handler ---------------- */
 
-export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
 
@@ -133,7 +122,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
     const supabase = await createClient();
 
-    // âœ… Resolve UUID from UUID OR project_code OR P-XXXX
+    // ✅ Resolve UUID from UUID OR project_code OR P-XXXX
     const projectUuid = await resolveProjectUuid(supabase, projectIdentifier);
     if (!projectUuid) {
       return NextResponse.json({ ok: false, error: "Project not found" }, { status: 404 });
@@ -149,7 +138,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const typeCanon = canonArtifactType(typeParamRaw || "wbs");
     const isCurrent = currentParam ?? true;
 
-    // âœ… Type matching: try canon + raw variants so you don't get empty results due to casing
+    // ✅ Type matching: try canon + raw variants so you don't get empty results due to casing
     const typeCandidates = Array.from(
       new Set(
         [typeCanon, safeStr(typeParamRaw).trim(), safeStr(typeParamRaw).trim().toUpperCase(), safeStr(typeParamRaw).trim().toLowerCase()]
@@ -191,4 +180,3 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
-

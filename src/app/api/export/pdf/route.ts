@@ -274,12 +274,11 @@ async function handle(req: NextRequest) {
 }
 
 
-export async function GET(req: NextRequest, ctx: any) {
+export async function GET(req: Request, ctx: any) {
   return handle(req, ctx);
 }
 
-export async function POST(req: NextRequest, ctx: any) {
+export async function POST(req: Request, ctx: any) {
   return handle(req, ctx);
 }
-
 

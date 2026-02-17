@@ -1,14 +1,5 @@
-﻿import "server-only";
-
-        param($m)
-        $inner = $m.Groups[1].Value
-        if ($inner -match '\bNextRequest\b') { return $m.Value }
-        if ($inner -match '\bNextResponse\b') {
-          # insert NextRequest right after opening brace
-          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
-        }
-        return $m.Value
-      
+import "server-only";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -25,10 +16,10 @@ function num(x: any, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const supabase = await createClient();
 
-  // âœ… Next.js 16: params is async
+  // ✅ Next.js 16: params is async
   const { id: projectId } = await params;
 
   if (!projectId) {
@@ -52,4 +43,3 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   return NextResponse.json({ ok: true, days, count: planned });
 }
-

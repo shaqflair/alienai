@@ -1,7 +1,7 @@
-﻿// src/app/api/doa/rules/route.ts
+// src/app/api/doa/rules/route.ts
 import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -29,7 +29,7 @@ async function requireAuth(supabase: any) {
   return data.user;
 }
 
-// âœ… Your roles: owner | editor | viewer
+// ✅ Your roles: owner | editor | viewer
 async function requireProjectAdmin(supabase: any, projectId: string, userId: string) {
   const { data, error } = await supabase
     .from("project_members")
@@ -99,7 +99,7 @@ async function ensureNoOverlap(
  *   approverRole?
  * }
  */
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const supabase = await createClient();
     const user = await requireAuth(supabase);
@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
     const approverUserId = safeStr(body?.approverUserId).trim();
     if (!approverUserId) return jsonErr("Missing approverUserId", 400);
 
-    // âœ… prevent overlapping bands
+    // ✅ prevent overlapping bands
     await ensureNoOverlap(supabase, {
       projectId,
       minAmount,
@@ -161,7 +161,7 @@ export async function POST(req: NextRequest) {
  * GET /api/doa/rules?projectId=...
  * Returns active rules only (removed_at IS NULL)
  */
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const supabase = await createClient();
     const user = await requireAuth(supabase);
@@ -215,7 +215,7 @@ export async function GET(req: NextRequest) {
  *   approverRole?
  * }
  */
-export async function PATCH(req: NextRequest) {
+export async function PATCH(req: Request) {
   try {
     const supabase = await createClient();
     const user = await requireAuth(supabase);
@@ -255,7 +255,7 @@ export async function PATCH(req: NextRequest) {
     if (existing.removed_at) return jsonErr("Rule is removed", 400);
     if (String(existing.project_id) !== projectId) return jsonErr("projectId mismatch", 400);
 
-    // âœ… prevent overlap (exclude this rule)
+    // ✅ prevent overlap (exclude this rule)
     await ensureNoOverlap(supabase, {
       projectId,
       minAmount,
@@ -290,7 +290,7 @@ export async function PATCH(req: NextRequest) {
  * DELETE /api/doa/rules?id=...&projectId=...
  * Soft delete: sets removed_at + removed_by (matches your schema)
  */
-export async function DELETE(req: NextRequest) {
+export async function DELETE(req: Request) {
   try {
     const supabase = await createClient();
     const user = await requireAuth(supabase);
@@ -334,5 +334,3 @@ export async function DELETE(req: NextRequest) {
     return jsonErr(msg, status);
   }
 }
-
-

@@ -1,6 +1,6 @@
-﻿import "server-only";
+import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -37,14 +37,14 @@ function buildDraftAssist(input: any) {
 
   const headline =
     title && summary
-      ? `${title} â€” ${summary.slice(0, 160)}${summary.length > 160 ? "â€¦" : ""}`
+      ? `${title} — ${summary.slice(0, 160)}${summary.length > 160 ? "…" : ""}`
       : title || summary || "Draft your change request to get AI suggestions.";
 
   const next_action =
     !title
       ? "Start with a clear title (verb + object + context)."
       : !summary
-      ? "Add a 2â€“3 line summary: what, why, and who is impacted."
+      ? "Add a 2–3 line summary: what, why, and who is impacted."
       : "Add schedule/cost/risk details to strengthen the submission pack.";
 
   const alts = [
@@ -68,7 +68,7 @@ function buildDraftAssist(input: any) {
   };
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const supabase = await createClient();
     const body = await req.json().catch(() => ({} as any));
@@ -85,5 +85,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 500 });
   }
 }
-
-

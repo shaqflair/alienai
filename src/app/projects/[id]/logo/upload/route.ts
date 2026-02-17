@@ -1,15 +1,6 @@
 ﻿import "server-only";
 
-
-        param($m)
-        $inner = $m.Groups[1].Value
-        if ($inner -match '\bNextRequest\b') { return $m.Value }
-        if ($inner -match '\bNextResponse\b') {
-          # insert NextRequest right after opening brace
-          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
-        }
-        return $m.Value
-      
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -27,7 +18,8 @@ function extFromMime(mime: string) {
   return "png";
 }
 
-export async function POST(req: NextRequest,
+export async function POST(
+  req: Request,
   { params }: { params: { id?: string } }
 ) {
   const supabase = await createClient();
@@ -117,4 +109,3 @@ export async function POST(req: NextRequest,
 
   return NextResponse.json({ publicUrl }, { status: 200 });
 }
-

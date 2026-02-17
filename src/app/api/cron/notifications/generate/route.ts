@@ -1,7 +1,7 @@
 ﻿// src/app/api/cron/notifications/generate/route.ts
 import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -30,13 +30,13 @@ function s(x: any) {
  * - safe no-op (returns ok) to unblock deployments
  * - You can extend this to generate notifications from due items / approvals / AI events
  */
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     assertCronAuth(req);
 
     const sb = await createClient();
 
-    // ? If you later add logic, keep it server-only.
+    // ✅ If you later add logic, keep it server-only.
     // Example placeholder "health check" query (doesn't change data):
     // const { count } = await sb.from("notifications").select("id", { count: "exact", head: true });
 
@@ -55,9 +55,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   // allow POST too (some cron systems prefer POST)
   return GET(req);
 }
-
-

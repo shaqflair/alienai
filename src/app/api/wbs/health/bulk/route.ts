@@ -1,6 +1,6 @@
-﻿// src/app/api/wbs/health/bulk/route.ts
+// src/app/api/wbs/health/bulk/route.ts
 import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -143,7 +143,7 @@ function rowHasEffort(row: WbsRow): boolean {
 
 /**
  * We only score leaf rows (work packages).
- * Parents can be blank effort (thatâ€™s fine).
+ * Parents can be blank effort (that’s fine).
  */
 function calcWbsFromRows(doc: any) {
   const rows = safeArr(doc?.rows) as WbsRow[];
@@ -213,7 +213,7 @@ async function resolveActiveProjectIds(supabase: any, userId: string) {
 
     if (error) {
       if (looksMissingRelation(error) || looksMissingColumn(error)) throw error;
-      // RLS/etc - keep membership ids to avoid â€œblankâ€ responses
+      // RLS/etc - keep membership ids to avoid “blank” responses
       return { ok: false, error: error.message, projectIds: memberIds };
     }
 
@@ -253,7 +253,7 @@ async function resolveActiveProjectIds(supabase: any, userId: string) {
 
 /* ---------------- route ---------------- */
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   const supabase = await createClient();
 
   const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -262,14 +262,14 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => null);
 
-  // âœ… cap to prevent abuse / heavy DB reads
+  // ✅ cap to prevent abuse / heavy DB reads
   const artifactIds = uniqStrings(safeArr(body?.artifactIds).map((x) => String(x)))
     .filter(isUuid)
     .slice(0, 400);
 
   if (!artifactIds.length) return jsonErr("No artifactIds provided", 400);
 
-  // âœ… membership + active-only scope
+  // ✅ membership + active-only scope
   const scope = await resolveActiveProjectIds(supabase, auth.user.id);
   const projectIds = scope.projectIds;
 
@@ -280,7 +280,7 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // âœ… only return artifacts inside allowed projects
+  // ✅ only return artifacts inside allowed projects
   // IMPORTANT: select content_json (not content) but keep content as fallback
   const { data: rows, error } = await supabase
     .from("artifacts")
@@ -322,7 +322,7 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    // Unknown shape => do not claim â€œgoodâ€
+    // Unknown shape => do not claim “good”
     out[String(r.id)] = {
       missing_effort: 0,
       total: 0,
@@ -344,5 +344,3 @@ export async function POST(req: NextRequest) {
     },
   });
 }
-
-

@@ -1,7 +1,7 @@
-﻿// src/app/api/ai/suggestions/list/route.ts
+// src/app/api/ai/suggestions/list/route.ts
 import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -10,7 +10,7 @@ function safeStr(x: unknown) {
   return typeof x === "string" ? x : "";
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   let stage = "start";
 
   try {
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
 
     stage = "ai_suggestions.select.exec";
 
-    // âœ… payload exists after migration above
+    // ✅ payload exists after migration above
     let q = supabase
       .from("ai_suggestions")
       .select("id, project_id, artifact_id, target_artifact_type, suggestion_type, status, rationale, payload, sig, created_at")
@@ -68,5 +68,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, stage, error: e?.message ?? "Unknown error" }, { status: 500 });
   }
 }
-
-

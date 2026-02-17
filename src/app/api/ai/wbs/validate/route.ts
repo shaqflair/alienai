@@ -1,7 +1,7 @@
-﻿// src/app/api/ai/wbs/validate/route.ts
+// src/app/api/ai/wbs/validate/route.ts
 import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
@@ -24,7 +24,7 @@ function hasValue(s: any) {
   return safeStr(s).trim().length > 0;
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const due = safeStr(body?.due_date);
@@ -106,5 +106,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: e?.message ?? "AI validate failed" }, { status: 500 });
   }
 }
-
-

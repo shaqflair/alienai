@@ -1,6 +1,6 @@
-﻿// src/app/api/change-approvers/route.ts
+// src/app/api/change-approvers/route.ts
 import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { sb, requireUser, requireProjectRole, safeStr } from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
@@ -17,7 +17,7 @@ function shortUuid(x?: string) {
   return s ? s.slice(0, 6) : "";
 }
 
-/** âœ… convert string/number/bigint safely into text */
+/** ✅ convert string/number/bigint safely into text */
 function toText(x: any): string {
   if (x == null) return "";
   if (typeof x === "string") return x;
@@ -30,7 +30,7 @@ function toText(x: any): string {
   }
 }
 
-/** âœ… normalize to "PRJ-xxxx" */
+/** ✅ normalize to "PRJ-xxxx" */
 function normalizeProjectDisplay(raw: string): string {
   const s = toText(raw).trim();
   if (!s) return "";
@@ -46,7 +46,7 @@ function normalizeProjectDisplay(raw: string): string {
 }
 
 function pickProjectDisplayId(projectRow: any): string {
-  // âœ… Your projects table (per your JSON) definitely has: project_code
+  // ✅ Your projects table (per your JSON) definitely has: project_code
   const candidates = [toText(projectRow?.project_code)].map((s) => s.trim()).filter(Boolean);
 
   if (candidates.length) {
@@ -72,7 +72,7 @@ function pickChangeDisplayId(crRow: any): string {
 /**
  * GET /api/change-approvers?projectId=UUID&changeId=UUID
  */
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const supabase = await sb();
     const user = await requireUser(supabase);
@@ -91,7 +91,7 @@ export async function GET(req: NextRequest) {
     let projectDisplayId = `PRJ-${shortUuid(projectId)}`;
 
     try {
-      // âœ… select ONLY columns that exist in your projects table
+      // ✅ select ONLY columns that exist in your projects table
       const p = await supabase
         .from("projects")
         .select("id, project_code, title")
@@ -202,7 +202,7 @@ export async function GET(req: NextRequest) {
     };
 
     return jsonOk({
-      projectDisplayId, // âœ… should now become PRJ-100011
+      projectDisplayId, // ✅ should now become PRJ-100011
       changeDisplayId,
       changeTitle: toText((cr as any).title).trim() || null,
       decision,
@@ -213,5 +213,3 @@ export async function GET(req: NextRequest) {
     return jsonErr(safeStr(e?.message) || "Failed", 500);
   }
 }
-
-

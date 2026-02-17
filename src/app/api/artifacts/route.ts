@@ -1,7 +1,7 @@
-﻿// src/app/api/artifacts/route.ts
+// src/app/api/artifacts/route.ts
 import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -51,7 +51,7 @@ function escapeIlike(q: string) {
   return q.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
 
-/** âœ… computed href (NOT a DB column) */
+/** ✅ computed href (NOT a DB column) */
 function buildArtifactHref(a: { project_id?: any; id?: any; type?: any }) {
   const pid = safeStr(a.project_id).trim();
   const aid = safeStr(a.id).trim();
@@ -68,17 +68,17 @@ function buildArtifactHref(a: { project_id?: any; id?: any; type?: any }) {
 
 /* ---------------- route ---------------- */
 
-export async function GET(req: NextRequest) {
-  // âœ… IMPORTANT: createClient() is async (Next 16 cookies may be async)
+export async function GET(req: Request) {
+  // ✅ IMPORTANT: createClient() is async (Next 16 cookies may be async)
   const supabase = await createClient();
 
-  // âœ… No cache (prevents â€œdeleted but still visibleâ€)
+  // ✅ No cache (prevents “deleted but still visible”)
   const noStoreHeaders: HeadersInit = {
     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
     Pragma: "no-cache",
   };
 
-  // âœ… Auth gate
+  // ✅ Auth gate
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr) return jsonErr(authErr.message, 401, undefined, noStoreHeaders);
   if (!auth?.user) return jsonErr("Auth session missing!", 401, undefined, noStoreHeaders);
@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
 
   /**
-   * âœ… projectId is OPTIONAL now:
+   * ✅ projectId is OPTIONAL now:
    * - If provided => project-scoped results
    * - If missing => GLOBAL results across projects the user can read (RLS enforces access)
    */
@@ -128,15 +128,15 @@ export async function GET(req: NextRequest) {
       .order("updated_at", { ascending: false })
       .order("created_at", { ascending: false });
 
-    // âœ… Optional project scope
+    // ✅ Optional project scope
     if (projectId) {
       query = query.eq("project_id", projectId);
     }
 
-    // âœ… Type filter
+    // ✅ Type filter
     if (type) query = query.eq("type", type);
 
-    // âœ… Text search
+    // ✅ Text search
     if (q) {
       const qq = `%${escapeIlike(q)}%`;
       query = query.or(
@@ -187,7 +187,7 @@ export async function GET(req: NextRequest) {
       created_at: r.created_at,
       updated_at: r.updated_at,
 
-      // âœ… computed link (NOT from DB)
+      // ✅ computed link (NOT from DB)
       href: buildArtifactHref(r),
 
       project: r.projects
@@ -215,5 +215,3 @@ export async function GET(req: NextRequest) {
     return jsonErr(e?.message || "Unknown error", 500, undefined, noStoreHeaders);
   }
 }
-
-

@@ -1,7 +1,7 @@
-﻿// src/app/api/ai/suggestions/apply/route.ts
+// src/app/api/ai/suggestions/apply/route.ts
 import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { createClient as createSbJsClient } from "@supabase/supabase-js";
 
@@ -23,7 +23,7 @@ function adminClient() {
   return createSbJsClient(url, key, { auth: { persistSession: false } });
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
 
@@ -115,7 +115,7 @@ if (st === "add_stakeholder") {
     const patch = (sug as any).patch ?? null;
     const suggestionTargetType = safeLower((sug as any).target_artifact_type);
 
-    // âœ… Normalize stakeholder governance patches to the 5-column stakeholder register table shape
+    // ✅ Normalize stakeholder governance patches to the 5-column stakeholder register table shape
     const normalizedPatch = normalizeStakeholderPatchIfNeeded({
       artifactType,
       suggestionTargetType,
@@ -207,7 +207,7 @@ if (st === "add_stakeholder") {
 }
 
 /* =========================================================
-   Normalize stakeholder governance patch rows (4-col â†’ 5-col)
+   Normalize stakeholder governance patch rows (4-col → 5-col)
    ========================================================= */
 
 function normalizeStakeholderPatchIfNeeded(opts: {
@@ -239,7 +239,7 @@ function normalizeStakeholderPatchIfNeeded(opts: {
   if (looks5Col) return patch;
 
   // Convert 4-col governance rows: [name, role, impact, notes]
-  // â†’ 5-col stakeholder register rows: [Stakeholder, Point of Contact, Role, Internal/External, Title/Role]
+  // → 5-col stakeholder register rows: [Stakeholder, Point of Contact, Role, Internal/External, Title/Role]
   const mapped = rows
     .map((r) => {
       const name = safeStr(r?.[0]).trim() || "TBC";
@@ -252,7 +252,7 @@ function normalizeStakeholderPatchIfNeeded(opts: {
         "", // Point of Contact (unknown)
         role, // Role
         "Internal", // Internal/External default
-        [impact, notes].filter(Boolean).join(" â€” ").trim(), // Title/Role
+        [impact, notes].filter(Boolean).join(" — ").trim(), // Title/Role
       ];
     })
     .filter(Boolean);
@@ -484,5 +484,3 @@ function deepClone<T>(x: T): T {
     return x;
   }
 }
-
-

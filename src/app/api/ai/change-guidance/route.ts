@@ -1,6 +1,6 @@
-﻿// src/app/api/ai/change-guidance/route.ts
+// src/app/api/ai/change-guidance/route.ts
 import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { sb, requireUser, requireProjectRole, safeStr } from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
@@ -77,7 +77,7 @@ function draftFor(field: AiField, p: any) {
   if (field === "summary") {
     return clamp(
       summary ||
-        `Requesting approval to implement the proposed change. This will address the identified requirement, confirm scope, and enable delivery with controlled risk. Estimated impact: ${days} day(s), Â£${cost.toLocaleString()} (if applicable).`,
+        `Requesting approval to implement the proposed change. This will address the identified requirement, confirm scope, and enable delivery with controlled risk. Estimated impact: ${days} day(s), £${cost.toLocaleString()} (if applicable).`,
       1200
     );
   }
@@ -93,7 +93,7 @@ function draftFor(field: AiField, p: any) {
   if (field === "financial") {
     return clamp(
       safeStr(p?.sections?.financial).trim() ||
-        `Estimated commercial impact: Â£${cost.toLocaleString()} (if applicable). Confirm funding source (CR/budget line), billing approach, and whether this is in-scope or chargeable variation.`,
+        `Estimated commercial impact: £${cost.toLocaleString()} (if applicable). Confirm funding source (CR/budget line), billing approach, and whether this is in-scope or chargeable variation.`,
       2000
     );
   }
@@ -128,7 +128,7 @@ function draftFor(field: AiField, p: any) {
   );
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const supabase = await sb();
     const user = await requireUser(supabase);
@@ -182,5 +182,3 @@ export async function POST(req: NextRequest) {
     return err(safeStr(e?.message) || "AI guidance failed", 500);
   }
 }
-
-

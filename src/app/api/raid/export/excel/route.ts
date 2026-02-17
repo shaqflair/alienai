@@ -385,4 +385,3 @@ export async function GET(req: NextRequest) {
     return jsonErr(msg, status);
   }
 }
-

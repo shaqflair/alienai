@@ -1,16 +1,7 @@
-﻿// src/app/projects/[id]/artifacts/[artifactId]/export/pdf/route.ts
+// src/app/projects/[id]/artifacts/[artifactId]/export/pdf/route.ts
 import "server-only";
 
-
-        param($m)
-        $inner = $m.Groups[1].Value
-        if ($inner -match '\bNextRequest\b') { return $m.Value }
-        if ($inner -match '\bNextResponse\b') {
-          # insert NextRequest right after opening brace
-          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
-        }
-        return $m.Value
-      
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { launchBrowser } from "@/lib/pdf/puppeteer-launch";
@@ -21,7 +12,7 @@ import { isCharterExportReady } from "@/lib/charter/export-ready";
 export const runtime = "nodejs";
 
 /**
- * âœ… This file contains NO JSX.
+ * ✅ This file contains NO JSX.
  * If you still see: Expected '>', got 'className'
  * it means JSX exists in a different route handler file.
  * Search your repo for: className=
@@ -123,7 +114,8 @@ async function fetchArtifact(admin: any, artifactId: string) {
   return data ?? null;
 }
 
-export async function GET(req: NextRequest,
+export async function GET(
+  req: Request,
   ctx: { params: { id?: string; artifactId?: string } | Promise<any> }
 ) {
   const p = await unwrapParams(ctx.params);
@@ -165,7 +157,7 @@ export async function GET(req: NextRequest,
 
   const raw = parseArtifactContent(artifact.content_json ?? artifact.content);
 
-  // âœ… Export readiness gate (prevents blank PDFs)
+  // ✅ Export readiness gate (prevents blank PDFs)
   const v2 = raw && typeof raw === "object" ? raw : null;
 
   // Hard stop: must be v2-like { meta, sections }
@@ -267,4 +259,3 @@ export async function GET(req: NextRequest,
     await browser.close().catch(() => {});
   }
 }
-

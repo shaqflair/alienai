@@ -1,7 +1,7 @@
-﻿// src/app/api/notifications/route.ts
+// src/app/api/notifications/route.ts
 import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -219,7 +219,7 @@ async function hydrateProjectMeta(supabase: any, itemsRaw: any[] | null | undefi
   };
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const supabase = await createClient();
     const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -269,7 +269,7 @@ export async function GET(req: NextRequest) {
 
     const { items, meta: hydrateMeta } = await hydrateProjectMeta(supabase, itemsRaw);
 
-    // âœ… Robust unread count (count-only)
+    // ✅ Robust unread count (count-only)
     let unreadCount = 0;
     let unreadCountMode: "exact" | "fallback_rows" | "fallback_items" = "exact";
 
@@ -348,5 +348,3 @@ export async function GET(req: NextRequest) {
     return err(e?.message || "Unexpected error", 500);
   }
 }
-
-

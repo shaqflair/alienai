@@ -1,12 +1,12 @@
-﻿// src/app/api/ai/events/route.ts
+// src/app/api/ai/events/route.ts
 import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
 
-// âœ… prevent cross-user caching (dashboard KPI bleed)
+// ✅ prevent cross-user caching (dashboard KPI bleed)
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -68,7 +68,7 @@ function parseDueToUtcDate(value: any): Date | null {
   if (value instanceof Date && !isNaN(value.getTime())) return value;
 
   const s = safeStr(value).trim();
-  if (!s || s === "â€”" || s.toLowerCase() === "na" || s.toLowerCase() === "n/a") return null;
+  if (!s || s === "—" || s.toLowerCase() === "na" || s.toLowerCase() === "n/a") return null;
 
   // ISO / YYYY-MM-DD / timestamps
   const isoTry = new Date(s);
@@ -130,7 +130,7 @@ function normalizeProjectIdentifier(input: string) {
   } catch {}
   v = v.trim();
 
-  // common prefixes: P-100011 / PRJ-100011 etc â†’ extract last numeric run
+  // common prefixes: P-100011 / PRJ-100011 etc → extract last numeric run
   const m = v.match(/(\d{3,})$/);
   if (m?.[1]) return m[1];
 
@@ -158,7 +158,7 @@ function shapeSbError(err: any) {
 }
 
 /**
- * âœ… Server-side link normaliser (prevents /RAID, /WBS etc)
+ * ✅ Server-side link normaliser (prevents /RAID, /WBS etc)
  * Works on relative paths; preserves query/hash.
  */
 function normalizeArtifactLink(href: string | null | undefined) {
@@ -195,7 +195,7 @@ async function requireAuth(supabase: any) {
 }
 
 /**
- * âœ… Membership check MUST be via organisation_members + projects.organisation_id
+ * ✅ Membership check MUST be via organisation_members + projects.organisation_id
  * (project_members was legacy and can cause false positives/negatives)
  *
  * NOTE: We keep this against `projects` (not the view) so direct access to a closed project
@@ -242,7 +242,7 @@ async function loadMyOrgIds(supabase: any, userId: string): Promise<string[]> {
 }
 
 /**
- * âœ… DASHBOARD-GRADE ACTIVE PROJECTS ONLY
+ * ✅ DASHBOARD-GRADE ACTIVE PROJECTS ONLY
  * Uses DB view `public.projects_active` which already excludes deleted/closed/cancelled/completed.
  */
 async function loadProjectsForOrgs(supabase: any, orgIds: string[]) {
@@ -280,7 +280,7 @@ async function resolveProjectUuid(supabase: any, identifier: string): Promise<st
   // 1) UUID
   if (looksLikeUuid(raw)) return raw;
 
-  // 2) Normalize human ids like P-100011 â†’ 100011
+  // 2) Normalize human ids like P-100011 → 100011
   const id = normalizeProjectIdentifier(raw);
 
   // 3) Probe candidate columns until one works
@@ -460,7 +460,7 @@ function buildDraftAssistAi(input: any) {
     schedule ||
     mergeBits([
       when ? `Target window/milestone: ${when}` : "",
-      "Plan: design â†’ approvals â†’ implement â†’ validate â†’ handover/close.",
+      "Plan: design → approvals → implement → validate → handover/close.",
       "Dependencies: confirm CAB/Change window and sequencing with release calendar.",
     ]) ||
     "Outline target window, milestones, and sequencing.";
@@ -522,7 +522,7 @@ function buildDraftAssistAi(input: any) {
     assumptions: bestAssumptions,
     implementation: bestImplementation,
     rollback: bestRollback,
-    impact: { days: 1, cost: 0, risk: "Medium â€” validate in change window" },
+    impact: { days: 1, cost: 0, risk: "Medium — validate in change window" },
   };
 }
 
@@ -694,7 +694,7 @@ async function buildDueDigestOrgBulk(args: {
 
   const projectIds = projects.map((p) => String(p.id)).filter(Boolean);
 
-  // âœ… bulk PM lookup (no N+1)
+  // ✅ bulk PM lookup (no N+1)
   const pmByProjectId = await bulkLoadProjectManagers(supabase, projectIds);
 
   const projectById = new Map<
@@ -727,7 +727,7 @@ async function buildDueDigestOrgBulk(args: {
     });
   }
 
-  // Run the 5 â€œdueâ€ queries once each (bulk).
+  // Run the 5 “due” queries once each (bulk).
   const [artRes, msRes, wbsRes, raidRes, chRes] = await Promise.all([
     supabase
       .from("v_artifact_board")
@@ -1372,7 +1372,7 @@ async function buildDashboardStatsGlobal(supabase: any, userId: string) {
     };
   }
 
-  // âœ… active-only projects via projects_active view
+  // ✅ active-only projects via projects_active view
   const projects = await loadProjectsForOrgs(supabase, orgIds);
   const projectIds = projects.map((p: any) => p.id).filter(Boolean);
 
@@ -1478,7 +1478,7 @@ async function buildDashboardStatsGlobal(supabase: any, userId: string) {
       : 0;
 
   return {
-    projects: projectIds.length, // âœ… active-only count
+    projects: projectIds.length, // ✅ active-only count
     success: {
       work_packages_completed: wbs_done,
       milestones_done,
@@ -1809,7 +1809,7 @@ async function buildDeliveryReportV1(args: {
       ].filter(Boolean);
       const publicId = safeStr(r?.public_id).trim();
       return {
-        text: bits.join(" â€” "),
+        text: bits.join(" — "),
         link: linkForRaid(projectHumanId, publicId || undefined),
       };
     });
@@ -1882,7 +1882,7 @@ async function buildDeliveryReportV1(args: {
         : "Delivery at risk (overdue items detected)";
 
   const narrative = mergeBits([
-    `Period covered: ${fromUk} â†’ ${toUk}.`,
+    `Period covered: ${fromUk} → ${toUk}.`,
     `Completed: ${msDone.length} milestone(s), ${wbsDone.length} work item(s), ${changesClosed.length} change(s), ${raidClosed.length} RAID item(s).`,
     overdue.length ? `Overdue items: ${overdue.length} (review immediately).` : "",
     blockers.length ? `Operational blockers identified: ${blockers.length}.` : "",
@@ -1957,7 +1957,7 @@ async function buildDeliveryReportV1(args: {
 
 /* ---------------- handler ---------------- */
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const supabase = await createClient();
     const user = await requireAuth(supabase);
@@ -1980,12 +1980,12 @@ export async function POST(req: NextRequest) {
        Global dashboard: no project
        =========================== */
 
-    // âœ… If the dashboard calls artifact_due without a project, return org-scoped aggregate.
+    // ✅ If the dashboard calls artifact_due without a project, return org-scoped aggregate.
     if (eventType === "artifact_due" && !rawProject) {
       const windowDays = clampInt(body?.windowDays ?? payload?.windowDays, 1, 90, 14);
 
       const orgIds = await loadMyOrgIds(supabase, user.id);
-      const projects = await loadProjectsForOrgs(supabase, orgIds); // âœ… active-only via view
+      const projects = await loadProjectsForOrgs(supabase, orgIds); // ✅ active-only via view
 
       if (!projects.length) {
         return jsonNoStore({
@@ -2044,12 +2044,12 @@ export async function POST(req: NextRequest) {
       return jsonNoStore({ ok: false, error: "Project not found", meta: { rawProject } }, { status: 404 });
     }
 
-    // âœ… org-membership check (replaces legacy project_members)
+    // ✅ org-membership check (replaces legacy project_members)
     await requireProjectAccessViaOrg(supabase, projectUuid, user.id);
 
     const meta = await loadProjectMeta(supabase, projectUuid);
 
-    // âœ… human id MUST be project_code (fallback only if missing)
+    // ✅ human id MUST be project_code (fallback only if missing)
     const projectHumanId = normalizeProjectHumanId(meta.project_human_id, rawProject);
 
     const draftId = safeStr((payload as any)?.draftId).trim() || safeStr(body?.draftId).trim() || "";
@@ -2078,7 +2078,7 @@ export async function POST(req: NextRequest) {
 
       const windowDays = clampInt((p as any)?.windowDays ?? (body as any)?.windowDays, 1, 90, 7);
 
-      // âœ… meta enrichment (requested):
+      // ✅ meta enrichment (requested):
       // - previous rag (from the report artifact, if provided)
       // - milestone map
       // - dimensions
@@ -2097,7 +2097,7 @@ export async function POST(req: NextRequest) {
         windowDays,
       });
 
-      // âœ… Canonical project meta inside the report (so it persists in saved JSON + exports)
+      // ✅ Canonical project meta inside the report (so it persists in saved JSON + exports)
       const report: any = {
         ...reportBase,
         project: {
@@ -2138,7 +2138,7 @@ export async function POST(req: NextRequest) {
         },
       };
 
-      // âœ… keys your editor already supports
+      // ✅ keys your editor already supports
       // - report
       // - content_json (canonical save payload for artifact update)
       const content_json = report;
@@ -2215,5 +2215,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-
-

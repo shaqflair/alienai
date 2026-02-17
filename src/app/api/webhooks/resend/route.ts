@@ -1,5 +1,5 @@
 ﻿// src/app/api/webhooks/resend/route.ts
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { createHmac, timingSafeEqual } from "crypto";
 
@@ -26,7 +26,7 @@ function extractSignature(sigHeader: string): string {
   return s.toLowerCase();
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   const secret = process.env.RESEND_WEBHOOK_SECRET;
   if (!secret) {
     return NextResponse.json({ error: "Missing RESEND_WEBHOOK_SECRET" }, { status: 500 });
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.text();
 
-  // ? Next.js 16: headers() is async
+  // ✅ Next.js 16: headers() is async
   const h = await headers();
   const signatureHeader = h.get("resend-signature") ?? h.get("Resend-Signature") ?? "";
   const signature = extractSignature(signatureHeader);
@@ -67,5 +67,3 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ ok: true });
 }
-
-
