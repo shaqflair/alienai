@@ -1,18 +1,32 @@
 import "server-only";
-import { NextResponse } from "next/server";
-import { sb, safeStr, jsonError, requireUser, requireProjectRole, canEdit, normalizeImpactAnalysis } from "@/lib/change/server-helpers";
+import { NextRequest, NextResponse } from "next/server";
+import {
+  sb,
+  safeStr,
+  jsonError,
+  requireUser,
+  requireProjectRole,
+  canEdit,
+  normalizeImpactAnalysis,
+} from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
 
-export async function PATCH(req: Request, ctx: { params: { projectId: string; crId: string } }) {
+type RouteCtx = { params: Promise<{ id: string; crId: string }> };
+
+export async function PATCH(req: NextRequest, ctx: RouteCtx) {
   try {
     const supabase = await sb();
     const user = await requireUser(supabase);
 
-    const projectId = safeStr(ctx?.params?.projectId).trim();
-    const crId = safeStr(ctx?.params?.crId).trim();
+    const { id, crId } = await ctx.params;
+
+    // folder is [id] so param key is id; map to existing naming
+    const projectId = safeStr(id).trim();
+    const changeId = safeStr(crId).trim();
+
     if (!projectId) return jsonError("Missing projectId", 400);
-    if (!crId) return jsonError("Missing crId", 400);
+    if (!changeId) return jsonError("Missing crId", 400);
 
     const role = await requireProjectRole(supabase, projectId, user.id);
     if (!role) return jsonError("Forbidden", 403);
@@ -33,9 +47,11 @@ export async function PATCH(req: Request, ctx: { params: { projectId: string; cr
     const { data, error } = await supabase
       .from("change_requests")
       .update(patch)
-      .eq("id", crId)
+      .eq("id", changeId)
       .eq("project_id", projectId)
-      .select("id, project_id, title, description, proposed_change, impact_analysis, status, priority, tags, updated_at")
+      .select(
+        "id, project_id, title, description, proposed_change, impact_analysis, status, priority, tags, updated_at"
+      )
       .single();
 
     if (error) throw new Error(error.message);
