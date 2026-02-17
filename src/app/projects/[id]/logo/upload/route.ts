@@ -1,5 +1,9 @@
-﻿import { NextResponse } from "next/server";
+﻿import "server-only";
+
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
+
+export const runtime = "nodejs";
 
 function safeParam(x: unknown): string {
   return typeof x === "string" ? x : "";
@@ -14,10 +18,13 @@ function extFromMime(mime: string) {
   return "png";
 }
 
-export async function POST(req: Request, ctx: { params: { id?: string } }) {
+export async function POST(
+  req: Request,
+  { params }: { params: { id?: string } }
+) {
   const supabase = await createClient();
 
-  const projectId = safeParam(ctx.(await params).id);
+  const projectId = safeParam(params?.id);
   if (!projectId || projectId === "undefined") {
     return NextResponse.json({ error: "Missing project id" }, { status: 400 });
   }
@@ -81,16 +88,20 @@ export async function POST(req: Request, ctx: { params: { id?: string } }) {
   const { data: pub } = supabase.storage.from("project-logos").getPublicUrl(path);
   const publicUrl = pub?.publicUrl ?? null;
 
-  if (!publicUrl) return NextResponse.json({ error: "Could not create public URL" }, { status: 500 });
+  if (!publicUrl) {
+    return NextResponse.json({ error: "Could not create public URL" }, { status: 500 });
+  }
 
   // Save into projects.client_logo_url
-  const { error: saveErr } = await supabase
+  const { data: saved, error: saveErr } = await supabase
     .from("projects")
     .update({ client_logo_url: publicUrl })
-    .eq("id", projectId);
+    .eq("id", projectId)
+    .select("id")
+    .maybeSingle();
 
   if (saveErr) return NextResponse.json({ error: saveErr.message }, { status: 500 });
+  if (!saved) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
   return NextResponse.json({ publicUrl }, { status: 200 });
 }
-
