@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function ok(data: any, status = 200) {
   const res = NextResponse.json({ ok: true, ...data }, { status });
@@ -13,10 +14,7 @@ function ok(data: any, status = 200) {
 }
 
 function err(message: string, status = 400, meta?: any) {
-  const res = NextResponse.json(
-    { ok: false, error: message, ...(meta ? { meta } : {}) },
-    { status }
-  );
+  const res = NextResponse.json({ ok: false, error: message, ...(meta ? { meta } : {}) }, { status });
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;
 }
@@ -67,15 +65,6 @@ function getMetaProjectId(md: any) {
   );
 }
 
-function hasMetaCodeOrName(md: any) {
-  const m = isObj(md) ? md : {};
-  const code =
-    safeStr(m.project_code || m.projectCode || m.project_code_text).trim();
-  const name =
-    safeStr(m.project_name || m.projectName || m.project_title || m.projectTitle).trim();
-  return !!(code || name);
-}
-
 /**
  * Enrich notification items so UI can show project_code + title (instead of UUID / "Project").
  *
@@ -93,15 +82,13 @@ function hasMetaCodeOrName(md: any) {
 async function hydrateProjectMeta(supabase: any, itemsRaw: any[] | null | undefined) {
   const list = Array.isArray(itemsRaw) ? itemsRaw : [];
 
-  // First pass: collect project IDs already present (row or metadata)
-  const needByIndex = new Map<number, string>(); // index -> projectId (if known)
+  const needByIndex = new Map<number, string>(); // index -> projectId
   const missingProjectViaArtifact: { index: number; artifactId: string }[] = [];
 
   for (let i = 0; i < list.length; i++) {
     const n = list[i];
     const pidRow = safeStr(n?.project_id).trim();
     const pidMeta = getMetaProjectId(n?.metadata);
-
     const pid = pidRow || pidMeta;
 
     if (pid) {
@@ -112,15 +99,13 @@ async function hydrateProjectMeta(supabase: any, itemsRaw: any[] | null | undefi
     }
   }
 
-  // Second pass: resolve missing project IDs via artifacts table (best-effort)
+  // Resolve missing project IDs via artifacts (best-effort)
   let artifactResolveMeta: any = { resolvedFromArtifacts: 0 };
+
   if (missingProjectViaArtifact.length > 0) {
-    const artifactIds = Array.from(
-      new Set(missingProjectViaArtifact.map((x) => x.artifactId).filter(Boolean))
-    );
+    const artifactIds = Array.from(new Set(missingProjectViaArtifact.map((x) => x.artifactId).filter(Boolean)));
 
     try {
-      // Assumption: artifacts table exists with columns (id, project_id)
       const { data: artifacts, error: artErr } = await supabase
         .from("artifacts")
         .select("id, project_id")
@@ -147,7 +132,10 @@ async function hydrateProjectMeta(supabase: any, itemsRaw: any[] | null | undefi
         artifactResolveMeta = { resolvedFromArtifacts: 0, artifactsLookupError: artErr.message };
       }
     } catch (e: any) {
-      artifactResolveMeta = { resolvedFromArtifacts: 0, artifactsLookupError: safeStr(e?.message) || "artifact lookup failed" };
+      artifactResolveMeta = {
+        resolvedFromArtifacts: 0,
+        artifactsLookupError: safeStr(e?.message) || "artifact lookup failed",
+      };
     }
   }
 
@@ -156,7 +144,6 @@ async function hydrateProjectMeta(supabase: any, itemsRaw: any[] | null | undefi
     return { items: list, meta: { hydratedProjects: 0, ...artifactResolveMeta } };
   }
 
-  // Pull minimal fields from projects (YOUR schema: project_code + title)
   let hydrateError: string | null = null;
   const byId = new Map<string, { project_code?: string; project_name?: string }>();
 
@@ -199,9 +186,7 @@ async function hydrateProjectMeta(supabase: any, itemsRaw: any[] | null | undefi
 
   const enriched = list.map((n, idx) => {
     const pid =
-      safeStr(n?.project_id).trim() ||
-      getMetaProjectId(n?.metadata) ||
-      safeStr(needByIndex.get(idx)).trim();
+      safeStr(n?.project_id).trim() || getMetaProjectId(n?.metadata) || safeStr(needByIndex.get(idx)).trim();
 
     if (!pid) return n;
 
@@ -210,7 +195,6 @@ async function hydrateProjectMeta(supabase: any, itemsRaw: any[] | null | undefi
 
     const md = isObj(n?.metadata) ? { ...n.metadata } : {};
 
-    // Only set if absent (don’t override generator values)
     if (!safeStr(md.project_code || md.projectCode || md.project_code_text).trim() && p.project_code) {
       md.project_code = p.project_code;
     }
@@ -218,9 +202,11 @@ async function hydrateProjectMeta(supabase: any, itemsRaw: any[] | null | undefi
       md.project_name = p.project_name;
     }
 
-    // Also provide project_id in-memory so UI fallback works even if DB row project_id is null
-    const next = { ...n, project_id: safeStr(n?.project_id).trim() ? n.project_id : pid, metadata: md };
-    return next;
+    return {
+      ...n,
+      project_id: safeStr(n?.project_id).trim() ? n.project_id : pid,
+      metadata: md,
+    };
   });
 
   return {
@@ -281,22 +267,17 @@ export async function GET(req: Request) {
     const { data: itemsRaw, error: listErr } = await q;
     if (listErr) return err(listErr.message, 500);
 
-    // ✅ Enrich project metadata so UI shows project_code + title (and not UUID/"Project")
     const { items, meta: hydrateMeta } = await hydrateProjectMeta(supabase, itemsRaw);
 
-    /* ---------------------------
-       ✅ Robust unread count
-    ---------------------------- */
-
+    // ✅ Robust unread count (count-only)
     let unreadCount = 0;
     let unreadCountMode: "exact" | "fallback_rows" | "fallback_items" = "exact";
 
     const { count, error: cntErr } = await supabase
       .from("notifications")
-      .select("id", { count: "exact" })
+      .select("id", { count: "exact", head: true })
       .eq("user_id", auth.user.id)
-      .eq("is_read", false)
-      .limit(1);
+      .eq("is_read", false);
 
     if (cntErr) return err(cntErr.message, 500);
 
@@ -316,9 +297,7 @@ export async function GET(req: Request) {
       unreadCountMode = "fallback_rows";
 
       if (!unreadCount) {
-        unreadCount = Array.isArray(items)
-          ? items.filter((n: any) => n?.is_read !== true).length
-          : 0;
+        unreadCount = Array.isArray(items) ? items.filter((n: any) => n?.is_read !== true).length : 0;
         unreadCountMode = "fallback_items";
       }
     }
@@ -336,19 +315,17 @@ export async function GET(req: Request) {
 
       const { count: totalForUser, error: totalErr } = await supabase
         .from("notifications")
-        .select("id", { count: "exact" })
-        .eq("user_id", auth.user.id)
-        .limit(1);
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", auth.user.id);
 
       if (totalErr) return err(totalErr.message, 500);
 
       const { count: overdueUnread, error: overdueErr } = await supabase
         .from("notifications")
-        .select("id", { count: "exact" })
+        .select("id", { count: "exact", head: true })
         .eq("user_id", auth.user.id)
         .eq("is_read", false)
-        .or(`bucket.eq.overdue,due_date.lt.${ymd}`)
-        .limit(1);
+        .or(`bucket.eq.overdue,and(due_date.not.is.null,due_date.lt.${ymd})`);
 
       if (overdueErr) return err(overdueErr.message, 500);
 

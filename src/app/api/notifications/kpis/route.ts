@@ -16,10 +16,7 @@ function ok(data: any, status = 200) {
 }
 
 function err(message: string, status = 400, meta?: any) {
-  const res = NextResponse.json(
-    { ok: false, error: message, ...(meta ? { meta } : {}) },
-    { status }
-  );
+  const res = NextResponse.json({ ok: false, error: message, ...(meta ? { meta } : {}) }, { status });
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;
 }
@@ -39,14 +36,32 @@ function isDebug(req: Request) {
   return safeStr(url.searchParams.get("debug")).trim() === "1";
 }
 
+function daysAgoIso(days: number) {
+  const ms = Math.max(0, days) * 24 * 60 * 60 * 1000;
+  return new Date(Date.now() - ms).toISOString();
+}
+
 /**
  * Apply scope safely.
- * - If projectIds exist: constrain to those
- * - Else: constrain to NULL project_id (keeps counts stable)
+ *
+ * IMPORTANT:
+ * - Your LIST route can “hydrate” project_id using artifact_id → artifacts.project_id.
+ * - KPIs route does NOT hydrate; therefore many rows may have project_id NULL.
+ *
+ * To keep KPIs consistent with the list:
+ * - If projectIds exist: include (project_id IN projectIds) OR (project_id IS NULL)
+ * - If none: keep NULL only (stable and safe)
  */
 function applyScope(q: any, projectIds: string[]) {
   if (!projectIds.length) return q.is("project_id", null);
-  return q.in("project_id", projectIds);
+  const ids = projectIds.filter(Boolean).join(",");
+  // supabase/postgrest OR syntax: "a.in.(..),a.is.null"
+  return q.or(`project_id.in.(${ids}),project_id.is.null`);
+}
+
+/** Apply time window if present */
+function applyWindow(q: any, sinceIso: string) {
+  return q.gte("created_at", sinceIso);
 }
 
 async function countExact(q: any) {
@@ -89,6 +104,7 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
     const days = clampDays(url.searchParams.get("days"), 14);
+    const sinceIso = daysAgoIso(days);
 
     const scoped = await resolveActiveProjectScope(supabase, userId);
     const projectIds = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
@@ -99,35 +115,34 @@ export async function GET(req: Request) {
         .select("id", { count: "exact", head: true })
         .eq("user_id", userId);
 
-    // Build each KPI query (scope applied consistently)
-    const qTotal = applyScope(base(), projectIds);
+    // Build each KPI query (window + scope applied consistently)
+    const qTotal = applyScope(applyWindow(base(), sinceIso), projectIds);
 
-    const qUnread = applyScope(base().eq("is_read", false), projectIds);
+    const qUnread = applyScope(applyWindow(base().eq("is_read", false), sinceIso), projectIds);
 
     // ✅ Use bucket ONLY (matches your generator; avoids fragile OR syntax)
     const qOverdueUnread = applyScope(
-      base().eq("is_read", false).eq("bucket", "overdue"),
+      applyWindow(base().eq("is_read", false).eq("bucket", "overdue"), sinceIso),
       projectIds
     );
 
     const qDueSoonUnread = applyScope(
-      base().eq("is_read", false).eq("bucket", "due_soon"),
+      applyWindow(base().eq("is_read", false).eq("bucket", "due_soon"), sinceIso),
       projectIds
     );
 
-    // These are optional signal types (leave as ilike for now)
     const qApprovalsUnread = applyScope(
-      base().eq("is_read", false).ilike("type", "%approval%"),
+      applyWindow(base().eq("is_read", false).ilike("type", "%approval%"), sinceIso),
       projectIds
     );
 
     const qAiUnread = applyScope(
-      base().eq("is_read", false).or("type.ilike.%ai%,type.ilike.%slip%"),
+      applyWindow(base().eq("is_read", false).or("type.ilike.%ai%,type.ilike.%slip%"), sinceIso),
       projectIds
     );
 
     const qRisksIssuesUnread = applyScope(
-      base().eq("is_read", false).or("type.ilike.%risk%,type.ilike.%issue%"),
+      applyWindow(base().eq("is_read", false).or("type.ilike.%risk%,type.ilike.%issue%"), sinceIso),
       projectIds
     );
 
@@ -142,13 +157,11 @@ export async function GET(req: Request) {
       countWithLabel("risksIssuesUnread", qRisksIssuesUnread, debugOn),
     ]);
 
-    // If not in debug mode, and any query failed, throw
     if (!debugOn) {
       const failed = results.find((r) => !r.ok);
       if (failed && !failed.ok) throw new Error(failed.error || "Query failed");
     }
 
-    // Build KPI object from results
     const map = new Map(results.map((r) => [r.label, r.count]));
     const payload = {
       days,
@@ -165,6 +178,7 @@ export async function GET(req: Request) {
         ? {
             meta: {
               userId,
+              sinceIso,
               projectCount: projectIds.length,
               projectIds: projectIds.slice(0, 25),
               scopeMeta: scoped?.meta ?? null,
@@ -176,7 +190,6 @@ export async function GET(req: Request) {
 
     return ok(payload);
   } catch (e: any) {
-    // In debug mode, return the real error
     if (debugOn) {
       return err("Failed", 500, {
         message: String(e?.message || e),
