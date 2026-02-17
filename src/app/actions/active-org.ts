@@ -1,4 +1,4 @@
-"use server";
+﻿"use server";
 
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
@@ -35,7 +35,7 @@ export async function setActiveOrgAction(formData: FormData) {
   if (error) throw new Error(sbErrText(error));
   if (!member) throw new Error("You are not a member of that organisation.");
 
-  cookies().set("active_org_id", orgId, {
+  cookieStore.set("active_org_id", orgId, {
     path: "/",
     sameSite: "lax",
     httpOnly: true,
@@ -44,3 +44,4 @@ export async function setActiveOrgAction(formData: FormData) {
 
   redirect("/settings");
 }
+
