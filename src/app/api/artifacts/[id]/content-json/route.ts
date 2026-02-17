@@ -1,7 +1,7 @@
 // src/app/api/artifacts/[id]/content-json/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -212,17 +212,19 @@ async function hasArtifactColumn(supabase: any, columnName: string): Promise<boo
 
 /* ───────────────────────── Routes ───────────────────────── */
 
+type RouteCtx = { params: Promise<{ id: string }> };
+
 /**
  * GET /api/artifacts/:id/content-json?projectId=...
  * projectId is optional: if missing, we resolve from artifacts row (and still enforce membership).
  */
-export async function GET(req: Request, ctx: { params: Promise<{ id?: string }> | { id?: string } }) {
+export async function GET(req: NextRequest, ctx: RouteCtx) {
   try {
     const supabase = await createClient();
-    const params = await Promise.resolve(ctx.params as any);
+    const { id } = await ctx.params;
 
-    const artifactId = safeStr(params?.id).trim() || safeStr(params?.artifactId).trim();
-    if (!artifactId) return jsonErr("Missing artifactId", 400, { params });
+    const artifactId = safeStr(id).trim();
+    if (!artifactId) return jsonErr("Missing artifactId", 400, { params: { id } });
     if (!isUuid(artifactId)) return jsonErr("Invalid artifactId", 400);
 
     const url = new URL(req.url);
@@ -236,7 +238,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id?: string }> 
         .eq("id", artifactId)
         .maybeSingle();
 
-      if (a0Err) return jsonErr("Failed to load artifact", 500, { message: a0Err.message, code: a0Err.code, hint: a0Err.hint });
+      if (a0Err)
+        return jsonErr("Failed to load artifact", 500, { message: a0Err.message, code: a0Err.code, hint: a0Err.hint });
       if (!a0?.project_id) return jsonErr("Not found", 404);
 
       projectId = String(a0.project_id);
@@ -253,7 +256,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id?: string }> 
       .eq("project_id", projectId)
       .maybeSingle();
 
-    if (artErr) return jsonErr("Failed to load artifact", 500, { message: artErr.message, code: artErr.code, hint: artErr.hint });
+    if (artErr)
+      return jsonErr("Failed to load artifact", 500, { message: artErr.message, code: artErr.code, hint: artErr.hint });
     if (!art) return jsonErr("Not found", 404);
 
     return jsonOk({
@@ -283,13 +287,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ id?: string }> 
  * - projectId is optional: if missing, resolve from artifact row.
  * - Optional concurrency: header If-Match: <artifact.updated_at from GET>
  */
-export async function POST(req: Request, ctx: { params: Promise<{ id?: string }> | { id?: string } }) {
+export async function POST(req: NextRequest, ctx: RouteCtx) {
   try {
     const supabase = await createClient();
-    const params = await Promise.resolve(ctx.params as any);
+    const { id } = await ctx.params;
 
-    const artifactId = safeStr(params?.id).trim() || safeStr(params?.artifactId).trim();
-    if (!artifactId) return jsonErr("Missing artifactId", 400, { params });
+    const artifactId = safeStr(id).trim();
+    if (!artifactId) return jsonErr("Missing artifactId", 400, { params: { id } });
     if (!isUuid(artifactId)) return jsonErr("Invalid artifactId", 400);
 
     const body = await req.json().catch(() => ({}));
@@ -310,7 +314,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         .eq("id", artifactId)
         .maybeSingle();
 
-      if (a0Err) return jsonErr("Failed to load artifact", 500, { message: a0Err.message, code: a0Err.code, hint: a0Err.hint });
+      if (a0Err)
+        return jsonErr("Failed to load artifact", 500, { message: a0Err.message, code: a0Err.code, hint: a0Err.hint });
       if (!a0?.project_id) return jsonErr("Not found", 404);
 
       projectId = String(a0.project_id);
@@ -328,7 +333,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       .eq("project_id", projectId)
       .maybeSingle();
 
-    if (artErr) return jsonErr("Failed to load artifact", 500, { message: artErr.message, code: artErr.code, hint: artErr.hint });
+    if (artErr)
+      return jsonErr("Failed to load artifact", 500, { message: artErr.message, code: artErr.code, hint: artErr.hint });
     if (!art) return jsonErr("Not found", 404);
 
     if ((art as any).is_locked) return jsonErr("Artifact is locked", 409);
