@@ -1,5 +1,5 @@
-﻿import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import "server-only";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -32,7 +32,7 @@ async function roleForProject(supabase: any, projectId: string, userId: string) 
   return role;
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const supabase = await createClient();
     const user = await requireUser(supabase);
@@ -74,5 +74,3 @@ export async function POST(req: NextRequest) {
     return jsonError(msg, status);
   }
 }
-
-

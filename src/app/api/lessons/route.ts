@@ -1,5 +1,5 @@
 ﻿import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -102,7 +102,7 @@ async function resolveProjectUuid(sb: any, projectId: string) {
 
 /* ---------------- handlers ---------------- */
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   const sb = await createClient();
 
   const url = new URL(req.url);
@@ -115,7 +115,7 @@ export async function GET(req: NextRequest) {
   const gate = await requireMember(sb, resolved.projectUuid);
   if (!gate.ok) return jsonErr(gate.error, gate.error === "Forbidden" ? 403 : 401);
 
-  // ? Explicit select ensures we return the true UUID `id`
+  // ✅ Explicit select ensures we return the true UUID `id`
   const { data, error } = await sb
     .from("lessons_learned")
     .select(
@@ -145,7 +145,7 @@ export async function GET(req: NextRequest) {
   return jsonOk({ items: data ?? [] });
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   const sb = await createClient();
 
   const body = await req.json().catch(() => ({} as any));
@@ -181,5 +181,3 @@ export async function POST(req: NextRequest) {
 
   return jsonOk({ item: data }, 201);
 }
-
-

@@ -1,5 +1,5 @@
-﻿import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import "server-only";
+import { NextResponse } from "next/server";
 import { sb, requireUser, requireProjectRole, safeStr } from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
@@ -32,7 +32,7 @@ function normalizeProjectDisplayId(raw: string): string {
   return `PRJ-${stripped}`;
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const supabase = await sb();
     const user = await requireUser(supabase);
@@ -70,5 +70,3 @@ export async function GET(req: NextRequest) {
     return jsonErr(safeStr(e?.message) || "Failed", 500);
   }
 }
-
-

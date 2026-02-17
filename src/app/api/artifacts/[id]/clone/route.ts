@@ -1,16 +1,7 @@
-﻿// src/app/api/artifacts/[id]/clone/route.ts
+// src/app/api/artifacts/[id]/clone/route.ts
 import "server-only";
 
-
-        param($m)
-        $inner = $m.Groups[1].Value
-        if ($inner -match '\bNextRequest\b') { return $m.Value }
-        if ($inner -match '\bNextResponse\b') {
-          # insert NextRequest right after opening brace
-          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
-        }
-        return $m.Value
-      
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -66,7 +57,7 @@ async function resolveArtifactUuid(supabase: any, rawId: string) {
     .maybeSingle();
 
   if (error) {
-    // If your table does not have public_id, don't 500 â€” just treat as not resolvable
+    // If your table does not have public_id, don't 500 — just treat as not resolvable
     if (isMissingColumnError(error.message, "public_id")) return null;
     throw new Error(error.message);
   }
@@ -99,7 +90,7 @@ async function requireOwnerOrEditor(supabase: any, projectId: string) {
 
 /* ---------------- route ---------------- */
 
-export async function POST(req: NextRequest, ctx: { params: Promise<{ id?: string }> }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id?: string }> }) {
   const traceId = `clone_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
   try {
@@ -200,4 +191,3 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id?: strin
     });
   }
 }
-

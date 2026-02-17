@@ -1,5 +1,5 @@
-import PDFDocument from "pdfkit";
-import { NextResponse, type NextRequest } from "next/server";
+﻿import PDFDocument from "pdfkit";
+import { NextResponse } from "next/server";
 
 function renderPdf(): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -30,4 +30,3 @@ export async function GET() {
     },
   });
 }
-

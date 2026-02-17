@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+﻿import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
@@ -8,4 +8,3 @@ export async function GET() {
     { headers: { "Cache-Control": "no-store, max-age=0" } }
   );
 }
-

@@ -1,8 +1,8 @@
 ﻿import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
-// ? reuse your existing permission helpers if you have them
+// ✅ reuse your existing permission helpers if you have them
 // import { requireUser, requireProjectRole } from "@/lib/auth/guards";
 
 import { normalizeWeeklyReportV1 } from "@/lib/exports/weekly-report/transform";
@@ -16,7 +16,7 @@ function safeStr(x: any) {
   return String(x ?? "").trim();
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   const url = new URL(req.url);
   const projectId = safeStr(url.searchParams.get("projectId"));
   const artifactId = safeStr(url.searchParams.get("artifactId"));
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
   const { data: auth } = await sb.auth.getUser();
   if (!auth?.user) return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
 
-  // ? If you have a shared guard, use it here.
+  // ✅ If you have a shared guard, use it here.
   // await requireProjectRole(sb, auth.user.id, projectId, "viewer");
 
   const { data: artifact, error } = await sb
@@ -61,5 +61,3 @@ export async function GET(req: NextRequest) {
     },
   });
 }
-
-

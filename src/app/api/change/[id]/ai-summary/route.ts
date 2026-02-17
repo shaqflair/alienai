@@ -1,21 +1,10 @@
-﻿// src/app/api/change/[id]/ai-summary/route.ts
+// src/app/api/change/[id]/ai-summary/route.ts
 import "server-only";
 
-
-        param($m)
-        $inner = $m.Groups[1].Value
-        if ($inner -match '\bNextRequest\b') { return $m.Value }
-        if ($inner -match '\bNextResponse\b') {
-          # insert NextRequest right after opening brace
-          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
-        }
-        return $m.Value
-      
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
-
-type RouteCtx = { params: Promise<{ id: string }> };
 
 function safeStr(x: unknown) {
   return typeof x === "string" ? x : "";
@@ -41,7 +30,7 @@ async function requireAuthAndMembership(supabase: any, projectId: string) {
   return auth.user;
 }
 
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
     const changeId = safeStr(id).trim();
@@ -90,4 +79,3 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     return NextResponse.json({ ok: false, error: e?.message || "Error" }, { status: 500 });
   }
 }
-

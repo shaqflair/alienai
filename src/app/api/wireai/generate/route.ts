@@ -1,7 +1,7 @@
 ﻿// src/app/api/wireai/generate/route.ts
 import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient } from "@/utils/supabase/server";
 
@@ -31,7 +31,7 @@ type Patch =
     };
 
 /* =========================================================================================
-   ? Weekly Report (simple, stable schema)
+   ✅ Weekly Report (simple, stable schema)
 ========================================================================================= */
 
 type WeeklyRag = "green" | "amber" | "red";
@@ -59,7 +59,7 @@ type WeeklyReportDocV1 = {
 
   operationalBlockers: string; // bullets, one per line
 
-  // ? ADD: optional meta used by exports (non-breaking)
+  // ✅ ADD: optional meta used by exports (non-breaking)
   meta?: {
     previous?: {
       rag?: WeeklyRag;
@@ -178,7 +178,7 @@ function normalizeWeeklyDoc(doc: any, fallback: { from: string; to: string; rag:
 
   const operationalBlockers = normalizeWeeklyBullets(doc?.operationalBlockers ?? doc?.blockers ?? "");
 
-  // ? Preserve meta (non-breaking)
+  // ✅ Preserve meta (non-breaking)
   const metaIn = doc?.meta && typeof doc.meta === "object" ? doc.meta : undefined;
 
   return {
@@ -290,7 +290,7 @@ async function loadProjectArtifacts(projectId: string) {
 }
 
 /* =========================================================================================
-   ? Section Allowlist + Closure support (existing)
+   ✅ Section Allowlist + Closure support (existing)
 ========================================================================================= */
 
 const CHARTER_REQUIRED_SECTIONS: Array<{
@@ -447,7 +447,7 @@ function normalizeReplaceAllDoc(doc: any) {
 }
 
 /* =========================================================================================
-   ? Prompts
+   ✅ Prompts
 ========================================================================================= */
 
 function buildSystemPromptForMode(mode: "full" | "section" | "suggest" | "validate") {
@@ -519,7 +519,7 @@ function buildWeeklySystemPrompt() {
 }
 
 /**
- * ? OpenAI call (returns JSON string)
+ * ✅ OpenAI call (returns JSON string)
  */
 async function callYourLLM(args: { system: string; user: string }) {
   const apiKey = mustEnv("WIRE_AI_API_KEY");
@@ -569,10 +569,10 @@ function isWeeklyRequest(body: any) {
   return false;
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
 
-  // ? Weekly Report path (separate payload contract)
+  // ✅ Weekly Report path (separate payload contract)
   if (isWeeklyRequest(body)) {
     const p = provider();
 
@@ -586,7 +586,7 @@ export async function POST(req: NextRequest) {
     const meta = body?.meta && typeof body.meta === "object" ? body.meta : {};
     const context = clampStr(body?.userPrompt || body?.prompt || body?.notes || "");
 
-    // ? Add projectId-based enrichment (safe no-op when absent)
+    // ✅ Add projectId-based enrichment (safe no-op when absent)
     const projectId = s(body?.projectId || body?.project_id || meta?.projectId || meta?.project_id).trim();
 
     let enrichedMeta: any = meta;
@@ -680,7 +680,7 @@ export async function POST(req: NextRequest) {
             columns: 4,
             rows: [
               { type: "header", cells: ["Decision", "Owner", "Date", "Notes"] },
-              { type: "data", cells: ["No key decisions this period", "PMO", fallbackTo, "â€”"] },
+              { type: "data", cells: ["No key decisions this period", "PMO", fallbackTo, "—"] },
             ],
           },
           operationalBlockers: "",
@@ -710,7 +710,7 @@ export async function POST(req: NextRequest) {
 
       const candidate = parsed?.content_json ?? parsed?.contentJson ?? parsed;
 
-      // ? ensure meta survives even if the model doesn't echo it back
+      // ✅ ensure meta survives even if the model doesn't echo it back
       const mergedCandidate =
         candidate && typeof candidate === "object"
           ? { ...candidate, meta: { ...(candidate?.meta || {}), ...(enrichedMeta || {}) } }
@@ -724,7 +724,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ? Existing Charter/Closure patch behaviour (unchanged)
+  // ✅ Existing Charter/Closure patch behaviour (unchanged)
   const mode = s(body?.mode).toLowerCase() as "full" | "section" | "suggest" | "validate";
   const meta = body?.meta && typeof body.meta === "object" ? body.meta : {};
   const doc = body?.doc && typeof body.doc === "object" ? body.doc : null;
@@ -909,5 +909,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: e?.message ?? "AI generate failed" }, { status: 500 });
   }
 }
-
-

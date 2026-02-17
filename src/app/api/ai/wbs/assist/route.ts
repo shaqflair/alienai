@@ -1,7 +1,7 @@
-﻿// src/app/api/ai/wbs/assist/route.ts
+// src/app/api/ai/wbs/assist/route.ts
 import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -136,7 +136,7 @@ function assistantForRow(input: {
   };
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const projectId = safeStr(body?.projectId).trim();
@@ -162,6 +162,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: e?.message ?? "assist failed" }, { status: 500 });
   }
 }
-
-
 

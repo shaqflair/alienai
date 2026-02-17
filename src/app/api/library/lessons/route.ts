@@ -1,5 +1,5 @@
-﻿import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import "server-only";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -14,7 +14,7 @@ function safeStr(x: any) {
   return typeof x === "string" ? x : "";
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   const sb = await createClient();
 
   const { data: auth, error: authErr } = await sb.auth.getUser();
@@ -61,5 +61,3 @@ export async function GET(req: NextRequest) {
 
   return jsonOk({ items: data ?? [] });
 }
-
-

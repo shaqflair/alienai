@@ -1,5 +1,5 @@
 ﻿import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { resolveActiveProjectScope } from "@/lib/server/project-scope";
 
@@ -130,7 +130,7 @@ async function computeTypedCounts(opts: {
   };
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   const supabase = await createClient();
   const url = new URL(req.url);
   const days = clampDays(url.searchParams.get("days"));
@@ -196,5 +196,3 @@ export async function GET(req: NextRequest) {
     meta: { project_count: projectIds.length, active_only: true, used_fallback: true, rpc_error: panelErr.message, scope: scoped.meta },
   });
 }
-
-

@@ -1,7 +1,7 @@
-﻿import { NextResponse, type NextRequest } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const next = url.searchParams.get("next") ?? "/projects";
@@ -17,5 +17,3 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.redirect(new URL(next, url.origin));
 }
-
-

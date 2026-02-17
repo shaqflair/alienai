@@ -1,7 +1,7 @@
-﻿// src/app/api/stakeholders/seed/route.ts
+// src/app/api/stakeholders/seed/route.ts
 import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -76,7 +76,7 @@ function getStakeholdersSectionTable(charterJson: any) {
 }
 
 /**
- * âœ… Map Charter Stakeholders table â†’ public.stakeholders
+ * ✅ Map Charter Stakeholders table → public.stakeholders
  */
 function mapStakeholdersOnly(projectId: string, charterJson: any) {
   const { headerCells, dataRows } = getStakeholdersSectionTable(charterJson);
@@ -174,7 +174,7 @@ async function markSuggestionAcceptedBestEffort(supabase: any, suggestionId: str
   } catch {}
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const supabase = await createClient();
     const body = await req.json().catch(() => null);
@@ -204,7 +204,7 @@ export async function POST(req: NextRequest) {
 
     const payload = mapStakeholdersOnly(projectId, charterJson);
 
-    // âœ… HARD REPLACE: remove all existing stakeholders for project
+    // ✅ HARD REPLACE: remove all existing stakeholders for project
     const { error: delErr } = await supabase.from("stakeholders").delete().eq("project_id", projectId);
     if (delErr) return NextResponse.json({ ok: false, error: delErr.message }, { status: 500 });
 
@@ -227,5 +227,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
-
-

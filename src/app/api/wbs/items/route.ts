@@ -1,6 +1,6 @@
-﻿// src/app/api/wbs/items/route.ts
+// src/app/api/wbs/items/route.ts
 import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -106,7 +106,7 @@ function isoDateOnly(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
-/** âœ… UK date display (dd/mm/yyyy) from ISO yyyy-mm-dd or timestamp-ish strings */
+/** ✅ UK date display (dd/mm/yyyy) from ISO yyyy-mm-dd or timestamp-ish strings */
 function fmtDateUK(x: any): string | null {
   if (!x) return null;
   const s = String(x).trim();
@@ -262,7 +262,7 @@ function decodeCursor(s: string | null) {
 }
 
 /* ------------------------------------------------------------------ */
-/* âœ… project scope helpers (exclude closed/deleted)                    */
+/* ✅ project scope helpers (exclude closed/deleted)                    */
 /* ------------------------------------------------------------------ */
 
 async function fetchMemberProjectIds(supabase: any, userId: string) {
@@ -356,11 +356,11 @@ type Item = {
 
   artifact_id: string;
 
-  /** âœ… UK dates only in primary fields */
+  /** ✅ UK dates only in primary fields */
   artifact_updated_at: string | null; // dd/mm/yyyy
   due_date: string | null; // dd/mm/yyyy
 
-  /** âœ… keep ISO copies for sorting / deep logic */
+  /** ✅ keep ISO copies for sorting / deep logic */
   artifact_updated_at_iso?: string | null; // yyyy-mm-dd or full ISO
   due_date_iso?: string | null; // yyyy-mm-dd
 
@@ -378,7 +378,7 @@ type Item = {
   href: string;
 };
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const supabase = await createClient();
 
@@ -550,11 +550,11 @@ export async function GET(req: NextRequest) {
 
           artifact_id: artifactId,
 
-          // âœ… UK-first fields
+          // ✅ UK-first fields
           artifact_updated_at: artifactUpdatedUk,
           due_date: dueUk,
 
-          // âœ… ISO copies for sorting/logic (optional but recommended)
+          // ✅ ISO copies for sorting/logic (optional but recommended)
           artifact_updated_at_iso: artifactUpdatedIso,
           due_date_iso: dueIso,
 
@@ -594,7 +594,7 @@ export async function GET(req: NextRequest) {
     const nextOffset = offset + slice.length;
     const nextCursor = nextOffset < total ? encodeCursor({ offset: nextOffset }) : null;
 
-    // âœ… meta dates in UK too
+    // ✅ meta dates in UK too
     const generatedAtIso = new Date().toISOString();
     const generatedAtUk = fmtDateUK(generatedAtIso);
 
@@ -602,7 +602,7 @@ export async function GET(req: NextRequest) {
       items: slice,
       nextCursor,
       meta: {
-        generated_at: generatedAtUk, // âœ… UK
+        generated_at: generatedAtUk, // ✅ UK
         generated_at_iso: generatedAtIso,
 
         days: daysParam,
@@ -633,5 +633,3 @@ export async function GET(req: NextRequest) {
     return jsonErr(String(e?.message || e || "Failed"), 500);
   }
 }
-
-

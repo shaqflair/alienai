@@ -1,6 +1,6 @@
-﻿// src/app/api/ai/suggestions/route.ts
+// src/app/api/ai/suggestions/route.ts
 import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -9,7 +9,7 @@ function safeStr(x: unknown) {
   return typeof x === "string" ? x : "";
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   const supabase = await createClient();
 
   const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ suggestions: data ?? [] });
 }
 
-export async function PATCH(req: NextRequest) {
+export async function PATCH(req: Request) {
   const supabase = await createClient();
 
   const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -79,5 +79,3 @@ export async function PATCH(req: NextRequest) {
 
   return NextResponse.json({ ok: true });
 }
-
-

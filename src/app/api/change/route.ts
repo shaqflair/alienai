@@ -1,7 +1,7 @@
-﻿// src/app/api/change/route.ts
+// src/app/api/change/route.ts
 import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -92,7 +92,7 @@ function pickNarratives(body: any) {
 }
 
 /**
- * âœ… review_by parser
+ * ✅ review_by parser
  * Accepts:
  * - "YYYY-MM-DD" (preferred)
  * - ISO strings (takes UTC date part)
@@ -183,7 +183,7 @@ function laneKey(raw: any): LaneKey {
 
 /* ---------------- handlers ---------------- */
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const projectId = safeStr(searchParams.get("projectId"));
@@ -247,7 +247,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const supabase = await createClient();
 
@@ -265,14 +265,14 @@ export async function POST(req: NextRequest) {
 
     const title = clamp(safeStr(body?.title) || "Untitled change", 160);
 
-    // âœ… description is NOT NULL in your table â€” enforce minimum
+    // ✅ description is NOT NULL in your table — enforce minimum
     const description = clamp(safeStr(body?.description ?? body?.summary), 1200);
     if (!description) return jsonError("Missing description/summary", 400);
 
     const plans = pickPlan(body);
     const narratives = pickNarratives(body);
 
-    // âœ… review_by (Option B)
+    // ✅ review_by (Option B)
     const rb = pickReviewBy(body);
     if (rb.present && rb.raw != null && !rb.value) {
       return jsonError("Invalid reviewBy/review_by (expected YYYY-MM-DD or DD/MM/YYYY)", 400, {
@@ -308,7 +308,7 @@ export async function POST(req: NextRequest) {
       rollback_plan: plans.rollback_plan,
       ...narratives,
 
-      review_by, // âœ… persist date or null
+      review_by, // ✅ persist date or null
 
       ai_score: body?.ai_score ?? null,
       ai_schedule: body?.ai_schedule ?? null,
@@ -337,5 +337,3 @@ export async function POST(req: NextRequest) {
     return jsonError(e?.message || "Server error", 500);
   }
 }
-
-

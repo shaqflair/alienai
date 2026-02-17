@@ -1,5 +1,5 @@
-﻿import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import "server-only";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -15,7 +15,7 @@ function safeStr(x: any) {
   return typeof x === "string" ? x : "";
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const supabase = await createClient();
     const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     const projectId = safeStr(url.searchParams.get("projectId")).trim();
     const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit") || 12)));
 
-    // âœ… Scope: projects user can access (prevents over-fetch when RLS is permissive)
+    // ✅ Scope: projects user can access (prevents over-fetch when RLS is permissive)
     const { data: pmRows, error: pmErr } = await supabase
       .from("project_members")
       .select("project_id, role")
@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
     if (projectId) {
       q.eq("project_id", projectId);
     } else {
-      // âœ… only approvals tied to projects user can access
+      // ✅ only approvals tied to projects user can access
       q.in("project_id", projectIds);
     }
 
@@ -111,15 +111,15 @@ export async function GET(req: NextRequest) {
         // embedded change
         change: r.change ?? null,
 
-        // âœ… convenient nav (your HomePage viewHref can use this or keep its logic)
+        // ✅ convenient nav (your HomePage viewHref can use this or keep its logic)
         href: pid && cid ? `/projects/${pid}/change/${cid}` : "",
 
-        // âœ… member role context (useful for UI gating)
+        // ✅ member role context (useful for UI gating)
         myRole: roleByProject.get(pid) || "viewer",
       };
     });
 
-    // âœ… Your HomeData type expects these (optional but helpful)
+    // ✅ Your HomeData type expects these (optional but helpful)
     const roleSet = new Set<string>();
     for (const r of roleByProject.values()) roleSet.add(r);
 
@@ -135,5 +135,3 @@ export async function GET(req: NextRequest) {
     return err(msg, s);
   }
 }
-
-

@@ -1,5 +1,5 @@
-﻿import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import "server-only";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -25,7 +25,7 @@ function isUuid(x: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test((x || "").trim());
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   const sb = await createClient();
   const { data: auth, error: authErr } = await sb.auth.getUser();
   if (authErr) return jsonErr(sbErrText(authErr), 401);
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
   if (error) return jsonErr(sbErrText(error), 400);
   if (!member) return jsonErr("You are not a member of that organisation.", 403);
 
-  // âœ… Redirect back to settings so UI refreshes with new cookie
+  // ✅ Redirect back to settings so UI refreshes with new cookie
   const res = NextResponse.redirect(new URL(next, req.url), 303);
 
   res.cookies.set("active_org_id", orgId, {
@@ -60,5 +60,3 @@ export async function POST(req: NextRequest) {
 
   return res;
 }
-
-

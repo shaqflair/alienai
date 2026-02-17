@@ -1,7 +1,7 @@
-﻿// src/app/api/projects/members/route.ts
+// src/app/api/projects/members/route.ts
 import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -82,10 +82,10 @@ async function requireProjectMemberOrOrgAdmin(supabase: any, projectId: string, 
  * GET /api/projects/members?projectId=...&q=...
  * Returns active members for the project (for dropdown picker).
  *
- * âœ… Project members can view.
- * âœ… PMO org admins/owners can view even if not a project member (support model).
+ * ✅ Project members can view.
+ * ✅ PMO org admins/owners can view even if not a project member (support model).
  */
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const supabase = await createClient();
     const user = await requireAuth(supabase);
@@ -97,7 +97,7 @@ export async function GET(req: NextRequest) {
     if (!projectId) return jsonErr("Missing projectId", 400);
     if (!isUuid(projectId)) return jsonErr("Invalid projectId", 400);
 
-    // âœ… must be a project member OR PMO org admin/owner
+    // ✅ must be a project member OR PMO org admin/owner
     await requireProjectMemberOrOrgAdmin(supabase, projectId, user.id);
 
     // 1) active members
@@ -161,5 +161,3 @@ export async function GET(req: NextRequest) {
     return jsonErr(msg, status);
   }
 }
-
-

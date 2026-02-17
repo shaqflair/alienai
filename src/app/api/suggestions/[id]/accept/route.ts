@@ -1,16 +1,7 @@
 ﻿// src/app/api/suggestions/[id]/accept/route.ts
 import "server-only";
 
-
-        param($m)
-        $inner = $m.Groups[1].Value
-        if ($inner -match '\bNextRequest\b') { return $m.Value }
-        if ($inner -match '\bNextResponse\b') {
-          # insert NextRequest right after opening brace
-          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
-        }
-        return $m.Value
-      
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { applyPatch } from "@/lib/ai/patch-apply";
 import { runOrchestrator } from "@/lib/orchestrator";
@@ -191,7 +182,7 @@ async function applyStakeholderGovernanceToDb(args: {
   return { ok: true, upserted: payload.length };
 }
 
-export async function POST(req: NextRequest, ctx: any) {
+export async function POST(req: Request, ctx: any) {
   const supabase = await createClient();
 
   // âœ… Auth required
@@ -356,7 +347,6 @@ export async function POST(req: NextRequest, ctx: any) {
     orchestrator: orch,
   });
 }
-
 
 
 

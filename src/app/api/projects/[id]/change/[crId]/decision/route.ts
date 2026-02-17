@@ -1,19 +1,10 @@
-﻿import "server-only";
-
-        param($m)
-        $inner = $m.Groups[1].Value
-        if ($inner -match '\bNextRequest\b') { return $m.Value }
-        if ($inner -match '\bNextResponse\b') {
-          # insert NextRequest right after opening brace
-          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
-        }
-        return $m.Value
-      
+import "server-only";
+import { NextResponse } from "next/server";
 import { sb, safeStr, jsonError, requireUser, requireProjectRole, isOwner } from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
 
-export async function POST(req: NextRequest, ctx: { params: { projectId: string; crId: string } }) {
+export async function POST(req: Request, ctx: { params: { projectId: string; crId: string } }) {
   try {
     const supabase = await sb();
     const user = await requireUser(supabase);
@@ -54,4 +45,3 @@ export async function POST(req: NextRequest, ctx: { params: { projectId: string;
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
-

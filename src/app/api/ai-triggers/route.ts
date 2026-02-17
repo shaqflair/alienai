@@ -1,6 +1,6 @@
-﻿import "server-only";
+import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -45,7 +45,7 @@ async function requireAuthAndMembership(projectId: string) {
   };
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const projectId = String(searchParams.get("projectId") ?? "").trim();
@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const projectId = String(body?.projectId ?? "").trim();
@@ -118,4 +118,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
   }
 }
-

@@ -1,5 +1,5 @@
-import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+﻿import "server-only";
+import { NextResponse } from "next/server";
 
 type EnvCheck = {
   name: string;
@@ -44,4 +44,3 @@ export async function GET() {
     note: "Values are NOT shown. This endpoint only checks presence.",
   });
 }
-

@@ -1,21 +1,10 @@
-﻿// src/app/api/raid/[id]/ai-refresh/route.ts
+// src/app/api/raid/[id]/ai-refresh/route.ts
 import "server-only";
-
-        param($m)
-        $inner = $m.Groups[1].Value
-        if ($inner -match '\bNextRequest\b') { return $m.Value }
-        if ($inner -match '\bNextResponse\b') {
-          # insert NextRequest right after opening brace
-          return ('import { NextRequest, ' + $inner.Trim() + ' } from "next/server";') -replace '\s+,', ','
-        }
-        return $m.Value
-      
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import OpenAI from "openai";
 
 export const runtime = "nodejs";
-
-type RouteCtx = { params: Promise<{ id: string }> };
 
 function jsonOk(data: any, status = 200) {
   return NextResponse.json({ ok: true, ...data }, { status });
@@ -57,7 +46,7 @@ function getTemperature() {
   return Math.max(0, Math.min(2, t));
 }
 
-/** âœ… accept either key name */
+/** ✅ accept either key name */
 function getApiKey() {
   const a = safeStr(process.env.WIRE_AI_API_KEY).trim();
   const b = safeStr(process.env.OPENAI_API_KEY).trim();
@@ -71,7 +60,7 @@ function isOpenAIProvider() {
 
 function shortenErr(e: any) {
   const msg = safeStr(e?.message) || String(e || "");
-  return msg.length > 280 ? msg.slice(0, 277) + "â€¦" : msg;
+  return msg.length > 280 ? msg.slice(0, 277) + "…" : msg;
 }
 
 async function insertNotification(supabase: any, payload: any) {
@@ -146,7 +135,7 @@ function aiQualityScore(input: {
   return Math.max(0, Math.min(100, Math.round(q)));
 }
 
-export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const raidId = safeStr(id).trim();
   if (!raidId) return jsonErr("Missing id", 400);
@@ -185,7 +174,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
   const hasPlan = Boolean(safeStr(item.response_plan).trim());
   const band = severityBand(score);
 
-  // âœ… best-effort score history
+  // ✅ best-effort score history
   try {
     await supabase.from("raid_item_scores").insert({
       raid_item_id: item.id,
@@ -198,7 +187,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
     console.warn("[raid ai-refresh score insert]", e?.message || e);
   }
 
-  // âœ… WoW trend best-effort
+  // ✅ WoW trend best-effort
   let wow_delta: number | null = null;
   let wow_prev_score: number | null = null;
   try {
@@ -304,13 +293,13 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
 
     const wowTxt =
       typeof wow_delta === "number"
-        ? ` â€¢ WoW ${wow_delta > 0 ? "â†‘" : wow_delta < 0 ? "â†“" : "â†’"}${Math.abs(wow_delta)}`
+        ? ` • WoW ${wow_delta > 0 ? "↑" : wow_delta < 0 ? "↓" : "→"}${Math.abs(wow_delta)}`
         : "";
 
     aiOut = {
-      rollup: `${type} â€¢ Score ${score} (${band}) â€¢ L${probability}/S${severity}${
-        priority ? ` â€¢ Priority: ${priority}` : " â€¢ Priority: â€”"
-      } â€¢ Plan: ${hasPlan ? "âœ…" : "âš ï¸ missing"} â€¢ Status: ${status}`,
+      rollup: `${type} • Score ${score} (${band}) • L${probability}/S${severity}${
+        priority ? ` • Priority: ${priority}` : " • Priority: —"
+      } • Plan: ${hasPlan ? "✅" : "⚠️ missing"} • Status: ${status}`,
       summary: `AI unavailable; using fallback rollup${wowTxt}. Try again.`,
       recommendations: [
         hasPlan ? "Confirm triggers and review cadence." : "Add response plan (mitigation + trigger + owner + due date).",
@@ -322,7 +311,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
     };
   }
 
-  // âœ… AI versioning + quality scoring
+  // ✅ AI versioning + quality scoring
   const ai_version = "raid-ai-openai-v2";
   const ai_quality = aiQualityScore({
     owner_label: item.owner_label,
@@ -349,7 +338,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
     temperature,
     wow: { delta: wow_delta, prev_score: wow_prev_score },
 
-    // âœ… IMPORTANT: include score in inputs for client-side "score changed?" checks
+    // ✅ IMPORTANT: include score in inputs for client-side "score changed?" checks
     inputs: { probability, severity, score, priority: priority || null, status, type },
 
     last_run_at: new Date().toISOString(),
@@ -365,7 +354,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
     ai: nextAi,
   };
 
-  // âœ… Persist AI & mark ai_dirty false
+  // ✅ Persist AI & mark ai_dirty false
   async function updateRaid(withDirty: boolean) {
     const payload: any = {
       ai_rollup: aiOut.rollup,
@@ -393,7 +382,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
 
   const updated = out.data;
 
-  // âœ… Write AI run history (audit/diff)
+  // ✅ Write AI run history (audit/diff)
   try {
     await supabase.from("raid_ai_runs").insert({
       raid_item_id: item.id,
@@ -409,7 +398,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
     console.warn("[raid ai-refresh history insert]", e?.message || e);
   }
 
-  // âœ… Notify on high score / critical
+  // ✅ Notify on high score / critical
   const shouldNotify = score >= 70 || priority === "Critical";
   if (shouldNotify) {
     const notifyUserId = item.owner_id || actorId;
@@ -420,7 +409,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
         artifact_id: null,
         type: "raid_alert",
         title: `RAID alert: ${type} (${band})`,
-        body: `${description} â€” Score ${score} (L${probability}/S${severity})${priority ? ` â€” ${priority}` : ""}. ${
+        body: `${description} — Score ${score} (L${probability}/S${severity})${priority ? ` — ${priority}` : ""}. ${
           aiOut.recommendations?.[0] || ""
         }`,
         link: `/projects/${item.project_id}/raid`,
@@ -451,4 +440,3 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
 
   return jsonOk({ item: updated, ai: nextAi });
 }
-

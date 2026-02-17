@@ -1,6 +1,6 @@
-﻿// src/app/api/portfolio/raid-score-series/route.ts
+// src/app/api/portfolio/raid-score-series/route.ts
 import "server-only";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { resolveActiveProjectScope } from "@/lib/server/project-scope";
 
@@ -39,7 +39,7 @@ function parseIds(x: string | null) {
 
 /* ---------------- handler ---------------- */
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   const supabase = await createClient();
   const url = new URL(req.url);
 
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
 
   if (!ids.length) return NextResponse.json({ ok: true, points, series: {}, meta: { requested: 0 } });
 
-  // âœ… ACTIVE + accessible projects (membership + not deleted/closed)
+  // ✅ ACTIVE + accessible projects (membership + not deleted/closed)
   const scoped = await resolveActiveProjectScope(supabase, userId);
   const projectIds = scoped.projectIds;
 
@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // âœ… allowed items (must belong to an active project in scope)
+  // ✅ allowed items (must belong to an active project in scope)
   const { data: allowedItems, error: allowErr } = await supabase
     .from("raid_items")
     .select("id, project_id")
@@ -129,5 +129,3 @@ export async function GET(req: NextRequest) {
     },
   });
 }
-
-
