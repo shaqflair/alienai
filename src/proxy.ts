@@ -2,86 +2,109 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-function hasSupabaseEnv() {
-  return !!(
-    process.env.NEXT_PUBLIC_SUPABASE_URL &&
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+/**
+ * Proxy (formerly middleware) for Supabase session refresh.
+ *
+ * Goals:
+ * 1) NEVER hard-fail production (no 500s) if env vars are missing.
+ * 2) Skip static assets and common public files (performance + avoids oddities).
+ * 3) Still run for app routes + auth routes so cookies/session refresh works.
+ */
+
+function isStaticAssetPath(pathname: string) {
+  // Next internals
+  if (pathname.startsWith("/_next/")) return true;
+
+  // Public / common files
+  if (
+    pathname === "/favicon.ico" ||
+    pathname === "/robots.txt" ||
+    pathname === "/sitemap.xml" ||
+    pathname === "/manifest.json"
+  )
+    return true;
+
+  // Obvious asset folders (adjust if you use any of these)
+  if (
+    pathname.startsWith("/assets/") ||
+    pathname.startsWith("/images/") ||
+    pathname.startsWith("/icons/") ||
+    pathname.startsWith("/fonts/")
+  )
+    return true;
+
+  // File extensions (covers direct static file hits)
+  const lower = pathname.toLowerCase();
+  return (
+    lower.endsWith(".png") ||
+    lower.endsWith(".jpg") ||
+    lower.endsWith(".jpeg") ||
+    lower.endsWith(".gif") ||
+    lower.endsWith(".webp") ||
+    lower.endsWith(".svg") ||
+    lower.endsWith(".ico") ||
+    lower.endsWith(".css") ||
+    lower.endsWith(".js") ||
+    lower.endsWith(".map") ||
+    lower.endsWith(".txt") ||
+    lower.endsWith(".xml") ||
+    lower.endsWith(".woff") ||
+    lower.endsWith(".woff2") ||
+    lower.endsWith(".ttf") ||
+    lower.endsWith(".eot") ||
+    lower.endsWith(".otf") ||
+    lower.endsWith(".pdf") ||
+    lower.endsWith(".zip")
   );
 }
 
-function isStaticPath(pathname: string) {
-  if (
-    pathname.startsWith("/_next/") ||
-    pathname.startsWith("/favicon") ||
-    pathname.startsWith("/robots.txt") ||
-    pathname.startsWith("/sitemap") ||
-    pathname.startsWith("/manifest") ||
-    pathname.startsWith("/assets/") ||
-    pathname.startsWith("/images/")
-  ) {
-    return true;
-  }
-
-  // common static file extensions
-  if (/\.(?:png|jpg|jpeg|gif|webp|svg|ico|css|js|map|txt|xml|woff2?|ttf|eot)$/i.test(pathname)) {
-    return true;
-  }
-
-  return false;
-}
-
-function isHtmlNavigation(req: NextRequest) {
-  // Only run session refresh for actual document navigations.
-  // This avoids touching API/json/assets and reduces edge overhead.
-  const accept = (req.headers.get("accept") || "").toLowerCase();
-  const secFetchDest = (req.headers.get("sec-fetch-dest") || "").toLowerCase();
-
-  if (secFetchDest === "document") return true;
-  if (accept.includes("text/html")) return true;
-
-  return false;
-}
-
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // ✅ Skip assets entirely
-  if (isStaticPath(pathname)) return NextResponse.next();
+  // ✅ Skip static assets immediately
+  if (isStaticAssetPath(pathname)) {
+    return NextResponse.next({ request: { headers: req.headers } });
+  }
 
-  // ✅ If Supabase env is missing, don't blow up production
-  if (!hasSupabaseEnv()) return NextResponse.next();
+  // ✅ Never crash if env vars are missing (prevents 500/MIDDLEWARE_INVOCATION_FAILED)
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  // ✅ Only refresh session cookies for HTML page navigations
-  if (!isHtmlNavigation(req)) return NextResponse.next();
+  if (!supabaseUrl || !supabaseAnonKey) {
+    // Let the request continue; app can show a friendly error elsewhere if needed.
+    return NextResponse.next({ request: { headers: req.headers } });
+  }
 
-  let res = NextResponse.next({
-    request: { headers: req.headers },
-  });
+  let res = NextResponse.next({ request: { headers: req.headers } });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
+  try {
+    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
       cookies: {
         getAll: () => req.cookies.getAll(),
         setAll: (cookiesToSet) => {
-          for (const { name, value, options } of cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
             res.cookies.set(name, value, options);
-          }
+          });
         },
       },
-    }
-  );
+    });
 
-  // 🔑 Refresh session cookies for server components
-  await supabase.auth.getUser();
+    // 🔑 Refreshes session cookies for server components
+    await supabase.auth.getUser();
+  } catch {
+    // ✅ swallow errors so proxy never breaks prod traffic
+    // (auth will just behave as "not signed in" for that request)
+  }
 
   return res;
 }
 
 export const config = {
   matcher: [
-    // Apply broadly, but we do our own skipping for assets internally.
-    "/:path*",
+    /**
+     * Run broadly, but exclude Next internals via matcher.
+     * Static files are also excluded again in code (belt & braces).
+     */
+    "/((?!_next/static|_next/image|favicon.ico).*)",
   ],
 };
