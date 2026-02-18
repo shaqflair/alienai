@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 /* =========================
     Types
@@ -17,6 +17,14 @@ export type MemberProjectRow = {
     organisation_id: string | null;
     status?: string | null;
     deleted_at?: string | null;
+
+    // ✅ Enterprise PMO
+    project_manager_id?: string | null;
+    project_manager?: {
+      id?: string | null;
+      full_name?: string | null;
+      email?: string | null;
+    } | null;
   } | null;
 };
 
@@ -30,6 +38,10 @@ export type ProjectListRow = {
   organisation_id: string | null;
   status: string;
   myRole: string;
+
+  // ✅ Enterprise PMO
+  project_manager_id?: string | null;
+  project_manager_name?: string | null;
 };
 
 export type FlashTone = "success" | "warn" | "error" | "info";
@@ -113,15 +125,15 @@ export function inviteBanner(invite?: string | null) {
   const v = String(invite ?? "").toLowerCase();
   if (!v) return null;
 
-  if (v === "accepted") return { tone: "success" as const, msg: "? You’ve joined the organisation." };
-  if (v === "expired") return { tone: "warn" as const, msg: "?? Invite expired. Ask the owner to resend the invite." };
-  if (v === "invalid") return { tone: "error" as const, msg: "? Invite invalid or already used. Ask the owner to resend it." };
+  if (v === "accepted") return { tone: "success" as const, msg: "✅ You’ve joined the organisation." };
+  if (v === "expired") return { tone: "warn" as const, msg: "⚠️ Invite expired. Ask the owner to resend the invite." };
+  if (v === "invalid") return { tone: "error" as const, msg: "❌ Invite invalid or already used. Ask the owner to resend it." };
   if (v === "email-mismatch")
     return {
       tone: "error" as const,
-      msg: "? This invite was sent to a different email address. Sign in with the invited email, or ask the owner to re-invite you.",
+      msg: "❌ This invite was sent to a different email address. Sign in with the invited email, or ask the owner to re-invite you.",
     };
-  if (v === "failed") return { tone: "error" as const, msg: "? Invite acceptance failed. Please try again or ask the owner to resend." };
+  if (v === "failed") return { tone: "error" as const, msg: "❌ Invite acceptance failed. Please try again or ask the owner to resend." };
 
   return null;
 }
@@ -166,6 +178,7 @@ export function flashFromQuery(err?: string, msg?: string): { tone: FlashTone; t
   if (e === "missing_org") return { tone: "error", text: "Organisation is required." };
   if (e === "bad_org") return { tone: "error", text: "Invalid organisation selected." };
   if (e === "bad_finish") return { tone: "error", text: "Finish date cannot be before start date." };
+  if (e === "bad_pm") return { tone: "error", text: "Invalid project manager selected." };
 
   if (m === "deleted") return { tone: "success", text: "Project deleted." };
   if (m === "closed") return { tone: "success", text: "Project closed. It is now read-only." };

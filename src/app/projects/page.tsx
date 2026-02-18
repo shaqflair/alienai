@@ -3,6 +3,7 @@ import "server-only";
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
+import { getActiveOrgId } from "@/utils/org/active-org";
 
 import { createProject } from "./actions";
 
@@ -18,6 +19,37 @@ import {
   type MemberProjectRow,
   type ProjectListRow,
 } from "./_lib/projects-utils";
+
+type OrgMemberOption = {
+  user_id: string;
+  label: string;
+  role?: string | null;
+};
+
+function displayNameFromUser(user: any) {
+  const full =
+    (user?.user_metadata?.full_name as string | undefined) ||
+    (user?.user_metadata?.name as string | undefined) ||
+    "";
+  return (full || user?.email || "Account").toString();
+}
+
+function formatMemberLabel(row: any): string {
+  const p =
+    row?.profiles ||
+    row?.profile ||
+    row?.user_profile ||
+    row?.users ||
+    row?.user ||
+    null;
+
+  const full = safeStr(p?.full_name || p?.name).trim();
+  const email = safeStr(p?.email).trim();
+  const base = full || email || safeStr(row?.user_id).slice(0, 8);
+
+  const role = safeStr(row?.role).trim();
+  return role ? `${base} (${role})` : base;
+}
 
 export default async function ProjectsPage({
   searchParams,
@@ -153,7 +185,6 @@ export default async function ProjectsPage({
   })();
 
   const inviteParam = safeStr((sp as any)?.invite).trim();
-
   function baseQs(next: Record<string, string | undefined>) {
     return buildQs({ ...next, invite: inviteParam || undefined });
   }
@@ -162,16 +193,51 @@ export default async function ProjectsPage({
   const panelGlow =
     "bg-white text-gray-900 rounded-2xl border-2 border-[#00B8DB] shadow-[0_4px_20px_rgba(0,184,219,0.15)]";
 
+  // ─────────────────────────────────────────────────────────────
+  // Enterprise PMO: load org members for PM dropdown (active org)
+  // ─────────────────────────────────────────────────────────────
+  const cookieOrgId = await getActiveOrgId().catch(() => null);
+  const activeOrgId = (cookieOrgId && String(cookieOrgId)) || (orgIds[0] ? String(orgIds[0]) : "");
+
+  // If we can't resolve org, we should still render page but creation will error nicely.
+  const canCreate = !!activeOrgId;
+
+  const { data: orgMemberRows } = activeOrgId
+    ? await supabase
+        .from("organisation_members")
+        .select(
+          `
+          user_id,
+          role,
+          profiles:profiles (
+            id,
+            full_name,
+            email
+          )
+        `
+        )
+        .eq("organisation_id", activeOrgId)
+        .order("role", { ascending: true })
+    : { data: [] as any[] };
+
+  const pmOptions: OrgMemberOption[] = (orgMemberRows ?? [])
+    .map((r: any) => ({
+      user_id: String(r?.user_id || ""),
+      label: formatMemberLabel(r),
+      role: (r?.role as string | null) ?? null,
+    }))
+    .filter((x) => !!x.user_id);
+
+  const ownerLabel = displayNameFromUser(user);
+
   return (
     <main className="projects-theme-cyan relative min-h-screen bg-gray-50 text-gray-900 overflow-x-hidden">
-      {/* Global cyan overrides for circled controls (Global artifacts + search/sort buttons + title visibility) */}
       <style
         // eslint-disable-next-line react/no-danger
         dangerouslySetInnerHTML={{
           __html: `
             .projects-theme-cyan { --accent: #00B8DB; }
 
-            /* Ensure whatever heading ProjectsHeader uses is visible */
             .projects-theme-cyan h1,
             .projects-theme-cyan [data-page-title="projects"],
             .projects-theme-cyan .page-title {
@@ -184,7 +250,6 @@ export default async function ProjectsPage({
               color: #64748b !important;
             }
 
-            /* "Global artifacts" link/button (commonly points to /artifacts) */
             .projects-theme-cyan a[href="/artifacts"],
             .projects-theme-cyan a[href^="/artifacts?"],
             .projects-theme-cyan a[href="/app/artifacts"],
@@ -201,7 +266,6 @@ export default async function ProjectsPage({
               filter: brightness(0.95) !important;
             }
 
-            /* Buttons that were "blue" on this page -> make them cyan */
             .projects-theme-cyan .bg-blue-600 { background-color: var(--accent) !important; }
             .projects-theme-cyan .hover\\:bg-blue-700:hover { background-color: #00a5c4 !important; }
             .projects-theme-cyan .border-blue-600 { border-color: var(--accent) !important; }
@@ -212,20 +276,42 @@ export default async function ProjectsPage({
       />
 
       <div className="relative mx-auto max-w-6xl px-6 py-10 space-y-8">
-        <ProjectsHeader
-          banner={banner}
-          flash={flash}
-          dismissHref={`/projects${baseQs({ q, sort, view })}`}
-        />
+        <ProjectsHeader banner={banner} flash={flash} dismissHref={`/projects${baseQs({ q, sort, view })}`} />
 
         {/* Create project */}
         <section className={`p-6 md:p-8 space-y-5 ${panelGlow}`}>
           <div className="space-y-1">
             <h2 className="text-lg font-semibold text-gray-900">Create a project</h2>
-            <p className="text-sm text-gray-500">Create a new workspace with dates and governance defaults.</p>
+            <p className="text-sm text-gray-500">
+              Enterprise setup: define ownership and delivery lead (PM) for governance and reporting.
+            </p>
+            <p className="text-xs text-gray-500">
+              Active organisation:{" "}
+              <span className="font-mono text-gray-700">{activeOrgId || "Not set"}</span>
+            </p>
           </div>
 
+          {!canCreate ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              You don’t have an active organisation selected yet. Select an organisation first, then create a project.
+            </div>
+          ) : null}
+
           <form action={createProject} className="grid gap-4 max-w-2xl">
+            {/* ✅ required by actions.ts */}
+            <input type="hidden" name="organisation_id" value={activeOrgId} />
+
+            {/* Owner (auto) */}
+            <div className="grid gap-2">
+              <span className="text-sm font-semibold text-gray-700">Project owner</span>
+              <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-gray-900">
+                {ownerLabel}
+              </div>
+              <p className="text-xs text-gray-500">
+                Owner is the accountable lead for governance (auto-set to you).
+              </p>
+            </div>
+
             <label className="grid gap-2">
               <span className="text-sm font-semibold text-gray-700">Project name</span>
               <input
@@ -234,6 +320,26 @@ export default async function ProjectsPage({
                 required
                 className="rounded-lg bg-white border border-gray-300 px-4 py-3 text-gray-900 placeholder:text-gray-400 focus:border-[#00B8DB] focus:ring-2 focus:ring-[#00B8DB]/20 outline-none transition-colors"
               />
+            </label>
+
+            {/* PM (optional) */}
+            <label className="grid gap-2">
+              <span className="text-sm font-semibold text-gray-700">Project manager (optional)</span>
+              <select
+                name="project_manager_id"
+                defaultValue=""
+                className="rounded-lg bg-white border border-gray-300 px-4 py-3 text-gray-900 focus:border-[#00B8DB] focus:ring-2 focus:ring-[#00B8DB]/20 outline-none transition-colors"
+              >
+                <option value="">Unassigned</option>
+                {pmOptions.map((m) => (
+                  <option key={m.user_id} value={m.user_id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500">
+                Assign now or later — used for delivery accountability and executive reporting.
+              </p>
             </label>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -259,7 +365,8 @@ export default async function ProjectsPage({
 
             <button
               type="submit"
-              className="w-fit rounded-lg bg-[#00B8DB] px-5 py-2.5 font-semibold text-white hover:bg-[#00a5c4] transition shadow-lg shadow-[#00B8DB]/25"
+              disabled={!canCreate}
+              className="w-fit rounded-lg bg-[#00B8DB] px-5 py-2.5 font-semibold text-white hover:bg-[#00a5c4] transition shadow-lg shadow-[#00B8DB]/25 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Create project
             </button>

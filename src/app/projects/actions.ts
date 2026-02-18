@@ -102,6 +102,10 @@ export async function createProject(formData: FormData) {
   const finish_date = isoDateOrNull(formData.get("finish_date"));
   const organisation_id = norm(formData.get("organisation_id"));
 
+  // ✅ Enterprise: optional PM (stored as auth user id, which equals profiles.id in your schema)
+  const pmRaw = norm(formData.get("project_manager_id"));
+  const project_manager_id = pmRaw && isUuid(pmRaw) ? pmRaw : "";
+
   // ✅ user-input validation should not crash the whole page:
   if (!title) redirect(`/projects${qs({ err: "missing_title" })}`);
   if (!start_date) redirect(`/projects${qs({ err: "missing_start" })}`);
@@ -116,6 +120,20 @@ export async function createProject(formData: FormData) {
     }
   }
 
+  // ✅ If PM provided, ensure PM is an active org member (removed_at is null)
+  if (project_manager_id) {
+    const { data: pmMem, error: pmErr } = await supabase
+      .from("organisation_members")
+      .select("user_id, removed_at")
+      .eq("organisation_id", organisation_id)
+      .eq("user_id", project_manager_id)
+      .is("removed_at", null)
+      .maybeSingle();
+
+    if (pmErr) throwDb(pmErr, "organisation_members.pm_check");
+    if (!pmMem?.user_id) redirect(`/projects${qs({ err: "bad_pm" })}`);
+  }
+
   const { data, error } = await supabase.rpc("create_project_and_owner", {
     p_title: title,
     p_start_date: start_date,
@@ -128,6 +146,16 @@ export async function createProject(formData: FormData) {
   const row = Array.isArray(data) ? data[0] : data;
   const projectId = row?.id as string | undefined;
   if (!projectId) throw new Error("Project creation succeeded but returned no id.");
+
+  // ✅ Set PM (optional) AFTER creation (keeps RPC unchanged)
+  if (project_manager_id) {
+    const { error: updErr } = await supabase
+      .from("projects")
+      .update({ project_manager_id })
+      .eq("id", projectId);
+
+    if (updErr) throwDb(updErr, "projects.set_project_manager");
+  }
 
   revalidatePath("/projects");
   redirect(`/projects/${projectId}`);
@@ -199,7 +227,6 @@ export async function deleteProject(formData: FormData) {
 
   if (!project_id) redirect(`/projects${qs({ err: "missing_project" })}`);
 
-  // ✅ Do NOT throw — redirect back with a friendly error
   if (confirm !== "DELETE") {
     redirect(`/projects${qs({ err: "delete_confirm", pid: project_id })}`);
   }

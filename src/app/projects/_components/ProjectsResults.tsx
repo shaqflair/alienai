@@ -1,13 +1,16 @@
 import "server-only";
 
 import Link from "next/link";
-import { buildQs, safeStr, type ProjectListRow } from "../_lib/projects-utils";
+import { buildQs, safeStr, fmtUkDate, type ProjectListRow } from "../_lib/projects-utils";
 
 function fmtDate(d?: any) {
   const s = safeStr(d).trim();
   if (!s) return "—";
-  // keep YYYY-MM-DD if already; else fallback to substring
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // If it's YYYY-MM-DD already, treat as a date and format to UK.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return fmtUkDate(s);
+  // If it's ISO datetime, keep first 10 chars (YYYY-MM-DD) and format to UK.
+  const d10 = s.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d10)) return fmtUkDate(d10);
   return s.slice(0, 10) || "—";
 }
 
@@ -17,6 +20,22 @@ function statusTone(status?: string) {
   if (s.includes("cancel")) return "border-rose-200 bg-rose-50 text-rose-700";
   if (s.includes("hold")) return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-emerald-200 bg-emerald-50 text-emerald-700";
+}
+
+function pmLabel(p: ProjectListRow): string {
+  const anyP = p as any;
+
+  const label =
+    safeStr(anyP?.project_manager_label).trim() ||
+    safeStr(anyP?.project_manager_name).trim() ||
+    safeStr(anyP?.pm_name).trim();
+
+  if (label) return label;
+
+  const pmId = safeStr(anyP?.project_manager_id).trim();
+  if (pmId) return "Assigned";
+
+  return "Unassigned";
 }
 
 export default function ProjectsResults({
@@ -66,12 +85,12 @@ export default function ProjectsResults({
               name="q"
               defaultValue={q}
               placeholder="Search projects…"
-              className="h-10 w-full sm:w-72 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
+              className="h-10 w-full sm:w-72 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#00B8DB] focus:ring-2 focus:ring-[#00B8DB]/20 outline-none"
             />
 
             <button
               type="submit"
-              className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 transition"
+              className="h-10 rounded-lg bg-[#00B8DB] px-4 text-sm font-semibold text-white hover:bg-[#00a5c4] transition shadow-sm shadow-[#00B8DB]/20"
             >
               Search
             </button>
@@ -84,18 +103,19 @@ export default function ProjectsResults({
               className={[
                 "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
                 sort === "created_desc"
-                  ? "border-blue-500 bg-blue-600 text-white"
+                  ? "border-[#00B8DB] bg-[#00B8DB] text-white shadow-sm shadow-[#00B8DB]/20"
                   : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50",
               ].join(" ")}
             >
               Newest
             </Link>
+
             <Link
               href={`/projects${qs({ q, view, sort: "title_asc" })}`}
               className={[
                 "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
                 sort === "title_asc"
-                  ? "border-blue-500 bg-blue-600 text-white"
+                  ? "border-[#00B8DB] bg-[#00B8DB] text-white shadow-sm shadow-[#00B8DB]/20"
                   : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50",
               ].join(" ")}
             >
@@ -111,15 +131,9 @@ export default function ProjectsResults({
           <table className="w-full table-fixed border-collapse">
             <thead>
               <tr className="bg-gray-50 text-gray-600 text-xs uppercase tracking-wider">
-                <th className="text-left font-semibold px-5 py-4 border-b border-gray-200 w-[46%]">
-                  Project
-                </th>
-                <th className="text-left font-semibold px-5 py-4 border-b border-gray-200 w-[22%]">
-                  Schedule
-                </th>
-                <th className="text-right font-semibold px-5 py-4 border-b border-gray-200 w-[32%]">
-                  Actions
-                </th>
+                <th className="text-left font-semibold px-5 py-4 border-b border-gray-200 w-[46%]">Project</th>
+                <th className="text-left font-semibold px-5 py-4 border-b border-gray-200 w-[22%]">Schedule</th>
+                <th className="text-right font-semibold px-5 py-4 border-b border-gray-200 w-[32%]">Actions</th>
               </tr>
             </thead>
 
@@ -135,11 +149,10 @@ export default function ProjectsResults({
                 const hrefApprovals = `/projects/${encodeURIComponent(projectId)}/approvals`;
                 const hrefDoa = `/projects/${encodeURIComponent(projectId)}/doa`;
 
+                const pm = pmLabel(p);
+
                 return (
-                  <tr
-                    key={projectId}
-                    className="border-b border-gray-200 hover:bg-gray-50/70 transition-colors"
-                  >
+                  <tr key={projectId} className="border-b border-gray-200 hover:bg-gray-50/70 transition-colors">
                     {/* PROJECT */}
                     <td className="px-5 py-5 align-top">
                       <div className="flex items-start gap-4">
@@ -162,8 +175,13 @@ export default function ProjectsResults({
                             )}
                           </div>
 
+                          {/* ✅ Enterprise identity line */}
                           <div className="mt-1 text-xs text-gray-500">
-                            Owner • ID: {String(p.project_code ?? "—")} • Created {fmtDate(p.created_at)}
+                            Owner • PM:{" "}
+                            <span className={pm === "Unassigned" ? "text-gray-400" : "text-gray-700 font-semibold"}>
+                              {pm}
+                            </span>{" "}
+                            • Created {fmtDate(p.created_at)}
                           </div>
 
                           {/* Quick nav chips */}
