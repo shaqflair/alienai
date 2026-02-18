@@ -135,6 +135,7 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground antialiased;
   }
@@ -148,10 +149,12 @@
     color: #111827 !important;
     border-color: #d1d5db !important;
   }
+
   input::placeholder,
   textarea::placeholder {
     color: #9ca3af !important;
   }
+
   .dark input,
   .dark textarea,
   .dark select,
@@ -160,6 +163,7 @@
     color: #111827 !important;
     border-color: #d1d5db !important;
   }
+
   .dark input::placeholder,
   .dark textarea::placeholder {
     color: #9ca3af !important;
@@ -169,5 +173,78 @@
   :focus-visible {
     outline: 2px solid oklch(65% 0.12 260);
     outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  @keyframes alienPulse {
+    0%,
+    100% {
+      filter: drop-shadow(0 0 10px rgba(0, 212, 255, 0.55));
+      opacity: 0.95;
+    }
+    50% {
+      filter: drop-shadow(0 0 22px rgba(0, 212, 255, 1));
+      opacity: 1;
+    }
+  }
+
+  @keyframes alienPulse2 {
+    0%,
+    100% {
+      filter: drop-shadow(0 0 8px rgba(0, 212, 255, 0.45));
+      opacity: 0.9;
+    }
+    50% {
+      filter: drop-shadow(0 0 20px rgba(0, 212, 255, 1));
+      opacity: 1;
+    }
+  }
+
+  @keyframes alienGlitch {
+    0%,
+    95%,
+    100% {
+      transform: translate(0, 0);
+      opacity: 1;
+    }
+    96% {
+      transform: translate(-1px, 0);
+      opacity: 0.85;
+    }
+    97% {
+      transform: translate(1px, 0);
+      opacity: 0.9;
+    }
+    98% {
+      transform: translate(0, 0);
+      opacity: 1;
+    }
+  }
+
+  .aliena-wordmark {
+    font-family: "Orbitron", "Eurostile", "Bank Gothic", "Segoe UI", system-ui,
+      sans-serif;
+    letter-spacing: 0.35em;
+    font-weight: 900;
+    white-space: nowrap;
+    user-select: none;
+  }
+
+  .aliena-cyan {
+    color: #00d4ff;
+    animation: alienPulse 3s ease-in-out infinite;
+    filter: drop-shadow(0 0 14px rgba(0, 212, 255, 0.9));
+  }
+
+  .aliena-cyan-2 {
+    color: #00d4ff;
+    animation: alienPulse2 3.2s ease-in-out infinite;
+    filter: drop-shadow(0 0 14px rgba(0, 212, 255, 0.9));
+  }
+
+  .aliena-glitch {
+    display: inline-block;
+    animation: alienGlitch 7s infinite;
   }
 }

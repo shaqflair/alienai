@@ -1,4 +1,7 @@
 // src/components/AppHeader.tsx
+import "server-only";
+
+import React from "react";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
@@ -19,24 +22,44 @@ function pickInitials(label: string) {
   return letters || "U";
 }
 
-/* -----------------------------
-   ?LIEN? Wordmark – : white + cyan A & I
------------------------------- */
+/* =========================================================
+   AI STARTUP WORDMARK — Λ L I Ξ N Λ (with failsafe)
+   NOTE: animations moved to globals.css (@layer utilities)
+========================================================= */
 function AlienWordmark() {
+  const useGlyphs = true; // flip to false if any device renders Λ/Ξ as "?"
+
   return (
-    <span className="select-none whitespace-nowrap text-xl md:text-2xl font-black tracking-[0.35em]">
-      <span className="text-[#00d4ff] drop-shadow-[0_0_12px_rgba(0,212,255,0.7)]">?</span>
-      <span className="text-white">L</span>
-      <span className="text-[#00d4ff] drop-shadow-[0_0_12px_rgba(0,212,255,0.7)]">I</span>
-      <span className="text-white">?N</span>
-      <span className="text-white">?</span>
+    <span className="relative inline-flex items-center">
+      {/* Ambient glow */}
+      <span className="absolute inset-0 blur-xl opacity-30 bg-cyan-500/20 rounded-full pointer-events-none" />
+
+      {useGlyphs ? (
+        <span className="relative aliena-wordmark text-xl md:text-2xl" aria-label="ALIENA" title="ALIENA">
+          <span className="aliena-cyan">Λ</span>
+          <span className="text-white">L</span>
+          <span className="aliena-cyan-2">I</span>
+          <span className="text-white">
+            <span className="aliena-glitch">Ξ</span>
+          </span>
+          <span className="text-white">N</span>
+          <span className="text-white">Λ</span>
+        </span>
+      ) : (
+        <span className="relative aliena-wordmark text-xl md:text-2xl" aria-label="ALIENA" title="ALIENA">
+          <span className="aliena-cyan">A</span>
+          <span className="text-white">L</span>
+          <span className="aliena-cyan-2">I</span>
+          <span className="text-white">ENA</span>
+        </span>
+      )}
     </span>
   );
 }
 
-/* -----------------------------
-   Brand Logo (IMG – no next/image)
------------------------------- */
+/* =========================================================
+   Brand Logo
+========================================================= */
 function BrandLogo() {
   return (
     <img
@@ -47,45 +70,42 @@ function BrandLogo() {
   );
 }
 
+/* =========================================================
+   Header Component
+========================================================= */
 export default async function AppHeader() {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Palantir Foundry-style header shell (dark, glass-like, cyan accents)
   const HeaderShell = ({ children }: { children: React.ReactNode }) => {
     return (
-      <header className="sticky top-0 z-50 border-b border-[#334155] bg-[#0f172a] text-[#e2e8f0] font-['Inter','system-ui',sans-serif]">
-        {/* Subtle nebula/cyan overlay */}
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#0f172a] via-[#1e293b]/60 to-[#334155]/40" />
-        {/* Very faint top glow */}
+      <header className="sticky top-0 z-50 border-b border-[#1e293b] bg-[#0f172a] text-[#e2e8f0]">
+        {/* Background gradient */}
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#0f172a] via-[#1e293b]/70 to-[#0f172a]" />
         <div className="pointer-events-none absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_20%_0%,rgba(0,212,255,0.25),transparent_50%)]" />
 
         <div className="relative mx-auto w-full max-w-none px-6 h-14 flex items-center justify-between">
           {children}
         </div>
 
-        {/* Thin cyan accent line at bottom */}
         <div className="relative h-[1px] bg-gradient-to-r from-transparent via-[#00d4ff]/40 to-transparent" />
       </header>
     );
   };
 
-  // Public header (logged out)
+  // Logged out
   if (!user) {
     return (
       <HeaderShell>
-        {/* LEFT: logo + wordmark */}
         <Link href="/projects" className="flex items-center gap-4 shrink-0">
           <BrandLogo />
           <AlienWordmark />
         </Link>
 
-        {/* CENTER: empty on logged-out */}
         <div className="flex-1" />
 
-        {/* RIGHT: login button */}
         <div className="ml-auto shrink-0">
           <Link
             className="rounded-md border border-[#334155] bg-[#1e293b]/80 px-4 py-1.5 text-sm text-[#e2e8f0] hover:bg-[#1e293b] hover:border-[#00d4ff]/50 transition"
@@ -160,18 +180,15 @@ export default async function AppHeader() {
 
   return (
     <HeaderShell>
-      {/* LEFT: logo + wordmark */}
       <Link href="/projects" className="flex items-center gap-4 shrink-0">
         <BrandLogo />
         <AlienWordmark />
       </Link>
 
-      {/* CENTER: navigation */}
       <div className="flex-1 flex items-center justify-center">
         <AppNavLinks />
       </div>
 
-      {/* RIGHT: user/org menu */}
       <div className="ml-auto shrink-0">
         <UserMenu
           email={user.email ?? ""}
