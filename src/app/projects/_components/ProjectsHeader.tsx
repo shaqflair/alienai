@@ -28,7 +28,7 @@ export default function ProjectsHeader({
           <div>
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-white">Projects</h1>
             <p className="mt-1 text-sm text-slate-400">
-              Your portfolio entry point — search, switch views, and jump into governance.
+              Your portfolio entry point â€” search, switch views, and jump into governance.
             </p>
           </div>
         </div>

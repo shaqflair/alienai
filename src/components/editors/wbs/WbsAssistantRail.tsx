@@ -111,7 +111,7 @@ export default function WbsAssistantRail({
         <div className="text-gray-500">Selected</div>
         <div className="font-medium text-gray-900">{selectedLabel}</div>
         <div className="text-xs text-gray-500 mt-0.5">
-          Code: <span className="font-mono">{selectedRow.code || "—"}</span>
+          Code: <span className="font-mono">{selectedRow.code || "â€”"}</span>
         </div>
       </div>
 
@@ -122,7 +122,7 @@ export default function WbsAssistantRail({
           disabled={readOnly || assistantLoading}
           onClick={loadAssistant}
         >
-          {assistantLoading ? "Loading…" : "Generate guidance"}
+          {assistantLoading ? "Loadingâ€¦" : "Generate guidance"}
         </button>
 
         <button
@@ -159,7 +159,7 @@ export default function WbsAssistantRail({
                 <span className="text-xs text-emerald-700 font-medium">Applied ?</span>
               )}
             </div>
-            <pre className="text-xs text-gray-700 whitespace-pre-wrap font-sans">{assistant.acceptance_criteria || "—"}</pre>
+            <pre className="text-xs text-gray-700 whitespace-pre-wrap font-sans">{assistant.acceptance_criteria || "â€”"}</pre>
           </div>
 
           <SectionAppend

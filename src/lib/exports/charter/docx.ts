@@ -54,21 +54,21 @@ async function buildMeta(
 
   const projectCode = projectRow?.project_code
     ? `P-${String(projectRow.project_code).padStart(5, "0")}`
-    : "—";
+    : "â€”";
 
-  let orgName = "—";
+  let orgName = "â€”";
   const orgId = projectRow?.organisation_id;
   if (orgId) {
     const { data: org } = await supabase.from("organisations").select("name").eq("id", orgId).single();
-    orgName = org?.name || "—";
+    orgName = org?.name || "â€”";
   }
 
   const meta: CharterExportMeta = {
     projectName: (artifact as any).title || projectRow?.title || "Project",
     projectCode,
     organisationName: orgName,
-    clientName: projectRow?.client_name || "—",
-    pmName: doc?.meta?.pm_name || "—",
+    clientName: projectRow?.client_name || "â€”",
+    pmName: doc?.meta?.pm_name || "â€”",
     status: doc?.meta?.status || "Draft",
     generated: formatUkDateTime(),
     generatedDate: formatUkDate(),

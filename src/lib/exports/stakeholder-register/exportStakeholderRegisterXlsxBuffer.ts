@@ -70,15 +70,15 @@ export async function exportStakeholderRegisterXlsxBuffer(
 
   const cleanRows = normalizeStakeholderRows(rows);
 
-  // Map to the renderer’s expected keys
+  // Map to the rendererâ€™s expected keys
   const renderRows = (Array.isArray(cleanRows) ? cleanRows : []).map(mapToXlsxRow);
 
   // Your XLSX renderer only needs meta.projectCode/projectName for naming
   const xlsxMeta = {
     projectName: safeStr(meta?.projectName) || "Project",
-    projectCode: safeStr(meta?.projectCode) || "—",
-    organisationName: safeStr(meta?.organisationName) || "—",
-    clientName: safeStr(meta?.clientName) || "—",
+    projectCode: safeStr(meta?.projectCode) || "â€”",
+    organisationName: safeStr(meta?.organisationName) || "â€”",
+    clientName: safeStr(meta?.clientName) || "â€”",
     author: safeStr(meta?.author) || "",
   };
 

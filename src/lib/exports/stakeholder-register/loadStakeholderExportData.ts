@@ -77,7 +77,7 @@ export async function loadStakeholderExportData(args: {
       }
     }
   } catch {
-    // swallow — meta stays safe
+    // swallow â€” meta stays safe
   }
 
   // -------------------------------------------------------------
@@ -100,7 +100,7 @@ export async function loadStakeholderExportData(args: {
       }
     }
   } catch {
-    // swallow — doc stays {}
+    // swallow â€” doc stays {}
   }
 
   // -------------------------------------------------------------

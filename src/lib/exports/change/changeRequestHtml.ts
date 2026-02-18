@@ -129,7 +129,7 @@ export function renderChangeRequestHtml(args: {
   const kv = (k: string, v: any) => `
     <div class="kv">
       <div class="k">${esc(k)}</div>
-      <div class="v">${esc(safeStr(v) || "—")}</div>
+      <div class="v">${esc(safeStr(v) || "â€”")}</div>
     </div>
   `;
 
@@ -156,7 +156,7 @@ export function renderChangeRequestHtml(args: {
             return `${head}<div class="text">${esc(s.body)}</div>`;
           })
           .join("")
-      : `<div class="muted">—</div>`;
+      : `<div class="muted">â€”</div>`;
 
   return `<!doctype html>
 <html>
@@ -217,7 +217,7 @@ export function renderChangeRequestHtml(args: {
       <div class="badge">CR</div>
       <div class="titles">
         <h1 class="h1">Change Request</h1>
-        <div class="sub">${esc(projectTitle)}${projectCode ? ` <span class="code">(${esc(projectCode)})</span>` : ""} • ${esc(args.orgName || "Organisation")}${args.clientName ? ` • ${esc(args.clientName)}` : ""}</div>
+        <div class="sub">${esc(projectTitle)}${projectCode ? ` <span class="code">(${esc(projectCode)})</span>` : ""} â€¢ ${esc(args.orgName || "Organisation")}${args.clientName ? ` â€¢ ${esc(args.clientName)}` : ""}</div>
       </div>
     </div>
     <div class="gen">
@@ -228,10 +228,10 @@ export function renderChangeRequestHtml(args: {
 
   <div class="cards">
     <div class="card"><div class="k">Reference</div><div class="v">${esc(ref)}</div></div>
-    <div class="card"><div class="k">Status</div><div class="v">${esc(safeStr(cr.status || cr.approval_status || "—") || "—")}</div></div>
-    <div class="card"><div class="k">Priority</div><div class="v">${esc(safeStr(cr.priority || "—") || "—")}</div></div>
-    <div class="card"><div class="k">Owner</div><div class="v">${esc(safeStr(cr.owner_label || cr.owner || "—") || "—")}</div></div>
-    <div class="card"><div class="k">Requester</div><div class="v">${esc(safeStr(cr.requester_name || "—") || "—")}</div></div>
+    <div class="card"><div class="k">Status</div><div class="v">${esc(safeStr(cr.status || cr.approval_status || "â€”") || "â€”")}</div></div>
+    <div class="card"><div class="k">Priority</div><div class="v">${esc(safeStr(cr.priority || "â€”") || "â€”")}</div></div>
+    <div class="card"><div class="k">Owner</div><div class="v">${esc(safeStr(cr.owner_label || cr.owner || "â€”") || "â€”")}</div></div>
+    <div class="card"><div class="k">Requester</div><div class="v">${esc(safeStr(cr.requester_name || "â€”") || "â€”")}</div></div>
   </div>
 
   <div class="section">
@@ -240,8 +240,8 @@ export function renderChangeRequestHtml(args: {
       <div class="kvGrid">
         ${kv("Submitted", submitted)}
         ${kv("Needed By", neededBy)}
-        ${kv("Decision", safeStr(cr.decision_status || "—"))}
-        ${kv("Project Code", projectCode || "—")}
+        ${kv("Decision", safeStr(cr.decision_status || "â€”"))}
+        ${kv("Project Code", projectCode || "â€”")}
       </div>
     </div>
   </div>
@@ -250,17 +250,17 @@ export function renderChangeRequestHtml(args: {
     <div class="sectionHead"><div class="t">Impacts</div></div>
     <div class="sectionBody">
       <div class="kvGrid">
-        ${kv("Cost Impact", safeStr(cr.cost_impact ?? cr.budget_impact ?? "—"))}
-        ${kv("Schedule Impact", safeStr(cr.schedule_impact ?? cr.schedule_days ?? "—"))}
-        ${kv("Risk Impact", safeStr(cr.risk_impact ?? "—"))}
-        ${kv("Benefits", safeStr(cr.benefits || cr.benefit_summary || "—"))}
+        ${kv("Cost Impact", safeStr(cr.cost_impact ?? cr.budget_impact ?? "â€”"))}
+        ${kv("Schedule Impact", safeStr(cr.schedule_impact ?? cr.schedule_days ?? "â€”"))}
+        ${kv("Risk Impact", safeStr(cr.risk_impact ?? "â€”"))}
+        ${kv("Benefits", safeStr(cr.benefits || cr.benefit_summary || "â€”"))}
       </div>
     </div>
   </div>
 
   <div class="section">
     <div class="sectionHead"><div class="t">Description</div></div>
-    <div class="sectionBody"><div class="text">${esc(cr.description || cr.change_description || "—")}</div></div>
+    <div class="sectionBody"><div class="text">${esc(cr.description || cr.change_description || "â€”")}</div></div>
   </div>
 
   <div class="section">
@@ -270,21 +270,21 @@ export function renderChangeRequestHtml(args: {
 
   <div class="section">
     <div class="sectionHead"><div class="t">Implementation Plan</div></div>
-    <div class="sectionBody"><div class="text">${esc(cr.implementation_plan || cr.plan || "—")}</div></div>
+    <div class="sectionBody"><div class="text">${esc(cr.implementation_plan || cr.plan || "â€”")}</div></div>
   </div>
 
   <div class="section">
     <div class="sectionHead"><div class="t">Rollback Plan</div></div>
-    <div class="sectionBody"><div class="text">${esc(cr.rollback_plan || cr.rollback || "—")}</div></div>
+    <div class="sectionBody"><div class="text">${esc(cr.rollback_plan || cr.rollback || "â€”")}</div></div>
   </div>
 
   <div class="section">
     <div class="sectionHead"><div class="t">Assumptions & Dependencies</div></div>
     <div class="sectionBody">
       <div class="subhead">Assumptions</div>
-      <div class="text">${esc(cr.assumptions || "—")}</div>
+      <div class="text">${esc(cr.assumptions || "â€”")}</div>
       <div class="subhead">Dependencies</div>
-      <div class="text">${esc(cr.dependencies || "—")}</div>
+      <div class="text">${esc(cr.dependencies || "â€”")}</div>
     </div>
   </div>
 

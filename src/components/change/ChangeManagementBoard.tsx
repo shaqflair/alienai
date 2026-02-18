@@ -16,7 +16,7 @@ const ChangeBoardDnd = dynamic(() => import("./ChangeBoardDnd"), {
       <div className="flex items-center justify-between gap-3 mb-4">
         <div className="min-w-0">
           <div className="text-lg font-semibold text-gray-900">Change Board</div>
-          <div className="text-sm text-gray-500">Loading board…</div>
+          <div className="text-sm text-gray-500">Loading boardâ€¦</div>
         </div>
       </div>
 
@@ -26,7 +26,7 @@ const ChangeBoardDnd = dynamic(() => import("./ChangeBoardDnd"), {
             <div className="rounded-2xl border-2 border-gray-200 bg-white shadow-sm overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
                 <div className="font-semibold truncate">{t}</div>
-                <div className="text-xs text-gray-500">—</div>
+                <div className="text-xs text-gray-500">â€”</div>
               </div>
               <div className="p-3 min-h-[420px] space-y-3">
                 <div className="h-24 rounded-xl border border-gray-200 bg-gray-50 animate-pulse" />

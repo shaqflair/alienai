@@ -76,7 +76,7 @@ function toArrayLoose(items: any): any[] {
     const s = items.trim();
     if (!s) return [];
     const parts = s
-      .split(/\r?\n|•|\u2022|;+/g)
+      .split(/\r?\n|â€¢|\u2022|;+/g)
       .map((x) => x.trim())
       .filter(Boolean);
     return parts.length ? parts : [s];
@@ -161,7 +161,7 @@ function textFromAny(x: any): string {
 
 function normaliseRag(v: any): string {
   const s = safeStr(v).trim();
-  if (!s) return "—";
+  if (!s) return "â€”";
   const t = s.toLowerCase();
 
   if (t.includes("green")) return "GREEN";
@@ -177,7 +177,7 @@ function normaliseRag(v: any): string {
 
 function normaliseOverall(v: any): string {
   const s = safeStr(v).trim();
-  if (!s) return "—";
+  if (!s) return "â€”";
   const t = s.toLowerCase();
 
   // your editor uses: good | watch | critical
@@ -281,7 +281,7 @@ function metaCell(label: string, value: string, opts?: { isCode?: boolean }) {
       new Paragraph({
         children: [
           new TextRun({
-            text: safeStr(value) || "—",
+            text: safeStr(value) || "â€”",
             size: META_VALUE_SIZE,
             bold: true,
             color: opts?.isCode ? COLORS.blue : COLORS.slate900,
@@ -369,17 +369,17 @@ function charterTable(headers: string[], rows: string[][]) {
     )),
   });
 
-  const safeRows = Array.isArray(rows) && rows.length ? rows : [["—"]];
+  const safeRows = Array.isArray(rows) && rows.length ? rows : [["â€”"]];
   const colCount = headers.length || 1;
 
   const bodyRows = safeRows.map((r, idx) => {
     const shading = idx % 2 === 1 ? { type: ShadingType.CLEAR, fill: COLORS.bgAlt } : undefined;
     return new TableRow({
-      children: Array.from({ length: colCount }, (_, c) => safeStr(r?.[c] ?? "—")).map((cell) => (
+      children: Array.from({ length: colCount }, (_, c) => safeStr(r?.[c] ?? "â€”")).map((cell) => (
         new TableCell({
           shading,
           margins: { top: 60, bottom: 60, left: 100, right: 100 },
-          children: [new Paragraph({ children: [new TextRun({ text: cell || "—", size: 20 })] })],
+          children: [new Paragraph({ children: [new TextRun({ text: cell || "â€”", size: 20 })] })],
         })
       )),
     });
@@ -418,19 +418,19 @@ function boolToYesNo(v: any): string {
   if (v === true) return "Yes";
   if (v === false) return "No";
   const s = safeStr(v).trim();
-  return s || "—";
+  return s || "â€”";
 }
 
 function moneyStr(v: any): string {
-  if (v == null || v === "") return "—";
+  if (v == null || v === "") return "â€”";
   if (typeof v === "number" && Number.isFinite(v)) {
     try {
       return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(v);
     } catch {
-      return `£${Math.round(v).toLocaleString("en-GB")}`;
+      return `Â£${Math.round(v).toLocaleString("en-GB")}`;
     }
   }
-  return safeStr(v).trim() || "—";
+  return safeStr(v).trim() || "â€”";
 }
 
 /* ==================== DEBUG PROBE (server console) ==================== */
@@ -451,7 +451,7 @@ function preview(x: any, max = 120) {
               }
             })();
 
-  return s.length > max ? s.slice(0, max) + "…" : s;
+  return s.length > max ? s.slice(0, max) + "â€¦" : s;
 }
 
 function isPlainObject(x: any) {
@@ -545,31 +545,31 @@ export async function exportClosureReportDocxBuffer(model: any): Promise<Buffer>
 
   // Organisation is not in your editor doc; keep fallbacks
   const orgName =
-    pickAny(model, ["meta.organisationName", "meta.orgName", "organisation", "organisation_name", "org_name", "orgName"]) || "—";
+    pickAny(model, ["meta.organisationName", "meta.orgName", "organisation", "organisation_name", "org_name", "orgName"]) || "â€”";
 
   const clientName =
     pickAny(model, ["project.client_name"]) ||
     pickAny(model, ["meta.clientName", "client_business", "clientBusiness", "client", "client_name"]) ||
-    "—";
+    "â€”";
 
   const generatedFooter =
     pickAny(model, ["meta.generatedDateTimeUk", "meta.generatedDateTime", "meta.generated", "meta.generatedAt"]) ||
     pickAny(model, ["generatedDateTimeUk", "generatedDateTime", "generated"]) ||
-    "—";
+    "â€”";
   const generatedGrid =
     pickAny(model, ["meta.generatedDateTimeUk", "meta.generatedDateTime", "meta.generated", "meta.generatedAt"]) ||
     pickAny(model, ["generatedDateTimeUk", "generatedDateTime", "generated"]) ||
-    "—";
+    "â€”";
 
   const ragRaw =
     pickAny(model, ["health.rag"]) ||
     pickAny(model, ["meta.rag", "rag", "rag_status", "ragStatus"]) ||
-    "—";
+    "â€”";
 
   const overallRaw =
     pickAny(model, ["health.overall_health"]) ||
     pickAny(model, ["meta.overall", "overall", "overall_health", "overallHealth"]) ||
-    "—";
+    "â€”";
 
   const rag = normaliseRag(ragRaw);
   const overall = normaliseOverall(overallRaw);
@@ -661,7 +661,7 @@ export async function exportClosureReportDocxBuffer(model: any): Promise<Buffer>
     metaGrid4({
       organisation: orgName,
       client: clientName,
-      projectId: projectCode || "—",
+      projectId: projectCode || "â€”",
       generated: generatedGrid,
     })
   );
@@ -686,8 +686,8 @@ export async function exportClosureReportDocxBuffer(model: any): Promise<Buffer>
       charterTable(
         ["Name", "Role"],
         stakeholdersArr.map((s: any) => [
-          safeStr(firstString(s, ["name", "fullName"]) || textFromAny(s) || "—"),
-          safeStr(firstString(s, ["role", "responsibility", "title"]) || "—"),
+          safeStr(firstString(s, ["name", "fullName"]) || textFromAny(s) || "â€”"),
+          safeStr(firstString(s, ["role", "responsibility", "title"]) || "â€”"),
         ])
       )
     );
@@ -710,7 +710,7 @@ export async function exportClosureReportDocxBuffer(model: any): Promise<Buffer>
       charterTable(
         ["Criterion", "Achieved"],
         criteriaArr.map((c: any) => [
-          safeStr(firstString(c, ["text", "criterion", "title"]) || textFromAny(c) || "—"),
+          safeStr(firstString(c, ["text", "criterion", "title"]) || textFromAny(c) || "â€”"),
           // editor uses achieved: yes | partial | no
           (() => {
             const a = safeStr(c?.achieved).toLowerCase();
@@ -719,7 +719,7 @@ export async function exportClosureReportDocxBuffer(model: any): Promise<Buffer>
             if (a === "no") return "No";
             if (c?.achieved === true) return "Yes";
             if (c?.achieved === false) return "No";
-            return safeStr(firstString(c, ["achieved", "status"]) || "—");
+            return safeStr(firstString(c, ["achieved", "status"]) || "â€”");
           })(),
         ])
       )
@@ -728,17 +728,17 @@ export async function exportClosureReportDocxBuffer(model: any): Promise<Buffer>
     docChildren.push(para("No content recorded", { color: COLORS.slate400, size: 22 }));
   }
 
-  // Deliverables — Delivered
+  // Deliverables â€” Delivered
   docChildren.push(new Paragraph({ spacing: { before: 300 } }));
-  docChildren.push(sectionHeader("Deliverables — Delivered"));
+  docChildren.push(sectionHeader("Deliverables â€” Delivered"));
   if (deliveredArr.length) {
     docChildren.push(
       charterTable(
         ["Deliverable", "Accepted by", "Accepted on"],
         deliveredArr.map((d: any) => [
-          safeStr(firstString(d, ["deliverable", "item", "title"]) || textFromAny(d) || "—"),
-          safeStr(firstString(d, ["accepted_by", "acceptedBy", "acceptedByName"]) || "—"),
-          safeStr(firstString(d, ["accepted_on", "acceptedOn", "date"]) || "—"),
+          safeStr(firstString(d, ["deliverable", "item", "title"]) || textFromAny(d) || "â€”"),
+          safeStr(firstString(d, ["accepted_by", "acceptedBy", "acceptedByName"]) || "â€”"),
+          safeStr(firstString(d, ["accepted_on", "acceptedOn", "date"]) || "â€”"),
         ])
       )
     );
@@ -746,18 +746,18 @@ export async function exportClosureReportDocxBuffer(model: any): Promise<Buffer>
     docChildren.push(para("No content recorded", { color: COLORS.slate400, size: 22 }));
   }
 
-  // Deliverables — Outstanding
+  // Deliverables â€” Outstanding
   docChildren.push(new Paragraph({ spacing: { before: 300 } }));
-  docChildren.push(sectionHeader("Deliverables — Outstanding"));
+  docChildren.push(sectionHeader("Deliverables â€” Outstanding"));
   if (outstandingArr.length) {
     docChildren.push(
       charterTable(
         ["Item", "Owner", "Status", "Target"],
         outstandingArr.map((o: any) => [
-          safeStr(firstString(o, ["item", "deliverable", "title"]) || textFromAny(o) || "—"),
-          safeStr(firstString(o, ["owner", "assigned_to", "assignedTo"]) || "—"),
-          safeStr(firstString(o, ["status"]) || "—"),
-          safeStr(firstString(o, ["target", "due_date", "dueDate"]) || "—"),
+          safeStr(firstString(o, ["item", "deliverable", "title"]) || textFromAny(o) || "â€”"),
+          safeStr(firstString(o, ["owner", "assigned_to", "assignedTo"]) || "â€”"),
+          safeStr(firstString(o, ["status"]) || "â€”"),
+          safeStr(firstString(o, ["target", "due_date", "dueDate"]) || "â€”"),
         ])
       )
     );
@@ -773,9 +773,9 @@ export async function exportClosureReportDocxBuffer(model: any): Promise<Buffer>
       charterTable(
         ["Category", "Budget", "Actual"],
         budgetRowsArr.map((b: any) => [
-          safeStr(firstString(b, ["category", "name"]) || "—"),
-          moneyStr(b?.budget ?? b?.budget_gbp ?? b?.planned ?? "—"),
-          moneyStr(b?.actual ?? b?.actual_gbp ?? b?.spent ?? "—"),
+          safeStr(firstString(b, ["category", "name"]) || "â€”"),
+          moneyStr(b?.budget ?? b?.budget_gbp ?? b?.planned ?? "â€”"),
+          moneyStr(b?.actual ?? b?.actual_gbp ?? b?.spent ?? "â€”"),
         ])
       )
     );
@@ -785,7 +785,7 @@ export async function exportClosureReportDocxBuffer(model: any): Promise<Buffer>
 
   // Lessons Learned
   docChildren.push(new Paragraph({ spacing: { before: 300 } }));
-  docChildren.push(sectionHeader("Lessons Learned — What Went Well"));
+  docChildren.push(sectionHeader("Lessons Learned â€” What Went Well"));
   docChildren.push(
     ...bulletLines(wentWellArr, (l) => {
       const t = firstString(l, ["text", "lesson", "summary", "description"]) || textFromAny(l);
@@ -795,7 +795,7 @@ export async function exportClosureReportDocxBuffer(model: any): Promise<Buffer>
   );
 
   docChildren.push(new Paragraph({ spacing: { before: 220 } }));
-  docChildren.push(sectionHeader("Lessons Learned — What Didn’t Go Well"));
+  docChildren.push(sectionHeader("Lessons Learned â€” What Didnâ€™t Go Well"));
   docChildren.push(
     ...bulletLines(didntGoWellArr, (l) => {
       const t = firstString(l, ["text", "lesson", "summary", "description"]) || textFromAny(l);
@@ -805,7 +805,7 @@ export async function exportClosureReportDocxBuffer(model: any): Promise<Buffer>
   );
 
   docChildren.push(new Paragraph({ spacing: { before: 220 } }));
-  docChildren.push(sectionHeader("Lessons Learned — Surprises & Risks"));
+  docChildren.push(sectionHeader("Lessons Learned â€” Surprises & Risks"));
   docChildren.push(
     ...bulletLines(surprisesArr, (l) => {
       const t = firstString(l, ["text", "lesson", "summary", "description"]) || textFromAny(l);
@@ -814,20 +814,20 @@ export async function exportClosureReportDocxBuffer(model: any): Promise<Buffer>
     })
   );
 
-  // Handover — Open Risks & Issues
+  // Handover â€” Open Risks & Issues
   docChildren.push(new Paragraph({ spacing: { before: 300 } }));
-  docChildren.push(sectionHeader("Handover — Open Risks & Issues"));
+  docChildren.push(sectionHeader("Handover â€” Open Risks & Issues"));
   if (risksIssuesArr.length) {
     docChildren.push(
       charterTable(
         ["Risk ID", "Description", "Severity", "Owner", "Status", "Next Action"],
         risksIssuesArr.map((r: any) => [
-          safeStr(r?.human_id ?? r?.humanId ?? r?.display_id ?? r?.displayId ?? r?.id ?? "—"),
-          safeStr(firstString(r, ["description", "text", "title", "summary"]) || "—"),
-          safeStr(firstString(r, ["severity", "impact"]) || "—"),
-          safeStr(firstString(r, ["owner", "assigned_to", "assignedTo"]) || "—"),
-          safeStr(firstString(r, ["status"]) || "—"),
-          safeStr(firstString(r, ["next_action", "nextAction", "action"]) || "—"),
+          safeStr(r?.human_id ?? r?.humanId ?? r?.display_id ?? r?.displayId ?? r?.id ?? "â€”"),
+          safeStr(firstString(r, ["description", "text", "title", "summary"]) || "â€”"),
+          safeStr(firstString(r, ["severity", "impact"]) || "â€”"),
+          safeStr(firstString(r, ["owner", "assigned_to", "assignedTo"]) || "â€”"),
+          safeStr(firstString(r, ["status"]) || "â€”"),
+          safeStr(firstString(r, ["next_action", "nextAction", "action"]) || "â€”"),
         ])
       )
     );
@@ -843,9 +843,9 @@ export async function exportClosureReportDocxBuffer(model: any): Promise<Buffer>
       charterTable(
         ["Recommendation", "Owner", "Due Date"],
         recsArr.map((r: any) => [
-          safeStr(firstString(r, ["text", "recommendation", "title", "summary"]) || textFromAny(r) || "—"),
-          safeStr(firstString(r, ["owner", "assigned_to", "assignedTo"]) || "—"),
-          safeStr(firstString(r, ["due", "due_date", "dueDate", "target"]) || "—"),
+          safeStr(firstString(r, ["text", "recommendation", "title", "summary"]) || textFromAny(r) || "â€”"),
+          safeStr(firstString(r, ["owner", "assigned_to", "assignedTo"]) || "â€”"),
+          safeStr(firstString(r, ["due", "due_date", "dueDate", "target"]) || "â€”"),
         ])
       )
     );
@@ -860,11 +860,11 @@ export async function exportClosureReportDocxBuffer(model: any): Promise<Buffer>
     charterTable(
       ["Field", "Value"],
       [
-        ["Sponsor Name", safeStr(signoff?.sponsor_name ?? signoff?.sponsorName ?? signoff?.sponsor ?? "—")],
-        ["Sponsor Date", safeStr(signoff?.sponsor_date ?? signoff?.sponsorDate ?? "—")],
-        ["Sponsor Decision", safeStr(signoff?.sponsor_decision ?? signoff?.sponsorDecision ?? "—")],
-        ["PM Name", safeStr(signoff?.pm_name ?? signoff?.pmName ?? signoff?.project_manager ?? signoff?.projectManager ?? "—")],
-        ["PM Date", safeStr(signoff?.pm_date ?? signoff?.pmDate ?? "—")],
+        ["Sponsor Name", safeStr(signoff?.sponsor_name ?? signoff?.sponsorName ?? signoff?.sponsor ?? "â€”")],
+        ["Sponsor Date", safeStr(signoff?.sponsor_date ?? signoff?.sponsorDate ?? "â€”")],
+        ["Sponsor Decision", safeStr(signoff?.sponsor_decision ?? signoff?.sponsorDecision ?? "â€”")],
+        ["PM Name", safeStr(signoff?.pm_name ?? signoff?.pmName ?? signoff?.project_manager ?? signoff?.projectManager ?? "â€”")],
+        ["PM Date", safeStr(signoff?.pm_date ?? signoff?.pmDate ?? "â€”")],
         ["PM Approved", boolToYesNo(signoff?.pm_approved ?? signoff?.pmApproved)],
       ]
     )
@@ -911,7 +911,7 @@ export async function exportClosureReportDocxBuffer(model: any): Promise<Buffer>
               new Paragraph({
                 children: [
                   new TextRun({ text: "Project Closure Report", bold: true, size: 28 }),
-                  new TextRun({ text: " • " + safeStr(projectName), size: 24, color: COLORS.slate500 }),
+                  new TextRun({ text: " â€¢ " + safeStr(projectName), size: 24, color: COLORS.slate500 }),
                 ],
               }),
             ],
@@ -924,7 +924,7 @@ export async function exportClosureReportDocxBuffer(model: any): Promise<Buffer>
                 alignment: AlignmentType.RIGHT,
                 children: [
                   new TextRun({
-                    text: `Generated ${safeStr(generatedFooter)} • Page `,
+                    text: `Generated ${safeStr(generatedFooter)} â€¢ Page `,
                     size: 18,
                     color: COLORS.slate500,
                   }),

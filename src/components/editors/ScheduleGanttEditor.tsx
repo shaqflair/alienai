@@ -123,7 +123,7 @@ function parseDeps(x: unknown): string[] {
 function fmtWeekHeader(weekStart: Date): string {
   const s = weekStart.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
   const e = addDays(weekStart, 6).toLocaleDateString(undefined, { day: "2-digit", month: "short" });
-  return `${s} – ${e}`;
+  return `${s} â€“ ${e}`;
 }
 
 function normalizeInitial(initialJson: any): ScheduleDocV1 {
@@ -1507,7 +1507,7 @@ export default function ScheduleGanttEditor({
                 className="px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 title={wbsJson ? "Append tasks from WBS" : "Load WBS and append tasks"}
               >
-                {wbsLoading ? "Loading WBS…" : "Import WBS"}
+                {wbsLoading ? "Loading WBSâ€¦" : "Import WBS"}
               </button>
             )}
 
@@ -1616,7 +1616,7 @@ export default function ScheduleGanttEditor({
                   onClick={() => setSearch("")}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                 >
-                  ×
+                  Ã—
                 </button>
               )}
             </div>
@@ -1724,7 +1724,7 @@ export default function ScheduleGanttEditor({
             <span>Done</span>
           </div>
           <div className="h-3 w-px bg-slate-300 mx-1" />
-          <span>Drag to move • Drag right edge to resize</span>
+          <span>Drag to move â€¢ Drag right edge to resize</span>
         </div>
       </header>
 
@@ -1886,7 +1886,7 @@ export default function ScheduleGanttEditor({
                           </div>
 
                           <div className="mt-2 text-[11px] text-slate-400">
-                            Tip: click a bar to edit • drag to move • resize end for duration
+                            Tip: click a bar to edit â€¢ drag to move â€¢ resize end for duration
                           </div>
                         </div>
                       )}
@@ -2239,7 +2239,7 @@ export default function ScheduleGanttEditor({
                             >
                               <div className="font-medium text-slate-900">{it.name || "(untitled)"}</div>
                               <div className="text-xs text-slate-500">
-                                {it.type} • {it.start}
+                                {it.type} â€¢ {it.start}
                                 {it.type !== "milestone" && it.end ? ` ? ${it.end}` : ""}
                               </div>
                             </button>
@@ -2268,7 +2268,7 @@ export default function ScheduleGanttEditor({
                               }}
                               className="hover:text-red-600"
                             >
-                              ×
+                              Ã—
                             </button>
                           )}
                         </div>

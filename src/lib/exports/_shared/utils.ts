@@ -34,7 +34,7 @@ export function isoNow() {
 
 export function formatDateUk(value: any): string {
   const s = safeStr(value).trim();
-  if (!s || s === "—") return "—";
+  if (!s || s === "â€”") return "â€”";
   const m1 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (m1) return `${m1[3]}/${m1[2]}/${m1[1]}`;
   const dt = new Date(s);

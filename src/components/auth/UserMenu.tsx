@@ -80,7 +80,7 @@ export default function UserMenu(props: {
 
             {props.memberships.length === 0 ? (
               <div className="text-xs text-gray-500">
-                You’re not a member of any organisation yet.
+                Youâ€™re not a member of any organisation yet.
               </div>
             ) : null}
           </div>

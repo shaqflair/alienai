@@ -146,7 +146,7 @@ function amountMatchesRule(amount: number | null, rule: any): boolean {
 }
 
 /**
- * LEGACY helper — safe to keep if you still have doa_rules in some envs.
+ * LEGACY helper â€” safe to keep if you still have doa_rules in some envs.
  * New approval engine does not depend on this.
  */
 export async function isDesignatedApproverForChange(args: {
@@ -164,7 +164,7 @@ export async function isDesignatedApproverForChange(args: {
 
   if (!userId || !projectId) return { ok: false, reason: "missing_user_or_project" };
 
-  // 1) DOA rules (project-specific) — optional
+  // 1) DOA rules (project-specific) â€” optional
   try {
     const { data: doa, error: doaErr } = await supabase
       .from("doa_rules")
@@ -213,7 +213,7 @@ export async function isDesignatedApproverForChange(args: {
 
 /**
  * Back-compat wrapper (older code calls this).
- * New approval routes should NOT use this — use requireApproverForPendingArtifactStep().
+ * New approval routes should NOT use this â€” use requireApproverForPendingArtifactStep().
  */
 export async function requireApproverForProject(
   supabase: any,
@@ -424,7 +424,7 @@ export async function canActOnPendingArtifactStep(args: {
 
 /**
  * ? Required by approve/reject routes.
- * Throws 403 if the actor can’t approve current pending step for artifact.
+ * Throws 403 if the actor canâ€™t approve current pending step for artifact.
  */
 export async function requireApproverForPendingArtifactStep(args: {
   supabase: any;

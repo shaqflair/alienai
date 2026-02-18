@@ -44,7 +44,7 @@ export function stripNumberPrefix(title: string) {
 
 export function stripLeadingBullets(line: string) {
   return String(line ?? "")
-    .replace(/^\s*(?:[•\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/g, "")
+    .replace(/^\s*(?:[â€¢\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/g, "")
     .trim();
 }
 
@@ -74,7 +74,7 @@ function formatToUkDate(value: string) {
 
 export function formatCellValue(x: any) {
   const raw = safeStr(x).trim();
-  if (!raw) return "—";
+  if (!raw) return "â€”";
   if (looksIsoDateOnly(raw) || looksIsoDateTime(raw)) return formatToUkDate(raw);
   return raw;
 }

@@ -284,7 +284,7 @@ async function generateCharterDocx(doc: any, meta: CharterExportMeta) {
               children: Array.from({ length: colCount }, () => "").map(
                 () =>
                   new TableCell({
-                    children: [new Paragraph({ children: [new TextRun({ text: "—", size: 20, color: "94A3B8" })] })],
+                    children: [new Paragraph({ children: [new TextRun({ text: "â€”", size: 20, color: "94A3B8" })] })],
                     margins: { top: 60, bottom: 60, left: 100, right: 100 },
                   })
               ),
@@ -430,7 +430,7 @@ async function generateCharterDocx(doc: any, meta: CharterExportMeta) {
               new Paragraph({
                 children: [
                   new TextRun({ text: "Project Charter", bold: true, size: 28 }),
-                  new TextRun({ text: " • " + safeStr(meta.projectName), size: 24, color: "64748B" }),
+                  new TextRun({ text: " â€¢ " + safeStr(meta.projectName), size: 24, color: "64748B" }),
                 ],
               }),
             ],
@@ -441,7 +441,7 @@ async function generateCharterDocx(doc: any, meta: CharterExportMeta) {
             children: [
               new Paragraph({
                 children: [
-                  new TextRun({ text: `Generated ${safeStr(meta.generatedDate)} • Page `, size: 18, color: "64748B" }),
+                  new TextRun({ text: `Generated ${safeStr(meta.generatedDate)} â€¢ Page `, size: 18, color: "64748B" }),
                   PageNumber.CURRENT,
                   new TextRun({ text: " of ", size: 18, color: "64748B" }),
                   PageNumber.TOTAL_PAGES,

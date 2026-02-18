@@ -83,7 +83,7 @@ function isLastSibling(rows: any[], idx: number): boolean {
  * level 1 => "+ Title" or "+ Title"
  * level 2 => "  + Title" etc.
  *
- * Note: We keep it simple (no vertical '¦' lines), matching your "+" style,
+ * Note: We keep it simple (no vertical 'Â¦' lines), matching your "+" style,
  * but now correctly uses + vs +.
  */
 function formatDeliverableWithConnector(rows: any[], idx: number): string {
@@ -348,8 +348,8 @@ class WBSWorkbookBuilder {
       { field: "Document Type", value: "Work Breakdown Structure (WBS)" },
       { field: "Project Code", value: project.code },
       { field: "Project Name", value: project.title },
-      { field: "Organisation", value: project.orgName || "—" },
-      { field: "Client", value: project.client || "—" },
+      { field: "Organisation", value: project.orgName || "â€”" },
+      { field: "Client", value: project.client || "â€”" },
       { field: "Artifact Name", value: artifact.title },
       { field: "Artifact Type", value: safeStr(artifact.type || "").toUpperCase() },
       { field: "Export Date", value: formatDateTimeUK(exportDate) },

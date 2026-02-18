@@ -38,7 +38,7 @@ type ApprovalHint = {
 
 function shortId(id: string) {
   if (!id) return "";
-  return id.length > 12 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id;
+  return id.length > 12 ? `${id.slice(0, 6)}â€¦${id.slice(-4)}` : id;
 }
 
 function downloadJson(filename: string, data: any) {
@@ -136,7 +136,7 @@ export default function ArtifactDiffExperience({
 
   function jumpToFirstChange() {
     // Minimal + reliable: scroll to diff table container.
-    // (True “first changed row” requires knowing ArtifactDiffTable structure.)
+    // (True â€œfirst changed rowâ€ requires knowing ArtifactDiffTable structure.)
     diffDetailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -189,7 +189,7 @@ export default function ArtifactDiffExperience({
 
   const canExport = !!diff && !sameVersion;
 
-  // Share link (deep-link: ?a=&b=) – no need for extra props, derived from current URL
+  // Share link (deep-link: ?a=&b=) â€“ no need for extra props, derived from current URL
   const shareUrl = useMemo(() => {
     if (typeof window === "undefined") return "";
     if (!versionA?.id || !versionB?.id) return "";
@@ -249,14 +249,14 @@ export default function ArtifactDiffExperience({
             </div>
 
             <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs bg-white border-gray-200 text-gray-700">
-              A: {versionA ? versionA.label : "—"}
+              A: {versionA ? versionA.label : "â€”"}
               {aStatus ? (
                 <span className={`ml-2 inline-flex items-center rounded-full border px-2 py-0.5 ${aStatus.cls}`}>
                   {aStatus.text}
                 </span>
               ) : null}
-              <span className="opacity-50 mx-2">•</span>
-              B: {versionB ? versionB.label : "—"}
+              <span className="opacity-50 mx-2">â€¢</span>
+              B: {versionB ? versionB.label : "â€”"}
               {bStatus ? (
                 <span className={`ml-2 inline-flex items-center rounded-full border px-2 py-0.5 ${bStatus.cls}`}>
                   {bStatus.text}
@@ -273,7 +273,7 @@ export default function ArtifactDiffExperience({
             ) : null}
             {versionB?.updated_at ? (
               <>
-                <span className="opacity-40">•</span>
+                <span className="opacity-40">â€¢</span>
                 <span>
                   B updated: <ClientDateTime value={versionB.updated_at} />
                 </span>
@@ -289,7 +289,7 @@ export default function ArtifactDiffExperience({
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search within diff…"
+              placeholder="Search within diffâ€¦"
               className="pl-9 pr-9 py-2 text-sm rounded-xl border border-gray-200 bg-white w-[260px] max-w-[80vw]"
             />
             {query ? (
@@ -397,7 +397,7 @@ export default function ArtifactDiffExperience({
                             <span>
                               <ClientDateTime value={x.happened_at} />
                             </span>
-                            <span className="opacity-40">•</span>
+                            <span className="opacity-40">â€¢</span>
                             <span className="font-mono">{x.actor_id ? shortId(x.actor_id) : "System/SQL"}</span>
                           </div>
                         </li>
@@ -430,7 +430,7 @@ export default function ArtifactDiffExperience({
                             <span>
                               <ClientDateTime value={x.happened_at} />
                             </span>
-                            <span className="opacity-40">•</span>
+                            <span className="opacity-40">â€¢</span>
                             <span className="font-mono">{x.actor_id ? shortId(x.actor_id) : "System/SQL"}</span>
                           </div>
                         </li>

@@ -133,9 +133,9 @@ export default function ChangeColumn({
           else needsWork++;
         }
 
-        setLaneNote(`Checking readiness… Ready: ${ready} • Needs work: ${needsWork} • Scanning AI now…`);
+        setLaneNote(`Checking readinessâ€¦ Ready: ${ready} â€¢ Needs work: ${needsWork} â€¢ Scanning AI nowâ€¦`);
       } else {
-        setLaneNote(`Scanning ${laneItems.length} item(s)…`);
+        setLaneNote(`Scanning ${laneItems.length} item(s)â€¦`);
       }
 
       let okCount = 0;
@@ -175,7 +175,7 @@ export default function ChangeColumn({
         }
 
         setLaneNote(
-          `Analysis readiness: Ready: ${ready} • Needs work: ${needsWork} • AI scanned: ${okCount}${
+          `Analysis readiness: Ready: ${ready} â€¢ Needs work: ${needsWork} â€¢ AI scanned: ${okCount}${
             failCount ? ` (failed: ${failCount})` : ""
           }`
         );
@@ -269,7 +269,7 @@ export default function ChangeColumn({
               {scanBusy ? (
                 <>
                   <div className="w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                  Scanning…
+                  Scanningâ€¦
                 </>
               ) : (
                 <>
@@ -327,7 +327,7 @@ export default function ChangeColumn({
                 disabled={scanBusy}
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg transition-colors"
               >
-                {scanBusy ? "Scanning…" : "Run AI scan"}
+                {scanBusy ? "Scanningâ€¦" : "Run AI scan"}
               </button>
             )}
           </div>

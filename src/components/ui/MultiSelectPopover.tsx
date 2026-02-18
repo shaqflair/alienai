@@ -25,7 +25,7 @@ export default function MultiSelectPopover(props: {
     options,
     onChange,
     disabled,
-    placeholder = "Select…",
+    placeholder = "Selectâ€¦",
     widthClassName = "w-[320px]",
     maxChips = 2,
   } = props;
@@ -129,7 +129,7 @@ export default function MultiSelectPopover(props: {
                       title="Remove"
                       aria-label="Remove"
                     >
-                      ×
+                      Ã—
                     </span>
                   )}
                 </span>
@@ -151,7 +151,7 @@ export default function MultiSelectPopover(props: {
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search…"
+              placeholder="Searchâ€¦"
               className="w-full rounded-md border px-2 py-1 text-sm outline-none"
             />
           </div>

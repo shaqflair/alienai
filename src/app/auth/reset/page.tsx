@@ -50,7 +50,7 @@ export default function ResetPasswordPage() {
 
       {success ? (
         <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm">
-          ? Password updated. Redirecting…
+          ? Password updated. Redirectingâ€¦
         </div>
       ) : (
         <form onSubmit={onSubmit} className="space-y-3">
@@ -87,7 +87,7 @@ export default function ResetPasswordPage() {
             disabled={loading}
             className="w-full rounded-md border px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-60"
           >
-            {loading ? "Saving…" : "Update password"}
+            {loading ? "Savingâ€¦" : "Update password"}
           </button>
         </form>
       )}

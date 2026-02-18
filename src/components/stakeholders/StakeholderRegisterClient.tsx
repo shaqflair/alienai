@@ -210,7 +210,7 @@ export default function StakeholderRegisterClient(props: {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="text-sm text-gray-500">
-          {readOnly ? "Read-only" : isPending ? "Saving…" : "Saved"}
+          {readOnly ? "Read-only" : isPending ? "Savingâ€¦" : "Saved"}
         </div>
 
         {!readOnly ? (

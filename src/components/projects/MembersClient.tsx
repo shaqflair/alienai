@@ -278,7 +278,7 @@ export default function MembersClient({
                         </button>
                       </div>
                     ) : (
-                      <span className="text-xs text-gray-400">—</span>
+                      <span className="text-xs text-gray-400">â€”</span>
                     )}
                   </td>
                 </tr>
@@ -367,7 +367,7 @@ export default function MembersClient({
                         />
                       </div>
                     ) : (
-                      <span className="text-xs text-gray-400">—</span>
+                      <span className="text-xs text-gray-400">â€”</span>
                     )}
                   </td>
                 </tr>
@@ -385,7 +385,7 @@ export default function MembersClient({
         </div>
 
         <div className="mt-3 text-xs text-gray-500">
-          “Resend invite” typically updates timestamps. “Revoke invite” deletes the invite row only.
+          â€œResend inviteâ€ typically updates timestamps. â€œRevoke inviteâ€ deletes the invite row only.
         </div>
       </div>
 

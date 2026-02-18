@@ -81,7 +81,7 @@ export default function AiSuggestionCard({
             {suggestion.target_artifact_type ? (
               <span className="text-xs text-muted-foreground">
                 {suggestion.target_artifact_type}
-                {suggestion.suggestion_type ? ` • ${suggestion.suggestion_type}` : ""}
+                {suggestion.suggestion_type ? ` â€¢ ${suggestion.suggestion_type}` : ""}
               </span>
             ) : null}
           </div>

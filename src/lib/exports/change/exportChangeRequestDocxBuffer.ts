@@ -38,7 +38,7 @@ function sanitizeFilename(name: string) {
 
 function formatDateUk(x: any) {
   const s = safeStr(x);
-  if (!s) return "—";
+  if (!s) return "â€”";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s;
   return d.toLocaleDateString("en-GB");
@@ -201,7 +201,7 @@ function cardCell(label: string, value: string) {
         spacing: { after: 70 },
       }),
       new Paragraph({
-        children: [tr(value || "—", { bold: true, color: COLOR.ink, size: 26 })],
+        children: [tr(value || "â€”", { bold: true, color: COLOR.ink, size: 26 })],
       }),
     ],
   });
@@ -232,7 +232,7 @@ function kvValCell(text: string) {
       left: { style: BorderStyle.SINGLE, size: 6, color: COLOR.line },
       right: { style: BorderStyle.SINGLE, size: 6, color: COLOR.line },
     },
-    children: [para(text || "—", { color: COLOR.ink, size: 22 })],
+    children: [para(text || "â€”", { color: COLOR.ink, size: 22 })],
   });
 }
 
@@ -244,7 +244,7 @@ function kvRow(k1: string, v1: string, k2: string, v2: string) {
 
 function bodyText(text: string) {
   return new Paragraph({
-    children: [tr(safeStr(text) || "—", { color: COLOR.ink, size: 22 })],
+    children: [tr(safeStr(text) || "â€”", { color: COLOR.ink, size: 22 })],
     spacing: { after: 120 },
   });
 }
@@ -258,7 +258,7 @@ function h3(text: string) {
 
 function bullet(text: string) {
   return new Paragraph({
-    text: safeStr(text) || "—",
+    text: safeStr(text) || "â€”",
     bullet: { level: 0 },
     spacing: { after: 60 },
   });
@@ -266,7 +266,7 @@ function bullet(text: string) {
 
 function numbered(text: string, i: number) {
   return new Paragraph({
-    children: [tr(`${i}. ${safeStr(text) || "—"}`, { color: COLOR.ink, size: 22 })],
+    children: [tr(`${i}. ${safeStr(text) || "â€”"}`, { color: COLOR.ink, size: 22 })],
     spacing: { after: 60 },
   });
 }
@@ -275,12 +275,12 @@ function renderSectionBody(s: PcSection): Paragraph[] {
   const blocks: Paragraph[] = [];
   if (s.kind === "bullets") {
     for (const b of splitBullets(s.body)) blocks.push(bullet(b));
-    return blocks.length ? blocks : [bodyText("—")];
+    return blocks.length ? blocks : [bodyText("â€”")];
   }
   if (s.kind === "steps") {
     const steps = splitSteps(s.body);
     for (let i = 0; i < steps.length; i++) blocks.push(numbered(steps[i], i + 1));
-    return blocks.length ? blocks : [bodyText("—")];
+    return blocks.length ? blocks : [bodyText("â€”")];
   }
   return [bodyText(s.body)];
 }
@@ -294,9 +294,9 @@ export async function exportChangeRequestDocxBuffer(changeId: string) {
   const title = safeStr(cr.title || "Change Request");
 
   const projectTitle = safeStr(branding?.projectTitle || "Project");
-  const projectCode = safeStr(branding?.projectCode || "—");
-  const orgName = safeStr(branding?.orgName || "—");
-  const clientName = safeStr(branding?.clientName || "—");
+  const projectCode = safeStr(branding?.projectCode || "â€”");
+  const orgName = safeStr(branding?.orgName || "â€”");
+  const clientName = safeStr(branding?.clientName || "â€”");
 
   const submitted = formatDateUk(cr.submitted_at || cr.created_at);
   const neededBy = formatDateUk(cr.needed_by || cr.required_by || cr.due_date);
@@ -308,7 +308,7 @@ export async function exportChangeRequestDocxBuffer(changeId: string) {
   const pcRollback = proposedSectionsAll.find((s) => s.key === "rollback") || null;
 
   // ? Always show Implementation + Rollback as dedicated sections.
-  // Prefer explicit columns; fallback to proposed_change sections; fallback to "—".
+  // Prefer explicit columns; fallback to proposed_change sections; fallback to "â€”".
   const implementationText =
     safeStr(cr.implementation_plan || cr.plan) || safeStr(pcImplementation?.body) || "";
   const rollbackText =
@@ -383,7 +383,7 @@ export async function exportChangeRequestDocxBuffer(changeId: string) {
         children: [cardCell("Organisation", orgName), cardCell("Client", clientName)],
       }),
       new TableRow({
-        children: [cardCell("Project ID", projectCode), cardCell("Owner", safeStr(cr.owner_label || cr.owner || "—"))],
+        children: [cardCell("Project ID", projectCode), cardCell("Owner", safeStr(cr.owner_label || cr.owner || "â€”"))],
       }),
     ],
   });
@@ -393,8 +393,8 @@ export async function exportChangeRequestDocxBuffer(changeId: string) {
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [
       kvRow("Submitted", submitted, "Needed By", neededBy),
-      kvRow("Status", safeStr(cr.status || "—"), "Priority", safeStr(cr.priority || "—")),
-      kvRow("Decision", safeStr(cr.decision_status || "—"), "Requester", safeStr(cr.requester_name || "—")),
+      kvRow("Status", safeStr(cr.status || "â€”"), "Priority", safeStr(cr.priority || "â€”")),
+      kvRow("Decision", safeStr(cr.decision_status || "â€”"), "Requester", safeStr(cr.requester_name || "â€”")),
     ],
   });
 
@@ -419,41 +419,41 @@ export async function exportChangeRequestDocxBuffer(changeId: string) {
             rows: [
               kvRow(
                 "Cost Impact",
-                safeStr(cr.cost_impact ?? cr.budget_impact ?? "—") || "—",
+                safeStr(cr.cost_impact ?? cr.budget_impact ?? "â€”") || "â€”",
                 "Schedule Impact",
-                safeStr(cr.schedule_impact ?? cr.schedule_days ?? "—") || "—"
+                safeStr(cr.schedule_impact ?? cr.schedule_days ?? "â€”") || "â€”"
               ),
               kvRow(
                 "Risk Impact",
-                safeStr(cr.risk_impact ?? "—") || "—",
+                safeStr(cr.risk_impact ?? "â€”") || "â€”",
                 "Benefits",
-                safeStr(cr.benefits ?? cr.benefit_summary ?? "—") || "—"
+                safeStr(cr.benefits ?? cr.benefit_summary ?? "â€”") || "â€”"
               ),
             ],
           }),
 
           sectionTitle(sectionNo(), "Description"),
-          bodyText(cr.description || cr.change_description || "—"),
+          bodyText(cr.description || cr.change_description || "â€”"),
 
           sectionTitle(sectionNo(), "Proposed Change"),
           ...(proposedSections.length
             ? proposedSections.flatMap((s) => [h3(s.title), ...renderSectionBody(s)])
-            : [bodyText("—")]),
+            : [bodyText("â€”")]),
 
           // ? ALWAYS present again (even if it was embedded in proposed_change)
           sectionTitle(sectionNo(), "Implementation Plan"),
-          ...(implementationText ? [bodyText(implementationText)] : [bodyText("—")]),
+          ...(implementationText ? [bodyText(implementationText)] : [bodyText("â€”")]),
 
           // ? ALWAYS present again (even if it was embedded in proposed_change)
           sectionTitle(sectionNo(), "Rollback Plan"),
-          ...(rollbackText ? [bodyText(rollbackText)] : [bodyText("—")]),
+          ...(rollbackText ? [bodyText(rollbackText)] : [bodyText("â€”")]),
 
           // Keep assumptions/dependencies as dedicated sections if stored in columns
           sectionTitle(sectionNo(), "Assumptions"),
-          ...(asStandalone ? [bodyText(asStandalone)] : [bodyText("—")]),
+          ...(asStandalone ? [bodyText(asStandalone)] : [bodyText("â€”")]),
 
           sectionTitle(sectionNo(), "Dependencies"),
-          ...(depStandalone ? [bodyText(depStandalone)] : [bodyText("—")]),
+          ...(depStandalone ? [bodyText(depStandalone)] : [bodyText("â€”")]),
 
           // Attachments always included
           sectionTitle(sectionNo(), "Attachments"),

@@ -67,7 +67,7 @@ function slugify(x: string) {
 
 function ukDateFromIso(isoLike?: string | null) {
   const s = safeStr(isoLike).trim();
-  if (!s) return "—";
+  if (!s) return "â€”";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s.slice(0, 10);
   const dd = String(d.getDate()).padStart(2, "0");
@@ -78,7 +78,7 @@ function ukDateFromIso(isoLike?: string | null) {
 
 function ukDateTimeFromIso(isoLike?: string | null) {
   const s = safeStr(isoLike).trim();
-  if (!s) return "—";
+  if (!s) return "â€”";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s;
   const dd = String(d.getDate()).padStart(2, "0");
@@ -167,19 +167,19 @@ function friendlyCategory(cat: string) {
     improvements: "Improvements",
     issues: "Issues",
   };
-  return maps[v] || v || "—";
+  return maps[v] || v || "â€”";
 }
 
 function joinTags(tags: any) {
-  if (!tags) return "—";
-  if (Array.isArray(tags)) return tags.map((t) => safeStr(t).trim()).filter(Boolean).join(", ") || "—";
+  if (!tags) return "â€”";
+  if (Array.isArray(tags)) return tags.map((t) => safeStr(t).trim()).filter(Boolean).join(", ") || "â€”";
   const s = safeStr(tags).trim();
-  return s || "—";
+  return s || "â€”";
 }
 
 function cell(v: any) {
   const s = String(v ?? "").trim();
-  return s ? s : "—";
+  return s ? s : "â€”";
 }
 
 export async function exportLessonsPdf(args: ExportPdfArgs): Promise<{ filename: string; bytes: Buffer }> {
@@ -210,7 +210,7 @@ export async function exportLessonsPdf(args: ExportPdfArgs): Promise<{ filename:
   const items: LessonRow[] = Array.isArray(data) ? data : [];
 
   const projectTitle = safeStr(project.title) || "Project";
-  const clientName = safeStr(project.client_name) || "—";
+  const clientName = safeStr(project.client_name) || "â€”";
 
   const base =
     safeStr(filenameBase).trim() ||
@@ -225,16 +225,16 @@ export async function exportLessonsPdf(args: ExportPdfArgs): Promise<{ filename:
   const filterBits: string[] = [];
   if (publishedOnly) filterBits.push("Org Library only");
   if (statusFilter.length) filterBits.push(`Status: ${statusFilter.join(", ")}`);
-  const filterLabel = filterBits.length ? filterBits.join(" • ") : "All lessons";
+  const filterLabel = filterBits.length ? filterBits.join(" â€¢ ") : "All lessons";
 
   // ---------- meta html ----------
   const metaHtml = `
     <div style="display:flex; gap:16px; flex-wrap:wrap;">
       <div style="min-width:220px;">
-        <div><b>Organisation:</b> ${escapeHtml(orgName || "—")}</div>
-        <div><b>Client:</b> ${escapeHtml(clientName || "—")}</div>
+        <div><b>Organisation:</b> ${escapeHtml(orgName || "â€”")}</div>
+        <div><b>Client:</b> ${escapeHtml(clientName || "â€”")}</div>
         <div><b>Project ID:</b> <span style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;">${escapeHtml(
-          humanProjectCode || "—"
+          humanProjectCode || "â€”"
         )}</span></div>
       </div>
       <div style="min-width:220px;">
@@ -301,7 +301,7 @@ export async function exportLessonsPdf(args: ExportPdfArgs): Promise<{ filename:
 
   const bodyHtml = `
     <div style="margin-top:8px; font-size:12px; color:#475569;">
-      <b>Register</b> • ${escapeHtml(String(items.length))} records
+      <b>Register</b> â€¢ ${escapeHtml(String(items.length))} records
     </div>
     <table>
       ${thead}
@@ -310,7 +310,7 @@ export async function exportLessonsPdf(args: ExportPdfArgs): Promise<{ filename:
   `;
 
   const html = renderRegisterShell({
-    title: publishedOnly ? "Org Library — Lessons Learned Register" : "Lessons Learned Register",
+    title: publishedOnly ? "Org Library â€” Lessons Learned Register" : "Lessons Learned Register",
     metaHtml,
     bodyHtml,
     generatedAt: generatedDateTime,

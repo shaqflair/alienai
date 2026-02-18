@@ -22,7 +22,7 @@ export async function POST() {
   const { data: auth, error: authErr } = await sb.auth.getUser();
   if (authErr || !auth?.user) return err("Not authenticated", 401, { authErr: authErr?.message || null });
 
-  // Quick env sanity (common reason inserts ìdo nothingî)
+  // Quick env sanity (common reason inserts ‚Äúdo nothing‚Äù)
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
   const hasServiceKey = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
 

@@ -16,17 +16,17 @@ import dynamic from "next/dynamic";
 // ? Editor internals: load on-demand (big compile + bundle win)
 const ProjectCharterEditor = dynamic(() => import("./ProjectCharterEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-500">Loading editor…</div>,
+  loading: () => <div className="text-sm text-slate-500">Loading editorâ€¦</div>,
 });
 
 const ProjectCharterClassicView = dynamic(() => import("./ProjectCharterClassicView"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-500">Loading classic view…</div>,
+  loading: () => <div className="text-sm text-slate-500">Loading classic viewâ€¦</div>,
 });
 
 const ProjectCharterSectionEditor = dynamic(() => import("./ProjectCharterSectionEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-500">Loading sections…</div>,
+  loading: () => <div className="text-sm text-slate-500">Loading sectionsâ€¦</div>,
 });
 
 // ? Debug panel is heavy; keep lazy.
@@ -81,7 +81,7 @@ import {
 
 function formatDateTimeUK(isoLike: string | null | undefined) {
   const s = String(isoLike ?? "").trim();
-  if (!s) return "—";
+  if (!s) return "â€”";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return formatDateTimeAuto(s);
   try {
@@ -102,10 +102,10 @@ function fmtWhenLocal(x: string | null) {
   return formatDateTimeUK(x ?? undefined);
 }
 
-// Strip leading bullet markers to avoid "• •" double bullets
+// Strip leading bullet markers to avoid "â€¢ â€¢" double bullets
 function normalizeBulletLine(line: string) {
   let s = String(line ?? "");
-  const re = /^\s*(?:[•\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/;
+  const re = /^\s*(?:[â€¢\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/;
   for (let i = 0; i < 6; i++) {
     const next = s.replace(re, "");
     if (next === s) break;
@@ -892,13 +892,13 @@ export default function ProjectCharterEditorFormLazy({
   const submitDisabledReason = !submitWired
     ? "Submit action is not wired."
     : !canSubmitOrResubmit
-    ? "You can’t submit right now (role/status/current revision)."
+    ? "You canâ€™t submit right now (role/status/current revision)."
     : readOnly
     ? "View-only mode."
     : lockLayout
     ? "Layout is locked."
     : isPending
-    ? "Please wait…"
+    ? "Please waitâ€¦"
     : "";
 
   /* =========================================================
@@ -1005,9 +1005,9 @@ export default function ProjectCharterEditorFormLazy({
               <Sparkles className="h-4 w-4 text-indigo-600" />
               <span className="text-xs font-medium text-indigo-700">
                 AI: {wireCaps.full && "Full"}
-                {wireCaps.section && " • Section"}
-                {wireCaps.suggest && " • Improve"}
-                {wireCaps.validate && " • Validate"}
+                {wireCaps.section && " â€¢ Section"}
+                {wireCaps.suggest && " â€¢ Improve"}
+                {wireCaps.validate && " â€¢ Validate"}
               </span>
             </div>
 
@@ -1135,7 +1135,7 @@ export default function ProjectCharterEditorFormLazy({
                 Last saved: <span className="font-mono">{fmtWhenLocal(lastSavedIso)}</span>
               </>
             ) : (
-              "—"
+              "â€”"
             )}
           </div>
 
@@ -1191,7 +1191,7 @@ export default function ProjectCharterEditorFormLazy({
         )}
       </div>
 
-      {/* ? Keep debug panel mounted, but it’s now dynamically loaded */}
+      {/* ? Keep debug panel mounted, but itâ€™s now dynamically loaded */}
       <CharterV2DebugPanel value={v2ForSave} />
     </div>
   );

@@ -1,12 +1,22 @@
 // src/app/api/change/[id]/export/route.ts
 import "server-only";
+
 import { NextResponse } from "next/server";
-import { sb, requireUser, requireProjectRole, safeStr } from "@/lib/change/server-helpers";
+import {
+  sb,
+  requireUser,
+  requireProjectRole,
+  safeStr,
+} from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
 
+type Ctx = { params: { id: string } };
+
 function err(error: string, status = 400) {
-  return NextResponse.json({ ok: false, error }, { status });
+  const res = NextResponse.json({ ok: false, error }, { status });
+  res.headers.set("Cache-Control", "no-store, max-age=0");
+  return res;
 }
 
 function clamp(s: string, max: number) {
@@ -93,7 +103,9 @@ function toWordHtml(row: any) {
 <body>
   <h1>${htmlEscape(crId)} — ${htmlEscape(title)}</h1>
   <div class="meta">
-    Priority: ${htmlEscape(row?.priority ?? "Medium")} • Status: ${htmlEscape(row?.delivery_status ?? row?.status ?? "new")}
+    Priority: ${htmlEscape(row?.priority ?? "Medium")} • Status: ${htmlEscape(
+    row?.delivery_status ?? row?.status ?? "new"
+  )}
     • Updated: ${htmlEscape(row?.updated_at ?? "")}
   </div>
 
@@ -141,9 +153,9 @@ function toWordHtml(row: any) {
 </html>`;
 }
 
-export async function GET(req: Request, ctx: { params: Promise<{ id?: string }>}) {
+export async function GET(req: Request, ctx: Ctx) {
   try {
-    const id = safeStr((await ctx.params).id).trim();
+    const id = safeStr(ctx?.params?.id).trim();
     if (!id) return err("Missing id", 400);
 
     const url = new URL(req.url);
@@ -156,6 +168,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id?: string }>}
     if (!row) return err("Not found", 404);
 
     const projectId = safeStr(row.project_id).trim();
+
+    // Support both signatures you may have had historically
     const role = await (requireProjectRole as any)(supabase, projectId, user.id).catch(async () => {
       return await (requireProjectRole as any)(supabase, projectId);
     });
@@ -163,28 +177,30 @@ export async function GET(req: Request, ctx: { params: Promise<{ id?: string }>}
 
     const filenameBase = clamp(crDisplayId(row) || "change-request", 80).replace(/\s+/g, "_");
 
-    // Simple Word export (HTML-as-doc) – works immediately in Word
-    if (format === "docx" || format === "word") {
-      const html = toWordHtml(row);
-      return new NextResponse(new Uint8Array(new Uint8Array(html)), {
+    // Generate HTML once
+    const html = toWordHtml(row);
+
+    // ✅ Word export: encode string -> bytes (fixes TS2769 + production body handling)
+    if (format === "docx" || format === "word" || format === "doc") {
+      const bytes = new TextEncoder().encode(html);
+
+      return new NextResponse(bytes, {
         status: 200,
         headers: {
           "Content-Type": "application/msword; charset=utf-8",
           "Content-Disposition": `attachment; filename="${filenameBase}.doc"`,
-          "Cache-Control": "no-store",
+          "Cache-Control": "no-store, max-age=0",
         },
       });
     }
 
-    // Simple PDF fallback: return the same HTML, but as printable content
-    // If you later add a real PDF renderer, swap this out.
-    const html = toWordHtml(row);
-    return new NextResponse(new Uint8Array(new Uint8Array(html)), {
+    // "PDF" fallback: deliver printable HTML (until you wire real PDF renderer)
+    return new NextResponse(html, {
       status: 200,
       headers: {
         "Content-Type": "text/html; charset=utf-8",
         "Content-Disposition": `attachment; filename="${filenameBase}.html"`,
-        "Cache-Control": "no-store",
+        "Cache-Control": "no-store, max-age=0",
       },
     });
   } catch (e: any) {
@@ -192,4 +208,3 @@ export async function GET(req: Request, ctx: { params: Promise<{ id?: string }>}
     return err(safeStr(e?.message) || "Export failed", 500);
   }
 }
-

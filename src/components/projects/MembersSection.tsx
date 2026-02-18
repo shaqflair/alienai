@@ -139,7 +139,7 @@ export default async function MembersSection({
           <h2 className="text-lg font-semibold">Members</h2>
           <p className="text-sm text-gray-600">
             People who can access this project
-            <span className="ml-2 text-xs text-gray-500">• Your role: {String(myRole)}</span>
+            <span className="ml-2 text-xs text-gray-500">â€¢ Your role: {String(myRole)}</span>
           </p>
         </div>
 

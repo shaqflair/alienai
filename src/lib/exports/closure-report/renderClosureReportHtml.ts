@@ -39,8 +39,8 @@ export function renderClosureReportHtml(args: {
 
   const { generatedDateTime, openRisksCount, sectionsHtml } = renderClosureReportSections(model);
 
-  const rag = safeStr(model?.rag || "—").toUpperCase() || "—";
-  const overall = safeStr(model?.overall || "—") || "—";
+  const rag = safeStr(model?.rag || "â€”").toUpperCase() || "â€”";
+  const overall = safeStr(model?.overall || "â€”") || "â€”";
 
   return `<!doctype html>
 <html>
@@ -145,15 +145,15 @@ export function renderClosureReportHtml(args: {
     <div class="meta">
       <div class="metaCard">
         <div class="metaLabel">Organisation</div>
-        <div class="metaValue">${escHtml(orgName || "—")}</div>
+        <div class="metaValue">${escHtml(orgName || "â€”")}</div>
       </div>
       <div class="metaCard">
         <div class="metaLabel">Client</div>
-        <div class="metaValue">${escHtml(clientName || "—")}</div>
+        <div class="metaValue">${escHtml(clientName || "â€”")}</div>
       </div>
       <div class="metaCard">
         <div class="metaLabel">Project ID</div>
-        <div class="metaValue metaCode">${escHtml(projectCode || "—")}</div>
+        <div class="metaValue metaCode">${escHtml(projectCode || "â€”")}</div>
       </div>
       <div class="metaCard">
         <div class="metaLabel">Generated</div>

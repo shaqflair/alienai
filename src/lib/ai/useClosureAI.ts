@@ -12,7 +12,7 @@ export function useClosureAI(args: {
   doc: any;
   meta: any;
 
-  // “virtual section” plumbing
+  // â€œvirtual sectionâ€ plumbing
   getSectionByKey: (key: string) => Section;
   applySectionReplace: (key: string, section: Section) => void;
 

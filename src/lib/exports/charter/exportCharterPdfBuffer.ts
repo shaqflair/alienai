@@ -38,7 +38,7 @@ function formatToUkDate(value: string) {
 
 function formatCellValue(x: any) {
   const raw = safeStr(x).trim();
-  if (!raw) return "—";
+  if (!raw) return "â€”";
   if (looksIsoDateOnly(raw) || looksIsoDateTime(raw)) return formatToUkDate(raw);
   return raw;
 }
@@ -49,7 +49,7 @@ function stripNumberPrefix(title: string) {
 
 function stripLeadingBullets(line: string) {
   return String(line ?? "")
-    .replace(/^\s*(?:[•\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/g, "")
+    .replace(/^\s*(?:[â€¢\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/g, "")
     .trim();
 }
 
@@ -309,7 +309,7 @@ function renderCharterHtml(doc: any, meta: CharterExportMeta) {
       line-height: 1.4; font-size: 9.5pt; color: var(--text);
     }
     ul.bullet-list li:before {
-      content: "•"; color: var(--primary); font-weight: 700;
+      content: "â€¢"; color: var(--primary); font-weight: 700;
       position: absolute; left: 0; font-size: 12pt; line-height: 1;
     }
 
@@ -341,7 +341,7 @@ function renderCharterHtml(doc: any, meta: CharterExportMeta) {
         <div class="brand-content">
           <h1>Project Charter</h1>
           <div class="subtitle">${escapeHtml(meta.projectName)}${
-            meta.projectCode !== "—" ? ` • Project ${escapeHtml(meta.projectCode)}` : ""
+            meta.projectCode !== "â€”" ? ` â€¢ Project ${escapeHtml(meta.projectCode)}` : ""
           }</div>
         </div>
       </div>
@@ -394,7 +394,7 @@ export async function exportCharterPdfBuffer(args: { doc: any; meta: CharterExpo
       font-size: 8pt;
       color: #64748b;
     ">
-      ${escapeHtml(meta.projectName)} • Project Charter
+      ${escapeHtml(meta.projectName)} â€¢ Project Charter
     </div>
   `;
 
@@ -410,7 +410,7 @@ export async function exportCharterPdfBuffer(args: { doc: any; meta: CharterExpo
       justify-content: space-between;
     ">
       <span>Confidential</span>
-      <span>Generated ${escapeHtml(meta.generated)} • Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
+      <span>Generated ${escapeHtml(meta.generated)} â€¢ Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
     </div>
   `;
 

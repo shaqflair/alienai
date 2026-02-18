@@ -9,7 +9,7 @@ function esc(x: any) {
 
 function cell(v: any) {
   const s = String(v ?? "").trim();
-  return s ? s : "—";
+  return s ? s : "â€”";
 }
 
 export function renderStakeholderRegisterHtml(args: {
@@ -169,16 +169,16 @@ export function renderStakeholderRegisterHtml(args: {
 
     <div class="gen">
       <div class="lbl">Generated</div>
-      <div class="val">${esc(meta.generatedDateTime || meta.generated || "—")}</div>
+      <div class="val">${esc(meta.generatedDateTime || meta.generated || "â€”")}</div>
     </div>
   </div>
 
   <div class="cards">
-    <div class="card"><div class="k">Organisation</div><div class="v">${esc(meta.organisationName || "—")}</div></div>
-    <div class="card"><div class="k">Client</div><div class="v">${esc(meta.clientName || "—")}</div></div>
-    <div class="card"><div class="k">Project ID</div><div class="v code">${esc(meta.projectCode || "—")}</div></div>
+    <div class="card"><div class="k">Organisation</div><div class="v">${esc(meta.organisationName || "â€”")}</div></div>
+    <div class="card"><div class="k">Client</div><div class="v">${esc(meta.clientName || "â€”")}</div></div>
+    <div class="card"><div class="k">Project ID</div><div class="v code">${esc(meta.projectCode || "â€”")}</div></div>
     <div class="card"><div class="k">Total Stakeholders</div><div class="v">${rows.length}</div></div>
-    <div class="card"><div class="k">Report Date</div><div class="v">${esc(meta.generatedDate || "—")}</div></div>
+    <div class="card"><div class="k">Report Date</div><div class="v">${esc(meta.generatedDate || "â€”")}</div></div>
   </div>
 
   <div class="sectionHead">

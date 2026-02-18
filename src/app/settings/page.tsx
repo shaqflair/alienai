@@ -152,7 +152,7 @@ export default async function SettingsPage() {
         {!active ? (
           <div className="text-sm text-gray-700">Select an active organisation first.</div>
         ) : !isOwnerOrAdmin ? (
-          <div className="text-sm text-gray-700">You don’t have Admin/Owner access for the active organisation.</div>
+          <div className="text-sm text-gray-700">You donâ€™t have Admin/Owner access for the active organisation.</div>
         ) : (
           <>
             <form action={createOrganisation} className="space-y-2">

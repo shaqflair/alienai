@@ -397,7 +397,7 @@ function SortableCard({
               </span>
               <span className="bg-gray-50 border border-gray-200 px-1.5 rounded">? {impactDays}d</span>
               <span className="bg-gray-50 border border-gray-200 px-1.5 rounded">
-                £ {impactCost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+                Â£ {impactCost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
               </span>
             </div>
           </button>
@@ -760,7 +760,7 @@ export default function ChangeBoardDnd({
       <div className="flex items-center justify-between gap-3 px-6 pt-6">
         <div className="min-w-0">
           <div className="text-lg font-semibold text-gray-900">
-            Change Board{projectLabel ? <span className="text-gray-400"> • {projectLabel}</span> : null}
+            Change Board{projectLabel ? <span className="text-gray-400"> â€¢ {projectLabel}</span> : null}
           </div>
           <div className="text-sm text-gray-500">Drag items between lanes to update delivery status.</div>
           {wipWarning ? <div className="mt-1 text-xs text-rose-700">{wipWarning}</div> : null}
@@ -782,7 +782,7 @@ export default function ChangeBoardDnd({
             disabled={loading || !projectUuid}
             className="px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
-            {loading ? "Loading…" : "Refresh"}
+            {loading ? "Loadingâ€¦" : "Refresh"}
           </button>
         </div>
       </div>
@@ -816,7 +816,7 @@ export default function ChangeBoardDnd({
                       <div className="min-w-0">
                         <div className="font-bold truncate">{laneLabel(lane)}</div>
                         <div className="text-xs opacity-80">
-                          {laneItems.length}/{limit} {over ? "• WIP limit exceeded" : ""}
+                          {laneItems.length}/{limit} {over ? "â€¢ WIP limit exceeded" : ""}
                         </div>
                       </div>
 

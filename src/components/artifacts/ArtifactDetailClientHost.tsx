@@ -16,46 +16,46 @@ const StakeholderRegisterEditor = dynamic(
   () => import("@/components/editors/StakeholderRegisterEditor"),
   {
     ssr: false,
-    loading: () => <div className="text-sm text-gray-500">Loading Stakeholder editor…</div>,
+    loading: () => <div className="text-sm text-gray-500">Loading Stakeholder editorâ€¦</div>,
   }
 );
 
 const WBSEditor = dynamic(() => import("@/components/editors/WBSEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading WBS editor…</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading WBS editorâ€¦</div>,
 });
 
 const ScheduleGanttEditor = dynamic(() => import("@/components/editors/ScheduleGanttEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Schedule editor…</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading Schedule editorâ€¦</div>,
 });
 
 const ProjectClosureReportEditor = dynamic(
   () => import("@/components/editors/ProjectClosureReportEditor"),
   {
     ssr: false,
-    loading: () => <div className="text-sm text-gray-500">Loading Closure Report editor…</div>,
+    loading: () => <div className="text-sm text-gray-500">Loading Closure Report editorâ€¦</div>,
   }
 );
 
 const ChangeManagementBoard = dynamic(() => import("@/components/change/ChangeManagementBoard"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Change Board…</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading Change Boardâ€¦</div>,
 });
 
 const WeeklyReportEditor = dynamic(() => import("@/components/editors/WeeklyReportEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Weekly Report editor…</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading Weekly Report editorâ€¦</div>,
 });
 
 const AiSuggestionsPanel = dynamic(() => import("@/components/ai/AiSuggestionsPanel"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading AI suggestions…</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading AI suggestionsâ€¦</div>,
 });
 
 const ArtifactTimeline = dynamic(() => import("@/components/artifacts/ArtifactTimeline"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading timeline…</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading timelineâ€¦</div>,
 });
 
 /* ---------------- types ---------------- */
@@ -387,7 +387,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
               ) : null}
 
               {!openAI && !openTimeline ? (
-                <div className="text-xs text-gray-500">Tip: open panels only when you need them — keeps this page snappy.</div>
+                <div className="text-xs text-gray-500">Tip: open panels only when you need them â€” keeps this page snappy.</div>
               ) : null}
             </section>
           ) : null}

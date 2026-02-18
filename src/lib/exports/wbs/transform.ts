@@ -246,13 +246,13 @@ export function flattenForExport(wbsItems: WbsItemRow[]): WbsExportRow[] {
   const items = Array.isArray(wbsItems) ? (wbsItems as any[]) : [];
   if (!items.length) return [];
 
-  // Detect legacy “artifact content_json.rows” style:
+  // Detect legacy â€œartifact content_json.rowsâ€ style:
   // - no parent_id relationships
   // - but includes some level > 0
   const hasAnyParent = items.some((x) => !!parentOf(x));
   const hasAnyLevelGt0 = items.some((x) => (numericLevel(x?.level) ?? 0) > 0);
 
-  // If it’s a level-based list, don’t try to invent a tree from parent_id (it doesn’t exist).
+  // If itâ€™s a level-based list, donâ€™t try to invent a tree from parent_id (it doesnâ€™t exist).
   // Generate hierarchical codes from level outline numbering.
   if (!hasAnyParent && hasAnyLevelGt0) {
     // keep input order (UI order), but make stable if sort_order exists

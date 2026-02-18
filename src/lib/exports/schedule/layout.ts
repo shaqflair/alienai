@@ -83,7 +83,7 @@ export function buildTimeWindowsWeekly(minDate: Date, maxDate: Date, weeksPerSli
     const segs = buildWeekSegments(winStart, winEndEx);
     const label =
       segs.length > 0
-        ? `${segs[0].dateRange.split(" - ")[0]} – ${segs[segs.length - 1].dateRange.split(" - ")[1]}`
+        ? `${segs[0].dateRange.split(" - ")[0]} â€“ ${segs[segs.length - 1].dateRange.split(" - ")[1]}`
         : "";
     windows.push({ start: winStart, endExclusive: winEndEx, weekSegs: segs, label });
   }

@@ -51,7 +51,7 @@ function formatUkDateTime(date = new Date()) {
 
 function formatGBP(n: any) {
   const v = Number(n);
-  if (!Number.isFinite(v)) return "£0";
+  if (!Number.isFinite(v)) return "Â£0";
   return v.toLocaleString("en-GB", {
     style: "currency",
     currency: "GBP",
@@ -170,9 +170,9 @@ function addOverviewSheet(
     ["Document", "Change Request"],
     ["Generated", meta.generated],
     ["Project", meta.projectName],
-    ["Project Code", meta.projectCode || "—"],
-    ["Client", meta.clientName || "—"],
-    ["CR ID", meta.crId || "—"],
+    ["Project Code", meta.projectCode || "â€”"],
+    ["Client", meta.clientName || "â€”"],
+    ["CR ID", meta.crId || "â€”"],
   ];
 
   let r = 2;
@@ -217,7 +217,7 @@ function addDetailsSheet(wb: ExcelJS.Workbook, cr: any, attachments: string[]) {
     ["Needed By", safeStr(cr?.needed_by || cr?.required_by || cr?.due_date ? toDateGB(cr.needed_by || cr.required_by || cr.due_date) : "")],
     ["Cost Impact", formatGBP(cost)],
     ["Schedule Impact (days)", String(days)],
-    ["Risk Impact", risk || "—"],
+    ["Risk Impact", risk || "â€”"],
     ["Benefits", safeStr(cr?.benefits || cr?.benefit_summary || "")],
     ["Description", safeStr(cr?.description || cr?.change_description || "")],
     ["Proposed Change", safeStr(cr?.proposed_change || "")],
@@ -225,7 +225,7 @@ function addDetailsSheet(wb: ExcelJS.Workbook, cr: any, attachments: string[]) {
     ["Rollback Plan", safeStr(cr?.rollback_plan || cr?.rollback || "")],
     ["Assumptions", safeStr(cr?.assumptions || "")],
     ["Dependencies", safeStr(cr?.dependencies || "")],
-    ["Attachments", attachments.length ? attachments.join(" | ") : "—"],
+    ["Attachments", attachments.length ? attachments.join(" | ") : "â€”"],
   ];
 
   let r = 2;

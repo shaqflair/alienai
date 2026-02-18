@@ -40,7 +40,7 @@ export default function ForgotPasswordPage() {
       <h1 className="text-2xl font-semibold">Reset your password</h1>
 
       <p className="text-sm opacity-70">
-        Enter your email and we’ll send you a password reset link.
+        Enter your email and weâ€™ll send you a password reset link.
       </p>
 
       {sent ? (
@@ -72,7 +72,7 @@ export default function ForgotPasswordPage() {
             disabled={loading}
             className="w-full rounded-md border px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-60"
           >
-            {loading ? "Sending…" : "Send reset link"}
+            {loading ? "Sendingâ€¦" : "Send reset link"}
           </button>
         </form>
       )}

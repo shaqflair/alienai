@@ -42,8 +42,8 @@ export async function exportChangeRequestPdfBuffer(changeId: string) {
   const projectCode = safeStr(branding?.projectCode || (project as any)?.project_code || "");
   const projectTitle = safeStr(branding?.projectTitle || (project as any)?.title || "Project");
 
-  const orgName = safeStr(branding?.orgName || "ó");
-  const clientName = safeStr(branding?.clientName || (project as any)?.client_name || "ó");
+  const orgName = safeStr(branding?.orgName || "‚Äî");
+  const clientName = safeStr(branding?.clientName || (project as any)?.client_name || "‚Äî");
   const generated = formatUkDateTime();
 
   const renderFn = (HtmlMod as any).renderChangeRequestHtml || (HtmlMod as any).default;
@@ -88,7 +88,7 @@ export async function exportChangeRequestPdfBuffer(changeId: string) {
     html,
     waitUntil: "networkidle2",
 
-    // keep your ìUI-faithfulî defaults from the shared helper:
+    // keep your ‚ÄúUI-faithful‚Äù defaults from the shared helper:
     emulateScreen: true,
     forceA4PageSize: true,
 

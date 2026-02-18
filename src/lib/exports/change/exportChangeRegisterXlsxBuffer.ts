@@ -251,8 +251,8 @@ function addOverviewSheet(wb: ExcelJS.Workbook, meta: { projectTitle: string; pr
     ["Document", "Change Register"],
     ["Generated", meta.generated],
     ["Project", meta.projectTitle],
-    ["Project Code", meta.projectCode || "—"],
-    ["Client", meta.clientName || "—"],
+    ["Project Code", meta.projectCode || "â€”"],
+    ["Client", meta.clientName || "â€”"],
   ];
 
   let r = 2;

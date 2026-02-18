@@ -20,7 +20,7 @@ function pickInitials(label: string) {
 }
 
 /* -----------------------------
-   ?LIEN? Wordmark – : white + cyan A & I
+   ?LIEN? Wordmark â€“ : white + cyan A & I
 ------------------------------ */
 function AlienWordmark() {
   return (
@@ -35,7 +35,7 @@ function AlienWordmark() {
 }
 
 /* -----------------------------
-   Brand Logo (IMG – no next/image)
+   Brand Logo (IMG â€“ no next/image)
 ------------------------------ */
 function BrandLogo() {
   return (

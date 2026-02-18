@@ -97,7 +97,7 @@ export function buildStandardDocxShell(args: {
       new Paragraph({
         alignment: AlignmentType.LEFT,
         children: [
-          new TextRun({ text: `Generated ${formatUkDate(new Date())} • ${t.brandName} • `, color: "6B7280", size: 18 }),
+          new TextRun({ text: `Generated ${formatUkDate(new Date())} â€¢ ${t.brandName} â€¢ `, color: "6B7280", size: 18 }),
           new TextRun({ children: ["Page ", PageNumber.CURRENT, " of ", PageNumber.TOTAL_PAGES] as any, color: "6B7280", size: 18 }),
         ],
       }),

@@ -17,13 +17,13 @@ export function sanitizeFilename(name: string): string {
 
 export function formatUkDateLong(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date;
-  if (!d || Number.isNaN(d.getTime())) return "—";
+  if (!d || Number.isNaN(d.getTime())) return "â€”";
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
 }
 
 export function formatUkDateTime(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date;
-  if (!d || Number.isNaN(d.getTime())) return "—";
+  if (!d || Number.isNaN(d.getTime())) return "â€”";
   return d.toLocaleString("en-GB", {
     day: "2-digit",
     month: "2-digit",
@@ -111,7 +111,7 @@ export function parseAnyObject(raw: any): any {
 
 export function toProjectCode(code: any): string {
   const raw = safeStr(code).trim();
-  if (!raw) return "—";
+  if (!raw) return "â€”";
 
   // P-123 -> P-00123
   if (/^p-\d+$/i.test(raw)) {
@@ -196,7 +196,7 @@ function looksLikeUuid(s: any) {
 
 function normaliseRag(v: any): string {
   const s = safeStr(v).trim();
-  if (!s) return "—";
+  if (!s) return "â€”";
   const t = s.toLowerCase();
 
   if (t.includes("green")) return "Green";
@@ -212,7 +212,7 @@ function normaliseRag(v: any): string {
 
 function normaliseOverall(v: any): string {
   const s = safeStr(v).trim();
-  if (!s) return "—";
+  if (!s) return "â€”";
   const t = s.toLowerCase();
 
   if (t === "good") return "Good";
@@ -262,7 +262,7 @@ export async function resolveClosureReportMeta(
         "project.code",
         "projectCode",
       ])
-    ) || "—";
+    ) || "â€”";
 
   let pmName =
     safeStr(
@@ -276,7 +276,7 @@ export async function resolveClosureReportMeta(
         "project.pm_name",
         "pmName",
       ])
-    ) || "—";
+    ) || "â€”";
 
   let sponsorName =
     safeStr(
@@ -289,7 +289,7 @@ export async function resolveClosureReportMeta(
         "project.sponsor_name",
         "sponsorName",
       ])
-    ) || "—";
+    ) || "â€”";
 
   let clientName =
     safeStr(
@@ -306,7 +306,7 @@ export async function resolveClosureReportMeta(
         "project.client",
         "clientName",
       ])
-    ) || "—";
+    ) || "â€”";
 
   let orgName =
     safeStr(
@@ -323,7 +323,7 @@ export async function resolveClosureReportMeta(
         "project.org_name",
         "organisationName",
       ])
-    ) || "—";
+    ) || "â€”";
 
   let ragStatus =
     normaliseRag(
@@ -338,7 +338,7 @@ export async function resolveClosureReportMeta(
         "ragStatus",
         "rag",
       ])
-    ) || "—";
+    ) || "â€”";
 
   let overallHealth =
     normaliseOverall(
@@ -353,7 +353,7 @@ export async function resolveClosureReportMeta(
         "overallHealth",
         "overall",
       ])
-    ) || "—";
+    ) || "â€”";
 
   const logoFromContent =
     safeStr(getAny(c, ["branding.logo_url", "branding.logoUrl", "logoUrl", "logo_url"])) || "";
@@ -419,7 +419,7 @@ export async function resolveClosureReportMeta(
         if (best) logoUrl = best;
       }
 
-      if (pmName === "—" || !pmName.trim()) {
+      if (pmName === "â€”" || !pmName.trim()) {
         pmName =
           safeStr(
             pickFirstTruthy(project, [
@@ -433,7 +433,7 @@ export async function resolveClosureReportMeta(
           ) || pmName;
       }
 
-      if (sponsorName === "—" || !sponsorName.trim()) {
+      if (sponsorName === "â€”" || !sponsorName.trim()) {
         sponsorName =
           safeStr(
             pickFirstTruthy(project, [
@@ -447,15 +447,15 @@ export async function resolveClosureReportMeta(
           ) || sponsorName;
       }
 
-      if (ragStatus === "—" || !ragStatus.trim()) {
+      if (ragStatus === "â€”" || !ragStatus.trim()) {
         ragStatus = normaliseRag((project as any)?.rag_status) || ragStatus;
       }
-      if (overallHealth === "—" || !overallHealth.trim()) {
+      if (overallHealth === "â€”" || !overallHealth.trim()) {
         overallHealth = normaliseOverall((project as any)?.overall_health) || overallHealth;
       }
 
       const orgId = safeStr(project.organisation_id).trim();
-      if ((orgName === "—" || !orgName.trim()) && orgId && looksLikeUuid(orgId)) {
+      if ((orgName === "â€”" || !orgName.trim()) && orgId && looksLikeUuid(orgId)) {
         const { data: org } = await supabase.from("organisations").select("name").eq("id", orgId).maybeSingle();
         if (org?.name) orgName = safeStr(org.name) || orgName;
       }

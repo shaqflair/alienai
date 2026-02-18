@@ -200,7 +200,7 @@ function InlineAiButton({
       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
       </svg>
-      {busy ? "Applying…" : "AI"}
+      {busy ? "Applyingâ€¦" : "AI"}
     </button>
   );
 }
@@ -384,7 +384,7 @@ export default function ChangeForm(props: ChangeFormProps) {
       when: "",
       constraints: "",
       costs: [
-        merged.aiImpact.cost > 0 ? `£${merged.aiImpact.cost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "",
+        merged.aiImpact.cost > 0 ? `Â£${merged.aiImpact.cost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "",
         merged.aiImpact.days > 0 ? `${merged.aiImpact.days} day(s)` : "",
       ]
         .filter(Boolean)
@@ -411,7 +411,7 @@ export default function ChangeForm(props: ChangeFormProps) {
     if (!s) return;
     const cur = safeStr(current).trim();
     if (cur.length >= 50) {
-      const merged = `${cur}\n\n—\nImproved draft:\n${s}`;
+      const merged = `${cur}\n\nâ€”\nImproved draft:\n${s}`;
       setter(clampText(merged, max));
       return;
     }
@@ -437,7 +437,7 @@ export default function ChangeForm(props: ChangeFormProps) {
       next.costs = mapIf(
         next.costs,
         [
-          v.aiImpact.cost > 0 ? `£${v.aiImpact.cost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "",
+          v.aiImpact.cost > 0 ? `Â£${v.aiImpact.cost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "",
           v.aiImpact.days > 0 ? `${v.aiImpact.days} day(s)` : "",
         ]
           .filter(Boolean)
@@ -522,7 +522,7 @@ export default function ChangeForm(props: ChangeFormProps) {
         const cur = safeStr((next as any)[key]);
         const s = safeStr(suggestion);
         if (!s.trim()) return;
-        const merged = cur.trim().length >= 50 ? `${cur}\n\n—\nImproved draft:\n${s}` : s;
+        const merged = cur.trim().length >= 50 ? `${cur}\n\nâ€”\nImproved draft:\n${s}` : s;
         (next as any)[key] = clampText(merged, max);
       };
 
@@ -646,7 +646,7 @@ export default function ChangeForm(props: ChangeFormProps) {
               </div>
 
               {projResolveBusy ? (
-                <div className="mt-1 text-xs text-amber-700">Resolving project…</div>
+                <div className="mt-1 text-xs text-amber-700">Resolving projectâ€¦</div>
               ) : projResolveErr ? (
                 <div className="mt-1 text-xs text-rose-700">{projResolveErr}</div>
               ) : null}
@@ -676,7 +676,7 @@ export default function ChangeForm(props: ChangeFormProps) {
                 disabled={disabled || aiBusy}
                 className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-50 text-indigo-700 text-sm font-medium rounded-lg hover:bg-indigo-100 disabled:opacity-50 transition-colors"
               >
-                {aiBusy ? "Applying…" : "Apply All"}
+                {aiBusy ? "Applyingâ€¦" : "Apply All"}
               </button>
 
               <button
@@ -694,7 +694,7 @@ export default function ChangeForm(props: ChangeFormProps) {
                 disabled={disabled}
                 className="px-3 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"
               >
-                {saving ? (mode === "edit" ? "Saving…" : "Creating…") : mode === "edit" ? "Save Changes" : "Create Request"}
+                {saving ? (mode === "edit" ? "Savingâ€¦" : "Creatingâ€¦") : mode === "edit" ? "Save Changes" : "Create Request"}
               </button>
             </div>
           </div>
@@ -784,7 +784,7 @@ export default function ChangeForm(props: ChangeFormProps) {
                         value={v.summary}
                         onChange={(e) => setV((p) => ({ ...p, summary: e.target.value }))}
                         rows={4}
-                        placeholder="2–3 line summary for quick scanning..."
+                        placeholder="2â€“3 line summary for quick scanning..."
                         disabled={disabled}
                         className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50 resize-y"
                       />
@@ -1080,13 +1080,13 @@ export default function ChangeForm(props: ChangeFormProps) {
                       className="px-3 py-2 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 disabled:opacity-50"
                       title="Ask AI to estimate impact"
                     >
-                      {aiBusy ? "Scanning…" : "AI Scan"}
+                      {aiBusy ? "Scanningâ€¦" : "AI Scan"}
                     </button>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Cost (£)</label>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Cost (Â£)</label>
                       <input
                         type="number"
                         value={String(v.aiImpact.cost ?? 0)}
@@ -1130,11 +1130,11 @@ export default function ChangeForm(props: ChangeFormProps) {
                         }))
                       }
                       disabled={disabled}
-                      placeholder='e.g., Medium — mitigated by rollback plan'
+                      placeholder='e.g., Medium â€” mitigated by rollback plan'
                       className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
                     />
                     <div className="mt-1 text-[11px] text-gray-500">
-                      Tip: include the risk and the mitigation/condition (e.g. "Medium — mitigated by rollback plan").
+                      Tip: include the risk and the mitigation/condition (e.g. "Medium â€” mitigated by rollback plan").
                     </div>
                   </div>
                 </div>
@@ -1144,10 +1144,10 @@ export default function ChangeForm(props: ChangeFormProps) {
                   <h2 className="text-lg font-semibold text-gray-900 mb-3">PM Tips</h2>
                   <ul className="text-sm text-gray-700 space-y-2 list-disc pl-5">
                     <li>
-                      Use <span className="font-medium">Start AI</span> if the draft is empty — AI needs a little context (title/summary) to produce good outputs.
+                      Use <span className="font-medium">Start AI</span> if the draft is empty â€” AI needs a little context (title/summary) to produce good outputs.
                     </li>
                     <li>
-                      Keep impacts measurable: <span className="font-medium">£</span>, <span className="font-medium">days</span>, named services, and the exact window/date for implementation.
+                      Keep impacts measurable: <span className="font-medium">Â£</span>, <span className="font-medium">days</span>, named services, and the exact window/date for implementation.
                     </li>
                     <li>
                       Approvers love controls: include <span className="font-medium">test evidence</span>, a <span className="font-medium">rollback plan</span>, and a clear comms message.
@@ -1162,7 +1162,7 @@ export default function ChangeForm(props: ChangeFormProps) {
           {/* Footer */}
           <div className="px-6 py-3 border-t border-gray-200 bg-gray-50/50 flex items-center justify-between shrink-0">
             <div className="text-xs text-gray-500">
-              {mode === "edit" ? "Editing change request" : "Creating change request"} • Delivery lane:{" "}
+              {mode === "edit" ? "Editing change request" : "Creating change request"} â€¢ Delivery lane:{" "}
               <span className="font-medium text-gray-700">{uiStatusToDeliveryLane(v.status)}</span>
             </div>
 
@@ -1181,7 +1181,7 @@ export default function ChangeForm(props: ChangeFormProps) {
                 disabled={disabled}
                 className="px-3 py-2 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"
               >
-                {saving ? (mode === "edit" ? "Saving…" : "Creating…") : mode === "edit" ? "Save Changes" : "Create Request"}
+                {saving ? (mode === "edit" ? "Savingâ€¦" : "Creatingâ€¦") : mode === "edit" ? "Save Changes" : "Create Request"}
               </button>
             </div>
           </div>
@@ -1282,7 +1282,7 @@ export default function ChangeForm(props: ChangeFormProps) {
               onChange={(e) => setInterview((p) => ({ ...p, costs: e.target.value }))}
               rows={3}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="£ estimate, days, internal vs external effort..."
+              placeholder="Â£ estimate, days, internal vs external effort..."
               disabled={aiBusy}
             />
           </div>
@@ -1324,7 +1324,7 @@ export default function ChangeForm(props: ChangeFormProps) {
                 disabled={aiBusy || disabled}
                 className="text-xs px-3 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
               >
-                {aiBusy ? "Generating…" : "Generate Draft"}
+                {aiBusy ? "Generatingâ€¦" : "Generate Draft"}
               </button>
             </div>
           </div>

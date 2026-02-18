@@ -85,7 +85,7 @@ export async function loadChangeExportData(changeId: string) {
   const projectId = safeStr((cr as any).project_id);
   if (!projectId) throw new Error("Change request missing project_id");
 
-  // ? Membership check (prevents exporting other project’s CRs)
+  // ? Membership check (prevents exporting other projectâ€™s CRs)
   await requireAuthAndMembership(supabase, projectId);
 
   // Load project meta

@@ -77,7 +77,7 @@ function toArrayLoose(items: any): any[] {
     const s = items.trim();
     if (!s) return [];
     const parts = s
-      .split(/\r?\n|•|\u2022|;+/g)
+      .split(/\r?\n|â€¢|\u2022|;+/g)
       .map((x) => x.trim())
       .filter(Boolean);
     return parts.length ? parts : [s];
@@ -109,7 +109,7 @@ function unwrapArray(input: any, preferredKeys: string[] = []): any[] {
 
 function normaliseRag(v: any) {
   const s = safeStr(v).trim().toLowerCase();
-  if (!s) return "—";
+  if (!s) return "â€”";
   if (s.includes("green") || s === "g") return "GREEN";
   if (s.includes("amber") || s.includes("yellow") || s === "a" || s === "y") return "AMBER";
   if (s.includes("red") || s === "r") return "RED";
@@ -118,7 +118,7 @@ function normaliseRag(v: any) {
 
 function normaliseOverall(v: any) {
   const s = safeStr(v).trim().toLowerCase();
-  if (!s) return "—";
+  if (!s) return "â€”";
   if (s === "good") return "Good";
   if (s === "ok" || s === "okay" || s === "watch") return "Watch";
   if (s === "poor" || s === "bad" || s === "critical") return "Critical";
@@ -353,9 +353,9 @@ export async function exportClosureReportPdf({
   const html = renderClosureReportHtml({
     model: renderModel,
     projectName,
-    projectCode: projectCode || safeStr((project as any).project_code) || "—",
+    projectCode: projectCode || safeStr((project as any).project_code) || "â€”",
     clientName,
-    orgName: orgName || "—",
+    orgName: orgName || "â€”",
   });
 
   const bytes = await htmlToPdfBuffer({

@@ -30,7 +30,7 @@ export type CharterSection = {
   table?: { columns: number; rows: RowObj[] };
   columns?: string[];
   rows?: string[][];
-  bullets?: string; // newline separated, optionally "- " / "• "
+  bullets?: string; // newline separated, optionally "- " / "â€¢ "
 };
 
 export type CharterDataV2 = {
@@ -72,7 +72,7 @@ function normKey(x: any) {
 }
 
 function fmtDateMaybe(x: any) {
-  if (!x) return "—";
+  if (!x) return "â€”";
   try {
     const d = new Date(x);
     if (Number.isNaN(d.getTime())) return String(x);
@@ -86,7 +86,7 @@ function parseBullets(bullets: any): string[] {
   const raw = String(bullets ?? "");
   return raw
     .split(/\r?\n/)
-    .map((l) => l.replace(/^\s*[-•]\s*/, "").trim())
+    .map((l) => l.replace(/^\s*[-â€¢]\s*/, "").trim())
     .filter(Boolean);
 }
 
@@ -189,12 +189,12 @@ function renderMetaTable(meta: CharterMeta, projectTitleFallback: string) {
   const projectTitle = m.project_title || projectTitleFallback;
 
   const rows: Array<[string, string]> = [
-    ["Project Title", projectTitle || "—"],
-    ["Project Manager", m.project_manager || "—"],
+    ["Project Title", projectTitle || "â€”"],
+    ["Project Manager", m.project_manager || "â€”"],
     ["Project Start Date", fmtDateMaybe(m.project_start_date)],
     ["Project End Date", fmtDateMaybe(m.project_end_date)],
-    ["Project Sponsor", m.project_sponsor || "—"],
-    ["Customer / Account", m.customer_account || "—"],
+    ["Project Sponsor", m.project_sponsor || "â€”"],
+    ["Customer / Account", m.customer_account || "â€”"],
   ];
 
   const cells = rows
@@ -265,7 +265,7 @@ function renderSection(section: CharterSection) {
       </ul>
     `;
   } else {
-    body += `<div class="empty">—</div>`;
+    body += `<div class="empty">â€”</div>`;
   }
 
   return `

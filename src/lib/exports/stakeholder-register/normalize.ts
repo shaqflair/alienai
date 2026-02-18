@@ -10,12 +10,12 @@ function norm(x: any) {
 
 function level(x: any): string {
   const s = norm(x).toLowerCase();
-  if (!s) return "ó";
+  if (!s) return "‚Äî";
   if (s === "high") return "High";
   if (s === "medium") return "Medium";
   if (s === "low") return "Low";
-  if (s === "ó") return "ó";
-  return norm(x) || "ó";
+  if (s === "‚Äî") return "‚Äî";
+  return norm(x) || "‚Äî";
 }
 
 /**
@@ -31,17 +31,17 @@ export function normalizeStakeholderRows(rows: StakeholderRegisterRow[]): any[] 
   const out = input
     .map((r: any) => {
       const stakeholder = norm(r?.stakeholder || r?.name);
-      const contact = norm(r?.contact || r?.point_of_contact || r?.contact_details) || "ó";
-      const role = norm(r?.role || r?.title_role || r?.title) || "ó";
+      const contact = norm(r?.contact || r?.point_of_contact || r?.contact_details) || "‚Äî";
+      const role = norm(r?.role || r?.title_role || r?.title) || "‚Äî";
 
       const impact = level(r?.impact || r?.impact_level);
       const influence = level(r?.influence || r?.influence_level);
 
-      const mapping = norm(r?.mapping || r?.stakeholder_mapping || r?.category) || "ó";
-      const milestone = norm(r?.milestone || r?.involvement_milestone || r?.frequency) || "ó";
+      const mapping = norm(r?.mapping || r?.stakeholder_mapping || r?.category) || "‚Äî";
+      const milestone = norm(r?.milestone || r?.involvement_milestone || r?.frequency) || "‚Äî";
 
-      const impact_notes = norm(r?.impact_notes || r?.stakeholder_impact || r?.notes) || "ó";
-      const channels = norm(r?.channels || r?.preferred_channel) || "ó";
+      const impact_notes = norm(r?.impact_notes || r?.stakeholder_impact || r?.notes) || "‚Äî";
+      const channels = norm(r?.channels || r?.preferred_channel) || "‚Äî";
 
       const group = norm(r?.group) || "";
 
@@ -59,7 +59,7 @@ export function normalizeStakeholderRows(rows: StakeholderRegisterRow[]): any[] 
         group,
       };
 
-      // Alias shape (so ìolder styleî renderers that expect UI keys still work)
+      // Alias shape (so ‚Äúolder style‚Äù renderers that expect UI keys still work)
       const aliases = {
         name: stakeholder,
         point_of_contact: contact,
