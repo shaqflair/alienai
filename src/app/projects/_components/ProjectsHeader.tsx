@@ -1,68 +1,72 @@
+// src/app/projects/_components/ProjectsHeader.tsx
 import "server-only";
 
 import Link from "next/link";
 import { bannerClass, flashCls, type FlashTone } from "../_lib/projects-utils";
 
-/**
- * ProjectsHeader
- * * Displays the page title and handles high-level feedback messages 
- * using the utility classes defined in projects-utils.
- */
+type Banner = { tone: "success" | "warn" | "error"; msg: string } | null;
+
 export default function ProjectsHeader({
   banner,
   flash,
   dismissHref,
 }: {
-  banner: { tone: "success" | "warn" | "error"; msg: string } | null;
+  banner: Banner;
   flash: { tone: FlashTone; text: string } | null;
   dismissHref: string;
 }) {
   return (
-    <header className="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
-      <div className="space-y-2">
-        <div className="inline-flex items-center gap-3">
-          {/* Brand Logo / Icon */}
-          <div className="h-10 w-10 rounded-2xl border border-slate-800 bg-[#0b1220] grid place-items-center shadow-[0_0_30px_rgba(0,212,255,0.08)]">
-            <span className="text-cyan-300 font-black">?</span>
-          </div>
-          <div>
-            <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-white">Projects</h1>
-            <p className="mt-1 text-sm text-slate-400">
-              Your portfolio entry point — search, switch views, and jump into governance.
-            </p>
-          </div>
+    <header className="flex items-start justify-between gap-6">
+      <div className="flex items-start gap-4">
+        {/* ✅ Replace “?” with a proper icon badge */}
+        <div className="mt-0.5 h-10 w-10 rounded-full bg-[#00B8DB]/10 border border-[#00B8DB]/30 flex items-center justify-center shadow-[0_10px_30px_rgba(0,184,219,0.15)]">
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            className="text-[#00B8DB]"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 7h16M4 12h16M4 17h10"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
         </div>
 
-        {/* Organization / Invitation Banners */}
-        {banner ? (
-          <div className={`mt-3 rounded-xl border px-4 py-3 text-sm transition-all ${bannerClass(banner.tone)}`}>
-            <span>{banner.msg}</span>
-          </div>
-        ) : null}
+        <div className="space-y-1">
+          <h1 className="text-3xl font-bold text-gray-900">Projects</h1>
+          <p className="text-sm text-gray-500">
+            Your portfolio entry point — search, switch views, and jump into governance.
+          </p>
 
-        {/* Action Feedback (Flash Messages) */}
-        {flash ? (
-          <div className={`mt-3 rounded-xl border px-4 py-3 text-sm transition-all ${flashCls(flash.tone)}`}>
-            <div className="flex items-start justify-between gap-4">
-              <span>{flash.text}</span>
-              <Link
-                href={dismissHref}
-                className="text-xs font-semibold text-slate-200/90 hover:text-white underline underline-offset-4 decoration-current/30 hover:decoration-current"
-                title="Dismiss"
-              >
+          {/* Banner (invite outcomes) */}
+          {banner ? (
+            <div className={`mt-3 rounded-lg border px-4 py-2 text-sm ${bannerClass(banner.tone)}`}>
+              {banner.msg}
+            </div>
+          ) : null}
+
+          {/* Flash (actions feedback) */}
+          {flash ? (
+            <div className={`mt-3 rounded-lg border px-4 py-2 text-sm ${flashCls(flash.tone)}`}>
+              {flash.text}{" "}
+              <Link href={dismissHref} className="ml-2 underline underline-offset-2 opacity-80 hover:opacity-100">
                 Dismiss
               </Link>
             </div>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </div>
 
-      {/* Global Actions */}
-      <div className="flex items-center gap-2">
+      {/* Right side action */}
+      <div className="shrink-0">
         <Link
           href="/artifacts"
-          className="inline-flex items-center justify-center rounded-lg border border-slate-800 bg-[#0b1220] px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900/40 transition-colors shadow-sm"
-          title="Go to global artifacts"
+          className="inline-flex items-center rounded-lg bg-[#00B8DB] px-4 py-2 text-sm font-semibold text-white hover:bg-[#00a5c4] transition shadow-lg shadow-[#00B8DB]/25"
         >
           Global artifacts
         </Link>

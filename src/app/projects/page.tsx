@@ -87,7 +87,8 @@ export default async function ProjectsPage({
 
   const q = safeStr((sp as any)?.q).trim();
   const view = norm((sp as any)?.view) === "grid" ? "grid" : "list";
-  const sort = norm((sp as any)?.sort) === "title_asc" ? "title_asc" : "created_desc";
+  const sort =
+    norm((sp as any)?.sort) === "title_asc" ? "title_asc" : "created_desc";
 
   const err = safeStr((sp as any)?.err).trim();
   const msg = safeStr((sp as any)?.msg).trim();
@@ -96,6 +97,7 @@ export default async function ProjectsPage({
 
   const userId = user.id;
 
+  // ✅ Load projects (and PM display if you added that select already)
   const { data, error } = await supabase
     .from("project_members")
     .select(
@@ -111,7 +113,14 @@ export default async function ProjectsPage({
         created_at,
         organisation_id,
         status,
-        deleted_at
+        deleted_at,
+
+        project_manager_id,
+        project_manager:profiles!projects_project_manager_id_fkey (
+          id,
+          full_name,
+          email
+        )
       )
     `
     )
@@ -133,6 +142,12 @@ export default async function ProjectsPage({
   const rows: ProjectListRow[] = ((data ?? []) as MemberProjectRow[])
     .map((r) => {
       if (!r.projects) return null;
+
+      const pmName =
+        safeStr((r.projects as any)?.project_manager?.full_name).trim() ||
+        safeStr((r.projects as any)?.project_manager?.email).trim() ||
+        null;
+
       return {
         id: r.projects.id,
         title: r.projects.title,
@@ -143,11 +158,16 @@ export default async function ProjectsPage({
         organisation_id: r.projects.organisation_id,
         status: r.projects.status ?? "active",
         myRole: r.role ?? "viewer",
-      };
+
+        project_manager_id: (r.projects as any)?.project_manager_id ?? null,
+        project_manager_name: pmName,
+      } as any;
     })
     .filter(Boolean) as ProjectListRow[];
 
-  const orgIds = Array.from(new Set(rows.map((r) => String(r.organisation_id || "")).filter(Boolean)));
+  const orgIds = Array.from(
+    new Set(rows.map((r) => String(r.organisation_id || "")).filter(Boolean))
+  );
 
   const orgAdminSet = new Set<string>();
 
@@ -189,19 +209,25 @@ export default async function ProjectsPage({
     return buildQs({ ...next, invite: inviteParam || undefined });
   }
 
-  // ✅ Cyan border style matching reference image (#00B8DB)
   const panelGlow =
     "bg-white text-gray-900 rounded-2xl border-2 border-[#00B8DB] shadow-[0_4px_20px_rgba(0,184,219,0.15)]";
 
   // ─────────────────────────────────────────────────────────────
-  // Enterprise PMO: load org members for PM dropdown (active org)
+  // Active org + org name (show name instead of UUID)
   // ─────────────────────────────────────────────────────────────
   const cookieOrgId = await getActiveOrgId().catch(() => null);
-  const activeOrgId = (cookieOrgId && String(cookieOrgId)) || (orgIds[0] ? String(orgIds[0]) : "");
+  const activeOrgId =
+    (cookieOrgId && String(cookieOrgId)) || (orgIds[0] ? String(orgIds[0]) : "");
 
-  // If we can't resolve org, we should still render page but creation will error nicely.
   const canCreate = !!activeOrgId;
 
+  const { data: orgRow } = activeOrgId
+    ? await supabase.from("organisations").select("id,name").eq("id", activeOrgId).maybeSingle()
+    : { data: null as any };
+
+  const activeOrgName = safeStr(orgRow?.name).trim();
+
+  // Org members for PM dropdown
   const { data: orgMemberRows } = activeOrgId
     ? await supabase
         .from("organisation_members")
@@ -217,6 +243,7 @@ export default async function ProjectsPage({
         `
         )
         .eq("organisation_id", activeOrgId)
+        .is("removed_at", null)
         .order("role", { ascending: true })
     : { data: [] as any[] };
 
@@ -276,7 +303,11 @@ export default async function ProjectsPage({
       />
 
       <div className="relative mx-auto max-w-6xl px-6 py-10 space-y-8">
-        <ProjectsHeader banner={banner} flash={flash} dismissHref={`/projects${baseQs({ q, sort, view })}`} />
+        <ProjectsHeader
+          banner={banner}
+          flash={flash}
+          dismissHref={`/projects${baseQs({ q, sort, view })}`}
+        />
 
         {/* Create project */}
         <section className={`p-6 md:p-8 space-y-5 ${panelGlow}`}>
@@ -285,9 +316,19 @@ export default async function ProjectsPage({
             <p className="text-sm text-gray-500">
               Enterprise setup: define ownership and delivery lead (PM) for governance and reporting.
             </p>
+
+            {/* ✅ show name, not UUID */}
             <p className="text-xs text-gray-500">
               Active organisation:{" "}
-              <span className="font-mono text-gray-700">{activeOrgId || "Not set"}</span>
+              <span className="font-semibold text-gray-700">
+                {activeOrgName || "Not set"}
+              </span>
+              {/* optional: keep UUID subtle for debugging */}
+              {activeOrgId ? (
+                <span className="ml-2 font-mono text-[10px] text-gray-400">
+                  ({activeOrgId})
+                </span>
+              ) : null}
             </p>
           </div>
 
@@ -298,10 +339,8 @@ export default async function ProjectsPage({
           ) : null}
 
           <form action={createProject} className="grid gap-4 max-w-2xl">
-            {/* ✅ required by actions.ts */}
             <input type="hidden" name="organisation_id" value={activeOrgId} />
 
-            {/* Owner (auto) */}
             <div className="grid gap-2">
               <span className="text-sm font-semibold text-gray-700">Project owner</span>
               <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-gray-900">
@@ -322,7 +361,6 @@ export default async function ProjectsPage({
               />
             </label>
 
-            {/* PM (optional) */}
             <label className="grid gap-2">
               <span className="text-sm font-semibold text-gray-700">Project manager (optional)</span>
               <select
@@ -373,7 +411,6 @@ export default async function ProjectsPage({
           </form>
         </section>
 
-        {/* Results */}
         <div className="text-gray-900">
           <ProjectsResults
             rows={sorted}
