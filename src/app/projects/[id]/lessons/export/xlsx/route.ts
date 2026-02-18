@@ -30,7 +30,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       filenameBase,
     });
 
-    return new NextResponse(bytes, {
+    return new NextResponse(new Uint8Array(new Uint8Array(bytes)), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         // IMPORTANT: attachment (not inline) so browser downloads instead of trying to render

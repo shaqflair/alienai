@@ -1,4 +1,4 @@
-Ôªø"use client";
+"use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -10,7 +10,7 @@ type ChangePriority = "Low" | "Medium" | "High" | "Critical";
 type DeliveryLane = "intake" | "analysis" | "review" | "in_progress" | "implemented" | "closed";
 
 /**
- * ‚úÖ Approval UI (optional)
+ * ? Approval UI (optional)
  * - Pass from parent (chain/current step/canApprove/delegate).
  * - Renders badge + progress bar + remaining + delegate indicator.
  */
@@ -73,7 +73,7 @@ function looksLikeUuid(s: string): boolean {
   );
 }
 
-// ‚úÖ map UI status -> DB delivery_status lane
+// ? map UI status -> DB delivery_status lane
 function uiStatusToDeliveryLane(s: ChangeStatus): DeliveryLane {
   if (s === "new") return "intake";
   if (s === "analysis") return "analysis";
@@ -169,7 +169,7 @@ function InlineAiButton({
       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
       </svg>
-      {busy ? "Applying‚Ä¶" : "AI"}
+      {busy ? "ApplyingÖ" : "AI"}
     </button>
   );
 }
@@ -238,7 +238,7 @@ function ApprovalHeaderBlock({ approval }: { approval?: ApprovalProgressInput | 
           <span className="inline-flex items-center px-2 py-1 rounded-md bg-white/10 text-xs font-semibold">
             {totalSteps > 0 ? `Step ${stepNo} of ${totalSteps}` : "Approval"}
           </span>
-          <span className="text-xs font-medium truncate">{label ? `‚Äî ${label}` : ""}</span>
+          <span className="text-xs font-medium truncate">{label ? `ó ${label}` : ""}</span>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -320,7 +320,7 @@ function statusLabel(s: ChangeStatus): string {
   return "Closed";
 }
 
-// ‚úÖ crypto helper (prevents TS lib mismatch in some setups)
+// ? crypto helper (prevents TS lib mismatch in some setups)
 function newDraftId(): string {
   const c = (globalThis as any)?.crypto;
   const fn = c?.randomUUID;
@@ -362,7 +362,7 @@ export default function ChangeCreateModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  // ‚úÖ project resolver state (uuid or project_code)
+  // ? project resolver state (uuid or project_code)
   const [resolvedProjectId, setResolvedProjectId] = useState<string>("");
   const [projResolveBusy, setProjResolveBusy] = useState(false);
   const [projResolveErr, setProjResolveErr] = useState("");
@@ -415,10 +415,10 @@ export default function ChangeCreateModal({
   const isEdit = mode === "edit";
   const canApprove = approval?.canApprove !== false;
 
-  // ‚úÖ draftId must regenerate per open (safe across TS/libdom variants)
+  // ? draftId must regenerate per open (safe across TS/libdom variants)
   const draftId = useMemo(() => newDraftId(), [open]);
 
-  // ‚úÖ resolve projectId (uuid or project_code) -> UUID
+  // ? resolve projectId (uuid or project_code) -> UUID
   useEffect(() => {
     if (!open) return;
 
@@ -484,7 +484,7 @@ export default function ChangeCreateModal({
 
     const iv: any = initialValue ?? {};
 
-    // ‚úÖ Accept both UI camelCase and DB snake_case when prefilling
+    // ? Accept both UI camelCase and DB snake_case when prefilling
     const merged: ChangeFormValue = {
       title: safeStr(iv.title ?? ""),
       requester: safeStr(iv.requester ?? iv.requester_name ?? ""),
@@ -642,7 +642,7 @@ export default function ChangeCreateModal({
     if (!s) return;
     const cur = safeStr(current).trim();
     if (cur.length >= 50) {
-      const merged = `${cur}\n\n‚Äî\nImproved draft:\n${s}`;
+      const merged = `${cur}\n\nó\nImproved draft:\n${s}`;
       setter(clampText(merged, max));
       return;
     }
@@ -671,7 +671,7 @@ export default function ChangeCreateModal({
       next.costs = mapIf(
         next.costs,
         [
-          aiImpact.cost > 0 ? `¬£${aiImpact.cost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "",
+          aiImpact.cost > 0 ? `£${aiImpact.cost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "",
           aiImpact.days > 0 ? `${aiImpact.days} day(s)` : "",
         ]
           .filter(Boolean)
@@ -785,7 +785,7 @@ export default function ChangeCreateModal({
     });
   }
 
-  /* ---------------- Fire ‚Äúsaved/created‚Äù AI events (after success) ---------------- */
+  /* ---------------- Fire ìsaved/createdî AI events (after success) ---------------- */
 
   async function fireAiAfterSuccess(args: {
     projectId: string;
@@ -843,7 +843,7 @@ export default function ChangeCreateModal({
         highlights: [],
       };
 
-      // ‚úÖ Clean PMO-friendly template (helps export parsing too)
+      // ? Clean PMO-friendly template (helps export parsing too)
       const proposed_change = clampText(
         [
           justification ? `Justification:\n${justification}` : "",
@@ -883,7 +883,7 @@ export default function ChangeCreateModal({
         dependencies,
         assumptions,
 
-        // ‚úÖ send both variants (route accepts both)
+        // ? send both variants (route accepts both)
         implementationPlan: safeStr(implementationPlan),
         rollbackPlan: safeStr(rollbackPlan),
 
@@ -953,7 +953,7 @@ export default function ChangeCreateModal({
                 </div>
 
                 {projResolveBusy ? (
-                  <div className="mt-1 text-xs text-amber-700">Resolving project‚Ä¶</div>
+                  <div className="mt-1 text-xs text-amber-700">Resolving projectÖ</div>
                 ) : projResolveErr ? (
                   <div className="mt-1 text-xs text-rose-700">{projResolveErr}</div>
                 ) : null}
@@ -982,7 +982,7 @@ export default function ChangeCreateModal({
                   disabled={disabled || aiBusy}
                   className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-50 text-indigo-700 text-sm font-medium rounded-lg hover:bg-indigo-100 disabled:opacity-50 transition-colors"
                 >
-                  {aiBusy ? "Applying‚Ä¶" : "Apply All"}
+                  {aiBusy ? "ApplyingÖ" : "Apply All"}
                 </button>
               </div>
             </div>
@@ -1089,7 +1089,7 @@ export default function ChangeCreateModal({
                         value={summary}
                         onChange={(e) => setSummary(e.target.value)}
                         rows={4}
-                        placeholder="2‚Äì3 line summary for quick scanning..."
+                        placeholder="2ñ3 line summary for quick scanning..."
                         disabled={disabled}
                         className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50 resize-y"
                       />
@@ -1216,7 +1216,7 @@ export default function ChangeCreateModal({
                       value={dependencies}
                       onChange={(e) => setDependencies(e.target.value)}
                       rows={4}
-                      placeholder="Other teams, approvals, suppliers, environments, releases, third parties‚Ä¶"
+                      placeholder="Other teams, approvals, suppliers, environments, releases, third partiesÖ"
                       disabled={disabled}
                       className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50 resize-y"
                     />
@@ -1241,7 +1241,7 @@ export default function ChangeCreateModal({
                       value={assumptions}
                       onChange={(e) => setAssumptions(e.target.value)}
                       rows={4}
-                      placeholder="Key assumptions underpinning the change (e.g., access approvals, vendor availability, environment readiness)‚Ä¶"
+                      placeholder="Key assumptions underpinning the change (e.g., access approvals, vendor availability, environment readiness)Ö"
                       disabled={disabled}
                       className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50 resize-y"
                     />
@@ -1267,7 +1267,7 @@ export default function ChangeCreateModal({
                         value={implementationPlan}
                         onChange={(e) => setImplementationPlan(e.target.value)}
                         rows={6}
-                        placeholder="Outline steps, approach, owners, sequence, and validation checkpoints‚Ä¶"
+                        placeholder="Outline steps, approach, owners, sequence, and validation checkpointsÖ"
                         disabled={disabled}
                         className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50 resize-y"
                       />
@@ -1291,7 +1291,7 @@ export default function ChangeCreateModal({
                         value={rollbackPlan}
                         onChange={(e) => setRollbackPlan(e.target.value)}
                         rows={6}
-                        placeholder="Backout steps, restore points, success criteria, and how you‚Äôll confirm rollback is complete‚Ä¶"
+                        placeholder="Backout steps, restore points, success criteria, and how youíll confirm rollback is completeÖ"
                         disabled={disabled}
                         className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50 resize-y"
                       />
@@ -1328,7 +1328,7 @@ export default function ChangeCreateModal({
                         disabled ? "opacity-50 pointer-events-none" : ""
                       }`}
                     >
-                      <div className="text-3xl mb-2">üìé</div>
+                      <div className="text-3xl mb-2">??</div>
                       <p className="text-sm text-gray-600 mb-2">Drop files here or click to browse</p>
 
                       <input
@@ -1345,10 +1345,10 @@ export default function ChangeCreateModal({
                         htmlFor="create-file-upload"
                         className="inline-block px-4 py-2 bg-indigo-600 text-white rounded-lg cursor-pointer hover:bg-indigo-700 text-sm font-medium"
                       >
-                        {uploadBusy ? "Uploading‚Ä¶" : "Choose Files"}
+                        {uploadBusy ? "UploadingÖ" : "Choose Files"}
                       </label>
 
-                      {uploadBusy ? <div className="mt-3 text-xs text-gray-500">Uploading‚Ä¶</div> : null}
+                      {uploadBusy ? <div className="mt-3 text-xs text-gray-500">UploadingÖ</div> : null}
                     </div>
 
                     {files.length > 0 && (
@@ -1360,7 +1360,7 @@ export default function ChangeCreateModal({
                               className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200 shadow-sm"
                             >
                               <div className="flex items-center gap-3 overflow-hidden flex-1">
-                                <span className="text-xl shrink-0">üìÑ</span>
+                                <span className="text-xl shrink-0">??</span>
                                 <div className="truncate">
                                   <p className="text-sm font-medium text-gray-900 truncate">{file.name}</p>
                                   <p className="text-xs text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>
@@ -1440,7 +1440,7 @@ export default function ChangeCreateModal({
                         disabled={aiBusy || disabled}
                         className="px-3 py-1.5 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-lg hover:bg-indigo-100 disabled:opacity-50 transition-colors"
                       >
-                        {aiBusy ? "Scanning‚Ä¶" : "ü§ñ AI Scan"}
+                        {aiBusy ? "ScanningÖ" : "?? AI Scan"}
                       </button>
                     </div>
 
@@ -1464,7 +1464,7 @@ export default function ChangeCreateModal({
                       <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
                         <label className="block text-xs font-medium text-gray-600 mb-1">Estimated Cost</label>
                         <div className="flex items-baseline gap-2">
-                          <span className="text-lg font-bold text-gray-900">¬£</span>
+                          <span className="text-lg font-bold text-gray-900">£</span>
                           <input
                             type="number"
                             min={0}
@@ -1534,7 +1534,7 @@ export default function ChangeCreateModal({
                 disabled={disabled || saving}
                 className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-indigo-600 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
               >
-                {isEdit ? (saving ? "Saving‚Ä¶" : "Save Changes") : saving ? "Creating‚Ä¶" : "Create"}
+                {isEdit ? (saving ? "SavingÖ" : "Save Changes") : saving ? "CreatingÖ" : "Create"}
               </button>
             </div>
           </div>
@@ -1572,7 +1572,7 @@ export default function ChangeCreateModal({
                 onChange={(e) => setInterview((p) => ({ ...p, about: e.target.value }))}
                 rows={3}
                 disabled={aiBusy}
-                placeholder="e.g., Extend firewall scope for vendor access on SZC workstream‚Ä¶"
+                placeholder="e.g., Extend firewall scope for vendor access on SZC workstreamÖ"
                 className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 resize-y"
               />
             </div>
@@ -1584,7 +1584,7 @@ export default function ChangeCreateModal({
                 onChange={(e) => setInterview((p) => ({ ...p, why: e.target.value }))}
                 rows={3}
                 disabled={aiBusy}
-                placeholder="Drivers, benefits, risk reduction, compliance, customer impact‚Ä¶"
+                placeholder="Drivers, benefits, risk reduction, compliance, customer impactÖ"
                 className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 resize-y"
               />
             </div>
@@ -1596,7 +1596,7 @@ export default function ChangeCreateModal({
                 onChange={(e) => setInterview((p) => ({ ...p, impacted: e.target.value }))}
                 rows={3}
                 disabled={aiBusy}
-                placeholder="Systems, services, users, suppliers, environments‚Ä¶"
+                placeholder="Systems, services, users, suppliers, environmentsÖ"
                 className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 resize-y"
               />
             </div>
@@ -1609,7 +1609,7 @@ export default function ChangeCreateModal({
                   onChange={(e) => setInterview((p) => ({ ...p, when: e.target.value }))}
                   rows={3}
                   disabled={aiBusy}
-                  placeholder="Target window, milestones, blackout dates‚Ä¶"
+                  placeholder="Target window, milestones, blackout datesÖ"
                   className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 resize-y"
                 />
               </div>
@@ -1621,7 +1621,7 @@ export default function ChangeCreateModal({
                   onChange={(e) => setInterview((p) => ({ ...p, constraints: e.target.value }))}
                   rows={3}
                   disabled={aiBusy}
-                  placeholder="Access, approvals, resourcing, dependencies, outage limits‚Ä¶"
+                  placeholder="Access, approvals, resourcing, dependencies, outage limitsÖ"
                   className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 resize-y"
                 />
               </div>
@@ -1634,7 +1634,7 @@ export default function ChangeCreateModal({
                   value={interview.costs}
                   onChange={(e) => setInterview((p) => ({ ...p, costs: e.target.value }))}
                   disabled={aiBusy}
-                  placeholder="e.g., ¬£12,000 / 3 days / vendor day-rate‚Ä¶"
+                  placeholder="e.g., £12,000 / 3 days / vendor day-rateÖ"
                   className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
                 />
               </div>
@@ -1686,7 +1686,7 @@ export default function ChangeCreateModal({
               disabled={aiBusy || disabled}
               className="px-3 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 shadow-sm"
             >
-              {aiBusy ? "Generating‚Ä¶" : "Generate drafts"}
+              {aiBusy ? "GeneratingÖ" : "Generate drafts"}
             </button>
           </div>
         </div>

@@ -1,4 +1,4 @@
-﻿// src/components/change/ChangeHeader.tsx
+// src/components/change/ChangeHeader.tsx
 "use client";
 
 import React from "react";
@@ -38,7 +38,7 @@ export default function ChangeHeader({
 
           {backHref ? (
             <a className="crHeaderLink" href={backHref}>
-              ← Back
+              ? Back
             </a>
           ) : null}
         </div>

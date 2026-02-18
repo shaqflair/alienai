@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     const input = parseChangeRegisterInputsFromRequest(req);
     const { buffer, filename } = await exportChangeRegisterXlsxBuffer(input);
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(buffer))), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
 
     const { buffer, filename } = await exportChangeRegisterXlsxBuffer(input);
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(buffer))), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

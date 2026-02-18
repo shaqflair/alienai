@@ -1,0 +1,26 @@
+
+> alienai@0.1.0 build
+> next build
+
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+   ▲ Next.js 16.0.10 (Turbopack)
+   - Environments: .env.local
+
+ ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+   Creating an optimized production build ...
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+ ✓ Compiled successfully in 61s
+   Running TypeScript ...
+Failed to compile.
+
+./src/app/api/artifacts/[id]/project-charter/export/docx/route.ts:142:10
+Type error: 'BorderStyle' refers to a value, but is being used as a type here. Did you mean 'typeof BorderStyle'?
+
+[0m [90m 140 |[39m [90m/* ──────────────────────────────────────────────── Advanced Document Builders ──────────────────────────────────────────────── */[39m
+ [90m 141 |[39m [36mfunction[39m createBorders(
+[31m[1m>[22m[39m[90m 142 |[39m   style[33m:[39m [33mBorderStyle[39m [33m=[39m [33mBorderStyle[39m[33m.[39m[33mSINGLE[39m[33m,[39m
+ [90m     |[39m          [31m[1m^[22m[39m
+ [90m 143 |[39m   size[33m:[39m number [33m=[39m [35m8[39m[33m,[39m
+ [90m 144 |[39m   color[33m:[39m string [33m=[39m [33mTHEME[39m[33m.[39mcolors[33m.[39mborder
+ [90m 145 |[39m ) {[0m
+Next.js build worker exited with code: 1 and signal: null

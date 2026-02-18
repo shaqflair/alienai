@@ -1,4 +1,4 @@
-﻿// src/lib/exports/stakeholder-register/load.ts
+// src/lib/exports/stakeholder-register/load.ts
 import "server-only";
 
 export { loadStakeholderExportData } from "./loadStakeholderExportData";

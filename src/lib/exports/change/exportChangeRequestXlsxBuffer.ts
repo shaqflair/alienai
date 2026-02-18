@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import ExcelJS from "exceljs";
 import { createClient } from "@/utils/supabase/server";
@@ -6,7 +6,7 @@ import { createClient } from "@/utils/supabase/server";
 const CHANGE_TABLE = "change_requests";
 const BUCKET = process.env.CHANGE_ATTACHMENTS_BUCKET || "change_attachments";
 
-/* ───────────────────────── helpers ───────────────────────── */
+/* ------------------------- helpers ------------------------- */
 
 function safeStr(x: any) {
   if (typeof x === "string") return x.trim();
@@ -51,7 +51,7 @@ function formatUkDateTime(date = new Date()) {
 
 function formatGBP(n: any) {
   const v = Number(n);
-  if (!Number.isFinite(v)) return "£0";
+  if (!Number.isFinite(v)) return "�0";
   return v.toLocaleString("en-GB", {
     style: "currency",
     currency: "GBP",
@@ -71,7 +71,7 @@ async function listAttachmentNames(supabase: any, changeId: string) {
   return (data || []).map((o: any) => filenameFromStorageObjectName(o.name));
 }
 
-/* ───────────────────────── membership (tolerant) ───────────────────────── */
+/* ------------------------- membership (tolerant) ------------------------- */
 
 async function requireAuthAndMembership(supabase: any, projectId: string) {
   const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -112,7 +112,7 @@ async function requireAuthAndMembership(supabase: any, projectId: string) {
   }
 }
 
-/* ───────────────────────── excel styling ───────────────────────── */
+/* ------------------------- excel styling ------------------------- */
 
 function borderAll(cell: ExcelJS.Cell) {
   cell.border = {
@@ -143,7 +143,7 @@ function zebraRow(ws: ExcelJS.Worksheet, rowNum: number, idx: number) {
   row.eachCell({ includeEmpty: true }, (c) => borderAll(c));
 }
 
-/* ───────────────────────── ID logic ───────────────────────── */
+/* ------------------------- ID logic ------------------------- */
 
 function deriveCrId(cr: any) {
   const seq = cr?.seq;
@@ -152,7 +152,7 @@ function deriveCrId(cr: any) {
   return id ? `CR-${id.slice(0, 8).toUpperCase()}` : "CR";
 }
 
-/* ───────────────────────── sheets ───────────────────────── */
+/* ------------------------- sheets ------------------------- */
 
 function addOverviewSheet(
   wb: ExcelJS.Workbook,
@@ -165,14 +165,14 @@ function addOverviewSheet(
   ws.getCell("B1").value = "Value";
   styleHeaderRow(ws.getRow(1));
 
-  // ✅ no Filter row
+  // ? no Filter row
   const rows: Array<[string, string]> = [
     ["Document", "Change Request"],
     ["Generated", meta.generated],
     ["Project", meta.projectName],
-    ["Project Code", meta.projectCode || "—"],
-    ["Client", meta.clientName || "—"],
-    ["CR ID", meta.crId || "—"],
+    ["Project Code", meta.projectCode || "�"],
+    ["Client", meta.clientName || "�"],
+    ["CR ID", meta.crId || "�"],
   ];
 
   let r = 2;
@@ -217,7 +217,7 @@ function addDetailsSheet(wb: ExcelJS.Workbook, cr: any, attachments: string[]) {
     ["Needed By", safeStr(cr?.needed_by || cr?.required_by || cr?.due_date ? toDateGB(cr.needed_by || cr.required_by || cr.due_date) : "")],
     ["Cost Impact", formatGBP(cost)],
     ["Schedule Impact (days)", String(days)],
-    ["Risk Impact", risk || "—"],
+    ["Risk Impact", risk || "�"],
     ["Benefits", safeStr(cr?.benefits || cr?.benefit_summary || "")],
     ["Description", safeStr(cr?.description || cr?.change_description || "")],
     ["Proposed Change", safeStr(cr?.proposed_change || "")],
@@ -225,7 +225,7 @@ function addDetailsSheet(wb: ExcelJS.Workbook, cr: any, attachments: string[]) {
     ["Rollback Plan", safeStr(cr?.rollback_plan || cr?.rollback || "")],
     ["Assumptions", safeStr(cr?.assumptions || "")],
     ["Dependencies", safeStr(cr?.dependencies || "")],
-    ["Attachments", attachments.length ? attachments.join(" | ") : "—"],
+    ["Attachments", attachments.length ? attachments.join(" | ") : "�"],
   ];
 
   let r = 2;
@@ -243,7 +243,7 @@ function addDetailsSheet(wb: ExcelJS.Workbook, cr: any, attachments: string[]) {
   return ws;
 }
 
-/* ───────────────────────── exporter ───────────────────────── */
+/* ------------------------- exporter ------------------------- */
 
 export async function exportChangeRequestXlsxBuffer(changeId: string) {
   const id = safeStr(changeId);

@@ -1,4 +1,4 @@
-﻿// src/lib/events/publisher.ts
+// src/lib/events/publisher.ts
 import "server-only";
 
 import { createClient } from "@/utils/supabase/server";
@@ -20,7 +20,7 @@ function baseUrl() {
 type AnyObj = Record<string, any>;
 
 /**
- * ✅ Optional: forwards certain artifact events into AI pipeline triggers.
+ * ? Optional: forwards certain artifact events into AI pipeline triggers.
  * Never throws (audit log must remain reliable).
  */
 async function forwardToAiPipeline(evt: ArtifactEvent) {
@@ -85,7 +85,7 @@ export async function emitArtifactEvent(evt: ArtifactEvent) {
     throw new Error(`emitArtifactEvent failed: ${error.message}`);
   }
 
-  // ✅ Best-effort forward (never throws)
+  // ? Best-effort forward (never throws)
   forwardToAiPipeline(evt).catch(() => null);
 
   return (data as any).id as string;

@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import ExcelJS from "exceljs";
@@ -64,7 +64,7 @@ function looksMissingColumn(err: any) {
   return msg.includes("column") && msg.includes("does not exist");
 }
 
-/* ───────────────────────────────────────── membership (tolerant) ───────────────────────────────────────── */
+/* ----------------------------------------- membership (tolerant) ----------------------------------------- */
 
 async function requireAuthAndMembership(supabase: any, projectId: string) {
   const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -105,7 +105,7 @@ async function requireAuthAndMembership(supabase: any, projectId: string) {
   }
 }
 
-/* ───────────────────────────────────────── worksheet builders ───────────────────────────────────────── */
+/* ----------------------------------------- worksheet builders ----------------------------------------- */
 
 type RaidRow = {
   public_id: string;
@@ -334,7 +334,7 @@ export async function exportRaidXlsx(args: {
     const buffer = Buffer.from(await wb.xlsx.writeBuffer());
     const filename = `RAID_${sanitizeFilename(projectCode)}.xlsx`;
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(buffer))), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

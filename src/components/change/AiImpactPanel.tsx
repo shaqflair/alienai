@@ -1,4 +1,4 @@
-ï»¿"use client";
+"use client";
 
 import React, { useMemo } from "react";
 import type { AiImpact } from "@/lib/change/types";
@@ -19,7 +19,7 @@ function fmtCurrency(n: number) {
       maximumFractionDigits: 0,
     }).format(v);
   } catch {
-    return `Â£${v}`;
+    return `£${v}`;
   }
 }
 
@@ -106,7 +106,7 @@ export default function AiImpactPanel({
               {aiBusy ? (
                 <>
                   <div className="w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                  Scanningâ€¦
+                  Scanning…
                 </>
               ) : (
                 <>
@@ -195,7 +195,7 @@ export default function AiImpactPanel({
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Update cost (Â£)</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Update cost (£)</label>
           <input
             type="text"
             inputMode="numeric"

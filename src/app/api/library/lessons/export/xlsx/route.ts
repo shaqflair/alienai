@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -133,7 +133,7 @@ export async function GET(req: NextRequest) {
     const buf = await wb.xlsx.writeBuffer();
     const filename = `${slugify("org-lessons-library")}.xlsx`;
 
-    return new NextResponse(Buffer.from(buf), {
+    return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(Buffer.from(buf)))), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": `attachment; filename="${filename}"`,

@@ -1,4 +1,4 @@
-ï»¿"use client";
+"use client";
 
 import { useCallback, useMemo, useState } from "react";
 import type { Patch, Section } from "@/lib/ai/closure-ai";
@@ -12,7 +12,7 @@ export function useClosureAI(args: {
   doc: any;
   meta: any;
 
-  // â€œvirtual sectionâ€ plumbing
+  // “virtual section” plumbing
   getSectionByKey: (key: string) => Section;
   applySectionReplace: (key: string, section: Section) => void;
 

@@ -101,7 +101,8 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx) {
   const patch: any = {};
 
   // 3) allow patching user-owned fields
-  for (const k of [
+  // FIX: Removed 'as const' from the array, added explicit type annotation (line 58)
+  const allowedFields: string[] = [
     "category",
     "description",
     "action_for_future",
@@ -109,8 +110,10 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx) {
     "impact",
     "severity",
     "project_stage",
-    "action_owner_label", // ✅ free text owner
-  ] as const) {
+    "action_owner_label",
+  ];
+  
+  for (const k of allowedFields) {
     if (!(k in body)) continue;
 
     const v = safeStr((body as any)[k]);

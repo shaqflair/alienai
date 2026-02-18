@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 
@@ -71,7 +71,7 @@ export default function WbsAssistantRail({
     try {
       const artifactId = await onEnsureArtifact();
       if (!artifactId) {
-        onMessage("⛔ Missing artifactId");
+        onMessage("? Missing artifactId");
         return;
       }
 
@@ -95,7 +95,7 @@ export default function WbsAssistantRail({
 
       setAssistant(j?.assistant ?? null);
     } catch (e: any) {
-      onMessage(`⛔ ${e?.message ?? "Assistant failed"}`);
+      onMessage(`? ${e?.message ?? "Assistant failed"}`);
     } finally {
       setAssistantLoading(false);
     }
@@ -111,7 +111,7 @@ export default function WbsAssistantRail({
         <div className="text-gray-500">Selected</div>
         <div className="font-medium text-gray-900">{selectedLabel}</div>
         <div className="text-xs text-gray-500 mt-0.5">
-          Code: <span className="font-mono">{selectedRow.code || "—"}</span>
+          Code: <span className="font-mono">{selectedRow.code || "�"}</span>
         </div>
       </div>
 
@@ -122,7 +122,7 @@ export default function WbsAssistantRail({
           disabled={readOnly || assistantLoading}
           onClick={loadAssistant}
         >
-          {assistantLoading ? "Loading…" : "Generate guidance"}
+          {assistantLoading ? "Loading�" : "Generate guidance"}
         </button>
 
         <button
@@ -131,7 +131,7 @@ export default function WbsAssistantRail({
           disabled={readOnly}
           onClick={() => onExpandChildren(selectedRow.id)}
         >
-          ✨ Expand children
+          ? Expand children
         </button>
       </div>
 
@@ -150,16 +150,16 @@ export default function WbsAssistantRail({
                   onClick={() => {
                     onUpdateRow(selectedRow.id, { acceptance_criteria: assistant.acceptance_criteria });
                     setAssistantDone((p) => ({ ...p, acceptance: true }));
-                    onMessage("✅ Acceptance criteria applied");
+                    onMessage("? Acceptance criteria applied");
                   }}
                 >
                   Apply
                 </button>
               ) : (
-                <span className="text-xs text-emerald-700 font-medium">Applied ✓</span>
+                <span className="text-xs text-emerald-700 font-medium">Applied ?</span>
               )}
             </div>
-            <pre className="text-xs text-gray-700 whitespace-pre-wrap font-sans">{assistant.acceptance_criteria || "—"}</pre>
+            <pre className="text-xs text-gray-700 whitespace-pre-wrap font-sans">{assistant.acceptance_criteria || "�"}</pre>
           </div>
 
           <SectionAppend
@@ -172,7 +172,7 @@ export default function WbsAssistantRail({
               const block = assistant.checklist.map((x) => `- ${x}`).join("\n");
               const next = `Checklist:\n${block}\n`;
               onAppendDescription(selectedRow.id, next);
-              onMessage("✅ Checklist appended");
+              onMessage("? Checklist appended");
             }}
           />
 
@@ -186,7 +186,7 @@ export default function WbsAssistantRail({
               const block = assistant.deliverables.map((x) => `- ${x}`).join("\n");
               const next = `Deliverables:\n${block}\n`;
               onAppendDescription(selectedRow.id, next);
-              onMessage("✅ Deliverables appended");
+              onMessage("? Deliverables appended");
             }}
           />
 
@@ -200,7 +200,7 @@ export default function WbsAssistantRail({
               const block = assistant.risks.map((x) => `- ${x}`).join("\n");
               const next = `Risks:\n${block}\n`;
               onAppendDescription(selectedRow.id, next);
-              onMessage("✅ Risks appended");
+              onMessage("? Risks appended");
             }}
           />
 
@@ -218,13 +218,13 @@ export default function WbsAssistantRail({
                     const next = `RACI hints:\n${block}\n`;
                     onAppendDescription(selectedRow.id, next);
                     setAssistantDone((p) => ({ ...p, raci: true }));
-                    onMessage("✅ RACI appended");
+                    onMessage("? RACI appended");
                   }}
                 >
                   Append
                 </button>
               ) : (
-                <span className="text-xs text-emerald-700 font-medium">Done ✓</span>
+                <span className="text-xs text-emerald-700 font-medium">Done ?</span>
               )}
             </div>
             {assistant.raci.length > 0 ? (
@@ -277,7 +277,7 @@ function SectionAppend({
             Append
           </button>
         ) : (
-          <span className="text-xs text-emerald-700 font-medium">Done ✓</span>
+          <span className="text-xs text-emerald-700 font-medium">Done ?</span>
         )}
       </div>
       {items.length > 0 ? (

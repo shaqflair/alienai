@@ -138,7 +138,7 @@ async function handle(req: NextRequest) {
       safeStr((out as any)?.baseName).replace(/\.docx$/i, "") ||
       docxBaseName((out as any)?.meta);
 
-    return new NextResponse(docx as any, {
+    return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(docx as any))), {
       status: 200,
       headers: {
         "Content-Type":

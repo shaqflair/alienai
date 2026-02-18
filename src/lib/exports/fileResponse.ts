@@ -6,7 +6,7 @@ export function fileResponse(
   filename: string,
   contentType: string
 ) {
-  return new NextResponse(data, {
+  return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(data))), {
     status: 200,
     headers: {
       "Content-Type": contentType,

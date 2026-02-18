@@ -180,7 +180,7 @@ export async function POST(req: NextRequest) {
 
     const filename = `${sanitizeFilename(base)} - ${yyyymmdd(new Date())}.docx`;
 
-    return new NextResponse(bytes, {
+    return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(bytes))), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

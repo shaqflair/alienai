@@ -1,4 +1,4 @@
-﻿// src/app/actions/active-org.ts
+// src/app/actions/active-org.ts
 "use server";
 
 import { cookies } from "next/headers";
@@ -20,7 +20,7 @@ export async function setActiveOrg(formData: FormData) {
 
   if (!user) redirect("/login");
 
-  // ✅ validate membership via organisation_members
+  // ? validate membership via organisation_members
   const { data: membership } = await supabase
     .from("organisation_members")
     .select("organisation_id")
@@ -30,7 +30,7 @@ export async function setActiveOrg(formData: FormData) {
 
   if (!membership) redirect(nextPath);
 
-  // ✅ Next.js 16: cookies() is async-typed -> await it
+  // ? Next.js 16: cookies() is async-typed -> await it
   const cookieStore = await cookies();
   cookieStore.set(COOKIE_NAME, orgId, {
     httpOnly: true,

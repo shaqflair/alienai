@@ -1,5 +1,5 @@
-﻿// src/lib/charter/charter-v2.ts
-// ✅ Client-safe: NO "server-only" here.
+// src/lib/charter/charter-v2.ts
+// ? Client-safe: NO "server-only" here.
 
 export type RowObj = { type: "header" | "data"; cells: string[] };
 
@@ -36,7 +36,7 @@ function isPlainObject(x: any) {
 }
 
 /**
- * ✅ Stronger guard:
+ * ? Stronger guard:
  * - meta must be an object
  * - sections must be an array
  * - each section must have a string key (non-empty)

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import React, { useMemo } from "react";
 
 function clamp(n: number, a = 0, b = 100) {
@@ -56,7 +56,7 @@ export default function ImpactMiniGauges({
       </div>
       <div style={{ position: "relative" }}>
         <Ring value={v.cost} title="Cost" />
-        <div className="aiGaugeLabel">£</div>
+        <div className="aiGaugeLabel">�</div>
       </div>
       <div style={{ position: "relative" }}>
         <Ring value={v.scope} title="Scope" />

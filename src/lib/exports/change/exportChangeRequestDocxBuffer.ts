@@ -1,4 +1,4 @@
-ï»¿import "server-only";
+import "server-only";
 
 import {
   AlignmentType,
@@ -38,7 +38,7 @@ function sanitizeFilename(name: string) {
 
 function formatDateUk(x: any) {
   const s = safeStr(x);
-  if (!s) return "â€”";
+  if (!s) return "—";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s;
   return d.toLocaleDateString("en-GB");
@@ -201,7 +201,7 @@ function cardCell(label: string, value: string) {
         spacing: { after: 70 },
       }),
       new Paragraph({
-        children: [tr(value || "â€”", { bold: true, color: COLOR.ink, size: 26 })],
+        children: [tr(value || "—", { bold: true, color: COLOR.ink, size: 26 })],
       }),
     ],
   });
@@ -232,7 +232,7 @@ function kvValCell(text: string) {
       left: { style: BorderStyle.SINGLE, size: 6, color: COLOR.line },
       right: { style: BorderStyle.SINGLE, size: 6, color: COLOR.line },
     },
-    children: [para(text || "â€”", { color: COLOR.ink, size: 22 })],
+    children: [para(text || "—", { color: COLOR.ink, size: 22 })],
   });
 }
 
@@ -244,7 +244,7 @@ function kvRow(k1: string, v1: string, k2: string, v2: string) {
 
 function bodyText(text: string) {
   return new Paragraph({
-    children: [tr(safeStr(text) || "â€”", { color: COLOR.ink, size: 22 })],
+    children: [tr(safeStr(text) || "—", { color: COLOR.ink, size: 22 })],
     spacing: { after: 120 },
   });
 }
@@ -258,7 +258,7 @@ function h3(text: string) {
 
 function bullet(text: string) {
   return new Paragraph({
-    text: safeStr(text) || "â€”",
+    text: safeStr(text) || "—",
     bullet: { level: 0 },
     spacing: { after: 60 },
   });
@@ -266,7 +266,7 @@ function bullet(text: string) {
 
 function numbered(text: string, i: number) {
   return new Paragraph({
-    children: [tr(`${i}. ${safeStr(text) || "â€”"}`, { color: COLOR.ink, size: 22 })],
+    children: [tr(`${i}. ${safeStr(text) || "—"}`, { color: COLOR.ink, size: 22 })],
     spacing: { after: 60 },
   });
 }
@@ -275,12 +275,12 @@ function renderSectionBody(s: PcSection): Paragraph[] {
   const blocks: Paragraph[] = [];
   if (s.kind === "bullets") {
     for (const b of splitBullets(s.body)) blocks.push(bullet(b));
-    return blocks.length ? blocks : [bodyText("â€”")];
+    return blocks.length ? blocks : [bodyText("—")];
   }
   if (s.kind === "steps") {
     const steps = splitSteps(s.body);
     for (let i = 0; i < steps.length; i++) blocks.push(numbered(steps[i], i + 1));
-    return blocks.length ? blocks : [bodyText("â€”")];
+    return blocks.length ? blocks : [bodyText("—")];
   }
   return [bodyText(s.body)];
 }
@@ -294,9 +294,9 @@ export async function exportChangeRequestDocxBuffer(changeId: string) {
   const title = safeStr(cr.title || "Change Request");
 
   const projectTitle = safeStr(branding?.projectTitle || "Project");
-  const projectCode = safeStr(branding?.projectCode || "â€”");
-  const orgName = safeStr(branding?.orgName || "â€”");
-  const clientName = safeStr(branding?.clientName || "â€”");
+  const projectCode = safeStr(branding?.projectCode || "—");
+  const orgName = safeStr(branding?.orgName || "—");
+  const clientName = safeStr(branding?.clientName || "—");
 
   const submitted = formatDateUk(cr.submitted_at || cr.created_at);
   const neededBy = formatDateUk(cr.needed_by || cr.required_by || cr.due_date);
@@ -307,14 +307,14 @@ export async function exportChangeRequestDocxBuffer(changeId: string) {
   const pcImplementation = proposedSectionsAll.find((s) => s.key === "implementation") || null;
   const pcRollback = proposedSectionsAll.find((s) => s.key === "rollback") || null;
 
-  // âœ… Always show Implementation + Rollback as dedicated sections.
-  // Prefer explicit columns; fallback to proposed_change sections; fallback to "â€”".
+  // ? Always show Implementation + Rollback as dedicated sections.
+  // Prefer explicit columns; fallback to proposed_change sections; fallback to "—".
   const implementationText =
     safeStr(cr.implementation_plan || cr.plan) || safeStr(pcImplementation?.body) || "";
   const rollbackText =
     safeStr(cr.rollback_plan || cr.rollback) || safeStr(pcRollback?.body) || "";
 
-  // âœ… Remove those from Proposed Change to avoid duplication
+  // ? Remove those from Proposed Change to avoid duplication
   const proposedSections = proposedSectionsAll.filter((s) => s.key !== "implementation" && s.key !== "rollback");
 
   const asStandalone = safeStr(cr.assumptions);
@@ -383,7 +383,7 @@ export async function exportChangeRequestDocxBuffer(changeId: string) {
         children: [cardCell("Organisation", orgName), cardCell("Client", clientName)],
       }),
       new TableRow({
-        children: [cardCell("Project ID", projectCode), cardCell("Owner", safeStr(cr.owner_label || cr.owner || "â€”"))],
+        children: [cardCell("Project ID", projectCode), cardCell("Owner", safeStr(cr.owner_label || cr.owner || "—"))],
       }),
     ],
   });
@@ -393,8 +393,8 @@ export async function exportChangeRequestDocxBuffer(changeId: string) {
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [
       kvRow("Submitted", submitted, "Needed By", neededBy),
-      kvRow("Status", safeStr(cr.status || "â€”"), "Priority", safeStr(cr.priority || "â€”")),
-      kvRow("Decision", safeStr(cr.decision_status || "â€”"), "Requester", safeStr(cr.requester_name || "â€”")),
+      kvRow("Status", safeStr(cr.status || "—"), "Priority", safeStr(cr.priority || "—")),
+      kvRow("Decision", safeStr(cr.decision_status || "—"), "Requester", safeStr(cr.requester_name || "—")),
     ],
   });
 
@@ -419,41 +419,41 @@ export async function exportChangeRequestDocxBuffer(changeId: string) {
             rows: [
               kvRow(
                 "Cost Impact",
-                safeStr(cr.cost_impact ?? cr.budget_impact ?? "â€”") || "â€”",
+                safeStr(cr.cost_impact ?? cr.budget_impact ?? "—") || "—",
                 "Schedule Impact",
-                safeStr(cr.schedule_impact ?? cr.schedule_days ?? "â€”") || "â€”"
+                safeStr(cr.schedule_impact ?? cr.schedule_days ?? "—") || "—"
               ),
               kvRow(
                 "Risk Impact",
-                safeStr(cr.risk_impact ?? "â€”") || "â€”",
+                safeStr(cr.risk_impact ?? "—") || "—",
                 "Benefits",
-                safeStr(cr.benefits ?? cr.benefit_summary ?? "â€”") || "â€”"
+                safeStr(cr.benefits ?? cr.benefit_summary ?? "—") || "—"
               ),
             ],
           }),
 
           sectionTitle(sectionNo(), "Description"),
-          bodyText(cr.description || cr.change_description || "â€”"),
+          bodyText(cr.description || cr.change_description || "—"),
 
           sectionTitle(sectionNo(), "Proposed Change"),
           ...(proposedSections.length
             ? proposedSections.flatMap((s) => [h3(s.title), ...renderSectionBody(s)])
-            : [bodyText("â€”")]),
+            : [bodyText("—")]),
 
-          // âœ… ALWAYS present again (even if it was embedded in proposed_change)
+          // ? ALWAYS present again (even if it was embedded in proposed_change)
           sectionTitle(sectionNo(), "Implementation Plan"),
-          ...(implementationText ? [bodyText(implementationText)] : [bodyText("â€”")]),
+          ...(implementationText ? [bodyText(implementationText)] : [bodyText("—")]),
 
-          // âœ… ALWAYS present again (even if it was embedded in proposed_change)
+          // ? ALWAYS present again (even if it was embedded in proposed_change)
           sectionTitle(sectionNo(), "Rollback Plan"),
-          ...(rollbackText ? [bodyText(rollbackText)] : [bodyText("â€”")]),
+          ...(rollbackText ? [bodyText(rollbackText)] : [bodyText("—")]),
 
           // Keep assumptions/dependencies as dedicated sections if stored in columns
           sectionTitle(sectionNo(), "Assumptions"),
-          ...(asStandalone ? [bodyText(asStandalone)] : [bodyText("â€”")]),
+          ...(asStandalone ? [bodyText(asStandalone)] : [bodyText("—")]),
 
           sectionTitle(sectionNo(), "Dependencies"),
-          ...(depStandalone ? [bodyText(depStandalone)] : [bodyText("â€”")]),
+          ...(depStandalone ? [bodyText(depStandalone)] : [bodyText("—")]),
 
           // Attachments always included
           sectionTitle(sectionNo(), "Attachments"),

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { setActiveOrg } from "@/app/actions/org";
@@ -25,7 +25,7 @@ export default function UserMenu(props: {
   return (
     <div className="relative">
       <details className="group">
-        {/* ✅ Header summary: white-on-black */}
+        {/* ? Header summary: white-on-black */}
         <summary className="list-none cursor-pointer select-none">
           <div className="flex items-center gap-3 text-white">
             <div className="hidden sm:flex flex-col items-end leading-tight">
@@ -46,7 +46,7 @@ export default function UserMenu(props: {
           </div>
         </summary>
 
-        {/* ✅ Dropdown panel: normal readable text */}
+        {/* ? Dropdown panel: normal readable text */}
        <div className="absolute right-0 mt-2 w-[320px] rounded-xl border bg-white text-gray-900 shadow-lg p-3 z-50">
           <div className="px-2 py-2">
             <div className="text-sm font-semibold truncate text-gray-900">{props.displayName}</div>
@@ -80,7 +80,7 @@ export default function UserMenu(props: {
 
             {props.memberships.length === 0 ? (
               <div className="text-xs text-gray-500">
-                You’re not a member of any organisation yet.
+                You�re not a member of any organisation yet.
               </div>
             ) : null}
           </div>

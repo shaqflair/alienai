@@ -6,18 +6,14 @@ import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { launchBrowser } from "@/lib/pdf/puppeteer-launch";
 import { makeEtag } from "@/lib/pdf/etag";
-import { renderProjectCharterHtml, type CharterData, type PdfBrand } from "@/lib/pdf/charter-html";
+import {
+  renderProjectCharterHtml,
+  type CharterData,
+  type PdfBrand,
+} from "@/lib/pdf/charter-html";
 import { isCharterExportReady } from "@/lib/charter/export-ready";
 
 export const runtime = "nodejs";
-
-/**
- * ✅ This file contains NO JSX.
- * If you still see: Expected '>', got 'className'
- * it means JSX exists in a different route handler file.
- * Search your repo for: className=
- * and check route handler files under src/app/.../route.ts
- */
 
 function safeParam(x: unknown): string {
   return typeof x === "string" ? x : "";
@@ -53,7 +49,10 @@ function parseArtifactContent(content: any) {
     const s = content.trim();
     if (!s) return "";
     try {
-      if ((s.startsWith("{") && s.endsWith("}")) || (s.startsWith("[") && s.endsWith("]"))) {
+      if (
+        (s.startsWith("{") && s.endsWith("}")) ||
+        (s.startsWith("[") && s.endsWith("]"))
+      ) {
         return JSON.parse(s);
       }
     } catch {
@@ -71,7 +70,8 @@ function inferStatusFromRaw(raw: any): string {
     .toLowerCase();
   if (!s) return "draft";
   if (s === "changes requested") return "changes_requested";
-  if (["approved", "submitted", "rejected", "changes_requested", "draft"].includes(s)) return s;
+  if (["approved", "submitted", "rejected", "changes_requested", "draft"].includes(s))
+    return s;
   return "draft";
 }
 
@@ -103,7 +103,9 @@ async function fetchBranding(admin: any, projectId: string) {
 async function fetchArtifact(admin: any, artifactId: string) {
   const { data, error } = await admin
     .from("artifacts")
-    .select("id, project_id, user_id, type, title, content, content_json, created_at, updated_at, approval_status, status")
+    .select(
+      "id, project_id, user_id, type, title, content, content_json, created_at, updated_at, approval_status, status"
+    )
     .eq("id", artifactId)
     .maybeSingle();
 
@@ -129,13 +131,23 @@ export async function GET(
     artifactId = artifactId || fb.artifactId;
   }
 
-  if (!projectId || !artifactId) return new NextResponse("Missing project/artifact id", { status: 400 });
+  if (!projectId || !artifactId) {
+    return new NextResponse("Missing project/artifact id", {
+      status: 400,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
 
   // Auth gate (PDF export is not public)
   const supabase = await createClient();
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr) console.error("[PDF] auth.getUser error:", authErr);
-  if (!auth?.user) return new NextResponse("Unauthorized", { status: 401 });
+  if (!auth?.user) {
+    return new NextResponse("Unauthorized", {
+      status: 401,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
 
   const admin = createAdminClient();
 
@@ -150,10 +162,24 @@ export async function GET(
 
   const projectTitleFromProject = String(projectTitleRow?.title ?? "").trim();
 
-  const [brandRes, artifact] = await Promise.all([fetchBranding(admin, projectId), fetchArtifact(admin, artifactId)]);
+  const [brandRes, artifact] = await Promise.all([
+    fetchBranding(admin, projectId),
+    fetchArtifact(admin, artifactId),
+  ]);
 
-  if (!artifact) return new NextResponse("Not found (artifact missing)", { status: 404 });
-  if (safeParam(artifact.project_id) !== projectId) return new NextResponse("Not found (project mismatch)", { status: 404 });
+  if (!artifact) {
+    return new NextResponse("Not found (artifact missing)", {
+      status: 404,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
+
+  if (safeParam(artifact.project_id) !== projectId) {
+    return new NextResponse("Not found (project mismatch)", {
+      status: 404,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
 
   const raw = parseArtifactContent(artifact.content_json ?? artifact.content);
 
@@ -181,19 +207,19 @@ export async function GET(
   const charter: CharterData = {
     projectTitle:
       projectTitleFromProject ||
-      raw?.meta?.project_title ||
-      raw?.projectTitle ||
-      raw?.title ||
+      (raw as any)?.meta?.project_title ||
+      (raw as any)?.projectTitle ||
+      (raw as any)?.title ||
       "Project Charter",
-    projectCode: raw?.projectCode ?? raw?.project_code ?? null,
-    version: raw?.version
-      ? String(raw.version)
+    projectCode: (raw as any)?.projectCode ?? (raw as any)?.project_code ?? null,
+    version: (raw as any)?.version
+      ? String((raw as any).version)
       : (artifact as any)?.version
       ? String((artifact as any).version)
       : null,
     status: inferStatusFromRaw(raw),
-    preparedBy: raw?.preparedBy ?? raw?.prepared_by ?? null,
-    approvedBy: raw?.approvedBy ?? raw?.approved_by ?? null,
+    preparedBy: (raw as any)?.preparedBy ?? (raw as any)?.prepared_by ?? null,
+    approvedBy: (raw as any)?.approvedBy ?? (raw as any)?.approved_by ?? null,
     lastUpdated: artifact.updated_at ?? artifact.created_at ?? null,
     raw,
   };
@@ -213,7 +239,11 @@ export async function GET(
       content_len: typeof artifact.content === "string" ? artifact.content.length : null,
       content_json_hint: artifact.content_json ? "json" : null,
     },
-    charterHints: { title: charter.projectTitle, status: charter.status, version: charter.version },
+    charterHints: {
+      title: charter.projectTitle,
+      status: charter.status,
+      version: charter.version,
+    },
   });
 
   const inm = req.headers.get("if-none-match");
@@ -224,7 +254,10 @@ export async function GET(
     });
   }
 
-  const { html, headerTemplate, footerTemplate } = renderProjectCharterHtml({ brand, charter });
+  const { html, headerTemplate, footerTemplate } = renderProjectCharterHtml({
+    brand,
+    charter,
+  });
 
   const browser = await launchBrowser();
   try {
@@ -243,7 +276,7 @@ export async function GET(
 
     const filename = `${fileSafe(charter.projectTitle || "Project-Charter")}.pdf`;
 
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
@@ -254,7 +287,10 @@ export async function GET(
     });
   } catch (e: any) {
     console.error("[PDF] puppeteer render error:", e);
-    return new NextResponse(`PDF render failed: ${String(e?.message ?? e)}`, { status: 500 });
+    return new NextResponse(`PDF render failed: ${String(e?.message ?? e)}`, {
+      status: 500,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
   } finally {
     await browser.close().catch(() => {});
   }

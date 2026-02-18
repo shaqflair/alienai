@@ -1,4 +1,4 @@
-﻿// next.config.ts
+// next.config.ts
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
@@ -14,7 +14,7 @@ const nextConfig: NextConfig = {
   ],
 
   /**
-   * ✅ Allow next/image to load remote images from Supabase Storage
+   * ? Allow next/image to load remote images from Supabase Storage
    * (Fixes: Invalid src prop ... hostname is not configured)
    */
   images: {

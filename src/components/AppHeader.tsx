@@ -1,4 +1,4 @@
-﻿// src/components/AppHeader.tsx
+// src/components/AppHeader.tsx
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
@@ -20,22 +20,22 @@ function pickInitials(label: string) {
 }
 
 /* -----------------------------
-   ΛLIENΛ Wordmark – : white + cyan A & I
+   ?LIEN? Wordmark � : white + cyan A & I
 ------------------------------ */
 function AlienWordmark() {
   return (
     <span className="select-none whitespace-nowrap text-xl md:text-2xl font-black tracking-[0.35em]">
-      <span className="text-[#00d4ff] drop-shadow-[0_0_12px_rgba(0,212,255,0.7)]">Λ</span>
+      <span className="text-[#00d4ff] drop-shadow-[0_0_12px_rgba(0,212,255,0.7)]">?</span>
       <span className="text-white">L</span>
       <span className="text-[#00d4ff] drop-shadow-[0_0_12px_rgba(0,212,255,0.7)]">I</span>
-      <span className="text-white">ΞN</span>
-      <span className="text-white">Λ</span>
+      <span className="text-white">?N</span>
+      <span className="text-white">?</span>
     </span>
   );
 }
 
 /* -----------------------------
-   Brand Logo (IMG – no next/image)
+   Brand Logo (IMG � no next/image)
 ------------------------------ */
 function BrandLogo() {
   return (

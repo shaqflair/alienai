@@ -1,4 +1,4 @@
-﻿// src/app/api/export/pptx/route.ts
+// src/app/api/export/pptx/route.ts
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
       weeksPerSlide,
     });
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(buffer))), {
       status: 200,
       headers: {
         "Content-Type":

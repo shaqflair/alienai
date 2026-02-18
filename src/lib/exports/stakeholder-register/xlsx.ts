@@ -1,4 +1,4 @@
-﻿// src/app/api/artifacts/stakeholder-register/export/xlsx/route.ts
+// src/app/api/artifacts/stakeholder-register/export/xlsx/route.ts
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -63,7 +63,7 @@ async function handleExport(req: NextRequest, payload?: any) {
   if (authErr) return jsonErr(authErr.message, 401);
   if (!auth?.user) return jsonErr("Unauthorized", 401);
 
-  // ✅ PROD: pass the request-scoped supabase client into the loader
+  // ? PROD: pass the request-scoped supabase client into the loader
   const { meta, rows } = await loadStakeholderExportData({ supabase, projectId, artifactId });
 
   const out = await renderStakeholderXlsx({ meta, rows });
@@ -74,7 +74,7 @@ async function handleExport(req: NextRequest, payload?: any) {
 
   const baseName = safeFilename(out.baseName || "Stakeholder_Register");
 
-  return new NextResponse(out.xlsx, {
+  return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(out.xlsx))), {
     status: 200,
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

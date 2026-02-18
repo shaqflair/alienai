@@ -1,4 +1,4 @@
-﻿export type Rag = "green" | "amber" | "red";
+export type Rag = "green" | "amber" | "red";
 
 export type WeeklyReportProject = {
   id?: string | null;

@@ -1,4 +1,4 @@
-﻿export type ArtifactAction =
+export type ArtifactAction =
   | "created"
   | "updated"
   | "deleted"

@@ -1,3 +1,4 @@
+// src/app/api/stakeholders/apply-suggestion/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -118,9 +119,10 @@ export async function POST(req: Request) {
 
     const rows: any[] = patch.rows;
 
+    // FIX: Line 124 - Fixed type mismatch by properly typing the map callback and filtering nulls
     const upserts = rows
       .map((r) => (Array.isArray(r) ? r : null))
-      .filter(Boolean)
+      .filter((cells): cells is any[] => cells !== null)
       .map((cells: any[]) => {
         const c0 = String(cells?.[0] ?? "").trim(); // usually "TBC"
         const c1 = String(cells?.[1] ?? "").trim(); // role/title

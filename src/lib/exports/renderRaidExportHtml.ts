@@ -1,4 +1,4 @@
-ï»¿import "server-only";
+import "server-only";
 
 type RaidItem = {
   public_id: string;
@@ -242,9 +242,9 @@ export function renderRaidExportHtml({
       <div class="top">
         <div style="min-width:0">
           <h1 class="h1">Weekly RAID Export</h1>
-          <div class="sub"><strong>${escHtml(meta.projectName)}</strong>${meta.clientName ? ` â€” ${escHtml(meta.clientName)}` : ""}</div>
+          <div class="sub"><strong>${escHtml(meta.projectName)}</strong>${meta.clientName ? ` — ${escHtml(meta.clientName)}` : ""}</div>
           <div class="meta">
-            <span class="tag">Code: ${escHtml(meta.projectCode || "â€”")}</span>
+            <span class="tag">Code: ${escHtml(meta.projectCode || "—")}</span>
             ${meta.organisationName ? `<span class="tag">${escHtml(meta.organisationName)}</span>` : ""}
             <span class="tag">Generated: ${escHtml(meta.generated || "")}</span>
             ${meta.watermarkText ? `<span class="tag">${escHtml(meta.watermarkText)}</span>` : ""}

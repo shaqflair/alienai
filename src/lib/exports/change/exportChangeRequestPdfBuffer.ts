@@ -1,4 +1,4 @@
-ï»¿import "server-only";
+import "server-only";
 
 import { htmlToPdfBuffer } from "../_shared/puppeteer";
 import { loadChangeExportData } from "./load";
@@ -42,8 +42,8 @@ export async function exportChangeRequestPdfBuffer(changeId: string) {
   const projectCode = safeStr(branding?.projectCode || (project as any)?.project_code || "");
   const projectTitle = safeStr(branding?.projectTitle || (project as any)?.title || "Project");
 
-  const orgName = safeStr(branding?.orgName || "â€”");
-  const clientName = safeStr(branding?.clientName || (project as any)?.client_name || "â€”");
+  const orgName = safeStr(branding?.orgName || "—");
+  const clientName = safeStr(branding?.clientName || (project as any)?.client_name || "—");
   const generated = formatUkDateTime();
 
   const renderFn = (HtmlMod as any).renderChangeRequestHtml || (HtmlMod as any).default;
@@ -70,7 +70,7 @@ export async function exportChangeRequestPdfBuffer(changeId: string) {
   const safeRef = sanitizeFilename(ref || "CR");
   const filename = `${safeProjectCode}_CR_${safeRef}.pdf`;
 
-  // âœ… FOOTER: page numbers only (no date, no CR id, no project code)
+  // ? FOOTER: page numbers only (no date, no CR id, no project code)
   const footerTemplate = `
     <div style="
       width: 100%;
@@ -88,7 +88,7 @@ export async function exportChangeRequestPdfBuffer(changeId: string) {
     html,
     waitUntil: "networkidle2",
 
-    // keep your â€œUI-faithfulâ€ defaults from the shared helper:
+    // keep your “UI-faithful” defaults from the shared helper:
     emulateScreen: true,
     forceA4PageSize: true,
 

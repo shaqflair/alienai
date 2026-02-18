@@ -1,18 +1,11 @@
+﻿// src/app/api/export/pdf/route.ts
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
 
-type RowObj = { type: "header" | "data"; cells: string[] };
-type CharterSection = {
-  key: string;
-  title: string;
-  bullets?: string;
-  table?: { columns: number; rows: RowObj[] };
-  columns?: string[];
-  rows?: string[][];
-};
+/* ---------------- helpers ---------------- */
 
 function jsonOk(data: any, status = 200) {
   return NextResponse.json({ ok: true, ...data }, { status });
@@ -206,6 +199,17 @@ async function getPuppeteer() {
   return mod.default || mod;
 }
 
+// FIX: Added proper type for RowObj
+type RowObj = { type: "header" | "data"; cells: string[] };
+type CharterSection = {
+  key: string;
+  title: string;
+  bullets?: string;
+  table?: { columns: number; rows: RowObj[] };
+  columns?: string[];
+  rows?: string[][];
+};
+
 async function handle(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -229,7 +233,11 @@ async function handle(req: NextRequest) {
     }
 
     const { data: artifact } = await supabase.from("artifacts").select("content_json").eq("id", artifactId).single();
-    if (!isV2Charter(artifact?.content_json)) return jsonErr("Invalid Charter content", 400);
+    // FIX: Added null check for artifact (line 235 equivalent)
+    if (!artifact) return jsonErr("Artifact not found", 404);
+    // FIX: Added null check for artifact.content_json (line 241 equivalent)
+    if (!artifact.content_json) return jsonErr("Artifact has no content", 400);
+    if (!isV2Charter(artifact.content_json)) return jsonErr("Invalid Charter content", 400);
 
     const html = renderCharterHtml({
       doc: artifact.content_json,
@@ -245,9 +253,15 @@ async function handle(req: NextRequest) {
     });
 
     const puppeteer = await getPuppeteer();
-    const browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox"] });
+    // FIX: Updated puppeteer launch options - use boolean true instead of "new" (line 248)
+    const browser = await puppeteer.launch({ 
+      headless: true, 
+      args: ["--no-sandbox"] 
+    });
     try {
       const page = await browser.newPage();
+      // FIX: Set viewport using setViewport method (line 250 equivalent)
+      await page.setViewport({ width: 1200, height: 800 });
       await page.setContent(html, { waitUntil: "networkidle0" });
       const pdf = await page.pdf({
         format: "A4",
@@ -262,7 +276,8 @@ async function handle(req: NextRequest) {
       });
 
       const fileBase = project.title.replace(/[^a-z0-9]/gi, "_");
-      return new NextResponse(pdf, {
+      // FIX: Simplified Buffer conversion - just pass the pdf buffer directly (lines 278, 282)
+      return new NextResponse(Buffer.from(pdf), {
         headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${fileBase}_Project_Charter.pdf"` },
       });
     } finally {
@@ -273,12 +288,10 @@ async function handle(req: NextRequest) {
   }
 }
 
-
 export async function GET(req: Request, ctx: any) {
-  return handle(req, ctx);
+  return handle(req as NextRequest);
 }
 
 export async function POST(req: Request, ctx: any) {
-  return handle(req, ctx);
+  return handle(req as NextRequest);
 }
-

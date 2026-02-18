@@ -1,4 +1,4 @@
-ï»¿import "server-only";
+import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -103,7 +103,7 @@ function buildNotifTitle(x: DueItem) {
             : "Artifact";
 
   const t = safeStr(x.title).trim() || kind;
-  return code ? `${code} â€” ${kind}: ${t}` : `${kind}: ${t}`;
+  return code ? `${code} — ${kind}: ${t}` : `${kind}: ${t}`;
 }
 
 export async function POST(req: Request) {
@@ -168,7 +168,7 @@ export async function POST(req: Request) {
           project_id: project_id || null,
           artifact_id: artifact_id || null,
 
-          // Keep enum stable â€” use existing type you already support
+          // Keep enum stable — use existing type you already support
           type: "system",
           title: buildNotifTitle(x),
           body: `Due: ${dueYmd}`,

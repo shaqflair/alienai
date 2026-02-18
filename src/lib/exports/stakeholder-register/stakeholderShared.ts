@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 /**
  * Metadata specifically for Stakeholder Register exports.

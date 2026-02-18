@@ -1,4 +1,4 @@
-ï»¿import "server-only";
+import "server-only";
 
 import { escapeHtml } from "@/lib/exports/shared/registerPdfShell";
 
@@ -34,7 +34,7 @@ function ukDate(iso: string) {
 
 function formatDateUk(value: any): string {
   const s = String(value ?? "").trim();
-  if (!s || s === "â€”") return "â€”";
+  if (!s || s === "—") return "—";
 
   // Match YYYY-MM-DD
   const m1 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
@@ -54,14 +54,14 @@ function boolHuman(x: any) {
   if (x === true) return "Yes";
   if (x === false) return "No";
   const s = safeStr(x).trim();
-  if (!s) return "â€”";
+  if (!s) return "—";
   return s;
 }
 
 function formatMoneyGBP(x: any): string {
-  if (x == null || x === "" || x === "â€”") return "â€”";
+  if (x == null || x === "" || x === "—") return "—";
   const n = typeof x === "number" ? x : Number(String(x).replace(/[^0-9.\-]/g, ""));
-  if (Number.isNaN(n)) return safeStr(x) || "â€”";
+  if (Number.isNaN(n)) return safeStr(x) || "—";
   try {
     return new Intl.NumberFormat("en-GB", {
       style: "currency",
@@ -69,7 +69,7 @@ function formatMoneyGBP(x: any): string {
       maximumFractionDigits: 0,
     }).format(n);
   } catch {
-    return `Â£${Math.round(n).toLocaleString("en-GB")}`;
+    return `£${Math.round(n).toLocaleString("en-GB")}`;
   }
 }
 
@@ -81,18 +81,18 @@ function bullets(items: any[], mapFn: (x: any) => string) {
     .map((s) => String(s || "").trim())
     .filter(Boolean);
 
-  if (!arr.length) return `<div class="muted">â€”</div>`;
+  if (!arr.length) return `<div class="muted">—</div>`;
   return `<ul class="bullets">${arr.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>`;
 }
 
 function kvTable(rows: { k: string; v: string }[]) {
-  const r = rows?.length ? rows : [{ k: "â€”", v: "â€”" }];
+  const r = rows?.length ? rows : [{ k: "—", v: "—" }];
   return `
     <table class="kvTable">
       ${r
         .map(
           (x) =>
-            `<tr><td class="kvK">${escapeHtml(x.k)}</td><td class="kvV">${escapeHtml((x.v || "â€”").trim() || "â€”")}</td></tr>`
+            `<tr><td class="kvK">${escapeHtml(x.k)}</td><td class="kvV">${escapeHtml((x.v || "—").trim() || "—")}</td></tr>`
         )
         .join("")}
     </table>
@@ -106,7 +106,7 @@ function section(title: string, note: string, bodyHtml: string) {
         <div class="t">${escapeHtml(title)}</div>
         <div class="n">${escapeHtml(note)}</div>
       </div>
-      <div class="sectionBody">${bodyHtml || `<div class="muted">â€”</div>`}</div>
+      <div class="sectionBody">${bodyHtml || `<div class="muted">—</div>`}</div>
     </div>
   `;
 }
@@ -114,7 +114,7 @@ function section(title: string, note: string, bodyHtml: string) {
 function riskHumanId(r: any) {
   const v = r?.human_id ?? r?.humanId ?? r?.display_id ?? r?.displayId ?? null;
   if (v != null && String(v).trim() !== "") return String(v).trim();
-  return r?.id != null ? String(r.id) : "â€”";
+  return r?.id != null ? String(r.id) : "—";
 }
 
 /**
@@ -143,14 +143,14 @@ export function renderClosureReportSections(model: any) {
     section(
       "Executive Summary",
       "High-level closeout",
-      `<div>${escapeHtml(safeStr(model?.executiveSummary) || "â€”")}</div>`
+      `<div>${escapeHtml(safeStr(model?.executiveSummary) || "—")}</div>`
     ) +
     section(
       "Health",
       "RAG / overall",
       kvTable([
-        { k: "RAG", v: safeStr(model?.rag || "â€”").toUpperCase() || "â€”" },
-        { k: "Overall", v: safeStr(model?.overall) || "â€”" },
+        { k: "RAG", v: safeStr(model?.rag || "—").toUpperCase() || "—" },
+        { k: "Overall", v: safeStr(model?.overall) || "—" },
         { k: "Open Risks / Issues", v: String(openRisksCount) },
       ])
     ) +
@@ -158,44 +158,44 @@ export function renderClosureReportSections(model: any) {
       "Key Stakeholders",
       `${stakeholders.length} items`,
       bullets(stakeholders, (s) => {
-        const name = safeStr(s?.name) || "â€”";
+        const name = safeStr(s?.name) || "—";
         const role = safeStr(s?.role);
-        return role ? `${name} â€” ${role}` : name;
+        return role ? `${name} — ${role}` : name;
       })
     ) +
-    section("Key Achievements", `${achievements.length} items`, bullets(achievements, (a) => safeStr(a?.text) || "â€”")) +
+    section("Key Achievements", `${achievements.length} items`, bullets(achievements, (a) => safeStr(a?.text) || "—")) +
     section(
       "Success Criteria",
       `${criteria.length} items`,
       bullets(criteria, (c) => {
-        const txt = safeStr(c?.text) || "â€”";
+        const txt = safeStr(c?.text) || "—";
         const achieved = boolHuman(c?.achieved);
-        return achieved !== "â€”" ? `${txt} (Achieved: ${achieved})` : txt;
+        return achieved !== "—" ? `${txt} (Achieved: ${achieved})` : txt;
       })
     ) +
     section(
-      "Deliverables â€” Delivered",
+      "Deliverables — Delivered",
       `${delivered.length} items`,
       bullets(delivered, (d) => {
-        const deliverable = safeStr(d?.deliverable) || "â€”";
-        const acceptedBy = safeStr(d?.accepted_by) || safeStr(d?.acceptedBy) || "â€”";
+        const deliverable = safeStr(d?.deliverable) || "—";
+        const acceptedBy = safeStr(d?.accepted_by) || safeStr(d?.acceptedBy) || "—";
         const acceptedOn = formatDateUk(d?.accepted_on ?? d?.acceptedOn);
-        return `${deliverable} â€” accepted by ${acceptedBy} (${acceptedOn})`;
+        return `${deliverable} — accepted by ${acceptedBy} (${acceptedOn})`;
       })
     ) +
     section(
-      "Deliverables â€” Outstanding",
+      "Deliverables — Outstanding",
       `${outstanding.length} items`,
       bullets(outstanding, (o) => {
-        const item = safeStr(o?.item) || safeStr(o?.deliverable) || "â€”";
-        const owner = safeStr(o?.owner) || "â€”";
-        const status = safeStr(o?.status) || "â€”";
+        const item = safeStr(o?.item) || safeStr(o?.deliverable) || "—";
+        const owner = safeStr(o?.owner) || "—";
+        const status = safeStr(o?.status) || "—";
         const target = formatDateUk(o?.target ?? o?.due_date ?? o?.dueDate);
-        return `${item} â€” ${owner} (${status}) â€¢ Target ${target}`;
+        return `${item} — ${owner} (${status}) • Target ${target}`;
       })
     ) +
     section(
-      "Handover â€” Open Risks & Issues",
+      "Handover — Open Risks & Issues",
       `${risksIssues.length} items`,
       risksIssues.length
         ? `
@@ -216,12 +216,12 @@ export function renderClosureReportSections(model: any) {
                   (r: any) => `
                 <tr>
                   <td style="border:1px solid #e2e8f0; padding:6px;">${escapeHtml(riskHumanId(r))}</td>
-                  <td style="border:1px solid #e2e8f0; padding:6px;">${escapeHtml(safeStr(r?.description) || "â€”")}</td>
-                  <td style="border:1px solid #e2e8f0; padding:6px;">${escapeHtml(safeStr(r?.severity) || "â€”")}</td>
-                  <td style="border:1px solid #e2e8f0; padding:6px;">${escapeHtml(safeStr(r?.owner) || "â€”")}</td>
-                  <td style="border:1px solid #e2e8f0; padding:6px;">${escapeHtml(safeStr(r?.status) || "â€”")}</td>
+                  <td style="border:1px solid #e2e8f0; padding:6px;">${escapeHtml(safeStr(r?.description) || "—")}</td>
+                  <td style="border:1px solid #e2e8f0; padding:6px;">${escapeHtml(safeStr(r?.severity) || "—")}</td>
+                  <td style="border:1px solid #e2e8f0; padding:6px;">${escapeHtml(safeStr(r?.owner) || "—")}</td>
+                  <td style="border:1px solid #e2e8f0; padding:6px;">${escapeHtml(safeStr(r?.status) || "—")}</td>
                   <td style="border:1px solid #e2e8f0; padding:6px;">${escapeHtml(
-                    safeStr(r?.next_action) || safeStr(r?.nextAction) || "â€”"
+                    safeStr(r?.next_action) || safeStr(r?.nextAction) || "—"
                   )}</td>
                 </tr>
               `
@@ -230,7 +230,7 @@ export function renderClosureReportSections(model: any) {
             </tbody>
           </table>
         `
-        : `<div class="muted">â€”</div>`
+        : `<div class="muted">—</div>`
     ) +
     section(
       "Financial Closeout",
@@ -242,63 +242,63 @@ export function renderClosureReportSections(model: any) {
       ])
     ) +
     section(
-      "Lessons â€” What Went Well",
+      "Lessons — What Went Well",
       `${wentWell.length} items`,
       bullets(wentWell, (l) => {
-        const text = safeStr(l?.text) || "â€”";
+        const text = safeStr(l?.text) || "—";
         const action = safeStr(l?.action).trim();
         return action ? `${text} (Action: ${action})` : text;
       })
     ) +
     section(
-      "Lessons â€” What Didnâ€™t Go Well",
+      "Lessons — What Didn’t Go Well",
       `${didntGoWell.length} items`,
       bullets(didntGoWell, (l) => {
-        const text = safeStr(l?.text) || "â€”";
+        const text = safeStr(l?.text) || "—";
         const action = safeStr(l?.action).trim();
         return action ? `${text} (Action: ${action})` : text;
       })
     ) +
     section(
-      "Lessons â€” Surprises & Risks",
+      "Lessons — Surprises & Risks",
       `${surprises.length} items`,
       bullets(surprises, (l) => {
-        const text = safeStr(l?.text) || "â€”";
+        const text = safeStr(l?.text) || "—";
         const action = safeStr(l?.action).trim();
         return action ? `${text} (Action: ${action})` : text;
       })
     ) +
     section(
-      "Handover â€” Team Moves",
+      "Handover — Team Moves",
       `${teamMoves.length} items`,
       bullets(teamMoves, (t) => {
-        const person = safeStr(t?.person) || "â€”";
-        const change = safeStr(t?.change) || "â€”";
+        const person = safeStr(t?.person) || "—";
+        const change = safeStr(t?.change) || "—";
         const date = formatDateUk(t?.date);
-        return `${person} â€” ${change} (${date})`;
+        return `${person} — ${change} (${date})`;
       })
     ) +
     section(
       "Recommendations & Follow-up",
       `${recommendations.length} items`,
       bullets(recommendations, (r) => {
-        const text = safeStr(r?.text) || "â€”";
-        const owner = safeStr(r?.owner) || "â€”";
+        const text = safeStr(r?.text) || "—";
+        const owner = safeStr(r?.owner) || "—";
         const due = formatDateUk(r?.due ?? r?.due_date ?? r?.dueDate);
-        return `${text} â€” ${owner} (${due})`;
+        return `${text} — ${owner} (${due})`;
       })
     ) +
     section(
       "Final Sign-off",
       "Sponsor / PM",
       kvTable([
-        { k: "Sponsor Name", v: safeStr(model?.signoff?.sponsor_name) || safeStr(model?.signoff?.sponsorName) || "â€”" },
+        { k: "Sponsor Name", v: safeStr(model?.signoff?.sponsor_name) || safeStr(model?.signoff?.sponsorName) || "—" },
         { k: "Sponsor Date", v: formatDateUk(model?.signoff?.sponsor_date ?? model?.signoff?.sponsorDate) },
         {
           k: "Sponsor Decision",
-          v: safeStr(model?.signoff?.sponsor_decision) || safeStr(model?.signoff?.sponsorDecision) || "â€”",
+          v: safeStr(model?.signoff?.sponsor_decision) || safeStr(model?.signoff?.sponsorDecision) || "—",
         },
-        { k: "PM Name", v: safeStr(model?.signoff?.pm_name) || safeStr(model?.signoff?.pmName) || "â€”" },
+        { k: "PM Name", v: safeStr(model?.signoff?.pm_name) || safeStr(model?.signoff?.pmName) || "—" },
         { k: "PM Date", v: formatDateUk(model?.signoff?.pm_date ?? model?.signoff?.pmDate) },
         { k: "PM Approved", v: boolHuman(model?.signoff?.pm_approved ?? model?.signoff?.pmApproved) },
       ])

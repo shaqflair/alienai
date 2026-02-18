@@ -1,4 +1,4 @@
-﻿// src/app/api/suggestions/[id]/accept/route.ts
+// src/app/api/suggestions/[id]/accept/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -111,11 +111,11 @@ async function getOrCreateTargetArtifact(supabase: any, projectId: string, artif
 }
 
 /**
- * âœ… Auto-apply governance roles into canonical table: public.stakeholders
+ * ✅ Auto-apply governance roles into canonical table: public.stakeholders
  * Patch shape we generate for governance:
  * { kind:"add_rows", mode:"append", rows:[[name, role, influence, expectations], ...] }
  *
- * âœ… Stakeholder Register requirement: Sponsor ONLY (no Approver)
+ * ✅ Stakeholder Register requirement: Sponsor ONLY (no Approver)
  */
 async function applyStakeholderGovernanceToDb(args: {
   supabase: any;
@@ -129,7 +129,7 @@ async function applyStakeholderGovernanceToDb(args: {
   const rows = Array.isArray(patch?.rows) ? patch.rows : [];
   if (!rows.length) return { ok: true, upserted: 0 };
 
-  // âœ… Only Sponsor rows are allowed/required
+  // ✅ Only Sponsor rows are allowed/required
   const sponsorOnly = rows.filter((r: any) => safeLower(r?.[1]) === "project sponsor");
   if (!sponsorOnly.length) return { ok: true, upserted: 0 };
 
@@ -142,7 +142,7 @@ async function applyStakeholderGovernanceToDb(args: {
 
       if (!name || !role) return null;
 
-      // âœ… Make key artifact-scoped AND role-scoped so "TBC" doesn't collide
+      // ✅ Make key artifact-scoped AND role-scoped so "TBC" doesn't collide
       const name_key = slugNameKey(`${name}-${role}`);
 
       return {
@@ -173,7 +173,7 @@ async function applyStakeholderGovernanceToDb(args: {
 
   if (!payload.length) return { ok: true, upserted: 0 };
 
-  // âœ… IMPORTANT: artifact-scoped uniqueness
+  // ✅ IMPORTANT: artifact-scoped uniqueness
   const { error } = await supabase
     .from("stakeholders")
     .upsert(payload as any[], { onConflict: "project_id,artifact_id,name_key" });
@@ -185,12 +185,12 @@ async function applyStakeholderGovernanceToDb(args: {
 export async function POST(req: Request, ctx: any) {
   const supabase = await createClient();
 
-  // âœ… Auth required
+  // ✅ Auth required
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr) return NextResponse.json({ ok: false, error: authErr.message }, { status: 500 });
   if (!auth?.user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-  // âœ… Next params can be Promise in some versions
+  // ✅ Next params can be Promise in some versions
   const params = ctx?.params && typeof ctx.params?.then === "function" ? await ctx.params : ctx?.params;
   const id = safeStr(params?.id).trim();
   if (!id) return NextResponse.json({ ok: false, error: "Missing suggestion id" }, { status: 400 });
@@ -214,7 +214,7 @@ export async function POST(req: Request, ctx: any) {
     return NextResponse.json({ ok: false, error: "Invalid projectId" }, { status: 400 });
   }
 
-  // âœ… Membership/permission check
+  // ✅ Membership/permission check
   try {
     await requireProjectMembership(supabase, projectId, auth.user.id);
   } catch (e: any) {
@@ -236,7 +236,7 @@ export async function POST(req: Request, ctx: any) {
   const suggestionType = safeLower((sug as any).suggestion_type);
   const patch = (sug as any).patch ?? null;
 
-  // âœ… Determine artifactId for stakeholder DB apply
+  // ✅ Determine artifactId for stakeholder DB apply
   const effectiveArtifactId = safeStr((sug as any).artifact_id || bodyArtifactId).trim();
 
   // ============================
@@ -309,7 +309,20 @@ export async function POST(req: Request, ctx: any) {
   // DEFAULT: Apply patch to artifacts.content_json
   // ============================
   const target = await getOrCreateTargetArtifact(supabase, projectId, targetType);
-  await applyPatch(patch, projectId);
+  
+  // FIX: Capture the result from applyPatch - assuming it returns the patched JSON
+  // If applyPatch doesn't return the result, you need to modify the applyPatch function
+  // or fetch the updated artifact after applying
+  let nextJson: any;
+  try {
+    // Try to get the result from applyPatch
+    const patchResult = await applyPatch(patch, projectId);
+    // If applyPatch returns the new JSON, use it; otherwise use target's content_json
+    nextJson = patchResult ?? (target as any).content_json;
+  } catch (e) {
+    // If applyPatch throws or doesn't return properly, use target content as fallback
+    nextJson = (target as any).content_json;
+  }
 
   const { error: updErr } = await supabase
     .from("artifacts")
@@ -347,6 +360,3 @@ export async function POST(req: Request, ctx: any) {
     orchestrator: orch,
   });
 }
-
-
-

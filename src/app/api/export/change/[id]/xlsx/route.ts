@@ -27,7 +27,7 @@ function inferChangeIdFromPath(req: NextRequest) {
 
 export async function GET(req: NextRequest, ctx: any) {
   try {
-    const routeId = safeStr(ctx?.params?.id);
+    const routeId = safeStr((await ctx.params).id);
     const pathId = inferChangeIdFromPath(req);
 
     const url = new URL(req.url);
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest, ctx: any) {
 
     const { buffer, filename } = await exportChangeRequestXlsxBuffer(changeId);
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(new Uint8Array(buffer)), {
       status: 200,
       headers: {
         "Content-Type":

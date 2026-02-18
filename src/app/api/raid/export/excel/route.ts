@@ -371,7 +371,7 @@ export async function GET(req: NextRequest) {
     const buffer = Buffer.from(await wb.xlsx.writeBuffer());
     const filename = `RAID_${sanitizeFilename(projectCode || projectName)}.xlsx`;
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(buffer))), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

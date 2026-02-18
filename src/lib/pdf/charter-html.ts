@@ -1,5 +1,5 @@
-ï»¿// src/lib/pdf/charter-html.ts
-// âœ… v2-only renderer for Project Charter (tables + bullets)
+// src/lib/pdf/charter-html.ts
+// ? v2-only renderer for Project Charter (tables + bullets)
 // - Consumes v2: { meta, sections[] } (NOT ProseMirror / TipTap JSON)
 // - Produces: { html, headerTemplate, footerTemplate }
 // - Safe: no JSX, no DOM APIs, pure string templates
@@ -30,7 +30,7 @@ export type CharterSection = {
   table?: { columns: number; rows: RowObj[] };
   columns?: string[];
   rows?: string[][];
-  bullets?: string; // newline separated, optionally "- " / "â€¢ "
+  bullets?: string; // newline separated, optionally "- " / "• "
 };
 
 export type CharterDataV2 = {
@@ -72,7 +72,7 @@ function normKey(x: any) {
 }
 
 function fmtDateMaybe(x: any) {
-  if (!x) return "â€”";
+  if (!x) return "—";
   try {
     const d = new Date(x);
     if (Number.isNaN(d.getTime())) return String(x);
@@ -86,7 +86,7 @@ function parseBullets(bullets: any): string[] {
   const raw = String(bullets ?? "");
   return raw
     .split(/\r?\n/)
-    .map((l) => l.replace(/^\s*[-â€¢]\s*/, "").trim())
+    .map((l) => l.replace(/^\s*[-•]\s*/, "").trim())
     .filter(Boolean);
 }
 
@@ -189,12 +189,12 @@ function renderMetaTable(meta: CharterMeta, projectTitleFallback: string) {
   const projectTitle = m.project_title || projectTitleFallback;
 
   const rows: Array<[string, string]> = [
-    ["Project Title", projectTitle || "â€”"],
-    ["Project Manager", m.project_manager || "â€”"],
+    ["Project Title", projectTitle || "—"],
+    ["Project Manager", m.project_manager || "—"],
     ["Project Start Date", fmtDateMaybe(m.project_start_date)],
     ["Project End Date", fmtDateMaybe(m.project_end_date)],
-    ["Project Sponsor", m.project_sponsor || "â€”"],
-    ["Customer / Account", m.customer_account || "â€”"],
+    ["Project Sponsor", m.project_sponsor || "—"],
+    ["Customer / Account", m.customer_account || "—"],
   ];
 
   const cells = rows
@@ -265,7 +265,7 @@ function renderSection(section: CharterSection) {
       </ul>
     `;
   } else {
-    body += `<div class="empty">â€”</div>`;
+    body += `<div class="empty">—</div>`;
   }
 
   return `
@@ -328,7 +328,7 @@ export function renderProjectCharterHtml(args: { brand: PdfBrand; charter: Chart
 
   const charter = args.charter;
 
-  // âœ… v2-only: raw must contain { meta, sections }
+  // ? v2-only: raw must contain { meta, sections }
   const raw = charter?.raw ?? {};
   const v2: CharterDataV2 = {
     meta: raw?.meta ?? {},
@@ -340,7 +340,7 @@ export function renderProjectCharterHtml(args: { brand: PdfBrand; charter: Chart
     project_title: (v2.meta?.project_title || charter.projectTitle || "").trim(),
   };
 
-  // âœ… force the 13 required sections, and ignore any others for PDF stability
+  // ? force the 13 required sections, and ignore any others for PDF stability
   const sections = ensureRequiredSections(v2.sections);
 
   const docTitle = charter.projectTitle || meta.project_title || "Project Charter";

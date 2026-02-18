@@ -4,8 +4,17 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
-import { exportCharterDocxBuffer, charterDocxFilename } from "@/lib/exports/charter/exportCharterDocxBuffer";
-import { CharterExportMeta, formatUkDate, formatUkDateTime, safeJson, safeStr } from "@/lib/exports/charter/charterShared";
+import {
+  exportCharterDocxBuffer,
+  charterDocxFilename,
+} from "@/lib/exports/charter/exportCharterDocxBuffer";
+import {
+  CharterExportMeta,
+  formatUkDate,
+  formatUkDateTime,
+  safeJson,
+  safeStr,
+} from "@/lib/exports/charter/charterShared";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -18,8 +27,10 @@ async function safeReadJsonBody(req: NextRequest) {
   try {
     const ct = req.headers.get("content-type") || "";
     if (!ct.toLowerCase().includes("application/json")) return null;
+
     const text = await req.text();
     if (!text || !text.trim()) return null;
+
     const parsed = JSON.parse(text);
     return parsed && typeof parsed === "object" ? parsed : null;
   } catch {
@@ -27,21 +38,72 @@ async function safeReadJsonBody(req: NextRequest) {
   }
 }
 
-async function buildMeta(supabase: any, artifactId: string, projectId?: string | null, content_json?: any) {
+/**
+ * Normalise any "buffer-like" value into a REAL ArrayBuffer (not SharedArrayBuffer)
+ * for NextResponse(binary) + TS BodyInit compatibility.
+ */
+function toArrayBuffer(data: unknown): ArrayBuffer {
+  // Already a plain ArrayBuffer
+  if (data instanceof ArrayBuffer) {
+    // Defensive copy so TS/runtime never sees a SharedArrayBuffer-like backing store
+    return data.slice(0);
+  }
+
+  // Uint8Array / Buffer / etc.
+  if (data instanceof Uint8Array) {
+    // Copy into a fresh Uint8Array backed by a real ArrayBuffer
+    const copy = new Uint8Array(data.byteLength);
+    copy.set(data);
+    return copy.buffer;
+  }
+
+  // Fallback: common "Buffer-like" shapes
+  // e.g. { buffer: ArrayBufferLike, byteOffset, byteLength }
+  const anyData = data as any;
+
+  if (anyData?.buffer && typeof anyData?.byteLength === "number") {
+    const bufLike: ArrayBufferLike = anyData.buffer;
+    const byteOffset = typeof anyData.byteOffset === "number" ? anyData.byteOffset : 0;
+    const byteLength = Number(anyData.byteLength) || 0;
+
+    const view = new Uint8Array(bufLike as any, byteOffset, byteLength);
+    const copy = new Uint8Array(view.byteLength);
+    copy.set(view);
+    return copy.buffer;
+  }
+
+  throw new Error("DOCX export did not return a binary buffer");
+}
+
+async function buildMeta(
+  supabase: any,
+  artifactId: string,
+  projectId?: string | null,
+  content_json?: any
+) {
   const { data: artifact, error: aErr } = await supabase
     .from("artifacts")
-    .select("id,title,content_json,project_id,projects:project_id(title, project_code, organisation_id, client_name)")
+    .select(
+      "id,title,content_json,project_id,projects:project_id(title, project_code, organisation_id, client_name)"
+    )
     .eq("id", artifactId)
     .single();
 
-  if (aErr || !artifact) return { error: jsonErr("Artifact not found", 404, { error: aErr?.message }) as any };
+  if (aErr || !artifact) {
+    return {
+      error: jsonErr("Artifact not found", 404, { error: aErr?.message }) as any,
+    };
+  }
 
   const doc = safeJson(content_json ?? (artifact as any).content_json);
   if (!doc) return { error: jsonErr("No content found", 400) as any };
 
-  const effectiveProjectId = safeStr(projectId).trim() || safeStr((artifact as any).project_id).trim() || null;
+  const effectiveProjectId =
+    safeStr(projectId).trim() || safeStr((artifact as any).project_id).trim() || null;
 
   let projectRow: any = (artifact as any).projects ?? null;
+
+  // If join didn't return a project row, fetch explicitly
   if (!projectRow && effectiveProjectId) {
     const { data: p } = await supabase
       .from("projects")
@@ -51,21 +113,28 @@ async function buildMeta(supabase: any, artifactId: string, projectId?: string |
     projectRow = p ?? null;
   }
 
-  const projectCode = projectRow?.project_code ? `P-${String(projectRow.project_code).padStart(5, "0")}` : "—";
+  const projectCode = projectRow?.project_code
+    ? `P-${String(projectRow.project_code).padStart(5, "0")}`
+    : " ";
 
-  let orgName = "—";
+  let orgName = " ";
   const orgId = projectRow?.organisation_id;
+
   if (orgId) {
-    const { data: org } = await supabase.from("organisations").select("name").eq("id", orgId).single();
-    orgName = org?.name || "—";
+    const { data: org } = await supabase
+      .from("organisations")
+      .select("name")
+      .eq("id", orgId)
+      .single();
+    orgName = org?.name || " ";
   }
 
   const meta: CharterExportMeta = {
     projectName: (artifact as any).title || projectRow?.title || "Project",
     projectCode,
     organisationName: orgName,
-    clientName: projectRow?.client_name || "—",
-    pmName: doc?.meta?.pm_name || "—",
+    clientName: projectRow?.client_name || " ",
+    pmName: doc?.meta?.pm_name || " ",
     status: doc?.meta?.status || "Draft",
     generated: formatUkDateTime(),
     generatedDate: formatUkDate(),
@@ -79,11 +148,17 @@ async function handle(req: NextRequest) {
   const url = new URL(req.url);
 
   // Query params (GET style)
-  const qArtifactId = safeStr(url.searchParams.get("artifactId") || url.searchParams.get("artifact_id")).trim();
-  const qProjectId = safeStr(url.searchParams.get("projectId") || url.searchParams.get("project_id")).trim() || null;
+  const qArtifactId = safeStr(
+    url.searchParams.get("artifactId") || url.searchParams.get("artifact_id")
+  ).trim();
+
+  const qProjectId =
+    safeStr(url.searchParams.get("projectId") || url.searchParams.get("project_id")).trim() ||
+    null;
 
   // Body (POST style)
   const body = req.method === "POST" ? await safeReadJsonBody(req) : null;
+
   const bArtifactId = safeStr(body?.artifactId || body?.artifact_id).trim();
   const bProjectId = safeStr(body?.projectId || body?.project_id).trim() || null;
   const bContentJson = body?.content_json ?? null;
@@ -98,25 +173,26 @@ async function handle(req: NextRequest) {
 
     // If content_json supplied, prefer it (fresh in-memory doc)
     const built = await buildMeta(supabase, artifactId, projectId, bContentJson);
-
     if ((built as any).error) return (built as any).error;
 
     const { doc, meta } = built as any;
 
-    const buffer = await exportCharterDocxBuffer({ doc, meta });
+    const bufferLike = await exportCharterDocxBuffer({ doc, meta });
+    const docxBody = toArrayBuffer(bufferLike); // ✅ ArrayBuffer is valid BodyInit in TS
     const filename = charterDocxFilename(meta);
 
-    return new NextResponse(buffer, {
+    return new NextResponse(docxBody, {
       status: 200,
       headers: {
-        "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "Content-Type":
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "Content-Disposition": `attachment; filename="${filename}"`,
         "Cache-Control": "no-store",
       },
     });
-  } catch (err: any) {
-    console.error("[Charter DOCX route]", err);
-    return jsonErr(err?.message || "Export failed", 500);
+  } catch (e: any) {
+    console.error("[Charter DOCX route]", e);
+    return jsonErr(safeStr(e?.message) || "Export failed", 500);
   }
 }
 

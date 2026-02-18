@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 
@@ -83,7 +83,7 @@ async function proxy(req: NextRequest, formatRaw: string) {
   if (cd) headers.set("Content-Disposition", cd);
   headers.set("Cache-Control", "no-store");
 
-  return new NextResponse(Buffer.from(ab), { status: 200, headers });
+  return new NextResponse(new Uint8Array(new Uint8Array(Buffer.from(ab))), { status: 200, headers });
 }
 
 export async function GET(

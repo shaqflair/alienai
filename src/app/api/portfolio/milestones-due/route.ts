@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -53,7 +53,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, days, count: 0 });
   }
 
-  // ✅ Single RPC call for portfolio totals: efficient multi-project aggregation
+  // ? Single RPC call for portfolio totals: efficient multi-project aggregation
   const { data, error } = await supabase.rpc("get_schedule_milestones_kpis_portfolio", {
     p_project_ids: projectIds,
     p_window_days: days,

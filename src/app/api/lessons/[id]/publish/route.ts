@@ -1,4 +1,5 @@
-﻿import "server-only";
+// src/app/api/lessons/[id]/publish/route.ts
+import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -26,10 +27,12 @@ function normRole(x: any) {
 
 async function requireEditor(sb: any, project_id: string) {
   const { data: auth, error: aErr } = await sb.auth.getUser();
-  if (aErr) return { ok: false, error: aErr.message as const };
+  // FIX: Removed 'as const'
+  if (aErr) return { ok: false, error: aErr.message };
 
   const uid = auth?.user?.id;
-  if (!uid) return { ok: false, error: "Not authenticated" as const };
+  // FIX: Removed 'as const'
+  if (!uid) return { ok: false, error: "Not authenticated" };
 
   const { data, error } = await sb
     .from("project_members")
@@ -39,10 +42,11 @@ async function requireEditor(sb: any, project_id: string) {
     .is("removed_at", null)
     .maybeSingle();
 
-  if (error) return { ok: false, error: error.message as const };
+  // FIX: Removed 'as const'
+  if (error) return { ok: false, error: error.message };
 
   const role = normRole(data?.role);
-  if (!(role === "owner" || role === "editor")) return { ok: false, error: "Forbidden" as const };
+  if (!(role === "owner" || role === "editor")) return { ok: false, error: "Forbidden" };
 
   return { ok: true, uid };
 }
@@ -79,7 +83,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     .filter(Boolean)
     .slice(0, 20);
 
-  // âœ… only set published_at/by when publishing; clear when unpublishing
+  // only set published_at/by when publishing; clear when unpublishing
   const patch: any = {
     is_published: publish,
     published_at: publish ? new Date().toISOString() : null,
@@ -98,4 +102,3 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   return jsonOk({ item: data });
 }
-

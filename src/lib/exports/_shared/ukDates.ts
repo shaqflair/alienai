@@ -1,4 +1,4 @@
-ï»¿import "server-only";
+import "server-only";
 
 export function pad2(n: number) {
   return String(n).padStart(2, "0");
@@ -12,7 +12,7 @@ export function formatUkDateTime(date = new Date()) {
 
 export function formatUkDate(x: any) {
   const s = typeof x === "string" ? x.trim() : x == null ? "" : String(x);
-  if (!s) return "â€”";
+  if (!s) return "—";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s;
   return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
@@ -20,7 +20,7 @@ export function formatUkDate(x: any) {
 
 export function formatGbDateTime(x: any) {
   const s = typeof x === "string" ? x.trim() : x == null ? "" : String(x);
-  if (!s) return "â€”";
+  if (!s) return "—";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s;
   return d.toLocaleString("en-GB");

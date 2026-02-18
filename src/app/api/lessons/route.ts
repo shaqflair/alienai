@@ -1,4 +1,5 @@
-﻿import "server-only";
+﻿// src/app/api/lessons/route.ts
+import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -29,7 +30,8 @@ function normRole(x: any) {
 async function requireUser(sb: any) {
   const { data: auth } = await sb.auth.getUser();
   const uid = auth?.user?.id;
-  if (!uid) return { ok: false, error: "Not authenticated" as const };
+  // FIX: Removed 'as const' - not needed here
+  if (!uid) return { ok: false, error: "Not authenticated" };
   return { ok: true, uid };
 }
 
@@ -46,10 +48,11 @@ async function requireMember(sb: any, project_id: string) {
     .is("removed_at", null)
     .maybeSingle();
 
-  if (error) return { ok: false, error: error.message as const };
+  // FIX: Removed 'as const' assertions
+  if (error) return { ok: false, error: error.message };
   const role = normRole(data?.role);
   const allowed = role === "owner" || role === "editor" || role === "viewer";
-  if (!allowed) return { ok: false, error: "Forbidden" as const };
+  if (!allowed) return { ok: false, error: "Forbidden" };
   return { ok: true, uid: u.uid, role };
 }
 
@@ -66,10 +69,11 @@ async function requireEditor(sb: any, project_id: string) {
     .is("removed_at", null)
     .maybeSingle();
 
-  if (error) return { ok: false, error: error.message as const };
+  // FIX: Removed 'as const' assertions
+  if (error) return { ok: false, error: error.message };
   const role = normRole(data?.role);
   const allowed = role === "owner" || role === "editor";
-  if (!allowed) return { ok: false, error: "Forbidden" as const };
+  if (!allowed) return { ok: false, error: "Forbidden" };
   return { ok: true, uid: u.uid, role };
 }
 
@@ -77,7 +81,8 @@ async function requireEditor(sb: any, project_id: string) {
 
 async function resolveProjectUuid(sb: any, projectId: string) {
   const pid = safeStr(projectId).trim();
-  if (!pid) return { ok: false, error: "Missing projectId" as const };
+  // FIX: Removed 'as const'
+  if (!pid) return { ok: false, error: "Missing projectId" };
 
   if (isUuid(pid)) {
     return { ok: true, projectUuid: pid };
@@ -91,13 +96,15 @@ async function resolveProjectUuid(sb: any, projectId: string) {
     if (error) {
       const msg = String(error.message || "").toLowerCase();
       if (msg.includes("does not exist") || msg.includes("column")) continue;
-      return { ok: false, error: error.message as const };
+      // FIX: Removed 'as const'
+      return { ok: false, error: error.message };
     }
 
     if (data?.id) return { ok: true, projectUuid: data.id as string };
   }
 
-  return { ok: false, error: "Project not found" as const };
+  // FIX: Removed 'as const'
+  return { ok: false, error: "Project not found" };
 }
 
 /* ---------------- handlers ---------------- */
@@ -109,13 +116,15 @@ export async function GET(req: Request) {
   const projectId = safeStr(url.searchParams.get("projectId")).trim();
   if (!projectId) return jsonErr("Missing projectId", 400);
 
-  const resolved = await resolveProjectUuid(sb, projectId);
+  // FIX: Line 122 - Ensure projectId is string (not undefined) by using nullish coalescing
+  const resolved = await resolveProjectUuid(sb, projectId ?? '');
   if (!resolved.ok) return jsonErr(resolved.error, resolved.error === "Project not found" ? 404 : 400);
 
-  const gate = await requireMember(sb, resolved.projectUuid);
+  // FIX: Line 122 - Ensure resolved.projectUuid is string
+  const gate = await requireMember(sb, resolved.projectUuid ?? '');
   if (!gate.ok) return jsonErr(gate.error, gate.error === "Forbidden" ? 403 : 401);
 
-  // ✅ Explicit select ensures we return the true UUID `id`
+  // ? Explicit select ensures we return the true UUID `id`
   const { data, error } = await sb
     .from("lessons_learned")
     .select(
@@ -153,10 +162,12 @@ export async function POST(req: Request) {
   const project_id_raw = safeStr(body?.project_id).trim();
   if (!project_id_raw) return jsonErr("Missing project_id", 400);
 
-  const resolved = await resolveProjectUuid(sb, project_id_raw);
+  // FIX: Line 166 - Ensure project_id_raw is string (not undefined)
+  const resolved = await resolveProjectUuid(sb, project_id_raw ?? '');
   if (!resolved.ok) return jsonErr(resolved.error, resolved.error === "Project not found" ? 404 : 400);
 
-  const gate = await requireEditor(sb, resolved.projectUuid);
+  // FIX: Line 166 - Ensure resolved.projectUuid is string
+  const gate = await requireEditor(sb, resolved.projectUuid ?? '');
   if (!gate.ok) return jsonErr(gate.error, gate.error === "Forbidden" ? 403 : 401);
 
   const category = safeStr(body?.category).trim();

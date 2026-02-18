@@ -1,4 +1,4 @@
-ï»¿import "server-only";
+import "server-only";
 
 import { asBool, formatUkDateTime, getAny, pickFirstTruthy, safeObj, safeStr, toProjectCode } from "./utils";
 
@@ -10,7 +10,7 @@ export type ClosureReportMeta = {
   pmName: string;
   sponsorName: string;
 
-  // âœ… add these
+  // ? add these
   ragStatus: string;
   overallHealth: string;
 
@@ -33,7 +33,7 @@ function looksLikeUuid(s: any) {
 
 function normaliseRag(v: any): string {
   const s = safeStr(v).trim();
-  if (!s) return "â€”";
+  if (!s) return "—";
   const t = s.toLowerCase();
 
   if (t.includes("green")) return "Green";
@@ -49,7 +49,7 @@ function normaliseRag(v: any): string {
 
 function normaliseOverall(v: any): string {
   const s = safeStr(v).trim();
-  if (!s) return "â€”";
+  if (!s) return "—";
   const t = s.toLowerCase();
 
   if (t === "good") return "Good";
@@ -76,21 +76,21 @@ export async function resolveClosureReportMeta(
     "Project";
 
   let projectCode =
-    toProjectCode(getAny(c, ["project.project_code", "project.code", "projectCode"])) || "â€”";
+    toProjectCode(getAny(c, ["project.project_code", "project.code", "projectCode"])) || "—";
 
   let pmName =
-    safeStr(getAny(c, ["project.pm", "project.project_manager", "project.pm_name", "pmName"])) || "â€”";
+    safeStr(getAny(c, ["project.pm", "project.project_manager", "project.pm_name", "pmName"])) || "—";
 
   let sponsorName =
-    safeStr(getAny(c, ["project.sponsor", "project.sponsor_name", "sponsorName"])) || "â€”";
+    safeStr(getAny(c, ["project.sponsor", "project.sponsor_name", "sponsorName"])) || "—";
 
   let clientName =
-    safeStr(getAny(c, ["project.client_name", "project.client", "clientName"])) || "â€”";
+    safeStr(getAny(c, ["project.client_name", "project.client", "clientName"])) || "—";
 
   let orgName =
-    safeStr(getAny(c, ["project.organisation_name", "project.org_name", "organisationName"])) || "â€”";
+    safeStr(getAny(c, ["project.organisation_name", "project.org_name", "organisationName"])) || "—";
 
-  // âœ… RAG + Overall from editor JSON
+  // ? RAG + Overall from editor JSON
   // Your UI labels: "RAG Status" and "Overall Health"
   // Common key patterns: rag_status, ragStatus, overall_health, overallHealth
   let ragStatus =
@@ -102,7 +102,7 @@ export async function resolveClosureReportMeta(
         "ragStatus",
         "rag",
       ])
-    ) || "â€”";
+    ) || "—";
 
   let overallHealth =
     normaliseOverall(
@@ -113,7 +113,7 @@ export async function resolveClosureReportMeta(
         "overallHealth",
         "overall",
       ])
-    ) || "â€”";
+    ) || "—";
 
   // Optional: allow passing logo/watermark in content or body
   const logoFromContent =
@@ -156,7 +156,7 @@ export async function resolveClosureReportMeta(
           "business_sponsor",
           "business_sponsor_name",
 
-          // âœ… if you have these columns on projects table, great; if not, harmless
+          // ? if you have these columns on projects table, great; if not, harmless
           "rag_status",
           "overall_health",
         ].join(",")
@@ -185,7 +185,7 @@ export async function resolveClosureReportMeta(
         if (best) logoUrl = best;
       }
 
-      if (pmName === "â€”" || !pmName.trim()) {
+      if (pmName === "—" || !pmName.trim()) {
         pmName =
           safeStr(
             pickFirstTruthy(project, [
@@ -199,7 +199,7 @@ export async function resolveClosureReportMeta(
           ) || pmName;
       }
 
-      if (sponsorName === "â€”" || !sponsorName.trim()) {
+      if (sponsorName === "—" || !sponsorName.trim()) {
         sponsorName =
           safeStr(
             pickFirstTruthy(project, [
@@ -213,17 +213,17 @@ export async function resolveClosureReportMeta(
           ) || sponsorName;
       }
 
-      // âœ… only override rag/overall if still missing
-      if (ragStatus === "â€”" || !ragStatus.trim()) {
+      // ? only override rag/overall if still missing
+      if (ragStatus === "—" || !ragStatus.trim()) {
         ragStatus = normaliseRag((project as any)?.rag_status) || ragStatus;
       }
-      if (overallHealth === "â€”" || !overallHealth.trim()) {
+      if (overallHealth === "—" || !overallHealth.trim()) {
         overallHealth = normaliseOverall((project as any)?.overall_health) || overallHealth;
       }
 
       // Only hit organisations table if still missing org name
       const orgId = safeStr(project.organisation_id).trim();
-      if ((orgName === "â€”" || !orgName.trim()) && orgId && looksLikeUuid(orgId)) {
+      if ((orgName === "—" || !orgName.trim()) && orgId && looksLikeUuid(orgId)) {
         const { data: org } = await supabase.from("organisations").select("name").eq("id", orgId).maybeSingle();
         if (org?.name) orgName = safeStr(org.name) || orgName;
       }

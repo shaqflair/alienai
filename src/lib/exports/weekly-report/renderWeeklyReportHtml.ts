@@ -1,4 +1,4 @@
-ï»¿// src/lib/exports/weekly-report/renderWeeklyReportHtml.ts
+// src/lib/exports/weekly-report/renderWeeklyReportHtml.ts
 import "server-only";
 
 import { safeStr, esc, formatDateUk } from "@/lib/exports/_shared/utils";
@@ -116,14 +116,14 @@ export function renderWeeklyReportHtml(args: {
     '      <div class="h-sub">Period: ' + esc(fromUk) + " to " + esc(toUk) + "</div>",
     '      <div class="metaGrid">',
     '        <div class="meta"><div class="k">Project</div><div class="v">' +
-      esc(projName || "â€”") +
+      esc(projName || "—") +
       (projCode ? ' <span style="opacity:.85">(' + esc(projCode) + ")</span>" : "") +
       "</div></div>",
     '        <div class="meta"><div class="k">Project Manager</div><div class="v">' +
-      esc(pmName || "â€”") +
+      esc(pmName || "—") +
       (pmEmail ? ' <span style="opacity:.85">(' + esc(pmEmail) + ")</span>" : "") +
       "</div></div>",
-    '        <div class="meta"><div class="k">Organisation</div><div class="v">' + esc(orgName || "â€”") + "</div></div>",
+    '        <div class="meta"><div class="k">Organisation</div><div class="v">' + esc(orgName || "—") + "</div></div>",
     '        <div class="meta"><div class="k">RAG</div><div class="v"><span class="ragPill">RAG: ' +
       rag.label +
       "</span></div></div>",
@@ -131,9 +131,9 @@ export function renderWeeklyReportHtml(args: {
     "    </div>",
     '    <div class="section">',
     '      <div class="s-title">1) Executive Summary</div>',
-    '      <div class="bodyText"><b>Headline:</b> ' + (headline || "â€”") + "</div>",
+    '      <div class="bodyText"><b>Headline:</b> ' + (headline || "—") + "</div>",
     '      <div style="height:8px"></div>',
-    '      <div class="bodyText"><b>Narrative:</b><br/>' + (narrative || '<span class="muted">â€”</span>') + "</div>",
+    '      <div class="bodyText"><b>Narrative:</b><br/>' + (narrative || '<span class="muted">—</span>') + "</div>",
     "    </div>",
     '    <div class="grid2">',
     '      <div class="section"><div class="s-title">2) Completed This Period</div>' + completed + "</div>",

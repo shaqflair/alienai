@@ -1,4 +1,5 @@
-﻿import "server-only";
+// src/lib/exports/pdf/renderPdf.ts
+import "server-only";
 
 import puppeteer from "puppeteer";
 import puppeteerCore from "puppeteer-core";
@@ -11,18 +12,22 @@ import chromium from "@sparticuz/chromium";
 export async function renderHtmlToPdfBuffer(html: string) {
   const isProd = process.env.NODE_ENV === "production";
 
-  // Use sparticuz/chromium in production to stay under serverless size limits
+  // FIX: Updated launch options for newer Puppeteer/Chromium API
+  // Removed chromium.defaultViewport and chromium.headless which don't exist on the type
   const browser = isProd
     ? await puppeteerCore.launch({
         args: chromium.args,
-        defaultViewport: chromium.defaultViewport,
         executablePath: await chromium.executablePath(),
-        headless: chromium.headless,
       })
     : await puppeteer.launch({ headless: true });
 
   try {
     const page = await browser.newPage();
+    
+    // FIX: Set viewport manually since we can't use chromium.defaultViewport
+    if (isProd) {
+      await page.setViewport({ width: 1280, height: 720 });
+    }
     
     // networkidle2 is crucial: it waits for all images/fonts to load
     await page.setContent(html, { waitUntil: "networkidle2" });
@@ -44,4 +49,3 @@ export async function renderHtmlToPdfBuffer(html: string) {
     await browser.close();
   }
 }
-

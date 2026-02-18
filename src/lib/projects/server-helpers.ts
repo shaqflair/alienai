@@ -1,4 +1,4 @@
-﻿// src/lib/projects/server-helpers.ts
+// src/lib/projects/server-helpers.ts
 import "server-only";
 
 /**

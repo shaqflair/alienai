@@ -1,4 +1,4 @@
-﻿// src/components/editors/ProjectCharterEditorFormLazy.tsx
+// src/components/editors/ProjectCharterEditorFormLazy.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState, useTransition } from "react";
@@ -13,23 +13,23 @@ import dynamic from "next/dynamic";
  *  ProjectCharterEditorForm must NOT be ssr:false.)
  */
 
-// ✅ Editor internals: load on-demand (big compile + bundle win)
+// ? Editor internals: load on-demand (big compile + bundle win)
 const ProjectCharterEditor = dynamic(() => import("./ProjectCharterEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-500">Loading editor…</div>,
+  loading: () => <div className="text-sm text-slate-500">Loading editor�</div>,
 });
 
 const ProjectCharterClassicView = dynamic(() => import("./ProjectCharterClassicView"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-500">Loading classic view…</div>,
+  loading: () => <div className="text-sm text-slate-500">Loading classic view�</div>,
 });
 
 const ProjectCharterSectionEditor = dynamic(() => import("./ProjectCharterSectionEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-500">Loading sections…</div>,
+  loading: () => <div className="text-sm text-slate-500">Loading sections�</div>,
 });
 
-// ✅ Debug panel is heavy; keep lazy.
+// ? Debug panel is heavy; keep lazy.
 const CharterV2DebugPanel = dynamic(() => import("@/components/editors/CharterV2DebugPanel"), {
   ssr: false,
   loading: () => null,
@@ -37,17 +37,17 @@ const CharterV2DebugPanel = dynamic(() => import("@/components/editors/CharterV2
 
 import { PROJECT_CHARTER_TEMPLATE } from "@/components/editors/charter-template";
 
-// ✅ Server actions (split autosave vs manual)
+// ? Server actions (split autosave vs manual)
 import {
   autosaveProjectCharterV2,
   saveProjectCharterV2Manual,
 } from "@/app/projects/[id]/artifacts/[artifactId]/charter-v2-actions";
 import { migrateProjectCharterToV2 } from "@/app/projects/[id]/artifacts/[artifactId]/migrate-charter-v2-actions";
 
-// ✅ types from section editor (new contract)
+// ? types from section editor (new contract)
 import type { ImproveSectionPayload } from "./ProjectCharterSectionEditor";
 
-// ✅ Local timezone date/time (consistent across app)
+// ? Local timezone date/time (consistent across app)
 import { formatDateTimeAuto } from "@/lib/date/format";
 
 // UI
@@ -81,7 +81,7 @@ import {
 
 function formatDateTimeUK(isoLike: string | null | undefined) {
   const s = String(isoLike ?? "").trim();
-  if (!s) return "—";
+  if (!s) return "�";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return formatDateTimeAuto(s);
   try {
@@ -102,19 +102,19 @@ function fmtWhenLocal(x: string | null) {
   return formatDateTimeUK(x ?? undefined);
 }
 
-// Strip leading bullet markers to avoid "• •" double bullets
+// Strip leading bullet markers to avoid "� �" double bullets
 function normalizeBulletLine(line: string) {
   let s = String(line ?? "");
-  const re = /^\s*(?:[•\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/;
+  const re = /^\s*(?:[�\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/;
   for (let i = 0; i < 6; i++) {
     const next = s.replace(re, "");
     if (next === s) break;
     s = next;
   }
-  return s; // ✅ do NOT trimEnd here (keeps caret/newline behavior stable)
+  return s; // ? do NOT trimEnd here (keeps caret/newline behavior stable)
 }
 
-// ✅ IMPORTANT: do NOT trimEnd the whole text while typing.
+// ? IMPORTANT: do NOT trimEnd the whole text while typing.
 function normalizeBulletsText(text: string) {
   const raw = String(text ?? "");
   const lines = raw.split("\n");
@@ -333,7 +333,7 @@ function ensureCanonicalCharter(input: any) {
               });
             }
 
-            // ✅ Default currency to GBP for Financials table
+            // ? Default currency to GBP for Financials table
             if (req.key === "financials") {
               const currencyIdx = 2;
               for (const r of t.rows ?? []) {
@@ -464,12 +464,12 @@ export default function ProjectCharterEditorFormLazy({
 
   const [autosaveState, setAutosaveState] = useState<"idle" | "saving" | "queued">("idle");
 
-  // ✅ AI state (global + per-section)
+  // ? AI state (global + per-section)
   const [aiState, setAiState] = useState<"idle" | "generating" | "error">("idle");
   const [aiError, setAiError] = useState<string>("");
   const [aiLoadingKey, setAiLoadingKey] = useState<string | null>(null);
 
-  // ✅ Improve modal state
+  // ? Improve modal state
   const [improveOpen, setImproveOpen] = useState(false);
   const [improvePayload, setImprovePayload] = useState<ImproveSectionPayload | null>(null);
   const [improveNotes, setImproveNotes] = useState<string>("");
@@ -479,7 +479,7 @@ export default function ProjectCharterEditorFormLazy({
   const [improveSuggestions, setImproveSuggestions] = useState<{ id: string; label: string; section: any }[]>([]);
   const [improveSelectedId, setImproveSelectedId] = useState<string>("");
 
-  // ✅ wireAI route capabilities (auto-detect; falls back to full-only)
+  // ? wireAI route capabilities (auto-detect; falls back to full-only)
   const [wireCaps, setWireCaps] = useState<WireCaps>({
     full: true,
     section: false,
@@ -487,7 +487,7 @@ export default function ProjectCharterEditorFormLazy({
     validate: false,
   });
 
-  // ✅ export dropdown busy state
+  // ? export dropdown busy state
   const [exportBusy, setExportBusy] = useState<null | "pdf" | "docx">(null);
   const [exportErr, setExportErr] = useState<string>("");
 
@@ -636,7 +636,7 @@ export default function ProjectCharterEditorFormLazy({
     });
   }
 
-  // ✅ Autosave debounce (fix: actually runs)
+  // ? Autosave debounce (fix: actually runs)
   useEffect(() => {
     if (!canEdit) return;
     if (!dirty) return;
@@ -659,7 +659,7 @@ export default function ProjectCharterEditorFormLazy({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirty, canEdit, v2ForSave]);
 
-  // ✅ Generate entire charter modal (kept; used by your UI elsewhere)
+  // ? Generate entire charter modal (kept; used by your UI elsewhere)
   const [entireOpen, setEntireOpen] = useState(false);
   const [entirePrompt, setEntirePrompt] = useState<string>("");
   const [entireRunning, setEntireRunning] = useState(false);
@@ -876,7 +876,7 @@ export default function ProjectCharterEditorFormLazy({
   };
 
   /* =========================================================
-     ✅ SUBMIT BUTTON FIX
+     ? SUBMIT BUTTON FIX
   ========================================================= */
 
   const canShowSubmit = !!approvalEnabled;
@@ -892,17 +892,17 @@ export default function ProjectCharterEditorFormLazy({
   const submitDisabledReason = !submitWired
     ? "Submit action is not wired."
     : !canSubmitOrResubmit
-    ? "You can’t submit right now (role/status/current revision)."
+    ? "You can�t submit right now (role/status/current revision)."
     : readOnly
     ? "View-only mode."
     : lockLayout
     ? "Layout is locked."
     : isPending
-    ? "Please wait…"
+    ? "Please wait�"
     : "";
 
   /* =========================================================
-     ✅ AI handlers (fix: no more blank improve/regenerate)
+     ? AI handlers (fix: no more blank improve/regenerate)
   ========================================================= */
 
   function openImprove(payload: ImproveSectionPayload) {
@@ -1005,15 +1005,15 @@ export default function ProjectCharterEditorFormLazy({
               <Sparkles className="h-4 w-4 text-indigo-600" />
               <span className="text-xs font-medium text-indigo-700">
                 AI: {wireCaps.full && "Full"}
-                {wireCaps.section && " • Section"}
-                {wireCaps.suggest && " • Improve"}
-                {wireCaps.validate && " • Validate"}
+                {wireCaps.section && " � Section"}
+                {wireCaps.suggest && " � Improve"}
+                {wireCaps.validate && " � Validate"}
               </span>
             </div>
 
             <StatusBadge state={autosaveState} />
 
-            {/* ✅ Manual Save (explicit) */}
+            {/* ? Manual Save (explicit) */}
             <Button
               type="button"
               variant="outline"
@@ -1047,7 +1047,7 @@ export default function ProjectCharterEditorFormLazy({
               </button>
             </div>
 
-            {/* ✅ Submit for approval (ALWAYS visible when approvals enabled) */}
+            {/* ? Submit for approval (ALWAYS visible when approvals enabled) */}
             {canShowSubmit ? (
               submitWired ? (
                 <form action={submitForApprovalAction as any}>
@@ -1076,7 +1076,7 @@ export default function ProjectCharterEditorFormLazy({
               )
             ) : null}
 
-            {/* ✅ Export dropdown (Radix) MUST be client-only to avoid hydration mismatch */}
+            {/* ? Export dropdown (Radix) MUST be client-only to avoid hydration mismatch */}
             {mounted ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -1135,7 +1135,7 @@ export default function ProjectCharterEditorFormLazy({
                 Last saved: <span className="font-mono">{fmtWhenLocal(lastSavedIso)}</span>
               </>
             ) : (
-              "—"
+              "�"
             )}
           </div>
 
@@ -1191,7 +1191,7 @@ export default function ProjectCharterEditorFormLazy({
         )}
       </div>
 
-      {/* ✅ Keep debug panel mounted, but it’s now dynamically loaded */}
+      {/* ? Keep debug panel mounted, but it�s now dynamically loaded */}
       <CharterV2DebugPanel value={v2ForSave} />
     </div>
   );

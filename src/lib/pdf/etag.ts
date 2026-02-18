@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 import crypto from "crypto";
 
 export function sha256Hex(input: string | Buffer) {

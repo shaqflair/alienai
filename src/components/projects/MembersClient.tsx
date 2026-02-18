@@ -1,4 +1,4 @@
-ï»¿// src/components/projects/MembersClient.tsx
+// src/components/projects/MembersClient.tsx
 "use client";
 
 import React, { useMemo, useState, useTransition } from "react";
@@ -6,7 +6,7 @@ import React, { useMemo, useState, useTransition } from "react";
 import {
   updateMemberRole,
   removeMember,
-  restoreMember, // âœ… FIX: you were calling this but not importing it
+  restoreMember, // ? FIX: you were calling this but not importing it
   inviteMember,
   resendInvite,
   revokeInvite,
@@ -278,7 +278,7 @@ export default function MembersClient({
                         </button>
                       </div>
                     ) : (
-                      <span className="text-xs text-gray-400">â€”</span>
+                      <span className="text-xs text-gray-400">—</span>
                     )}
                   </td>
                 </tr>
@@ -367,7 +367,7 @@ export default function MembersClient({
                         />
                       </div>
                     ) : (
-                      <span className="text-xs text-gray-400">â€”</span>
+                      <span className="text-xs text-gray-400">—</span>
                     )}
                   </td>
                 </tr>
@@ -385,7 +385,7 @@ export default function MembersClient({
         </div>
 
         <div className="mt-3 text-xs text-gray-500">
-          â€œResend inviteâ€ typically updates timestamps. â€œRevoke inviteâ€ deletes the invite row only.
+          “Resend invite” typically updates timestamps. “Revoke invite” deletes the invite row only.
         </div>
       </div>
 

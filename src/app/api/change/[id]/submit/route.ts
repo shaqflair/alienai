@@ -1,4 +1,4 @@
-﻿// src/app/api/change/[id]/submit/route.ts
+// src/app/api/change/[id]/submit/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -28,11 +28,16 @@ function isBadIdString(x: string) {
  *  - /api/change/<id>/submit (path param)
  *  - /api/change/submit?id=<id> (query)
  *  - body.id / body.change_id (body)
+ *
+ * FIX: Made async to handle Promise-based params in Next.js 15+
  */
-function pickChangeId(req: Request, ctx: any, body: any): string | null {
-  // 1) ctx.params.id
-  const p = safeStr(ctx?.params?.id).trim();
-  if (!isBadIdString(p)) return p;
+async function pickChangeId(req: Request, params: Promise<{ id?: string }> | undefined, body: any): Promise<string | null> {
+  // 1) params.id (now async)
+  if (params) {
+    const resolvedParams = await params;
+    const p = safeStr(resolvedParams?.id).trim();
+    if (!isBadIdString(p)) return p;
+  }
 
   // 2) URL path: .../change/<id>/submit  (id is the segment BEFORE "submit")
   try {
@@ -147,9 +152,7 @@ function toLaneDb(v: string) {
    Canonical artifact type normalisation
 ========================================================= */
 
-function normalizeArtifactType(
-  raw: any
-): "project_charter" | "change" | "project_closure_report" | string {
+function normalizeArtifactType(raw: any): "project_charter" | "change" | "project_closure_report" | string {
   const v = safeStr(raw).trim();
   const lower = v.toLowerCase();
   if (!lower) return "";
@@ -227,7 +230,6 @@ function extractCostFromImpactAnalysis(impact: any): number {
 }
 
 async function loadImpactCostForChange(supabase: any, changeId: string): Promise<number> {
-  // try to load impact_analysis (JSON) if column exists
   const first = await supabase.from("change_requests").select("impact_analysis").eq("id", changeId).maybeSingle();
 
   if (!first.error) {
@@ -237,7 +239,6 @@ async function loadImpactCostForChange(supabase: any, changeId: string): Promise
 
   if (hasImpactAnalysisMissingColumn(safeStr(first.error?.message))) return 0;
 
-  // other errors -> treat as 0 but don't block submit
   return 0;
 }
 
@@ -350,8 +351,6 @@ async function expandGroupMembersToUserIds(supabase: any, groupId: string): Prom
 /* =========================================================
    IMPORTANT UPDATE:
    Supersede by artifact_id (NOT via artifacts.approval_chain_id)
-   - idempotent
-   - fixes duplicates under concurrency
 ========================================================= */
 
 async function supersedeExistingArtifactChain(supabase: any, artifactId: string) {
@@ -369,8 +368,13 @@ async function supersedeExistingArtifactChain(supabase: any, artifactId: string)
   }
 }
 
-async function updateArtifactSubmitted(supabase: any, artifactId: string, chainId: string, actorId: string, nowIso: string) {
-  // artifacts table uses BOTH status + approval_status; keep resilient for older schemas
+async function updateArtifactSubmitted(
+  supabase: any,
+  artifactId: string,
+  chainId: string,
+  actorId: string,
+  nowIso: string
+) {
   const patch1: any = {
     approval_chain_id: chainId,
     submitted_at: nowIso,
@@ -386,7 +390,6 @@ async function updateArtifactSubmitted(supabase: any, artifactId: string, chainI
   const u1 = await supabase.from("artifacts").update(patch1).eq("id", artifactId);
   if (!u1.error) return;
 
-  // fallback: minimal patch
   const patch2: any = {
     approval_chain_id: chainId,
     submitted_at: nowIso,
@@ -400,7 +403,6 @@ async function tryAttachApprovalChainIdToChange(supabase: any, changeId: string,
   if (!first.error) return;
 
   if (hasApprovalChainIdMissingColumn(safeStr(first.error.message))) return;
-  // other errors should not block submit
 }
 
 /* =========================================================
@@ -439,10 +441,8 @@ async function createChainAndStepsFromRules(
 ): Promise<{ chainId: string; stepIds: string[]; chosenType: string }> {
   const { organisationId, projectId, artifactId, actorId, amount } = args;
 
-  // Always normalize to canonical for storage + UI alignment
   const desiredType = normalizeArtifactType(args.artifactType) || "change";
 
-  // Try canonical first, then legacy aliases as a safety net
   const typeCandidates = Array.from(new Set([desiredType, "change_request", "change_requests", "change"]));
   let rules: RuleRow[] = [];
   let chosenType = desiredType;
@@ -471,10 +471,9 @@ async function createChainAndStepsFromRules(
 
   const stepNumbers = Array.from(byStep.keys()).sort((a, b) => a - b);
 
-  // 1) create chain (or reuse existing active chain if unique index fires)
   const chainInsert: any = {
     project_id: projectId,
-    artifact_type: chosenType, // must be 'change' for alignment with org panel + constraints
+    artifact_type: chosenType,
     is_active: true,
     organisation_id: organisationId,
     artifact_id: artifactId,
@@ -491,7 +490,6 @@ async function createChainAndStepsFromRules(
   if (!chainIns.error) {
     chainId = String(chainIns.data.id);
   } else {
-    // unique index race: another request already created the active chain
     const existing = await getActiveChainIdForArtifact(supabase, artifactId);
     if (existing) {
       chainId = existing;
@@ -500,7 +498,6 @@ async function createChainAndStepsFromRules(
     }
   }
 
-  // If we reused an existing chain, check if steps already exist; if so, just return.
   const existingSteps = await supabase
     .from("artifact_approval_steps")
     .select("id, step_order")
@@ -515,7 +512,6 @@ async function createChainAndStepsFromRules(
     };
   }
 
-  // 2) create steps
   const stepRows = stepNumbers.map((stepNo) => {
     const stepRules = byStep.get(stepNo) || [];
     const label = safeStr(stepRules[0]?.approval_role) || `Step ${stepNo}`;
@@ -547,7 +543,6 @@ async function createChainAndStepsFromRules(
     stepIdByOrder.set(Number(s.step_order), String(s.id));
   }
 
-  // 3) create approvers for each step
   const approverRows: any[] = [];
 
   for (const stepNo of stepNumbers) {
@@ -607,7 +602,8 @@ async function createChainAndStepsFromRules(
    Route
 ========================================================= */
 
-export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>}) {
+// FIX: Updated ctx type to match Next.js 15+ async params
+export async function POST(req: Request, ctx: { params: Promise<{ id?: string }> }) {
   try {
     let body: any = {};
     try {
@@ -616,14 +612,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       body = {};
     }
 
-    const changeId = pickChangeId(req, ctx, body);
+    // FIX: Await the async pickChangeId
+    const changeId = await pickChangeId(req, ctx.params, body);
     if (!changeId) return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
 
     const supabase = await sb();
     const user = await requireUser(supabase);
 
+    // FIX: Define a flexible type that handles both with and without delivery_status
+    type ChangeRow = {
+      id: string;
+      project_id: string;
+      artifact_id?: string;
+      status?: string;
+      delivery_status?: string;
+      decision_status?: string;
+      [key: string]: any; // Allow additional properties
+    };
+
     // Load row safely (delivery_status may not exist in legacy)
-    let cr: any = null;
+    let cr: ChangeRow | null = null;
 
     const firstLoad = await supabase
       .from("change_requests")
@@ -632,7 +640,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       .maybeSingle();
 
     if (!firstLoad.error) {
-      cr = firstLoad.data;
+      cr = firstLoad.data as ChangeRow;
     } else if (hasDeliveryStatusMissingColumn(safeStr(firstLoad.error.message))) {
       const secondLoad = await supabase
         .from("change_requests")
@@ -641,7 +649,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         .maybeSingle();
 
       if (secondLoad.error) throw new Error(secondLoad.error.message);
-      cr = secondLoad.data;
+      cr = secondLoad.data as ChangeRow;
     } else {
       throw new Error(firstLoad.error.message);
     }
@@ -658,17 +666,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const fromLane = safeStr(cr?.delivery_status).trim().toLowerCase() || null;
     const decision = safeStr(cr?.decision_status).trim().toLowerCase();
 
-    // If already decided, don't resubmit
     if (decision === "approved" || decision === "rejected") {
       return NextResponse.json({ ok: false, error: "This change is already decided" }, { status: 400 });
     }
 
-    // Idempotent: already submitted
     if (decision === "submitted") {
       return NextResponse.json({ ok: true, item: cr });
     }
 
-    // Strict discipline: only submit from Analysis
     if (fromLane !== "analysis") {
       return NextResponse.json(
         { ok: false, error: "Only changes in Analysis can be submitted for approval." },
@@ -676,7 +681,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       );
     }
 
-    // Ensure artifact_id exists to avoid audit trigger issues
     const artifactId = await ensureArtifactIdForChangeRequest(supabase, cr);
     if (!artifactId) {
       return NextResponse.json(
@@ -691,7 +695,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const now = new Date().toISOString();
     const toLane = "review";
 
-    // Build approval chain from org rules (artifact_approver_rules)
     const organisationId = await getOrganisationIdForProject(supabase, projectId);
     if (!organisationId) {
       return NextResponse.json(
@@ -702,10 +705,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
 
     const amount = await loadImpactCostForChange(supabase, changeId);
 
-    // best-effort: supersede any prior active chains linked to the artifact
     await supersedeExistingArtifactChain(supabase, artifactId);
 
-    // canonical artifactType is 'change' (aligns with org panel + constraints)
     const { chainId, chosenType } = await createChainAndStepsFromRules(supabase, {
       organisationId,
       projectId,
@@ -718,12 +719,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     await updateArtifactSubmitted(supabase, artifactId, chainId, user.id, now);
     await tryAttachApprovalChainIdToChange(supabase, changeId, chainId);
 
-    // Submit => move lane to review + decision_status=submitted
     const patch: any = {
       delivery_status: toLaneDb(toLane),
       decision_status: "submitted",
 
-      // clear any previous decision metadata
       decision_at: null,
       decision_by: null,
       decision_role: null,
@@ -739,7 +738,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       .select("id, project_id, artifact_id, status, delivery_status, decision_status")
       .maybeSingle();
 
-    let updated = firstUpdate.data;
+    let updated = firstUpdate.data as ChangeRow | null;
     const deliveryMissing = Boolean(firstUpdate.error && hasDeliveryStatusMissingColumn(safeStr(firstUpdate.error.message)));
 
     if (deliveryMissing) {
@@ -753,12 +752,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         .maybeSingle();
 
       if (secondUpdate.error) throw new Error(secondUpdate.error.message);
-      updated = secondUpdate.data;
+      updated = secondUpdate.data as ChangeRow | null;
     } else if (firstUpdate.error) {
       throw new Error(firstUpdate.error.message);
     }
 
-    // Audit event (best effort)
     try {
       await logChangeEvent(
         supabase,
@@ -776,7 +774,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
             decision_status: { from: decision || null, to: "submitted" },
             lane: { from: fromLane || null, to: deliveryMissing ? null : toLane },
             approval_chain_id: chainId,
-            approval_chain_artifact_type: chosenType, // should be 'change'
+            approval_chain_artifact_type: chosenType,
             amount,
             submitted_at: now,
           },
@@ -807,9 +805,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       },
     });
 
+    // FIX: Ensure the returned object has delivery_status property
+    const resultItem = updated || cr;
+    const finalItem = {
+      ...resultItem,
+      delivery_status: resultItem?.delivery_status ?? null,
+    };
+
     return NextResponse.json({
       ok: true,
-      item: updated,
+      item: finalItem,
       approval_chain_id: chainId,
       amount,
       artifact_type: chosenType,
@@ -819,4 +824,3 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     return NextResponse.json({ ok: false, error: msg }, { status: msg === "Unauthorized" ? 401 : 500 });
   }
 }
-

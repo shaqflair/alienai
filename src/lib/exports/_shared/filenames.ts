@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 export function safeStr(x: any) {
   return typeof x === "string" ? x.trim() : x == null ? "" : String(x);

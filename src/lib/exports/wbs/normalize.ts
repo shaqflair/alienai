@@ -1,4 +1,4 @@
-﻿// src/lib/exports/wbs/normalize.ts
+// src/lib/exports/wbs/normalize.ts
 import type { NormalizedWbs, WbsNode } from "./types";
 import { parseDateUTC, safeStr } from "./utils";
 

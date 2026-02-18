@@ -140,8 +140,9 @@ function hasOwn(obj: any, key: string) {
 
 function pickReviewBy(body: any): { present: boolean; value: string | null; raw: any } {
   const present = hasOwn(body, "reviewBy") || hasOwn(body, "review_by");
-  const raw = hasOwn(body, "reviewBy") ? body.reviewBy : body.review_by;
   if (!present) return { present: false, value: null, raw: null };
+
+  const raw = hasOwn(body, "reviewBy") ? body.reviewBy : body.review_by;
   if (raw == null) return { present: true, value: null, raw };
 
   const parsed = parseDateToIso(raw);
@@ -308,7 +309,7 @@ export async function POST(req: Request) {
       rollback_plan: plans.rollback_plan,
       ...narratives,
 
-      review_by, // ✅ persist date or null
+      review_by,
 
       ai_score: body?.ai_score ?? null,
       ai_schedule: body?.ai_schedule ?? null,

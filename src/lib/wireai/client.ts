@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 export type WireAIOptions = {
   model?: string;
@@ -46,7 +46,7 @@ export async function wireAIGenerate(prompt: string, opts: WireAIOptions = {}): 
   const t = setTimeout(() => controller.abort(), 30000);
 
   try {
-    // NOTE: Replace endpoint/body with Wire AI’s real spec if different.
+    // NOTE: Replace endpoint/body with Wire AI�s real spec if different.
     const res = await fetch(`${baseUrl}/v1/generate`, {
       method: "POST",
       headers: {

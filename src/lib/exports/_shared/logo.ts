@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 import { safeStr } from "./filenames";
 
 export async function fetchLogoBytes(url: string): Promise<Uint8Array | null> {

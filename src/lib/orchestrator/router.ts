@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import type { ArtifactEventRow, SuggestionInsert } from "./types";
 
@@ -6,7 +6,7 @@ export function routeEventToSuggestions(evt: ArtifactEventRow): SuggestionInsert
   const artifactType = String(evt.artifact_type || "").toLowerCase();
   const action = String(evt.action || "").toLowerCase();
 
-  // 1) Project Charter → seed downstream artifacts
+  // 1) Project Charter ? seed downstream artifacts
   if (artifactType === "project_charter" && (action === "created" || action === "updated")) {
     return [
       {
@@ -43,12 +43,12 @@ export function routeEventToSuggestions(evt: ArtifactEventRow): SuggestionInsert
     ];
   }
 
-  // 2) Stakeholder Register → RAID (patch) + Dashboard narrative
+  // 2) Stakeholder Register ? RAID (patch) + Dashboard narrative
   if (artifactType === "stakeholder_register" && (action === "created" || action === "updated")) {
     const stakeholders = evt.payload?.stakeholders ?? [];
     const suggestions: SuggestionInsert[] = [];
 
-    // Stakeholder → RAID risk patch suggestions
+    // Stakeholder ? RAID risk patch suggestions
     for (const s of stakeholders) {
       const influence = String(s?.influence ?? "").toLowerCase();
       const interest = String(s?.interest ?? "").toLowerCase();
@@ -76,7 +76,7 @@ export function routeEventToSuggestions(evt: ArtifactEventRow): SuggestionInsert
       }
     }
 
-    // Stakeholder → Dashboard narrative suggestion
+    // Stakeholder ? Dashboard narrative suggestion
     const highRiskNames = stakeholders
       .filter(
         (x: any) =>
@@ -97,7 +97,7 @@ export function routeEventToSuggestions(evt: ArtifactEventRow): SuggestionInsert
         patch: {
           type: "dashboard.narrative",
           data: {
-            message: `⚠ Stakeholder risk increasing: ${highRiskNames.join(
+            message: `? Stakeholder risk increasing: ${highRiskNames.join(
               ", "
             )} have high influence but insufficient engagement.`,
             severity: "amber",

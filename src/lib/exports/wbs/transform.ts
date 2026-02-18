@@ -1,4 +1,4 @@
-ï»¿// src/lib/exports/wbs/transform.ts
+// src/lib/exports/wbs/transform.ts
 import "server-only";
 
 import type { WbsItemRow } from "./types";
@@ -246,13 +246,13 @@ export function flattenForExport(wbsItems: WbsItemRow[]): WbsExportRow[] {
   const items = Array.isArray(wbsItems) ? (wbsItems as any[]) : [];
   if (!items.length) return [];
 
-  // Detect legacy â€œartifact content_json.rowsâ€ style:
+  // Detect legacy “artifact content_json.rows” style:
   // - no parent_id relationships
   // - but includes some level > 0
   const hasAnyParent = items.some((x) => !!parentOf(x));
   const hasAnyLevelGt0 = items.some((x) => (numericLevel(x?.level) ?? 0) > 0);
 
-  // If itâ€™s a level-based list, donâ€™t try to invent a tree from parent_id (it doesnâ€™t exist).
+  // If it’s a level-based list, don’t try to invent a tree from parent_id (it doesn’t exist).
   // Generate hierarchical codes from level outline numbering.
   if (!hasAnyParent && hasAnyLevelGt0) {
     // keep input order (UI order), but make stable if sort_order exists

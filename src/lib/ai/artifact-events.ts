@@ -1,6 +1,6 @@
-﻿/**
+/**
  * Canonical deterministic artifact events.
- * Facts only — no AI calls.
+ * Facts only � no AI calls.
  */
 
 export type StakeholderEventType =

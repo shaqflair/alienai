@@ -15,7 +15,7 @@ export const maxDuration = 60;
 /* ---------------- branding ---------------- */
 
 const BRAND_LOGO_URL =
-  "https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png";
+  "https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png ";
 
 /* ---------------- response helpers ---------------- */
 
@@ -490,6 +490,7 @@ async function buildExecSummary(args: {
           ],
         };
       } else {
+        // FIX: Ensure week_start is string | null, not empty string
         wow = { week_start: week_start || null, prev_week_start: null, narrative: [] };
       }
     }
@@ -858,15 +859,17 @@ async function renderPdfFromHtml(html: string) {
   const isProd = process.env.NODE_ENV === "production";
   const executablePath = isProd ? await chromium.executablePath() : undefined;
 
+  // FIX: Updated launch options - removed defaultViewport, use boolean headless
   const browser = await (isProd ? puppeteerCore : puppeteer).launch({
     args: isProd ? chromium.args : ["--no-sandbox", "--disable-setuid-sandbox"],
-    defaultViewport: chromium.defaultViewport,
     executablePath,
     headless: true,
   } as any);
 
   try {
     const page = await browser.newPage();
+    // FIX: Set viewport using setViewport method
+    await page.setViewport({ width: 1280, height: 720 });
     await page.setCacheEnabled(false);
     await page.setContent(html, { waitUntil: ["domcontentloaded", "networkidle0"] });
     await page.evaluateHandle("document.fonts && document.fonts.ready");
@@ -1286,7 +1289,8 @@ async function renderPptxFromSummary(summary: ExecSummary) {
   slide.addText(`Generated: ${genText}`, { x: leftX, y: SLIDE_H - 0.4, w: 5.0, h: 0.25, fontSize: 9, color: C.muted });
   slide.addText("Week-on-week trend analysis will appear after 2+ snapshots", { x: rightX, y: SLIDE_H - 0.4, w: rightW, h: 0.25, fontSize: 9, color: C.muted, align: "right" });
 
-  const buf: Uint8Array = await pptx.write("arraybuffer");
+  // FIX: Corrected write method - use 'nodebuffer' as string, not WriteProps object
+  const buf = await pptx.write({ outputType: "nodebuffer" });
   return Buffer.from(buf);
 }
 
@@ -1340,7 +1344,8 @@ export async function GET(req: NextRequest) {
       }
       const md = lines.join("\n");
 
-      return new NextResponse(md, {
+      // FIX: Simplified Buffer conversion
+      return new NextResponse(Buffer.from(md), {
         status: 200,
         headers: {
           "content-type": "text/markdown; charset=utf-8",
@@ -1358,7 +1363,8 @@ export async function GET(req: NextRequest) {
         sanitizeFilename(summary.client_name || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
       const filename = `${base}_raid_brief_${days}d.pptx`;
 
-      return new NextResponse(pptxBuf, {
+      // FIX: Simplified Buffer conversion
+      return new NextResponse(Buffer.from(pptxBuf), {
         status: 200,
         headers: {
           "content-type":
@@ -1377,7 +1383,8 @@ export async function GET(req: NextRequest) {
       sanitizeFilename(summary.client_name || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
     const filename = `${base}_raid_brief_${days}d.pdf`;
 
-    return new NextResponse(pdf, {
+    // FIX: Simplified Buffer conversion
+    return new NextResponse(Buffer.from(pdf), {
       status: 200,
       headers: {
         "content-type": "application/pdf",

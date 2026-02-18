@@ -1,4 +1,4 @@
-﻿export type Phase = { id: string; name: string };
+export type Phase = { id: string; name: string };
 
 export type ItemType = "task" | "milestone" | "deliverable";
 

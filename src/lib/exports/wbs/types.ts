@@ -1,4 +1,4 @@
-﻿export type WbsNode = {
+export type WbsNode = {
   id: string;
   parentId: string | null;
   code?: string | null;          // e.g. "1.2.3"

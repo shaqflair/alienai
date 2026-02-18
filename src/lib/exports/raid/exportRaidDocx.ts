@@ -1,4 +1,4 @@
-ï»¿import "server-only";
+import "server-only";
 
 import { Packer, Paragraph } from "docx";
 import { ExportMeta } from "../core/meta";
@@ -15,7 +15,7 @@ export async function exportRaidDocxBuffer(args: { meta: ExportMeta; items: Raid
 
   const doc = buildStandardDocxShell({
     title: "RAID Register",
-    subtitle: meta.projectCode ? `Project ${meta.projectCode} â€¢ Org Library Standard` : "Org Library Standard",
+    subtitle: meta.projectCode ? `Project ${meta.projectCode} • Org Library Standard` : "Org Library Standard",
     meta,
     theme: { primary: meta.brandPrimary },
     children: [
@@ -24,10 +24,10 @@ export async function exportRaidDocxBuffer(args: { meta: ExportMeta; items: Raid
         headers: ["Type", "Title / Detail", "Owner", "Status", "Due"],
         rows: (items || []).map((it) => [
           it.type?.toUpperCase() || "",
-          (it.title || "") + (it.description ? ` â€” ${it.description}` : ""),
-          it.owner || "â€”",
-          it.status || "â€”",
-          formatIsoDateOnly(it.due_date) || "â€”",
+          (it.title || "") + (it.description ? ` — ${it.description}` : ""),
+          it.owner || "—",
+          it.status || "—",
+          formatIsoDateOnly(it.due_date) || "—",
         ]),
       }),
     ],

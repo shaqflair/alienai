@@ -1,7 +1,7 @@
-﻿// src/lib/exports/stakeholder-register/index.ts
+// src/lib/exports/stakeholder-register/index.ts
 import "server-only";
 
-// PDF (✅ canonical)
+// PDF (? canonical)
 export { exportStakeholderRegisterPdf } from "./pdf";
 
 // Shared / data
@@ -10,8 +10,8 @@ export type { StakeholderExportRow } from "./loadStakeholderExportData";
 export { renderStakeholderRegisterHtml } from "./renderStakeholderRegisterHtml";
 export * from "./stakeholderShared";
 
-// DOCX (✅ points to existing file)
+// DOCX (? points to existing file)
 export { exportStakeholderRegisterDocx } from "./docx";
 
-// XLSX (✅ points to existing file)
+// XLSX (? points to existing file)
 export { exportStakeholderRegisterXlsx } from "./xlsx";

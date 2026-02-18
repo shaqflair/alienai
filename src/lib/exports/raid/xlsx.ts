@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 import ExcelJS from "exceljs";
 import { sanitizeFilename } from "../_shared/utils";
 

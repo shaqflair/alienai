@@ -1,4 +1,4 @@
-﻿// src/app/api/change/[id]/request-changes/route.ts
+// src/app/api/change/[id]/request-changes/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -114,7 +114,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const supabase = await sb();
     const user = await requireUser(supabase);
 
-    const id = safeStr(ctx?.params?.id).trim();
+    const id = safeStr((await ctx.params).id).trim();
     if (!id) return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
 
     const body = await req.json().catch(() => ({}));

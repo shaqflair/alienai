@@ -1,4 +1,4 @@
-ï»¿import "server-only";
+import "server-only";
 
 export type ClosureProjectMeta = {
   projectId: string | null;
@@ -112,7 +112,7 @@ function normalizeProjectCodeHumanStyle(x: any): string {
   // never allow ids / hashes to appear
   if (looksLikeUuid(s) || looksLikeShortHexId(s)) return "";
 
-  // if itâ€™s a real business code (e.g. "SZC-001"), allow it
+  // if it’s a real business code (e.g. "SZC-001"), allow it
   return s;
 }
 
@@ -125,14 +125,14 @@ function computeProjectCode(content: any, project: any): string {
 
   const pick = c1 || c2 || c3 || c4;
 
-  return pick || "â€”";
+  return pick || "—";
 }
 
 /* ---------------- UK date helpers (Charter-compatible) ---------------- */
 
 function formatUkDateFromIso(iso: string): string {
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "â€”";
+  if (Number.isNaN(d.getTime())) return "—";
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const yyyy = String(d.getFullYear());
@@ -165,7 +165,7 @@ export function normalizeClosureReport(args: {
 }): ClosureNormalized {
   const { artifact, project, orgName, logoUrl, contentOverride } = args;
 
-  // âœ… Prefer provided override, then artifact JSON columns
+  // ? Prefer provided override, then artifact JSON columns
   const content =
     (contentOverride && typeof contentOverride === "object" ? contentOverride : null) ||
     safeJson(artifact?.content_json) ||
@@ -184,7 +184,7 @@ export function normalizeClosureReport(args: {
       content?.client_name,
       content?.clientName,
       project?.client_name
-    ) || "â€”";
+    ) || "—";
 
   const generatedIso = new Date().toISOString();
   const generated = formatUkDateTime(generatedIso);
@@ -286,7 +286,7 @@ export function normalizeClosureReport(args: {
       projectName,
       projectCode,
       clientName,
-      organisationName: pickFirstNonEmptyString(orgName, project?.organisation_name, project?.org_name) || "â€”",
+      organisationName: pickFirstNonEmptyString(orgName, project?.organisation_name, project?.org_name) || "—",
       logoUrl: safeStr(logoUrl).trim() ? safeStr(logoUrl).trim() : null,
 
       generatedIso,

@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -15,7 +15,7 @@ function isUuid(x: string) {
 export async function POST(req: Request) {
   const supabase = await createClient();
 
-  // ✅ Auth
+  // ? Auth
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr) return NextResponse.json({ ok: false, error: authErr.message }, { status: 401 });
   if (!auth?.user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   if (!isUuid(projectId)) return NextResponse.json({ ok: false, error: "Invalid projectId" }, { status: 400 });
   if (artifactId && !isUuid(artifactId)) return NextResponse.json({ ok: false, error: "Invalid artifactId" }, { status: 400 });
 
-  // ✅ Membership check
+  // ? Membership check
   const { data: mem, error: memErr } = await supabase
     .from("project_members")
     .select("role")
@@ -41,7 +41,7 @@ export async function POST(req: Request) {
 
   const nowIso = new Date().toISOString();
 
-  // ✅ DB-allowed statuses only: proposed | suggested | applied | rejected
+  // ? DB-allowed statuses only: proposed | suggested | applied | rejected
   let q = supabase
     .from("ai_suggestions")
     .update({

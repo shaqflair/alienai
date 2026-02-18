@@ -1,4 +1,4 @@
-﻿import { WeeklyReportV1, WeeklyReportProject, Rag } from "./types";
+import { WeeklyReportV1, WeeklyReportProject, Rag } from "./types";
 
 function safeStr(x: any) {
   return String(x ?? "").trim();

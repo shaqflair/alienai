@@ -1,4 +1,4 @@
-﻿import type { ChangeStatus } from "./types";
+import type { ChangeStatus } from "./types";
 
 export const CHANGE_COLUMNS: { key: ChangeStatus; title: string }[] = [
   { key: "new", title: "New (Intake)" },

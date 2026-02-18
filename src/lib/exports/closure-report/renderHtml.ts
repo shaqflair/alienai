@@ -1,4 +1,4 @@
-ï»¿// src/lib/exports/closure-report/renderClosureReportHtml.ts
+// src/lib/exports/closure-report/renderClosureReportHtml.ts
 import "server-only";
 import { renderClosureReportSections } from "./render";
 
@@ -38,8 +38,8 @@ export function renderClosureReportHtml(args: {
   // Your sections renderer returns openRisksCount + sectionsHtml
   const { generatedDateTime, openRisksCount, sectionsHtml } = renderClosureReportSections(model);
 
-  const rag = safeStr(model?.rag || "â€”").toUpperCase() || "â€”";
-  const overall = safeStr(model?.overall || "â€”") || "â€”";
+  const rag = safeStr(model?.rag || "—").toUpperCase() || "—";
+  const overall = safeStr(model?.overall || "—") || "—";
 
   return `<!doctype html>
 <html>
@@ -141,15 +141,15 @@ export function renderClosureReportHtml(args: {
     <div class="meta">
       <div class="metaCard">
         <div class="metaLabel">Organisation</div>
-        <div class="metaValue">${escHtml(orgName || "â€”")}</div>
+        <div class="metaValue">${escHtml(orgName || "—")}</div>
       </div>
       <div class="metaCard">
         <div class="metaLabel">Client</div>
-        <div class="metaValue">${escHtml(clientName || "â€”")}</div>
+        <div class="metaValue">${escHtml(clientName || "—")}</div>
       </div>
       <div class="metaCard">
         <div class="metaLabel">Project ID</div>
-        <div class="metaValue metaCode">${escHtml(projectCode || "â€”")}</div>
+        <div class="metaValue metaCode">${escHtml(projectCode || "—")}</div>
       </div>
       <div class="metaCard">
         <div class="metaLabel">Generated</div>

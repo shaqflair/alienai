@@ -42,7 +42,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       publishedOnly,
     });
 
-    return new NextResponse(bytes, {
+    return new NextResponse(new Uint8Array(new Uint8Array(bytes)), {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `inline; filename="${filename}"`,

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useMemo, useState } from "react";
 import type { ArtifactDiffV1, SectionDiff, DiffOp } from "@/types/artifact-diff";

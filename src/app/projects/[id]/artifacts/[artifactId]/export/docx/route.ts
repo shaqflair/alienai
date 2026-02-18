@@ -477,7 +477,7 @@ export async function GET(
 
     const buf = await Packer.toBuffer(doc);
 
-    return new NextResponse(buf, {
+    return new NextResponse(new Uint8Array(new Uint8Array(buf)), {
       status: 200,
       headers: {
         "Content-Type":

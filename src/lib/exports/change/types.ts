@@ -1,4 +1,4 @@
-﻿export type ChangeAttachment = { 
+export type ChangeAttachment = { 
   name: string; 
   url: string 
 };

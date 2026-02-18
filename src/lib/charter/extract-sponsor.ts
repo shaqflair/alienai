@@ -1,4 +1,4 @@
-﻿export type ExtractedSponsor = {
+export type ExtractedSponsor = {
   name: string;
   role: string; // e.g. "Project Sponsor"
   source: "meta" | "approval_committee" | "stakeholders_section";

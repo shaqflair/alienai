@@ -1,7 +1,7 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
-import { sb, requireUser, requireProjectRole } from "@/lib/change/server-helpers";
+import { sb, requireUser, requireProjectRole, safeStr } from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
 
@@ -23,23 +23,27 @@ type PreviewStep = {
 };
 
 export async function POST(req: Request) {
-  const supabase = sb();
+  const supabase = await sb();
 
   try {
-    await requireUser(supabase);
+    const user = await requireUser(supabase);
 
-    const body = await req.json();
-    const projectId: string | null = body?.projectId ?? null;
-    const artifactType: string = body?.artifactType ?? "change_request";
+    const body = await req.json().catch(() => ({} as any));
+    const projectId: string | null = safeStr(body?.projectId ?? null).trim() || null;
+    const artifactType: string = safeStr(body?.artifactType ?? "change_request").trim() || "change_request";
 
-    const artifactIdFromBody: string | null = body?.artifactId ?? null;
-    const changeRequestId: string | null = body?.changeRequestId ?? null;
+    const artifactIdFromBody: string | null = safeStr(body?.artifactId ?? null).trim() || null;
+    const changeRequestId: string | null = safeStr(body?.changeRequestId ?? null).trim() || null;
 
     if (!projectId) {
       return NextResponse.json({ error: "Missing projectId" }, { status: 400 });
     }
 
-    await requireProjectRole(supabase, projectId, ["owner", "editor", "viewer"]);
+    // ✅ Access check: must be at least a member on the project
+    const viewerRole = await requireProjectRole(supabase, projectId, user.id);
+    if (!viewerRole) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     // 1) Active chain for project + artifact_type
     const { data: chain, error: chainErr } = await supabase
@@ -72,7 +76,6 @@ export async function POST(req: Request) {
 
       if (crErr) throw crErr;
 
-      // (optional safety) ensure the CR is for this project
       if (cr?.project_id && cr.project_id !== projectId) {
         return NextResponse.json({ error: "changeRequestId not in project" }, { status: 403 });
       }
@@ -84,9 +87,7 @@ export async function POST(req: Request) {
     if (artifactId) {
       const { data: artSteps, error: artErr } = await supabase
         .from("artifact_approval_steps")
-        .select(
-          "id, artifact_id, step_order, name, mode, min_approvals, round, status, approval_step_id, chain_id"
-        )
+        .select("id, artifact_id, step_order, name, mode, min_approvals, round, status, approval_step_id, chain_id")
         .eq("artifact_id", artifactId)
         .eq("chain_id", chain.id)
         .order("step_order", { ascending: true });
@@ -94,9 +95,7 @@ export async function POST(req: Request) {
       if (artErr) throw artErr;
 
       if (artSteps && artSteps.length) {
-        const templateStepIds = artSteps
-          .map((s: any) => s.approval_step_id)
-          .filter(Boolean);
+        const templateStepIds = artSteps.map((s: any) => s.approval_step_id).filter(Boolean);
 
         const approversByTemplateStep = new Map<string, PreviewApprover[]>();
 
@@ -126,9 +125,7 @@ export async function POST(req: Request) {
           min_approvals: s.min_approvals ?? null,
           threshold: null,
           requires_all: true,
-          approvers: s.approval_step_id
-            ? approversByTemplateStep.get(s.approval_step_id) ?? []
-            : [],
+          approvers: s.approval_step_id ? approversByTemplateStep.get(s.approval_step_id) ?? [] : [],
           source: "artifact",
         }));
 
@@ -190,9 +187,6 @@ export async function POST(req: Request) {
       meta: { approval_chain_id: chain.id, source: "template_steps" },
     });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || "Approval preview failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: e?.message || "Approval preview failed" }, { status: 500 });
   }
 }

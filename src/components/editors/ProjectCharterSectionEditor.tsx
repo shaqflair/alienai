@@ -1,4 +1,4 @@
-ï»¿// src/components/editors/ProjectCharterSectionEditor.tsx
+// src/components/editors/ProjectCharterSectionEditor.tsx
 "use client";
 
 import React, { useMemo, useState } from "react";
@@ -220,10 +220,10 @@ function currentLinePrefix(text: string, cursorPos: number) {
   const lastNl = before.lastIndexOf("\n");
   const line = before.slice(lastNl + 1);
   const trimmed = line.trimStart();
-  const hasBullet = trimmed.startsWith("â€¢") || trimmed.startsWith("-") || trimmed.startsWith("*");
+  const hasBullet = trimmed.startsWith("•") || trimmed.startsWith("-") || trimmed.startsWith("*");
   const indent = line.match(/^\s*/)?.[0] ?? "";
-  const markerMatch = trimmed.match(/^([â€¢\-\*])\s*/);
-  const marker = markerMatch?.[1] ?? "â€¢";
+  const markerMatch = trimmed.match(/^([•\-\*])\s*/);
+  const marker = markerMatch?.[1] ?? "•";
   return { indent, hasBullet, marker };
 }
 
@@ -371,7 +371,7 @@ export default function ProjectCharterSectionEditor({
                 value={safeStr(meta?.dates)}
                 disabled={readOnly}
                 onChange={(v) => onMetaChange({ ...meta, dates: v })}
-                placeholder="e.g., Start 01/03/2026 â€¢ End 30/06/2026"
+                placeholder="e.g., Start 01/03/2026 • End 30/06/2026"
               />
             </div>
 
@@ -575,7 +575,7 @@ function BulletsEditor({
         value={value}
         disabled={readOnly}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="â€¢ Add bullet points here..."
+        placeholder="• Add bullet points here..."
         onKeyDown={(e) => {
           if (readOnly) return;
 
@@ -839,7 +839,7 @@ function TableEditor({
           </Button>
           
           <div className="ml-auto text-xs text-slate-400">
-            {dataRows.length} row{dataRows.length !== 1 ? "s" : ""} Ã— {header.length} column{header.length !== 1 ? "s" : ""}
+            {dataRows.length} row{dataRows.length !== 1 ? "s" : ""} × {header.length} column{header.length !== 1 ? "s" : ""}
           </div>
         </div>
       ) : null}

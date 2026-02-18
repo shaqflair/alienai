@@ -58,7 +58,7 @@ export async function GET(
       printBackground: true,
     });
 
-    return new NextResponse(pdf, {
+    return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(pdf))), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

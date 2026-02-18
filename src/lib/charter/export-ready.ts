@@ -1,4 +1,4 @@
-﻿// ✅ Client-safe: NO "server-only" here.
+// ? Client-safe: NO "server-only" here.
 // This can be imported from Client Components (Editor banner) AND Server (routes).
 
 import type { CharterV2, CharterSection, CharterMeta, RowObj } from "@/lib/charter/charter-v2";

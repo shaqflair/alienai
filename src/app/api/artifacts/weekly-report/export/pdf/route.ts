@@ -1,8 +1,8 @@
-﻿import "server-only";
+import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
-// ✅ reuse your existing permission helpers if you have them
+// ? reuse your existing permission helpers if you have them
 // import { requireUser, requireProjectRole } from "@/lib/auth/guards";
 
 import { normalizeWeeklyReportV1 } from "@/lib/exports/weekly-report/transform";
@@ -28,7 +28,7 @@ export async function GET(req: Request) {
   const { data: auth } = await sb.auth.getUser();
   if (!auth?.user) return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
 
-  // ✅ If you have a shared guard, use it here.
+  // ? If you have a shared guard, use it here.
   // await requireProjectRole(sb, auth.user.id, projectId, "viewer");
 
   const { data: artifact, error } = await sb
@@ -52,7 +52,7 @@ export async function GET(req: Request) {
     // orgName/clientName: wire if you store them (same as Charter)
   });
 
-  return new NextResponse(buffer, {
+  return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(buffer))), {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",

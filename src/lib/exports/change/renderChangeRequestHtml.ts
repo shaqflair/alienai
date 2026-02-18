@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 const CHANGE_TABLE = "change_requests";
 const BUCKET = process.env.CHANGE_ATTACHMENTS_BUCKET || "change_attachments";
 
-/* ───────────────────────── helpers ───────────────────────── */
+/* ------------------------- helpers ------------------------- */
 
 function jsonErr(message: string, status = 400, details?: any) {
   return NextResponse.json({ ok: false, error: message, details }, { status });
@@ -53,7 +53,7 @@ function toDateGB(x: any) {
 
 function formatGBP(n: any) {
   const v = Number(n);
-  if (!Number.isFinite(v)) return "£0";
+  if (!Number.isFinite(v)) return "�0";
   return v.toLocaleString("en-GB", {
     style: "currency",
     currency: "GBP",
@@ -87,7 +87,7 @@ function formatUkDateTime(date = new Date()) {
   )}:${pad(date.getMinutes())}`;
 }
 
-/* ───────────────────────── storage helpers ───────────────────────── */
+/* ------------------------- storage helpers ------------------------- */
 
 function filenameFromStorageObjectName(objName: string) {
   const n = safeStr(objName);
@@ -101,7 +101,7 @@ async function listAttachmentNames(supabase: any, changeId: string) {
   return (data || []).map((o: any) => filenameFromStorageObjectName(o.name));
 }
 
-/* ───────────────────────── membership (tolerant) ───────────────────────── */
+/* ------------------------- membership (tolerant) ------------------------- */
 
 async function requireAuthAndMembership(supabase: any, projectId: string) {
   const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -143,7 +143,7 @@ async function requireAuthAndMembership(supabase: any, projectId: string) {
   }
 }
 
-/* ───────────────────────── excel styling ───────────────────────── */
+/* ------------------------- excel styling ------------------------- */
 
 function borderAll(cell: ExcelJS.Cell) {
   cell.border = {
@@ -174,7 +174,7 @@ function zebra(row: ExcelJS.Row, idx: number) {
 }
 
 /**
- * ✅ FIXED:
+ * ? FIXED:
  * headers must start at Column A (NO leading null)
  */
 function writeHeadersAtRow(ws: ExcelJS.Worksheet, headerRowNumber: number) {
@@ -188,7 +188,7 @@ function writeHeadersAtRow(ws: ExcelJS.Worksheet, headerRowNumber: number) {
   styleHeaderRow(row);
 }
 
-/* ───────────────────────── ID logic ───────────────────────── */
+/* ------------------------- ID logic ------------------------- */
 
 function deriveCrId(cr: any) {
   const seq = cr?.seq;
@@ -197,7 +197,7 @@ function deriveCrId(cr: any) {
   return id ? `CR-${id.slice(0, 8).toUpperCase()}` : "CR";
 }
 
-/* ───────────────────────── sheet builders ───────────────────────── */
+/* ------------------------- sheet builders ------------------------- */
 
 type ChangeRow = {
   id: string;
@@ -241,8 +241,8 @@ function addOverviewSheet(
     ["Document", "Change Request"],
     ["Generated", meta.generated],
     ["Project", meta.projectName],
-    ["Project Code", meta.projectCode || "—"],
-    ["Client", meta.clientName || "—"],
+    ["Project Code", meta.projectCode || "�"],
+    ["Client", meta.clientName || "�"],
     ["Filter", `change_id = ${meta.changeId}`],
   ];
 
@@ -297,7 +297,7 @@ function addLaneSheet(wb: ExcelJS.Workbook, sheetName: string, brandARGB: string
   return ws;
 }
 
-/* ───────────────────────── main handler ───────────────────────── */
+/* ------------------------- main handler ------------------------- */
 
 async function handle(req: NextRequest, routeId: string) {
   try {
@@ -417,7 +417,7 @@ async function handle(req: NextRequest, routeId: string) {
     const buffer = await wb.xlsx.writeBuffer();
     const filename = `${sanitizeFilename(crId)}_Change_Request.xlsx`;
 
-    return new NextResponse(Buffer.from(buffer as any), {
+    return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(Buffer.from(buffer as any)))), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

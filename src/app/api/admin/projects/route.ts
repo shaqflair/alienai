@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 import { NextResponse } from "next/server";
 import { requirePlatformAdmin } from "@/lib/auth/requirePlatformAdmin";
 import { createAdminClient } from "@/utils/supabase/admin";

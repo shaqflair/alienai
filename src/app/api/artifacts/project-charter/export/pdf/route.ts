@@ -1,4 +1,4 @@
-﻿// src/app/api/artifacts/charter/export/pdf/route.ts
+// src/app/api/artifacts/charter/export/pdf/route.ts
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";

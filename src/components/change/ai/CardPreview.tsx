@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import React from "react";
 
 type PreviewData = {
@@ -39,7 +39,7 @@ export default function CardPreview({
           <span style={{ color: "rgba(255,255,255,0.72)", fontSize: 12 }}>Context without leaving board</span>
         </div>
         <button className="aiBubbleBtn" style={{ width: 30, height: 30 }} onClick={onClose} title="Close preview">
-          ×
+          �
         </button>
       </div>
 

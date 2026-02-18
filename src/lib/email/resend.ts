@@ -1,4 +1,4 @@
-﻿import { Resend } from "resend";
+import { Resend } from "resend";
 
 function requireEnv(name: string) {
   const v = process.env[name];

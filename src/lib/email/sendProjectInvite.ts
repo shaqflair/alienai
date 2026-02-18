@@ -1,4 +1,4 @@
-Ôªøimport { getResendClient, getFromAddress } from "./resend";
+import { getResendClient, getFromAddress } from "./resend";
 
 export async function sendProjectInviteEmail(args: {
   to: string;
@@ -9,7 +9,7 @@ export async function sendProjectInviteEmail(args: {
   inviteId?: string;
   projectId?: string;
 }) {
-  // Guardrails: common source of ‚Äúemails not received‚Äù
+  // Guardrails: common source of ìemails not receivedî
   if (!args.to || !args.to.includes("@")) {
     throw new Error(`Invalid recipient: ${args.to}`);
   }
@@ -20,7 +20,7 @@ export async function sendProjectInviteEmail(args: {
   const resend = getResendClient();
   const from = getFromAddress();
 
-  const subject = `You‚Äôve been invited to join ${args.projectTitle}`;
+  const subject = `Youíve been invited to join ${args.projectTitle}`;
 
   const inviter = escapeHtml(args.inviterEmail || "Someone");
   const project = escapeHtml(args.projectTitle);
@@ -28,7 +28,7 @@ export async function sendProjectInviteEmail(args: {
 
   const html = `
   <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.5;">
-    <h2 style="margin:0 0 12px;">You‚Äôve been invited</h2>
+    <h2 style="margin:0 0 12px;">Youíve been invited</h2>
     <p style="margin:0 0 8px;"><b>${inviter}</b> invited you to join:</p>
     <p style="margin:0 0 16px; font-size:16px;"><b>${project}</b></p>
     <p style="margin:0 0 18px;">
@@ -38,14 +38,14 @@ export async function sendProjectInviteEmail(args: {
       </a>
     </p>
     <p style="color:#666;font-size:12px;margin:0;">
-      If the button doesn‚Äôt work, copy and paste this link:<br/>
+      If the button doesnít work, copy and paste this link:<br/>
       <span>${inviteUrl}</span>
     </p>
   </div>
   `;
 
   const text =
-    `You‚Äôve been invited to join ${args.projectTitle}\n\n` +
+    `Youíve been invited to join ${args.projectTitle}\n\n` +
     `Accept: ${args.inviteUrl}\n`;
 
   const { data, error } = await resend.emails.send({
@@ -77,7 +77,7 @@ export async function sendProjectInviteEmail(args: {
     throw new Error(`Resend failed: ${error.message}${details ? ` (${details})` : ""}`);
   }
 
-  // data.id is your message id ‚Äî store it in DB for traceability
+  // data.id is your message id ó store it in DB for traceability
   return data; // { id: "..." }
 }
 

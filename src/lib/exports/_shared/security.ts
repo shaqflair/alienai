@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 export function looksMissingColumn(err: any) {
   const msg = String(err?.message || err || "").toLowerCase();

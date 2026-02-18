@@ -1,4 +1,4 @@
-ï»¿/* src/lib/change/changeRequests.ts
+/* src/lib/change/changeRequests.ts
    Change Requests helpers (Supabase)
 */
 
@@ -128,7 +128,7 @@ export async function createChangeRequest(
     impact_analysis: normalizeImpact(input.impact_analysis),
   };
 
-  // If youâ€™re creating from server routes, set requester_id there (recommended).
+  // If you’re creating from server routes, set requester_id there (recommended).
   if (typeof input.requester_id !== "undefined") payload.requester_id = input.requester_id;
 
   const { data, error } = await supabase
@@ -233,7 +233,7 @@ export async function rejectChangeRequest(
  * await createChangeRequest(supabase, {
  *   project_id: projectId,
  *   title: "Extend Firewall Scope",
- *   description: "Vendor access for Phase 2â€¦",
+ *   description: "Vendor access for Phase 2…",
  *   priority: "High",
  *   tags: ["Security","Customer-Driven"],
  *   impact_analysis: { days: 12, cost: 45000, risk: "Security review dependency" },

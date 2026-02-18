@@ -1,4 +1,5 @@
-﻿import "server-only";
+﻿// src/app/api/organisations/[id]/route.ts
+import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -28,7 +29,9 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
   const { data: auth } = await sb.auth.getUser();
   if (!auth?.user) return err("Not authenticated", 401);
 
-  const organisationId = params.id;
+  // FIX: Await the params Promise to get the id (Line 31)
+  const resolvedParams = await params;
+  const organisationId = resolvedParams.id;
 
   try {
     await requireAdmin(sb, auth.user.id, organisationId);
@@ -42,4 +45,3 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
 
   return ok({ deleted: true });
 }
-

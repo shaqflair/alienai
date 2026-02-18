@@ -1,4 +1,4 @@
-﻿// src/components/editors/ScheduleGanttEditor.tsx
+// src/components/editors/ScheduleGanttEditor.tsx
 "use client";
 
 import React, {
@@ -58,9 +58,9 @@ type DragState = {
 type Anchor = { x1: number; y1: number; x2: number; y2: number };
 type DepPath = { predId: string; succId: string; a: Anchor };
 
-/* ────────────────────────────────────────────────
+/* ------------------------------------------------
    Pure helpers
-──────────────────────────────────────────────── */
+------------------------------------------------ */
 
 function uuidish() {
   return (
@@ -123,7 +123,7 @@ function parseDeps(x: unknown): string[] {
 function fmtWeekHeader(weekStart: Date): string {
   const s = weekStart.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
   const e = addDays(weekStart, 6).toLocaleDateString(undefined, { day: "2-digit", month: "short" });
-  return `${s} – ${e}`;
+  return `${s} � ${e}`;
 }
 
 function normalizeInitial(initialJson: any): ScheduleDocV1 {
@@ -422,9 +422,9 @@ function buildScheduleFromWbs(args: {
   return { version: 1, type: "schedule", anchor_date: anchor, phases, items };
 }
 
-/* ────────────────────────────────────────────────
+/* ------------------------------------------------
    Main Component (OLD STYLE, with lazy WBS fetch on click)
-──────────────────────────────────────────────── */
+------------------------------------------------ */
 
 export default function ScheduleGanttEditor({
   projectId,
@@ -452,7 +452,7 @@ export default function ScheduleGanttEditor({
   const [msg, setMsg] = useState("");
   const [dirty, setDirty] = useState(false);
 
-  // ✅ store server updated_at here for If-Match
+  // ? store server updated_at here for If-Match
   const etagRef = useRef<string | null>(null);
   const hydratedOnceRef = useRef(false);
   const lastHydratedFingerprintRef = useRef<string>("");
@@ -461,7 +461,7 @@ export default function ScheduleGanttEditor({
   const [panelMode, setPanelMode] = useState<PanelMode>("closed");
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
-  // ✅ WBS state (do NOT fetch on mount)
+  // ? WBS state (do NOT fetch on mount)
   const [wbsJson, setWbsJson] = useState<any | null>(latestWbsJson ?? null);
   const [wbsLoading, setWbsLoading] = useState(false);
 
@@ -489,7 +489,7 @@ export default function ScheduleGanttEditor({
       if (!res.ok || j?.ok === false) throw new Error(j?.error || `WBS fetch failed (${res.status})`);
       return j?.content_json ?? null;
     } catch (e: any) {
-      setMsg(`⛔ ${e?.message ?? "Could not load WBS"}`);
+      setMsg(`? ${e?.message ?? "Could not load WBS"}`);
       return null;
     } finally {
       setWbsLoading(false);
@@ -522,7 +522,7 @@ export default function ScheduleGanttEditor({
       return;
     }
     if (nextFp && nextFp === lastHydratedFingerprintRef.current) return;
-    setMsg("⚠️ A newer server version is available. Save your changes or reload.");
+    setMsg("?? A newer server version is available. Save your changes or reload.");
   }, [initialJson, dirty]);
 
   useEffect(() => {
@@ -772,11 +772,11 @@ export default function ScheduleGanttEditor({
           parseISODate(it.type === "milestone" ? it.start : safeStr(it.end) || it.start) ?? s;
 
         if (s && s.getTime() < projStart.getTime()) {
-          setMsg(`⛔ "${it.name}" starts before project start date.`);
+          setMsg(`? "${it.name}" starts before project start date.`);
           return;
         }
         if (e && e.getTime() > projFinish.getTime()) {
-          setMsg(`⛔ "${it.name}" ends after project finish date.`);
+          setMsg(`? "${it.name}" ends after project finish date.`);
           return;
         }
       }
@@ -797,7 +797,7 @@ export default function ScheduleGanttEditor({
           Accept: "application/json",
         };
 
-        // ✅ Optimistic concurrency (your API checks If-Match against artifacts.updated_at)
+        // ? Optimistic concurrency (your API checks If-Match against artifacts.updated_at)
         const ifMatch = safeStr(etagRef.current).trim();
         if (ifMatch) headers["If-Match"] = ifMatch;
 
@@ -805,14 +805,14 @@ export default function ScheduleGanttEditor({
           method: "POST",
           headers,
           body: JSON.stringify(payload),
-          // ✅ Same-origin normally includes cookies automatically; this makes it explicit
+          // ? Same-origin normally includes cookies automatically; this makes it explicit
           credentials: "include",
         });
 
         const j = await res.json().catch(() => ({}));
 
         if (!res.ok) {
-          // ✅ Your route returns 409 for conflict
+          // ? Your route returns 409 for conflict
           if (res.status === 409) {
             throw new Error(
               j?.error ||
@@ -822,7 +822,7 @@ export default function ScheduleGanttEditor({
           throw new Error(j?.error || `Save failed (${res.status})`);
         }
 
-        // ✅ Prefer updated_at from returned artifact for the next If-Match
+        // ? Prefer updated_at from returned artifact for the next If-Match
         const nextUpdatedAt =
           safeStr(j?.artifact?.updated_at) ||
           safeStr(j?.artifact?.updatedAt) ||
@@ -837,10 +837,10 @@ export default function ScheduleGanttEditor({
         setDirty(false);
         router.refresh();
 
-        setMsg(showToast ? "✅ Saved" : "Saved");
+        setMsg(showToast ? "? Saved" : "Saved");
         setTimeout(() => setMsg(""), showToast ? 1200 : 800);
       } catch (e: any) {
-        if (showToast) setMsg(`⛔ ${e?.message ?? "Save failed"}`);
+        if (showToast) setMsg(`? ${e?.message ?? "Save failed"}`);
       } finally {
         savingRef.current = false;
       }
@@ -1287,7 +1287,7 @@ export default function ScheduleGanttEditor({
 
     const rows = normalizeWbs(loaded).rows;
     if (!rows.length) {
-      setMsg("⛔ No WBS found for this project.");
+      setMsg("? No WBS found for this project.");
       return;
     }
 
@@ -1298,7 +1298,7 @@ export default function ScheduleGanttEditor({
     });
 
     if (!imported) {
-      setMsg("⛔ WBS format not recognised (no rows).");
+      setMsg("? WBS format not recognised (no rows).");
       return;
     }
 
@@ -1362,7 +1362,7 @@ export default function ScheduleGanttEditor({
 
     setSelectedItemId(null);
     setPanelMode("closed");
-    setMsg("✅ Appended from WBS (remember to Save schedule)");
+    setMsg("? Appended from WBS (remember to Save schedule)");
     setTimeout(() => setMsg(""), 1400);
     setTimeout(() => recomputeDependencyPaths(), 0);
   }
@@ -1467,9 +1467,9 @@ export default function ScheduleGanttEditor({
     );
   };
 
-  /* ────────────────────────────────────────────────
+  /* ------------------------------------------------
      Render
-  ───────────────────────────────────────────────── */
+  ------------------------------------------------- */
 
   return (
     <div className="h-screen flex flex-col bg-slate-50 text-slate-900">
@@ -1479,7 +1479,7 @@ export default function ScheduleGanttEditor({
           <div className="min-w-0 flex-1">
             <h1 className="text-xl font-semibold text-slate-900 truncate">{titleText}</h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              {projectStartDate && projectFinishDate ? `${projectStartDate} → ${projectFinishDate}` : "Schedule / Roadmap"}
+              {projectStartDate && projectFinishDate ? `${projectStartDate} ? ${projectFinishDate}` : "Schedule / Roadmap"}
             </p>
           </div>
 
@@ -1487,11 +1487,11 @@ export default function ScheduleGanttEditor({
             {msg && (
               <span
                 className={`text-sm px-3 py-1.5 rounded-lg ${
-                  msg.includes("✅")
+                  msg.includes("?")
                     ? "bg-emerald-50 text-emerald-700"
-                    : msg.includes("⛔")
+                    : msg.includes("?")
                       ? "bg-red-50 text-red-700"
-                      : msg.includes("⚠️")
+                      : msg.includes("??")
                         ? "bg-amber-50 text-amber-700"
                         : "bg-slate-100 text-slate-600"
                 }`}
@@ -1507,7 +1507,7 @@ export default function ScheduleGanttEditor({
                 className="px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 title={wbsJson ? "Append tasks from WBS" : "Load WBS and append tasks"}
               >
-                {wbsLoading ? "Loading WBS…" : "Import WBS"}
+                {wbsLoading ? "Loading WBS�" : "Import WBS"}
               </button>
             )}
 
@@ -1572,7 +1572,7 @@ export default function ScheduleGanttEditor({
                 disabled={!canPrev()}
                 className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg disabled:opacity-40 transition-colors"
               >
-                ←
+                ?
               </button>
               <span className="text-sm text-slate-600 min-w-[80px] text-center">
                 Week {pageStartWeek + 1}-{Math.min(pageStartWeek + view, 52)}
@@ -1582,7 +1582,7 @@ export default function ScheduleGanttEditor({
                 disabled={!canNext()}
                 className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg disabled:opacity-40 transition-colors"
               >
-                →
+                ?
               </button>
             </div>
           )}
@@ -1616,7 +1616,7 @@ export default function ScheduleGanttEditor({
                   onClick={() => setSearch("")}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                 >
-                  ×
+                  �
                 </button>
               )}
             </div>
@@ -1664,7 +1664,7 @@ export default function ScheduleGanttEditor({
                   onChange={(e) => setRangeFrom(e.target.value)}
                   className="px-2 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400"
                 />
-                <span className="text-slate-400">→</span>
+                <span className="text-slate-400">?</span>
                 <input
                   type="date"
                   value={rangeTo}
@@ -1724,7 +1724,7 @@ export default function ScheduleGanttEditor({
             <span>Done</span>
           </div>
           <div className="h-3 w-px bg-slate-300 mx-1" />
-          <span>Drag to move • Drag right edge to resize</span>
+          <span>Drag to move � Drag right edge to resize</span>
         </div>
       </header>
 
@@ -1847,7 +1847,7 @@ export default function ScheduleGanttEditor({
                         )}
                       </div>
 
-                      {/* ✅ ACTION-FIRST: make creation obvious */}
+                      {/* ? ACTION-FIRST: make creation obvious */}
                       {!isCollapsed && !readOnly && (
                         <div className="mt-3">
                           <div className="flex items-center justify-between">
@@ -1886,7 +1886,7 @@ export default function ScheduleGanttEditor({
                           </div>
 
                           <div className="mt-2 text-[11px] text-slate-400">
-                            Tip: click a bar to edit • drag to move • resize end for duration
+                            Tip: click a bar to edit � drag to move � resize end for duration
                           </div>
                         </div>
                       )}
@@ -2121,13 +2121,13 @@ export default function ScheduleGanttEditor({
                     onClick={() => shiftItemByWeeks(selectedItem.id, -1)}
                     className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
                   >
-                    ← 1 Week
+                    ? 1 Week
                   </button>
                   <button
                     onClick={() => shiftItemByWeeks(selectedItem.id, 1)}
                     className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
                   >
-                    1 Week →
+                    1 Week ?
                   </button>
                   <button
                     onClick={() => duplicateItem(selectedItem.id)}
@@ -2239,8 +2239,8 @@ export default function ScheduleGanttEditor({
                             >
                               <div className="font-medium text-slate-900">{it.name || "(untitled)"}</div>
                               <div className="text-xs text-slate-500">
-                                {it.type} • {it.start}
-                                {it.type !== "milestone" && it.end ? ` → ${it.end}` : ""}
+                                {it.type} � {it.start}
+                                {it.type !== "milestone" && it.end ? ` ? ${it.end}` : ""}
                               </div>
                             </button>
                           ))
@@ -2268,7 +2268,7 @@ export default function ScheduleGanttEditor({
                               }}
                               className="hover:text-red-600"
                             >
-                              ×
+                              �
                             </button>
                           )}
                         </div>

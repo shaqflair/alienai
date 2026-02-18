@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useCallback, useMemo, useState } from "react";
 import type { Patch, Section } from "@/lib/ai/charter-ai";

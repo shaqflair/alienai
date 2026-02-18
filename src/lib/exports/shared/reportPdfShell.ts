@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 import { escapeHtml } from "./registerPdfShell";
 
 export type ReportCard = { k: string; v: string; vClass?: string };
@@ -161,7 +161,7 @@ export function renderStakeholderStyleReportHtml(args: {
       return `
         <div class="card">
           <div class="k">${esc(c.k)}</div>
-          <div class="v ${safeClass}">${esc(c.v || "—")}</div>
+          <div class="v ${safeClass}">${esc(c.v || "�")}</div>
         </div>
       `;
     })

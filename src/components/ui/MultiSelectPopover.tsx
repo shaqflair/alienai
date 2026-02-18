@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import * as React from "react";
 
@@ -25,7 +25,7 @@ export default function MultiSelectPopover(props: {
     options,
     onChange,
     disabled,
-    placeholder = "Select…",
+    placeholder = "Select�",
     widthClassName = "w-[320px]",
     maxChips = 2,
   } = props;
@@ -129,7 +129,7 @@ export default function MultiSelectPopover(props: {
                       title="Remove"
                       aria-label="Remove"
                     >
-                      ×
+                      �
                     </span>
                   )}
                 </span>
@@ -140,7 +140,7 @@ export default function MultiSelectPopover(props: {
           )}
         </div>
 
-        <span className="ml-2 text-gray-400">▾</span>
+        <span className="ml-2 text-gray-400">?</span>
       </div>
 
       {/* Dropdown */}
@@ -151,7 +151,7 @@ export default function MultiSelectPopover(props: {
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search…"
+              placeholder="Search�"
               className="w-full rounded-md border px-2 py-1 text-sm outline-none"
             />
           </div>
@@ -174,7 +174,7 @@ export default function MultiSelectPopover(props: {
                     )}
                   >
                     <span>{o.label}</span>
-                    <span className="text-xs">{active ? "✓" : ""}</span>
+                    <span className="text-xs">{active ? "?" : ""}</span>
                   </div>
                 );
               })

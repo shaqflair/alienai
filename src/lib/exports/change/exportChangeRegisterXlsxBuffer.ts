@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import { createClient } from "@/utils/supabase/server";
 import ExcelJS from "exceljs";
@@ -246,13 +246,13 @@ function addOverviewSheet(wb: ExcelJS.Workbook, meta: { projectTitle: string; pr
   ws.getCell("B1").value = "Value";
   styleHeaderRow(ws.getRow(1));
 
-  // ✅ FILTER ROW REMOVED (per request)
+  // ? FILTER ROW REMOVED (per request)
   const rows: Array<[string, string]> = [
     ["Document", "Change Register"],
     ["Generated", meta.generated],
     ["Project", meta.projectTitle],
-    ["Project Code", meta.projectCode || "—"],
-    ["Client", meta.clientName || "—"],
+    ["Project Code", meta.projectCode || "�"],
+    ["Client", meta.clientName || "�"],
   ];
 
   let r = 2;

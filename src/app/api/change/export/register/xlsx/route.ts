@@ -1,4 +1,4 @@
-﻿// src/app/api/change/export/register/xlsx/route.ts
+// src/app/api/change/export/register/xlsx/route.ts
 import "server-only";
 
 import { NextRequest } from "next/server";

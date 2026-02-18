@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 import { createClient } from "@/utils/supabase/server";
 import type { OrchestratorOptions, OrchestratorRunResult } from "./types";
 import { routeEventToSuggestions } from "./router";
@@ -22,7 +22,7 @@ export async function runOrchestratorOnce(
   const limit = Math.max(1, Math.min(50, Number(opts.limit ?? 10)));
   const dryRun = Boolean(opts.dryRun);
 
-  // 1️⃣ Fetch unprocessed events
+  // 1?? Fetch unprocessed events
   const { data: events, error: evErr } = await supabase
     .from("artifact_events")
     .select(
@@ -40,7 +40,7 @@ export async function runOrchestratorOnce(
   let failed = 0;
   let last_event_id: string | null = null;
 
-  // 2️⃣ Process each event
+  // 2?? Process each event
   for (const evt of (events ?? []) as ArtifactEventRow[]) {
     last_event_id = evt.id;
 
@@ -54,7 +54,7 @@ export async function runOrchestratorOnce(
         payload: evt.payload,
       } as any);
 
-      // 3️⃣ Write AI suggestions
+      // 3?? Write AI suggestions
       if (!dryRun && suggestions.length > 0) {
         const { error: sugErr } = await supabase
           .from("ai_suggestions")
@@ -77,7 +77,7 @@ export async function runOrchestratorOnce(
         }
       }
 
-      // 4️⃣ Mark event as processed
+      // 4?? Mark event as processed
       if (!dryRun) {
         const { error: markErr } = await supabase
           .from("artifact_events")

@@ -90,7 +90,7 @@ export async function GET(req: NextRequest) {
     const baseName = sanitizeFilename(filenameParam || `WBS_${project.code || "P-00000"}_${timestamp}`);
     const filename = baseName.toLowerCase().endsWith(".xlsx") ? baseName : `${baseName}.xlsx`;
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(buffer))), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

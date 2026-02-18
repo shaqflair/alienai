@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import Link from "next/link";
 import { bannerClass, flashCls, type FlashTone } from "../_lib/projects-utils";
@@ -23,12 +23,12 @@ export default function ProjectsHeader({
         <div className="inline-flex items-center gap-3">
           {/* Brand Logo / Icon */}
           <div className="h-10 w-10 rounded-2xl border border-slate-800 bg-[#0b1220] grid place-items-center shadow-[0_0_30px_rgba(0,212,255,0.08)]">
-            <span className="text-cyan-300 font-black">Λ</span>
+            <span className="text-cyan-300 font-black">?</span>
           </div>
           <div>
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-white">Projects</h1>
             <p className="mt-1 text-sm text-slate-400">
-              Your portfolio entry point — search, switch views, and jump into governance.
+              Your portfolio entry point � search, switch views, and jump into governance.
             </p>
           </div>
         </div>

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React from "react";
 import ProjectCharterEditorFormLazy from "@/components/editors/ProjectCharterEditorFormLazy";
@@ -17,12 +17,12 @@ export default function ProjectCharterEditorForm(props: {
 }) {
   const { artifactId } = props;
 
-  // ✅ Current exporters (v2)
+  // ? Current exporters (v2)
   const pdf = href(`/api/artifacts/charter/export/pdf?artifactId=${encodeURIComponent(artifactId)}`);
   const docx = href(`/api/artifacts/charter/export/docx?artifactId=${encodeURIComponent(artifactId)}`);
   const xlsx = href(`/api/artifacts/charter/export/xlsx?artifactId=${encodeURIComponent(artifactId)}`);
 
-  // ✅ Legacy exporters (v1) — keep these visible like your UI showed
+  // ? Legacy exporters (v1) � keep these visible like your UI showed
   const legacyPdf = href(`/api/artifacts/${encodeURIComponent(artifactId)}/export/pdf`);
   const legacyDocx = href(`/api/artifacts/${encodeURIComponent(artifactId)}/export/docx`);
 

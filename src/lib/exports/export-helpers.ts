@@ -1,4 +1,4 @@
-Ôªø// src/lib/exports/export-helpers.ts
+// src/lib/exports/export-helpers.ts
 import "server-only";
 
 /**
@@ -75,7 +75,7 @@ export function fmtDateUK(d = new Date()): string {
 
 export function clampText(s: any, max = 160): string {
   const t = safeStr(s);
-  return t.length > max ? `${t.slice(0, Math.max(0, max - 1))}‚Ä¶` : t;
+  return t.length > max ? `${t.slice(0, Math.max(0, max - 1))}Ö` : t;
 }
 
 export function csvCell(v: any): string {
@@ -100,7 +100,7 @@ export function filenameFromDisposition(header: string | null): string | null {
 }
 
 /**
- * Small util for safe ‚Äútruthy‚Äù string lists where the DB might return null/object/etc.
+ * Small util for safe ìtruthyî string lists where the DB might return null/object/etc.
  */
 export function uniqStrings(list: any[]): string[] {
   const out: string[] = [];

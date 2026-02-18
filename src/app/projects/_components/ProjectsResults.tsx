@@ -1,14 +1,14 @@
-Ôªøimport "server-only";
+import "server-only";
 
 import Link from "next/link";
 import { buildQs, safeStr, type ProjectListRow } from "../_lib/projects-utils";
 
 function fmtDate(d?: any) {
   const s = safeStr(d).trim();
-  if (!s) return "‚Äî";
+  if (!s) return "ó";
   // keep YYYY-MM-DD if already; else fallback to substring
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  return s.slice(0, 10) || "‚Äî";
+  return s.slice(0, 10) || "ó";
 }
 
 function statusTone(status?: string) {
@@ -65,7 +65,7 @@ export default function ProjectsResults({
             <input
               name="q"
               defaultValue={q}
-              placeholder="Search projects‚Ä¶"
+              placeholder="Search projectsÖ"
               className="h-10 w-full sm:w-72 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
             />
 
@@ -99,7 +99,7 @@ export default function ProjectsResults({
                   : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50",
               ].join(" ")}
             >
-              A‚ÄìZ
+              AñZ
             </Link>
           </div>
         </div>
@@ -163,7 +163,7 @@ export default function ProjectsResults({
                           </div>
 
                           <div className="mt-1 text-xs text-gray-500">
-                            Owner ‚Ä¢ ID: {String(p.project_code ?? "‚Äî")} ‚Ä¢ Created {fmtDate(p.created_at)}
+                            Owner ï ID: {String(p.project_code ?? "ó")} ï Created {fmtDate(p.created_at)}
                           </div>
 
                           {/* Quick nav chips */}
@@ -194,7 +194,7 @@ export default function ProjectsResults({
                     {/* SCHEDULE */}
                     <td className="px-5 py-5 align-top">
                       <div className="text-sm text-gray-900">
-                        {fmtDate(p.start_date)} ‚Äî {fmtDate(p.finish_date)}
+                        {fmtDate(p.start_date)} ó {fmtDate(p.finish_date)}
                       </div>
                       <div className="mt-2 text-xs text-gray-500">Schedule window</div>
                     </td>
@@ -272,7 +272,7 @@ export default function ProjectsResults({
       </div>
 
       <div className="text-xs text-gray-400">
-        Tip: this layout is intentionally ‚Äúsheet-like‚Äù (grid lines + hover rows) to match your reference.
+        Tip: this layout is intentionally ìsheet-likeî (grid lines + hover rows) to match your reference.
       </div>
     </section>
   );

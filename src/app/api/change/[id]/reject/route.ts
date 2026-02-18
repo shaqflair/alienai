@@ -1,4 +1,4 @@
-﻿// src/app/api/change/[id]/reject/route.ts
+// src/app/api/change/[id]/reject/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -107,7 +107,7 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
 
 export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>}) {
   try {
-    const id = safeStr(ctx?.params?.id).trim();
+    const id = safeStr((await ctx.params).id).trim();
     if (!id) return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
 
     const supabase = await sb();

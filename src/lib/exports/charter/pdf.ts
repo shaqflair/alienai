@@ -1,4 +1,4 @@
-ï»¿import "server-only";
+import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -64,21 +64,21 @@ async function buildMetaAndDoc(args: {
 
   const projectCode = projectRow?.project_code
     ? `P-${String(projectRow.project_code).padStart(5, "0")}`
-    : "â€”";
+    : "—";
 
-  let orgName = "â€”";
+  let orgName = "—";
   const orgId = projectRow?.organisation_id;
   if (orgId) {
     const { data: org } = await supabase.from("organisations").select("name").eq("id", orgId).single();
-    orgName = org?.name || "â€”";
+    orgName = org?.name || "—";
   }
 
   const meta: CharterExportMeta = {
     projectName: (artifact as any).title || projectRow?.title || "Project",
     projectCode,
     organisationName: orgName,
-    clientName: projectRow?.client_name || "â€”",
-    pmName: doc?.meta?.pm_name || doc?.meta?.project_manager || "â€”",
+    clientName: projectRow?.client_name || "—",
+    pmName: doc?.meta?.pm_name || doc?.meta?.project_manager || "—",
     status: doc?.meta?.status || "Draft",
     generated: formatUkDateTime(),
     generatedDate: formatUkDate(),
@@ -120,7 +120,7 @@ export async function exportCharterPdf(args: {
     const pdfBuffer = await exportCharterPdfBuffer({ doc, meta });
     const filename = charterPdfFilename(meta);
 
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(pdfBuffer))), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

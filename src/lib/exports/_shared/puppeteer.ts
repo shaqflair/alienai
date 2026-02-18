@@ -25,7 +25,6 @@ function isTruthy(v: any) {
 }
 
 function isServerlessRuntime() {
-  // ✅ Strong signals only. (AWS_REGION can exist outside Lambda.)
   return (
     isTruthy(process.env.VERCEL) ||
     Boolean(process.env.VERCEL_ENV) ||
@@ -33,7 +32,6 @@ function isServerlessRuntime() {
   );
 }
 
-// Optional: force a local Chrome path in dev
 function localExecutablePath() {
   return (
     safeStr(process.env.PUPPETEER_EXECUTABLE_PATH) ||
@@ -43,7 +41,6 @@ function localExecutablePath() {
   );
 }
 
-// Keep a singleton across invocations (best-effort; serverless may recycle)
 declare global {
   // eslint-disable-next-line no-var
   var __alienai_browser__: Browser | undefined;
@@ -55,37 +52,46 @@ async function createBrowser(): Promise<Browser> {
   const isServerless = isServerlessRuntime();
 
   if (isServerless) {
-    const puppeteerCore = (await import("puppeteer-core")).default;
-    const chromium = (await import("@sparticuz/chromium")).default;
+    const puppeteerCore = await import("puppeteer-core");
+    // ✅ FIX: cast to any to avoid TS errors on headless/defaultViewport on some versions
+    const chromium = (await import("@sparticuz/chromium")).default as any;
 
-    return puppeteerCore.launch({
+    const launchOpts: any = {
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
       executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
-      ignoreHTTPSErrors: true,
+      headless: chromium.headless, // boolean | "shell" depending on version
       timeout: 15_000,
-    });
+      ignoreHTTPSErrors: true, // typings vary; runtime supports it
+    };
+
+    return (await puppeteerCore.launch(launchOpts)) as unknown as Browser;
   }
 
-  // Local dev: prefer full puppeteer if available (auto-managed chromium),
-  // else fallback to puppeteer-core with an executable path.
+  // Local dev: prefer full puppeteer if available, else fallback to puppeteer-core
   try {
-    const puppeteer = (await import("puppeteer")).default;
+    const puppeteer = await import("puppeteer");
     const b = await puppeteer.launch({
-      headless: "new",
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+      headless: true,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+      ],
     });
     return b as unknown as Browser;
   } catch {
-    const puppeteerCore = (await import("puppeteer-core")).default;
-    const chromium = (await import("@sparticuz/chromium")).default;
+    const puppeteerCore = await import("puppeteer-core");
+    // ✅ FIX: cast to any
+    const chromium = (await import("@sparticuz/chromium")).default as any;
 
-    const execPath = localExecutablePath() || (await chromium.executablePath().catch(() => ""));
-    return puppeteerCore.launch({
+    const execPath =
+      localExecutablePath() || (await chromium.executablePath().catch(() => ""));
+
+    const launchOpts: any = {
       ...(execPath ? { executablePath: execPath } : {}),
-      headless: "new",
-      ignoreHTTPSErrors: true,
+      headless: true,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
@@ -94,7 +100,10 @@ async function createBrowser(): Promise<Browser> {
         "--no-zygote",
       ],
       timeout: 30_000,
-    });
+      ignoreHTTPSErrors: true,
+    };
+
+    return (await puppeteerCore.launch(launchOpts)) as unknown as Browser;
   }
 }
 
@@ -119,34 +128,12 @@ function ms(n: number) {
 
 export type HtmlToPdfArgs = {
   html: string;
-
-  /**
-   * If your HTML references remote images/fonts, `networkidle2` is useful.
-   * If everything is inline, `domcontentloaded` is usually enough.
-   */
   waitUntil?: "domcontentloaded" | "networkidle0" | "networkidle2";
-
-  /**
-   * Hard caps to avoid stuck renders.
-   */
   navigationTimeoutMs?: number;
   renderTimeoutMs?: number;
-
-  /**
-   * UI-faithful mode matches layout like the app:
-   * - screen media
-   * - setViewport (useful for responsive CSS)
-   * - double RAF settle
-   * - explicit @page sizing (prevents landscape clipping)
-   */
   emulateScreen?: boolean;
   viewport?: { width: number; height: number; deviceScaleFactor?: number };
   forceA4PageSize?: boolean;
-
-  /**
-   * Puppeteer PDF options override.
-   * NOTE: shared helper does NOT force landscape by default.
-   */
   pdf?: PDFOptions;
 };
 
@@ -177,16 +164,18 @@ export async function htmlToPdfBuffer(args: HtmlToPdfArgs): Promise<Buffer> {
       await page.emulateMediaType("screen");
     }
 
-    // Wide viewport helps landscape & responsive tables
     const vp = viewport ?? { width: 1240, height: 1754, deviceScaleFactor: 2 };
     await page.setViewport(vp);
 
     await page.setContent(html, { waitUntil });
 
-    // settle layout
-    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await page.evaluate(
+      () =>
+        new Promise((r) =>
+          requestAnimationFrame(() => requestAnimationFrame(r))
+        )
+    );
 
-    // ensure fonts are ready
     await page.evaluate(async () => {
       // @ts-ignore
       if (document?.fonts?.ready) {
@@ -206,18 +195,14 @@ export async function htmlToPdfBuffer(args: HtmlToPdfArgs): Promise<Buffer> {
       });
     }
 
-    // Defaults (do NOT force landscape)
     const out = await page.pdf({
       printBackground: true,
-      // Use explicit mm sizing to avoid Puppeteer format+landscape clipping edge cases
       ...(forceA4PageSize
         ? {
             width: landscape ? "297mm" : "210mm",
             height: landscape ? "210mm" : "297mm",
           }
-        : {
-            format: "A4",
-          }),
+        : { format: "A4" }),
       margin: { top: "12mm", right: "12mm", bottom: "12mm", left: "12mm" },
       ...pdf,
     });

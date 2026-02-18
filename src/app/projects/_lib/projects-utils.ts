@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 /* =========================
     Types
@@ -48,7 +48,7 @@ export function norm(x: unknown) {
 
 /** Formats ISO strings to DD/MM/YYYY */
 export function fmtUkDate(x?: string | null) {
-  if (!x) return "—";
+  if (!x) return "�";
   try {
     const d = new Date(x);
     if (Number.isNaN(d.getTime())) return String(x);
@@ -60,7 +60,7 @@ export function fmtUkDate(x?: string | null) {
 
 /** Formats ISO strings to DD/MM/YYYY HH:mm */
 export function fmtUkDateTime(x?: string | null) {
-  if (!x) return "—";
+  if (!x) return "�";
   try {
     const d = new Date(x);
     if (Number.isNaN(d.getTime())) return String(x);
@@ -79,7 +79,7 @@ export function fmtUkDateTime(x?: string | null) {
 
 export function fmtCode(x: unknown) {
   const s = String(x ?? "").trim();
-  return s ? s : "—";
+  return s ? s : "�";
 }
 
 /* =========================
@@ -113,15 +113,15 @@ export function inviteBanner(invite?: string | null) {
   const v = String(invite ?? "").toLowerCase();
   if (!v) return null;
 
-  if (v === "accepted") return { tone: "success" as const, msg: "✅ You’ve joined the organisation." };
-  if (v === "expired") return { tone: "warn" as const, msg: "⚠️ Invite expired. Ask the owner to resend the invite." };
-  if (v === "invalid") return { tone: "error" as const, msg: "❌ Invite invalid or already used. Ask the owner to resend it." };
+  if (v === "accepted") return { tone: "success" as const, msg: "? You�ve joined the organisation." };
+  if (v === "expired") return { tone: "warn" as const, msg: "?? Invite expired. Ask the owner to resend the invite." };
+  if (v === "invalid") return { tone: "error" as const, msg: "? Invite invalid or already used. Ask the owner to resend it." };
   if (v === "email-mismatch")
     return {
       tone: "error" as const,
-      msg: "❌ This invite was sent to a different email address. Sign in with the invited email, or ask the owner to re-invite you.",
+      msg: "? This invite was sent to a different email address. Sign in with the invited email, or ask the owner to re-invite you.",
     };
-  if (v === "failed") return { tone: "error" as const, msg: "❌ Invite acceptance failed. Please try again or ask the owner to resend." };
+  if (v === "failed") return { tone: "error" as const, msg: "? Invite acceptance failed. Please try again or ask the owner to resend." };
 
   return null;
 }
@@ -159,7 +159,7 @@ export function flashFromQuery(err?: string, msg?: string): { tone: FlashTone; t
 
   if (e === "delete_confirm") return { tone: "error", text: 'Type "DELETE" to confirm deletion.' };
   if (e === "delete_forbidden") return { tone: "error", text: "Only the project owner can delete a project." };
-  if (e === "no_permission") return { tone: "error", text: "You don’t have permission to perform that action." };
+  if (e === "no_permission") return { tone: "error", text: "You don�t have permission to perform that action." };
   if (e === "missing_project") return { tone: "error", text: "Missing project id." };
   if (e === "missing_title") return { tone: "error", text: "Title is required." };
   if (e === "missing_start") return { tone: "error", text: "Start date is required." };

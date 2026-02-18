@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import React, { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Clock3, FileText, Paperclip, User } from "lucide-react";
 
@@ -50,16 +50,16 @@ function iconForSection(section: string) {
 }
 
 function humanizePath(p: string) {
-  // Turn /project/project_name into "Project → Project name"
+  // Turn /project/project_name into "Project ? Project name"
   const parts = p.split("/").filter(Boolean);
   if (parts.length === 0) return "Document";
   const [root, ...rest] = parts;
   const prettyRoot = root.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   const prettyRest = rest
-    .join(" → ")
+    .join(" ? ")
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
-  return prettyRest ? `${prettyRoot} → ${prettyRest}` : prettyRoot;
+  return prettyRest ? `${prettyRoot} ? ${prettyRest}` : prettyRoot;
 }
 
 export function ArtifactAuditTimeline({ artifactId }: { artifactId: string }) {
@@ -95,7 +95,7 @@ export function ArtifactAuditTimeline({ artifactId }: { artifactId: string }) {
     <div className="w-full">
       <div className="mb-3 flex items-center gap-2">
         <h3 className="text-sm font-semibold text-gray-900">Audit timeline</h3>
-        {loading ? <span className="text-xs text-gray-500">Loading…</span> : null}
+        {loading ? <span className="text-xs text-gray-500">Loading�</span> : null}
       </div>
 
       {empty ? (
@@ -165,7 +165,7 @@ export function ArtifactAuditTimeline({ artifactId }: { artifactId: string }) {
                           <div className="flex items-center justify-between gap-3">
                             <div className="text-sm font-medium text-gray-900">
                               {it.action_label || "Update"}
-                              {it.summary ? <span className="ml-2 text-sm text-gray-700">— {it.summary}</span> : null}
+                              {it.summary ? <span className="ml-2 text-sm text-gray-700">� {it.summary}</span> : null}
                             </div>
                             <div className="text-xs text-gray-500">{ukDateTime(it.created_at)}</div>
                           </div>
@@ -174,7 +174,7 @@ export function ArtifactAuditTimeline({ artifactId }: { artifactId: string }) {
                             <div className="mt-2 space-y-1">
                               {paths.map((p, idx) => (
                                 <div key={`${it.id}-${idx}`} className="text-xs text-gray-700">
-                                  • {humanizePath(p)}
+                                  � {humanizePath(p)}
                                 </div>
                               ))}
                               {(it.content_json_paths?.length || 0) > paths.length ? (

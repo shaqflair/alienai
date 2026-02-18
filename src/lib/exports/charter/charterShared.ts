@@ -1,4 +1,4 @@
-﻿// src/lib/exports/charter/charterShared.ts
+// src/lib/exports/charter/charterShared.ts
 import "server-only";
 
 /* ---------------- common helpers ---------------- */
@@ -44,7 +44,7 @@ export function stripNumberPrefix(title: string) {
 
 export function stripLeadingBullets(line: string) {
   return String(line ?? "")
-    .replace(/^\s*(?:[•\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/g, "")
+    .replace(/^\s*(?:[�\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/g, "")
     .trim();
 }
 
@@ -74,7 +74,7 @@ function formatToUkDate(value: string) {
 
 export function formatCellValue(x: any) {
   const raw = safeStr(x).trim();
-  if (!raw) return "—";
+  if (!raw) return "�";
   if (looksIsoDateOnly(raw) || looksIsoDateTime(raw)) return formatToUkDate(raw);
   return raw;
 }
@@ -179,7 +179,7 @@ export const CHARTER_SECTION_SPECS: Array<{
 export const CHARTER_SECTIONS_BY_KEY = new Map(CHARTER_SECTION_SPECS.map((s) => [String(s.key).toLowerCase(), s]));
 
 /**
- * ✅ The ONE canonicalise function (doc in, ordered sections out)
+ * ? The ONE canonicalise function (doc in, ordered sections out)
  */
 export function canonicaliseCharterSections(doc: any): any[] {
   const input = Array.isArray(doc?.sections) ? doc.sections : [];

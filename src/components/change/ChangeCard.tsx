@@ -1,4 +1,4 @@
-ï»¿// src/components/change/ChangeCard.tsx
+// src/components/change/ChangeCard.tsx
 "use client";
 
 import React, { useMemo, useState } from "react";
@@ -18,7 +18,7 @@ function moneyGBP(n: number) {
   try {
     return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(v);
   } catch {
-    return `Â£${v}`;
+    return `£${v}`;
   }
 }
 
@@ -232,7 +232,7 @@ export default function ChangeCard({
   }
 
   const lockedMsg = lockReview
-    ? "Locked in Review â€” awaiting approval"
+    ? "Locked in Review — awaiting approval"
     : decisionStatus === "approved"
     ? "Approved"
     : decisionStatus === "rejected"
@@ -331,13 +331,13 @@ export default function ChangeCard({
                   <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  {aiDays ? `+${aiDays} days` : "â€”"}
+                  {aiDays ? `+${aiDays} days` : "—"}
                 </div>
                 <div className="flex items-center gap-1">
                   <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  {aiCost ? moneyGBP(aiCost) : "â€”"}
+                  {aiCost ? moneyGBP(aiCost) : "—"}
                 </div>
               </div>
             </div>
@@ -357,7 +357,7 @@ export default function ChangeCard({
                 disabled={busy}
                 className="w-full mb-3 px-3 py-2 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {busy ? "Submittingâ€¦" : "Submit for approval"}
+                {busy ? "Submitting…" : "Submit for approval"}
               </button>
             )}
 

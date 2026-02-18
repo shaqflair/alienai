@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 /**
  * Safely escapes HTML to prevent injection or broken markup.

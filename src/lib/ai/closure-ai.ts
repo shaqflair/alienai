@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 export type RowObj = { type: "header" | "data"; cells: string[] };
 

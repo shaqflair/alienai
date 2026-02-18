@@ -501,7 +501,7 @@ export async function GET(
     // ✅ Node runtime output
     const buffer = (await pptx.write("nodebuffer")) as Buffer;
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(new Uint8Array(buffer)), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",

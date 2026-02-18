@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import puppeteer from "puppeteer";
 import puppeteerCore from "puppeteer-core";

@@ -1,4 +1,4 @@
-﻿// src/lib/exports/stakeholder-register/server.ts
+// src/lib/exports/stakeholder-register/server.ts
 import "server-only";
 
 export { renderStakeholderRegisterHtml } from "./renderStakeholderRegisterHtml";
@@ -9,7 +9,7 @@ export { renderStakeholderXlsx, renderStakeholderRegisterXlsx } from "./renderSt
 
 export { exportStakeholderRegisterPdfBuffer } from "./exportStakeholderRegisterPdfBuffer";
 
-// ✅ export BOTH named + default-safe (so importers can’t get a non-function)
+// ? export BOTH named + default-safe (so importers can�t get a non-function)
 export { exportStakeholderRegisterDocxBuffer } from "./exportStakeholderRegisterDocxBuffer";
 export { exportStakeholderRegisterXlsxBuffer } from "./exportStakeholderRegisterXlsxBuffer";
 

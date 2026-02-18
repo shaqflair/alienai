@@ -1,4 +1,4 @@
-﻿import PDFDocument from "pdfkit";
+import PDFDocument from "pdfkit";
 import { NextResponse } from "next/server";
 
 function renderPdf(): Promise<Buffer> {
@@ -20,7 +20,7 @@ function renderPdf(): Promise<Buffer> {
 export async function GET() {
   const buffer = await renderPdf();
 
-  return new NextResponse(buffer, {
+  return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(buffer))), {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",

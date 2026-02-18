@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import { htmlToPdfBuffer } from "@/lib/exports/pdf-utils";
 
@@ -14,7 +14,7 @@ export async function renderStakeholderRegisterPdf(html: string): Promise<Buffer
     throw new Error("renderStakeholderRegisterPdf: missing html");
   }
 
-  // ✅ Force wide (yesterday look)
+  // ? Force wide (yesterday look)
   // A4 landscape = 297mm wide. Give chromium a wide viewport too.
   return htmlToPdfBuffer(html, {
     format: "A4",

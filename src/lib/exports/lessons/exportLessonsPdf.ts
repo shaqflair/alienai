@@ -1,10 +1,10 @@
-ï»¿import "server-only";
+import "server-only";
 
 import puppeteer from "puppeteer";
 import puppeteerCore from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
 
-// âœ… use shared shell + escape (NO stakeholder renderer)
+// ? use shared shell + escape (NO stakeholder renderer)
 import { renderRegisterShell, escapeHtml } from "@/lib/exports/shared/registerPdfShell";
 
 type SupabaseClient = any;
@@ -16,7 +16,7 @@ type ExportPdfArgs = {
   status?: string[] | null;
   filenameBase?: string | null;
 
-  // âœ… NEW: only export published lessons (Org Library)
+  // ? NEW: only export published lessons (Org Library)
   publishedOnly?: boolean | null;
 };
 
@@ -67,7 +67,7 @@ function slugify(x: string) {
 
 function ukDateFromIso(isoLike?: string | null) {
   const s = safeStr(isoLike).trim();
-  if (!s) return "â€”";
+  if (!s) return "—";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s.slice(0, 10);
   const dd = String(d.getDate()).padStart(2, "0");
@@ -78,7 +78,7 @@ function ukDateFromIso(isoLike?: string | null) {
 
 function ukDateTimeFromIso(isoLike?: string | null) {
   const s = safeStr(isoLike).trim();
-  if (!s) return "â€”";
+  if (!s) return "—";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s;
   const dd = String(d.getDate()).padStart(2, "0");
@@ -167,19 +167,19 @@ function friendlyCategory(cat: string) {
     improvements: "Improvements",
     issues: "Issues",
   };
-  return maps[v] || v || "â€”";
+  return maps[v] || v || "—";
 }
 
 function joinTags(tags: any) {
-  if (!tags) return "â€”";
-  if (Array.isArray(tags)) return tags.map((t) => safeStr(t).trim()).filter(Boolean).join(", ") || "â€”";
+  if (!tags) return "—";
+  if (Array.isArray(tags)) return tags.map((t) => safeStr(t).trim()).filter(Boolean).join(", ") || "—";
   const s = safeStr(tags).trim();
-  return s || "â€”";
+  return s || "—";
 }
 
 function cell(v: any) {
   const s = String(v ?? "").trim();
-  return s ? s : "â€”";
+  return s ? s : "—";
 }
 
 export async function exportLessonsPdf(args: ExportPdfArgs): Promise<{ filename: string; bytes: Buffer }> {
@@ -193,7 +193,7 @@ export async function exportLessonsPdf(args: ExportPdfArgs): Promise<{ filename:
     .select("*")
     .eq("project_id", project.id);
 
-  // âœ… NEW: Org Library mode
+  // ? NEW: Org Library mode
   if (publishedOnly) {
     q = q.eq("is_published", true);
   }
@@ -201,7 +201,7 @@ export async function exportLessonsPdf(args: ExportPdfArgs): Promise<{ filename:
   const statusFilter = (status || []).map((s) => safeStr(s).trim()).filter(Boolean);
   if (statusFilter.length) q = q.in("status", statusFilter);
 
-  // âœ… ASCENDING sort (oldest -> newest) so numbering 1..n matches order
+  // ? ASCENDING sort (oldest -> newest) so numbering 1..n matches order
   q = q.order("created_at", { ascending: true });
 
   const { data, error } = await q;
@@ -210,7 +210,7 @@ export async function exportLessonsPdf(args: ExportPdfArgs): Promise<{ filename:
   const items: LessonRow[] = Array.isArray(data) ? data : [];
 
   const projectTitle = safeStr(project.title) || "Project";
-  const clientName = safeStr(project.client_name) || "â€”";
+  const clientName = safeStr(project.client_name) || "—";
 
   const base =
     safeStr(filenameBase).trim() ||
@@ -225,16 +225,16 @@ export async function exportLessonsPdf(args: ExportPdfArgs): Promise<{ filename:
   const filterBits: string[] = [];
   if (publishedOnly) filterBits.push("Org Library only");
   if (statusFilter.length) filterBits.push(`Status: ${statusFilter.join(", ")}`);
-  const filterLabel = filterBits.length ? filterBits.join(" â€¢ ") : "All lessons";
+  const filterLabel = filterBits.length ? filterBits.join(" • ") : "All lessons";
 
   // ---------- meta html ----------
   const metaHtml = `
     <div style="display:flex; gap:16px; flex-wrap:wrap;">
       <div style="min-width:220px;">
-        <div><b>Organisation:</b> ${escapeHtml(orgName || "â€”")}</div>
-        <div><b>Client:</b> ${escapeHtml(clientName || "â€”")}</div>
+        <div><b>Organisation:</b> ${escapeHtml(orgName || "—")}</div>
+        <div><b>Client:</b> ${escapeHtml(clientName || "—")}</div>
         <div><b>Project ID:</b> <span style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;">${escapeHtml(
-          humanProjectCode || "â€”"
+          humanProjectCode || "—"
         )}</span></div>
       </div>
       <div style="min-width:220px;">
@@ -274,7 +274,7 @@ export async function exportLessonsPdf(args: ExportPdfArgs): Promise<{ filename:
       : `<tbody>
           ${items
             .map((l, idx) => {
-              const no = idx + 1; // âœ… ASCENDING
+              const no = idx + 1; // ? ASCENDING
               const date = ukDateFromIso(l.date_raised || l.created_at);
               const statusText = safeStr(l.status).trim() || "Open";
 
@@ -301,7 +301,7 @@ export async function exportLessonsPdf(args: ExportPdfArgs): Promise<{ filename:
 
   const bodyHtml = `
     <div style="margin-top:8px; font-size:12px; color:#475569;">
-      <b>Register</b> â€¢ ${escapeHtml(String(items.length))} records
+      <b>Register</b> • ${escapeHtml(String(items.length))} records
     </div>
     <table>
       ${thead}
@@ -310,7 +310,7 @@ export async function exportLessonsPdf(args: ExportPdfArgs): Promise<{ filename:
   `;
 
   const html = renderRegisterShell({
-    title: publishedOnly ? "Org Library â€” Lessons Learned Register" : "Lessons Learned Register",
+    title: publishedOnly ? "Org Library — Lessons Learned Register" : "Lessons Learned Register",
     metaHtml,
     bodyHtml,
     generatedAt: generatedDateTime,

@@ -1,4 +1,5 @@
-﻿import "server-only";
+// src/app/api/projects/[id]/meta/route.ts
+import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -10,9 +11,12 @@ function safeStr(x: any) {
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }>}) {
   try {
-    const supabase = createClient();
+    // FIX: Await createClient() - it returns a Promise (Line 15)
+    const supabase = await createClient();
 
-    const id = safeStr(params?.id);
+    // FIX: Await the params Promise to get the id (Line 18)
+    const resolvedParams = await params;
+    const id = safeStr(resolvedParams?.id);
 
     const { data, error } = await supabase
       .from("projects")
@@ -38,4 +42,3 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ ok: false, error: e?.message || "Server error" }, { status: 500 });
   }
 }
-

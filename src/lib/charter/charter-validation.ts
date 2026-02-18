@@ -1,4 +1,4 @@
-﻿export type RowObj = { type: "header" | "data"; cells: string[] };
+export type RowObj = { type: "header" | "data"; cells: string[] };
 
 export type CharterV2Section = {
   key: string;
@@ -38,7 +38,7 @@ function bulletsComplete(bullets: string | undefined): boolean {
   const text = s(bullets).trim();
   if (!text) return false;
 
-  // ✅ one bullet per line → any non-empty line counts
+  // ? one bullet per line ? any non-empty line counts
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   return lines.length > 0;
 }
@@ -82,7 +82,7 @@ function sectionComplete(section: CharterV2Section): boolean {
 }
 
 /**
- * ✅ Used by editor + export readiness
+ * ? Used by editor + export readiness
  */
 export function getCharterValidation(input: any): CharterValidationReport {
   const doc: CharterV2Like = input && typeof input === "object" ? input : {};
@@ -117,7 +117,7 @@ export function getCharterValidation(input: any): CharterValidationReport {
 }
 
 /**
- * ✅ Used by approval / submit actions
+ * ? Used by approval / submit actions
  * Throws if charter is NOT ready for submission
  */
 export function assertCharterReadyForSubmit(input: CharterV2Like | { meta: any; sections: CharterV2Section[] }) {

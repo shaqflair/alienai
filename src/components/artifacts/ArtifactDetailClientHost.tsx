@@ -1,11 +1,11 @@
-ï»¿// src/components/artifacts/ArtifactDetailClientHost.tsx
+// src/components/artifacts/ArtifactDetailClientHost.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 
 /**
- * âœ… Keep Charter entry as normal import.
+ * ? Keep Charter entry as normal import.
  * Heavy internals are already lazy-loaded inside ProjectCharterEditorFormLazy.tsx.
  */
 import ProjectCharterEditorFormLazy from "@/components/editors/ProjectCharterEditorFormLazy";
@@ -16,46 +16,46 @@ const StakeholderRegisterEditor = dynamic(
   () => import("@/components/editors/StakeholderRegisterEditor"),
   {
     ssr: false,
-    loading: () => <div className="text-sm text-gray-500">Loading Stakeholder editorâ€¦</div>,
+    loading: () => <div className="text-sm text-gray-500">Loading Stakeholder editor…</div>,
   }
 );
 
 const WBSEditor = dynamic(() => import("@/components/editors/WBSEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading WBS editorâ€¦</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading WBS editor…</div>,
 });
 
 const ScheduleGanttEditor = dynamic(() => import("@/components/editors/ScheduleGanttEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Schedule editorâ€¦</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading Schedule editor…</div>,
 });
 
 const ProjectClosureReportEditor = dynamic(
   () => import("@/components/editors/ProjectClosureReportEditor"),
   {
     ssr: false,
-    loading: () => <div className="text-sm text-gray-500">Loading Closure Report editorâ€¦</div>,
+    loading: () => <div className="text-sm text-gray-500">Loading Closure Report editor…</div>,
   }
 );
 
 const ChangeManagementBoard = dynamic(() => import("@/components/change/ChangeManagementBoard"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Change Boardâ€¦</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading Change Board…</div>,
 });
 
 const WeeklyReportEditor = dynamic(() => import("@/components/editors/WeeklyReportEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Weekly Report editorâ€¦</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading Weekly Report editor…</div>,
 });
 
 const AiSuggestionsPanel = dynamic(() => import("@/components/ai/AiSuggestionsPanel"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading AI suggestionsâ€¦</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading AI suggestions…</div>,
 });
 
 const ArtifactTimeline = dynamic(() => import("@/components/artifacts/ArtifactTimeline"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading timelineâ€¦</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading timeline…</div>,
 });
 
 /* ---------------- types ---------------- */
@@ -120,7 +120,7 @@ export type ArtifactDetailClientHostProps = {
   submitForApprovalAction?: any | null;
 
   /**
-   * âœ… Optional server action (same idea as Charter save)
+   * ? Optional server action (same idea as Charter save)
    * Provide this from the Server Component host.
    */
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
@@ -152,7 +152,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     projectStartDate,
     projectFinishDate,
 
-    // âœ… FIX: actually receive this and pass it to ScheduleGanttEditor
+    // ? FIX: actually receive this and pass it to ScheduleGanttEditor
     latestWbsJson,
     wbsArtifactId,
 
@@ -301,7 +301,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 projectTitle={projectTitle || ""}
                 projectStartDate={projectStartDate ?? null}
                 projectFinishDate={projectFinishDate ?? null}
-                // âœ… FIX: pass through server-provided WBS JSON so schedule doesn't need to refetch
+                // ? FIX: pass through server-provided WBS JSON so schedule doesn't need to refetch
                 latestWbsJson={latestWbsJson ?? null}
                 wbsArtifactId={wbsArtifactId ?? null}
               />
@@ -387,7 +387,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
               ) : null}
 
               {!openAI && !openTimeline ? (
-                <div className="text-xs text-gray-500">Tip: open panels only when you need them â€” keeps this page snappy.</div>
+                <div className="text-xs text-gray-500">Tip: open panels only when you need them — keeps this page snappy.</div>
               ) : null}
             </section>
           ) : null}

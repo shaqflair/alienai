@@ -1,4 +1,4 @@
-﻿// src/app/api/change/[id]/edit/route.ts
+// src/app/api/change/[id]/edit/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -85,7 +85,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     const supabase = await sb();
     const user = await requireUser(supabase);
 
-    const changeId = safeStr(ctx?.params?.id).trim();
+    const changeId = safeStr((await ctx.params).id).trim();
     if (!changeId) return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
 
     const body = await req.json().catch(() => ({}));

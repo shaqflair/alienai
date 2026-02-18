@@ -1,6 +1,6 @@
-ï»¿import "server-only";
+import "server-only";
 
-// âœ… FIX: you already have renderClosureReportSections in ./render.ts
+// ? FIX: you already have renderClosureReportSections in ./render.ts
 import { renderClosureReportSections } from "./render";
 
 function safeStr(x: any) {
@@ -39,8 +39,8 @@ export function renderClosureReportHtml(args: {
 
   const { generatedDateTime, openRisksCount, sectionsHtml } = renderClosureReportSections(model);
 
-  const rag = safeStr(model?.rag || "â€”").toUpperCase() || "â€”";
-  const overall = safeStr(model?.overall || "â€”") || "â€”";
+  const rag = safeStr(model?.rag || "—").toUpperCase() || "—";
+  const overall = safeStr(model?.overall || "—") || "—";
 
   return `<!doctype html>
 <html>
@@ -145,15 +145,15 @@ export function renderClosureReportHtml(args: {
     <div class="meta">
       <div class="metaCard">
         <div class="metaLabel">Organisation</div>
-        <div class="metaValue">${escHtml(orgName || "â€”")}</div>
+        <div class="metaValue">${escHtml(orgName || "—")}</div>
       </div>
       <div class="metaCard">
         <div class="metaLabel">Client</div>
-        <div class="metaValue">${escHtml(clientName || "â€”")}</div>
+        <div class="metaValue">${escHtml(clientName || "—")}</div>
       </div>
       <div class="metaCard">
         <div class="metaLabel">Project ID</div>
-        <div class="metaValue metaCode">${escHtml(projectCode || "â€”")}</div>
+        <div class="metaValue metaCode">${escHtml(projectCode || "—")}</div>
       </div>
       <div class="metaCard">
         <div class="metaLabel">Generated</div>

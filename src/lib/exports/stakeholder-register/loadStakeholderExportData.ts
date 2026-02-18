@@ -1,4 +1,4 @@
-﻿// src/lib/exports/stakeholder-register/loadStakeholderExportData.ts
+// src/lib/exports/stakeholder-register/loadStakeholderExportData.ts
 import "server-only";
 
 import { createClient } from "@/utils/supabase/server";
@@ -23,9 +23,9 @@ function joinChannels(x: any) {
 /**
  * Loads Stakeholder Register export data.
  *
- * ✅ NEVER returns meta as undefined (prevents "reading projectCode" crashes)
- * ✅ Prefers artifacts.content_json, but supports older shapes + grouped docs
- * ✅ Does NOT perform auth checks (routes already enforce membership)
+ * ? NEVER returns meta as undefined (prevents "reading projectCode" crashes)
+ * ? Prefers artifacts.content_json, but supports older shapes + grouped docs
+ * ? Does NOT perform auth checks (routes already enforce membership)
  */
 export async function loadStakeholderExportData(args: {
   projectId: string;
@@ -42,7 +42,7 @@ export async function loadStakeholderExportData(args: {
 
   const now = new Date();
 
-  // ✅ Always initialise meta with safe defaults (NEVER undefined)
+  // ? Always initialise meta with safe defaults (NEVER undefined)
   const meta: StakeholderRegisterMeta = {
     projectId,
     artifactId,
@@ -55,9 +55,9 @@ export async function loadStakeholderExportData(args: {
     generatedDateTime: formatUkDateTime(now),
   };
 
-  // ─────────────────────────────────────────────────────────────
+  // -------------------------------------------------------------
   // Project + organisation (best effort; DO NOT throw if missing)
-  // ─────────────────────────────────────────────────────────────
+  // -------------------------------------------------------------
   try {
     const { data: proj } = await supabase
       .from("projects")
@@ -77,12 +77,12 @@ export async function loadStakeholderExportData(args: {
       }
     }
   } catch {
-    // swallow — meta stays safe
+    // swallow � meta stays safe
   }
 
-  // ─────────────────────────────────────────────────────────────
+  // -------------------------------------------------------------
   // Artifact content_json (preferred), fallback to content
-  // ─────────────────────────────────────────────────────────────
+  // -------------------------------------------------------------
   let doc: any = {};
   try {
     const { data: art } = await supabase
@@ -100,14 +100,14 @@ export async function loadStakeholderExportData(args: {
       }
     }
   } catch {
-    // swallow — doc stays {}
+    // swallow � doc stays {}
   }
 
-  // ─────────────────────────────────────────────────────────────
+  // -------------------------------------------------------------
   // Accept multiple shapes:
   // 1) doc.rows / doc.items / doc.stakeholders
   // 2) doc.groups = [{ name, rows:[...] }]
-  // ─────────────────────────────────────────────────────────────
+  // -------------------------------------------------------------
   let rowsRaw: any[] = [];
 
   if (Array.isArray(doc?.rows)) rowsRaw = doc.rows;

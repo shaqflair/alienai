@@ -1,4 +1,4 @@
-﻿export function safeStr(x: unknown): string {
+export function safeStr(x: unknown): string {
   if (x === null || x === undefined) return "";
   return typeof x === "string" ? x : String(x);
 }
@@ -130,5 +130,5 @@ export function statusColor(label: string, THEME: any): string {
 export function indentDeliverable(level: number, text: string): string {
   const lvl = Number.isFinite(level) ? Math.max(0, Math.min(10, Math.floor(level))) : 0;
   const indent = "    ".repeat(lvl);
-  return lvl > 0 ? `${indent}└ ${safeStr(text)}` : safeStr(text);
+  return lvl > 0 ? `${indent}+ ${safeStr(text)}` : safeStr(text);
 }

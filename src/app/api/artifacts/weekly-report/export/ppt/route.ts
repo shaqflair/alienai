@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -106,7 +106,7 @@ export async function GET(req: Request) {
     const currentType = safeStr((artifact as any)?.type).trim();
 
     if (currentCreatedAt && currentType) {
-      // If in future you want includeDraft to change behaviour, this is where you’d branch.
+      // If in future you want includeDraft to change behaviour, this is where you�d branch.
       // For now: we DO include drafts by default (safe), but you can tighten later.
       // You could add: .neq("approval_status","draft") unless includeDraftBool
       const prevQ = sb

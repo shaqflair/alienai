@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
       includeMilestonesSheet,
     });
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(buffer))), {
       status: 200,
       headers: {
         "Content-Type":

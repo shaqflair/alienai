@@ -1,4 +1,4 @@
-﻿import { cookies } from "next/headers";
+import { cookies } from "next/headers";
 
 const COOKIE_NAME = "active_org_id";
 

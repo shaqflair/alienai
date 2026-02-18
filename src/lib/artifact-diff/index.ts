@@ -1,4 +1,4 @@
-﻿import type { ArtifactDiffV1 } from "@/types/artifact-diff";
+import type { ArtifactDiffV1 } from "@/types/artifact-diff";
 import { computeCharterV2Diff } from "./computeCharterV2Diff";
 
 /**

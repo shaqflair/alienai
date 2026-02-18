@@ -64,6 +64,10 @@ function isUuid(x: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test((x || "").trim());
 }
 
+function normRole(x: any) {
+  return String(x || "").trim().toLowerCase();
+}
+
 function formatUkDateTime(date = new Date()) {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -201,18 +205,25 @@ async function tryReadJsonBody(req: NextRequest) {
   }
 }
 
+// FIX: Updated launchBrowser function to use new Puppeteer API
 async function launchBrowser() {
   const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
   if (isServerless) {
-    return puppeteerCore.launch({
+    // FIX: Removed defaultViewport, headless, ignoreHTTPSErrors from launch options
+    // These are now handled differently in newer Puppeteer versions
+    const browser = await puppeteerCore.launch({
       args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
       executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
-      ignoreHTTPSErrors: true,
     });
+    // Set viewport on first page instead
+    const pages = await browser.pages();
+    if (pages[0]) {
+      await pages[0].setViewport({ width: 1280, height: 720 });
+    }
+    return browser;
   }
-  return puppeteer.launch({ headless: "new", args: ["--no-sandbox", "--disable-setuid-sandbox"] });
+  // FIX: Use boolean for headless instead of "new"
+  return puppeteer.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
 }
 
 /* ---------------- auth helpers (charter style) ---------------- */
@@ -464,6 +475,7 @@ function renderRaidHtml(items: RaidItem[], meta: RaidMeta) {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
+      gap: 14px;
       margin-bottom: 14px;
     }
     .brand { display: flex; align-items: center; gap: 14px; }
@@ -899,6 +911,7 @@ export async function exportRaidPdf({
 
     browser = await launchBrowser();
     const page = await browser.newPage();
+    // FIX: Use setViewport instead of defaultViewport
     await page.setViewport({ width: 1200, height: 1600 });
     await page.setContent(html, { waitUntil: "networkidle0" });
     await page.evaluateHandle("document.fonts.ready");
@@ -921,7 +934,8 @@ export async function exportRaidPdf({
 
     const filename = `RAID_${sanitizeFilename(projectCode)}_${formatUkDate().replace(/\//g, "-")}.pdf`;
 
-    return new NextResponse(pdf, {
+    // FIX: Simplified Buffer conversion
+    return new NextResponse(Buffer.from(pdf), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

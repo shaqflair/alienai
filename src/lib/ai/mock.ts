@@ -1,4 +1,4 @@
-ï»¿import "server-only";
+import "server-only";
 
 /**
  * Offline mock generator so you can complete the build without any paid API.
@@ -34,13 +34,13 @@ export function mockGenerate(prompt: string): string {
             key: "overview",
             title: "Project Overview",
             bullets:
-              "â€¢ Purpose: Demonstrate end-to-end charter flow\nâ€¢ Scope: Mock content for UI testing\nâ€¢ Success: Autosave + approvals + export routes work",
+              "• Purpose: Demonstrate end-to-end charter flow\n• Scope: Mock content for UI testing\n• Success: Autosave + approvals + export routes work",
           },
           {
             key: "objectives",
             title: "Objectives",
             bullets:
-              "â€¢ Establish governance\nâ€¢ Deliver baseline plan\nâ€¢ Enable reporting\nâ€¢ Support approvals workflow",
+              "• Establish governance\n• Deliver baseline plan\n• Enable reporting\n• Support approvals workflow",
           },
           {
             key: "scope",
@@ -71,7 +71,7 @@ export function mockGenerate(prompt: string): string {
             key: "risks",
             title: "Key Risks",
             bullets:
-              "â€¢ Dependency delays\nâ€¢ Scope creep\nâ€¢ Resource constraints\nâ€¢ Environment readiness",
+              "• Dependency delays\n• Scope creep\n• Resource constraints\n• Environment readiness",
           },
         ],
       },
@@ -84,7 +84,7 @@ export function mockGenerate(prompt: string): string {
   return [
     "MOCK AI OUTPUT",
     "",
-    "Hereâ€™s a project charter outline you can use to complete the build:",
+    "Here’s a project charter outline you can use to complete the build:",
     "1) Overview",
     "2) Objectives",
     "3) Scope (In/Out)",

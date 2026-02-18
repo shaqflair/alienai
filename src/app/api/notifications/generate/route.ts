@@ -1,4 +1,4 @@
-﻿// src/app/api/cron/notifications/generate/route.ts
+﻿// src/app/api/notifications/generate/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -66,7 +66,7 @@ function isClosedRaidStatus(s: any) {
 
 /**
  * Your DB uses an enum for notifications.type.
- * We don’t need to import the enum type in TS — just ensure we only emit valid labels.
+ * We don t need to import the enum type in TS   just ensure we only emit valid labels.
  */
 type NotifRow = {
   user_id: string;
@@ -179,7 +179,7 @@ async function generateForUser(params: { svc: any; userId: string; windowDays: n
     return { userId, generated: 0, deleted, meta: { projectCount: 0, windowDays, scopeMeta } };
   }
 
-  // ✅ One lookup: project code + name for tiles
+  // ? One lookup: project code + name for tiles
   const projectMeta = await getProjectMetaMap(svc, projectIds);
   const proj = (projectId: string) =>
     projectMeta.get(projectId) ?? { project_code: null, project_name: null };
@@ -388,7 +388,7 @@ async function generateForUser(params: { svc: any; userId: string; windowDays: n
     }
   }
 
-  // ✅ No upsert. We do a clean regen each run.
+  // ? No upsert. We do a clean regen each run.
   const deleted = await deleteGeneratedForUser(svc, userId);
   const generated = await insertBatch(svc, rows);
 
@@ -420,7 +420,8 @@ function checkCronSecret(req: Request) {
 
   const url = new URL(req.url);
   const got =
-    safeStr(req.headers.get("x-cron-secret")).trim() || safeStr(url.searchParams.get("secret")).trim();
+    safeStr(req.headers.get("x-cron-secret")).trim() ||
+    safeStr(url.searchParams.get("secret")).trim();
 
   return { ok: got === secret, reason: got === secret ? "" : "Forbidden" };
 }
@@ -436,10 +437,16 @@ export async function GET(req: Request) {
 
     const svc = createServiceClient();
 
-    const { data: users, error: uErr } = await svc.from("project_members").select("user_id").is("removed_at", null);
+    const { data: users, error: uErr } = await svc
+      .from("project_members")
+      .select("user_id")
+      .is("removed_at", null);
     if (uErr) return err(uErr.message, 500);
 
-    const userIds = Array.from(new Set((users || []).map((r: any) => safeStr(r?.user_id).trim()).filter(Boolean)));
+    // ✅ FIX: removed extra closing parenthesis
+    const userIds = Array.from(
+      new Set((users || []).map((r: any) => safeStr(r?.user_id).trim()).filter(Boolean))
+    );
 
     let totalGenerated = 0;
     let totalDeleted = 0;
@@ -479,10 +486,16 @@ export async function POST(req: Request) {
 
     const svc = createServiceClient();
 
-    const { data: users, error: uErr } = await svc.from("project_members").select("user_id").is("removed_at", null);
+    const { data: users, error: uErr } = await svc
+      .from("project_members")
+      .select("user_id")
+      .is("removed_at", null);
     if (uErr) return err(uErr.message, 500);
 
-    const userIds = Array.from(new Set((users || []).map((r: any) => safeStr(r?.user_id).trim()).filter(Boolean)));
+    // ✅ FIX: removed extra closing parenthesis
+    const userIds = Array.from(
+      new Set((users || []).map((r: any) => safeStr(r?.user_id).trim()).filter(Boolean))
+    );
 
     let totalGenerated = 0;
     let totalDeleted = 0;

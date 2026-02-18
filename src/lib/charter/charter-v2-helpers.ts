@@ -1,4 +1,4 @@
-﻿import { getCharterValidation } from "@/lib/charter/charter-validation";
+import { getCharterValidation } from "@/lib/charter/charter-validation";
 
 export type RowObj = { type: "header" | "data"; cells: string[] };
 
@@ -35,7 +35,7 @@ function buildEmptyTable(headers: string[]): { columns: number; rows: RowObj[] }
 }
 
 /**
- * ✅ Sync helper: used anywhere (client/server/lib)
+ * ? Sync helper: used anywhere (client/server/lib)
  * projectTitleFallback can be passed as string; it will populate meta.project_title when empty.
  */
 export function buildEmptyCharterV2(projectTitleFallback: string = "") {
@@ -58,7 +58,7 @@ export function buildEmptyCharterV2(projectTitleFallback: string = "") {
 }
 
 /**
- * ✅ Sync helper: validation wrapper
+ * ? Sync helper: validation wrapper
  */
 export function validateCharterV2(charterV2: { meta: any; sections: any[] }) {
   return getCharterValidation({

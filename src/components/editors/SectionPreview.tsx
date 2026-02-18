@@ -1,4 +1,4 @@
-ï»¿"use client";
+"use client";
 
 import React from "react";
 
@@ -9,7 +9,7 @@ function s(x: any) {
 }
 
 export default function SectionPreview({ section }: { section: any }) {
-  if (!section) return <div className="text-xs text-neutral-500">â€”</div>;
+  if (!section) return <div className="text-xs text-neutral-500">—</div>;
 
   const rows: RowObj[] | null = Array.isArray(section?.table?.rows) ? section.table.rows : null;
 
@@ -30,7 +30,7 @@ export default function SectionPreview({ section }: { section: any }) {
                     {s(cell).trim() ? (
                       <span className="whitespace-pre-wrap break-words">{s(cell)}</span>
                     ) : (
-                      <span className="text-neutral-400">â€”</span>
+                      <span className="text-neutral-400">—</span>
                     )}
                   </td>
                 ))}
@@ -46,15 +46,15 @@ export default function SectionPreview({ section }: { section: any }) {
   if (bullets.trim()) {
     const lines = bullets
       .split("\n")
-      .map((l: string) => l.replace(/^[-â€¢]\s*/, "").trim())
+      .map((l: string) => l.replace(/^[-•]\s*/, "").trim())
       .filter(Boolean);
 
     return (
       <ul className="list-disc pl-5 text-xs space-y-1 text-neutral-800">
-        {lines.length ? lines.map((line: string, i: number) => <li key={i}>{line}</li>) : <li className="text-neutral-400">â€”</li>}
+        {lines.length ? lines.map((line: string, i: number) => <li key={i}>{line}</li>) : <li className="text-neutral-400">—</li>}
       </ul>
     );
   }
 
-  return <div className="text-xs text-neutral-500">â€”</div>;
+  return <div className="text-xs text-neutral-500">—</div>;
 }

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useState } from "react";
 
@@ -19,9 +19,9 @@ export default function SmokeTestAiEventButton(props: { projectId: string; artif
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          projectId,               // ✅ REQUIRED
-          artifactId,              // ✅ REQUIRED
-          eventType: "smoke_test", // ✅ your API expects an eventType
+          projectId,               // ? REQUIRED
+          artifactId,              // ? REQUIRED
+          eventType: "smoke_test", // ? your API expects an eventType
           severity: "info",
           source: "ui",
           payload: {

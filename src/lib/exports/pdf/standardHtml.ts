@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import { DEFAULT_THEME, ExportTheme } from "../core/theme";
 import { ExportMeta } from "../core/meta";
@@ -193,7 +193,7 @@ export function buildStandardPdfHtml({ title, subtitle, meta, theme, bodyHtml }:
     ${bodyHtml}
   </div>
   <div class="footer">
-    <div>Generated ${esc(now)} • ${esc(t.brandName)}</div>
+    <div>Generated ${esc(now)} � ${esc(t.brandName)}</div>
     <div>Page <span class="page"></span> of <span class="pages"></span></div>
   </div>
 </body>

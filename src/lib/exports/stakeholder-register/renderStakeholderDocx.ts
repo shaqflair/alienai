@@ -1,4 +1,4 @@
-ï»¿import "server-only";
+import "server-only";
 
 import {
   AlignmentType,
@@ -144,10 +144,10 @@ export async function renderStakeholderDocx(args: {
   const rows = Array.isArray(args?.rows) ? args.rows : [];
   const data = rows.map(mapRow);
 
-  const projectCode = safeStr(meta?.projectCode || meta?.project_code) || "â€”";
+  const projectCode = safeStr(meta?.projectCode || meta?.project_code) || "—";
   const projectName = safeStr(meta?.projectName || meta?.project_title || meta?.projectTitle) || "Project";
-  const organisationName = safeStr(meta?.organisationName || meta?.organisation || meta?.orgName) || "â€”";
-  const clientName = safeStr(meta?.clientName || meta?.client || meta?.client_name) || "â€”";
+  const organisationName = safeStr(meta?.organisationName || meta?.organisation || meta?.orgName) || "—";
+  const clientName = safeStr(meta?.clientName || meta?.client || meta?.client_name) || "—";
   const generatedAt =
     safeStr(meta?.generatedAt || meta?.generatedDateTime || meta?.generated) ||
     safeStr(meta?.generatedDate) ||
@@ -155,14 +155,14 @@ export async function renderStakeholderDocx(args: {
 
   const reportDate = safeStr(meta?.generatedDate || "") || (generatedAt ? generatedAt.split(" ")[0] : "");
 
-  const baseName = safeFilename(`Stakeholder_Register_${projectCode !== "â€”" ? projectCode : projectName}`);
+  const baseName = safeFilename(`Stakeholder_Register_${projectCode !== "—" ? projectCode : projectName}`);
 
   const title = new Paragraph({
     spacing: { after: 120 },
     children: [
       new TextRun({ text: "Stakeholder Register", bold: true, size: 28, color: THEME.ink }),
-      new TextRun({ text: `  â€¢  ${projectName}`, size: 20, color: THEME.muted }),
-      ...(generatedAt ? [new TextRun({ text: `  â€¢  ${generatedAt}`, size: 20, color: THEME.muted })] : []),
+      new TextRun({ text: `  •  ${projectName}`, size: 20, color: THEME.muted }),
+      ...(generatedAt ? [new TextRun({ text: `  •  ${generatedAt}`, size: 20, color: THEME.muted })] : []),
     ],
   });
 
@@ -171,7 +171,7 @@ export async function renderStakeholderDocx(args: {
     clientName,
     projectCode,
     total: data.length,
-    reportDate: reportDate || "â€”",
+    reportDate: reportDate || "—",
   });
 
   const doc = new Document({
@@ -214,11 +214,11 @@ function summaryCards(opts: {
   reportDate: string;
 }) {
   const cards: Array<{ label: string; value: string }> = [
-    { label: "ORGANISATION", value: opts.organisationName || "â€”" },
-    { label: "CLIENT", value: opts.clientName || "â€”" },
-    { label: "PROJECT ID", value: opts.projectCode || "â€”" },
+    { label: "ORGANISATION", value: opts.organisationName || "—" },
+    { label: "CLIENT", value: opts.clientName || "—" },
+    { label: "PROJECT ID", value: opts.projectCode || "—" },
     { label: "TOTAL STAKEHOLDERS", value: String(opts.total ?? 0) },
-    { label: "REPORT DATE", value: opts.reportDate || "â€”" },
+    { label: "REPORT DATE", value: opts.reportDate || "—" },
   ];
 
   const cardCells = cards.map((c) =>
@@ -235,7 +235,7 @@ function summaryCards(opts: {
         }),
         new Paragraph({
           spacing: { before: 0, after: 0 },
-          children: [new TextRun({ text: c.value || "â€”", bold: true, size: 22, color: THEME.ink })],
+          children: [new TextRun({ text: c.value || "—", bold: true, size: 22, color: THEME.ink })],
         }),
       ],
     })
@@ -282,7 +282,7 @@ function registerTable(rows: StakeholderRow[]): Table {
     (r) =>
       new TableRow({
         children: COLS.map((c) => {
-          const text = safeStr((r as any)[c.key]) || "â€”";
+          const text = safeStr((r as any)[c.key]) || "—";
           return new TableCell({
             width: { size: c.w, type: WidthType.DXA },
             borders: cellBorders(),

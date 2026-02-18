@@ -1,4 +1,4 @@
-﻿import type { ChangeItem } from "./types";
+import type { ChangeItem } from "./types";
 
 export const mockChanges: ChangeItem[] = [
   {
@@ -12,7 +12,7 @@ export const mockChanges: ChangeItem[] = [
     aiImpact: { days: 3, cost: 1200, risk: "Medium: exposure if not time-boxed" },
     justification: "Enable vendor to perform deployment verification.",
     financial: "Minor: admin effort only.",
-    schedule: "May add 2–3 days lead time if approvals delayed.",
+    schedule: "May add 2�3 days lead time if approvals delayed.",
     risks: "Misconfigured rules; access creep.",
     dependencies: "Security approval, vendor IPs confirmed.",
   },

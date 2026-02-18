@@ -1,4 +1,4 @@
-﻿import ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import type { RenderWbsXlsxArgs } from "./types";
 import {
   formatDateUK,
@@ -80,11 +80,11 @@ function isLastSibling(rows: any[], idx: number): boolean {
 /**
  * Render deliverable with connector:
  * level 0 => "Title"
- * level 1 => "├ Title" or "└ Title"
- * level 2 => "  ├ Title" etc.
+ * level 1 => "+ Title" or "+ Title"
+ * level 2 => "  + Title" etc.
  *
- * Note: We keep it simple (no vertical '│' lines), matching your "└" style,
- * but now correctly uses ├ vs └.
+ * Note: We keep it simple (no vertical '�' lines), matching your "+" style,
+ * but now correctly uses + vs +.
  */
 function formatDeliverableWithConnector(rows: any[], idx: number): string {
   const row = rows[idx];
@@ -99,7 +99,7 @@ function formatDeliverableWithConnector(rows: any[], idx: number): string {
   if (lvl <= 0) return title;
 
   const last = isLastSibling(rows, idx);
-  const connector = last ? "└ " : "├ ";
+  const connector = last ? "+ " : "+ ";
   const pad = "  ".repeat(Math.max(0, lvl - 1));
   return `${pad}${connector}${title}`;
 }
@@ -348,8 +348,8 @@ class WBSWorkbookBuilder {
       { field: "Document Type", value: "Work Breakdown Structure (WBS)" },
       { field: "Project Code", value: project.code },
       { field: "Project Name", value: project.title },
-      { field: "Organisation", value: project.orgName || "—" },
-      { field: "Client", value: project.client || "—" },
+      { field: "Organisation", value: project.orgName || "�" },
+      { field: "Client", value: project.client || "�" },
       { field: "Artifact Name", value: artifact.title },
       { field: "Artifact Type", value: safeStr(artifact.type || "").toUpperCase() },
       { field: "Export Date", value: formatDateTimeUK(exportDate) },

@@ -1,13 +1,12 @@
 // src/app/api/raid/export/pdf/route.ts
 import "server-only";
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
-// Puppeteer / Chromium
-import puppeteer from "puppeteer";
-import puppeteerCore from "puppeteer-core";
-import chromium from "@sparticuz/chromium";
+// ✅ Canonical shared helpers
+import { htmlToPdfBuffer } from "@/lib/exports/_shared/puppeteer";
+import { fileResponse, jsonErr } from "@/lib/exports/_shared/fileResponse";
 
 // ✅ External renderer (charter/closure pattern)
 import { renderRaidExportHtml } from "@/lib/exports/renderRaidExportHtml";
@@ -26,10 +25,6 @@ function isUuid(x: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     (x || "").trim()
   );
-}
-
-function jsonErr(error: string, status = 400, meta?: any) {
-  return NextResponse.json({ ok: false, error, meta }, { status });
 }
 
 function formatUkDateTime(date = new Date()) {
@@ -81,14 +76,13 @@ async function requireAuthAndMembership(supabase: any, projectId: string) {
     .eq("user_id", auth.user.id)
     .maybeSingle();
 
-  // Support both styles:
-  // - removed_at null (your charter flow)
-  // - is_active true (some of your other routes)
   if (memErr) throw new Error(memErr.message);
 
   const removedAt = (mem as any)?.removed_at ?? null;
   const isActive =
-    typeof (mem as any)?.is_active === "boolean" ? Boolean((mem as any)?.is_active) : removedAt == null;
+    typeof (mem as any)?.is_active === "boolean"
+      ? Boolean((mem as any)?.is_active)
+      : removedAt == null;
 
   if (!mem || !isActive) throw new Error("Forbidden");
 
@@ -97,32 +91,9 @@ async function requireAuthAndMembership(supabase: any, projectId: string) {
   return { userId: auth.user.id, role, canEdit };
 }
 
-/* ──────────────────────────────────────────────── Browser launcher (closure-report pattern) ──────────────────────────────────────────────── */
-
-async function launchBrowser() {
-  const isServerless =
-    !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.AWS_REGION;
-
-  if (isServerless) {
-    return puppeteerCore.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
-      ignoreHTTPSErrors: true,
-    });
-  }
-
-  return puppeteer.launch({
-    headless: "new",
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
-}
-
 /* ──────────────────────────────────────────────── Org logo resolver (same pattern) ──────────────────────────────────────────────── */
 
 async function resolveOrganisationLogoUrl(supabase: any, organisation_id?: string | null) {
-  // You can override via env for global branding if you want
   const envLogo =
     process.env.RAID_REPORT_LOGO_URL ||
     process.env.NEXT_PUBLIC_RAID_REPORT_LOGO_URL ||
@@ -176,17 +147,17 @@ async function resolveOrganisationLogoUrl(supabase: any, organisation_id?: strin
 /* ──────────────────────────────────────────────── Route handler ──────────────────────────────────────────────── */
 
 async function handle(req: NextRequest) {
-  let browser: any = null;
-
   try {
     const supabase = await createClient();
 
     const url = new URL(req.url);
 
     // Support GET ?projectId=... as primary
-    // Also allow POST with JSON { projectId } if you prefer later
+    // Also allow POST with JSON { projectId }
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
-    const projectId = safeStr(url.searchParams.get("projectId") ?? body?.projectId ?? body?.project_id).trim();
+    const projectId = safeStr(
+      url.searchParams.get("projectId") ?? body?.projectId ?? body?.project_id
+    ).trim();
 
     if (!projectId) return jsonErr("Missing projectId", 400);
     if (!isUuid(projectId)) return jsonErr("Invalid projectId", 400);
@@ -223,7 +194,7 @@ async function handle(req: NextRequest) {
     const clientLogoUrl = safeStr((proj as any)?.client_logo_url).trim();
     const logoUrl = orgLogoUrl || clientLogoUrl || "";
 
-    // RAID items (your raid_items DDL)
+    // RAID items
     const { data: items, error } = await supabase
       .from("raid_items")
       .select(
@@ -261,7 +232,7 @@ async function handle(req: NextRequest) {
     const projectCode = safeStr((proj as any).project_code).trim() || projectId.slice(0, 8);
     const brand = safeStr((proj as any).brand_primary_color).trim() || "#111827";
     const generatedAt = formatUkDateTime();
-    const watermarkText = "DRAFT"; // keep simple like your charter; you can wire approval later if needed.
+    const watermarkText = "DRAFT";
 
     const html = renderRaidExportHtml({
       items: list,
@@ -278,16 +249,6 @@ async function handle(req: NextRequest) {
         dateFormat: "UK",
       },
     });
-
-    browser = await launchBrowser();
-    const page = await browser.newPage();
-
-    await page.setContent(html, { waitUntil: "networkidle0" });
-    await page.emulateMediaType("screen");
-
-    try {
-      await page.evaluate(() => document.fonts.ready);
-    } catch {}
 
     const headerTemplate = `<div></div>`;
     const footerTemplate = `
@@ -311,36 +272,29 @@ async function handle(req: NextRequest) {
       </div>
     `;
 
-    const pdf = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      displayHeaderFooter: true,
-      headerTemplate,
-      footerTemplate,
-      margin: { top: "12mm", right: "15mm", bottom: "16mm", left: "15mm" },
-      timeout: 45000,
+    // ✅ Canonical PDF render (fixes Chromium typing + closes page safely)
+    const pdfBuf = await htmlToPdfBuffer({
+      html,
+      waitUntil: "networkidle0",
+      emulateScreen: true,
+      forceA4PageSize: true,
+      pdf: {
+        printBackground: true,
+        displayHeaderFooter: true,
+        headerTemplate,
+        footerTemplate,
+        margin: { top: "12mm", right: "15mm", bottom: "16mm", left: "15mm" },
+        // Do NOT set format when forceA4PageSize=true (helper uses explicit mm sizing)
+      },
     });
 
     const filename = `Project_${sanitizeFilename(projectCode)}_RAID.pdf`;
-
-    return new NextResponse(pdf, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${filename}"`,
-        "Cache-Control": "no-store",
-      },
-    });
+    return fileResponse(pdfBuf, filename, "application/pdf");
   } catch (e: any) {
     const msg = String(e?.message ?? "Server error");
-    const status = msg === "Unauthorized" ? 401 : msg === "Forbidden" ? 403 : msg === "Not found" ? 404 : 500;
+    const status =
+      msg === "Unauthorized" ? 401 : msg === "Forbidden" ? 403 : msg === "Not found" ? 404 : 500;
     return jsonErr(msg, status);
-  } finally {
-    if (browser) {
-      try {
-        await browser.close();
-      } catch {}
-    }
   }
 }
 

@@ -1,4 +1,4 @@
-﻿// src/app/api/change/[id]/delivery-status/route.ts
+// src/app/api/change/[id]/delivery-status/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -24,7 +24,10 @@ function ok(data: any, init?: ResponseInit) {
 
 function err(message: string, init?: ResponseInit & { extra?: any }) {
   const { extra, ...rest } = init || {};
-  return NextResponse.json({ ok: false, error: message, ...(extra ? { extra } : {}) }, rest);
+  return NextResponse.json(
+    { ok: false, error: message, ...(extra ? { extra } : {}) },
+    rest
+  );
 }
 
 function safeId(v: unknown): string | null {
@@ -42,7 +45,14 @@ function hasOwn(obj: any, key: string) {
   return Object.prototype.hasOwnProperty.call(obj ?? {}, key);
 }
 
-const ALLOWED_DELIVERY = new Set(["intake", "analysis", "review", "in_progress", "implemented", "closed"]);
+const ALLOWED_DELIVERY = new Set([
+  "intake",
+  "analysis",
+  "review",
+  "in_progress",
+  "implemented",
+  "closed",
+]);
 
 function normalizeDeliveryStatus(x: unknown): string | null {
   const v = safeStr(x).trim().toLowerCase();
@@ -112,7 +122,9 @@ function canMoveDelivery(args: { decision: string; from: string; to: string }) {
    GET single CR (optional)
 ========================= */
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }>}) {
+type Ctx = { params: { id: string } };
+
+export async function GET(_req: Request, ctx: Ctx) {
   try {
     const id = safeId(ctx?.params?.id);
     if (!id) return err("Missing id", { status: 400 });
@@ -120,7 +132,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }>}
     const supabase = await sb();
     const user = await requireUser(supabase);
 
-    const { data: cr, error: crErr } = await supabase.from(TABLE).select("*").eq("id", id).maybeSingle();
+    const { data: cr, error: crErr } = await supabase
+      .from(TABLE)
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+
     if (crErr) return err("Failed to fetch change request", { status: 500, extra: crErr });
     if (!cr) return err("Not found", { status: 404 });
 
@@ -138,7 +155,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }>}
    POST: delivery_status ONLY
 ========================= */
 
-export async function POST(req: Request, ctx: { params: Promise<{ id: string }>}) {
+export async function POST(req: Request, ctx: Ctx) {
   try {
     const id = safeId(ctx?.params?.id);
     if (!id) return err("Missing id", { status: 400 });
@@ -156,7 +173,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }>}
 
     // Governance: do not allow decision/governance mutations via this route
     if (containsBlockedGovernanceFields(body)) {
-      return err("Governance enforced: use Submit/Approve/Reject/Request-Changes routes.", { status: 409 });
+      return err("Governance enforced: use Submit/Approve/Reject/Request-Changes routes.", {
+        status: 409,
+      });
     }
 
     // Require delivery_status
@@ -183,12 +202,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }>}
 
     // Lock during submitted
     if (decisionStatus === "submitted") {
-      return err("This change is locked awaiting decision. Approve/reject/request changes first.", { status: 409 });
+      return err("This change is locked awaiting decision. Approve/reject/request changes first.", {
+        status: 409,
+      });
     }
 
     // Enforce transitions
     if (!canMoveDelivery({ decision: decisionStatus, from, to })) {
-      return err("Governance enforced: lane move not allowed for this change state.", { status: 409 });
+      return err("Governance enforced: lane move not allowed for this change state.", {
+        status: 409,
+      });
     }
 
     const now = new Date().toISOString();
@@ -205,16 +228,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }>}
 
     // Audit (best effort)
     try {
-      await logChangeEvent(supabase, {
-        projectId,
-        changeRequestId: id,
-        actorUserId: user.id,
-        actorRole: role,
-        eventType: "status_changed",
-        fromValue: from,
-        toValue: to,
-        note: "Delivery lane updated",
-      } as any);
+      await logChangeEvent(
+        supabase,
+        {
+          projectId,
+          changeRequestId: id,
+          actorUserId: user.id,
+          actorRole: role,
+          eventType: "status_changed",
+          fromValue: from,
+          toValue: to,
+          note: "Delivery lane updated",
+        } as any
+      );
     } catch {}
 
     // Timeline (best effort)
@@ -240,7 +266,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }>}
   }
 }
 
-export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>}) {
+export async function PATCH(req: Request, ctx: Ctx) {
   return POST(req, ctx);
 }
-

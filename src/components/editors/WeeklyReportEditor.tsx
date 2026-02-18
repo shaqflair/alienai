@@ -1,4 +1,4 @@
-Ôªø"use client";
+"use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
@@ -15,7 +15,7 @@ type WeeklyReportProject = {
 type WeeklyReportV1 = {
   version: 1;
 
-  // ‚úÖ NEW (safe optional, backward compatible)
+  // ? NEW (safe optional, backward compatible)
   project?: WeeklyReportProject;
 
   period: { from: string; to: string }; // ISO (YYYY-MM-DD)
@@ -369,14 +369,14 @@ export default function WeeklyReportEditor({
   readOnly: boolean;
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
 }) {
-  // ‚úÖ Build a *stable* seed from initialJson (supports object or JSON string)
+  // ? Build a *stable* seed from initialJson (supports object or JSON string)
   const seed = useMemo<WeeklyReportV1>(() => {
     const parsed = parseMaybeJson(initialJson);
     const coerced = normalizeWeeklyReportV1(parsed, defaultModel());
     return coerced ?? defaultModel();
   }, [initialJson]);
 
-  // ‚úÖ Use seed only on first mount; we‚Äôll re-seed via effects below
+  // ? Use seed only on first mount; weíll re-seed via effects below
   const [model, setModel] = useState<WeeklyReportV1>(seed);
 
   const [busyGen, setBusyGen] = useState(false);
@@ -387,10 +387,10 @@ export default function WeeklyReportEditor({
   const [err, setErr] = useState<string | null>(null);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
-  // ‚úÖ Dirty tracking snapshot (resets when we accept new seed)
+  // ? Dirty tracking snapshot (resets when we accept new seed)
   const initialSnapshot = useRef<string>(JSON.stringify(seed));
 
-  // ‚úÖ Hard reset when switching artifacts (prevents ‚Äústuck on previous artifact‚Äù)
+  // ? Hard reset when switching artifacts (prevents ìstuck on previous artifactî)
   const lastArtifactIdRef = useRef<string>("");
   useEffect(() => {
     if (artifactId && lastArtifactIdRef.current && lastArtifactIdRef.current !== artifactId) {
@@ -403,7 +403,7 @@ export default function WeeklyReportEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [artifactId, seed]);
 
-  // ‚úÖ Soft rehydrate when seed changes AND we‚Äôre not dirty
+  // ? Soft rehydrate when seed changes AND weíre not dirty
   useEffect(() => {
     const isDirty = JSON.stringify(model) !== initialSnapshot.current;
     if (!isDirty) {
@@ -452,8 +452,8 @@ export default function WeeklyReportEditor({
       const report = normalizeWeeklyReportV1(parseMaybeJson(reportRaw), model);
       if (!report) throw new Error("Generator returned an unexpected payload shape.");
 
-      // ‚úÖ If API also returned project_name/code at top level, merge into report.project
-      // ‚úÖ FIX: avoid mixing ?? with || (Webpack / Next 16 syntax rule)
+      // ? If API also returned project_name/code at top level, merge into report.project
+      // ? FIX: avoid mixing ?? with || (Webpack / Next 16 syntax rule)
       const mergedProject: WeeklyReportProject = {
         ...(report.project ?? {}),
         id: (report.project?.id ?? safeStr(json?.project_id)) ?? null,
@@ -463,7 +463,7 @@ export default function WeeklyReportEditor({
         managerEmail: (report.project?.managerEmail ?? safeStr(json?.project_manager_email)) ?? null,
       };
 
-      // ‚úÖ NEW: store a snapshot for ‚Äúcompare to previous week‚Äù exports
+      // ? NEW: store a snapshot for ìcompare to previous weekî exports
       const generatedAt = new Date().toISOString();
       const nextModel: WeeklyReportV1 = {
         ...report,
@@ -532,7 +532,7 @@ export default function WeeklyReportEditor({
     setSaveMsg(null);
     setBusyPdf(true);
     try {
-      // ‚úÖ includeDraft=1 (server can choose current json even if not ‚Äúfinal‚Äù)
+      // ? includeDraft=1 (server can choose current json even if not ìfinalî)
       const url = `/api/artifacts/weekly-report/export/pdf?projectId=${encodeURIComponent(
         projectId
       )}&artifactId=${encodeURIComponent(artifactId)}&includeDraft=1`;
@@ -551,7 +551,7 @@ export default function WeeklyReportEditor({
     setSaveMsg(null);
     setBusyPpt(true);
     try {
-      // ‚úÖ includeDraft=1
+      // ? includeDraft=1
       const url = `/api/artifacts/weekly-report/export/ppt?projectId=${encodeURIComponent(
         projectId
       )}&artifactId=${encodeURIComponent(artifactId)}&includeDraft=1`;
@@ -572,7 +572,7 @@ export default function WeeklyReportEditor({
       ? "bg-amber-50 border-amber-200 text-amber-900"
       : "bg-rose-50 border-rose-200 text-rose-900";
 
-  const periodUk = `${fmtUkDate(model.period.from)} ‚Üí ${fmtUkDate(model.period.to)}`;
+  const periodUk = `${fmtUkDate(model.period.from)} ? ${fmtUkDate(model.period.to)}`;
 
   const projName = safeStr(model.project?.name);
   const projCode = safeStr(model.project?.code);
@@ -593,7 +593,7 @@ export default function WeeklyReportEditor({
                 <span className="mr-2">
                   <span className="text-gray-500">Project:</span>{" "}
                   <span className="font-medium">
-                    {projName || "‚Äî"}
+                    {projName || "ó"}
                     {projCode ? <span className="text-gray-500"> ({projCode})</span> : null}
                   </span>
                 </span>
@@ -602,7 +602,7 @@ export default function WeeklyReportEditor({
                 <span>
                   <span className="text-gray-500">PM:</span>{" "}
                   <span className="font-medium">
-                    {pmName || "‚Äî"}
+                    {pmName || "ó"}
                     {pmEmail ? <span className="text-gray-500"> ({pmEmail})</span> : null}
                   </span>
                 </span>
@@ -612,7 +612,7 @@ export default function WeeklyReportEditor({
 
           <div className="text-xs text-gray-500">
             Period: <span className="font-medium">{periodUk}</span>
-            {dirty ? <span className="ml-2 text-amber-700">‚Ä¢ Unsaved changes</span> : null}
+            {dirty ? <span className="ml-2 text-amber-700">ï Unsaved changes</span> : null}
           </div>
         </div>
 
@@ -628,7 +628,7 @@ export default function WeeklyReportEditor({
             className="rounded-xl border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
             title="Export PDF"
           >
-            {busyPdf ? "Exporting‚Ä¶" : "PDF"}
+            {busyPdf ? "ExportingÖ" : "PDF"}
           </button>
 
           <button
@@ -638,7 +638,7 @@ export default function WeeklyReportEditor({
             className="rounded-xl border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
             title="Export PowerPoint"
           >
-            {busyPpt ? "Exporting‚Ä¶" : "PPT"}
+            {busyPpt ? "ExportingÖ" : "PPT"}
           </button>
 
           <button
@@ -648,7 +648,7 @@ export default function WeeklyReportEditor({
             className="rounded-xl border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
             title="Auto-generate from last week activity (WBS/milestones/RAID/changes + due-soon focus)"
           >
-            {busyGen ? "Generating‚Ä¶" : "Generate"}
+            {busyGen ? "GeneratingÖ" : "Generate"}
           </button>
 
           <button
@@ -658,7 +658,7 @@ export default function WeeklyReportEditor({
             className="rounded-xl border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
             title={!updateArtifactJsonAction ? "Save not wired (missing updateArtifactJsonAction)" : "Save report"}
           >
-            {busySave ? "Saving‚Ä¶" : "Save"}
+            {busySave ? "SavingÖ" : "Save"}
           </button>
         </div>
       </div>
@@ -737,14 +737,14 @@ export default function WeeklyReportEditor({
           items={model.delivered.map((x) => x.text)}
           readOnly={readOnly}
           onChange={(items) => setModel((p) => ({ ...p, delivered: items.map((t) => ({ text: t })) }))}
-          placeholder="Add completed item‚Ä¶"
+          placeholder="Add completed itemÖ"
         />
         <SectionList
           title="3) Next Period Focus"
           items={model.planNextWeek.map((x) => x.text)}
           readOnly={readOnly}
           onChange={(items) => setModel((p) => ({ ...p, planNextWeek: items.map((t) => ({ text: t })) }))}
-          placeholder="Add focus item‚Ä¶"
+          placeholder="Add focus itemÖ"
         />
       </div>
 
@@ -754,23 +754,23 @@ export default function WeeklyReportEditor({
           items={(model.resourceSummary ?? []).map((x) => x.text)}
           readOnly={readOnly}
           onChange={(items) => setModel((p) => ({ ...p, resourceSummary: items.map((t) => ({ text: t })) }))}
-          placeholder="Add resource note‚Ä¶"
+          placeholder="Add resource noteÖ"
         />
         <SectionLinkList
           title="5) Key Decisions Taken"
           items={model.keyDecisions ?? []}
           readOnly={readOnly}
           onChange={(items) => setModel((p) => ({ ...p, keyDecisions: items }))}
-          placeholderText="Decision text‚Ä¶"
-          placeholderLink="(optional) link‚Ä¶"
+          placeholderText="Decision textÖ"
+          placeholderLink="(optional) linkÖ"
         />
         <SectionLinkList
           title="6) Operational Blockers"
           items={model.blockers ?? []}
           readOnly={readOnly}
           onChange={(items) => setModel((p) => ({ ...p, blockers: items }))}
-          placeholderText="Blocker text‚Ä¶"
-          placeholderLink="(optional) link‚Ä¶"
+          placeholderText="Blocker textÖ"
+          placeholderLink="(optional) linkÖ"
         />
       </div>
     </div>
@@ -816,7 +816,7 @@ function SectionList({
                 className="rounded-xl border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50"
                 title="Remove"
               >
-                √ó
+                ◊
               </button>
             ) : null}
           </div>
@@ -894,7 +894,7 @@ function SectionLinkList({
                   className="rounded-xl border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50"
                   title="Remove"
                 >
-                  √ó
+                  ◊
                 </button>
               ) : null}
             </div>

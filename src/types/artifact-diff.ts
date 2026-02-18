@@ -1,4 +1,4 @@
-﻿export type ArtifactDiffV1 = {
+export type ArtifactDiffV1 = {
   schema_version: "artifact-diff@1";
   artifact_type: string;
   base_revision: number;

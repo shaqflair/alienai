@@ -1,4 +1,4 @@
-ï»¿// src/lib/exports/stakeholder-register/normalize.ts
+// src/lib/exports/stakeholder-register/normalize.ts
 import "server-only";
 
 import type { StakeholderRegisterRow } from "./types";
@@ -10,19 +10,19 @@ function norm(x: any) {
 
 function level(x: any): string {
   const s = norm(x).toLowerCase();
-  if (!s) return "â€”";
+  if (!s) return "—";
   if (s === "high") return "High";
   if (s === "medium") return "Medium";
   if (s === "low") return "Low";
-  if (s === "â€”") return "â€”";
-  return norm(x) || "â€”";
+  if (s === "—") return "—";
+  return norm(x) || "—";
 }
 
 /**
  * Normalise export rows into a consistent shape.
  *
- * âœ… Keeps `group` (needed for XLSX + sorting + some templates)
- * âœ… Provides "alias" keys so older renderers don't go blank:
+ * ? Keeps `group` (needed for XLSX + sorting + some templates)
+ * ? Provides "alias" keys so older renderers don't go blank:
  *    - name / point_of_contact / stakeholder_impact / impact_level / influence_level / stakeholder_mapping / involvement_milestone
  */
 export function normalizeStakeholderRows(rows: StakeholderRegisterRow[]): any[] {
@@ -31,17 +31,17 @@ export function normalizeStakeholderRows(rows: StakeholderRegisterRow[]): any[] 
   const out = input
     .map((r: any) => {
       const stakeholder = norm(r?.stakeholder || r?.name);
-      const contact = norm(r?.contact || r?.point_of_contact || r?.contact_details) || "â€”";
-      const role = norm(r?.role || r?.title_role || r?.title) || "â€”";
+      const contact = norm(r?.contact || r?.point_of_contact || r?.contact_details) || "—";
+      const role = norm(r?.role || r?.title_role || r?.title) || "—";
 
       const impact = level(r?.impact || r?.impact_level);
       const influence = level(r?.influence || r?.influence_level);
 
-      const mapping = norm(r?.mapping || r?.stakeholder_mapping || r?.category) || "â€”";
-      const milestone = norm(r?.milestone || r?.involvement_milestone || r?.frequency) || "â€”";
+      const mapping = norm(r?.mapping || r?.stakeholder_mapping || r?.category) || "—";
+      const milestone = norm(r?.milestone || r?.involvement_milestone || r?.frequency) || "—";
 
-      const impact_notes = norm(r?.impact_notes || r?.stakeholder_impact || r?.notes) || "â€”";
-      const channels = norm(r?.channels || r?.preferred_channel) || "â€”";
+      const impact_notes = norm(r?.impact_notes || r?.stakeholder_impact || r?.notes) || "—";
+      const channels = norm(r?.channels || r?.preferred_channel) || "—";
 
       const group = norm(r?.group) || "";
 
@@ -59,7 +59,7 @@ export function normalizeStakeholderRows(rows: StakeholderRegisterRow[]): any[] 
         group,
       };
 
-      // Alias shape (so â€œolder styleâ€ renderers that expect UI keys still work)
+      // Alias shape (so “older style” renderers that expect UI keys still work)
       const aliases = {
         name: stakeholder,
         point_of_contact: contact,
@@ -72,7 +72,7 @@ export function normalizeStakeholderRows(rows: StakeholderRegisterRow[]): any[] 
 
       return { ...canonical, ...aliases };
     })
-    // âœ… only drop truly empty stakeholders
+    // ? only drop truly empty stakeholders
     .filter((r: any) => !!r.stakeholder);
 
   // Sort like UI: group then stakeholder

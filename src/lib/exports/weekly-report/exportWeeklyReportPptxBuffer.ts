@@ -1,4 +1,4 @@
-ï»¿// src/lib/exports/weekly-report/exportWeeklyReportPptxBuffer.ts
+// src/lib/exports/weekly-report/exportWeeklyReportPptxBuffer.ts
 import "server-only";
 
 import PptxGenJS from "pptxgenjs";
@@ -38,9 +38,9 @@ function ragScore(r: Rag) {
 function trendArrow(now: Rag | null, last: Rag | null) {
   if (!now || !last) return "";
   const dn = ragScore(now) - ragScore(last);
-  if (dn > 0) return " â–²";
-  if (dn < 0) return " â–¼";
-  return " â†’";
+  if (dn > 0) return " ?";
+  if (dn < 0) return " ?";
+  return " ?";
 }
 
 function normLines(s: any) {
@@ -56,9 +56,9 @@ function listTexts(items: any): string[] {
 
 function clampBullets(items: string[], max: number) {
   const xs = items.filter(Boolean);
-  if (xs.length <= max) return xs.length ? xs : ["â€”"];
+  if (xs.length <= max) return xs.length ? xs : ["—"];
   const head = xs.slice(0, max - 1);
-  head.push(`+${xs.length - (max - 1)} moreâ€¦`);
+  head.push(`+${xs.length - (max - 1)} more…`);
   return head;
 }
 
@@ -68,14 +68,14 @@ function sectionFallback(title: string) {
   if (title.startsWith("4)")) return "No resource hotspots detected from due-soon workload.";
   if (title.startsWith("5)")) return "No key decisions detected in this period.";
   if (title.startsWith("6)")) return "No operational blockers detected.";
-  return "â€”";
+  return "—";
 }
 
 function clampText(s: string, maxChars: number) {
   const t = safeStr(s).trim();
-  if (!t) return "â€”";
+  if (!t) return "—";
   if (t.length <= maxChars) return t;
-  return t.slice(0, Math.max(0, maxChars - 1)).trimEnd() + "â€¦";
+  return t.slice(0, Math.max(0, maxChars - 1)).trimEnd() + "…";
 }
 
 /* ---------------- date format: DD/MM/YY ---------------- */
@@ -86,7 +86,7 @@ function pad2(n: number) {
 
 function formatDateUkShort(x: any) {
   const s = safeStr(x).trim();
-  if (!s) return "â€”";
+  if (!s) return "—";
 
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (m) {
@@ -106,7 +106,7 @@ function formatDateUkShort(x: any) {
     return `${pad2(dd)}/${pad2(mm)}/${pad2(yy)}`;
   }
 
-  return "â€”";
+  return "—";
 }
 
 function getPrevSnapshot(model: WeeklyReportV1): any {
@@ -126,8 +126,8 @@ function getMilestoneRows(model: WeeklyReportV1, max = 6) {
       const name = safeStr(m?.name).trim();
       if (!name) return null;
 
-      const baseline = m?.due ? formatDateUkShort(m.due) : "â€”";
-      const forecast = m?.due ? formatDateUkShort(m.due) : "â€”";
+      const baseline = m?.due ? formatDateUkShort(m.due) : "—";
+      const forecast = m?.due ? formatDateUkShort(m.due) : "—";
 
       const ragNow = asRag(m?.status) ?? asRag((model as any)?.summary?.rag) ?? "green";
       const ragLast = asRag(prevByName?.[name]?.rag);
@@ -161,7 +161,7 @@ function normalizeExecNarrative(narrativeRaw: string) {
   if (blockers) keep.push(blockers);
   if (keepLast && !keep.includes(keepLast)) keep.push(keepLast);
 
-  if (!keep.length) return "â€”";
+  if (!keep.length) return "—";
 
   const dueIdx = keep.findIndex((l) => /^next period focus items \(due soon\):/i.test(l));
   const dueLine = dueIdx >= 0 ? keep[dueIdx] : "";
@@ -196,7 +196,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
   const M = 0.45;
 
   const C = {
-    // âœ… match PDF title green (darker than the old one)
+    // ? match PDF title green (darker than the old one)
     titleGreen: "1B7F4B",
     text: "111827",
     muted: "6B7280",
@@ -240,7 +240,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
     color: C.titleGreen,
   });
 
-  s.addText(`Period covered: ${periodFrom} â†’ ${periodTo}.`, {
+  s.addText(`Period covered: ${periodFrom} ? ${periodTo}.`, {
     x: M,
     y: 0.68,
     w: W - 2 * M,
@@ -250,7 +250,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
   });
 
   /* ---------------- Compact Time/Cost/Quality/Scope strip (top) ---------------- */
-  /* âœ… Remove circled GREEN text â€” keep only the coloured dot + label */
+  /* ? Remove circled GREEN text — keep only the coloured dot + label */
 
   const stripTopY = 0.95;
   const stripTopH = 0.32;
@@ -286,7 +286,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
       line: { color: ragDot(chips[i].rag) },
     });
 
-    // âœ… label only
+    // ? label only
     s.addText(chips[i].k, {
       x: x + 0.14 + 2 * r + 0.1,
       y: stripTopY + 0.06,
@@ -311,7 +311,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
     { k: "Status", w: 3.2, v: status },
     { k: "PM", w: 2.3, v: supplierPm },
     { k: "Overall RAG (This Period)", w: 1.9, v: ragLabel(ragNow) + trendArrow(ragNow, ragLast) },
-    { k: "Overall RAG (Last Period)", w: 1.53, v: ragLast ? ragLabel(ragLast) : "â€”" },
+    { k: "Overall RAG (Last Period)", w: 1.53, v: ragLast ? ragLabel(ragLast) : "—" },
   ];
 
   let cx = M;
@@ -369,7 +369,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
         color: ragText(ragNow),
       });
     } else if (isLast) {
-      const lastVal = ragLast ? ragLabel(ragLast) : "â€”";
+      const lastVal = ragLast ? ragLabel(ragLast) : "—";
       if (ragLast) {
         s.addShape(pptx.ShapeType.roundRect, {
           x: cx + 0.14,
@@ -391,7 +391,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
           color: ragText(ragLast),
         });
       } else {
-        s.addText("â€”", {
+        s.addText("—", {
           x: cx,
           y: metaY + metaHHeader + 0.12,
           w: c.w,
@@ -487,7 +487,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
     mainY + execH + 0.2,
     leftW,
     compH,
-    completed.length ? completed.map((t) => `â€¢ ${t}`).join("\n") : `â€¢ ${sectionFallback("2)")}`
+    completed.length ? completed.map((t) => `• ${t}`).join("\n") : `• ${sectionFallback("2)")}`
   );
 
   // RIGHT: Milestones table + Next Period Focus
@@ -620,7 +620,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
         fill: { color: C.canvas },
         line: { color: C.line },
       });
-      s.addText("â€”", { x, y: y + 0.12, w: cw[4], h: rowH - 0.2, fontSize: 10, align: "center", color: C.muted });
+      s.addText("—", { x, y: y + 0.12, w: cw[4], h: rowH - 0.2, fontSize: 10, align: "center", color: C.muted });
     }
   }
 
@@ -631,11 +631,11 @@ export async function exportWeeklyReportPptxBuffer(args: {
     focusPanelY,
     rightW,
     focusPanelH,
-    next.length ? next.map((t) => `â€¢ ${t}`).join("\n") : `â€¢ ${sectionFallback("3)")}`
+    next.length ? next.map((t) => `• ${t}`).join("\n") : `• ${sectionFallback("3)")}`
   );
 
   /* ---------------- Bottom strip: 4/5/6 ---------------- */
-  /* âœ… ensure â€œoverload/workloadâ€ text fits: smaller font + room */
+  /* ? ensure “overload/workload” text fits: smaller font + room */
 
   const stripGap = 0.18;
   const stripW = (W - 2 * M - stripGap * 2) / 3;
@@ -650,7 +650,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
     stripY,
     stripW,
     stripH,
-    res.length ? res.map((t) => `â€¢ ${t}`).join("\n") : `â€¢ ${sectionFallback("4)")}`,
+    res.length ? res.map((t) => `• ${t}`).join("\n") : `• ${sectionFallback("4)")}`,
     { fontSize: 11 }
   );
   panel(
@@ -659,7 +659,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
     stripY,
     stripW,
     stripH,
-    dec.length ? dec.map((t) => `â€¢ ${t}`).join("\n") : `â€¢ ${sectionFallback("5)")}`,
+    dec.length ? dec.map((t) => `• ${t}`).join("\n") : `• ${sectionFallback("5)")}`,
     { fontSize: 11 }
   );
   panel(
@@ -668,7 +668,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
     stripY,
     stripW,
     stripH,
-    blk.length ? blk.map((t) => `â€¢ ${t}`).join("\n") : `â€¢ ${sectionFallback("6)")}`,
+    blk.length ? blk.map((t) => `• ${t}`).join("\n") : `• ${sectionFallback("6)")}`,
     { fontSize: 11 }
   );
 

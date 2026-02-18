@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import React, { useMemo, useState } from "react";
 
 type Action = "approve" | "reject" | "defer";
@@ -14,9 +14,9 @@ export default function ApprovalBubbles({
   const [comment, setComment] = useState("");
 
   const placeholder = useMemo(() => {
-    if (showCommentFor === "approve") return "Optional comment (e.g., Approved with minor note)…";
-    if (showCommentFor === "reject") return "Required comment (why rejected)…";
-    if (showCommentFor === "defer") return "Required comment (what are we waiting for?)…";
+    if (showCommentFor === "approve") return "Optional comment (e.g., Approved with minor note)�";
+    if (showCommentFor === "reject") return "Required comment (why rejected)�";
+    if (showCommentFor === "defer") return "Required comment (what are we waiting for?)�";
     return "";
   }, [showCommentFor]);
 
@@ -47,11 +47,11 @@ export default function ApprovalBubbles({
   return (
     <div className="aiApproveDock" aria-label="Approval actions">
       <button className="aiBubbleBtn" onClick={() => fire("approve")} title="Approve">
-        ✓
+        ?
         <span className="aiBubbleTip">Approve</span>
       </button>
       <button className="aiBubbleBtn" onClick={() => fire("reject")} title="Reject">
-        ✗
+        ?
         <span className="aiBubbleTip">Reject</span>
       </button>
       <button className="aiBubbleBtn" onClick={() => fire("defer")} title="Defer">

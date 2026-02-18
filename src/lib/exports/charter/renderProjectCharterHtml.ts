@@ -1,4 +1,4 @@
-﻿export type Rag = "green" | "amber" | "red";
+export type Rag = "green" | "amber" | "red";
 
 type RowObj = { type: "header" | "data"; cells: string[] };
 
@@ -48,7 +48,7 @@ function tableFromSection(sec: any): { columns: number; rows: RowObj[] } | null 
   return null;
 }
 
-/* ──────────────────────────────────────────────── UK date helpers ──────────────────────────────────────────────── */
+/* ------------------------------------------------ UK date helpers ------------------------------------------------ */
 
 function isIsoDateOnly(v: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(v);
@@ -68,24 +68,24 @@ function toUkDate(value: string) {
   }
 }
 
-/* ──────────────────────────────────────────────── currency helpers (NO £ prefix) ──────────────────────────────────────────────── */
+/* ------------------------------------------------ currency helpers (NO � prefix) ------------------------------------------------ */
 
 function normalizeCurrencyLabel(v: string) {
   const s = String(v || "").trim();
   if (!s) return "Pounds sterling";
   const lower = s.toLowerCase();
-  if (lower === "gbp" || lower.includes("pound") || lower.includes("sterling") || lower === "£") return "Pounds sterling";
+  if (lower === "gbp" || lower.includes("pound") || lower.includes("sterling") || lower === "�") return "Pounds sterling";
   if (lower === "usd" || lower.includes("dollar")) return "USD";
   if (lower === "eur" || lower.includes("euro")) return "EUR";
   return s;
 }
 
-/* ──────────────────────────────────────────────── bullets: NO bullets, render lines from forms ──────────────────────────────────────────────── */
+/* ------------------------------------------------ bullets: NO bullets, render lines from forms ------------------------------------------------ */
 
 function normalizeBulletLine(line: string) {
   let s = String(line ?? "");
   // strip repeated bullet-ish prefixes
-  const re = /^\s*(?:[•\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/;
+  const re = /^\s*(?:[�\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/;
   for (let i = 0; i < 6; i++) {
     const next = s.replace(re, "");
     if (next === s) break;
@@ -111,7 +111,7 @@ function renderLinesFromFormsHtml(text: string) {
   `;
 }
 
-/* ──────────────────────────────────────────────── table renderer (UK date, keep amount as entered, keep currency column as-is) ──────────────────────────────────────────────── */
+/* ------------------------------------------------ table renderer (UK date, keep amount as entered, keep currency column as-is) ------------------------------------------------ */
 
 function renderTableHtml(
   t: { columns: number; rows: RowObj[] },
@@ -148,7 +148,7 @@ function renderTableHtml(
       return escapeHtml(uk || trimmed);
     }
 
-    // Amount column: keep value exactly as entered (NO £ prefix)
+    // Amount column: keep value exactly as entered (NO � prefix)
     return escapeHtml(trimmed);
   }
 
@@ -181,15 +181,15 @@ function renderTableHtml(
 /**
  * Project Charter HTML renderer (Closure-report-like layout)
  * - Logo top-right
- * - Meta “pills”
+ * - Meta �pills�
  * - Watermark
  * - Clean table styling (accent outer border)
  *
  * Changes requested:
- * ✅ UK date format (tables + meta already provided)
- * ✅ Remove £ sign (keep amount as entered)
- * ✅ Remove header PM + Currency pills
- * ✅ Remove bullet points: render plain lines from forms (no <ul>/<li>)
+ * ? UK date format (tables + meta already provided)
+ * ? Remove � sign (keep amount as entered)
+ * ? Remove header PM + Currency pills
+ * ? Remove bullet points: render plain lines from forms (no <ul>/<li>)
  */
 export function renderProjectCharterHtml({
   doc,
@@ -211,7 +211,7 @@ export function renderProjectCharterHtml({
 }) {
   const sections = Array.isArray(doc?.sections) ? doc.sections : [];
 
-  const orgName = safeString(meta.organisationName || "—");
+  const orgName = safeString(meta.organisationName || "�");
   const watermarkText = safeString(meta.watermarkText || "DRAFT");
 
   const bulletsMode = (meta as any)?.bulletsMode === "ul" ? "ul" : "forms";
@@ -401,7 +401,7 @@ export function renderProjectCharterHtml({
         <div class="meta">
           <span class="pill"><b>Document</b> Project Charter</span>
           <span class="pill"><b>Organisation</b> ${escapeHtml(orgName)}</span>
-          <span class="pill"><b>Project ID</b> ${escapeHtml(meta.projectCode || "—")}</span>
+          <span class="pill"><b>Project ID</b> ${escapeHtml(meta.projectCode || "�")}</span>
           <span class="pill"><b>Generated</b> ${escapeHtml(meta.generated)}</span>
         </div>
       </div>

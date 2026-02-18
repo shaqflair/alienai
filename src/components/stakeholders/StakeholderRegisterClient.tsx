@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import SectionsOnlyTableEditor from "@/components/editors/SectionsOnlyTableEditor";
@@ -210,7 +210,7 @@ export default function StakeholderRegisterClient(props: {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="text-sm text-gray-500">
-          {readOnly ? "Read-only" : isPending ? "Saving…" : "Saved"}
+          {readOnly ? "Read-only" : isPending ? "Saving�" : "Saved"}
         </div>
 
         {!readOnly ? (

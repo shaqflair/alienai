@@ -1,4 +1,4 @@
-﻿// src/lib/exports/lessons/exportLessonsXlsx.ts
+// src/lib/exports/lessons/exportLessonsXlsx.ts
 import "server-only";
 
 import ExcelJS from "exceljs";
@@ -178,7 +178,7 @@ export async function exportLessonsXlsx(
       ].join(",")
     )
     .eq("project_id", project.id)
-    // ✅ oldest first so row numbering matches ascending order
+    // ? oldest first so row numbering matches ascending order
     .order("created_at", { ascending: true });
 
   const statusFilter = (status || []).map((s) => safeStr(s).trim()).filter(Boolean);
@@ -237,7 +237,7 @@ export async function exportLessonsXlsx(
     });
   } else {
     items.forEach((l: any, idx: number) => {
-      // ✅ ASCENDING numbering
+      // ? ASCENDING numbering
       const no = idx + 1;
 
       const date = l.date_raised ? ukDateFromIso(l.date_raised) : ukDateFromIso(l.created_at);

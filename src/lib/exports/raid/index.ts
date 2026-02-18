@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 export * from "./pdf";
 export * from "./xlsx";

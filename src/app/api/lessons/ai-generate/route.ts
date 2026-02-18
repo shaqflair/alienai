@@ -1,3 +1,4 @@
+// src/app/api/lessons/ai-generate/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -25,8 +26,6 @@ type AiLesson = {
   category: "what_went_well" | "improvements" | "issues";
   description: string;
   action_for_future: string;
-
-  // optional if you added cols
   impact?: "Positive" | "Negative";
   severity?: "Low" | "Medium" | "High";
   project_stage?: string;
@@ -66,7 +65,6 @@ async function collectSignals(sb: any, project_id: string) {
 }
 
 function buildPrompt(signals: { raid: any[]; changes: any[] }) {
-  // Keep prompt compact & “enterprise”
   const raidTop = signals.raid.slice(0, 120);
   const crTop = signals.changes.slice(0, 120);
 
@@ -114,12 +112,11 @@ async function generateLessonsWithOpenAI(signals: { raid: any[]; changes: any[] 
 
   const prompt = buildPrompt(signals);
 
-  // Use Responses API (works with OpenAI SDK v4+)
   const resp = await openai.responses.create({
     model,
     temperature,
-    // “json” helps but we still hard-parse defensively
-    response_format: { type: "json_object" },
+    // Responses API format control lives under `text.format`
+    text: { format: { type: "json_object" } },
     input: [
       {
         role: "user",
@@ -129,18 +126,18 @@ async function generateLessonsWithOpenAI(signals: { raid: any[]; changes: any[] 
   });
 
   const txt = resp.output_text || "";
-  // response_format json_object returns an object; we asked for array
-  // So we accept either:
-  // - { "items": [ ... ] } or
-  // - [ ... ]
   let parsed: any;
+
   try {
     parsed = JSON.parse(txt);
   } catch {
-    // last resort: try to extract first JSON block
-    const m = txt.match(/(\[.*\]|\{.*\})/s);
+    // FIX: Removed 's' flag from regex - not supported in older ES targets
+    // Use a simpler approach without the 's' (dotAll) flag
+    const m = txt.match(/(\[.*\]|\{.*\})/);
     if (!m) throw new Error("AI returned non-JSON output");
-    parsed = JSON.parse(m[1]);
+    // Handle multiline by replacing newlines in the match
+    const cleanedMatch = m[1].replace(/\n/g, ' ');
+    parsed = JSON.parse(cleanedMatch);
   }
 
   const arr = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.items) ? parsed.items : [];
@@ -162,7 +159,6 @@ export async function POST(req: Request) {
     for (const x of raw) {
       if (!validateLesson(x)) continue;
 
-      // normalise optional fields
       const item: AiLesson = {
         category: x.category,
         description: String(x.description).trim(),
@@ -173,10 +169,7 @@ export async function POST(req: Request) {
         ai_summary: typeof x.ai_summary === "string" ? x.ai_summary.trim() : undefined,
       };
 
-      // dedupe against existing
       if (signals.existingDescriptions.has(norm(item.description))) continue;
-
-      // soft dedupe within this batch
       if (clean.some((y) => norm(y.description) === norm(item.description))) continue;
 
       clean.push(item);
@@ -189,8 +182,6 @@ export async function POST(req: Request) {
       category: l.category,
       description: l.description,
       action_for_future: l.action_for_future,
-
-      // optional columns (safe even if null)
       status: "Open",
       impact: l.impact ?? null,
       severity: l.severity ?? null,

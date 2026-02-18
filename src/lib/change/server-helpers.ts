@@ -1,4 +1,4 @@
-﻿// src/lib/change/server-helpers.ts
+// src/lib/change/server-helpers.ts
 import "server-only";
 import { createClient } from "@/utils/supabase/server";
 
@@ -146,7 +146,7 @@ function amountMatchesRule(amount: number | null, rule: any): boolean {
 }
 
 /**
- * LEGACY helper — safe to keep if you still have doa_rules in some envs.
+ * LEGACY helper � safe to keep if you still have doa_rules in some envs.
  * New approval engine does not depend on this.
  */
 export async function isDesignatedApproverForChange(args: {
@@ -164,7 +164,7 @@ export async function isDesignatedApproverForChange(args: {
 
   if (!userId || !projectId) return { ok: false, reason: "missing_user_or_project" };
 
-  // 1) DOA rules (project-specific) — optional
+  // 1) DOA rules (project-specific) � optional
   try {
     const { data: doa, error: doaErr } = await supabase
       .from("doa_rules")
@@ -213,7 +213,7 @@ export async function isDesignatedApproverForChange(args: {
 
 /**
  * Back-compat wrapper (older code calls this).
- * New approval routes should NOT use this — use requireApproverForPendingArtifactStep().
+ * New approval routes should NOT use this � use requireApproverForPendingArtifactStep().
  */
 export async function requireApproverForProject(
   supabase: any,
@@ -288,7 +288,7 @@ export async function getPendingArtifactStepForArtifact(args: {
 }
 
 /**
- * ✅ Tightened: resolve user approvers via canonical approver_member_id -> organisation_members.user_id
+ * ? Tightened: resolve user approvers via canonical approver_member_id -> organisation_members.user_id
  * Fallback: legacy approver_ref UUID (user_id)
  */
 async function listDirectApproverUserIdsForStep(supabase: any, stepId: string): Promise<string[]> {
@@ -401,7 +401,7 @@ async function findDelegatorForActorOnStep(
 }
 
 /**
- * ✅ Canonical auth check for Approve/Reject.
+ * ? Canonical auth check for Approve/Reject.
  */
 export async function canActOnPendingArtifactStep(args: {
   supabase: any;
@@ -423,8 +423,8 @@ export async function canActOnPendingArtifactStep(args: {
 }
 
 /**
- * ✅ Required by approve/reject routes.
- * Throws 403 if the actor can’t approve current pending step for artifact.
+ * ? Required by approve/reject routes.
+ * Throws 403 if the actor can�t approve current pending step for artifact.
  */
 export async function requireApproverForPendingArtifactStep(args: {
   supabase: any;
@@ -562,7 +562,7 @@ export async function recomputeApprovalState(args: {
 }
 
 /**
- * ✅ Progress helper for UI
+ * ? Progress helper for UI
  * - current step info
  * - totals
  * - remaining approvers on the current step (count)

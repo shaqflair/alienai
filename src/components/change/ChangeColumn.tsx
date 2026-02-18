@@ -1,4 +1,4 @@
-ï»¿// src/components/change/ChangeColumn.tsx
+// src/components/change/ChangeColumn.tsx
 "use client";
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
@@ -83,6 +83,7 @@ export default function ChangeColumn({
   items: ChangeItem[];
   onMove: (id: string, status: ChangeStatus) => void;
   projectId: string;
+  // FIX: Made projectCode optional since ChangeCard doesn't use it
   projectCode?: string;
   isApprover: boolean;
 }) {
@@ -132,9 +133,9 @@ export default function ChangeColumn({
           else needsWork++;
         }
 
-        setLaneNote(`Checking readinessâ€¦ Ready: ${ready} â€¢ Needs work: ${needsWork} â€¢ Scanning AI nowâ€¦`);
+        setLaneNote(`Checking readiness… Ready: ${ready} • Needs work: ${needsWork} • Scanning AI now…`);
       } else {
-        setLaneNote(`Scanning ${laneItems.length} item(s)â€¦`);
+        setLaneNote(`Scanning ${laneItems.length} item(s)…`);
       }
 
       let okCount = 0;
@@ -174,7 +175,7 @@ export default function ChangeColumn({
         }
 
         setLaneNote(
-          `Analysis readiness: Ready: ${ready} â€¢ Needs work: ${needsWork} â€¢ AI scanned: ${okCount}${
+          `Analysis readiness: Ready: ${ready} • Needs work: ${needsWork} • AI scanned: ${okCount}${
             failCount ? ` (failed: ${failCount})` : ""
           }`
         );
@@ -268,7 +269,7 @@ export default function ChangeColumn({
               {scanBusy ? (
                 <>
                   <div className="w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                  Scanningâ€¦
+                  Scanning…
                 </>
               ) : (
                 <>
@@ -326,7 +327,7 @@ export default function ChangeColumn({
                 disabled={scanBusy}
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg transition-colors"
               >
-                {scanBusy ? "Scanningâ€¦" : "Run AI scan"}
+                {scanBusy ? "Scanning…" : "Run AI scan"}
               </button>
             )}
           </div>
@@ -365,11 +366,11 @@ export default function ChangeColumn({
                     Open change request {it.title || ""}
                   </Link>
 
+                  {/* FIX: Removed projectCode prop - ChangeCard doesn't accept it */}
                   <ChangeCard
                     item={it}
                     onMove={onMove}
                     projectId={projectId}
-                    projectCode={projectCode}
                     isApprover={isApprover}
                     compact={collapsed}
                     returnTo={returnTo}

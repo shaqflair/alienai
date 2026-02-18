@@ -1,3 +1,4 @@
+// src/app/api/wbs/[artifactId]/sync/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -159,7 +160,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: s
       stack.push({ level: lvl, rowId });
     }
 
-    // 1) Upsert “flat” rows (parent assigned later after we know DB ids)
+    // 1) Upsert "flat" rows (parent assigned later after we know DB ids)
     const upsertPayload = sliced.map((r: any, i: number) => {
       const sourceRowId = safeStr(r?.id).trim() || `row_${i}`;
 
@@ -221,7 +222,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: s
     if (after.error) return jsonErr(after.error.message, 400);
 
     const srToId = new Map<string, string>();
-    for (const x of after.data ?? []) {
+    // FIX: Line 258 - Added explicit type annotation for x
+    for (const x of (after.data ?? []) as Array<{ id: string; source_row_id: string }>) {
       const sr = safeStr((x as any).source_row_id).trim();
       const id = safeStr((x as any).id).trim();
       if (sr && id) srToId.set(sr, id);
@@ -245,7 +247,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: s
       // upsert by id
       const pu = await supabase.from("wbs_items").upsert(parentUpdates, { onConflict: "id" });
       if (pu.error) {
-        // tolerant: don’t fail the whole sync if parent patching has issues
+        // tolerant: don't fail the whole sync if parent patching has issues
         return jsonOk({
           synced: upsertPayload.length,
           parentPatched: false,

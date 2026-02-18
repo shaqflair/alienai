@@ -1,4 +1,4 @@
-ï»¿// src/lib/exports/charter/exportCharterDocx.ts
+// src/lib/exports/charter/exportCharterDocx.ts
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -85,7 +85,7 @@ function toUkDate(value: string) {
 
 function formatCellValue(x: any) {
   const raw = safeString(x).trim();
-  if (!raw) return "â€”";
+  if (!raw) return "—";
   if (looksIsoDateOnly(raw) || looksIsoDateTime(raw)) return toUkDate(raw);
   return raw;
 }
@@ -96,7 +96,7 @@ function stripNumberPrefix(title: string) {
 
 function stripLeadingBullets(line: string) {
   return String(line ?? "")
-    .replace(/^\s*(?:[â€¢\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/g, "")
+    .replace(/^\s*(?:[•\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/g, "")
     .trim();
 }
 
@@ -178,7 +178,7 @@ function normalizeTable(sec: any): { header: string[]; rows: string[][] } | null
 async function generateCharterDocx(doc: any, meta: any) {
   const sections = Array.isArray(doc?.sections) ? doc.sections : [];
 
-  // âœ… Bullet sections contract (but Section 1 & 2 must NOT show bullet markers)
+  // ? Bullet sections contract (but Section 1 & 2 must NOT show bullet markers)
   const bulletIndices = new Set([0, 1, 3, 6, 7, 8, 9]);
 
   const titleBand = new Table({
@@ -319,12 +319,12 @@ async function generateCharterDocx(doc: any, meta: any) {
     const secKey = safeString(sec?.key).trim().toLowerCase();
     const isScope = secKey === "scope_in_out" || secKey === "scope";
 
-    // âœ… Avoid "1.1": strip any numeric prefix from stored title
+    // ? Avoid "1.1": strip any numeric prefix from stored title
     const rawTitle = safeString(sec?.title || sec?.key || `Section ${idx + 1}`);
     const title = stripNumberPrefix(rawTitle);
 
     const isBulletSection = bulletIndices.has(idx);
-    const noBulletsThisSection = idx === 0 || idx === 1; // âœ… Section 1 & 2: no bullet markers
+    const noBulletsThisSection = idx === 0 || idx === 1; // ? Section 1 & 2: no bullet markers
 
     contentBlocks.push(new Paragraph({ spacing: { before: 300 } }));
 
@@ -462,7 +462,7 @@ async function generateCharterDocx(doc: any, meta: any) {
             children: Array.from({ length: colCount }, () => "").map(
               () =>
                 new TableCell({
-                  children: [new Paragraph({ children: [new TextRun({ text: "â€”", size: 20, color: "94A3B8" })] })],
+                  children: [new Paragraph({ children: [new TextRun({ text: "—", size: 20, color: "94A3B8" })] })],
                   margins: { top: 60, bottom: 60, left: 100, right: 100 },
                 })
             ),
@@ -536,7 +536,7 @@ async function generateCharterDocx(doc: any, meta: any) {
               new Paragraph({
                 children: [
                   new TextRun({ text: "Project Charter", bold: true, size: 28 }),
-                  new TextRun({ text: " â€¢ " + safeString(meta.projectName), size: 24, color: "64748B" }),
+                  new TextRun({ text: " • " + safeString(meta.projectName), size: 24, color: "64748B" }),
                 ],
               }),
             ],
@@ -548,7 +548,7 @@ async function generateCharterDocx(doc: any, meta: any) {
               new Paragraph({
                 children: [
                   new TextRun({
-                    text: `Generated ${safeString(meta.generatedDate)} â€¢ Page `,
+                    text: `Generated ${safeString(meta.generatedDate)} • Page `,
                     size: 18,
                     color: "64748B",
                   }),
@@ -562,13 +562,13 @@ async function generateCharterDocx(doc: any, meta: any) {
           }),
         },
         children: [
-          // âœ… Tables must be direct children (NOT inside Paragraph)
+          // ? Tables must be direct children (NOT inside Paragraph)
           titleBand,
           new Paragraph({ spacing: { after: 200 } }),
           metaTable,
           new Paragraph({ spacing: { after: 220 } }),
 
-          // âœ… Stats removed to match PDF
+          // ? Stats removed to match PDF
 
           ...contentBlocks,
         ],
@@ -621,21 +621,21 @@ export async function exportCharterDocx({
 
     const projectCode = projectRow?.project_code
       ? `P-${String(projectRow.project_code).padStart(5, "0")}`
-      : "â€”";
+      : "—";
 
-    let orgName = "â€”";
+    let orgName = "—";
     const orgId = projectRow?.organisation_id;
     if (orgId) {
       const { data: org } = await supabase.from("organisations").select("name").eq("id", orgId).single();
-      orgName = org?.name || "â€”";
+      orgName = org?.name || "—";
     }
 
     const meta = {
       projectName: (artifact as any).title || projectRow?.title || "Project",
       projectCode,
       organisationName: orgName,
-      clientName: projectRow?.client_name || "â€”",
-      pmName: doc?.meta?.pm_name || "â€”",
+      clientName: projectRow?.client_name || "—",
+      pmName: doc?.meta?.pm_name || "—",
       status: doc?.meta?.status || "Draft",
       generatedDate: formatUkDate(),
       generatedDateTime: formatUkDateTime(),
@@ -644,7 +644,7 @@ export async function exportCharterDocx({
     const buffer = await generateCharterDocx(doc, meta);
     const filename = `Project_${meta.projectCode}_Charter_${meta.generatedDate.replace(/\//g, "-")}.docx`;
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(buffer))), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

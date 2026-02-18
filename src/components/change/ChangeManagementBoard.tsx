@@ -1,4 +1,4 @@
-﻿// src/components/change/ChangeBoard.tsx
+// src/components/change/ChangeBoard.tsx
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -6,7 +6,7 @@ import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 
 /**
- * ✅ Heavy UI (DnD + drawers + modals) is loaded dynamically
+ * ? Heavy UI (DnD + drawers + modals) is loaded dynamically
  * so the initial bundle stays small and first paint is instant.
  */
 const ChangeBoardDnd = dynamic(() => import("./ChangeBoardDnd"), {
@@ -16,7 +16,7 @@ const ChangeBoardDnd = dynamic(() => import("./ChangeBoardDnd"), {
       <div className="flex items-center justify-between gap-3 mb-4">
         <div className="min-w-0">
           <div className="text-lg font-semibold text-gray-900">Change Board</div>
-          <div className="text-sm text-gray-500">Loading board…</div>
+          <div className="text-sm text-gray-500">Loading board�</div>
         </div>
       </div>
 
@@ -26,7 +26,7 @@ const ChangeBoardDnd = dynamic(() => import("./ChangeBoardDnd"), {
             <div className="rounded-2xl border-2 border-gray-200 bg-white shadow-sm overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
                 <div className="font-semibold truncate">{t}</div>
-                <div className="text-xs text-gray-500">—</div>
+                <div className="text-xs text-gray-500">�</div>
               </div>
               <div className="p-3 min-h-[420px] space-y-3">
                 <div className="h-24 rounded-xl border border-gray-200 bg-gray-50 animate-pulse" />
@@ -64,7 +64,7 @@ export default function ChangeBoard() {
   const [projectLabel, setProjectLabel] = useState<string>("");
   const [err, setErr] = useState<string>("");
 
-  // ✅ Resolve project_code -> UUID (or accept UUID directly)
+  // ? Resolve project_code -> UUID (or accept UUID directly)
   useEffect(() => {
     let cancelled = false;
 

@@ -1,4 +1,4 @@
-﻿// src/lib/artifact-types.ts
+// src/lib/artifact-types.ts
 
 /**
  * Canonical Artifact Types used by the app.
@@ -17,7 +17,7 @@ export const ARTIFACT_TYPES = [
   "LESSONS_LEARNED",
   "PROJECT_CLOSURE_REPORT",
 
-  // ✅ New
+  // ? New
   "WEEKLY_REPORT",
 ] as const;
 

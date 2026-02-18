@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 export { exportCharterPdf } from "./pdf";
 export { exportCharterDocx } from "./docx";

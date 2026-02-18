@@ -121,7 +121,7 @@ async function handle(req: NextRequest) {
     const baseName =
       safeStr((out as any)?.baseName).replace(/\.xlsx$/i, "") || excelBaseName((out as any)?.meta);
 
-    return new NextResponse(xlsx as any, {
+    return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(xlsx as any))), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

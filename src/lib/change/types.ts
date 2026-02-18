@@ -1,4 +1,4 @@
-﻿export type ChangeStatus =
+export type ChangeStatus =
   | "new"
   | "analysis"
   | "review"

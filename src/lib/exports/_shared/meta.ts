@@ -1,4 +1,4 @@
-ï»¿import "server-only";
+import "server-only";
 import { createClient } from "@/utils/supabase/server";
 import { isoNow, safeStr } from "./utils";
 
@@ -28,7 +28,7 @@ export async function resolveExportMeta(opts: {
   // Defaults
   let meta: ExportMeta = {
     projectName: safeStr(fb.projectName) || "Project",
-    projectCode: safeStr(fb.projectCode) || "â€”",
+    projectCode: safeStr(fb.projectCode) || "—",
     organisationName: safeStr(fb.organisationName) || "",
     clientName: safeStr(fb.clientName) || "",
     generated: safeStr(fb.generated) || isoNow(),
@@ -47,7 +47,7 @@ export async function resolveExportMeta(opts: {
     .maybeSingle();
 
   if (projErr) {
-    // Donâ€™t hard fail meta: exports should still work
+    // Don’t hard fail meta: exports should still work
     return meta;
   }
 

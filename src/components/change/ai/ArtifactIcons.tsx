@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import React from "react";
 
 type LinkFlags = {
@@ -25,9 +25,9 @@ export default function ArtifactIcons({ links }: { links?: LinkFlags }) {
 
   return (
     <div className="aiArtifacts" aria-label="Linked artifacts">
-      {w > 0 && <Chip title={`${w} WBS tasks affected`}>⛓</Chip>}
-      {s > 0 && <Chip title={`${s} Schedule items affected`}>🗓</Chip>}
-      {r > 0 && <Chip title={`${r} Risks linked`}>⚠</Chip>}
+      {w > 0 && <Chip title={`${w} WBS tasks affected`}>?</Chip>}
+      {s > 0 && <Chip title={`${s} Schedule items affected`}>??</Chip>}
+      {r > 0 && <Chip title={`${r} Risks linked`}>?</Chip>}
     </div>
   );
 }

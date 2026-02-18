@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 import { createClient } from "@/utils/supabase/server";
 
 const CHANGE_TABLE = "change_requests";
@@ -85,7 +85,7 @@ export async function loadChangeExportData(changeId: string) {
   const projectId = safeStr((cr as any).project_id);
   if (!projectId) throw new Error("Change request missing project_id");
 
-  // ✅ Membership check (prevents exporting other project’s CRs)
+  // ? Membership check (prevents exporting other project�s CRs)
   await requireAuthAndMembership(supabase, projectId);
 
   // Load project meta
@@ -109,7 +109,7 @@ export async function loadChangeExportData(changeId: string) {
     if (!oErr) organisation = org;
   }
 
-  // ✅ Attachments: align to your XLSX exporter storage path (change/{changeId})
+  // ? Attachments: align to your XLSX exporter storage path (change/{changeId})
   let attachments: Array<{ name: string; url: string }> = [];
   try {
     const { data: listed, error: listErr } = await supabase.storage.from(BUCKET).list(`change/${changeId}`, { limit: 100 });

@@ -1,4 +1,4 @@
-ï»¿"use client";
+"use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -117,7 +117,7 @@ function InlineAiButton({
       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
       </svg>
-      {busy ? "Applyingâ€¦" : "AI"}
+      {busy ? "Applying…" : "AI"}
     </button>
   );
 }
@@ -273,7 +273,7 @@ export default function ChangeCreateModal({
     if (!s) return;
     const cur = safeStr(current).trim();
     if (cur.length >= 50) {
-      const merged = `${cur}\n\nâ€”\nImproved draft:\n${s}`;
+      const merged = `${cur}\n\n—\nImproved draft:\n${s}`;
       setter(clampText(merged, max));
       return;
     }
@@ -302,7 +302,7 @@ export default function ChangeCreateModal({
       next.costs = mapIf(
         next.costs,
         [
-          aiImpact.cost > 0 ? `Â£${aiImpact.cost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "",
+          aiImpact.cost > 0 ? `£${aiImpact.cost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}` : "",
           aiImpact.days > 0 ? `${aiImpact.days} day(s)` : "",
         ]
           .filter(Boolean)

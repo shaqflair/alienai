@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import React, { useMemo } from "react";
 
 function clamp(n: number, a = 0, b = 100) {

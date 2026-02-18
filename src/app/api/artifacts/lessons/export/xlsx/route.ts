@@ -1,4 +1,4 @@
-﻿// src/app/api/artifacts/lessons/export/xlsx/route.ts
+// src/app/api/artifacts/lessons/export/xlsx/route.ts
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
       filenameBase,
     });
 
-    return new NextResponse(bytes, {
+    return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(bytes))), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": `attachment; filename="${filename}"`,

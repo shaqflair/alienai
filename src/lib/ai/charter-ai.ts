@@ -1,4 +1,4 @@
-﻿export type RowObj = { type: "header" | "data"; cells: string[] };
+export type RowObj = { type: "header" | "data"; cells: string[] };
 
 export type Section = {
   key: string;

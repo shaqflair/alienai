@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 type PuppeteerCore = typeof import("puppeteer-core");
 
@@ -39,8 +39,8 @@ export async function launchBrowser() {
     });
   }
 
-  // Serverless: Sparticuz Chromium
-  const chromium = await import("@sparticuz/chromium");
+  // Serverless: Sparticuz Chromium (default export)
+  const chromium = (await import("@sparticuz/chromium")).default;
   const executablePath = await chromium.executablePath();
 
   return puppeteer.launch({

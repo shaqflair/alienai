@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { createClient } from "@/utils/supabase/server";
 import { signOutAction } from "@/app/actions/auth";
 

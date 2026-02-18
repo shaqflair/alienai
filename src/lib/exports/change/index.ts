@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import { renderChangeRequestHtml } from "../html/changeRequestHtml";
 import { buildChangeRequestXlsx } from "../xlsx/changeRequestXlsx";
