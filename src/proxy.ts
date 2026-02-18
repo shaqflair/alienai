@@ -2,96 +2,86 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-/**
- * 🔐 Production-safe Supabase session refresh proxy (Next 16)
- *
- * Goals:
- * - Never crash → prevents Vercel MIDDLEWARE_INVOCATION_FAILED
- * - Skip static assets + heavy routes for performance
- * - Refresh Supabase session only when needed
- */
-
-function envStr(x: unknown) {
-  return typeof x === "string" ? x.trim() : "";
+function hasSupabaseEnv() {
+  return !!(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
 }
 
-/**
- * Routes we NEVER want auth refresh on
- * (static assets, exports, heavy API)
- */
-function shouldSkip(req: NextRequest) {
-  const path = req.nextUrl.pathname;
-
-  // Static + Next internals
+function isStaticPath(pathname: string) {
   if (
-    path.startsWith("/_next") ||
-    path.startsWith("/favicon") ||
-    path.startsWith("/images") ||
-    path.startsWith("/icons") ||
-    path.startsWith("/public")
-  ) return true;
-
-  // File extensions (fast skip)
-  if (/\.(png|jpg|jpeg|gif|webp|svg|ico|css|js|map|txt|xml)$/i.test(path))
+    pathname.startsWith("/_next/") ||
+    pathname.startsWith("/favicon") ||
+    pathname.startsWith("/robots.txt") ||
+    pathname.startsWith("/sitemap") ||
+    pathname.startsWith("/manifest") ||
+    pathname.startsWith("/assets/") ||
+    pathname.startsWith("/images/")
+  ) {
     return true;
+  }
 
-  // Heavy exports / binary routes
-  if (
-    path.startsWith("/api/export") ||
-    path.includes("/export/") ||
-    path.includes("/download")
-  ) return true;
+  // common static file extensions
+  if (/\.(?:png|jpg|jpeg|gif|webp|svg|ico|css|js|map|txt|xml|woff2?|ttf|eot)$/i.test(pathname)) {
+    return true;
+  }
 
   return false;
 }
 
-export async function proxy(req: NextRequest) {
-  const res = NextResponse.next({ request: { headers: req.headers } });
+function isHtmlNavigation(req: NextRequest) {
+  // Only run session refresh for actual document navigations.
+  // This avoids touching API/json/assets and reduces edge overhead.
+  const accept = (req.headers.get("accept") || "").toLowerCase();
+  const secFetchDest = (req.headers.get("sec-fetch-dest") || "").toLowerCase();
 
-  try {
-    // 🚀 Skip static & heavy routes completely
-    if (shouldSkip(req)) return res;
+  if (secFetchDest === "document") return true;
+  if (accept.includes("text/html")) return true;
 
-    const supabaseUrl = envStr(process.env.NEXT_PUBLIC_SUPABASE_URL);
-    const supabaseAnon = envStr(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+  return false;
+}
 
-    // If env missing → don't crash whole site
-    if (!supabaseUrl || !supabaseAnon) {
-      console.warn("[proxy] Supabase env missing — skipping refresh");
-      return res;
-    }
+export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
 
-    const supabase = createServerClient(supabaseUrl, supabaseAnon, {
+  // ✅ Skip assets entirely
+  if (isStaticPath(pathname)) return NextResponse.next();
+
+  // ✅ If Supabase env is missing, don't blow up production
+  if (!hasSupabaseEnv()) return NextResponse.next();
+
+  // ✅ Only refresh session cookies for HTML page navigations
+  if (!isHtmlNavigation(req)) return NextResponse.next();
+
+  let res = NextResponse.next({
+    request: { headers: req.headers },
+  });
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
       cookies: {
         getAll: () => req.cookies.getAll(),
         setAll: (cookiesToSet) => {
-          cookiesToSet.forEach(({ name, value, options }) => {
+          for (const { name, value, options } of cookiesToSet) {
             res.cookies.set(name, value, options);
-          });
+          }
         },
       },
-    });
+    }
+  );
 
-    // 🔑 Refresh session silently
-    await supabase.auth.getUser();
+  // 🔑 Refresh session cookies for server components
+  await supabase.auth.getUser();
 
-    return res;
-  } catch (err: any) {
-    // NEVER crash middleware/proxy
-    console.error("[proxy] session refresh failed:", err?.message || err, {
-      path: req.nextUrl.pathname,
-    });
-
-    return res;
-  }
+  return res;
 }
 
-/**
- * Matcher:
- * Run everywhere except static/image/favicon
- */
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)",
+    // Apply broadly, but we do our own skipping for assets internally.
+    "/:path*",
   ],
 };
