@@ -1,7 +1,7 @@
 // src/components/change/ChangeBoard.tsx
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { CHANGE_COLUMNS } from "@/lib/change/columns";
@@ -143,7 +143,39 @@ function fmtWhen(iso?: string | null) {
   return d.toLocaleDateString("en-GB");
 }
 
+/**
+ * ✅ Wrapper component
+ * Next requires useSearchParams() to be under Suspense.
+ */
 export default function ChangeBoard(props: { artifactId?: string; projectId?: string; projectCode?: string }) {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-[calc(100vh-64px)] bg-gray-50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+            <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+              <div className="h-5 w-56 bg-gray-100 rounded" />
+              <div className="mt-3 h-4 w-96 bg-gray-100 rounded" />
+              <div className="mt-6 h-10 w-full bg-gray-100 rounded" />
+              <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="h-24 bg-gray-100 rounded-xl" />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      }
+    >
+      <ChangeBoardInner {...props} />
+    </Suspense>
+  );
+}
+
+/**
+ * ✅ Inner component (safe to use useSearchParams here)
+ */
+function ChangeBoardInner(props: { artifactId?: string; projectId?: string; projectCode?: string }) {
   const router = useRouter();
   const params = useParams() as Record<string, string | string[] | undefined>;
   const sp = useSearchParams();
@@ -162,7 +194,9 @@ export default function ChangeBoard(props: { artifactId?: string; projectId?: st
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  const [scopeMode, setScopeMode] = useState<ScopeMode>(() => (projectId ? (artifactId ? "artifact" : "project") : "portfolio"));
+  const [scopeMode, setScopeMode] = useState<ScopeMode>(() =>
+    projectId ? (artifactId ? "artifact" : "project") : "portfolio"
+  );
   const [isApprover, setIsApprover] = useState(false);
   const [approverRole, setApproverRole] = useState<string>("");
 
@@ -492,25 +526,18 @@ export default function ChangeBoard(props: { artifactId?: string; projectId?: st
 
   const priorityBadge = (p: string) => {
     const v = p.toLowerCase();
-    if (v === "critical")
-      return "bg-rose-50 text-rose-700 ring-1 ring-rose-200";
-    if (v === "high")
-      return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
-    if (v === "low")
-      return "bg-slate-50 text-slate-600 ring-1 ring-slate-200";
+    if (v === "critical") return "bg-rose-50 text-rose-700 ring-1 ring-rose-200";
+    if (v === "high") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+    if (v === "low") return "bg-slate-50 text-slate-600 ring-1 ring-slate-200";
     return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
   };
 
   const statusBadge = (s: string) => {
     const v = String(s || "").toLowerCase();
-    if (v === "review" || v === "analysis")
-      return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
-    if (v === "in_progress")
-      return "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200";
-    if (v === "implemented")
-      return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
-    if (v === "closed")
-      return "bg-gray-100 text-gray-600 ring-1 ring-gray-200";
+    if (v === "review" || v === "analysis") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+    if (v === "in_progress") return "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200";
+    if (v === "implemented") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
+    if (v === "closed") return "bg-gray-100 text-gray-600 ring-1 ring-gray-200";
     return "bg-slate-50 text-slate-600 ring-1 ring-slate-200";
   };
 
@@ -557,7 +584,12 @@ export default function ChangeBoard(props: { artifactId?: string; projectId?: st
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
                   </svg>
                 </div>
                 <input
@@ -576,7 +608,12 @@ export default function ChangeBoard(props: { artifactId?: string; projectId?: st
                 title="Refresh"
               >
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
                 </svg>
               </button>
 
@@ -615,7 +652,11 @@ export default function ChangeBoard(props: { artifactId?: string; projectId?: st
                 }`}
               >
                 {f.label}
-                <span className={`text-xs px-1.5 py-0.5 rounded-full ${filter === f.key ? "bg-indigo-100" : "bg-gray-200"}`}>
+                <span
+                  className={`text-xs px-1.5 py-0.5 rounded-full ${
+                    filter === f.key ? "bg-indigo-100" : "bg-gray-200"
+                  }`}
+                >
                   {f.count}
                 </span>
               </button>
@@ -655,7 +696,12 @@ export default function ChangeBoard(props: { artifactId?: string; projectId?: st
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
           <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 flex items-center gap-3">
             <svg className="h-5 w-5 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
             <span className="text-sm text-rose-800">{err}</span>
           </div>
@@ -709,17 +755,23 @@ export default function ChangeBoard(props: { artifactId?: string; projectId?: st
                         </td>
                         <td className="px-6 py-4">
                           <div className="font-medium text-gray-900">{r.title}</div>
-                          {r.requester && (
-                            <div className="text-xs text-gray-500 mt-0.5">by {r.requester}</div>
-                          )}
+                          {r.requester && <div className="text-xs text-gray-500 mt-0.5">by {r.requester}</div>}
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${priorityBadge(r.priority)}`}>
+                          <span
+                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${priorityBadge(
+                              r.priority
+                            )}`}
+                          >
                             {r.priority}
                           </span>
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${statusBadge(r.status)}`}>
+                          <span
+                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${statusBadge(
+                              r.status
+                            )}`}
+                          >
                             {r.status}
                           </span>
                         </td>

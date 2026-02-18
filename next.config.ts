@@ -1,20 +1,19 @@
 // next.config.ts
 import type { NextConfig } from "next";
 
+const isVercel = !!process.env.VERCEL;
+
 const nextConfig: NextConfig = {
   /**
    * ✅ TEMP: Unblock production builds on Vercel
-   * Next runs typechecking + eslint during `next build`.
+   * Next runs typechecking during `next build`.
    * You currently have a backlog of TS errors across the repo,
-   * so we bypass them for deployment and fix progressively.
+   * so we bypass type errors for deployment and fix progressively.
    *
    * IMPORTANT: Keep running `npx tsc --noEmit` locally/CI as your gate.
    */
   typescript: {
     ignoreBuildErrors: true,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
   },
 
   /**
@@ -43,10 +42,15 @@ const nextConfig: NextConfig = {
   },
 
   /**
-   * Recommended for production deployments (Docker / many serverless setups).
-   * Safe to include even if you don't use it.
+   * ✅ IMPORTANT:
+   * `output: "standalone"` triggers file-tracing + copy into `.next/standalone`.
+   * On Windows, Turbopack can emit traced chunk names like `node:fs` (contains `:`),
+   * which causes `copyfile EINVAL` during the standalone copy step.
+   *
+   * Vercel does NOT require standalone output, so disable it there.
+   * Keep standalone for Docker/self-hosting builds when NOT on Vercel.
    */
-  output: "standalone",
+  ...(isVercel ? {} : { output: "standalone" }),
 };
 
 export default nextConfig;
