@@ -18,7 +18,7 @@ export default function ProjectsHeader({
   return (
     <header className="flex items-start justify-between gap-6">
       <div className="flex items-start gap-4">
-        {/* ✅ Replace “?” with a proper icon badge */}
+        {/* ✅ Clean icon badge (replaces the old “?”) */}
         <div className="mt-0.5 h-10 w-10 rounded-full bg-[#00B8DB]/10 border border-[#00B8DB]/30 flex items-center justify-center shadow-[0_10px_30px_rgba(0,184,219,0.15)]">
           <svg
             width="18"
@@ -45,16 +45,19 @@ export default function ProjectsHeader({
 
           {/* Banner (invite outcomes) */}
           {banner ? (
-            <div className={`mt-3 rounded-lg border px-4 py-2 text-sm ${bannerClass(banner.tone)}`}>
+            <div className="mt-3 rounded-lg border px-4 py-2 text-sm border-slate-200 bg-slate-50 text-slate-700">
               {banner.msg}
             </div>
           ) : null}
 
           {/* Flash (actions feedback) */}
           {flash ? (
-            <div className={`mt-3 rounded-lg border px-4 py-2 text-sm ${flashCls(flash.tone)}`}>
+            <div className="mt-3 rounded-lg border px-4 py-2 text-sm border-slate-200 bg-white text-slate-700">
               {flash.text}{" "}
-              <Link href={dismissHref} className="ml-2 underline underline-offset-2 opacity-80 hover:opacity-100">
+              <Link
+                href={dismissHref}
+                className="ml-2 underline underline-offset-2 opacity-80 hover:opacity-100"
+              >
                 Dismiss
               </Link>
             </div>

@@ -97,7 +97,7 @@ export default async function ProjectsPage({
 
   const userId = user.id;
 
-  // ✅ Load projects (and PM display if you added that select already)
+  // ✅ Load projects (includes PM relationship via FK projects_project_manager_id_fkey)
   const { data, error } = await supabase
     .from("project_members")
     .select(
@@ -117,7 +117,7 @@ export default async function ProjectsPage({
 
         project_manager_id,
         project_manager:profiles!projects_project_manager_id_fkey (
-          id,
+          user_id,
           full_name,
           email
         )
@@ -159,6 +159,7 @@ export default async function ProjectsPage({
         status: r.projects.status ?? "active",
         myRole: r.role ?? "viewer",
 
+        // optional extra fields (safe even if your type doesn't include them yet)
         project_manager_id: (r.projects as any)?.project_manager_id ?? null,
         project_manager_name: pmName,
       } as any;
@@ -199,7 +200,9 @@ export default async function ProjectsPage({
     if (sort === "title_asc") {
       arr.sort((a, b) => safeStr(a.title).localeCompare(safeStr(b.title)));
     } else {
-      arr.sort((a, b) => safeStr(b.created_at).localeCompare(safeStr(a.created_at)));
+      arr.sort((a, b) =>
+        safeStr(b.created_at).localeCompare(safeStr(a.created_at))
+      );
     }
     return arr;
   })();
@@ -209,6 +212,7 @@ export default async function ProjectsPage({
     return buildQs({ ...next, invite: inviteParam || undefined });
   }
 
+  // ✅ Cyan border style matching reference image (#00B8DB)
   const panelGlow =
     "bg-white text-gray-900 rounded-2xl border-2 border-[#00B8DB] shadow-[0_4px_20px_rgba(0,184,219,0.15)]";
 
@@ -222,7 +226,11 @@ export default async function ProjectsPage({
   const canCreate = !!activeOrgId;
 
   const { data: orgRow } = activeOrgId
-    ? await supabase.from("organisations").select("id,name").eq("id", activeOrgId).maybeSingle()
+    ? await supabase
+        .from("organisations")
+        .select("id,name")
+        .eq("id", activeOrgId)
+        .maybeSingle()
     : { data: null as any };
 
   const activeOrgName = safeStr(orgRow?.name).trim();
@@ -236,7 +244,7 @@ export default async function ProjectsPage({
           user_id,
           role,
           profiles:profiles (
-            id,
+            user_id,
             full_name,
             email
           )
@@ -323,12 +331,6 @@ export default async function ProjectsPage({
               <span className="font-semibold text-gray-700">
                 {activeOrgName || "Not set"}
               </span>
-              {/* optional: keep UUID subtle for debugging */}
-              {activeOrgId ? (
-                <span className="ml-2 font-mono text-[10px] text-gray-400">
-                  ({activeOrgId})
-                </span>
-              ) : null}
             </p>
           </div>
 
