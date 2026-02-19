@@ -49,8 +49,7 @@ function normStatus(s: string | null | undefined) {
 
 function badge(status: string | null | undefined) {
   const s = normStatus(status);
-  const base =
-    "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium border";
+  const base = "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium border";
 
   if (!s || s === "draft")
     return { text: "Draft", cls: `${base} border-neutral-200 text-neutral-700 bg-white` };
@@ -88,6 +87,14 @@ function pickProjectKey(projectHumanId?: string | null, projectId?: string | nul
 }
 
 /**
+ * Canonical key for comparisons/grouping.
+ * Prefer ui_kind (usually canonical system type), fallback to key.
+ */
+function canonicalKeyUpper(it: Pick<SidebarItem, "ui_kind" | "key">) {
+  return safeUpper(it.ui_kind || it.key);
+}
+
+/**
  * ✅ Align sidebar grouping with your Board’s sections:
  * - Initiating + Planning => Plan
  * - Monitoring & Controlling => Control
@@ -104,11 +111,13 @@ function groupForKey(keyUpper: string) {
       "SCHEDULE",
       "DESIGN",
       "REQUIREMENTS",
+      "WEEKLY_REPORT", // treat as planning/PM cadence
     ].includes(k)
   )
     return "Plan";
 
-  if (["RAID", "CHANGE_REQUESTS"].includes(k)) return "Control";
+  // ✅ Fix: canonical is CHANGE (legacy may be CHANGE_REQUESTS)
+  if (["RAID", "CHANGE", "CHANGE_REQUESTS"].includes(k)) return "Control";
 
   if (["LESSONS_LEARNED", "PROJECT_CLOSURE_REPORT"].includes(k)) return "Close";
 
@@ -160,10 +169,7 @@ export default function ArtifactsSidebarClient({
   useEffect(() => setMounted(true), []);
 
   // Storage key can be human or uuid – used only for localStorage
-  const projectKey = useMemo(
-    () => pickProjectKey(projectHumanId, projectId),
-    [projectHumanId, projectId]
-  );
+  const projectKey = useMemo(() => pickProjectKey(projectHumanId, projectId), [projectHumanId, projectId]);
 
   // ✅ Route id MUST be human id (or code) for URLs
   const projectRouteId = useMemo(() => {
@@ -198,7 +204,7 @@ export default function ArtifactsSidebarClient({
     } catch {}
   }, [mounted, pathname, storageKey]);
 
-  // ✅ Board links (Create / Draft / Submitted) — adjust keys here if needed
+  // ✅ Board links (Create / Draft / Submitted)
   function boardHref(view: "create" | "draft" | "submitted") {
     return `/projects/${projectRouteId}/board?view=${view}`;
   }
@@ -206,10 +212,12 @@ export default function ArtifactsSidebarClient({
   const enhanced = useMemo(() => {
     const urlArtifactId = safeArtifactIdFromPath(pathname);
     const activeId = urlArtifactId ?? (mounted ? storedArtifactId : null);
+
     const newType = safeUpper(newTypeRaw);
 
     return items.map((it) => {
-      const itKey = safeUpper(it.key);
+      // ✅ Canonical key to compare against URL param + grouping
+      const itKey = canonicalKeyUpper(it);
 
       const active =
         (it.current?.id && activeId && it.current.id === activeId) ||
@@ -239,14 +247,12 @@ export default function ArtifactsSidebarClient({
     let submitted = 0;
 
     for (const it of enhanced) {
-      // Create = "canCreate" (we want this visible regardless of current state)
       if (it.canCreate) create++;
 
       const s = normStatus(it.current?.approval_status);
       if (it.current?.id) {
         if (!s || s === "draft") draft++;
-        else if (s === "submitted" || s === "in_review" || s === "review" || s === "pending")
-          submitted++;
+        else if (s === "submitted" || s === "in_review" || s === "review" || s === "pending") submitted++;
         else if (s === "approved" || s === "rejected" || s === "changes_requested") submitted++;
       }
     }
@@ -271,7 +277,7 @@ export default function ArtifactsSidebarClient({
       Close: [],
     };
     for (const it of visible) {
-      const g = groupForKey(String((it as any).keyUpper ?? it.key).toUpperCase()) as
+      const g = groupForKey(String((it as any).keyUpper ?? it.key).toUpperCase().trim()) as
         | "Plan"
         | "Control"
         | "Close";
@@ -281,11 +287,7 @@ export default function ArtifactsSidebarClient({
   }, [visible]);
 
   const groupStorageKey = `alienai:artifactGroups:${projectKey}`;
-  const [groupOpen, setGroupOpen] = useState<{
-    Plan: boolean;
-    Control: boolean;
-    Close: boolean;
-  }>({
+  const [groupOpen, setGroupOpen] = useState<{ Plan: boolean; Control: boolean; Close: boolean }>({
     Plan: true,
     Control: true,
     Close: true,
@@ -340,9 +342,7 @@ export default function ArtifactsSidebarClient({
     function onKeyDown(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
       const isTyping =
-        tag === "input" ||
-        tag === "textarea" ||
-        (e.target as HTMLElement | null)?.isContentEditable === true;
+        tag === "input" || tag === "textarea" || (e.target as HTMLElement | null)?.isContentEditable === true;
 
       if (e.key === "Escape") {
         if (document.activeElement === searchRef.current) {
@@ -447,9 +447,7 @@ export default function ArtifactsSidebarClient({
   }
 
   function Row({ it, idx }: { it: any; idx: number }) {
-    const openUrl = it.current?.id
-      ? `/projects/${projectRouteId}/artifacts/${it.current!.id}`
-      : it.href;
+    const openUrl = it.current?.id ? `/projects/${projectRouteId}/artifacts/${it.current!.id}` : it.href;
 
     const rightStatus = it.current ? (
       <span className={it.badge.cls}>{it.badge.text}</span>
@@ -463,10 +461,7 @@ export default function ArtifactsSidebarClient({
       </span>
     );
 
-    const wrapClass = [
-      "rounded-md group",
-      it.active ? "bg-neutral-100 ring-1 ring-neutral-200" : "",
-    ]
+    const wrapClass = ["rounded-md group", it.active ? "bg-neutral-100 ring-1 ring-neutral-200" : ""]
       .filter(Boolean)
       .join(" ");
 
@@ -530,17 +525,12 @@ export default function ArtifactsSidebarClient({
   }, [grouped, groupOpen]);
 
   return (
-    <aside
-      className={["border-r border-neutral-200 p-3", collapsed ? "w-16" : "w-80"].join(" ")}
-      aria-label="Artifacts sidebar"
-    >
+    <aside className={["border-r border-neutral-200 p-3", collapsed ? "w-16" : "w-80"].join(" ")} aria-label="Artifacts sidebar">
       {/* Project header */}
       <div className="mb-3 rounded-xl border border-neutral-200 bg-white p-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <div className="text-[11px] uppercase tracking-wide text-neutral-500">
-              {collapsed ? "P" : "Project"}
-            </div>
+            <div className="text-[11px] uppercase tracking-wide text-neutral-500">{collapsed ? "P" : "Project"}</div>
 
             {!collapsed && (
               <>
@@ -554,14 +544,11 @@ export default function ArtifactsSidebarClient({
                 </Link>
 
                 {projectCode ? (
-                  <div className="mt-0.5 truncate font-mono text-[11px] text-neutral-500">
-                    ID: {projectCode}
-                  </div>
+                  <div className="mt-0.5 truncate font-mono text-[11px] text-neutral-500">ID: {projectCode}</div>
                 ) : null}
 
                 <div className="mt-1 text-xs text-neutral-500 capitalize">Role: {role}</div>
 
-                {/* ✅ Board (correct route) + Create/Draft/Submitted shortcuts */}
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <Link
                     href={`/projects/${projectRouteId}/board`}

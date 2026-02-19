@@ -144,13 +144,21 @@ function displayProjectCode(project_code: any) {
 function displayArtifactTitle(a: any) {
   const t = safeStr(a?.title);
   if (t) return t;
-  const type = safeStr(a?.type);
-  return type || "Artifact";
+
+  // fallback to effective type (more stable than raw type)
+  const eff = safeStr(a?.effective_type || a?.artifact_type || a?.type);
+  return eff || "Artifact";
 }
 
 /* ---------------- project resolve (robust + TEXT project_code) ---------------- */
 
-async function selectFirst(sb: any, table: string, select: string, filterCol: string, filterVal: any) {
+async function selectFirst(
+  sb: any,
+  table: string,
+  select: string,
+  filterCol: string,
+  filterVal: any
+) {
   const { data, error } = await sb.from(table).select(select).eq(filterCol, filterVal).limit(1);
   const row = Array.isArray(data) && data.length ? data[0] : null;
   return { row, error, count: Array.isArray(data) ? data.length : 0 };
@@ -173,7 +181,8 @@ async function resolveProject(sb: any, projectParam: string) {
   // 1) UUID direct
   if (looksLikeUuid(raw)) {
     const r = await selectFirst(sb, "projects", PROJECT_COLS, "id", raw);
-    if (r.error) return { data: null as any, error: r.error, debug: { ...debugBase, stage: "projects:id:error" } };
+    if (r.error)
+      return { data: null as any, error: r.error, debug: { ...debugBase, stage: "projects:id:error" } };
     if (r.row) return { data: r.row, error: null, debug: { ...debugBase, stage: "projects:id:ok" } };
 
     // fallback membership sources by id
@@ -197,7 +206,8 @@ async function resolveProject(sb: any, projectParam: string) {
 
   for (const v of variants) {
     const r = await selectFirst(sb, "projects", PROJECT_COLS, "project_code", v);
-    if (r.error) return { data: null as any, error: r.error, debug: { ...debugBase, stage: "projects:code:error", v } };
+    if (r.error)
+      return { data: null as any, error: r.error, debug: { ...debugBase, stage: "projects:code:error", v } };
     if (r.row) return { data: r.row, error: null, debug: { ...debugBase, stage: "projects:code:ok", v } };
   }
 
@@ -227,15 +237,26 @@ async function resolveProject(sb: any, projectParam: string) {
 /* ---------------- artifacts query (simple + safe) ---------------- */
 
 async function queryArtifacts(sb: any, projectUuid: string) {
-  // ✅ include approval_status so we can show Draft / Submitted
-  const minimalSelect = "id,title,type,created_at,approval_status";
+  // Robust select for legacy rows where artifact_type is null or type differs.
+  const select = "id,title,type,artifact_type,is_current,created_at,approval_status,deleted_at";
+
   const { data, error } = await sb
     .from("artifacts")
-    .select(minimalSelect)
+    .select(select)
     .eq("project_id", projectUuid)
+    .is("deleted_at", null)
+    .eq("is_current", true)
     .order("created_at", { ascending: true });
 
-  return { list: Array.isArray(data) ? data : [], error };
+  const list = Array.isArray(data) ? data : [];
+
+  const normalized = list.map((a: any) => ({
+    ...a,
+    // “effective type” is what the UI should treat as canonical for routing/labels
+    effective_type: (a?.artifact_type || a?.type || "").toString(),
+  }));
+
+  return { list: normalized, error };
 }
 
 /* ---------------- status helpers ---------------- */
@@ -307,9 +328,6 @@ export default async function ArtifactsSidebar({ projectId }: { projectId: strin
         <div className="mt-1 text-xs text-gray-500 font-mono">{projectCodeHuman}</div>
 
         <div className="mt-3 flex flex-wrap gap-2">
-          {/* ✅ Removed Board button */}
-
-          {/* ✅ Renamed only (href unchanged) */}
           <Link
             href={`/projects/${projectId}/artifacts`}
             className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs hover:bg-gray-50"
@@ -317,7 +335,6 @@ export default async function ArtifactsSidebar({ projectId }: { projectId: strin
             Artifact Board
           </Link>
 
-          {/* ✅ keep create new artifact */}
           <Link
             href={`/projects/${projectId}/artifacts/new`}
             className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs hover:bg-gray-50"
@@ -335,7 +352,7 @@ export default async function ArtifactsSidebar({ projectId }: { projectId: strin
             {list.map((a: any) => {
               const id = String(a.id);
               const title = displayArtifactTitle(a);
-              const type = safeStr(a.type) || "—";
+              const type = safeStr((a as any).effective_type || a.artifact_type || a.type) || "—";
               const submitted = isSubmittedArtifact(a);
 
               return (
