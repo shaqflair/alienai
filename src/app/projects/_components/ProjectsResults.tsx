@@ -1,3 +1,4 @@
+// src/app/projects/_components/ProjectsResults.tsx
 import "server-only";
 
 import Link from "next/link";
@@ -87,14 +88,14 @@ export default async function ProjectsResults({
   baseHrefForDismiss: string;
   panelGlow: string;
 }) {
-  const total = rows.length;
+  const total = Array.isArray(rows) ? rows.length : 0;
   const orgAdminSet = new Set((orgAdminOrgIds ?? []).map((x) => String(x)));
 
   // ------------------------------------------------------------------
   // Enterprise delete protection (server-side)
   // ------------------------------------------------------------------
   const supabase = await createClient();
-  const projectIds = rows.map((r) => String(r.id || "")).filter(Boolean);
+  const projectIds = (Array.isArray(rows) ? rows : []).map((r) => String((r as any)?.id || "")).filter(Boolean);
 
   const guardByProject: Record<string, DeleteGuard> = {};
 
@@ -105,6 +106,7 @@ export default async function ProjectsResults({
       .in("project_id", projectIds)
       .is("deleted_at", null);
 
+    // If artifact query fails, default to safe (block delete)
     if (error) {
       for (const pid of projectIds) {
         guardByProject[pid] = {
@@ -118,6 +120,7 @@ export default async function ProjectsResults({
     } else {
       const list = Array.isArray(arts) ? arts : [];
 
+      // init
       for (const pid of projectIds) {
         guardByProject[pid] = {
           canDelete: true,
@@ -185,12 +188,14 @@ export default async function ProjectsResults({
 
   return (
     <section className="space-y-4">
+      {/* Controls */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="text-sm text-gray-600">
           Showing <span className="font-semibold text-gray-900">{total}</span> project{total === 1 ? "" : "s"}
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+          {/* Filter */}
           <div className="flex items-center gap-2">
             <Link
               href={makeHref({ filter: "active" })}
@@ -227,6 +232,7 @@ export default async function ProjectsResults({
             </Link>
           </div>
 
+          {/* Search */}
           <form action="/projects" method="GET" className="flex items-center gap-2">
             <input type="hidden" name="view" value={view} />
             <input type="hidden" name="sort" value={sort} />
@@ -247,6 +253,7 @@ export default async function ProjectsResults({
             </button>
           </form>
 
+          {/* Sort */}
           <div className="flex items-center gap-2">
             <Link
               href={makeHref({ sort: "created_desc" })}
@@ -275,6 +282,7 @@ export default async function ProjectsResults({
         </div>
       </div>
 
+      {/* Table */}
       <div className={`rounded-xl ${panelGlow} overflow-hidden`}>
         <div className="overflow-x-auto">
           <table className="w-full table-fixed border-collapse">
@@ -287,9 +295,9 @@ export default async function ProjectsResults({
             </thead>
 
             <tbody className="bg-white">
-              {rows.map((p) => {
-                const projectId = String(p.id || "");
-                const orgId = String(p.organisation_id || "");
+              {(Array.isArray(rows) ? rows : []).map((p) => {
+                const projectId = String((p as any)?.id || "");
+                const orgId = String((p as any)?.organisation_id || "");
                 const isOrgAdmin = orgId ? orgAdminSet.has(orgId) : false;
 
                 const hrefProject = `/projects/${encodeURIComponent(projectId)}`;
@@ -304,12 +312,13 @@ export default async function ProjectsResults({
 
                 return (
                   <tr key={projectId} className="border-b border-gray-200 hover:bg-gray-50/70 transition-colors">
+                    {/* PROJECT */}
                     <td className="px-5 py-5 align-top">
                       <div className="flex items-start gap-4">
                         <span
                           className={[
                             "inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold border",
-                            statusTone(p.status),
+                            statusTone((p as any)?.status),
                           ].join(" ")}
                         >
                           {closed ? "Closed" : "Active"}
@@ -317,10 +326,10 @@ export default async function ProjectsResults({
 
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 min-w-0">
-                            <div className="font-semibold text-gray-900 truncate">{p.title}</div>
-                            {p.project_code != null && String(p.project_code).trim() !== "" && (
+                            <div className="font-semibold text-gray-900 truncate">{safeStr((p as any)?.title)}</div>
+                            {(p as any)?.project_code != null && String((p as any)?.project_code).trim() !== "" && (
                               <span className="shrink-0 inline-flex items-center rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-gray-700">
-                                {String(p.project_code)}
+                                {String((p as any)?.project_code)}
                               </span>
                             )}
                           </div>
@@ -330,26 +339,21 @@ export default async function ProjectsResults({
                             <span className={pm === "Unassigned" ? "text-gray-400" : "text-gray-700 font-semibold"}>
                               {pm}
                             </span>{" "}
-                            • Created {fmtDate((p as any).created_at)}
+                            • Created {fmtDate((p as any)?.created_at)}
                           </div>
-
-                          {guard && !guard.canDelete ? (
-                            <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
-                              <span className="font-semibold">Delete blocked:</span>{" "}
-                              {guard.reasons.join(" • ")}. Use <span className="font-semibold">Abnormal close</span>.
-                            </div>
-                          ) : null}
                         </div>
                       </div>
                     </td>
 
+                    {/* SCHEDULE */}
                     <td className="px-5 py-5 align-top">
                       <div className="text-sm text-gray-900">
-                        {fmtDate((p as any).start_date)} — {fmtDate((p as any).finish_date)}
+                        {fmtDate((p as any)?.start_date)} — {fmtDate((p as any)?.finish_date)}
                       </div>
                       <div className="mt-2 text-xs text-gray-500">Schedule window</div>
                     </td>
 
+                    {/* ACTIONS */}
                     <td className="px-5 py-5 align-top">
                       <div className="flex flex-col items-end gap-3">
                         <div className="flex flex-wrap justify-end gap-2">
@@ -388,19 +392,20 @@ export default async function ProjectsResults({
                           )}
                         </div>
 
-                       <ProjectsDangerButtonsClient
-  projectId={projectId}
-  projectTitle={safeStr(p.title)}
-  guard={guard}
-  isClosed={closed}
-/>
+                        {/* Single entry point modal handles delete vs abnormal close */}
+                        <ProjectsDangerButtonsClient
+                          projectId={projectId}
+                          projectTitle={safeStr((p as any)?.title)}
+                          guard={guard}
+                          isClosed={closed}
+                        />
                       </div>
                     </td>
                   </tr>
                 );
               })}
 
-              {rows.length === 0 && (
+              {total === 0 && (
                 <tr>
                   <td colSpan={3} className="px-6 py-14 text-center">
                     <div className="text-sm font-semibold text-gray-900">No projects found</div>
