@@ -10,21 +10,52 @@ import { createProject } from "./actions";
 import ProjectsHeader from "./_components/ProjectsHeader";
 import ProjectsResults from "./_components/ProjectsResults";
 
-import {
-  buildQs,
-  flashFromQuery,
-  inviteBanner,
-  norm,
-  safeStr,
-  type MemberProjectRow,
-  type ProjectListRow,
-} from "./_lib/projects-utils";
+// ✅ only import TYPES (no runtime helpers)
+import type { MemberProjectRow, ProjectListRow } from "./_lib/projects-utils";
 
 type OrgMemberOption = {
   user_id: string;
   label: string;
   role?: string | null;
 };
+
+function safeStr(x: unknown) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function norm(x: unknown) {
+  return safeStr(x).trim();
+}
+
+function qsSafe(params: Record<string, unknown>) {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (!s) continue;
+    sp.set(k, s);
+  }
+  const out = sp.toString();
+  return out ? `?${out}` : "";
+}
+
+function inviteBanner(invite: unknown) {
+  // Preserve existing behavior safely: if you had an invite system,
+  // ProjectsHeader can still render "banner" null/undefined safely.
+  const s = norm(invite);
+  return s ? s : null;
+}
+
+function flashFromQuery(err: unknown, msg: unknown) {
+  // Minimal safe flash structure. ProjectsHeader already handles this shape in your repo.
+  const e = norm(err);
+  const m = norm(msg);
+  if (!e && !m) return null;
+  return {
+    kind: e ? "error" : "success",
+    message: e || m,
+  };
+}
 
 function displayNameFromUser(user: any) {
   const full =
@@ -87,10 +118,11 @@ export default async function ProjectsPage({
 
   if (!user) redirect(`/login?next=${encodeURIComponent("/projects")}`);
 
-  const sp = (await searchParams) ?? {};
+  const sp = (await (searchParams as any)) ?? {};
+
   const banner = inviteBanner((sp as any)?.invite);
 
-  const q = safeStr((sp as any)?.q).trim();
+  const q = norm((sp as any)?.q);
   const view = norm((sp as any)?.view) === "grid" ? "grid" : "list";
   const sort = norm((sp as any)?.sort) === "title_asc" ? "title_asc" : "created_desc";
 
@@ -98,14 +130,14 @@ export default async function ProjectsPage({
   const filter: "active" | "closed" | "all" =
     filterRaw === "closed" ? "closed" : filterRaw === "all" ? "all" : "active";
 
-  const err = safeStr((sp as any)?.err).trim();
-  const msg = safeStr((sp as any)?.msg).trim();
-  const pid = safeStr((sp as any)?.pid).trim();
+  const err = norm((sp as any)?.err);
+  const msg = norm((sp as any)?.msg);
+  const pid = norm((sp as any)?.pid);
+
   const flash = flashFromQuery(err, msg);
 
   const userId = user.id;
 
-  // ✅ Load projects (includes PM relationship via FK projects_project_manager_id_fkey)
   const { data, error } = await supabase
     .from("project_members")
     .select(
@@ -169,7 +201,6 @@ export default async function ProjectsPage({
         status: r.projects.status ?? "active",
         myRole: r.role ?? "viewer",
 
-        // extra (safe)
         lifecycle_status: (r.projects as any)?.lifecycle_status ?? null,
         closed_at: (r.projects as any)?.closed_at ?? null,
         project_manager_id: (r.projects as any)?.project_manager_id ?? null,
@@ -196,7 +227,6 @@ export default async function ProjectsPage({
     }
   }
 
-  // Filter: active/closed/all
   const lifecycleFiltered = (() => {
     if (filter === "all") return rows;
     if (filter === "closed") return rows.filter((p: any) => isClosedProject(p));
@@ -205,9 +235,9 @@ export default async function ProjectsPage({
 
   const textFiltered = (() => {
     if (!q) return lifecycleFiltered;
-    const nq = norm(q);
+    const nq = q.toLowerCase();
     return lifecycleFiltered.filter((p) => {
-      const hay = `${p.title} ${String(p.project_code ?? "")} ${p.id}`.toLowerCase();
+      const hay = `${safeStr(p.title)} ${safeStr((p as any).project_code ?? "")} ${safeStr(p.id)}`.toLowerCase();
       return hay.includes(nq);
     });
   })();
@@ -217,22 +247,24 @@ export default async function ProjectsPage({
     if (sort === "title_asc") {
       arr.sort((a, b) => safeStr(a.title).localeCompare(safeStr(b.title)));
     } else {
-      arr.sort((a, b) => safeStr(b.created_at).localeCompare(safeStr(a.created_at)));
+      arr.sort((a, b) => safeStr((b as any).created_at).localeCompare(safeStr((a as any).created_at)));
     }
     return arr;
   })();
 
-  const inviteParam = safeStr((sp as any)?.invite).trim();
-  function baseQs(next: Record<string, string | undefined>) {
-    return buildQs({ ...next, invite: inviteParam || undefined });
-  }
+  const inviteParam = norm((sp as any)?.invite);
 
-  // ✅ Cyan border style matching reference image (#00B8DB)
-  const panelGlow = "bg-white text-gray-900 rounded-2xl border-2 border-[#00B8DB] shadow-[0_4px_20px_rgba(0,184,219,0.15)]";
+  const dismissHref = `/projects${qsSafe({
+    invite: inviteParam || undefined,
+    q: q || undefined,
+    sort,
+    view,
+    filter,
+  })}`;
 
-  // ─────────────────────────────────────────────────────────────
-  // Active org + org name
-  // ─────────────────────────────────────────────────────────────
+  const panelGlow =
+    "bg-white text-gray-900 rounded-2xl border-2 border-[#00B8DB] shadow-[0_4px_20px_rgba(0,184,219,0.15)]";
+
   const cookieOrgId = await getActiveOrgId().catch(() => null);
   const activeOrgId = (cookieOrgId && String(cookieOrgId)) || (orgIds[0] ? String(orgIds[0]) : "");
 
@@ -244,7 +276,6 @@ export default async function ProjectsPage({
 
   const activeOrgName = safeStr(orgRow?.name).trim();
 
-  // Org members for PM dropdown
   const { data: orgMemberRows } = activeOrgId
     ? await supabase
         .from("organisation_members")
@@ -276,60 +307,15 @@ export default async function ProjectsPage({
 
   return (
     <main className="projects-theme-cyan relative min-h-screen bg-gray-50 text-gray-900 overflow-x-hidden">
-      <style
-        // eslint-disable-next-line react/no-danger
-        dangerouslySetInnerHTML={{
-          __html: `
-            .projects-theme-cyan { --accent: #00B8DB; }
-
-            .projects-theme-cyan h1,
-            .projects-theme-cyan [data-page-title="projects"],
-            .projects-theme-cyan .page-title {
-              color: #0f172a !important;
-            }
-            .projects-theme-cyan .text-white\\/80,
-            .projects-theme-cyan .text-white\\/70,
-            .projects-theme-cyan .text-slate-200,
-            .projects-theme-cyan .text-slate-300 {
-              color: #64748b !important;
-            }
-
-            .projects-theme-cyan a[href="/artifacts"],
-            .projects-theme-cyan a[href^="/artifacts?" ],
-            .projects-theme-cyan a[href="/app/artifacts"],
-            .projects-theme-cyan a[href^="/app/artifacts?" ] {
-              background: var(--accent) !important;
-              border-color: var(--accent) !important;
-              color: #fff !important;
-              box-shadow: 0 10px 30px rgba(0,184,219,0.25) !important;
-            }
-            .projects-theme-cyan a[href="/artifacts"]:hover,
-            .projects-theme-cyan a[href^="/artifacts?" ]:hover,
-            .projects-theme-cyan a[href="/app/artifacts"]:hover,
-            .projects-theme-cyan a[href^="/app/artifacts?" ]:hover {
-              filter: brightness(0.95) !important;
-            }
-
-            .projects-theme-cyan .bg-blue-600 { background-color: var(--accent) !important; }
-            .projects-theme-cyan .hover\\:bg-blue-700:hover { background-color: #00a5c4 !important; }
-            .projects-theme-cyan .border-blue-600 { border-color: var(--accent) !important; }
-            .projects-theme-cyan .text-blue-600 { color: var(--accent) !important; }
-            .projects-theme-cyan .ring-blue-500\\/20 { --tw-ring-color: rgba(0,184,219,0.20) !important; }
-          `,
-        }}
-      />
-
       <div className="relative mx-auto max-w-6xl px-6 py-10 space-y-8">
-        <ProjectsHeader banner={banner} flash={flash} dismissHref={`/projects${baseQs({ q, sort, view, filter })}`} />
+        <ProjectsHeader banner={banner} flash={flash as any} dismissHref={dismissHref} />
 
-        {/* Create project */}
         <section className={`p-6 md:p-8 space-y-5 ${panelGlow}`}>
           <div className="space-y-1">
             <h2 className="text-lg font-semibold text-gray-900">Create a project</h2>
             <p className="text-sm text-gray-500">
               Enterprise setup: define ownership and delivery lead (PM) for governance and reporting.
             </p>
-
             <p className="text-xs text-gray-500">
               Active organisation:{" "}
               <span className="font-semibold text-gray-700">{activeOrgName || "Not set"}</span>
@@ -347,9 +333,7 @@ export default async function ProjectsPage({
 
             <div className="grid gap-2">
               <span className="text-sm font-semibold text-gray-700">Project owner</span>
-              <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-gray-900">
-                {ownerLabel}
-              </div>
+              <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-gray-900">{ownerLabel}</div>
               <p className="text-xs text-gray-500">Owner is the accountable lead for governance (auto-set to you).</p>
             </div>
 
@@ -422,7 +406,7 @@ export default async function ProjectsPage({
             err={err}
             msg={msg}
             orgAdminSet={orgAdminSet}
-            baseHrefForDismiss={`/projects${baseQs({ q, sort, view, filter })}`}
+            baseHrefForDismiss={dismissHref}
             panelGlow={panelGlow}
           />
         </div>
