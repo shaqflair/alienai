@@ -2,8 +2,20 @@ import "server-only";
 
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/server";
-import { buildQs, safeStr, fmtUkDate, type ProjectListRow } from "../_lib/projects-utils";
+import { safeStr, fmtUkDate, type ProjectListRow } from "../_lib/projects-utils";
 import ProjectsDangerButtonsClient, { type DeleteGuard } from "./ProjectsDangerButtonsClient";
+
+function qsSafe(params: Record<string, unknown>) {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (!s) continue;
+    sp.set(k, s);
+  }
+  const out = sp.toString();
+  return out ? `?${out}` : "";
+}
 
 function fmtDate(d?: any) {
   const s = safeStr(d).trim();
@@ -86,13 +98,17 @@ export default async function ProjectsResults({
 }) {
   const total = rows.length;
 
-  function qs(next: Record<string, string | undefined>) {
-    return buildQs({ ...next });
-  }
+  const makeHref = (next: Record<string, unknown>) =>
+    `/projects${qsSafe({
+      q,
+      view,
+      sort,
+      filter,
+      ...next,
+    })}`;
 
   // ------------------------------------------------------------------
-  // Enterprise delete protection (server-side precompute for UI)
-  // (UI DOES NOT print banners; modal will show reasons on demand)
+  // Enterprise delete protection (server-side precompute for modal only)
   // ------------------------------------------------------------------
   const supabase = await createClient();
   const projectIds = rows.map((r) => String(r.id || "")).filter(Boolean);
@@ -106,7 +122,6 @@ export default async function ProjectsResults({
       .in("project_id", projectIds)
       .is("deleted_at", null);
 
-    // If artifact query fails, default to safe (block delete)
     if (error) {
       for (const pid of projectIds) {
         guardByProject[pid] = {
@@ -175,7 +190,7 @@ export default async function ProjectsResults({
           {/* Filter toggle */}
           <div className="flex items-center gap-2">
             <Link
-              href={`/projects${qs({ q, view, sort, filter: "active" })}`}
+              href={makeHref({ filter: "active" })}
               className={[
                 "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
                 filter === "active"
@@ -186,7 +201,7 @@ export default async function ProjectsResults({
               Active
             </Link>
             <Link
-              href={`/projects${qs({ q, view, sort, filter: "closed" })}`}
+              href={makeHref({ filter: "closed" })}
               className={[
                 "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
                 filter === "closed"
@@ -197,7 +212,7 @@ export default async function ProjectsResults({
               Closed
             </Link>
             <Link
-              href={`/projects${qs({ q, view, sort, filter: "all" })}`}
+              href={makeHref({ filter: "all" })}
               className={[
                 "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
                 filter === "all"
@@ -233,7 +248,7 @@ export default async function ProjectsResults({
           {/* Sort */}
           <div className="flex items-center gap-2">
             <Link
-              href={`/projects${qs({ q, view, filter, sort: "created_desc" })}`}
+              href={makeHref({ sort: "created_desc" })}
               className={[
                 "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
                 sort === "created_desc"
@@ -245,7 +260,7 @@ export default async function ProjectsResults({
             </Link>
 
             <Link
-              href={`/projects${qs({ q, view, filter, sort: "title_asc" })}`}
+              href={makeHref({ sort: "title_asc" })}
               className={[
                 "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
                 sort === "title_asc"
@@ -289,7 +304,6 @@ export default async function ProjectsResults({
 
                 return (
                   <tr key={projectId} className="border-b border-gray-200 hover:bg-gray-50/70 transition-colors">
-                    {/* PROJECT */}
                     <td className="px-5 py-5 align-top">
                       <div className="flex items-start gap-4">
                         <span
@@ -319,7 +333,6 @@ export default async function ProjectsResults({
                             • Created {fmtDate((p as any).created_at)}
                           </div>
 
-                          {/* Quick nav chips */}
                           <div className="mt-3 flex flex-wrap gap-2">
                             <Link
                               href={`${hrefProject}/change`}
@@ -344,7 +357,6 @@ export default async function ProjectsResults({
                       </div>
                     </td>
 
-                    {/* SCHEDULE */}
                     <td className="px-5 py-5 align-top">
                       <div className="text-sm text-gray-900">
                         {fmtDate((p as any).start_date)} — {fmtDate((p as any).finish_date)}
@@ -352,7 +364,6 @@ export default async function ProjectsResults({
                       <div className="mt-2 text-xs text-gray-500">Schedule window</div>
                     </td>
 
-                    {/* ACTIONS */}
                     <td className="px-5 py-5 align-top">
                       <div className="flex flex-col items-end gap-3">
                         <div className="flex flex-wrap justify-end gap-2">
@@ -391,7 +402,6 @@ export default async function ProjectsResults({
                           )}
                         </div>
 
-                        {/* Enterprise danger buttons (modal shows delete guard messaging) */}
                         <ProjectsDangerButtonsClient
                           projectId={projectId}
                           projectTitle={safeStr(p.title)}
