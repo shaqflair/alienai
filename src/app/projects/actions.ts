@@ -134,18 +134,28 @@ export async function createProject(formData: FormData) {
     if (!pmMem?.user_id) redirect(`/projects${qs({ err: "bad_pm" })}`);
   }
 
+  // ✅ IMPORTANT:
+  // DB function params are: p_finish_date, p_organisation_id, p_start_date, p_title
   const { data, error } = await supabase.rpc("create_project_and_owner", {
-    p_title: title,
-    p_start_date: start_date,
     p_finish_date: finish_date || null,
     p_organisation_id: organisation_id,
+    p_start_date: start_date,
+    p_title: title,
   });
 
   if (error) throwDb(error, "rpc.create_project_and_owner");
 
-  const row = Array.isArray(data) ? data[0] : data;
-  const projectId = row?.id as string | undefined;
-  if (!projectId) throw new Error("Project creation succeeded but returned no id.");
+  // ✅ Function returns uuid (string). Do not treat as row.
+  const projectId =
+    typeof data === "string"
+      ? data
+      : Array.isArray(data)
+      ? (data[0] as any)?.id ?? (data[0] as any)
+      : (data as any)?.id;
+
+  if (!projectId || typeof projectId !== "string") {
+    throw new Error("Project creation succeeded but returned no id.");
+  }
 
   // ✅ Set PM (optional) AFTER creation (keeps RPC unchanged)
   if (project_manager_id) {
@@ -242,6 +252,5 @@ export async function deleteProject(formData: FormData) {
   if (error) throwDb(error, "projects.soft_delete");
 
   revalidatePath("/projects");
-  revalidatePath(`/projects/${project_id}`);
   redirect(`/projects${qs({ msg: "deleted", pid: project_id })}`);
 }
