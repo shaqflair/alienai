@@ -23,10 +23,12 @@ type Suggestion = {
   triggered_by_event_id?: string | null;
 };
 
-function fmtTime(x: string) {
+function fmtTimeUk(x: string) {
   try {
     const d = new Date(x);
-    return Number.isNaN(d.getTime()) ? x : d.toLocaleString();
+    if (Number.isNaN(d.getTime())) return x;
+    // Force UK formatting (Europe/London). Browser support is good for this.
+    return d.toLocaleString("en-GB", { timeZone: "Europe/London" });
   } catch {
     return x;
   }
@@ -54,7 +56,11 @@ function statusPill(status?: string | null) {
 function confidencePill(conf: number | null) {
   if (typeof conf !== "number") return null;
   const pct = Math.max(0, Math.min(100, Math.round(conf * 100)));
-  return <span className="ml-2 inline-flex items-center rounded-full border px-2 py-0.5 text-xs">conf {pct}%</span>;
+  return (
+    <span className="ml-2 inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-700">
+      conf {pct}%
+    </span>
+  );
 }
 
 function SmallPill({ children, className = "" }: { children: React.ReactNode; className?: string }) {
@@ -101,10 +107,10 @@ export default function AiSuggestionsPanel(props: {
   title?: string;
   limit?: number;
 
-  // ✅ hide the entire panel when empty (recommended for stakeholder register)
+  // hide the entire panel when empty
   hideWhenEmpty?: boolean;
 
-  // ✅ controls dev-only button visibility (default false)
+  // controls dev-only button visibility
   showTestButton?: boolean;
 }) {
   const {
@@ -139,7 +145,6 @@ export default function AiSuggestionsPanel(props: {
     const pid = String(projectId ?? "").trim();
     const params = new URLSearchParams();
 
-    // Guard: if projectId is missing, leave queryString blank (load() will show error)
     if (!pid || pid === "undefined") return "";
 
     params.set("projectId", pid);
@@ -173,7 +178,6 @@ export default function AiSuggestionsPanel(props: {
 
     cleanedUiTestOnceRef.current = true;
 
-    // best-effort: mark legacy ui_test as rejected (DB-allowed)
     fetch("/api/suggestions/ui-test/cleanup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -206,7 +210,7 @@ export default function AiSuggestionsPanel(props: {
 
       const raw = Array.isArray(json.suggestions) ? json.suggestions : [];
 
-      // 1️⃣ auto-clean legacy ui_test after first render attempt
+      // auto-clean legacy ui_test after first render attempt
       cleanupUiTestOnce(raw);
 
       // Hide ui_test always (we no longer use DB ui_test anyway)
@@ -232,7 +236,7 @@ export default function AiSuggestionsPanel(props: {
 
   const counts = useMemo(() => ({ total: items.length }), [items]);
 
-  // client-only mock: no DB insert (dev only)
+  // client-only mock (dev only)
   function generateTestSuggestion() {
     setErr(null);
     setApplyErr(null);
@@ -263,9 +267,28 @@ export default function AiSuggestionsPanel(props: {
     return st === "applied" || st === "rejected";
   }
 
+  /**
+   * ✅ Apply suggestion using your existing route:
+   * POST /api/ai/suggestions/apply
+   * body: { projectId, artifactId, suggestionId }
+   *
+   * This means you do NOT need /api/suggestions/[id]/accept.
+   */
   async function acceptSuggestion(s: Suggestion) {
     setApplyErr(null);
     setRejectErr(null);
+
+    const pid = String(projectId ?? "").trim();
+    const aid = String(artifactId ?? "").trim();
+
+    if (!pid) {
+      setApplyErr("Missing projectId");
+      return;
+    }
+    if (!aid) {
+      setApplyErr("Open this artifact to apply suggestions (missing artifactId).");
+      return;
+    }
 
     const sid = mustId(s);
     if (!sid) {
@@ -273,7 +296,6 @@ export default function AiSuggestionsPanel(props: {
       return;
     }
 
-    // mock accept: local remove
     if (isMockId(sid)) {
       setItems((prev) => prev.filter((x) => x.id !== sid));
       return;
@@ -281,22 +303,17 @@ export default function AiSuggestionsPanel(props: {
 
     setApplyingId(sid);
     try {
-      const res = await fetch(`/api/suggestions/${encodeURIComponent(sid)}/accept`, {
+      const res = await fetch("/api/ai/suggestions/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, artifactId }),
+        body: JSON.stringify({ projectId: pid, artifactId: aid, suggestionId: sid }),
       });
 
       const json = await safeJson(res);
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to accept suggestion");
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to apply suggestion");
 
-      // if this is stakeholder governance, refresh stakeholder register immediately
-      if (
-        artifactId &&
-        isStakeholderRegisterType(s.target_artifact_type) &&
-        isGovernanceSuggestionType(s.suggestion_type)
-      ) {
-        emitStakeholdersChanged("suggestion_accepted_governance");
+      if (aid && isStakeholderRegisterType(s.target_artifact_type) && isGovernanceSuggestionType(s.suggestion_type)) {
+        emitStakeholdersChanged("suggestion_applied_governance");
       }
 
       router.refresh();
@@ -308,6 +325,10 @@ export default function AiSuggestionsPanel(props: {
     }
   }
 
+  /**
+   * Reject currently uses your legacy endpoint.
+   * Keep for now unless/until you migrate rejection into /api/ai/suggestions/[id] actions.
+   */
   async function rejectSuggestion(s: Suggestion) {
     setRejectErr(null);
     setApplyErr(null);
@@ -318,7 +339,6 @@ export default function AiSuggestionsPanel(props: {
       return;
     }
 
-    // mock reject: local remove
     if (isMockId(sid)) {
       setItems((prev) => prev.filter((x) => x.id !== sid));
       return;
@@ -353,28 +373,26 @@ export default function AiSuggestionsPanel(props: {
   const busy = applyingId !== null || rejectingId !== null;
 
   const headerSubtitle = targetArtifactType ? `For ${targetArtifactType}` : "Across project";
-  const applyBadge = artifactId ? "apply → current artifact" : "apply → creates/uses current artifact";
+  const applyBadge = artifactId ? "applies to this artifact" : "open an artifact to apply";
 
-  // ✅ auto-hide panel when empty (and no errors, and not loading)
-  // Uses `items.length` so search filter doesn't hide the panel unexpectedly.
   const shouldHide = hideWhenEmpty && !loading && !err && (items?.length ?? 0) === 0;
   if (shouldHide) return null;
 
   return (
-    <div className="rounded-xl border bg-white p-4 shadow-sm" id="ai-suggestions-panel">
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm" id="ai-suggestions-panel">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-base font-semibold">{title}</h3>
-            <SmallPill className="opacity-80">{counts.total} shown</SmallPill>
-            <SmallPill className="opacity-80">{headerSubtitle}</SmallPill>
-            <SmallPill className="opacity-80">{applyBadge}</SmallPill>
+            <h3 className="text-base font-semibold text-gray-900">{title}</h3>
+            <SmallPill className="border-gray-200 bg-gray-50 text-gray-700">{counts.total} shown</SmallPill>
+            <SmallPill className="border-gray-200 bg-gray-50 text-gray-700">{headerSubtitle}</SmallPill>
+            <SmallPill className="border-gray-200 bg-gray-50 text-gray-700">{applyBadge}</SmallPill>
           </div>
-          <p className="mt-1 text-xs text-gray-500">Event-driven suggestions. Only actionable items should appear.</p>
+          <p className="mt-1 text-xs text-gray-500">Event-driven suggestions. Keep this list action-oriented.</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="rounded-lg border px-3 py-1.5 text-sm">
+          <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm">
             <span className="mr-2 text-gray-500">Status</span>
             <select
               className="bg-white text-sm outline-none"
@@ -389,7 +407,7 @@ export default function AiSuggestionsPanel(props: {
             </select>
           </div>
 
-          <div className="rounded-lg border px-3 py-1.5 text-sm">
+          <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm">
             <input
               className="w-48 max-w-[60vw] bg-white text-sm outline-none"
               placeholder="Search…"
@@ -401,7 +419,7 @@ export default function AiSuggestionsPanel(props: {
 
           <button
             onClick={load}
-            className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-60"
+            className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-60"
             disabled={loading || busy}
             type="button"
           >
@@ -411,30 +429,30 @@ export default function AiSuggestionsPanel(props: {
           {showTestButton ? (
             <button
               onClick={generateTestSuggestion}
-              className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-60"
+              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-60"
               disabled={loading || busy}
               type="button"
               title="Client-only mock (no DB insert)"
             >
-              Generate test suggestion
+              Test AI (dev)
             </button>
           ) : null}
         </div>
       </div>
 
-      {err ? (
-        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>
-      ) : null}
+      {err ? <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div> : null}
       {applyErr ? (
-        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{applyErr}</div>
+        <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{applyErr}</div>
       ) : null}
       {rejectErr ? (
-        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{rejectErr}</div>
+        <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{rejectErr}</div>
       ) : null}
 
       <div className="mt-3 space-y-3">
         {filteredItems.length === 0 && !loading ? (
-          <div className="rounded-lg border bg-gray-50 p-3 text-sm text-gray-600">No suggestions found.</div>
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-600">
+            No suggestions found.
+          </div>
         ) : null}
 
         {filteredItems.map((s) => {
@@ -451,6 +469,11 @@ export default function AiSuggestionsPanel(props: {
           const st = normalizeStatus(s.status);
           const isActionable = !isTerminalStatus(s);
 
+          const canApplyHere = Boolean(String(artifactId ?? "").trim());
+          const acceptDisabledReason = !canApplyHere
+            ? "Open an artifact to apply suggestions"
+            : undefined;
+
           // SLA badge
           const openDays = daysOpen(s.created_at);
           const showSla = (st === "proposed" || st === "suggested") && typeof openDays === "number" && openDays >= 3;
@@ -460,11 +483,15 @@ export default function AiSuggestionsPanel(props: {
               : "border-amber-200 bg-amber-50 text-amber-800";
 
           return (
-            <div key={sid} className="rounded-lg border p-3">
+            <div key={sid} className="rounded-xl border border-gray-200 p-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="text-sm font-medium">
+                <div className="text-sm font-medium text-gray-900">
                   {s.target_artifact_type} · <span className="text-gray-600">{s.suggestion_type}</span>
-                  <span className={`ml-2 inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${statusPill(s.status)}`}>
+                  <span
+                    className={`ml-2 inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${statusPill(
+                      s.status
+                    )}`}
+                  >
                     {st}
                   </span>
 
@@ -476,40 +503,51 @@ export default function AiSuggestionsPanel(props: {
                 </div>
 
                 <div className="text-xs text-gray-500">
-                  {fmtTime(s.created_at)}
+                  {fmtTimeUk(s.created_at)}
                   {confidencePill(s.confidence)}
                 </div>
               </div>
 
               {s.rationale ? <p className="mt-2 text-sm text-gray-700">{s.rationale}</p> : null}
 
-              {s.patch ? (
-                <details className="mt-2">
-                  <summary className="cursor-pointer text-sm text-gray-600">View patch</summary>
-                  <pre className="mt-2 overflow-auto rounded-lg bg-gray-50 p-2 text-xs">{JSON.stringify(s.patch, null, 2)}</pre>
-                </details>
-              ) : null}
-
+              {/* ✅ Actions first (exec-friendly) */}
               {isActionable ? (
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
-                    className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
-                    disabled={busy}
+                    className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+                    disabled={busy || !canApplyHere}
                     type="button"
                     onClick={() => acceptSuggestion(s)}
+                    title={acceptDisabledReason}
                   >
                     {isApplying ? "Applying..." : "Accept"}
                   </button>
 
                   <button
-                    className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
+                    className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
                     disabled={busy}
                     type="button"
                     onClick={() => rejectSuggestion(s)}
                   >
                     {isRejecting ? "Rejecting..." : "Reject"}
                   </button>
+
+                  {!canApplyHere ? (
+                    <span className="inline-flex items-center text-xs text-gray-500">
+                      Tip: open an artifact page to apply suggestions.
+                    </span>
+                  ) : null}
                 </div>
+              ) : null}
+
+              {/* Details last */}
+              {s.patch ? (
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-sm text-gray-600">View patch</summary>
+                  <pre className="mt-2 overflow-auto rounded-xl bg-gray-50 p-3 text-xs text-gray-800">
+                    {JSON.stringify(s.patch, null, 2)}
+                  </pre>
+                </details>
               ) : null}
             </div>
           );

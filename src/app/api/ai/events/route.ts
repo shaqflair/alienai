@@ -3,6 +3,7 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
+import { createClient as createSbJsClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
@@ -183,6 +184,213 @@ function normalizeArtifactLink(href: string | null | undefined) {
     .replace(/\/ARTIFACTS(\/|$)/g, "/artifacts$1");
 
   return `${fixedPath}${tail}`;
+}
+
+/* ---------------- admin client (service role) ---------------- */
+
+function adminClientOrNull() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createSbJsClient(url, key, { auth: { persistSession: false } });
+}
+
+/* ---------------- ai_suggestions generator helpers ---------------- */
+
+type SuggestionInsert = {
+  project_id: string;
+  artifact_id: string | null;
+  section_key: string | null;
+  target_artifact_type: string;
+  suggestion_type: string;
+  rationale: string | null;
+  confidence: number | null;
+  patch: any;
+  status: "proposed";
+  created_by?: string | null;
+};
+
+function isEmptyText(v: any) {
+  return !safeStr(v).trim();
+}
+
+function normalizeCharterSections(doc: any): Array<{ key: string; title: string; bullets?: string; table?: any }> {
+  const d = safeJson(doc) ?? doc;
+  const secs = Array.isArray(d?.sections) ? d.sections : [];
+  return secs
+    .map((s: any) => ({
+      key: safeStr(s?.key).trim(),
+      title: safeStr(s?.title).trim(),
+      bullets: typeof s?.bullets === "string" ? s.bullets : undefined,
+      table: s?.table ?? null,
+    }))
+    .filter((s) => !!s.key);
+}
+
+/**
+ * FAST, deterministic "exec-friendly" rules:
+ * - If key sections empty → propose content
+ * - Always store patch shape compatible with your apply route:
+ *   { kind:"replace_bullets", bullets:"..." } or { kind:"add_rows", rows:[...] }
+ */
+function buildCharterRuleSuggestions(args: {
+  projectUuid: string;
+  artifactId: string;
+  projectName?: string | null;
+  pmName?: string | null;
+  contentJson: any;
+  actorUserId: string;
+}): SuggestionInsert[] {
+  const { projectUuid, artifactId, projectName, pmName, contentJson, actorUserId } = args;
+
+  const secs = normalizeCharterSections(contentJson);
+  const byKey = new Map(secs.map((s) => [safeLower(s.key), s]));
+
+  const suggestions: SuggestionInsert[] = [];
+
+  const want = [
+    { key: "business_case", title: "Business Case" },
+    { key: "objectives", title: "Objectives" },
+    { key: "key_deliverables", title: "Key Deliverables" },
+    { key: "risks", title: "Risks" },
+    { key: "issues", title: "Issues" },
+    { key: "assumptions", title: "Assumptions" },
+    { key: "dependencies", title: "Dependencies" },
+  ];
+
+  for (const w of want) {
+    const sec = byKey.get(w.key);
+    const empty = !sec || isEmptyText(sec.bullets);
+
+    if (!empty) continue;
+
+    const bullets =
+      w.key === "business_case"
+        ? [
+            `${projectName ? `${projectName}: ` : ""}Business case summary (replace with confirmed detail).`,
+            "[TBC] Business drivers and strategic alignment.",
+            "[TBC] Expected benefits and success measures.",
+            "[ASSUMPTION] Funding/budget approval path and governance cadence.",
+          ].join("\n")
+        : w.key === "objectives"
+          ? [
+              "Deliver agreed scope on time and within tolerance.",
+              "Improve operational outcomes (quality, cycle time, compliance) with measurable KPIs.",
+              "[TBC] Stakeholder acceptance criteria and sign-off approach.",
+            ].join("\n")
+          : w.key === "key_deliverables"
+            ? ["[TBC] Deliverable 1", "[TBC] Deliverable 2", "[TBC] Deliverable 3"].join("\n")
+            : w.key === "risks"
+              ? [
+                  "Resource constraints / SME availability — Mitigation: confirm RACI + booking plan.",
+                  "Scope creep — Mitigation: baseline scope + change control enforcement.",
+                  "Delivery dependencies not met — Mitigation: dependency log + weekly review.",
+                ].join("\n")
+              : w.key === "issues"
+                ? ["No known issues yet. [TBC]"].join("\n")
+                : w.key === "assumptions"
+                  ? [
+                      "Stakeholders are available for workshops and approvals.",
+                      "Environments and access are provisioned before build starts.",
+                      "Requirements and acceptance criteria will be signed off within agreed SLA.",
+                    ].join("\n")
+                  : [
+                      "Dependencies: upstream approvals, vendor lead times, environments, access and test data.",
+                      "External dependencies: release calendar / change windows / CAB.",
+                    ].join("\n");
+
+    suggestions.push({
+      project_id: projectUuid,
+      artifact_id: artifactId,
+      section_key: w.key,
+      target_artifact_type: "project_charter",
+      suggestion_type: "replace_bullets",
+      rationale: `Section "${w.title}" is empty. Populate with an executive-ready baseline to accelerate drafting.`,
+      confidence: 0.62,
+      patch: { kind: "replace_bullets", bullets },
+      status: "proposed",
+      created_by: actorUserId,
+    });
+  }
+
+  // Example table suggestion: milestones_timeline empty → add starter row
+  const ms = byKey.get("milestones_timeline");
+  const msTableRows = Array.isArray(ms?.table?.rows) ? ms!.table.rows : [];
+  const hasAnyDataRow = msTableRows.some(
+    (r: any) =>
+      safeLower(r?.type) === "data" && r?.cells?.some((c: any) => safeStr(c).trim())
+  );
+
+  if (!hasAnyDataRow) {
+    suggestions.push({
+      project_id: projectUuid,
+      artifact_id: artifactId,
+      section_key: "milestones_timeline",
+      target_artifact_type: "project_charter",
+      suggestion_type: "add_rows",
+      rationale: "Milestones & Timeline has no data rows. Add starter milestones to structure the plan.",
+      confidence: 0.55,
+      patch: {
+        kind: "add_rows",
+        mode: "append",
+        rows: [
+          ["Kick-off", "[TBC] DD/MM/YYYY", "", "Confirm governance cadence + stakeholders"],
+          ["Design complete", "[TBC] DD/MM/YYYY", "", "Requirements sign-off achieved"],
+        ],
+      },
+      status: "proposed",
+      created_by: actorUserId,
+    });
+  }
+
+  // Optional: propose to populate PM/owner if missing (meta is handled in editor, but suggestion is still useful)
+  if (pmName && pmName.trim()) {
+    // (intentionally left empty for now)
+  }
+
+  return suggestions;
+}
+
+/** De-dupe: same project+artifact+section+suggestion_type+status='proposed' */
+async function insertSuggestionsDeduped(args: { supabaseAdmin: any; suggestions: SuggestionInsert[] }) {
+  const { supabaseAdmin, suggestions } = args;
+  if (!suggestions.length) return [];
+
+  const projectId = suggestions[0].project_id;
+  const artifactId = suggestions[0].artifact_id;
+
+  const { data: existing, error: exErr } = await supabaseAdmin
+    .from("ai_suggestions")
+    .select("id, project_id, artifact_id, section_key, suggestion_type, status")
+    .eq("project_id", projectId)
+    .eq("status", "proposed")
+    .eq("artifact_id", artifactId);
+
+  if (exErr) throw new Error(exErr.message);
+
+  const seen = new Set(
+    (Array.isArray(existing) ? existing : []).map(
+      (x: any) =>
+        `${safeLower(x.project_id)}|${safeLower(x.artifact_id)}|${safeLower(x.section_key)}|${safeLower(
+          x.suggestion_type
+        )}`
+    )
+  );
+
+  const toInsert = suggestions.filter((s) => {
+    const k = `${safeLower(s.project_id)}|${safeLower(s.artifact_id)}|${safeLower(s.section_key)}|${safeLower(
+      s.suggestion_type
+    )}`;
+    return !seen.has(k);
+  });
+
+  if (!toInsert.length) return [];
+
+  const { data: inserted, error: insErr } = await supabaseAdmin.from("ai_suggestions").insert(toInsert).select("*");
+
+  if (insErr) throw new Error(insErr.message);
+
+  return Array.isArray(inserted) ? inserted : [];
 }
 
 /* ---------------- auth + access ---------------- */
@@ -607,7 +815,8 @@ function attachProjectMeta(
 }
 
 async function bulkLoadProjectManagers(supabase: any, projectIds: string[]) {
-  if (!projectIds.length) return new Map<string, { user_id: string | null; name: string | null; email: string | null }>();
+  if (!projectIds.length)
+    return new Map<string, { user_id: string | null; name: string | null; email: string | null }>();
 
   // Pull active members for these projects (limit kept high but bounded)
   const { data: mem, error: memErr } = await supabase
@@ -731,19 +940,25 @@ async function buildDueDigestOrgBulk(args: {
   const [artRes, msRes, wbsRes, raidRes, chRes] = await Promise.all([
     supabase
       .from("v_artifact_board")
-      .select("project_id,artifact_id,id,artifact_key,title,owner_email,due_date,phase,approval_status,status,updated_at,content_json")
+      .select(
+        "project_id,artifact_id,id,artifact_key,title,owner_email,due_date,phase,approval_status,status,updated_at,content_json"
+      )
       .in("project_id", projectIds)
       .order("updated_at", { ascending: false })
       .limit(5000),
     supabase
       .from("schedule_milestones")
-      .select("id,project_id,milestone_name,start_date,end_date,status,progress_pct,critical_path_flag,source_artifact_id")
+      .select(
+        "id,project_id,milestone_name,start_date,end_date,status,progress_pct,critical_path_flag,source_artifact_id"
+      )
       .in("project_id", projectIds)
       .order("end_date", { ascending: true })
       .limit(5000),
     supabase
       .from("wbs_items")
-      .select("id,project_id,name,description,status,due_date,owner,source_artifact_id,source_row_id,sort_order,parent_id")
+      .select(
+        "id,project_id,name,description,status,due_date,owner,source_artifact_id,source_row_id,sort_order,parent_id"
+      )
       .in("project_id", projectIds)
       .not("due_date", "is", null)
       .order("due_date", { ascending: true })
@@ -752,7 +967,9 @@ async function buildDueDigestOrgBulk(args: {
     // RAID with resilient fallback if source_artifact_id missing
     supabase
       .from("raid_items")
-      .select("id,project_id,public_id,item_no,type,title,description,status,due_date,owner_label,ai_status,priority,source_artifact_id")
+      .select(
+        "id,project_id,public_id,item_no,type,title,description,status,due_date,owner_label,ai_status,priority,source_artifact_id"
+      )
       .in("project_id", projectIds)
       .not("due_date", "is", null)
       .order("due_date", { ascending: true })
@@ -830,7 +1047,9 @@ async function buildDueDigestOrgBulk(args: {
     const id = String(m?.id ?? "").trim();
     const title = safeStr(m?.milestone_name).trim() || "Milestone";
     const srcArtifactId = safeStr(m?.source_artifact_id).trim();
-    const link = srcArtifactId ? linkForArtifact(p.project_human_id, srcArtifactId) : linkForSchedule(p.project_human_id, id);
+    const link = srcArtifactId
+      ? linkForArtifact(p.project_human_id, srcArtifactId)
+      : linkForSchedule(p.project_human_id, id);
 
     all.push(
       attachProjectMeta(
@@ -872,7 +1091,9 @@ async function buildDueDigestOrgBulk(args: {
     const srcArtifactId = safeStr(w?.source_artifact_id).trim();
     const focusId = safeStr(w?.source_row_id).trim() || id;
 
-    const link = srcArtifactId ? linkForArtifact(p.project_human_id, srcArtifactId) : linkForWbs(p.project_human_id, focusId);
+    const link = srcArtifactId
+      ? linkForArtifact(p.project_human_id, srcArtifactId)
+      : linkForWbs(p.project_human_id, focusId);
 
     all.push(
       attachProjectMeta(
@@ -1507,7 +1728,13 @@ type DeliveryReportV1 = {
   lists?: {
     milestones?: Array<{ name: string; due: string | null; status: string | null; critical?: boolean }>;
     changes?: Array<{ title: string; status: string | null; link?: string | null }>;
-    raid?: Array<{ title: string; type?: string | null; status?: string | null; due?: string | null; owner?: string | null }>;
+    raid?: Array<{
+      title: string;
+      type?: string | null;
+      status?: string | null;
+      due?: string | null;
+      owner?: string | null;
+    }>;
   };
   metrics?: { milestonesDone?: number; wbsDone?: number; changesClosed?: number; raidClosed?: number };
   meta?: { generated_at?: string; sources?: any };
@@ -1661,7 +1888,9 @@ async function buildDeliveryReportV1(args: {
       .limit(5000),
     supabase
       .from("raid_items")
-      .select("id,public_id,type,title,description,status,due_date,owner_label,priority,ai_status,source_artifact_id,updated_at")
+      .select(
+        "id,public_id,type,title,description,status,due_date,owner_label,priority,ai_status,source_artifact_id,updated_at"
+      )
       .eq("project_id", projectUuid)
       .limit(20000),
     supabase
@@ -2053,6 +2282,97 @@ export async function POST(req: Request) {
     const projectHumanId = normalizeProjectHumanId(meta.project_human_id, rawProject);
 
     const draftId = safeStr((payload as any)?.draftId).trim() || safeStr(body?.draftId).trim() || "";
+
+    /* ---------- ai_suggestions_generate (creates rows in ai_suggestions) ---------- */
+    if (eventType === "ai_suggestions_generate") {
+      const p = payload && typeof payload === "object" ? payload : {};
+
+      const artifactId =
+        safeStr((p as any)?.artifactId).trim() ||
+        safeStr((p as any)?.artifact_id).trim() ||
+        safeStr((body as any)?.artifactId).trim() ||
+        safeStr((body as any)?.artifact_id).trim();
+
+      if (!artifactId || !looksLikeUuid(artifactId)) {
+        return jsonNoStore({ ok: false, error: "artifactId is required (uuid)" }, { status: 400 });
+      }
+
+      // Use admin client if available (recommended), but keep auth/membership gates above.
+      const supabaseAdmin = adminClientOrNull() ?? supabase;
+
+      // Load artifact content (admin)
+      const { data: art, error: artErr } = await supabaseAdmin
+        .from("artifacts")
+        .select("id, project_id, type, artifact_type, content_json")
+        .eq("id", artifactId)
+        .eq("project_id", projectUuid)
+        .maybeSingle();
+
+      if (artErr) return jsonNoStore({ ok: false, error: artErr.message }, { status: 500 });
+      if (!art) return jsonNoStore({ ok: false, error: "Artifact not found" }, { status: 404 });
+
+      const aType = safeLower((art as any)?.artifact_type ?? (art as any)?.type);
+      const cj = (art as any)?.content_json ?? {};
+
+      // For now: only generate Charter suggestions (fast rules). Extend later for RAID/WBS/Change/etc.
+      if (aType !== "project_charter" && aType !== "charter" && !aType.includes("charter")) {
+        return jsonNoStore({
+          ok: true,
+          eventType,
+          scope: "project",
+          project_id: projectUuid,
+          artifact_id: artifactId,
+          generated: 0,
+          suggestions: [],
+          message: `No generator for artifact type "${aType}" yet.`,
+        });
+      }
+
+      const suggestions = buildCharterRuleSuggestions({
+        projectUuid,
+        artifactId,
+        projectName: meta.project_name,
+        pmName: meta.project_manager_name,
+        contentJson: cj,
+        actorUserId: user.id,
+      });
+
+      // Insert deduped
+      let inserted: any[] = [];
+      try {
+        inserted = await insertSuggestionsDeduped({ supabaseAdmin, suggestions });
+      } catch (e: any) {
+        // if RLS blocks (because no service role), still return computed suggestions so UI can show something
+        return jsonNoStore({
+          ok: true,
+          eventType,
+          scope: "project",
+          project_id: projectUuid,
+          artifact_id: artifactId,
+          generated: suggestions.length,
+          inserted: 0,
+          suggestionsComputed: suggestions,
+          warning: `Could not insert suggestions (check SUPABASE_SERVICE_ROLE_KEY / RLS): ${String(
+            e?.message ?? e
+          )}`,
+        });
+      }
+
+      return jsonNoStore({
+        ok: true,
+        eventType,
+        scope: "project",
+        project_id: projectUuid,
+        project_human_id: meta.project_human_id,
+        project_code: meta.project_code,
+        project_name: meta.project_name,
+        artifact_id: artifactId,
+        model: "suggestions-rules-v1",
+        generated: suggestions.length,
+        inserted: inserted.length,
+        suggestions: inserted,
+      });
+    }
 
     /* ---------- delivery_report (weekly report) ---------- */
     if (eventType === "delivery_report") {

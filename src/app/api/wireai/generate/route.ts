@@ -441,7 +441,8 @@ function normalizeReplaceAllDoc(doc: any) {
 
 function buildSystemPromptForMode(mode: "full" | "section" | "suggest" | "validate") {
   const base = [
-    "You are a senior PMO lead writing a PMI-inspired Project Charter.",
+    // ✅ Stronger persona + output discipline
+    "Act as an expert Programme/Project Manager and PMO lead. You write executive-ready PMI-inspired Project Charters.",
     "Return ONLY JSON. No markdown. No explanations.",
     "",
     "All outputs MUST be wrapped as one of these patch shapes:",
@@ -451,12 +452,23 @@ function buildSystemPromptForMode(mode: "full" | "section" | "suggest" | "valida
     `D) { "patch": { "kind": "validate", "issues": [ { "key": "<sectionKey>", "severity":"info|warn|error", "message":"...", "fix"?: { "kind":"replace_section", "key":"<sectionKey>", "section": {...}} } ] } }`,
     "",
     "Global rules:",
-    "- Use the provided required section schema and keys.",
-    "- For bullets sections: bullets is a single string with one bullet per line.",
-    "- For table sections: table = { columns: N, rows: [ {type:'header', cells:[...]}, {type:'data', cells:[...]}, ... ] }",
-    "- Header row must be first and match provided headers exactly.",
+    "- Use the provided required section schema and keys (exact keys, exact order for replace_all).",
+    "- If information is missing, still complete the section and prefix uncertain statements with [ASSUMPTION] or [TBC].",
+    "",
+    "Formatting rules by section type:",
+    "- For BULLETS sections, bullets is a single string with ONE item per line.",
+    "- For TABLE sections, table = { columns: N, rows: [ {type:'header', cells:[...]}, {type:'data', cells:[...]}, ... ] }",
+    "- Table header row must be first and match the provided headers exactly.",
     "- Always include at least 2 data rows for each table section.",
-    "- Keep content realistic, concise, and enterprise-friendly.",
+    "",
+    "Section-specific formatting (IMPORTANT):",
+    `- business_case: write as FREE TEXT prose (2–6 short paragraphs). DO NOT use bullet markers. Use blank lines between paragraphs if helpful.`,
+    `- objectives: write as FREE TEXT prose with measurable outcomes. DO NOT use bullet markers.`,
+    `- risks / issues / assumptions / dependencies: MUST be bullet lines starting with "• " (one per line). Keep them specific and actionable.`,
+    "",
+    "Quality bar:",
+    "- Keep language enterprise-friendly and concise.",
+    "- Avoid invented financial claims unless explicitly provided; otherwise use ranges + [ASSUMPTION] and state basis.",
   ];
 
   const modeSpecific =
@@ -566,6 +578,28 @@ function json(data: any, status = 200) {
   return res;
 }
 
+function buildDefaultCharterRequest(meta: any) {
+  const projectTitle =
+    s(meta?.project_title || meta?.projectTitle || meta?.title || meta?.project_name || meta?.projectName).trim();
+
+  const pm = s(meta?.project_manager || meta?.projectManager || meta?.pm).trim();
+  const sponsor = s(meta?.sponsor).trim();
+  const dates = s(meta?.dates).trim();
+
+  const lines: string[] = [];
+  lines.push("Generate a complete Project Charter using the required schema.");
+  if (projectTitle) lines.push(`Project: ${projectTitle}`);
+  if (pm) lines.push(`Project Manager: ${pm}`);
+  if (sponsor) lines.push(`Sponsor: ${sponsor}`);
+  if (dates) lines.push(`Dates: ${dates}`);
+
+  // Guidance that reduces blank outputs without forcing fake facts
+  lines.push("");
+  lines.push("If key details are missing, make reasonable assumptions and mark them clearly with [ASSUMPTION] / [TBC].");
+  lines.push("Use an executive tone suitable for Steering Committee approval.");
+  return lines.join("\n").trim();
+}
+
 function normalizeFullPrompt(body: any, meta: any) {
   // UI v2 sends: meta.pm_brief + instructions[]
   const userPrompt = s(body?.userPrompt || body?.prompt || body?.pmBrief || "");
@@ -573,9 +607,18 @@ function normalizeFullPrompt(body: any, meta: any) {
   const instructions = Array.isArray(body?.instructions) ? body.instructions.map((x: any) => s(x)).filter(Boolean) : [];
 
   const parts: string[] = [];
+
+  // ✅ Always include a stable base request so “blank brief” still produces a charter
+  parts.push("Request:", buildDefaultCharterRequest(meta), "");
+
+  // ✅ PM Brief is treated as primary context
   if (pmBrief.trim()) parts.push("PM Brief:", pmBrief.trim(), "");
-  if (userPrompt.trim()) parts.push("User Prompt:", userPrompt.trim(), "");
-  if (instructions.length) parts.push("Instructions:", ...instructions.map((x) => `- ${x}`), "");
+
+  // Optional explicit user prompt (if caller provided)
+  if (userPrompt.trim()) parts.push("Additional user prompt:", userPrompt.trim(), "");
+
+  // Optional extra instructions (from UI)
+  if (instructions.length) parts.push("Additional instructions:", ...instructions.map((x) => `- ${x}`), "");
 
   const combined = parts.join("\n").trim();
   return combined;

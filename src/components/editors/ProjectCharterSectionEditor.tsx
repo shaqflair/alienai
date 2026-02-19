@@ -1,4 +1,3 @@
-// src/components/editors/ProjectCharterSectionEditor.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -14,6 +13,7 @@ import {
   Plus,
   Trash2,
   Calendar as CalendarIcon,
+  MessageSquareText,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -154,7 +154,6 @@ function parseUkDate(v: string): Date | null {
 function toUkDateDisplay(value: string) {
   const s = safeStr(value).trim();
   if (!s) return "";
-
   if (isUkDate(s)) return s;
 
   if (isIsoDateOnly(s) || isIsoDateTime(s)) {
@@ -216,6 +215,45 @@ function currentLinePrefix(text: string, cursorPos: number) {
   return { indent, marker };
 }
 
+function normalizeBulletsToList(text: string) {
+  const raw = safeStr(text);
+  const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
+  const cleaned = lines.map((l) => l.replace(/^\s*(?:[•\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/g, ""));
+  return cleaned;
+}
+
+/* =========================================================
+   Context storage in meta
+========================================================= */
+
+function getGlobalContext(meta: any) {
+  return safeStr(meta?.ai_context_global);
+}
+function getSectionContext(meta: any, key: string) {
+  const map = meta?.ai_context_sections && typeof meta.ai_context_sections === "object" ? meta.ai_context_sections : {};
+  return safeStr(map?.[key]);
+}
+function setGlobalContext(meta: any, next: string) {
+  return { ...(meta || {}), ai_context_global: String(next ?? "") };
+}
+function setSectionContext(meta: any, key: string, next: string) {
+  const cur = meta?.ai_context_sections && typeof meta.ai_context_sections === "object" ? meta.ai_context_sections : {};
+  return { ...(meta || {}), ai_context_sections: { ...cur, [key]: String(next ?? "") } };
+}
+
+/* =========================================================
+   Special section rendering rules
+========================================================= */
+
+function isFreeTextSectionKey(k: string) {
+  const key = safeStr(k).toLowerCase();
+  return key === "business_case" || key === "objectives";
+}
+function isRaidBulletKey(k: string) {
+  const key = safeStr(k).toLowerCase();
+  return key === "risks" || key === "issues" || key === "assumptions" || key === "dependencies";
+}
+
 /* =========================================================
    Component
 ========================================================= */
@@ -231,6 +269,7 @@ export default function ProjectCharterSectionEditor({
   onRegenerateSection,
   aiDisabled = false,
   aiLoadingKey = null,
+  includeContextForAI = true,
 }: Props) {
   const safeSections = useMemo(() => (Array.isArray(sections) ? sections : []), [sections]);
 
@@ -243,6 +282,8 @@ export default function ProjectCharterSectionEditor({
     project_manager: "",
     sponsor: "",
     dates: "",
+    ai_context_global: "",
+    ai_context_sections: {},
   }));
 
   // init once (or when meta becomes available the first time)
@@ -255,6 +296,11 @@ export default function ProjectCharterSectionEditor({
       project_manager: safeStr((incoming as any).project_manager),
       sponsor: safeStr((incoming as any).sponsor),
       dates: safeStr((incoming as any).dates),
+      ai_context_global: safeStr((incoming as any).ai_context_global),
+      ai_context_sections:
+        (incoming as any).ai_context_sections && typeof (incoming as any).ai_context_sections === "object"
+          ? (incoming as any).ai_context_sections
+          : {},
     });
 
     didInitMetaRef.current = true;
@@ -273,14 +319,19 @@ export default function ProjectCharterSectionEditor({
       project_manager: safeStr((incoming as any).project_manager),
       sponsor: safeStr((incoming as any).sponsor),
       dates: safeStr((incoming as any).dates),
+      ai_context_global: safeStr((incoming as any).ai_context_global),
+      ai_context_sections:
+        (incoming as any).ai_context_sections && typeof (incoming as any).ai_context_sections === "object"
+          ? (incoming as any).ai_context_sections
+          : {},
     };
 
-    // shallow compare to avoid loops
     const same =
       safeStr(metaDraft.project_title) === safeStr(next.project_title) &&
       safeStr(metaDraft.project_manager) === safeStr(next.project_manager) &&
       safeStr(metaDraft.sponsor) === safeStr(next.sponsor) &&
-      safeStr(metaDraft.dates) === safeStr(next.dates);
+      safeStr(metaDraft.dates) === safeStr(next.dates) &&
+      safeStr(metaDraft.ai_context_global) === safeStr(next.ai_context_global);
 
     if (!same) setMetaDraft(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -444,6 +495,35 @@ export default function ProjectCharterSectionEditor({
               />
             </div>
 
+            {includeContextForAI ? (
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="text-sm font-semibold text-slate-900">AI Context (global)</div>
+                    <div className="text-xs text-slate-600">
+                      Optional programme context used by AI when generating sections (scope boundaries, constraints, standards, etc.)
+                    </div>
+                  </div>
+                </div>
+
+                <textarea
+                  value={safeStr(metaDraft?.ai_context_global)}
+                  disabled={readOnly}
+                  rows={4}
+                  onChange={(e) => {
+                    lastMetaEditAtRef.current = Date.now();
+                    setMetaDraft((s) => ({ ...(s || {}), ai_context_global: e.target.value }));
+                  }}
+                  placeholder="Example: Client standards, governance cadence, constraints, key dates, delivery approach, tools, regulatory requirements…"
+                  className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                />
+
+                <div className="mt-2 text-[11px] text-slate-500">
+                  Stored in <span className="font-mono">meta.ai_context_global</span>
+                </div>
+              </div>
+            ) : null}
+
             <div className="mt-4 text-xs text-slate-400 flex items-center gap-2">
               <Sparkles className="h-3 w-3" />
               These fields power your exports and help AI context.
@@ -471,6 +551,11 @@ export default function ProjectCharterSectionEditor({
               <List className="h-4 w-4 text-emerald-600" />
             </div>
           );
+
+          const freeText = !isTable && isFreeTextSectionKey(key);
+          const raidBullets = !isTable && isRaidBulletKey(key);
+
+          const sectionContext = includeContextForAI ? getSectionContext(metaDraft, key) : "";
 
           return (
             <div
@@ -527,6 +612,7 @@ export default function ProjectCharterSectionEditor({
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
+                  {/* ✅ AI buttons first */}
                   {onImproveSection ? (
                     <Button
                       type="button"
@@ -567,6 +653,48 @@ export default function ProjectCharterSectionEditor({
                       {aiLoadingKey === key ? "Working..." : "Regenerate"}
                     </Button>
                   ) : null}
+
+                  {/* ✅ Context button AFTER AI buttons */}
+                  {includeContextForAI && key ? (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={readOnly}
+                          className="rounded-lg border-slate-200 hover:bg-slate-50"
+                          title="Add context that helps AI write this section accurately"
+                        >
+                          <MessageSquareText className="h-4 w-4 mr-2 text-slate-600" />
+                          Context
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" className="w-[420px] p-4">
+                        <div className="space-y-2">
+                          <div className="text-sm font-semibold text-slate-900">Section context</div>
+                          <div className="text-xs text-slate-600">
+                            This is used by AI when generating <span className="font-medium">{title}</span>.
+                            Keep it short and specific.
+                          </div>
+
+                          <textarea
+                            value={sectionContext}
+                            rows={6}
+                            onChange={(e) => {
+                              lastMetaEditAtRef.current = Date.now();
+                              setMetaDraft((md) => setSectionContext(md, key, e.target.value));
+                            }}
+                            placeholder="Example: constraints, scope boundaries, mandatory deliverables, stakeholder preferences, known decisions…"
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                          />
+                          <div className="text-[11px] text-slate-500">
+                            Stored in <span className="font-mono">meta.ai_context_sections['{key}']</span>
+                          </div>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  ) : null}
                 </div>
               </div>
 
@@ -581,11 +709,20 @@ export default function ProjectCharterSectionEditor({
                     onDelCol={(c) => delColumn(idx, c)}
                     onDelRow={(dataRowIndex) => delTableRow(idx, dataRowIndex)}
                   />
+                ) : freeText ? (
+                  <FreeTextEditor
+                    value={safeStr(sec?.bullets)}
+                    readOnly={readOnly}
+                    onChange={(v) => patchBullets(idx, v)}
+                    label="Free text"
+                    placeholder="Write in paragraphs. Keep it executive-friendly."
+                  />
                 ) : (
                   <BulletsEditor
                     value={safeStr(sec?.bullets)}
                     readOnly={readOnly}
                     onChange={(v) => patchBullets(idx, v)}
+                    showPreview={raidBullets}
                   />
                 )}
 
@@ -635,21 +772,70 @@ function MetaField({
   );
 }
 
-function BulletsEditor({
+function FreeTextEditor({
   value,
   readOnly,
   onChange,
+  label = "Free text",
+  placeholder,
 }: {
   value: string;
   readOnly: boolean;
   onChange: (v: string) => void;
+  label?: string;
+  placeholder?: string;
 }) {
   return (
     <div className="space-y-2">
       <div className="text-xs font-medium text-slate-500 flex items-center gap-2">
-        <List className="h-3 w-3" />
-        Bullets / notes (one per line)
+        <FileText className="h-3 w-3" />
+        {label}
       </div>
+      <textarea
+        className="w-full min-h-[180px] rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 disabled:bg-slate-50 disabled:text-slate-400 resize-y transition-all leading-relaxed"
+        value={value}
+        disabled={readOnly}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder || "Write here..."}
+      />
+    </div>
+  );
+}
+
+function BulletsEditor({
+  value,
+  readOnly,
+  onChange,
+  showPreview = false,
+}: {
+  value: string;
+  readOnly: boolean;
+  onChange: (v: string) => void;
+  showPreview?: boolean;
+}) {
+  const items = useMemo(() => normalizeBulletsToList(value), [value]);
+
+  return (
+    <div className="space-y-3">
+      <div className="text-xs font-medium text-slate-500 flex items-center gap-2">
+        <List className="h-3 w-3" />
+        Bullet points (one per line)
+      </div>
+
+      {showPreview ? (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+          {items.length ? (
+            <ul className="list-disc pl-5 space-y-1 text-sm text-slate-800">
+              {items.slice(0, 10).map((it, i) => (
+                <li key={i}>{it}</li>
+              ))}
+            </ul>
+          ) : (
+            <div className="text-sm text-slate-500">No bullets yet.</div>
+          )}
+        </div>
+      ) : null}
+
       <textarea
         className="w-full min-h-[160px] rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 disabled:bg-slate-50 disabled:text-slate-400 resize-y transition-all leading-relaxed"
         value={value}
@@ -748,7 +934,13 @@ function DatePickerCell({
           </button>
         </PopoverTrigger>
         <PopoverContent className="w-auto p-0" align="end">
-          <Calendar mode="single" selected={date || undefined} onSelect={handleSelect} initialFocus className="rounded-lg border-0" />
+          <Calendar
+            mode="single"
+            selected={date || undefined}
+            onSelect={handleSelect}
+            initialFocus
+            className="rounded-lg border-0"
+          />
         </PopoverContent>
       </Popover>
     </div>
@@ -887,10 +1079,20 @@ function TableEditor({
 
       {!readOnly ? (
         <div className="flex flex-wrap gap-3 items-center">
-          <Button variant="outline" size="sm" onClick={onAddRow} className="rounded-lg border-slate-300 hover:bg-slate-50 hover:border-slate-400">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onAddRow}
+            className="rounded-lg border-slate-300 hover:bg-slate-50 hover:border-slate-400"
+          >
             <Plus className="h-4 w-4 mr-1.5" /> Add Row
           </Button>
-          <Button variant="outline" size="sm" onClick={onAddCol} className="rounded-lg border-slate-300 hover:bg-slate-50 hover:border-slate-400">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onAddCol}
+            className="rounded-lg border-slate-300 hover:bg-slate-50 hover:border-slate-400"
+          >
             <Plus className="h-4 w-4 mr-1.5" /> Add Column
           </Button>
 

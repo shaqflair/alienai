@@ -1,81 +1,69 @@
-// src/app/api/ai/suggestions/route.ts
 import "server-only";
+
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-function safeStr(x: unknown) {
-  return typeof x === "string" ? x : "";
+function s(x: unknown) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
-export async function GET(req: Request) {
+function json(data: any, status = 200) {
+  const res = NextResponse.json(data, { status });
+  res.headers.set("Cache-Control", "no-store, max-age=0");
+  return res;
+}
+
+export async function POST(
+  req: Request,
+  { params }: { params: Promise<{ id?: string }> }
+) {
+  const p = await params;
+  const suggestionId = s(p?.id).trim();
+
   const supabase = await createClient();
 
   const { data: auth, error: authErr } = await supabase.auth.getUser();
-  if (authErr) return NextResponse.json({ error: authErr.message }, { status: 401 });
-  if (!auth?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (authErr) return json({ ok: false, error: authErr.message }, 401);
+  if (!auth?.user) return json({ ok: false, error: "Unauthorized" }, 401);
 
-  const url = new URL(req.url);
-  const projectId = safeStr(url.searchParams.get("project_id"));
-  const artifactId = safeStr(url.searchParams.get("artifact_id"));
-  const sectionKey = safeStr(url.searchParams.get("section_key"));
-  const status = safeStr(url.searchParams.get("status")) || "proposed";
+  if (!suggestionId) return json({ ok: false, error: "Missing suggestion id" }, 400);
 
-  if (!projectId) return NextResponse.json({ error: "project_id is required" }, { status: 400 });
+  // optional body (panel sends projectId/artifactId for context)
+  const body = await req.json().catch(() => ({}));
+  const projectId = s(body?.projectId).trim() || null;
+  const artifactId = s(body?.artifactId).trim() || null;
 
+  // ✅ Update suggestion status
   let q = supabase
     .from("ai_suggestions")
-    .select("*")
-    .eq("project_id", projectId)
-    .eq("status", status)
-    .order("created_at", { ascending: false });
+    .update({
+      status: "applied",
+      decided_at: new Date().toISOString(),
+      rejected_at: null,
+      ...(artifactId ? { artifact_id: artifactId } : {}),
+    })
+    .eq("id", suggestionId);
 
-  if (artifactId) q = q.eq("artifact_id", artifactId);
-  if (sectionKey) q = q.eq("section_key", sectionKey);
+  // If projectId provided, keep it tight (safer with RLS variability)
+  if (projectId) q = q.eq("project_id", projectId);
 
-  const { data, error } = await q;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const { error } = await q;
+  if (error) return json({ ok: false, error: error.message }, 500);
 
-  return NextResponse.json({ suggestions: data ?? [] });
-}
-
-export async function PATCH(req: Request) {
-  const supabase = await createClient();
-
-  const { data: auth, error: authErr } = await supabase.auth.getUser();
-  if (authErr) return NextResponse.json({ error: authErr.message }, { status: 401 });
-  if (!auth?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const body = await req.json().catch(() => ({}));
-  const suggestionId = safeStr(body?.suggestion_id);
-  const action = safeStr(body?.action); // applied | dismissed | explained
-  const note = safeStr(body?.note);
-
-  if (!suggestionId) return NextResponse.json({ error: "suggestion_id is required" }, { status: 400 });
-  if (!["applied", "dismissed", "explained"].includes(action)) {
-    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+  // ✅ Optional: record feedback (if table exists; best-effort)
+  try {
+    await supabase.from("ai_suggestion_feedback").insert({
+      suggestion_id: suggestionId,
+      actor_user_id: auth.user.id,
+      action: "applied",
+      note: null,
+    });
+  } catch {
+    // ignore
   }
 
-  // record feedback
-  const fb = await supabase.from("ai_suggestion_feedback").insert({
-    suggestion_id: suggestionId,
-    actor_user_id: auth.user.id,
-    action,
-    note: note || null,
-  });
-
-  if (fb.error) return NextResponse.json({ error: fb.error.message }, { status: 500 });
-
-  // update suggestion status if applied/dismissed
-  if (action === "applied" || action === "dismissed") {
-    const { error } = await supabase
-      .from("ai_suggestions")
-      .update({ status: action === "applied" ? "applied" : "dismissed" })
-      .eq("id", suggestionId);
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ ok: true });
+  return json({ ok: true });
 }
