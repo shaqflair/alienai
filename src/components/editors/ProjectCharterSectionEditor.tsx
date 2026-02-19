@@ -1,7 +1,7 @@
 // src/components/editors/ProjectCharterSectionEditor.tsx
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Sparkles,
@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { format, parse, isValid } from "date-fns";
+import { format, isValid } from "date-fns";
 
 /* =========================================================
    Types (matches ProjectCharterEditorFormLazy contract)
@@ -86,17 +86,14 @@ function ensureHeaderRow(table: { columns: number; rows: RowObj[] }) {
     return { columns: cols, rows: [{ type: "header", cells: headerCells }, ...rows] };
   }
 
-  // normalize header cell lengths
   const header = rows[0];
   const hc = Array.isArray(header.cells) ? header.cells.slice() : [];
   while (hc.length < cols) hc.push(`Column ${hc.length + 1}`);
   header.cells = hc.slice(0, cols);
 
-  // ensure there is at least one data row
   const hasData = rows.some((r) => r.type === "data");
   if (!hasData) rows.push({ type: "data", cells: Array.from({ length: cols }, () => "") });
 
-  // normalize all rows to correct col length
   const norm = rows.map((r) => {
     const cells = Array.isArray(r.cells) ? r.cells.slice() : [];
     while (cells.length < cols) cells.push("");
@@ -110,18 +107,12 @@ function ensureHeaderRow(table: { columns: number; rows: RowObj[] }) {
    Guards: prevent accidental structural delete
 ========================================================= */
 
-/**
- * We allow normal text editing inside the cell,
- * but we *stop propagation* so no parent/table handler can interpret
- * Backspace/Delete/Enter as "delete row/col" or "add row".
- */
 function guardTableCellKeys(e: React.KeyboardEvent<HTMLInputElement>) {
   if (e.key === "Backspace" || e.key === "Delete") {
     e.stopPropagation();
     return;
   }
   if (e.key === "Enter") {
-    // prevent any outer handler adding rows / weird focus jumps
     e.stopPropagation();
     return;
   }
@@ -152,7 +143,6 @@ function parseUkDate(v: string): Date | null {
     const d = new Date(isIsoDateOnly(v) ? `${v}T00:00:00` : v);
     return isValid(d) ? d : null;
   }
-  // Try parsing dd-mm-yyyy or dd.mm.yyyy
   const m = v.match(/^(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{4})$/);
   if (m) {
     const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
@@ -220,11 +210,10 @@ function currentLinePrefix(text: string, cursorPos: number) {
   const lastNl = before.lastIndexOf("\n");
   const line = before.slice(lastNl + 1);
   const trimmed = line.trimStart();
-  const hasBullet = trimmed.startsWith("•") || trimmed.startsWith("-") || trimmed.startsWith("*");
   const indent = line.match(/^\s*/)?.[0] ?? "";
   const markerMatch = trimmed.match(/^([•\-\*])\s*/);
   const marker = markerMatch?.[1] ?? "•";
-  return { indent, hasBullet, marker };
+  return { indent, marker };
 }
 
 /* =========================================================
@@ -244,6 +233,74 @@ export default function ProjectCharterSectionEditor({
   aiLoadingKey = null,
 }: Props) {
   const safeSections = useMemo(() => (Array.isArray(sections) ? sections : []), [sections]);
+
+  // ✅ FIX: local draft meta state so typing never gets clobbered by doc re-hydration
+  const didInitMetaRef = useRef(false);
+  const lastMetaEditAtRef = useRef<number>(0);
+
+  const [metaDraft, setMetaDraft] = useState<Record<string, any>>(() => ({
+    project_title: "",
+    project_manager: "",
+    sponsor: "",
+    dates: "",
+  }));
+
+  // init once (or when meta becomes available the first time)
+  useEffect(() => {
+    if (didInitMetaRef.current) return;
+
+    const incoming = meta && typeof meta === "object" ? meta : {};
+    setMetaDraft({
+      project_title: safeStr((incoming as any).project_title),
+      project_manager: safeStr((incoming as any).project_manager),
+      sponsor: safeStr((incoming as any).sponsor),
+      dates: safeStr((incoming as any).dates),
+    });
+
+    didInitMetaRef.current = true;
+  }, [meta]);
+
+  // If parent meta changes later (e.g. project defaults seeded), we allow sync ONLY if user hasn’t typed recently.
+  useEffect(() => {
+    if (!didInitMetaRef.current) return;
+
+    const sinceEdit = Date.now() - (lastMetaEditAtRef.current || 0);
+    if (sinceEdit < 1200) return; // user typing -> do not clobber
+
+    const incoming = meta && typeof meta === "object" ? meta : {};
+    const next = {
+      project_title: safeStr((incoming as any).project_title),
+      project_manager: safeStr((incoming as any).project_manager),
+      sponsor: safeStr((incoming as any).sponsor),
+      dates: safeStr((incoming as any).dates),
+    };
+
+    // shallow compare to avoid loops
+    const same =
+      safeStr(metaDraft.project_title) === safeStr(next.project_title) &&
+      safeStr(metaDraft.project_manager) === safeStr(next.project_manager) &&
+      safeStr(metaDraft.sponsor) === safeStr(next.sponsor) &&
+      safeStr(metaDraft.dates) === safeStr(next.dates);
+
+    if (!same) setMetaDraft(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meta]);
+
+  // Debounced push up to parent (prevents autosave thrash on every keystroke)
+  useEffect(() => {
+    if (!didInitMetaRef.current) return;
+    if (readOnly) return;
+
+    const t = setTimeout(() => {
+      onMetaChange({
+        ...(meta && typeof meta === "object" ? meta : {}),
+        ...metaDraft,
+      });
+    }, 350);
+
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metaDraft, readOnly]);
 
   function patchSection(idx: number, next: Partial<V2Section>) {
     if (readOnly) return;
@@ -350,27 +407,39 @@ export default function ProjectCharterSectionEditor({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <MetaField
                 label="Project Title"
-                value={safeStr(meta?.project_title)}
+                value={safeStr(metaDraft?.project_title)}
                 disabled={readOnly}
-                onChange={(v) => onMetaChange({ ...meta, project_title: v })}
+                onChange={(v) => {
+                  lastMetaEditAtRef.current = Date.now();
+                  setMetaDraft((s) => ({ ...(s || {}), project_title: v }));
+                }}
               />
               <MetaField
                 label="Project Manager"
-                value={safeStr(meta?.project_manager)}
+                value={safeStr(metaDraft?.project_manager)}
                 disabled={readOnly}
-                onChange={(v) => onMetaChange({ ...meta, project_manager: v })}
+                onChange={(v) => {
+                  lastMetaEditAtRef.current = Date.now();
+                  setMetaDraft((s) => ({ ...(s || {}), project_manager: v }));
+                }}
               />
               <MetaField
                 label="Sponsor"
-                value={safeStr(meta?.sponsor)}
+                value={safeStr(metaDraft?.sponsor)}
                 disabled={readOnly}
-                onChange={(v) => onMetaChange({ ...meta, sponsor: v })}
+                onChange={(v) => {
+                  lastMetaEditAtRef.current = Date.now();
+                  setMetaDraft((s) => ({ ...(s || {}), sponsor: v }));
+                }}
               />
               <MetaField
                 label="Dates (free text)"
-                value={safeStr(meta?.dates)}
+                value={safeStr(metaDraft?.dates)}
                 disabled={readOnly}
-                onChange={(v) => onMetaChange({ ...meta, dates: v })}
+                onChange={(v) => {
+                  lastMetaEditAtRef.current = Date.now();
+                  setMetaDraft((s) => ({ ...(s || {}), dates: v }));
+                }}
                 placeholder="e.g., Start 01/03/2026 • End 30/06/2026"
               />
             </div>
@@ -438,12 +507,18 @@ export default function ProjectCharterSectionEditor({
                       <div className="space-y-1">
                         {comp.issues.slice(0, 2).map((it, i) => (
                           <div key={i} className="text-slate-600">
-                            <span className={`font-medium ${
-                              it.severity === "error" ? "text-rose-600" : 
-                              it.severity === "warn" ? "text-amber-600" : "text-blue-600"
-                            }`}>
+                            <span
+                              className={`font-medium ${
+                                it.severity === "error"
+                                  ? "text-rose-600"
+                                  : it.severity === "warn"
+                                  ? "text-amber-600"
+                                  : "text-blue-600"
+                              }`}
+                            >
                               {it.severity.toUpperCase()}:
-                            </span> {it.message}
+                            </span>{" "}
+                            {it.message}
                           </div>
                         ))}
                       </div>
@@ -451,7 +526,6 @@ export default function ProjectCharterSectionEditor({
                   ) : null}
                 </div>
 
-                {/* AI actions */}
                 <div className="flex items-center gap-2 shrink-0">
                   {onImproveSection ? (
                     <Button
@@ -485,7 +559,11 @@ export default function ProjectCharterSectionEditor({
                       className="rounded-lg border-slate-200 hover:bg-slate-50"
                       title="Regenerate this section with AI"
                     >
-                      <RefreshCw className={`h-4 w-4 mr-2 ${aiLoadingKey === key ? "animate-spin text-indigo-600" : "text-slate-600"}`} />
+                      <RefreshCw
+                        className={`h-4 w-4 mr-2 ${
+                          aiLoadingKey === key ? "animate-spin text-indigo-600" : "text-slate-600"
+                        }`}
+                      />
                       {aiLoadingKey === key ? "Working..." : "Regenerate"}
                     </Button>
                   ) : null}
@@ -504,7 +582,11 @@ export default function ProjectCharterSectionEditor({
                     onDelRow={(dataRowIndex) => delTableRow(idx, dataRowIndex)}
                   />
                 ) : (
-                  <BulletsEditor value={safeStr(sec?.bullets)} readOnly={readOnly} onChange={(v) => patchBullets(idx, v)} />
+                  <BulletsEditor
+                    value={safeStr(sec?.bullets)}
+                    readOnly={readOnly}
+                    onChange={(v) => patchBullets(idx, v)}
+                  />
                 )}
 
                 {key && completenessByKey && score >= 80 ? (
@@ -541,9 +623,7 @@ function MetaField({
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
-        {label}
-      </label>
+      <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">{label}</label>
       <input
         className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 disabled:bg-slate-50 disabled:text-slate-400 transition-all"
         value={value}
@@ -618,7 +698,7 @@ function DatePickerCell({
   placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
-  
+
   const date = useMemo(() => parseUkDate(value), [value]);
   const displayValue = useMemo(() => toUkDateDisplay(value), [value]);
 
@@ -630,16 +710,12 @@ function DatePickerCell({
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    // Allow typing, validate on blur
-    onChange(val);
+    onChange(e.target.value);
   };
 
   const handleBlur = () => {
     const normalized = normalizeUkDateInput(value);
-    if (normalized !== value) {
-      onChange(normalized);
-    }
+    if (normalized !== value) onChange(normalized);
   };
 
   if (disabled) {
@@ -672,13 +748,7 @@ function DatePickerCell({
           </button>
         </PopoverTrigger>
         <PopoverContent className="w-auto p-0" align="end">
-          <Calendar
-            mode="single"
-            selected={date || undefined}
-            onSelect={handleSelect}
-            initialFocus
-            className="rounded-lg border-0"
-          />
+          <Calendar mode="single" selected={date || undefined} onSelect={handleSelect} initialFocus className="rounded-lg border-0" />
         </PopoverContent>
       </Popover>
     </div>
@@ -783,11 +853,7 @@ function TableEditor({
                   return (
                     <td key={ci} className="px-4 py-3 align-top border-r border-slate-100 last:border-r-0">
                       {isDate ? (
-                        <DatePickerCell
-                          value={raw}
-                          onChange={(v) => setCell(ri, ci, v)}
-                          disabled={readOnly}
-                        />
+                        <DatePickerCell value={raw} onChange={(v) => setCell(ri, ci, v)} disabled={readOnly} />
                       ) : (
                         <input
                           className="w-full outline-none bg-transparent text-slate-700 placeholder:text-slate-400"
@@ -821,23 +887,13 @@ function TableEditor({
 
       {!readOnly ? (
         <div className="flex flex-wrap gap-3 items-center">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={onAddRow} 
-            className="rounded-lg border-slate-300 hover:bg-slate-50 hover:border-slate-400"
-          >
+          <Button variant="outline" size="sm" onClick={onAddRow} className="rounded-lg border-slate-300 hover:bg-slate-50 hover:border-slate-400">
             <Plus className="h-4 w-4 mr-1.5" /> Add Row
           </Button>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={onAddCol} 
-            className="rounded-lg border-slate-300 hover:bg-slate-50 hover:border-slate-400"
-          >
+          <Button variant="outline" size="sm" onClick={onAddCol} className="rounded-lg border-slate-300 hover:bg-slate-50 hover:border-slate-400">
             <Plus className="h-4 w-4 mr-1.5" /> Add Column
           </Button>
-          
+
           <div className="ml-auto text-xs text-slate-400">
             {dataRows.length} row{dataRows.length !== 1 ? "s" : ""} × {header.length} column{header.length !== 1 ? "s" : ""}
           </div>

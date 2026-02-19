@@ -6,6 +6,8 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 
+import { createClient } from "@/utils/supabase/server";
+
 import { ClientDateTime } from "@/components/date/ClientDateTime";
 import ArtifactDetailClientHost from "@/components/artifacts/ArtifactDetailClientHost";
 
@@ -42,6 +44,92 @@ function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
+function safeLower(x: any) {
+  return safeStr(x).trim().toLowerCase();
+}
+
+/**
+ * ✅ Best-effort: determine a "Project Manager" display name for seeding Charter meta.
+ * We try common role values first, then fall back to owner/editor if needed.
+ *
+ * Assumptions (safe):
+ * - project_members has: project_id, user_id, role, is_active
+ * - profiles has: user_id, full_name, email
+ */
+async function getProjectManagerNameBestEffort(
+  supabase: any,
+  projectId: string
+): Promise<string | null> {
+  if (!projectId) return null;
+
+  const pmRoleCandidates = [
+    "project_manager",
+    "project manager",
+    "pm",
+    "programme_manager",
+    "program_manager",
+    "programme manager",
+    "program manager",
+    "delivery_manager",
+    "delivery manager",
+  ];
+
+  // 1) Try explicit PM-like roles
+  for (const role of pmRoleCandidates) {
+    const { data, error } = await supabase
+      .from("project_members")
+      .select("user_id, role")
+      .eq("project_id", projectId)
+      .eq("is_active", true)
+      .ilike("role", role)
+      .limit(1);
+
+    if (error) {
+      // if schema differs, just stop trying roles and fall back
+      break;
+    }
+
+    const userId = safeStr(data?.[0]?.user_id).trim();
+    if (userId) {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("full_name, email")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      const name = safeStr(prof?.full_name).trim();
+      if (name) return name;
+
+      const email = safeStr(prof?.email).trim();
+      if (email) return email;
+    }
+  }
+
+  // 2) Fallback: first owner/editor
+  const { data: mems } = await supabase
+    .from("project_members")
+    .select("user_id, role")
+    .eq("project_id", projectId)
+    .eq("is_active", true)
+    .in("role", ["owner", "editor"])
+    .limit(1);
+
+  const fallbackUserId = safeStr(mems?.[0]?.user_id).trim();
+  if (!fallbackUserId) return null;
+
+  const { data: prof2 } = await supabase
+    .from("profiles")
+    .select("full_name, email")
+    .eq("user_id", fallbackUserId)
+    .maybeSingle();
+
+  const nm2 = safeStr(prof2?.full_name).trim();
+  if (nm2) return nm2;
+
+  const em2 = safeStr(prof2?.email).trim();
+  return em2 || null;
+}
+
 export default async function ArtifactDetailPage({
   params,
 }: {
@@ -55,9 +143,7 @@ export default async function ArtifactDetailPage({
     notFound();
   }
 
-  const vm = await loadArtifactDetail(
-    Promise.resolve({ id: projectParam, artifactId: artifactParam })
-  );
+  const vm = await loadArtifactDetail(Promise.resolve({ id: projectParam, artifactId: artifactParam }));
 
   const {
     projectUuid,
@@ -151,6 +237,20 @@ export default async function ArtifactDetailPage({
     !effectiveLockLayout;
 
   // ---------------------------------------------------------------------------
+  // ✅ NEW: get projectManagerName for charter seeding (server-side best effort)
+  // ---------------------------------------------------------------------------
+  let projectManagerName: string | null = null;
+  try {
+    if (projectUuid) {
+      const supabase = await createClient();
+      projectManagerName = await getProjectManagerNameBestEffort(supabase, String(projectUuid));
+    }
+  } catch {
+    // best-effort only; never block rendering
+    projectManagerName = null;
+  }
+
+  // ---------------------------------------------------------------------------
   // ✅ Server actions
   // ---------------------------------------------------------------------------
 
@@ -233,7 +333,8 @@ export default async function ArtifactDetailPage({
     if (!projectUuid) return;
     if (!canEditByRole) return;
 
-    const blocked = statusLower === "submitted" || statusLower === "approved" || statusLower === "rejected";
+    const blocked =
+      statusLower === "submitted" || statusLower === "approved" || statusLower === "rejected";
     if (blocked) return;
 
     await setArtifactCurrent({
@@ -301,7 +402,9 @@ export default async function ArtifactDetailPage({
             </button>
           </form>
         ) : (
-          <h1 className="text-2xl font-semibold">{(artifact as any).title || (artifact as any).type || "Artifact"}</h1>
+          <h1 className="text-2xl font-semibold">
+            {(artifact as any).title || (artifact as any).type || "Artifact"}
+          </h1>
         )}
 
         <div className="text-sm text-gray-600 flex flex-wrap items-center gap-2">
@@ -450,6 +553,7 @@ export default async function ArtifactDetailPage({
         rawContentJson={(artifact as any).content_json ?? null}
         rawContentText={String((artifact as any).content ?? "")}
         projectTitle={projectTitle}
+        projectManagerName={projectManagerName} // ✅ NEW (for Charter meta seeding)
         projectStartDate={projectStartDate}
         projectFinishDate={projectFinishDate}
         latestWbsJson={mode === "schedule" ? latestWbsJson : null}

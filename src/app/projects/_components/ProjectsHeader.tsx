@@ -6,6 +6,21 @@ import type { FlashTone } from "../_lib/projects-utils";
 
 type Banner = { tone: "success" | "warn" | "error"; msg: string } | null;
 
+function bannerCls(tone: Banner extends infer T ? any : never) {
+  // tone is one of: success | warn | error
+  if (tone === "success") return "border-emerald-200 bg-emerald-50 text-emerald-900";
+  if (tone === "warn") return "border-amber-200 bg-amber-50 text-amber-900";
+  if (tone === "error") return "border-rose-200 bg-rose-50 text-rose-900";
+  return "border-slate-200 bg-slate-50 text-slate-700";
+}
+
+function flashCls(tone: FlashTone) {
+  if (tone === "success") return "border-emerald-200 bg-emerald-50 text-emerald-900";
+  if (tone === "warn") return "border-amber-200 bg-amber-50 text-amber-900";
+  if (tone === "error") return "border-rose-200 bg-rose-50 text-rose-900";
+  return "border-slate-200 bg-white text-slate-700";
+}
+
 export default function ProjectsHeader({
   banner,
   flash,
@@ -39,17 +54,17 @@ export default function ProjectsHeader({
         <div className="space-y-1">
           <h1 className="text-3xl font-bold text-gray-900">Projects</h1>
           <p className="text-sm text-gray-500">
-            Your portfolio entry point — search, switch views, and jump into governance.
+            Your portfolio entry point — search, filter, and jump into governance.
           </p>
 
           {banner ? (
-            <div className="mt-3 rounded-lg border px-4 py-2 text-sm border-slate-200 bg-slate-50 text-slate-700">
+            <div className={["mt-3 rounded-lg border px-4 py-2 text-sm", bannerCls(banner.tone)].join(" ")}>
               {banner.msg}
             </div>
           ) : null}
 
           {flash ? (
-            <div className="mt-3 rounded-lg border px-4 py-2 text-sm border-slate-200 bg-white text-slate-700">
+            <div className={["mt-3 rounded-lg border px-4 py-2 text-sm", flashCls(flash.tone)].join(" ")}>
               {flash.text}{" "}
               <Link
                 href={dismissHref}

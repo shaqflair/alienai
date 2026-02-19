@@ -14,6 +14,19 @@ export default function ProjectCharterEditorForm(props: {
   readOnly?: boolean;
   lockLayout?: boolean;
   artifactVersion?: number;
+
+  // ? NEW: seed charter meta defaults
+  projectTitle?: string;
+  projectManagerName?: string;
+
+  // ? OPTIONAL: approval props (if your page passes them)
+  approvalEnabled?: boolean;
+  canSubmitOrResubmit?: boolean;
+  approvalStatus?: string | null;
+  submitForApprovalAction?: ((formData: FormData) => Promise<void>) | (() => Promise<void>) | null;
+
+  // ? OPTIONAL: legacy exports links (if you want to keep showing them)
+  legacyExports?: { pdf?: string; docx?: string; xlsx?: string };
 }) {
   const { artifactId } = props;
 
@@ -63,7 +76,18 @@ export default function ProjectCharterEditorForm(props: {
         </div>
       </div>
 
-      <ProjectCharterEditorFormLazy {...props} />
+      {/* ? Forward projectTitle + projectManagerName into the lazy editor */}
+      <ProjectCharterEditorFormLazy
+        {...props}
+        projectTitle={props.projectTitle}
+        projectManagerName={props.projectManagerName}
+        legacyExports={
+          props.legacyExports ?? {
+            pdf: legacyPdf,
+            docx: legacyDocx,
+          }
+        }
+      />
     </div>
   );
 }

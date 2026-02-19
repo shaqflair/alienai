@@ -16,7 +16,9 @@ const StakeholderRegisterEditor = dynamic(
   () => import("@/components/editors/StakeholderRegisterEditor"),
   {
     ssr: false,
-    loading: () => <div className="text-sm text-gray-500">Loading Stakeholder editor…</div>,
+    loading: () => (
+      <div className="text-sm text-gray-500">Loading Stakeholder editor…</div>
+    ),
   }
 );
 
@@ -25,38 +27,64 @@ const WBSEditor = dynamic(() => import("@/components/editors/WBSEditor"), {
   loading: () => <div className="text-sm text-gray-500">Loading WBS editor…</div>,
 });
 
-const ScheduleGanttEditor = dynamic(() => import("@/components/editors/ScheduleGanttEditor"), {
-  ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Schedule editor…</div>,
-});
+const ScheduleGanttEditor = dynamic(
+  () => import("@/components/editors/ScheduleGanttEditor"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="text-sm text-gray-500">Loading Schedule editor…</div>
+    ),
+  }
+);
 
 const ProjectClosureReportEditor = dynamic(
   () => import("@/components/editors/ProjectClosureReportEditor"),
   {
     ssr: false,
-    loading: () => <div className="text-sm text-gray-500">Loading Closure Report editor…</div>,
+    loading: () => (
+      <div className="text-sm text-gray-500">
+        Loading Closure Report editor…
+      </div>
+    ),
   }
 );
 
-const ChangeManagementBoard = dynamic(() => import("@/components/change/ChangeManagementBoard"), {
-  ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Change Board…</div>,
-});
+const ChangeManagementBoard = dynamic(
+  () => import("@/components/change/ChangeManagementBoard"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="text-sm text-gray-500">Loading Change Board…</div>
+    ),
+  }
+);
 
-const WeeklyReportEditor = dynamic(() => import("@/components/editors/WeeklyReportEditor"), {
-  ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Weekly Report editor…</div>,
-});
+const WeeklyReportEditor = dynamic(
+  () => import("@/components/editors/WeeklyReportEditor"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="text-sm text-gray-500">
+        Loading Weekly Report editor…
+      </div>
+    ),
+  }
+);
 
 const AiSuggestionsPanel = dynamic(() => import("@/components/ai/AiSuggestionsPanel"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading AI suggestions…</div>,
+  loading: () => (
+    <div className="text-sm text-gray-500">Loading AI suggestions…</div>
+  ),
 });
 
-const ArtifactTimeline = dynamic(() => import("@/components/artifacts/ArtifactTimeline"), {
-  ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading timeline…</div>,
-});
+const ArtifactTimeline = dynamic(
+  () => import("@/components/artifacts/ArtifactTimeline"),
+  {
+    ssr: false,
+    loading: () => <div className="text-sm text-gray-500">Loading timeline…</div>,
+  }
+);
 
 /* ---------------- types ---------------- */
 
@@ -95,8 +123,9 @@ export type ArtifactDetailClientHostProps = {
   rawContentJson?: any;
   rawContentText?: string;
 
-  // schedule extras
+  // project extras (charter seeds + schedule header)
   projectTitle?: string;
+  projectManagerName?: string | null; // ✅ NEW: seed charter meta
   projectStartDate?: string | null;
   projectFinishDate?: string | null;
 
@@ -123,7 +152,9 @@ export type ArtifactDetailClientHostProps = {
    * ? Optional server action (same idea as Charter save)
    * Provide this from the Server Component host.
    */
-  updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
+  updateArtifactJsonAction?: (
+    args: UpdateArtifactJsonArgs
+  ) => Promise<UpdateArtifactJsonResult>;
 };
 
 function cx(...xs: Array<string | false | null | undefined>) {
@@ -131,7 +162,11 @@ function cx(...xs: Array<string | false | null | undefined>) {
 }
 
 function getArtifactVersion(typedInitialJson: any) {
-  const v = Number((typedInitialJson as any)?.version ?? (typedInitialJson as any)?.content?.version ?? 1);
+  const v = Number(
+    (typedInitialJson as any)?.version ??
+      (typedInitialJson as any)?.content?.version ??
+      1
+  );
   return Number.isFinite(v) && v > 0 ? v : 1;
 }
 
@@ -149,6 +184,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     rawContentText,
 
     projectTitle,
+    projectManagerName, // ✅ NEW
     projectStartDate,
     projectFinishDate,
 
@@ -187,11 +223,16 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     }
   }, []);
 
-  const artifactVersion = useMemo(() => getArtifactVersion(typedInitialJson), [typedInitialJson]);
+  const artifactVersion = useMemo(
+    () => getArtifactVersion(typedInitialJson),
+    [typedInitialJson]
+  );
   const isCharterV2 = mode === "charter" && artifactVersion >= 2;
 
   const hideContentExportsRow =
-    mode === "charter" || mode === "closure" || mode === "weekly_report" ? true : !!hideContentExportsRowProp;
+    mode === "charter" || mode === "closure" || mode === "weekly_report"
+      ? true
+      : !!hideContentExportsRowProp;
 
   const effectiveLegacyExports =
     mode === "charter" ? (isCharterV2 ? undefined : legacyExports) : legacyExports;
@@ -224,7 +265,9 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                       onClick={() => setOpenAI((v) => !v)}
                       className={cx(
                         "rounded-xl border px-3 py-2 text-sm transition",
-                        openAI ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50"
+                        openAI
+                          ? "bg-black text-white border-black"
+                          : "border-gray-200 hover:bg-gray-50"
                       )}
                     >
                       {openAI ? "Hide AI" : "Show AI"}
@@ -237,7 +280,9 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                       onClick={() => setOpenTimeline((v) => !v)}
                       className={cx(
                         "rounded-xl border px-3 py-2 text-sm transition",
-                        openTimeline ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50"
+                        openTimeline
+                          ? "bg-black text-white border-black"
+                          : "border-gray-200 hover:bg-gray-50"
                       )}
                     >
                       {openTimeline ? "Hide timeline" : "Show timeline"}
@@ -266,7 +311,12 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
         </section>
       ) : (
         <>
-          <section className={cx("border rounded-2xl bg-white p-6", hideContentExportsRow ? "space-y-0" : "space-y-4")}>
+          <section
+            className={cx(
+              "border rounded-2xl bg-white p-6",
+              hideContentExportsRow ? "space-y-0" : "space-y-4"
+            )}
+          >
             {contentHeader}
 
             {mode === "charter" ? (
@@ -277,6 +327,9 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 readOnly={!isEditable}
                 lockLayout={lockLayout}
                 artifactVersion={artifactVersion}
+                // ✅ NEW: seed values for meta defaults
+                projectTitle={projectTitle}
+                projectManagerName={projectManagerName ?? undefined}
                 legacyExports={effectiveLegacyExports}
                 approvalEnabled={!!approvalEnabled}
                 canSubmitOrResubmit={!!canSubmitOrResubmit}
@@ -291,7 +344,12 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 readOnly={!isEditable}
               />
             ) : mode === "wbs" ? (
-              <WBSEditor projectId={projectId} artifactId={artifactId} initialJson={rawContentJson ?? null} readOnly={!isEditable} />
+              <WBSEditor
+                projectId={projectId}
+                artifactId={artifactId}
+                initialJson={rawContentJson ?? null}
+                readOnly={!isEditable}
+              />
             ) : mode === "schedule" ? (
               <ScheduleGanttEditor
                 projectId={projectId}
@@ -348,7 +406,9 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                       onClick={() => setOpenAI((v) => !v)}
                       className={cx(
                         "rounded-xl border px-3 py-2 text-sm transition",
-                        openAI ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50"
+                        openAI
+                          ? "bg-black text-white border-black"
+                          : "border-gray-200 hover:bg-gray-50"
                       )}
                     >
                       {openAI ? "Hide AI" : "Show AI"}
@@ -361,7 +421,9 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                       onClick={() => setOpenTimeline((v) => !v)}
                       className={cx(
                         "rounded-xl border px-3 py-2 text-sm transition",
-                        openTimeline ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50"
+                        openTimeline
+                          ? "bg-black text-white border-black"
+                          : "border-gray-200 hover:bg-gray-50"
                       )}
                     >
                       {openTimeline ? "Hide timeline" : "Show timeline"}
@@ -387,7 +449,9 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
               ) : null}
 
               {!openAI && !openTimeline ? (
-                <div className="text-xs text-gray-500">Tip: open panels only when you need them — keeps this page snappy.</div>
+                <div className="text-xs text-gray-500">
+                  Tip: open panels only when you need them — keeps this page snappy.
+                </div>
               ) : null}
             </section>
           ) : null}

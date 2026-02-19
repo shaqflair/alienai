@@ -11,7 +11,7 @@ import ProjectsHeader from "./_components/ProjectsHeader";
 import ProjectsResults from "./_components/ProjectsResults";
 
 // ✅ only import TYPES (no runtime helpers)
-import type { MemberProjectRow, ProjectListRow } from "./_lib/projects-utils";
+import type { MemberProjectRow, ProjectListRow, FlashTone } from "./_lib/projects-utils";
 
 type OrgMemberOption = {
   user_id: string;
@@ -39,22 +39,52 @@ function qsSafe(params: Record<string, unknown>) {
   return out ? `?${out}` : "";
 }
 
-function inviteBanner(invite: unknown) {
-  // Preserve existing behavior safely: if you had an invite system,
-  // ProjectsHeader can still render "banner" null/undefined safely.
-  const s = norm(invite);
-  return s ? s : null;
+type Banner = { tone: "success" | "warn" | "error"; msg: string } | null;
+
+function inviteBanner(invite: unknown): Banner {
+  const v = norm(invite).toLowerCase();
+  if (!v) return null;
+
+  if (v === "accepted") return { tone: "success", msg: "✅ You’ve joined the organisation." };
+  if (v === "expired") return { tone: "warn", msg: "⚠️ Invite expired. Ask the owner to resend the invite." };
+  if (v === "invalid") return { tone: "error", msg: "❌ Invite invalid or already used." };
+  if (v === "email-mismatch")
+    return { tone: "error", msg: "❌ Invite was sent to a different email. Sign in with the invited email." };
+  if (v === "failed") return { tone: "error", msg: "❌ Invite acceptance failed. Please try again." };
+
+  return null;
 }
 
-function flashFromQuery(err: unknown, msg: unknown) {
-  // Minimal safe flash structure. ProjectsHeader already handles this shape in your repo.
-  const e = norm(err);
-  const m = norm(msg);
+function flashFromQuery(err: unknown, msg: unknown): { tone: FlashTone; text: string } | null {
+  const e = norm(err).toLowerCase();
+  const m = norm(msg).toLowerCase();
   if (!e && !m) return null;
-  return {
-    kind: e ? "error" : "success",
-    message: e || m,
-  };
+
+  // Prefer error
+  if (e) {
+    if (e === "delete_confirm") return { tone: "error", text: 'Type "DELETE" to confirm deletion.' };
+    if (e === "delete_forbidden") return { tone: "error", text: "Only the project owner can delete a project." };
+    if (e === "delete_blocked")
+      return { tone: "warn", text: "Delete is blocked (protected artifacts). Use Abnormal close in the Delete modal." };
+    if (e === "abnormal_confirm") return { tone: "error", text: 'Type "ABNORMAL" to confirm abnormal close.' };
+    if (e === "no_permission") return { tone: "error", text: "You don’t have permission to perform that action." };
+    if (e === "missing_project") return { tone: "error", text: "Missing project id." };
+    if (e === "missing_title") return { tone: "error", text: "Title is required." };
+    if (e === "missing_start") return { tone: "error", text: "Start date is required." };
+    if (e === "missing_org") return { tone: "error", text: "Organisation is required." };
+    if (e === "bad_org") return { tone: "error", text: "Invalid organisation selected." };
+    if (e === "bad_finish") return { tone: "error", text: "Finish date cannot be before start date." };
+    if (e === "bad_pm") return { tone: "error", text: "Invalid project manager selected." };
+    return { tone: "error", text: safeStr(err) };
+  }
+
+  if (m === "deleted") return { tone: "success", text: "Project deleted." };
+  if (m === "closed") return { tone: "success", text: "Project closed. It is now read-only." };
+  if (m === "reopened") return { tone: "success", text: "Project reopened. Editing is enabled." };
+  if (m === "renamed") return { tone: "success", text: "Project renamed." };
+  if (m === "abnormally_closed") return { tone: "success", text: "Project abnormally closed (audit trail kept)." };
+
+  return { tone: "info", text: safeStr(msg) };
 }
 
 function displayNameFromUser(user: any) {
@@ -201,6 +231,7 @@ export default async function ProjectsPage({
         status: r.projects.status ?? "active",
         myRole: r.role ?? "viewer",
 
+        // optional extras used by UI
         lifecycle_status: (r.projects as any)?.lifecycle_status ?? null,
         closed_at: (r.projects as any)?.closed_at ?? null,
         project_manager_id: (r.projects as any)?.project_manager_id ?? null,
@@ -308,7 +339,7 @@ export default async function ProjectsPage({
   return (
     <main className="projects-theme-cyan relative min-h-screen bg-gray-50 text-gray-900 overflow-x-hidden">
       <div className="relative mx-auto max-w-6xl px-6 py-10 space-y-8">
-        <ProjectsHeader banner={banner} flash={flash as any} dismissHref={dismissHref} />
+        <ProjectsHeader banner={banner} flash={flash} dismissHref={dismissHref} />
 
         <section className={`p-6 md:p-8 space-y-5 ${panelGlow}`}>
           <div className="space-y-1">
@@ -361,7 +392,9 @@ export default async function ProjectsPage({
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-gray-500">Assign now or later — used for delivery accountability and exec reporting.</p>
+              <p className="text-xs text-gray-500">
+                Assign now or later — used for delivery accountability and exec reporting.
+              </p>
             </label>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -405,7 +438,7 @@ export default async function ProjectsPage({
             pid={pid}
             err={err}
             msg={msg}
-           orgAdminOrgIds={Array.from(orgAdminSet)}
+            orgAdminOrgIds={Array.from(orgAdminSet)}
             baseHrefForDismiss={dismissHref}
             panelGlow={panelGlow}
           />
