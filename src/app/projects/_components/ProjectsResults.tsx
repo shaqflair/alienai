@@ -1,7 +1,9 @@
+// src/app/projects/_components/ProjectsResults.tsx
 import "server-only";
 
 import Link from "next/link";
 import { buildQs, safeStr, fmtUkDate, type ProjectListRow } from "../_lib/projects-utils";
+import { closeProject, deleteProject } from "../actions";
 
 function fmtDate(d?: any) {
   const s = safeStr(d).trim();
@@ -181,7 +183,7 @@ export default function ProjectsResults({
                             <span className={pm === "Unassigned" ? "text-gray-400" : "text-gray-700 font-semibold"}>
                               {pm}
                             </span>{" "}
-                            • Created {fmtDate(p.created_at)}
+                            • Created {fmtDate((p as any).created_at)}
                           </div>
 
                           {/* Quick nav chips */}
@@ -212,7 +214,7 @@ export default function ProjectsResults({
                     {/* SCHEDULE */}
                     <td className="px-5 py-5 align-top">
                       <div className="text-sm text-gray-900">
-                        {fmtDate(p.start_date)} — {fmtDate(p.finish_date)}
+                        {fmtDate((p as any).start_date)} — {fmtDate((p as any).finish_date)}
                       </div>
                       <div className="mt-2 text-xs text-gray-500">Schedule window</div>
                     </td>
@@ -256,19 +258,44 @@ export default function ProjectsResults({
                           )}
                         </div>
 
+                        {/* ✅ Close + Delete wired to server actions (no more Link-to-nowhere) */}
                         <div className="flex justify-end gap-2">
-                          <Link
-                            href={hrefProject}
-                            className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100"
+                          <form
+                            action={closeProject}
+                            onSubmit={(e) => {
+                              if (!confirm(`Close "${safeStr(p.title)}"?`)) e.preventDefault();
+                            }}
                           >
-                            Close
-                          </Link>
-                          <Link
-                            href={hrefProject}
-                            className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100"
+                            <input type="hidden" name="project_id" value={projectId} />
+                            <button
+                              type="submit"
+                              className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100"
+                            >
+                              Close
+                            </button>
+                          </form>
+
+                          <form
+                            action={deleteProject}
+                            onSubmit={(e) => {
+                              if (
+                                !confirm(
+                                  `Delete "${safeStr(p.title)}"?\n\nThis cannot be undone.`
+                                )
+                              ) {
+                                e.preventDefault();
+                              }
+                            }}
                           >
-                            Delete
-                          </Link>
+                            <input type="hidden" name="project_id" value={projectId} />
+                            <input type="hidden" name="confirm" value="DELETE" />
+                            <button
+                              type="submit"
+                              className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100"
+                            >
+                              Delete
+                            </button>
+                          </form>
                         </div>
                       </div>
                     </td>
