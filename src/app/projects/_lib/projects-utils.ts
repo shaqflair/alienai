@@ -1,4 +1,5 @@
-﻿import "server-only";
+﻿// src/app/projects/_lib/projects-utils.ts
+import "server-only";
 
 /* =========================
     Types
@@ -16,6 +17,8 @@ export type MemberProjectRow = {
     created_at: string;
     organisation_id: string | null;
     status?: string | null;
+    lifecycle_status?: string | null;
+    closed_at?: string | null;
     deleted_at?: string | null;
 
     // ✅ Enterprise PMO
@@ -42,6 +45,10 @@ export type ProjectListRow = {
   // ✅ Enterprise PMO
   project_manager_id?: string | null;
   project_manager_name?: string | null;
+
+  // ✅ lifecycle helpers (optional)
+  lifecycle_status?: string | null;
+  closed_at?: string | null;
 };
 
 export type FlashTone = "success" | "warn" | "error" | "info";
@@ -60,22 +67,28 @@ export function norm(x: unknown) {
 
 /** Formats ISO strings to DD/MM/YYYY */
 export function fmtUkDate(x?: string | null) {
-  if (!x) return "—";
+  const s = safeStr(x).trim();
+  if (!s) return "—";
   try {
-    const d = new Date(x);
-    if (Number.isNaN(d.getTime())) return String(x);
-    return d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return s;
+    return d.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
   } catch {
-    return String(x);
+    return s;
   }
 }
 
 /** Formats ISO strings to DD/MM/YYYY HH:mm */
 export function fmtUkDateTime(x?: string | null) {
-  if (!x) return "—";
+  const s = safeStr(x).trim();
+  if (!s) return "—";
   try {
-    const d = new Date(x);
-    if (Number.isNaN(d.getTime())) return String(x);
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return s;
     return d.toLocaleString("en-GB", {
       day: "2-digit",
       month: "2-digit",
@@ -85,12 +98,12 @@ export function fmtUkDateTime(x?: string | null) {
       hour12: false,
     });
   } catch {
-    return String(x);
+    return s;
   }
 }
 
 export function fmtCode(x: unknown) {
-  const s = String(x ?? "").trim();
+  const s = safeStr(x).trim();
   return s ? s : "—";
 }
 
@@ -99,7 +112,7 @@ export function fmtCode(x: unknown) {
 ========================= */
 
 export function fmtRole(role?: string | null) {
-  const v = String(role ?? "").toLowerCase();
+  const v = safeStr(role).trim().toLowerCase();
   if (v === "owner")
     return { label: "Owner", cls: "bg-emerald-500/15 text-emerald-200 border-emerald-500/20" };
   if (v === "editor")
@@ -107,22 +120,26 @@ export function fmtRole(role?: string | null) {
   if (v === "viewer")
     return { label: "Viewer", cls: "bg-amber-500/15 text-amber-200 border-amber-500/20" };
   return {
-    label: role ? String(role) : "Member",
+    label: role ? safeStr(role) : "Member",
     cls: "bg-slate-500/15 text-slate-200 border-slate-500/20",
   };
 }
 
 export function canEditProject(role?: string | null) {
-  const v = String(role ?? "").toLowerCase();
+  const v = safeStr(role).trim().toLowerCase();
   return v === "owner" || v === "editor";
 }
 
 export function isOwner(role?: string | null) {
-  return String(role ?? "").toLowerCase() === "owner";
+  return safeStr(role).trim().toLowerCase() === "owner";
 }
 
+/* =========================
+    Invite Banner
+========================= */
+
 export function inviteBanner(invite?: string | null) {
-  const v = String(invite ?? "").toLowerCase();
+  const v = safeStr(invite).trim().toLowerCase();
   if (!v) return null;
 
   if (v === "accepted") return { tone: "success" as const, msg: "✅ You’ve joined the organisation." };
@@ -145,14 +162,18 @@ export function bannerClass(tone?: "success" | "warn" | "error") {
   return "border-slate-800 bg-[#0b1220] text-slate-200";
 }
 
+/* =========================
+    Querystring Helpers
+========================= */
+
 export function buildQs(next: Record<string, string | undefined>) {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(next)) {
     const s = safeStr(v).trim();
     if (s) sp.set(k, s);
   }
-  const qs = sp.toString();
-  return qs ? `?${qs}` : "";
+  const out = sp.toString();
+  return out ? `?${out}` : "";
 }
 
 export function statusChip(isClosed: boolean) {
@@ -164,23 +185,6 @@ export function statusChip(isClosed: boolean) {
 /* =========================
     Flash Messaging Logic
 ========================= */
-export function inviteBanner(invite?: string | null) {
-  const v = safeStr(invite).trim().toLowerCase();
-  if (!v) return null;
-
-  if (v === "accepted") return { tone: "success" as const, msg: "✅ You’ve joined the organisation." };
-  if (v === "expired") return { tone: "warn" as const, msg: "⚠️ Invite expired. Ask the owner to resend the invite." };
-  if (v === "invalid") return { tone: "error" as const, msg: "❌ Invite invalid or already used. Ask the owner to resend it." };
-  if (v === "email-mismatch")
-    return {
-      tone: "error" as const,
-      msg: "❌ This invite was sent to a different email address. Sign in with the invited email, or ask the owner to re-invite you.",
-    };
-  if (v === "failed")
-    return { tone: "error" as const, msg: "❌ Invite acceptance failed. Please try again or ask the owner to resend." };
-
-  return null;
-}
 
 export function flashFromQuery(err?: string, msg?: string): { tone: FlashTone; text: string } | null {
   const e = safeStr(err).trim().toLowerCase();
@@ -201,10 +205,10 @@ export function flashFromQuery(err?: string, msg?: string): { tone: FlashTone; t
   if (m === "closed") return { tone: "success", text: "Project closed. It is now read-only." };
   if (m === "reopened") return { tone: "success", text: "Project reopened. Editing is enabled." };
   if (m === "renamed") return { tone: "success", text: "Project renamed." };
+  if (m === "abnormally_closed") return { tone: "warn", text: "Project closed (abnormal). Audit trail preserved." };
 
   return null;
 }
-
 
 export function flashCls(tone: FlashTone) {
   if (tone === "success") return "border-emerald-500/25 bg-emerald-500/10 text-emerald-200";
