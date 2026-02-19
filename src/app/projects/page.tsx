@@ -405,7 +405,7 @@ export default async function ProjectsPage({
             pid={pid}
             err={err}
             msg={msg}
-            orgAdminSet={orgAdminSet}
+           orgAdminOrgIds={Array.from(orgAdminSet)}
             baseHrefForDismiss={dismissHref}
             panelGlow={panelGlow}
           />

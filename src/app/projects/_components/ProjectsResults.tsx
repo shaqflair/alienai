@@ -5,18 +5,6 @@ import { createClient } from "@/utils/supabase/server";
 import { safeStr, fmtUkDate, type ProjectListRow } from "../_lib/projects-utils";
 import ProjectsDangerButtonsClient, { type DeleteGuard } from "./ProjectsDangerButtonsClient";
 
-function qsSafe(params: Record<string, unknown>) {
-  const sp = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) {
-    if (v == null) continue;
-    const s = String(v).trim();
-    if (!s) continue;
-    sp.set(k, s);
-  }
-  const out = sp.toString();
-  return out ? `?${out}` : "";
-}
-
 function fmtDate(d?: any) {
   const s = safeStr(d).trim();
   if (!s) return "—";
@@ -80,7 +68,7 @@ export default async function ProjectsResults({
   pid,
   err,
   msg,
-  orgAdminSet,
+  orgAdminOrgIds,
   baseHrefForDismiss,
   panelGlow,
 }: {
@@ -92,23 +80,18 @@ export default async function ProjectsResults({
   pid?: string;
   err?: string;
   msg?: string;
-  orgAdminSet: Set<string>;
+
+  // ✅ SERIALIZABLE (was Set<string>, which breaks RSC stringify)
+  orgAdminOrgIds: string[];
+
   baseHrefForDismiss: string;
   panelGlow: string;
 }) {
   const total = rows.length;
-
-  const makeHref = (next: Record<string, unknown>) =>
-    `/projects${qsSafe({
-      q,
-      view,
-      sort,
-      filter,
-      ...next,
-    })}`;
+  const orgAdminSet = new Set((orgAdminOrgIds ?? []).map((x) => String(x)));
 
   // ------------------------------------------------------------------
-  // Enterprise delete protection (server-side precompute for modal only)
+  // Enterprise delete protection (server-side)
   // ------------------------------------------------------------------
   const supabase = await createClient();
   const projectIds = rows.map((r) => String(r.id || "")).filter(Boolean);
@@ -178,16 +161,36 @@ export default async function ProjectsResults({
     }
   }
 
+  // Simple URL builder (no buildQs dependency)
+  function qsSafe(params: Record<string, unknown>) {
+    const sp = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v == null) continue;
+      const s = String(v).trim();
+      if (!s) continue;
+      sp.set(k, s);
+    }
+    const out = sp.toString();
+    return out ? `?${out}` : "";
+  }
+
+  const makeHref = (next: Record<string, unknown>) =>
+    `/projects${qsSafe({
+      q,
+      view,
+      sort,
+      filter,
+      ...next,
+    })}`;
+
   return (
     <section className="space-y-4">
-      {/* Controls */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="text-sm text-gray-600">
           Showing <span className="font-semibold text-gray-900">{total}</span> project{total === 1 ? "" : "s"}
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-          {/* Filter toggle */}
           <div className="flex items-center gap-2">
             <Link
               href={makeHref({ filter: "active" })}
@@ -224,7 +227,6 @@ export default async function ProjectsResults({
             </Link>
           </div>
 
-          {/* Search */}
           <form action="/projects" method="GET" className="flex items-center gap-2">
             <input type="hidden" name="view" value={view} />
             <input type="hidden" name="sort" value={sort} />
@@ -245,7 +247,6 @@ export default async function ProjectsResults({
             </button>
           </form>
 
-          {/* Sort */}
           <div className="flex items-center gap-2">
             <Link
               href={makeHref({ sort: "created_desc" })}
@@ -274,7 +275,6 @@ export default async function ProjectsResults({
         </div>
       </div>
 
-      {/* Table */}
       <div className={`rounded-xl ${panelGlow} overflow-hidden`}>
         <div className="overflow-x-auto">
           <table className="w-full table-fixed border-collapse">
@@ -333,26 +333,12 @@ export default async function ProjectsResults({
                             • Created {fmtDate((p as any).created_at)}
                           </div>
 
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <Link
-                              href={`${hrefProject}/change`}
-                              className="inline-flex items-center rounded-lg px-3 py-1 text-xs font-semibold border border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
-                            >
-                              Change
-                            </Link>
-                            <Link
-                              href={`${hrefProject}/raid`}
-                              className="inline-flex items-center rounded-lg px-3 py-1 text-xs font-semibold border border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
-                            >
-                              RAID
-                            </Link>
-                            <Link
-                              href={`${hrefArtifacts}?type=charter`}
-                              className="inline-flex items-center rounded-lg px-3 py-1 text-xs font-semibold border border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
-                            >
-                              Charter
-                            </Link>
-                          </div>
+                          {guard && !guard.canDelete ? (
+                            <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                              <span className="font-semibold">Delete blocked:</span>{" "}
+                              {guard.reasons.join(" • ")}. Use <span className="font-semibold">Abnormal close</span>.
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     </td>
@@ -406,7 +392,6 @@ export default async function ProjectsResults({
                           projectId={projectId}
                           projectTitle={safeStr(p.title)}
                           guard={guard}
-                          isClosed={closed}
                         />
                       </div>
                     </td>
