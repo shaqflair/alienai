@@ -50,11 +50,21 @@ function nonEmptyText(s: any) {
   return t.length > 0;
 }
 
+function isClosedProject(p: any) {
+  const lifecycle = safeStr(p?.lifecycle_status).trim().toLowerCase();
+  const status = safeStr(p?.status).trim().toLowerCase();
+  if (lifecycle === "closed") return true;
+  if (status.includes("closed")) return true;
+  if (status.includes("complete")) return true;
+  return false;
+}
+
 export default async function ProjectsResults({
   rows,
   view,
   q,
   sort,
+  filter,
   pid,
   err,
   msg,
@@ -66,6 +76,7 @@ export default async function ProjectsResults({
   view: "grid" | "list";
   q: string;
   sort: "title_asc" | "created_desc";
+  filter: "active" | "closed" | "all";
   pid?: string;
   err?: string;
   msg?: string;
@@ -80,7 +91,8 @@ export default async function ProjectsResults({
   }
 
   // ------------------------------------------------------------------
-  // Enterprise delete protection (server-side)
+  // Enterprise delete protection (server-side precompute for UI)
+  // (UI DOES NOT print banners; modal will show reasons on demand)
   // ------------------------------------------------------------------
   const supabase = await createClient();
   const projectIds = rows.map((r) => String(r.id || "")).filter(Boolean);
@@ -94,7 +106,7 @@ export default async function ProjectsResults({
       .in("project_id", projectIds)
       .is("deleted_at", null);
 
-    // If artifact query fails, default to safe (block delete) rather than allow destructive action.
+    // If artifact query fails, default to safe (block delete)
     if (error) {
       for (const pid of projectIds) {
         guardByProject[pid] = {
@@ -108,7 +120,6 @@ export default async function ProjectsResults({
     } else {
       const list = Array.isArray(arts) ? arts : [];
 
-      // init
       for (const pid of projectIds) {
         guardByProject[pid] = {
           canDelete: true,
@@ -141,17 +152,12 @@ export default async function ProjectsResults({
         if (g.submittedCount > 0) reasons.push(`${g.submittedCount} artifact(s) submitted / in workflow`);
         if (g.contentCount > 0) reasons.push(`${g.contentCount} artifact(s) contain information`);
 
-        // Block delete if any protected condition
         const protectedExists = g.submittedCount > 0 || g.contentCount > 0;
 
         guardByProject[pid] = {
           ...g,
           canDelete: !protectedExists,
-          reasons: protectedExists
-            ? reasons.length
-              ? reasons
-              : ["Protected artifacts exist."]
-            : [],
+          reasons: protectedExists ? (reasons.length ? reasons : ["Protected artifacts exist."]) : [],
         };
       }
     }
@@ -166,10 +172,48 @@ export default async function ProjectsResults({
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+          {/* Filter toggle */}
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/projects${qs({ q, view, sort, filter: "active" })}`}
+              className={[
+                "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
+                filter === "active"
+                  ? "border-[#00B8DB] bg-[#00B8DB] text-white shadow-sm shadow-[#00B8DB]/20"
+                  : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50",
+              ].join(" ")}
+            >
+              Active
+            </Link>
+            <Link
+              href={`/projects${qs({ q, view, sort, filter: "closed" })}`}
+              className={[
+                "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
+                filter === "closed"
+                  ? "border-[#00B8DB] bg-[#00B8DB] text-white shadow-sm shadow-[#00B8DB]/20"
+                  : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50",
+              ].join(" ")}
+            >
+              Closed
+            </Link>
+            <Link
+              href={`/projects${qs({ q, view, sort, filter: "all" })}`}
+              className={[
+                "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
+                filter === "all"
+                  ? "border-[#00B8DB] bg-[#00B8DB] text-white shadow-sm shadow-[#00B8DB]/20"
+                  : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50",
+              ].join(" ")}
+            >
+              All
+            </Link>
+          </div>
+
           {/* Search */}
           <form action="/projects" method="GET" className="flex items-center gap-2">
             <input type="hidden" name="view" value={view} />
             <input type="hidden" name="sort" value={sort} />
+            <input type="hidden" name="filter" value={filter} />
 
             <input
               name="q"
@@ -189,7 +233,7 @@ export default async function ProjectsResults({
           {/* Sort */}
           <div className="flex items-center gap-2">
             <Link
-              href={`/projects${qs({ q, view, sort: "created_desc" })}`}
+              href={`/projects${qs({ q, view, filter, sort: "created_desc" })}`}
               className={[
                 "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
                 sort === "created_desc"
@@ -201,7 +245,7 @@ export default async function ProjectsResults({
             </Link>
 
             <Link
-              href={`/projects${qs({ q, view, sort: "title_asc" })}`}
+              href={`/projects${qs({ q, view, filter, sort: "title_asc" })}`}
               className={[
                 "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
                 sort === "title_asc"
@@ -241,6 +285,7 @@ export default async function ProjectsResults({
 
                 const pm = pmLabel(p);
                 const guard = guardByProject[projectId] ?? null;
+                const closed = isClosedProject(p);
 
                 return (
                   <tr key={projectId} className="border-b border-gray-200 hover:bg-gray-50/70 transition-colors">
@@ -253,7 +298,7 @@ export default async function ProjectsResults({
                             statusTone(p.status),
                           ].join(" ")}
                         >
-                          {String(p.status || "active").toLowerCase().includes("active") ? "Active" : p.status}
+                          {closed ? "Closed" : "Active"}
                         </span>
 
                         <div className="min-w-0 flex-1">
@@ -295,14 +340,6 @@ export default async function ProjectsResults({
                               Charter
                             </Link>
                           </div>
-
-                          {/* Delete protection hint */}
-                          {guard && !guard.canDelete ? (
-                            <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
-                              <span className="font-semibold">Delete blocked:</span>{" "}
-                              {guard.reasons.join(" • ")}. Use <span className="font-semibold">Abnormal close</span>.
-                            </div>
-                          ) : null}
                         </div>
                       </div>
                     </td>
@@ -354,11 +391,12 @@ export default async function ProjectsResults({
                           )}
                         </div>
 
-                        {/* Enterprise danger buttons */}
+                        {/* Enterprise danger buttons (modal shows delete guard messaging) */}
                         <ProjectsDangerButtonsClient
                           projectId={projectId}
                           projectTitle={safeStr(p.title)}
                           guard={guard}
+                          isClosed={closed}
                         />
                       </div>
                     </td>
@@ -370,17 +408,13 @@ export default async function ProjectsResults({
                 <tr>
                   <td colSpan={3} className="px-6 py-14 text-center">
                     <div className="text-sm font-semibold text-gray-900">No projects found</div>
-                    <div className="mt-1 text-sm text-gray-500">Try adjusting your search.</div>
+                    <div className="mt-1 text-sm text-gray-500">Try adjusting your filters or search.</div>
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-      </div>
-
-      <div className="text-xs text-gray-400">
-        Tip: delete is enterprise-guarded. If artifacts are submitted or contain info, use Abnormal close for audit.
       </div>
     </section>
   );

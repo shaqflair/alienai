@@ -88,6 +88,61 @@ function canDelete(role: string) {
   return role === "owner";
 }
 
+function hasJsonContent(v: any) {
+  if (v == null) return false;
+  if (typeof v !== "object") return true;
+  if (Array.isArray(v)) return v.length > 0;
+  return Object.keys(v).length > 0;
+}
+function nonEmptyText(s: any) {
+  const t = safeStr(s).trim();
+  return t.length > 0;
+}
+
+/**
+ * Enterprise guard:
+ * - Block delete if any artifact is submitted (approval_status != draft) OR contains info (content/content_json)
+ */
+async function computeDeleteGuard(supabase: any, projectId: string) {
+  const { data, error } = await supabase
+    .from("artifacts")
+    .select("approval_status, content, content_json, deleted_at")
+    .eq("project_id", projectId)
+    .is("deleted_at", null);
+
+  if (error) throwDb(error, "artifacts.guard");
+
+  const list = Array.isArray(data) ? data : [];
+
+  let total = 0;
+  let submittedCount = 0;
+  let contentCount = 0;
+
+  for (const a of list) {
+    total += 1;
+    const status = safeStr((a as any)?.approval_status).trim().toLowerCase();
+    const isSubmittedOrBeyond = !!status && status !== "draft";
+    const hasInfo = nonEmptyText((a as any)?.content) || hasJsonContent((a as any)?.content_json);
+
+    if (isSubmittedOrBeyond) submittedCount += 1;
+    if (hasInfo) contentCount += 1;
+  }
+
+  const reasons: string[] = [];
+  if (submittedCount > 0) reasons.push(`${submittedCount} artifact(s) submitted / in workflow`);
+  if (contentCount > 0) reasons.push(`${contentCount} artifact(s) contain information`);
+
+  const canDelete = submittedCount === 0 && contentCount === 0;
+
+  return {
+    canDelete,
+    totalArtifacts: total,
+    submittedCount,
+    contentCount,
+    reasons,
+  };
+}
+
 /* =========================
    Actions
 ========================= */
@@ -221,21 +276,50 @@ export async function reopenProject(formData: FormData) {
   redirect(`/projects${qs({ msg: "reopened", pid: project_id })}`);
 }
 
-export async function deleteProject(formData: FormData) {
+/**
+ * ✅ DELETE (guarded)
+ * - UI shows protection only after clicking delete
+ * - server enforces enterprise guard anyway (cannot bypass)
+ *
+ * Returns a small object so the modal can show the right UI without printing banners.
+ */
+export async function deleteProject(formData: FormData): Promise<
+  | { ok: true }
+  | {
+      ok: false;
+      blocked?: boolean;
+      message: string;
+      guard?: {
+        canDelete: boolean;
+        totalArtifacts: number;
+        submittedCount: number;
+        contentCount: number;
+        reasons: string[];
+      };
+    }
+> {
   const supabase = await createClient();
   const user = await requireUser(supabase);
 
   const project_id = norm(formData.get("project_id"));
   const confirm = norm(formData.get("confirm"));
 
-  if (!project_id) redirect(`/projects${qs({ err: "missing_project" })}`);
-
-  if (confirm !== "DELETE") {
-    redirect(`/projects${qs({ err: "delete_confirm", pid: project_id })}`);
-  }
+  if (!project_id) return { ok: false, message: "Missing project id." };
+  if (confirm !== "DELETE") return { ok: false, message: 'Type "DELETE" to confirm.' };
 
   const role = await getMyProjectRole(supabase, project_id, user.id);
-  if (!canDelete(role)) redirect(`/projects${qs({ err: "delete_forbidden", pid: project_id })}`);
+  if (!canDelete(role)) return { ok: false, message: "Delete forbidden (owner only)." };
+
+  // Enterprise guard
+  const guard = await computeDeleteGuard(supabase, project_id);
+  if (!guard.canDelete) {
+    return {
+      ok: false,
+      blocked: true,
+      message: "Delete is blocked because protected artifacts exist. Use Abnormal close.",
+      guard,
+    };
+  }
 
   const { error } = await supabase
     .from("projects")
@@ -245,32 +329,37 @@ export async function deleteProject(formData: FormData) {
   if (error) throwDb(error, "projects.soft_delete");
 
   revalidatePath("/projects");
-  redirect(`/projects${qs({ msg: "deleted", pid: project_id })}`);
+  revalidatePath(`/projects/${project_id}`);
+
+  return { ok: true };
 }
 
 /**
  * ✅ Enterprise: Abnormal close
  * - used when artifacts are protected (submitted / contain info)
  * - keeps audit trail; DOES NOT delete
+ *
+ * Returns object so modal can close + refresh list without banners.
  */
-export async function abnormalCloseProject(formData: FormData) {
+export async function abnormalCloseProject(formData: FormData): Promise<
+  | { ok: true }
+  | {
+      ok: false;
+      message: string;
+    }
+> {
   const supabase = await createClient();
   const user = await requireUser(supabase);
 
   const project_id = norm(formData.get("project_id"));
   const confirm = norm(formData.get("confirm"));
 
-  if (!project_id) redirect(`/projects${qs({ err: "missing_project" })}`);
-
-  if (confirm !== "ABNORMAL") {
-    redirect(`/projects${qs({ err: "abnormal_confirm", pid: project_id })}`);
-  }
+  if (!project_id) return { ok: false, message: "Missing project id." };
+  if (confirm !== "ABNORMAL") return { ok: false, message: 'Type "ABNORMAL" to confirm.' };
 
   const role = await getMyProjectRole(supabase, project_id, user.id);
-  if (!canEdit(role)) redirect(`/projects${qs({ err: "no_permission", pid: project_id })}`);
+  if (!canEdit(role)) return { ok: false, message: "No permission." };
 
-  // Lightweight closure (no DB function required)
-  // Note: your schema allows free-text status; adjust values if you enforce enum/checks later.
   const patch: any = {
     status: "abnormally_closed",
     lifecycle_status: "closed",
@@ -284,5 +373,6 @@ export async function abnormalCloseProject(formData: FormData) {
 
   revalidatePath("/projects");
   revalidatePath(`/projects/${project_id}`);
-  redirect(`/projects${qs({ msg: "abnormally_closed", pid: project_id })}`);
+
+  return { ok: true };
 }

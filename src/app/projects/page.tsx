@@ -35,13 +35,7 @@ function displayNameFromUser(user: any) {
 }
 
 function formatMemberLabel(row: any): string {
-  const p =
-    row?.profiles ||
-    row?.profile ||
-    row?.user_profile ||
-    row?.users ||
-    row?.user ||
-    null;
+  const p = row?.profiles || row?.profile || row?.user_profile || row?.users || row?.user || null;
 
   const full = safeStr(p?.full_name || p?.name).trim();
   const email = safeStr(p?.email).trim();
@@ -49,6 +43,15 @@ function formatMemberLabel(row: any): string {
 
   const role = safeStr(row?.role).trim();
   return role ? `${base} (${role})` : base;
+}
+
+function isClosedProject(p: any) {
+  const lifecycle = safeStr(p?.lifecycle_status).trim().toLowerCase();
+  const status = safeStr(p?.status).trim().toLowerCase();
+  if (lifecycle === "closed") return true;
+  if (status.includes("closed")) return true;
+  if (status.includes("complete")) return true;
+  return false;
 }
 
 export default async function ProjectsPage({
@@ -60,6 +63,7 @@ export default async function ProjectsPage({
         q?: string;
         view?: string;
         sort?: string;
+        filter?: string;
         err?: string;
         msg?: string;
         pid?: string;
@@ -69,6 +73,7 @@ export default async function ProjectsPage({
         q?: string;
         view?: string;
         sort?: string;
+        filter?: string;
         err?: string;
         msg?: string;
         pid?: string;
@@ -87,8 +92,11 @@ export default async function ProjectsPage({
 
   const q = safeStr((sp as any)?.q).trim();
   const view = norm((sp as any)?.view) === "grid" ? "grid" : "list";
-  const sort =
-    norm((sp as any)?.sort) === "title_asc" ? "title_asc" : "created_desc";
+  const sort = norm((sp as any)?.sort) === "title_asc" ? "title_asc" : "created_desc";
+
+  const filterRaw = norm((sp as any)?.filter).toLowerCase();
+  const filter: "active" | "closed" | "all" =
+    filterRaw === "closed" ? "closed" : filterRaw === "all" ? "all" : "active";
 
   const err = safeStr((sp as any)?.err).trim();
   const msg = safeStr((sp as any)?.msg).trim();
@@ -113,6 +121,8 @@ export default async function ProjectsPage({
         created_at,
         organisation_id,
         status,
+        lifecycle_status,
+        closed_at,
         deleted_at,
 
         project_manager_id,
@@ -159,16 +169,16 @@ export default async function ProjectsPage({
         status: r.projects.status ?? "active",
         myRole: r.role ?? "viewer",
 
-        // optional extra fields (safe even if your type doesn't include them yet)
+        // extra (safe)
+        lifecycle_status: (r.projects as any)?.lifecycle_status ?? null,
+        closed_at: (r.projects as any)?.closed_at ?? null,
         project_manager_id: (r.projects as any)?.project_manager_id ?? null,
         project_manager_name: pmName,
       } as any;
     })
     .filter(Boolean) as ProjectListRow[];
 
-  const orgIds = Array.from(
-    new Set(rows.map((r) => String(r.organisation_id || "")).filter(Boolean))
-  );
+  const orgIds = Array.from(new Set(rows.map((r) => String(r.organisation_id || "")).filter(Boolean)));
 
   const orgAdminSet = new Set<string>();
 
@@ -186,17 +196,24 @@ export default async function ProjectsPage({
     }
   }
 
-  const filtered = (() => {
-    if (!q) return rows;
+  // Filter: active/closed/all
+  const lifecycleFiltered = (() => {
+    if (filter === "all") return rows;
+    if (filter === "closed") return rows.filter((p: any) => isClosedProject(p));
+    return rows.filter((p: any) => !isClosedProject(p));
+  })();
+
+  const textFiltered = (() => {
+    if (!q) return lifecycleFiltered;
     const nq = norm(q);
-    return rows.filter((p) => {
+    return lifecycleFiltered.filter((p) => {
       const hay = `${p.title} ${String(p.project_code ?? "")} ${p.id}`.toLowerCase();
       return hay.includes(nq);
     });
   })();
 
   const sorted = (() => {
-    const arr = [...filtered];
+    const arr = [...textFiltered];
     if (sort === "title_asc") {
       arr.sort((a, b) => safeStr(a.title).localeCompare(safeStr(b.title)));
     } else {
@@ -211,24 +228,18 @@ export default async function ProjectsPage({
   }
 
   // ✅ Cyan border style matching reference image (#00B8DB)
-  const panelGlow =
-    "bg-white text-gray-900 rounded-2xl border-2 border-[#00B8DB] shadow-[0_4px_20px_rgba(0,184,219,0.15)]";
+  const panelGlow = "bg-white text-gray-900 rounded-2xl border-2 border-[#00B8DB] shadow-[0_4px_20px_rgba(0,184,219,0.15)]";
 
   // ─────────────────────────────────────────────────────────────
-  // Active org + org name (show name instead of UUID)
+  // Active org + org name
   // ─────────────────────────────────────────────────────────────
   const cookieOrgId = await getActiveOrgId().catch(() => null);
-  const activeOrgId =
-    (cookieOrgId && String(cookieOrgId)) || (orgIds[0] ? String(orgIds[0]) : "");
+  const activeOrgId = (cookieOrgId && String(cookieOrgId)) || (orgIds[0] ? String(orgIds[0]) : "");
 
   const canCreate = !!activeOrgId;
 
   const { data: orgRow } = activeOrgId
-    ? await supabase
-        .from("organisations")
-        .select("id,name")
-        .eq("id", activeOrgId)
-        .maybeSingle()
+    ? await supabase.from("organisations").select("id,name").eq("id", activeOrgId).maybeSingle()
     : { data: null as any };
 
   const activeOrgName = safeStr(orgRow?.name).trim();
@@ -284,18 +295,18 @@ export default async function ProjectsPage({
             }
 
             .projects-theme-cyan a[href="/artifacts"],
-            .projects-theme-cyan a[href^="/artifacts?"],
+            .projects-theme-cyan a[href^="/artifacts?" ],
             .projects-theme-cyan a[href="/app/artifacts"],
-            .projects-theme-cyan a[href^="/app/artifacts?"] {
+            .projects-theme-cyan a[href^="/app/artifacts?" ] {
               background: var(--accent) !important;
               border-color: var(--accent) !important;
               color: #fff !important;
               box-shadow: 0 10px 30px rgba(0,184,219,0.25) !important;
             }
             .projects-theme-cyan a[href="/artifacts"]:hover,
-            .projects-theme-cyan a[href^="/artifacts?"]:hover,
+            .projects-theme-cyan a[href^="/artifacts?" ]:hover,
             .projects-theme-cyan a[href="/app/artifacts"]:hover,
-            .projects-theme-cyan a[href^="/app/artifacts?"]:hover {
+            .projects-theme-cyan a[href^="/app/artifacts?" ]:hover {
               filter: brightness(0.95) !important;
             }
 
@@ -309,11 +320,7 @@ export default async function ProjectsPage({
       />
 
       <div className="relative mx-auto max-w-6xl px-6 py-10 space-y-8">
-        <ProjectsHeader
-          banner={banner}
-          flash={flash}
-          dismissHref={`/projects${baseQs({ q, sort, view })}`}
-        />
+        <ProjectsHeader banner={banner} flash={flash} dismissHref={`/projects${baseQs({ q, sort, view, filter })}`} />
 
         {/* Create project */}
         <section className={`p-6 md:p-8 space-y-5 ${panelGlow}`}>
@@ -343,9 +350,7 @@ export default async function ProjectsPage({
               <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-gray-900">
                 {ownerLabel}
               </div>
-              <p className="text-xs text-gray-500">
-                Owner is the accountable lead for governance (auto-set to you).
-              </p>
+              <p className="text-xs text-gray-500">Owner is the accountable lead for governance (auto-set to you).</p>
             </div>
 
             <label className="grid gap-2">
@@ -372,9 +377,7 @@ export default async function ProjectsPage({
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-gray-500">
-                Assign now or later — used for delivery accountability and executive reporting.
-              </p>
+              <p className="text-xs text-gray-500">Assign now or later — used for delivery accountability and exec reporting.</p>
             </label>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -414,11 +417,12 @@ export default async function ProjectsPage({
             view={view}
             q={q}
             sort={sort}
+            filter={filter}
             pid={pid}
             err={err}
             msg={msg}
             orgAdminSet={orgAdminSet}
-            baseHrefForDismiss={`/projects${baseQs({ q, sort, view })}`}
+            baseHrefForDismiss={`/projects${baseQs({ q, sort, view, filter })}`}
             panelGlow={panelGlow}
           />
         </div>
