@@ -1,49 +1,86 @@
-// src/app/projects/_components/ProjectsResults.tsx
-import "server-only";
+"use server";
 
-import Link from "next/link";
-import { buildQs, safeStr, fmtUkDate, type ProjectListRow } from "../_lib/projects-utils";
-import { closeProject, deleteProject } from "../actions";
+import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/utils/supabase/server";
 
-function fmtDate(d?: any) {
-  const s = safeStr(d).trim();
-  if (!s) return "—";
-  // If it's YYYY-MM-DD already, treat as a date and format to UK.
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return fmtUkDate(s);
-  // If it's ISO datetime, keep first 10 chars (YYYY-MM-DD) and format to UK.
-  const d10 = s.slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(d10)) return fmtUkDate(d10);
-  return s.slice(0, 10) || "—";
+/* =========================
+   Utilities
+========================= */
+
+function safeStr(x: unknown) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
-function statusTone(status?: string) {
-  const s = String(status || "").toLowerCase();
-  if (s.includes("close") || s.includes("complete")) return "border-gray-200 bg-gray-50 text-gray-700";
-  if (s.includes("cancel")) return "border-rose-200 bg-rose-50 text-rose-700";
-  if (s.includes("hold")) return "border-amber-200 bg-amber-50 text-amber-700";
-  return "border-emerald-200 bg-emerald-50 text-emerald-700";
+function norm(x: FormDataEntryValue | null) {
+  return safeStr(x).trim();
 }
 
-function pmLabel(p: ProjectListRow): string {
-  const anyP = p as any;
-
-  const label =
-    safeStr(anyP?.project_manager_label).trim() ||
-    safeStr(anyP?.project_manager_name).trim() ||
-    safeStr(anyP?.pm_name).trim();
-
-  if (label) return label;
-
-  const pmId = safeStr(anyP?.project_manager_id).trim();
-  if (pmId) return "Assigned";
-
-  return "Unassigned";
+function throwDb(error: any, label: string): never {
+  const code = error?.code ?? "";
+  const msg = error?.message ?? "";
+  const hint = error?.hint ?? "";
+  const details = error?.details ?? "";
+  throw new Error(
+    `[${label}] ${code} ${msg}${hint ? ` | hint: ${hint}` : ""}${details ? ` | details: ${details}` : ""}`
+  );
 }
 
-function roleLower(p: ProjectListRow) {
-  const r = safeStr((p as any)?.myRole ?? "").toLowerCase();
-  return r || "viewer";
+function isoDateOrNull(raw: FormDataEntryValue | null) {
+  const s = norm(raw);
+  if (!s) return null;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return s; // YYYY-MM-DD
 }
+
+function isUuid(x: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(x);
+}
+
+function qs(params: Record<string, string | undefined>) {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    const s = safeStr(v).trim();
+    if (s) sp.set(k, s);
+  }
+  const out = sp.toString();
+  return out ? `?${out}` : "";
+}
+
+async function requireUser(supabase: any) {
+  const { data: auth, error } = await supabase.auth.getUser();
+  if (error) throwDb(error, "auth.getUser");
+  if (!auth?.user) redirect("/login");
+  return auth.user;
+}
+
+// ✅ robust role gate: handles duplicates safely (owner/editor wins)
+async function getMyProjectRole(
+  supabase: any,
+  projectId: string,
+  userId: string
+): Promise<"" | "owner" | "editor" | "viewer"> {
+  const { data, error } = await supabase
+    .from("project_members")
+    .select("role, is_active")
+    .eq("project_id", projectId)
+    .eq("user_id", userId);
+
+  if (error) throwDb(error, "project_members.select");
+
+  const roles = (data ?? [])
+    .filter((r: any) => r?.is_active !== false)
+    .map((r: any) => String(r?.role ?? "").toLowerCase())
+    .filter(Boolean);
+
+  if (!roles.length) return "";
+  if (roles.includes("owner")) return "owner";
+  if (roles.includes("editor")) return "editor";
+  if (roles.includes("viewer")) return "viewer";
+  return (roles[0] as any) || "";
+}
+
 function canEdit(role: string) {
   return role === "owner" || role === "editor";
 }
@@ -51,287 +88,201 @@ function canDelete(role: string) {
   return role === "owner";
 }
 
-export default function ProjectsResults({
-  rows,
-  view,
-  q,
-  sort,
-  pid,
-  err,
-  msg,
-  orgAdminSet,
-  baseHrefForDismiss,
-  panelGlow,
-}: {
-  rows: ProjectListRow[];
-  view: "grid" | "list";
-  q: string;
-  sort: "title_asc" | "created_desc";
-  pid?: string;
-  err?: string;
-  msg?: string;
-  orgAdminSet: Set<string>;
-  baseHrefForDismiss: string;
-  panelGlow: string;
-}) {
-  const total = rows.length;
+/* =========================
+   Actions
+========================= */
 
-  function qs(next: Record<string, string | undefined>) {
-    return buildQs({ ...next });
+export async function createProject(formData: FormData) {
+  const supabase = await createClient();
+  await requireUser(supabase);
+
+  const title = norm(formData.get("title"));
+  const start_date = isoDateOrNull(formData.get("start_date"));
+  const finish_date = isoDateOrNull(formData.get("finish_date"));
+  const organisation_id = norm(formData.get("organisation_id"));
+
+  const pmRaw = norm(formData.get("project_manager_id"));
+  const project_manager_id = pmRaw && isUuid(pmRaw) ? pmRaw : "";
+
+  if (!title) redirect(`/projects${qs({ err: "missing_title" })}`);
+  if (!start_date) redirect(`/projects${qs({ err: "missing_start" })}`);
+  if (!organisation_id) redirect(`/projects${qs({ err: "missing_org" })}`);
+  if (!isUuid(organisation_id)) redirect(`/projects${qs({ err: "bad_org" })}`);
+
+  if (finish_date) {
+    const a = new Date(start_date).getTime();
+    const b = new Date(finish_date).getTime();
+    if (Number.isNaN(a) || Number.isNaN(b) || b < a) {
+      redirect(`/projects${qs({ err: "bad_finish" })}`);
+    }
   }
 
-  return (
-    <section className="space-y-4">
-      {/* Controls */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="text-sm text-gray-600">
-          Showing <span className="font-semibold text-gray-900">{total}</span> project{total === 1 ? "" : "s"}
-        </div>
+  if (project_manager_id) {
+    const { data: pmMem, error: pmErr } = await supabase
+      .from("organisation_members")
+      .select("user_id, removed_at")
+      .eq("organisation_id", organisation_id)
+      .eq("user_id", project_manager_id)
+      .is("removed_at", null)
+      .maybeSingle();
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-          {/* Search */}
-          <form action="/projects" method="GET" className="flex items-center gap-2">
-            <input type="hidden" name="view" value={view} />
-            <input type="hidden" name="sort" value={sort} />
+    if (pmErr) throwDb(pmErr, "organisation_members.pm_check");
+    if (!pmMem?.user_id) redirect(`/projects${qs({ err: "bad_pm" })}`);
+  }
 
-            <input
-              name="q"
-              defaultValue={q}
-              placeholder="Search projects…"
-              className="h-10 w-full sm:w-72 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#00B8DB] focus:ring-2 focus:ring-[#00B8DB]/20 outline-none"
-            />
+  // DB function params are: p_finish_date, p_organisation_id, p_start_date, p_title
+  const { data, error } = await supabase.rpc("create_project_and_owner", {
+    p_finish_date: finish_date || null,
+    p_organisation_id: organisation_id,
+    p_start_date: start_date,
+    p_title: title,
+  });
 
-            <button
-              type="submit"
-              className="h-10 rounded-lg bg-[#00B8DB] px-4 text-sm font-semibold text-white hover:bg-[#00a5c4] transition shadow-sm shadow-[#00B8DB]/20"
-            >
-              Search
-            </button>
-          </form>
+  if (error) throwDb(error, "rpc.create_project_and_owner");
 
-          {/* Sort */}
-          <div className="flex items-center gap-2">
-            <Link
-              href={`/projects${qs({ q, view, sort: "created_desc" })}`}
-              className={[
-                "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
-                sort === "created_desc"
-                  ? "border-[#00B8DB] bg-[#00B8DB] text-white shadow-sm shadow-[#00B8DB]/20"
-                  : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50",
-              ].join(" ")}
-            >
-              Newest
-            </Link>
+  const projectId =
+    typeof data === "string"
+      ? data
+      : Array.isArray(data)
+      ? (data[0] as any)?.id ?? (data[0] as any)
+      : (data as any)?.id;
 
-            <Link
-              href={`/projects${qs({ q, view, sort: "title_asc" })}`}
-              className={[
-                "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
-                sort === "title_asc"
-                  ? "border-[#00B8DB] bg-[#00B8DB] text-white shadow-sm shadow-[#00B8DB]/20"
-                  : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50",
-              ].join(" ")}
-            >
-              A–Z
-            </Link>
-          </div>
-        </div>
-      </div>
+  if (!projectId || typeof projectId !== "string") {
+    throw new Error("Project creation succeeded but returned no id.");
+  }
 
-      {/* Table */}
-      <div className={`rounded-xl ${panelGlow} overflow-hidden`}>
-        <div className="overflow-x-auto">
-          <table className="w-full table-fixed border-collapse">
-            <thead>
-              <tr className="bg-gray-50 text-gray-600 text-xs uppercase tracking-wider">
-                <th className="text-left font-semibold px-5 py-4 border-b border-gray-200 w-[46%]">Project</th>
-                <th className="text-left font-semibold px-5 py-4 border-b border-gray-200 w-[22%]">Schedule</th>
-                <th className="text-right font-semibold px-5 py-4 border-b border-gray-200 w-[32%]">Actions</th>
-              </tr>
-            </thead>
+  if (project_manager_id) {
+    const { error: updErr } = await supabase
+      .from("projects")
+      .update({ project_manager_id })
+      .eq("id", projectId);
 
-            <tbody className="bg-white">
-              {rows.map((p) => {
-                const projectId = String(p.id || "");
-                const orgId = String(p.organisation_id || "");
-                const isOrgAdmin = orgId ? orgAdminSet.has(orgId) : false;
+    if (updErr) throwDb(updErr, "projects.set_project_manager");
+  }
 
-                const hrefProject = `/projects/${encodeURIComponent(projectId)}`;
-                const hrefArtifacts = `/projects/${encodeURIComponent(projectId)}/artifacts`;
-                const hrefMembers = `/projects/${encodeURIComponent(projectId)}/members`;
-                const hrefApprovals = `/projects/${encodeURIComponent(projectId)}/approvals`;
-                const hrefDoa = `/projects/${encodeURIComponent(projectId)}/doa`;
+  revalidatePath("/projects");
+  redirect(`/projects/${projectId}`);
+}
 
-                const pm = pmLabel(p);
+export async function updateProjectTitle(formData: FormData) {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
 
-                const myRole = roleLower(p);
-                const allowClose = canEdit(myRole);
-                const allowDelete = canDelete(myRole);
+  const project_id = norm(formData.get("project_id"));
+  const title = norm(formData.get("title"));
 
-                return (
-                  <tr key={projectId} className="border-b border-gray-200 hover:bg-gray-50/70 transition-colors">
-                    {/* PROJECT */}
-                    <td className="px-5 py-5 align-top">
-                      <div className="flex items-start gap-4">
-                        <span
-                          className={[
-                            "inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold border",
-                            statusTone(p.status),
-                          ].join(" ")}
-                        >
-                          {String(p.status || "active").toLowerCase().includes("active") ? "Active" : p.status}
-                        </span>
+  if (!project_id) redirect(`/projects${qs({ err: "missing_project" })}`);
+  if (!title) redirect(`/projects${qs({ err: "missing_title" })}`);
 
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className="font-semibold text-gray-900 truncate">{p.title}</div>
-                            {p.project_code != null && String(p.project_code).trim() !== "" && (
-                              <span className="shrink-0 inline-flex items-center rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-gray-700">
-                                {String(p.project_code)}
-                              </span>
-                            )}
-                          </div>
+  const role = await getMyProjectRole(supabase, project_id, user.id);
+  if (!canEdit(role)) redirect(`/projects${qs({ err: "no_permission", pid: project_id })}`);
 
-                          {/* Enterprise identity line */}
-                          <div className="mt-1 text-xs text-gray-500">
-                            Owner • PM:{" "}
-                            <span className={pm === "Unassigned" ? "text-gray-400" : "text-gray-700 font-semibold"}>
-                              {pm}
-                            </span>{" "}
-                            • Created {fmtDate(p.created_at)}
-                          </div>
+  const { error: updErr } = await supabase.from("projects").update({ title }).eq("id", project_id);
+  if (updErr) throwDb(updErr, "projects.update");
 
-                          {/* Quick nav chips */}
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <Link
-                              href={`${hrefProject}/change`}
-                              className="inline-flex items-center rounded-lg px-3 py-1 text-xs font-semibold border border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
-                            >
-                              Change
-                            </Link>
-                            <Link
-                              href={`${hrefProject}/raid`}
-                              className="inline-flex items-center rounded-lg px-3 py-1 text-xs font-semibold border border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
-                            >
-                              RAID
-                            </Link>
-                            <Link
-                              href={`${hrefArtifacts}?type=charter`}
-                              className="inline-flex items-center rounded-lg px-3 py-1 text-xs font-semibold border border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
-                            >
-                              Charter
-                            </Link>
-                          </div>
-                        </div>
-                      </div>
-                    </td>
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${project_id}`);
+  redirect(`/projects${qs({ msg: "renamed", pid: project_id })}`);
+}
 
-                    {/* SCHEDULE */}
-                    <td className="px-5 py-5 align-top">
-                      <div className="text-sm text-gray-900">
-                        {fmtDate(p.start_date)} — {fmtDate(p.finish_date)}
-                      </div>
-                      <div className="mt-2 text-xs text-gray-500">Schedule window</div>
-                    </td>
+export async function closeProject(formData: FormData) {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
 
-                    {/* ACTIONS */}
-                    <td className="px-5 py-5 align-top">
-                      <div className="flex flex-col items-end gap-3">
-                        <div className="flex flex-wrap justify-end gap-2">
-                          <Link
-                            href={hrefProject}
-                            className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
-                          >
-                            Overview
-                          </Link>
-                          <Link
-                            href={hrefArtifacts}
-                            className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
-                          >
-                            Artifacts
-                          </Link>
-                          <Link
-                            href={hrefMembers}
-                            className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
-                          >
-                            Members
-                          </Link>
-                          <Link
-                            href={hrefApprovals}
-                            className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
-                          >
-                            Approvals
-                          </Link>
+  const project_id = norm(formData.get("project_id"));
+  if (!project_id) redirect(`/projects${qs({ err: "missing_project" })}`);
 
-                          {isOrgAdmin && (
-                            <Link
-                              href={hrefDoa}
-                              className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100"
-                            >
-                              DOA (Admin)
-                            </Link>
-                          )}
-                        </div>
+  const role = await getMyProjectRole(supabase, project_id, user.id);
+  if (!canEdit(role)) redirect(`/projects${qs({ err: "no_permission", pid: project_id })}`);
 
-                        {/* ✅ Close/Delete are server ACTIONS (not Links) */}
-                        <div className="flex justify-end gap-2">
-                          <form action={closeProject}>
-                            <input type="hidden" name="project_id" value={projectId} />
-                            <button
-                              type="submit"
-                              disabled={!allowClose}
-                              className={[
-                                "rounded-lg border px-4 py-2 text-sm font-semibold transition",
-                                allowClose
-                                  ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
-                                  : "border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed",
-                              ].join(" ")}
-                              title={allowClose ? "Close project" : "You need owner/editor to close"}
-                            >
-                              Close
-                            </button>
-                          </form>
+  const { error } = await supabase.rpc("close_project", { pid: project_id });
+  if (error) throwDb(error, "rpc.close_project");
 
-                          <form action={deleteProject}>
-                            <input type="hidden" name="project_id" value={projectId} />
-                            <input type="hidden" name="confirm" value="DELETE" />
-                            <button
-                              type="submit"
-                              disabled={!allowDelete}
-                              className={[
-                                "rounded-lg border px-4 py-2 text-sm font-semibold transition",
-                                allowDelete
-                                  ? "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
-                                  : "border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed",
-                              ].join(" ")}
-                              title={allowDelete ? "Delete project" : "Only owner can delete"}
-                            >
-                              Delete
-                            </button>
-                          </form>
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${project_id}`);
+  redirect(`/projects${qs({ msg: "closed", pid: project_id })}`);
+}
 
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="px-6 py-14 text-center">
-                    <div className="text-sm font-semibold text-gray-900">No projects found</div>
-                    <div className="mt-1 text-sm text-gray-500">Try adjusting your search.</div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+export async function reopenProject(formData: FormData) {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
 
-      <div className="text-xs text-gray-400">
-        Tip: this layout is intentionally “sheet-like” (grid lines + hover rows) to match your reference.
-      </div>
-    </section>
-  );
+  const project_id = norm(formData.get("project_id"));
+  if (!project_id) redirect(`/projects${qs({ err: "missing_project" })}`);
+
+  const role = await getMyProjectRole(supabase, project_id, user.id);
+  if (!canEdit(role)) redirect(`/projects${qs({ err: "no_permission", pid: project_id })}`);
+
+  const { error } = await supabase.rpc("reopen_project", { pid: project_id });
+  if (error) throwDb(error, "rpc.reopen_project");
+
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${project_id}`);
+  redirect(`/projects${qs({ msg: "reopened", pid: project_id })}`);
+}
+
+export async function deleteProject(formData: FormData) {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
+
+  const project_id = norm(formData.get("project_id"));
+  const confirm = norm(formData.get("confirm"));
+
+  if (!project_id) redirect(`/projects${qs({ err: "missing_project" })}`);
+
+  if (confirm !== "DELETE") {
+    redirect(`/projects${qs({ err: "delete_confirm", pid: project_id })}`);
+  }
+
+  const role = await getMyProjectRole(supabase, project_id, user.id);
+  if (!canDelete(role)) redirect(`/projects${qs({ err: "delete_forbidden", pid: project_id })}`);
+
+  const { error } = await supabase
+    .from("projects")
+    .update({ deleted_at: new Date().toISOString(), deleted_by: user.id })
+    .eq("id", project_id);
+
+  if (error) throwDb(error, "projects.soft_delete");
+
+  revalidatePath("/projects");
+  redirect(`/projects${qs({ msg: "deleted", pid: project_id })}`);
+}
+
+/**
+ * ✅ Enterprise: Abnormal close
+ * - used when artifacts are protected (submitted / contain info)
+ * - keeps audit trail; DOES NOT delete
+ */
+export async function abnormalCloseProject(formData: FormData) {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
+
+  const project_id = norm(formData.get("project_id"));
+  const confirm = norm(formData.get("confirm"));
+
+  if (!project_id) redirect(`/projects${qs({ err: "missing_project" })}`);
+
+  if (confirm !== "ABNORMAL") {
+    redirect(`/projects${qs({ err: "abnormal_confirm", pid: project_id })}`);
+  }
+
+  const role = await getMyProjectRole(supabase, project_id, user.id);
+  if (!canEdit(role)) redirect(`/projects${qs({ err: "no_permission", pid: project_id })}`);
+
+  // Lightweight closure (no DB function required)
+  // Note: your schema allows free-text status; adjust values if you enforce enum/checks later.
+  const patch: any = {
+    status: "abnormally_closed",
+    lifecycle_status: "closed",
+    closed_at: new Date().toISOString(),
+    closed_by: user.id,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase.from("projects").update(patch).eq("id", project_id);
+  if (error) throwDb(error, "projects.abnormal_close");
+
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${project_id}`);
+  redirect(`/projects${qs({ msg: "abnormally_closed", pid: project_id })}`);
 }

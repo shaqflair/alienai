@@ -1,16 +1,14 @@
-// src/app/projects/_components/ProjectsResults.tsx
 import "server-only";
 
 import Link from "next/link";
+import { createClient } from "@/utils/supabase/server";
 import { buildQs, safeStr, fmtUkDate, type ProjectListRow } from "../_lib/projects-utils";
-import { closeProject, deleteProject } from "../actions";
+import ProjectsDangerButtonsClient, { type DeleteGuard } from "./ProjectsDangerButtonsClient";
 
 function fmtDate(d?: any) {
   const s = safeStr(d).trim();
   if (!s) return "—";
-  // If it's YYYY-MM-DD already, treat as a date and format to UK.
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return fmtUkDate(s);
-  // If it's ISO datetime, keep first 10 chars (YYYY-MM-DD) and format to UK.
   const d10 = s.slice(0, 10);
   if (/^\d{4}-\d{2}-\d{2}$/.test(d10)) return fmtUkDate(d10);
   return s.slice(0, 10) || "—";
@@ -40,7 +38,19 @@ function pmLabel(p: ProjectListRow): string {
   return "Unassigned";
 }
 
-export default function ProjectsResults({
+function hasJsonContent(v: any) {
+  if (v == null) return false;
+  if (typeof v !== "object") return true;
+  if (Array.isArray(v)) return v.length > 0;
+  return Object.keys(v).length > 0;
+}
+
+function nonEmptyText(s: any) {
+  const t = safeStr(s).trim();
+  return t.length > 0;
+}
+
+export default async function ProjectsResults({
   rows,
   view,
   q,
@@ -67,6 +77,84 @@ export default function ProjectsResults({
 
   function qs(next: Record<string, string | undefined>) {
     return buildQs({ ...next });
+  }
+
+  // ------------------------------------------------------------------
+  // Enterprise delete protection (server-side)
+  // ------------------------------------------------------------------
+  const supabase = await createClient();
+  const projectIds = rows.map((r) => String(r.id || "")).filter(Boolean);
+
+  const guardByProject: Record<string, DeleteGuard> = {};
+
+  if (projectIds.length) {
+    const { data: arts, error } = await supabase
+      .from("artifacts")
+      .select("project_id, approval_status, content, content_json, deleted_at")
+      .in("project_id", projectIds)
+      .is("deleted_at", null);
+
+    // If artifact query fails, default to safe (block delete) rather than allow destructive action.
+    if (error) {
+      for (const pid of projectIds) {
+        guardByProject[pid] = {
+          canDelete: false,
+          totalArtifacts: 0,
+          submittedCount: 0,
+          contentCount: 0,
+          reasons: ["Safety lock: could not verify artifact state (query failed). Use Abnormal close."],
+        };
+      }
+    } else {
+      const list = Array.isArray(arts) ? arts : [];
+
+      // init
+      for (const pid of projectIds) {
+        guardByProject[pid] = {
+          canDelete: true,
+          totalArtifacts: 0,
+          submittedCount: 0,
+          contentCount: 0,
+          reasons: [],
+        };
+      }
+
+      for (const a of list) {
+        const pid = String((a as any)?.project_id || "");
+        if (!pid || !guardByProject[pid]) continue;
+
+        guardByProject[pid].totalArtifacts += 1;
+
+        const status = safeStr((a as any)?.approval_status).trim().toLowerCase();
+        const isSubmittedOrBeyond = !!status && status !== "draft";
+
+        const hasInfo = nonEmptyText((a as any)?.content) || hasJsonContent((a as any)?.content_json);
+
+        if (isSubmittedOrBeyond) guardByProject[pid].submittedCount += 1;
+        if (hasInfo) guardByProject[pid].contentCount += 1;
+      }
+
+      for (const pid of projectIds) {
+        const g = guardByProject[pid];
+
+        const reasons: string[] = [];
+        if (g.submittedCount > 0) reasons.push(`${g.submittedCount} artifact(s) submitted / in workflow`);
+        if (g.contentCount > 0) reasons.push(`${g.contentCount} artifact(s) contain information`);
+
+        // Block delete if any protected condition
+        const protectedExists = g.submittedCount > 0 || g.contentCount > 0;
+
+        guardByProject[pid] = {
+          ...g,
+          canDelete: !protectedExists,
+          reasons: protectedExists
+            ? reasons.length
+              ? reasons
+              : ["Protected artifacts exist."]
+            : [],
+        };
+      }
+    }
   }
 
   return (
@@ -152,6 +240,7 @@ export default function ProjectsResults({
                 const hrefDoa = `/projects/${encodeURIComponent(projectId)}/doa`;
 
                 const pm = pmLabel(p);
+                const guard = guardByProject[projectId] ?? null;
 
                 return (
                   <tr key={projectId} className="border-b border-gray-200 hover:bg-gray-50/70 transition-colors">
@@ -177,7 +266,6 @@ export default function ProjectsResults({
                             )}
                           </div>
 
-                          {/* ✅ Enterprise identity line */}
                           <div className="mt-1 text-xs text-gray-500">
                             Owner • PM:{" "}
                             <span className={pm === "Unassigned" ? "text-gray-400" : "text-gray-700 font-semibold"}>
@@ -207,6 +295,14 @@ export default function ProjectsResults({
                               Charter
                             </Link>
                           </div>
+
+                          {/* Delete protection hint */}
+                          {guard && !guard.canDelete ? (
+                            <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                              <span className="font-semibold">Delete blocked:</span>{" "}
+                              {guard.reasons.join(" • ")}. Use <span className="font-semibold">Abnormal close</span>.
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     </td>
@@ -258,45 +354,12 @@ export default function ProjectsResults({
                           )}
                         </div>
 
-                        {/* ✅ Close + Delete wired to server actions (no more Link-to-nowhere) */}
-                        <div className="flex justify-end gap-2">
-                          <form
-                            action={closeProject}
-                            onSubmit={(e) => {
-                              if (!confirm(`Close "${safeStr(p.title)}"?`)) e.preventDefault();
-                            }}
-                          >
-                            <input type="hidden" name="project_id" value={projectId} />
-                            <button
-                              type="submit"
-                              className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100"
-                            >
-                              Close
-                            </button>
-                          </form>
-
-                          <form
-                            action={deleteProject}
-                            onSubmit={(e) => {
-                              if (
-                                !confirm(
-                                  `Delete "${safeStr(p.title)}"?\n\nThis cannot be undone.`
-                                )
-                              ) {
-                                e.preventDefault();
-                              }
-                            }}
-                          >
-                            <input type="hidden" name="project_id" value={projectId} />
-                            <input type="hidden" name="confirm" value="DELETE" />
-                            <button
-                              type="submit"
-                              className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100"
-                            >
-                              Delete
-                            </button>
-                          </form>
-                        </div>
+                        {/* Enterprise danger buttons */}
+                        <ProjectsDangerButtonsClient
+                          projectId={projectId}
+                          projectTitle={safeStr(p.title)}
+                          guard={guard}
+                        />
                       </div>
                     </td>
                   </tr>
@@ -317,7 +380,7 @@ export default function ProjectsResults({
       </div>
 
       <div className="text-xs text-gray-400">
-        Tip: this layout is intentionally “sheet-like” (grid lines + hover rows) to match your reference.
+        Tip: delete is enterprise-guarded. If artifacts are submitted or contain info, use Abnormal close for audit.
       </div>
     </section>
   );
