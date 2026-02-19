@@ -388,11 +388,12 @@ export default async function ProjectsResults({
                           )}
                         </div>
 
-                        <ProjectsDangerButtonsClient
-                          projectId={projectId}
-                          projectTitle={safeStr(p.title)}
-                          guard={guard}
-                        />
+                       <ProjectsDangerButtonsClient
+  projectId={projectId}
+  projectTitle={safeStr(p.title)}
+  guard={guard}
+  isClosed={closed}
+/>
                       </div>
                     </td>
                   </tr>
