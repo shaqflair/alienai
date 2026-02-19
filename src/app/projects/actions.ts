@@ -134,13 +134,7 @@ async function computeDeleteGuard(supabase: any, projectId: string) {
 
   const canDelete = submittedCount === 0 && contentCount === 0;
 
-  return {
-    canDelete,
-    totalArtifacts: total,
-    submittedCount,
-    contentCount,
-    reasons,
-  };
+  return { canDelete, totalArtifacts: total, submittedCount, contentCount, reasons };
 }
 
 /* =========================
@@ -185,7 +179,6 @@ export async function createProject(formData: FormData) {
     if (!pmMem?.user_id) redirect(`/projects${qs({ err: "bad_pm" })}`);
   }
 
-  // DB function params are: p_finish_date, p_organisation_id, p_start_date, p_title
   const { data, error } = await supabase.rpc("create_project_and_owner", {
     p_finish_date: finish_date || null,
     p_organisation_id: organisation_id,
@@ -207,11 +200,7 @@ export async function createProject(formData: FormData) {
   }
 
   if (project_manager_id) {
-    const { error: updErr } = await supabase
-      .from("projects")
-      .update({ project_manager_id })
-      .eq("id", projectId);
-
+    const { error: updErr } = await supabase.from("projects").update({ project_manager_id }).eq("id", projectId);
     if (updErr) throwDb(updErr, "projects.set_project_manager");
   }
 
@@ -278,47 +267,25 @@ export async function reopenProject(formData: FormData) {
 
 /**
  * ✅ DELETE (guarded)
- * - UI shows protection only after clicking delete
- * - server enforces enterprise guard anyway (cannot bypass)
- *
- * Returns a small object so the modal can show the right UI without printing banners.
+ * - server enforces enterprise guard (cannot bypass)
+ * - redirects with helpful msg codes
  */
-export async function deleteProject(formData: FormData): Promise<
-  | { ok: true }
-  | {
-      ok: false;
-      blocked?: boolean;
-      message: string;
-      guard?: {
-        canDelete: boolean;
-        totalArtifacts: number;
-        submittedCount: number;
-        contentCount: number;
-        reasons: string[];
-      };
-    }
-> {
+export async function deleteProject(formData: FormData) {
   const supabase = await createClient();
   const user = await requireUser(supabase);
 
   const project_id = norm(formData.get("project_id"));
   const confirm = norm(formData.get("confirm"));
 
-  if (!project_id) return { ok: false, message: "Missing project id." };
-  if (confirm !== "DELETE") return { ok: false, message: 'Type "DELETE" to confirm.' };
+  if (!project_id) redirect(`/projects${qs({ err: "missing_project" })}`);
+  if (confirm !== "DELETE") redirect(`/projects${qs({ err: "delete_confirm", pid: project_id })}`);
 
   const role = await getMyProjectRole(supabase, project_id, user.id);
-  if (!canDelete(role)) return { ok: false, message: "Delete forbidden (owner only)." };
+  if (!canDelete(role)) redirect(`/projects${qs({ err: "delete_forbidden", pid: project_id })}`);
 
-  // Enterprise guard
   const guard = await computeDeleteGuard(supabase, project_id);
   if (!guard.canDelete) {
-    return {
-      ok: false,
-      blocked: true,
-      message: "Delete is blocked because protected artifacts exist. Use Abnormal close.",
-      guard,
-    };
+    redirect(`/projects${qs({ err: "delete_blocked", pid: project_id })}`);
   }
 
   const { error } = await supabase
@@ -330,39 +297,36 @@ export async function deleteProject(formData: FormData): Promise<
 
   revalidatePath("/projects");
   revalidatePath(`/projects/${project_id}`);
-
-  return { ok: true };
+  redirect(`/projects${qs({ msg: "deleted", pid: project_id })}`);
 }
 
 /**
  * ✅ Enterprise: Abnormal close
- * - used when artifacts are protected (submitted / contain info)
- * - keeps audit trail; DOES NOT delete
+ * - constraint-safe: status MUST be 'closed' (projects_status_check)
+ * - we use closure_type='abnormal' to preserve semantics
  *
- * Returns object so modal can close + refresh list without banners.
+ * If you *must* use an RPC for RLS, update the RPC implementation to set:
+ *   status='closed', lifecycle_status='closed', closure_type='abnormal'
+ * and then switch the commented block below back on.
  */
-export async function abnormalCloseProject(formData: FormData): Promise<
-  | { ok: true }
-  | {
-      ok: false;
-      message: string;
-    }
-> {
+export async function abnormalCloseProject(formData: FormData) {
   const supabase = await createClient();
   const user = await requireUser(supabase);
 
   const project_id = norm(formData.get("project_id"));
   const confirm = norm(formData.get("confirm"));
 
-  if (!project_id) return { ok: false, message: "Missing project id." };
-  if (confirm !== "ABNORMAL") return { ok: false, message: 'Type "ABNORMAL" to confirm.' };
+  if (!project_id) redirect(`/projects${qs({ err: "missing_project" })}`);
+  if (confirm !== "ABNORMAL") redirect(`/projects${qs({ err: "abnormal_confirm", pid: project_id })}`);
 
   const role = await getMyProjectRole(supabase, project_id, user.id);
-  if (!canEdit(role)) return { ok: false, message: "No permission." };
+  if (!canEdit(role)) redirect(`/projects${qs({ err: "no_permission", pid: project_id })}`);
 
+  // ✅ Direct update (works with your check constraints)
   const patch: any = {
-    status: "abnormally_closed",
+    status: "closed",
     lifecycle_status: "closed",
+    closure_type: "abnormal",
     closed_at: new Date().toISOString(),
     closed_by: user.id,
     updated_at: new Date().toISOString(),
@@ -371,8 +335,11 @@ export async function abnormalCloseProject(formData: FormData): Promise<
   const { error } = await supabase.from("projects").update(patch).eq("id", project_id);
   if (error) throwDb(error, "projects.abnormal_close");
 
+  // ---- If you require RPC for RLS, use this instead (after fixing the function):
+  // const { error } = await supabase.rpc("abnormal_close_project", { pid: project_id });
+  // if (error) throwDb(error, "rpc.abnormal_close_project");
+
   revalidatePath("/projects");
   revalidatePath(`/projects/${project_id}`);
-
-  return { ok: true };
+  redirect(`/projects${qs({ msg: "abnormally_closed", pid: project_id })}`);
 }
