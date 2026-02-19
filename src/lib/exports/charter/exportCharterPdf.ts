@@ -1,4 +1,5 @@
-﻿import "server-only";
+﻿// src/lib/exports/charter/exportCharterPdf.ts
+import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -82,7 +83,11 @@ async function buildMetaAndDoc(args: {
   let orgName = "—";
   const orgId = projectRow?.organisation_id;
   if (orgId) {
-    const { data: org } = await supabase.from("organisations").select("name").eq("id", orgId).single();
+    const { data: org } = await supabase
+      .from("organisations")
+      .select("name")
+      .eq("id", orgId)
+      .single();
     orgName = org?.name || "—";
   }
 
