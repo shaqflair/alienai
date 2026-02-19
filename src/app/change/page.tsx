@@ -1,12 +1,16 @@
-import ChangeBoard from "@/components/change/ChangeBoard";
-import ChangeHeader from "@/components/change/ChangeHeader";
-import ChangeManagementBoard from "@/components/change/ChangeManagementBoard";
+// src/app/change/page.tsx
+import "server-only";
 
-export default function ChangeLogPage() {
-  return (
-    <main className="crPage">
-      <ChangeHeader title="Change Control" subtitle="Fast scanning for busy PMs" />
-      <ChangeBoard />
-    </main>
-  );
+import dynamic from "next/dynamic";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+// Use the legacy wrapper that forces ChangeManagementBoard (old template)
+const ChangeClientPage = dynamic(() => import("../(app)/change/ChangeClientPage"), {
+  ssr: false,
+});
+
+export default function ChangePage() {
+  return <ChangeClientPage />;
 }

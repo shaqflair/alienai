@@ -1,4 +1,4 @@
-// src/components/change/ChangeBoard.tsx
+// src/components/change/ChangeManagementBoard.tsx
 "use client";
 
 import React, { useEffect, useState } from "react";
