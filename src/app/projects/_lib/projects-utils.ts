@@ -164,10 +164,27 @@ export function statusChip(isClosed: boolean) {
 /* =========================
     Flash Messaging Logic
 ========================= */
+export function inviteBanner(invite?: string | null) {
+  const v = safeStr(invite).trim().toLowerCase();
+  if (!v) return null;
+
+  if (v === "accepted") return { tone: "success" as const, msg: "✅ You’ve joined the organisation." };
+  if (v === "expired") return { tone: "warn" as const, msg: "⚠️ Invite expired. Ask the owner to resend the invite." };
+  if (v === "invalid") return { tone: "error" as const, msg: "❌ Invite invalid or already used. Ask the owner to resend it." };
+  if (v === "email-mismatch")
+    return {
+      tone: "error" as const,
+      msg: "❌ This invite was sent to a different email address. Sign in with the invited email, or ask the owner to re-invite you.",
+    };
+  if (v === "failed")
+    return { tone: "error" as const, msg: "❌ Invite acceptance failed. Please try again or ask the owner to resend." };
+
+  return null;
+}
 
 export function flashFromQuery(err?: string, msg?: string): { tone: FlashTone; text: string } | null {
-  const e = norm(err);
-  const m = norm(msg);
+  const e = safeStr(err).trim().toLowerCase();
+  const m = safeStr(msg).trim().toLowerCase();
 
   if (e === "delete_confirm") return { tone: "error", text: 'Type "DELETE" to confirm deletion.' };
   if (e === "delete_forbidden") return { tone: "error", text: "Only the project owner can delete a project." };
@@ -187,6 +204,7 @@ export function flashFromQuery(err?: string, msg?: string): { tone: FlashTone; t
 
   return null;
 }
+
 
 export function flashCls(tone: FlashTone) {
   if (tone === "success") return "border-emerald-500/25 bg-emerald-500/10 text-emerald-200";

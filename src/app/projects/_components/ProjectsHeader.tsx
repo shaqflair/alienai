@@ -2,7 +2,7 @@
 import "server-only";
 
 import Link from "next/link";
-import { bannerClass, flashCls, type FlashTone } from "../_lib/projects-utils";
+import type { FlashTone } from "../_lib/projects-utils";
 
 type Banner = { tone: "success" | "warn" | "error"; msg: string } | null;
 
@@ -18,7 +18,6 @@ export default function ProjectsHeader({
   return (
     <header className="flex items-start justify-between gap-6">
       <div className="flex items-start gap-4">
-        {/* ✅ Clean icon badge (replaces the old “?”) */}
         <div className="mt-0.5 h-10 w-10 rounded-full bg-[#00B8DB]/10 border border-[#00B8DB]/30 flex items-center justify-center shadow-[0_10px_30px_rgba(0,184,219,0.15)]">
           <svg
             width="18"
@@ -43,14 +42,12 @@ export default function ProjectsHeader({
             Your portfolio entry point — search, switch views, and jump into governance.
           </p>
 
-          {/* Banner (invite outcomes) */}
           {banner ? (
             <div className="mt-3 rounded-lg border px-4 py-2 text-sm border-slate-200 bg-slate-50 text-slate-700">
               {banner.msg}
             </div>
           ) : null}
 
-          {/* Flash (actions feedback) */}
           {flash ? (
             <div className="mt-3 rounded-lg border px-4 py-2 text-sm border-slate-200 bg-white text-slate-700">
               {flash.text}{" "}
@@ -65,7 +62,6 @@ export default function ProjectsHeader({
         </div>
       </div>
 
-      {/* Right side action */}
       <div className="shrink-0">
         <Link
           href="/artifacts"
