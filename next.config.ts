@@ -28,6 +28,18 @@ const nextConfig: NextConfig = {
   ],
 
   /**
+   * ✅ CRITICAL FOR PDF EXPORTS ON VERCEL:
+   * Ensure @sparticuz/chromium's non-JS assets (bin/*.br, etc.) are included
+   * in the serverless output. Without this, you'll see:
+   * "The input directory '/var/task/node_modules/@sparticuz/chromium/bin' does not exist..."
+   *
+   * We include it for all API route handlers (safe + simple).
+   */
+  outputFileTracingIncludes: {
+    "/api/**": ["./node_modules/@sparticuz/chromium/**"],
+  },
+
+  /**
    * ✅ Allow next/image to load remote images from Supabase Storage
    * (Fixes: Invalid src prop ... hostname is not configured)
    */

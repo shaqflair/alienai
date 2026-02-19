@@ -10,6 +10,10 @@ import "server-only";
  * - Singleton browser reuse (best-effort on serverless)
  * - Optional “UI-faithful” rendering: screen media, viewport, RAF settle, explicit @page sizing
  * - Safe timeouts, always closes pages
+ *
+ * IMPORTANT FOR VERCEL:
+ * - You MUST ensure @sparticuz/chromium's bin/*.br assets are included in the build output.
+ *   Add outputFileTracingIncludes in next.config (see notes in chat).
  */
 
 type Browser = import("puppeteer-core").Browser;
@@ -41,6 +45,16 @@ function localExecutablePath() {
   );
 }
 
+/**
+ * Sparticuz chromium exports differ slightly across versions/bundlers.
+ * In some builds it's the module itself, in others it appears under `.default`.
+ * This helper makes it robust.
+ */
+async function getSparticuzChromium(): Promise<any> {
+  const mod: any = await import("@sparticuz/chromium");
+  return mod?.default ?? mod;
+}
+
 declare global {
   // eslint-disable-next-line no-var
   var __alienai_browser__: Browser | undefined;
@@ -53,16 +67,21 @@ async function createBrowser(): Promise<Browser> {
 
   if (isServerless) {
     const puppeteerCore = await import("puppeteer-core");
-    // ✅ FIX: cast to any to avoid TS errors on headless/defaultViewport on some versions
-    const chromium = (await import("@sparticuz/chromium")).default as any;
+    const chromium = (await getSparticuzChromium()) as any;
+
+    // If the chromium "bin" folder was not included in the Vercel output,
+    // chromium.executablePath() will throw an error like:
+    // "The input directory '/var/task/node_modules/@sparticuz/chromium/bin' does not exist..."
+    // Fix is in next.config outputFileTracingIncludes.
+    const executablePath = await chromium.executablePath();
 
     const launchOpts: any = {
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
+      executablePath,
       headless: chromium.headless, // boolean | "shell" depending on version
-      timeout: 15_000,
-      ignoreHTTPSErrors: true, // typings vary; runtime supports it
+      timeout: 30_000,
+      ignoreHTTPSErrors: true,
     };
 
     return (await puppeteerCore.launch(launchOpts)) as unknown as Browser;
@@ -83,8 +102,7 @@ async function createBrowser(): Promise<Browser> {
     return b as unknown as Browser;
   } catch {
     const puppeteerCore = await import("puppeteer-core");
-    // ✅ FIX: cast to any
-    const chromium = (await import("@sparticuz/chromium")).default as any;
+    const chromium = (await getSparticuzChromium()) as any;
 
     const execPath =
       localExecutablePath() || (await chromium.executablePath().catch(() => ""));
@@ -169,6 +187,7 @@ export async function htmlToPdfBuffer(args: HtmlToPdfArgs): Promise<Buffer> {
 
     await page.setContent(html, { waitUntil });
 
+    // Let layout settle
     await page.evaluate(
       () =>
         new Promise((r) =>
@@ -176,6 +195,7 @@ export async function htmlToPdfBuffer(args: HtmlToPdfArgs): Promise<Buffer> {
         )
     );
 
+    // Wait for fonts
     await page.evaluate(async () => {
       // @ts-ignore
       if (document?.fonts?.ready) {

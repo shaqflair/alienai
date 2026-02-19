@@ -1,4 +1,4 @@
-import "server-only";
+ï»¿import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -15,7 +15,18 @@ import {
 /* ---------------- helpers ---------------- */
 
 function jsonErr(error: string, status = 400, meta?: any) {
-  return NextResponse.json({ ok: false, error, meta }, { status });
+  const res = NextResponse.json({ ok: false, error, meta }, { status });
+  res.headers.set("Cache-Control", "no-store, max-age=0");
+  return res;
+}
+
+function toUint8(x: any): Uint8Array {
+  // Handles Buffer, Uint8Array, ArrayBuffer, and "array-like"
+  if (x instanceof Uint8Array) return x;
+  if (typeof Buffer !== "undefined" && Buffer.isBuffer(x)) return new Uint8Array(x);
+  if (x instanceof ArrayBuffer) return new Uint8Array(x);
+  // Last resort: try to construct
+  return new Uint8Array(x);
 }
 
 async function tryReadJsonBody(req: NextRequest) {
@@ -66,29 +77,28 @@ async function buildMetaAndDoc(args: {
 
   const projectCode = projectRow?.project_code
     ? `P-${String(projectRow.project_code).padStart(5, "0")}`
-    : "—";
+    : "P-00000";
 
-  let orgName = "—";
+  let orgName = "â€”";
   const orgId = projectRow?.organisation_id;
   if (orgId) {
-    const { data: org } = await supabase
-      .from("organisations")
-      .select("name")
-      .eq("id", orgId)
-      .single();
-    orgName = org?.name || "—";
+    const { data: org } = await supabase.from("organisations").select("name").eq("id", orgId).single();
+    orgName = org?.name || "â€”";
   }
+
+  const generated = formatUkDateTime();
+  const generatedDate = formatUkDate();
 
   const meta: CharterExportMeta = {
     projectName: (artifact as any).title || projectRow?.title || "Project",
     projectCode,
     organisationName: orgName,
-    clientName: projectRow?.client_name || "—",
-    pmName: doc?.meta?.pm_name || doc?.meta?.project_manager || "—",
+    clientName: projectRow?.client_name || "â€”",
+    pmName: doc?.meta?.pm_name || doc?.meta?.project_manager || "â€”",
     status: doc?.meta?.status || "Draft",
-    generated: formatUkDateTime(),
-    generatedDate: formatUkDate(),
-    generatedDateTime: `${formatUkDate()} ${formatUkDateTime().split(" ")[1] ?? ""}`.trim(),
+    generated,
+    generatedDate,
+    generatedDateTime: `${generatedDate} ${String(generated).split(" ")[1] ?? ""}`.trim(),
   };
 
   return { doc, meta };
@@ -126,12 +136,12 @@ export async function exportCharterPdf(args: {
     const pdfBuffer = await exportCharterPdfBuffer({ doc, meta });
     const filename = charterPdfFilename(meta);
 
-    return new NextResponse(new Uint8Array(new Uint8Array(new Uint8Array(pdfBuffer))), {
+    return new NextResponse(toUint8(pdfBuffer), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="${filename}"`,
-        "Cache-Control": "no-store",
+        "Cache-Control": "no-store, max-age=0",
       },
     });
   } catch (e: any) {

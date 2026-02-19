@@ -1,7 +1,7 @@
-import "server-only";
+﻿import "server-only";
 
 import { htmlToPdfBuffer } from "../_shared/puppeteer";
-import { formatUkDate, safeStr, type CharterExportMeta } from "./charterShared";
+import { safeStr, type CharterExportMeta } from "./charterShared";
 
 /* ---------------- helpers ---------------- */
 
@@ -111,14 +111,6 @@ function normalizeTable(sec: any): { header: string[]; rows: string[][] } | null
   return null;
 }
 
-/* ---------------- filename ---------------- */
-
-export function charterPdfFilename(meta: CharterExportMeta) {
-  const code = safeStr(meta?.projectCode || "P-00000").replace(/[^A-Za-z0-9_-]+/g, "_");
-  const date = formatUkDate().replace(/\//g, "-");
-  return `Project_${code}_Charter_${date}.pdf`;
-}
-
 /* ---------------- renderer ---------------- */
 
 function renderCharterHtml(doc: any, meta: CharterExportMeta) {
@@ -203,7 +195,7 @@ function renderCharterHtml(doc: any, meta: CharterExportMeta) {
           <div class="section-header">
             <span class="section-number">${idx + 1}</span>
             <span class="section-title-text">${title}</span>
-            ${sec?.approved ? '<span class="approved-badge">? Approved</span>' : ""}
+            ${sec?.approved ? '<span class="approved-badge">✓ Approved</span>' : ""}
           </div>
           <div class="section-body">
             ${contentHtml}
@@ -213,11 +205,14 @@ function renderCharterHtml(doc: any, meta: CharterExportMeta) {
     })
     .join("");
 
+  const projectName = escapeHtml(meta.projectName || "Project");
+  const projectCode = escapeHtml(meta.projectCode || "—");
+
   return `<!DOCTYPE html>
 <html lang="en-GB">
 <head>
   <meta charset="utf-8">
-  <title>Project Charter - ${escapeHtml(meta.projectName)}</title>
+  <title>Project Charter - ${projectName}</title>
   <style>
     :root {
       --primary: #2563eb;
@@ -227,7 +222,10 @@ function renderCharterHtml(doc: any, meta: CharterExportMeta) {
       --bg-secondary: #f8fafc;
       --border: #e2e8f0;
     }
+
+    /* ✅ Use CSS page size + margins as the single source of truth */
     @page { size: A4 landscape; margin: 16mm 20mm 20mm 20mm; }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -235,6 +233,8 @@ function renderCharterHtml(doc: any, meta: CharterExportMeta) {
       line-height: 1.5;
       color: var(--text);
       background: var(--bg);
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
     .header {
       margin-bottom: 20px;
@@ -340,9 +340,7 @@ function renderCharterHtml(doc: any, meta: CharterExportMeta) {
         <div class="logo">PC</div>
         <div class="brand-content">
           <h1>Project Charter</h1>
-          <div class="subtitle">${escapeHtml(meta.projectName)}${
-            meta.projectCode !== "—" ? ` • Project ${escapeHtml(meta.projectCode)}` : ""
-          }</div>
+          <div class="subtitle">${projectName}${projectCode !== "—" ? ` • Project ${projectCode}` : ""}</div>
         </div>
       </div>
       <div class="generated-meta">
@@ -362,7 +360,7 @@ function renderCharterHtml(doc: any, meta: CharterExportMeta) {
       </div>
       <div class="meta-card">
         <div class="meta-label">Project ID</div>
-        <div class="meta-value code">${escapeHtml(meta.projectCode)}</div>
+        <div class="meta-value code">${projectCode}</div>
       </div>
       <div class="meta-card">
         <div class="meta-label">Project Manager</div>
@@ -385,32 +383,19 @@ export async function exportCharterPdfBuffer(args: { doc: any; meta: CharterExpo
 
   const html = renderCharterHtml(doc, meta);
 
+  // ✅ Chromium-safe: keep templates minimal, inline-only, no fancy layout
   const headerTemplate = `
-    <div style="
-      width: 100%;
-      padding: 0 20mm;
-      box-sizing: border-box;
-      font-family: system-ui;
-      font-size: 8pt;
-      color: #64748b;
-    ">
+    <div style="width:100%; font-size:8px; color:#64748b; padding:0 20mm; box-sizing:border-box;">
       ${escapeHtml(meta.projectName)} • Project Charter
     </div>
   `;
 
   const footerTemplate = `
-    <div style="
-      width: 100%;
-      padding: 0 20mm;
-      box-sizing: border-box;
-      font-family: system-ui;
-      font-size: 8pt;
-      color: #64748b;
-      display: flex;
-      justify-content: space-between;
-    ">
-      <span>Confidential</span>
-      <span>Generated ${escapeHtml(meta.generated)} • Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
+    <div style="width:100%; font-size:8px; color:#64748b; padding:0 20mm; box-sizing:border-box;">
+      <div style="display:flex; justify-content:space-between; width:100%;">
+        <span>Confidential</span>
+        <span>Generated ${escapeHtml(meta.generated)} • Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
+      </div>
     </div>
   `;
 
@@ -419,20 +404,26 @@ export async function exportCharterPdfBuffer(args: { doc: any; meta: CharterExpo
     waitUntil: "networkidle2",
     emulateScreen: true,
     viewport: { width: 1440, height: 1024, deviceScaleFactor: 2 },
+    // ✅ we already set @page to A4 landscape; keep this true but let CSS drive sizing
     forceA4PageSize: true,
-    navigationTimeoutMs: 15_000,
+    navigationTimeoutMs: 30_000,
     renderTimeoutMs: 60_000,
     pdf: {
       landscape: true,
       printBackground: true,
+
+      // ✅ Let CSS @page define size/margins; avoids conflicts with width/height overrides
       preferCSSPageSize: true,
-      margin: { top: "16mm", right: "20mm", bottom: "20mm", left: "20mm" },
+
+      // ✅ Must leave room for header/footer
       displayHeaderFooter: true,
       headerTemplate,
       footerTemplate,
+
+      // Align with @page margins to prevent overlap
+      margin: { top: "16mm", right: "20mm", bottom: "20mm", left: "20mm" },
     },
   });
 
-  // ? already a Buffer
   return pdf;
 }
