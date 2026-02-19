@@ -1,432 +1,357 @@
-// src/app/projects/page.tsx
+// src/app/projects/[id]/page.tsx
 import "server-only";
 
-import { redirect } from "next/navigation";
+import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
-import { getActiveOrgId } from "@/utils/org/active-org";
 
-import { createProject } from "./actions";
+import { closeProject, deleteProject } from "../actions";
 
-import ProjectsHeader from "./_components/ProjectsHeader";
-import ProjectsResults from "./_components/ProjectsResults";
+/* =========================================================
+   small helpers
+========================================================= */
 
-import {
-  buildQs,
-  flashFromQuery,
-  inviteBanner,
-  norm,
-  safeStr,
-  type MemberProjectRow,
-  type ProjectListRow,
-} from "./_lib/projects-utils";
-
-type OrgMemberOption = {
-  user_id: string;
-  label: string;
-  role?: string | null;
-};
-
-function displayNameFromUser(user: any) {
-  const full =
-    (user?.user_metadata?.full_name as string | undefined) ||
-    (user?.user_metadata?.name as string | undefined) ||
-    "";
-  return (full || user?.email || "Account").toString();
+function safeParam(x: unknown): string {
+  return typeof x === "string" ? x : Array.isArray(x) ? String(x[0] ?? "") : "";
 }
 
-function formatMemberLabel(row: any): string {
-  const p =
-    row?.profiles ||
-    row?.profile ||
-    row?.user_profile ||
-    row?.users ||
-    row?.user ||
-    null;
-
-  const full = safeStr(p?.full_name || p?.name).trim();
-  const email = safeStr(p?.email).trim();
-  const base = full || email || safeStr(row?.user_id).slice(0, 8);
-
-  const role = safeStr(row?.role).trim();
-  return role ? `${base} (${role})` : base;
+function safeStr(x: unknown) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
-export default async function ProjectsPage({
-  searchParams,
+function looksLikeUuid(s: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(s || "").trim()
+  );
+}
+
+function isMissingColumnError(errMsg: string, col: string) {
+  const m = String(errMsg || "").toLowerCase();
+  const c = String(col || "").toLowerCase();
+  return (
+    (m.includes("column") && m.includes(c) && m.includes("does not exist")) ||
+    (m.includes("could not find") && m.includes(c)) ||
+    (m.includes("unknown column") && m.includes(c))
+  );
+}
+
+function isInvalidInputSyntaxError(err: any) {
+  return String(err?.code || "").trim() === "22P02";
+}
+
+function shapeErr(err: any) {
+  if (!err) return { kind: "empty", raw: err };
+  if (err instanceof Error) return { kind: "Error", name: err.name, message: err.message, stack: err.stack };
+  return {
+    kind: typeof err,
+    code: err?.code,
+    message: err?.message,
+    details: err?.details,
+    hint: err?.hint,
+    status: err?.status,
+    raw: err,
+  };
+}
+
+const RESERVED = new Set([
+  "artifacts",
+  "changes",
+  "change",
+  "members",
+  "approvals",
+  "lessons",
+  "raid",
+  "schedule",
+  "wbs",
+]);
+
+function normalizeProjectIdentifier(input: string) {
+  let v = safeStr(input).trim();
+  try {
+    v = decodeURIComponent(v);
+  } catch {}
+  v = v.trim();
+
+  // allow "P-100011" / "PRJ-100011" / etc -> "100011"
+  const m = v.match(/(\d{3,})$/);
+  if (m?.[1]) return m[1];
+
+  return v;
+}
+
+const HUMAN_COL_CANDIDATES = [
+  "project_human_id",
+  "human_id",
+  "project_code",
+  "code",
+  "slug",
+  "reference",
+  "ref",
+] as const;
+
+/**
+ * UUID fast-path:
+ * - if identifier is UUID, return it as projectUuid WITHOUT selecting projects
+ * - only probe projects when identifier is human id
+ */
+async function resolveProjectUuidFast(supabase: any, identifier: string) {
+  const raw = safeStr(identifier).trim();
+  if (!raw) return { projectUuid: null as string | null, project: null as any, humanCol: null as string | null };
+
+  if (looksLikeUuid(raw)) {
+    return { projectUuid: raw, project: null as any, humanCol: null as string | null };
+  }
+
+  const normalized = normalizeProjectIdentifier(raw);
+
+  for (const col of HUMAN_COL_CANDIDATES) {
+    const { data, error } = await supabase.from("projects").select("*").eq(col, normalized).maybeSingle();
+
+    if (error) {
+      if (isMissingColumnError(error.message, col)) continue;
+      if (isInvalidInputSyntaxError(error)) continue;
+      throw error;
+    }
+
+    if (data?.id) return { projectUuid: String(data.id), project: data, humanCol: col as string };
+  }
+
+  // fallback: try raw in common text cols (only if they exist)
+  for (const col of ["slug", "reference", "ref", "code"] as const) {
+    const { data, error } = await supabase.from("projects").select("*").eq(col, raw).maybeSingle();
+
+    if (error) {
+      if (isMissingColumnError(error.message, col)) continue;
+      if (isInvalidInputSyntaxError(error)) continue;
+      throw error;
+    }
+
+    if (data?.id) return { projectUuid: String(data.id), project: data, humanCol: col as string };
+  }
+
+  return { projectUuid: null as string | null, project: null as any, humanCol: null as string | null };
+}
+
+function bestProjectRole(rows: Array<{ role?: string | null }> | null | undefined) {
+  const roles = (rows ?? [])
+    .map((r) => String(r?.role ?? "").toLowerCase())
+    .filter(Boolean);
+
+  if (!roles.length) return "";
+  if (roles.includes("owner")) return "owner";
+  if (roles.includes("editor")) return "editor";
+  if (roles.includes("viewer")) return "viewer";
+  return roles[0] || "";
+}
+
+function canEdit(role: string) {
+  return role === "owner" || role === "editor";
+}
+function canDelete(role: string) {
+  return role === "owner";
+}
+
+/* =========================================================
+   page
+========================================================= */
+
+export default async function ProjectPage({
+  params,
 }: {
-  searchParams?:
-    | Promise<{
-        invite?: string;
-        q?: string;
-        view?: string;
-        sort?: string;
-        err?: string;
-        msg?: string;
-        pid?: string;
-      }>
-    | {
-        invite?: string;
-        q?: string;
-        view?: string;
-        sort?: string;
-        err?: string;
-        msg?: string;
-        pid?: string;
-      };
+  // ✅ Next 16: treat params as Promise to avoid sync-dynamic-api errors
+  params: Promise<{ id?: string }>;
 }) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: auth, error: authErr } = await supabase.auth.getUser();
+  if (authErr) throw authErr;
+  if (!auth?.user) redirect("/login");
 
-  if (!user) redirect(`/login?next=${encodeURIComponent("/projects")}`);
+  const { id } = await params;
+  const rawId = safeParam(id).trim();
+  if (!rawId) notFound();
 
-  const sp = (await searchParams) ?? {};
-  const banner = inviteBanner((sp as any)?.invite);
+  // ✅ Guard: prevent /projects/artifacts etc becoming a "project id"
+  const lower = rawId.toLowerCase();
+  if (RESERVED.has(lower)) {
+    redirect("/projects");
+  }
 
-  const q = safeStr((sp as any)?.q).trim();
-  const view = norm((sp as any)?.view) === "grid" ? "grid" : "list";
-  const sort =
-    norm((sp as any)?.sort) === "title_asc" ? "title_asc" : "created_desc";
+  // ✅ Resolve UUID (supports UUID + P-00001 + numeric + other human cols)
+  let resolved: { projectUuid: string | null; project: any; humanCol: string | null } | null = null;
+  try {
+    resolved = await resolveProjectUuidFast(supabase, rawId);
+  } catch (e) {
+    console.error("[ProjectPage] resolveProjectUuidFast error:", shapeErr(e), { rawId });
+    notFound();
+  }
 
-  const err = safeStr((sp as any)?.err).trim();
-  const msg = safeStr((sp as any)?.msg).trim();
-  const pid = safeStr((sp as any)?.pid).trim();
-  const flash = flashFromQuery(err, msg);
+  if (!resolved?.projectUuid) notFound();
+  const projectUuid = String(resolved.projectUuid);
 
-  const userId = user.id;
-
-  // ✅ Load projects (includes PM relationship via FK projects_project_manager_id_fkey)
-  const { data, error } = await supabase
+  // ✅ Membership gate using UUID only (prevents 22P02)
+  const { data: memRows, error: memErr } = await supabase
     .from("project_members")
-    .select(
-      `
-      project_id,
-      role,
-      projects:projects!project_members_project_id_fkey (
-        id,
-        title,
-        project_code,
-        start_date,
-        finish_date,
-        created_at,
-        organisation_id,
-        status,
-        deleted_at,
+    .select("role")
+    .eq("project_id", projectUuid)
+    .eq("user_id", auth.user.id)
+    .eq("is_active", true);
 
-        project_manager_id,
-        project_manager:profiles!projects_project_manager_id_fkey (
-          user_id,
-          full_name,
-          email
-        )
-      )
-    `
-    )
-    .eq("user_id", userId)
-    .is("projects.deleted_at", null)
-    .order("created_at", { foreignTable: "projects", ascending: false });
+  if (memErr) throw memErr;
 
-  if (error) {
-    return (
-      <main className="min-h-screen bg-gray-50 text-gray-900">
-        <div className="mx-auto max-w-6xl px-6 py-10">
-          <h1 className="text-2xl font-semibold text-gray-900">Projects</h1>
-          <p className="mt-3 text-sm text-red-600">Error: {error.message}</p>
-        </div>
-      </main>
-    );
+  const myRole = bestProjectRole(memRows as any);
+  if (!myRole) notFound();
+
+  // ✅ Project meta (best effort)
+  let project = resolved.project ?? null;
+  if (!project) {
+    const { data: p, error: pErr } = await supabase
+      .from("projects")
+      .select("id,title,project_code")
+      .eq("id", projectUuid)
+      .maybeSingle();
+    if (!pErr && p?.id) project = p;
   }
 
-  const rows: ProjectListRow[] = ((data ?? []) as MemberProjectRow[])
-    .map((r) => {
-      if (!r.projects) return null;
+  const projectTitle = safeStr(project?.title ?? "Project") || "Project";
+  const projectCode = safeStr(project?.project_code ?? "").trim();
 
-      const pmName =
-        safeStr((r.projects as any)?.project_manager?.full_name).trim() ||
-        safeStr((r.projects as any)?.project_manager?.email).trim() ||
-        null;
+  // ✅ This is the identifier we should keep using in URLs (so your human routes keep working)
+  const projectRefForUrls = rawId;
 
-      return {
-        id: r.projects.id,
-        title: r.projects.title,
-        project_code: r.projects.project_code,
-        start_date: r.projects.start_date,
-        finish_date: r.projects.finish_date,
-        created_at: r.projects.created_at,
-        organisation_id: r.projects.organisation_id,
-        status: r.projects.status ?? "active",
-        myRole: r.role ?? "viewer",
-
-        // optional extra fields (safe even if your type doesn't include them yet)
-        project_manager_id: (r.projects as any)?.project_manager_id ?? null,
-        project_manager_name: pmName,
-      } as any;
-    })
-    .filter(Boolean) as ProjectListRow[];
-
-  const orgIds = Array.from(
-    new Set(rows.map((r) => String(r.organisation_id || "")).filter(Boolean))
-  );
-
-  const orgAdminSet = new Set<string>();
-
-  if (orgIds.length) {
-    const { data: memRows } = await supabase
-      .from("organisation_members")
-      .select("organisation_id, role")
-      .eq("user_id", userId)
-      .in("organisation_id", orgIds);
-
-    for (const m of memRows ?? []) {
-      const oid = String((m as any)?.organisation_id || "");
-      const role = String((m as any)?.role || "").toLowerCase();
-      if (oid && role === "admin") orgAdminSet.add(oid);
-    }
-  }
-
-  const filtered = (() => {
-    if (!q) return rows;
-    const nq = norm(q);
-    return rows.filter((p) => {
-      const hay = `${p.title} ${String(p.project_code ?? "")} ${p.id}`.toLowerCase();
-      return hay.includes(nq);
-    });
-  })();
-
-  const sorted = (() => {
-    const arr = [...filtered];
-    if (sort === "title_asc") {
-      arr.sort((a, b) => safeStr(a.title).localeCompare(safeStr(b.title)));
-    } else {
-      arr.sort((a, b) =>
-        safeStr(b.created_at).localeCompare(safeStr(a.created_at))
-      );
-    }
-    return arr;
-  })();
-
-  const inviteParam = safeStr((sp as any)?.invite).trim();
-  function baseQs(next: Record<string, string | undefined>) {
-    return buildQs({ ...next, invite: inviteParam || undefined });
-  }
-
-  // ✅ Cyan border style matching reference image (#00B8DB)
-  const panelGlow =
-    "bg-white text-gray-900 rounded-2xl border-2 border-[#00B8DB] shadow-[0_4px_20px_rgba(0,184,219,0.15)]";
-
-  // ─────────────────────────────────────────────────────────────
-  // Active org + org name (show name instead of UUID)
-  // ─────────────────────────────────────────────────────────────
-  const cookieOrgId = await getActiveOrgId().catch(() => null);
-  const activeOrgId =
-    (cookieOrgId && String(cookieOrgId)) || (orgIds[0] ? String(orgIds[0]) : "");
-
-  const canCreate = !!activeOrgId;
-
-  const { data: orgRow } = activeOrgId
-    ? await supabase
-        .from("organisations")
-        .select("id,name")
-        .eq("id", activeOrgId)
-        .maybeSingle()
-    : { data: null as any };
-
-  const activeOrgName = safeStr(orgRow?.name).trim();
-
-  // Org members for PM dropdown
-  const { data: orgMemberRows } = activeOrgId
-    ? await supabase
-        .from("organisation_members")
-        .select(
-          `
-          user_id,
-          role,
-          profiles:profiles (
-            user_id,
-            full_name,
-            email
-          )
-        `
-        )
-        .eq("organisation_id", activeOrgId)
-        .is("removed_at", null)
-        .order("role", { ascending: true })
-    : { data: [] as any[] };
-
-  const pmOptions: OrgMemberOption[] = (orgMemberRows ?? [])
-    .map((r: any) => ({
-      user_id: String(r?.user_id || ""),
-      label: formatMemberLabel(r),
-      role: (r?.role as string | null) ?? null,
-    }))
-    .filter((x) => !!x.user_id);
-
-  const ownerLabel = displayNameFromUser(user);
+  const allowClose = canEdit(myRole);
+  const allowDelete = canDelete(myRole);
 
   return (
-    <main className="projects-theme-cyan relative min-h-screen bg-gray-50 text-gray-900 overflow-x-hidden">
-      <style
-        // eslint-disable-next-line react/no-danger
-        dangerouslySetInnerHTML={{
-          __html: `
-            .projects-theme-cyan { --accent: #00B8DB; }
+    <main className="min-h-screen bg-white">
+      <div className="mx-auto max-w-6xl px-6 py-10 space-y-8">
+        {/* Top Bar */}
+        <div className="flex items-center justify-between">
+          <Link
+            href="/projects"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-colors"
+          >
+            ← Back to Projects
+          </Link>
 
-            .projects-theme-cyan h1,
-            .projects-theme-cyan [data-page-title="projects"],
-            .projects-theme-cyan .page-title {
-              color: #0f172a !important;
-            }
-            .projects-theme-cyan .text-white\\/80,
-            .projects-theme-cyan .text-white\\/70,
-            .projects-theme-cyan .text-slate-200,
-            .projects-theme-cyan .text-slate-300 {
-              color: #64748b !important;
-            }
-
-            .projects-theme-cyan a[href="/artifacts"],
-            .projects-theme-cyan a[href^="/artifacts?"],
-            .projects-theme-cyan a[href="/app/artifacts"],
-            .projects-theme-cyan a[href^="/app/artifacts?"] {
-              background: var(--accent) !important;
-              border-color: var(--accent) !important;
-              color: #fff !important;
-              box-shadow: 0 10px 30px rgba(0,184,219,0.25) !important;
-            }
-            .projects-theme-cyan a[href="/artifacts"]:hover,
-            .projects-theme-cyan a[href^="/artifacts?"]:hover,
-            .projects-theme-cyan a[href="/app/artifacts"]:hover,
-            .projects-theme-cyan a[href^="/app/artifacts?"]:hover {
-              filter: brightness(0.95) !important;
-            }
-
-            .projects-theme-cyan .bg-blue-600 { background-color: var(--accent) !important; }
-            .projects-theme-cyan .hover\\:bg-blue-700:hover { background-color: #00a5c4 !important; }
-            .projects-theme-cyan .border-blue-600 { border-color: var(--accent) !important; }
-            .projects-theme-cyan .text-blue-600 { color: var(--accent) !important; }
-            .projects-theme-cyan .ring-blue-500\\/20 { --tw-ring-color: rgba(0,184,219,0.20) !important; }
-          `,
-        }}
-      />
-
-      <div className="relative mx-auto max-w-6xl px-6 py-10 space-y-8">
-        <ProjectsHeader
-          banner={banner}
-          flash={flash}
-          dismissHref={`/projects${baseQs({ q, sort, view })}`}
-        />
-
-        {/* Create project */}
-        <section className={`p-6 md:p-8 space-y-5 ${panelGlow}`}>
-          <div className="space-y-1">
-            <h2 className="text-lg font-semibold text-gray-900">Create a project</h2>
-            <p className="text-sm text-gray-500">
-              Enterprise setup: define ownership and delivery lead (PM) for governance and reporting.
-            </p>
-
-            {/* ✅ show name, not UUID */}
-            <p className="text-xs text-gray-500">
-              Active organisation:{" "}
-              <span className="font-semibold text-gray-700">
-                {activeOrgName || "Not set"}
+          <div className="flex items-center gap-3">
+            {projectCode ? (
+              <span className="rounded-full bg-blue-50 border border-blue-200 px-3 py-1.5 text-xs font-medium text-blue-700">
+                Project <span className="font-mono font-bold">{projectCode}</span>
               </span>
-            </p>
+            ) : null}
+
+            <span className="rounded-full bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-600">
+              Role: <span className="font-mono text-gray-900">{myRole}</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Header */}
+        <header className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h1 className="text-3xl font-bold text-gray-900">{projectTitle}</h1>
+
+            {/* ✅ Close / Delete are ACTIONS (not Links) */}
+            <div className="flex items-center gap-2 justify-start sm:justify-end">
+              <form action={closeProject}>
+                <input type="hidden" name="project_id" value={projectUuid} />
+                <button
+                  type="submit"
+                  disabled={!allowClose}
+                  className={[
+                    "rounded-lg border px-4 py-2 text-sm font-semibold transition",
+                    allowClose
+                      ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                      : "border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed",
+                  ].join(" ")}
+                  title={allowClose ? "Close project" : "You need owner/editor to close"}
+                >
+                  Close
+                </button>
+              </form>
+
+              <form action={deleteProject}>
+                <input type="hidden" name="project_id" value={projectUuid} />
+                {/* uses your existing server action contract */}
+                <input type="hidden" name="confirm" value="DELETE" />
+                <button
+                  type="submit"
+                  disabled={!allowDelete}
+                  className={[
+                    "rounded-lg border px-4 py-2 text-sm font-semibold transition",
+                    allowDelete
+                      ? "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                      : "border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed",
+                  ].join(" ")}
+                  title={allowDelete ? "Delete project" : "Only owner can delete"}
+                >
+                  Delete
+                </button>
+              </form>
+            </div>
           </div>
 
-          {!canCreate ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              You don’t have an active organisation selected yet. Select an organisation first, then create a project.
-            </div>
-          ) : null}
-
-          <form action={createProject} className="grid gap-4 max-w-2xl">
-            <input type="hidden" name="organisation_id" value={activeOrgId} />
-
-            <div className="grid gap-2">
-              <span className="text-sm font-semibold text-gray-700">Project owner</span>
-              <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-gray-900">
-                {ownerLabel}
-              </div>
-              <p className="text-xs text-gray-500">
-                Owner is the accountable lead for governance (auto-set to you).
-              </p>
-            </div>
-
-            <label className="grid gap-2">
-              <span className="text-sm font-semibold text-gray-700">Project name</span>
-              <input
-                name="title"
-                placeholder="e.g. Project Venus"
-                required
-                className="rounded-lg bg-white border border-gray-300 px-4 py-3 text-gray-900 placeholder:text-gray-400 focus:border-[#00B8DB] focus:ring-2 focus:ring-[#00B8DB]/20 outline-none transition-colors"
-              />
-            </label>
-
-            <label className="grid gap-2">
-              <span className="text-sm font-semibold text-gray-700">Project manager (optional)</span>
-              <select
-                name="project_manager_id"
-                defaultValue=""
-                className="rounded-lg bg-white border border-gray-300 px-4 py-3 text-gray-900 focus:border-[#00B8DB] focus:ring-2 focus:ring-[#00B8DB]/20 outline-none transition-colors"
-              >
-                <option value="">Unassigned</option>
-                {pmOptions.map((m) => (
-                  <option key={m.user_id} value={m.user_id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-gray-500">
-                Assign now or later — used for delivery accountability and executive reporting.
-              </p>
-            </label>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <label className="grid gap-2">
-                <span className="text-sm font-semibold text-gray-700">Project start date</span>
-                <input
-                  name="start_date"
-                  type="date"
-                  required
-                  className="rounded-lg bg-white border border-gray-300 px-4 py-3 text-gray-900 focus:border-[#00B8DB] focus:ring-2 focus:ring-[#00B8DB]/20 outline-none transition-colors"
-                />
-              </label>
-
-              <label className="grid gap-2">
-                <span className="text-sm font-semibold text-gray-700">Project finish date</span>
-                <input
-                  name="finish_date"
-                  type="date"
-                  className="rounded-lg bg-white border border-gray-300 px-4 py-3 text-gray-900 focus:border-[#00B8DB] focus:ring-2 focus:ring-[#00B8DB]/20 outline-none transition-colors"
-                />
-              </label>
-            </div>
-
-            <button
-              type="submit"
-              disabled={!canCreate}
-              className="w-fit rounded-lg bg-[#00B8DB] px-5 py-2.5 font-semibold text-white hover:bg-[#00a5c4] transition shadow-lg shadow-[#00B8DB]/25 disabled:opacity-50 disabled:cursor-not-allowed"
+          <nav className="flex flex-wrap items-center gap-2">
+            <Link
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors shadow-sm"
+              href={`/projects/${projectRefForUrls}`}
             >
-              Create project
-            </button>
-          </form>
-        </section>
+              Overview
+            </Link>
+            <Link
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-colors"
+              href={`/projects/${projectRefForUrls}/artifacts`}
+            >
+              Artifacts
+            </Link>
+            <Link
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-colors"
+              href={`/projects/${projectRefForUrls}/changes`}
+            >
+              Changes
+            </Link>
+            <Link
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-colors"
+              href={`/projects/${projectRefForUrls}/approvals`}
+            >
+              Approvals
+            </Link>
+            <Link
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-colors"
+              href={`/projects/${projectRefForUrls}/members`}
+            >
+              Members
+            </Link>
+          </nav>
 
-        <div className="text-gray-900">
-          <ProjectsResults
-            rows={sorted}
-            view={view}
-            q={q}
-            sort={sort}
-            pid={pid}
-            err={err}
-            msg={msg}
-            orgAdminSet={orgAdminSet}
-            baseHrefForDismiss={`/projects${baseQs({ q, sort, view })}`}
-            panelGlow={panelGlow}
-          />
-        </div>
+          <p className="text-sm text-gray-500">
+            Project home is back. Next we&apos;ll wire up artifacts navigation end-to-end.
+          </p>
+        </header>
+
+        {/* Quick Links Card */}
+        <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
+          <div className="flex items-center gap-2">
+            <div className="h-2 w-2 rounded-full bg-green-500"></div>
+            <h2 className="font-semibold text-gray-900">Quick links</h2>
+          </div>
+
+          <p className="text-sm text-gray-600">
+            Go to{" "}
+            <Link
+              className="font-medium text-blue-600 hover:text-blue-700 hover:underline"
+              href={`/projects/${projectRefForUrls}/artifacts`}
+            >
+              Artifacts
+            </Link>{" "}
+            to create and manage documentation.
+          </p>
+
+          <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500 font-mono">
+            Resolved project UUID: {projectUuid}
+          </div>
+        </section>
       </div>
     </main>
   );
