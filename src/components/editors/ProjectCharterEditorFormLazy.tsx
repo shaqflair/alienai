@@ -376,7 +376,6 @@ function isNonEmptyString(x: any) {
 
 function mergeAiFullIntoCharter(prevDoc: any, ai: any) {
   const candidate = (ai && typeof ai === "object" && ((ai as any).charterV2 || (ai as any).doc)) || ai;
-
   const raw = (candidate as any)?.charterV2 ?? (candidate as any)?.doc ?? candidate;
 
   const canon = ensureCanonicalCharter(raw);
@@ -404,7 +403,69 @@ function mergeAiFullIntoCharter(prevDoc: any, ai: any) {
 }
 
 /* ---------------------------------------------
-   Improve Section UI (lightweight stub)
+   Apply AI section result into the current doc
+---------------------------------------------- */
+
+function extractSectionFromAi(ai: any, sectionKey: string): any | null {
+  const key = String(sectionKey || "").trim().toLowerCase();
+  if (!key) return null;
+
+  const candidate = (ai && typeof ai === "object" && ((ai as any).charterV2 || (ai as any).doc)) || ai;
+  const raw = (candidate as any)?.charterV2 ?? (candidate as any)?.doc ?? candidate;
+
+  // 1) direct section
+  if (raw?.section && typeof raw.section === "object") return raw.section;
+
+  // 2) sections array
+  const secs = raw?.sections;
+  if (Array.isArray(secs)) {
+    const found = secs.find((s: any) => String(s?.key ?? "").toLowerCase().trim() === key);
+    if (found) return found;
+    // sometimes returns only one section without key match
+    if (secs.length === 1) return secs[0];
+  }
+
+  // 3) nested objects
+  const nestedSections =
+    Array.isArray(candidate?.sections) ? candidate.sections :
+    Array.isArray(candidate?.charterV2?.sections) ? candidate.charterV2.sections :
+    Array.isArray(candidate?.doc?.sections) ? candidate.doc.sections : null;
+
+  if (Array.isArray(nestedSections)) {
+    const found = nestedSections.find((s: any) => String(s?.key ?? "").toLowerCase().trim() === key);
+    if (found) return found;
+    if (nestedSections.length === 1) return nestedSections[0];
+  }
+
+  return null;
+}
+
+function applyAiSection(prevDoc: any, sectionKey: string, ai: any) {
+  const key = String(sectionKey || "").trim();
+  if (!key) return ensureCanonicalCharter(prevDoc);
+
+  const prev = ensureCanonicalCharter(prevDoc);
+  const aiSec = extractSectionFromAi(ai, key);
+  if (!aiSec) return prev;
+
+  const incoming = { ...aiSec, key };
+
+  // normalize bullets if present
+  if (typeof incoming.bullets === "string") incoming.bullets = normalizeBulletsText(incoming.bullets);
+
+  // enforce required numbering/title via canonicalizer (but keep payload content)
+  const next = {
+    ...prev,
+    sections: (prev.sections || []).map((s: any) =>
+      String(s?.key ?? "").trim() === key ? { ...s, ...incoming } : s
+    ),
+  };
+
+  return ensureCanonicalCharter(next);
+}
+
+/* ---------------------------------------------
+   Improve Section UI (now wired)
 ---------------------------------------------- */
 
 function ImprovePanelStub({
@@ -415,6 +476,8 @@ function ImprovePanelStub({
   running,
   error,
   onClose,
+  onRun,
+  canRun,
 }: {
   open: boolean;
   payload: ImproveSectionPayload | null;
@@ -423,6 +486,8 @@ function ImprovePanelStub({
   running: boolean;
   error: string;
   onClose: () => void;
+  onRun: () => void;
+  canRun: boolean;
 }) {
   if (!open) return null;
 
@@ -432,13 +497,13 @@ function ImprovePanelStub({
     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <div className="text-sm font-semibold text-slate-900">Improve Section (coming next)</div>
+          <div className="text-sm font-semibold text-slate-900">Improve Section</div>
           <div className="text-xs text-slate-600">
             Selected: <span className="font-medium">{title}</span>
           </div>
         </div>
 
-        <Button type="button" variant="outline" className="h-8 px-2" onClick={onClose}>
+        <Button type="button" variant="outline" className="h-8 px-2" onClick={onClose} disabled={running}>
           <X className="h-4 w-4" />
         </Button>
       </div>
@@ -447,21 +512,28 @@ function ImprovePanelStub({
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         rows={4}
-        placeholder="Add any notes for improving this section (tone, level of detail, constraints)…"
+        placeholder="Add notes (tone, level of detail, constraints)…"
         className="mt-3 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
         disabled={running}
       />
+
+      <div className="mt-3 flex items-center gap-2">
+        <Button type="button" onClick={onRun} disabled={!canRun || running} className="rounded-xl">
+          {running ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
+          {running ? "Improving..." : "Run Improve"}
+        </Button>
+
+        <div className="text-xs text-slate-500">
+          Applies changes directly into the selected section.
+        </div>
+      </div>
 
       {error ? (
         <div className="mt-3 flex items-center gap-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
           <AlertCircle className="h-4 w-4" />
           {error}
         </div>
-      ) : (
-        <div className="mt-3 text-xs text-slate-600">
-          This panel is a placeholder so the UI is stable while the improve flow is wired. You can close it for now.
-        </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -530,9 +602,6 @@ export default function ProjectCharterEditorFormLazy({
   const [improveNotes, setImproveNotes] = useState<string>("");
   const [improveRunning, setImproveRunning] = useState(false);
   const [improveError, setImproveError] = useState<string>("");
-
-  const [improveSuggestions, setImproveSuggestions] = useState<{ id: string; label: string; section: any }[]>([]);
-  const [improveSelectedId, setImproveSelectedId] = useState<string>("");
 
   const [wireCaps, setWireCaps] = useState<WireCaps>({
     full: true,
@@ -886,9 +955,6 @@ export default function ProjectCharterEditorFormLazy({
     setImproveNotes(payload?.notes ?? "");
     setImproveError("");
     setImproveOpen(true);
-
-    setImproveSuggestions((cur) => cur);
-    setImproveSelectedId((cur) => cur);
   }
 
   function closeImprove() {
@@ -896,6 +962,66 @@ export default function ProjectCharterEditorFormLazy({
     setImproveRunning(false);
     setImproveError("");
     setImprovePayload(null);
+  }
+
+  async function runImprove() {
+    if (!canEdit) return;
+    if (!improvePayload?.sectionKey) return;
+
+    const key = String(improvePayload.sectionKey).trim();
+    if (!key) return;
+
+    setImproveRunning(true);
+    setImproveError("");
+    setAiError("");
+    setAiState("generating");
+    setAiLoadingKey(key);
+
+    try {
+      // Send a section improvement request (uses the same endpoint, but with instructions)
+      const res = await fetch("/api/wireai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          mode: "section",
+          sectionKey: key,
+          doc: v2ForSave,
+          meta: { ...(v2ForSave.meta ?? {}), pm_brief: String(pmBrief ?? "") },
+          template: "pmi",
+          instructions: [
+            "Improve the section content while keeping it realistic and executive-ready.",
+            "Do not invent facts. If uncertain, mark [TBC] or [ASSUMPTION].",
+            "Keep format consistent with the section type (table vs bullets/prose).",
+            improveNotes?.trim() ? `User notes: ${String(improveNotes).trim()}` : "",
+          ].filter(Boolean),
+        }),
+      });
+
+      const rawText = await res.text().catch(() => "");
+      let data: any = {};
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        if (!res.ok) throw new Error(rawText?.trim() ? rawText.slice(0, 300) : `AI improve failed (${res.status})`);
+      }
+
+      if (!res.ok) throw new Error(String(data?.error ?? "AI improve failed"));
+
+      setDoc((prev) => applyAiSection(prev, key, data));
+      lastLocalEditAtRef.current = Date.now();
+      setDirty(true);
+
+      closeImprove();
+    } catch (e: any) {
+      setImproveError(String(e?.message ?? "AI improve failed"));
+      setAiState("error");
+      setAiError(String(e?.message ?? "AI improve failed"));
+    } finally {
+      setImproveRunning(false);
+      setAiLoadingKey(null);
+      setAiState("idle");
+    }
   }
 
   async function generateFullCharter() {
@@ -972,6 +1098,13 @@ export default function ProjectCharterEditorFormLazy({
     const key = String(sectionKey || "").trim();
     if (!key) return;
 
+    // Optional: respect capability
+    if (!wireCaps.section) {
+      setAiState("error");
+      setAiError("Section regeneration is not available (capability off).");
+      return;
+    }
+
     setAiError("");
     setAiState("generating");
     setAiLoadingKey(key);
@@ -990,10 +1123,20 @@ export default function ProjectCharterEditorFormLazy({
         }),
       });
 
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(String((data as any)?.error ?? "AI regeneration failed"));
+      const rawText = await res.text().catch(() => "");
+      let data: any = {};
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        if (!res.ok) throw new Error(rawText?.trim() ? rawText.slice(0, 300) : `AI regeneration failed (${res.status})`);
+      }
 
-      void data;
+      if (!res.ok) throw new Error(String(data?.error ?? "AI regeneration failed"));
+
+      // ✅ APPLY RESULT INTO DOC
+      setDoc((prev) => applyAiSection(prev, key, data));
+      lastLocalEditAtRef.current = Date.now();
+      setDirty(true);
     } catch (e: any) {
       setAiState("error");
       setAiError(String(e?.message ?? "AI regeneration failed"));
@@ -1180,6 +1323,8 @@ export default function ProjectCharterEditorFormLazy({
           running={improveRunning}
           error={improveError}
           onClose={closeImprove}
+          onRun={runImprove}
+          canRun={canEdit && !!improvePayload?.sectionKey}
         />
 
         {/* PM Brief textbox */}
@@ -1188,9 +1333,7 @@ export default function ProjectCharterEditorFormLazy({
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1">
                 <div className="text-sm font-semibold text-slate-900">PM Brief</div>
-                <div className="text-xs text-slate-600">
-                  Provide context for AI generation. Keep it crisp and specific.
-                </div>
+                <div className="text-xs text-slate-600">Provide context for AI generation. Keep it crisp and specific.</div>
               </div>
 
               <div className="flex items-center gap-2">
@@ -1208,7 +1351,6 @@ export default function ProjectCharterEditorFormLazy({
                   )}
                 </div>
 
-                {/* ✅ AI generate button moved HERE (near Recommended) */}
                 <Button
                   type="button"
                   variant="outline"
@@ -1255,8 +1397,6 @@ export default function ProjectCharterEditorFormLazy({
               ].join("\n")}
               className="mt-3 w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-200"
             />
-
-            {/* ✅ Removed generic tip + stored-in-meta line */}
           </div>
         ) : null}
 
@@ -1310,7 +1450,7 @@ export default function ProjectCharterEditorFormLazy({
             onRegenerateSection={(sectionKey: string) => regenerateSection(sectionKey)}
             aiDisabled={!canEdit || isPending || aiState === "generating" || improveRunning}
             aiLoadingKey={aiLoadingKey}
-            includeContextForAI={true}
+            // ✅ Context is removed entirely. PM Brief only.
           />
         ) : (
           <ProjectCharterEditor
@@ -1326,10 +1466,6 @@ export default function ProjectCharterEditorFormLazy({
       </div>
 
       <CharterV2DebugPanel value={v2ForSave} />
-
-      <span className="sr-only">
-        {String(improveSuggestions.length)}-{String(improveSelectedId || "")}
-      </span>
     </div>
   );
 }
