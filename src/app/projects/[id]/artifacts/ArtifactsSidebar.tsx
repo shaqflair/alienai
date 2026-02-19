@@ -6,14 +6,13 @@ import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 
 /**
- * ArtifactsSidebar
- * - Server component
+ * ArtifactsSidebar (Server Component)
  * - Resolves project from route param (UUID or human code like P-00001 or "00001")
  * - Fetches artifacts list for sidebar navigation
  *
- * ✅ Fix: project_code is TEXT in your schema
- * - Resolve by: id (uuid) OR project_code (text variants: "10001", "P-10001", "P-00001")
- * - Keep fallback sources for membership views/tables
+ * ✅ FIX (Change Requests legacy page):
+ * - Any Change-related artifact types now label as "Change Requests"
+ * - And route to the legacy board page: /projects/[id]/change
  */
 
 const PROJECT_COLS = "id,title,project_code,organisation_id,client_name,created_at";
@@ -82,7 +81,6 @@ function extractDigits(raw: string): string | null {
   if (!m) return null;
   const digits = m[1];
   if (!digits) return null;
-  // remove leading zeros safely (but keep at least one digit)
   const norm = String(Number(digits));
   return norm && norm !== "NaN" ? norm : digits.replace(/^0+/, "") || "0";
 }
@@ -101,7 +99,6 @@ function projectCodeVariants(raw: string): string[] {
     out.add(`P-${digits.padStart(5, "0")}`);
   }
 
-  // also if user passed "P-00001", include "00001" and "1"
   const m = up.match(/^P-(\d{1,10})$/);
   if (m?.[1]) {
     out.add(m[1]);
@@ -134,20 +131,53 @@ function logSbError(tag: string, err: any, extra?: any) {
 function displayProjectCode(project_code: any) {
   const s = safeStr(project_code);
   if (!s) return "—";
-  // display friendly: if already "P-xxxxx" keep it, else prefix with P-
   if (/^P-\d+$/i.test(s)) return s.toUpperCase();
   const digits = extractDigits(s);
   if (digits) return `P-${digits.padStart(5, "0")}`;
   return s;
 }
 
+/* ---------------- CHANGE REQUESTS (legacy mapping) ---------------- */
+
+function isChangeRequestsType(t: any) {
+  const s = safeLower(t);
+  return (
+    s === "change_requests" ||
+    s === "change_request" ||
+    s === "change requests" ||
+    s === "change request" ||
+    s === "change_log" ||
+    s === "change log" ||
+    s === "kanban" ||
+    s === "change_register" ||
+    s === "change register" ||
+    s === "change"
+  );
+}
+
+function normalizeArtifactTypeForDisplay(t: any) {
+  const s = safeStr(t);
+  if (!s) return "";
+  if (isChangeRequestsType(s)) return "change_requests";
+  return s;
+}
+
 function displayArtifactTitle(a: any) {
+  const rawType = safeStr(a?.effective_type || a?.artifact_type || a?.type);
+  if (isChangeRequestsType(rawType)) return "Change Requests";
+
   const t = safeStr(a?.title);
   if (t) return t;
 
-  // fallback to effective type (more stable than raw type)
   const eff = safeStr(a?.effective_type || a?.artifact_type || a?.type);
   return eff || "Artifact";
+}
+
+function artifactHref(projectParam: string, artifactId: string, rawType: any) {
+  // ✅ Route Change Requests to the OLD template page (board)
+  if (isChangeRequestsType(rawType)) return `/projects/${projectParam}/change`;
+
+  return `/projects/${projectParam}/artifacts/${artifactId}`;
 }
 
 /* ---------------- project resolve (robust + TEXT project_code) ---------------- */
@@ -237,7 +267,6 @@ async function resolveProject(sb: any, projectParam: string) {
 /* ---------------- artifacts query (simple + safe) ---------------- */
 
 async function queryArtifacts(sb: any, projectUuid: string) {
-  // Robust select for legacy rows where artifact_type is null or type differs.
   const select = "id,title,type,artifact_type,is_current,created_at,approval_status,deleted_at";
 
   const { data, error } = await sb
@@ -250,11 +279,16 @@ async function queryArtifacts(sb: any, projectUuid: string) {
 
   const list = Array.isArray(data) ? data : [];
 
-  const normalized = list.map((a: any) => ({
-    ...a,
-    // “effective type” is what the UI should treat as canonical for routing/labels
-    effective_type: (a?.artifact_type || a?.type || "").toString(),
-  }));
+  const normalized = list.map((a: any) => {
+    const rawType = (a?.artifact_type || a?.type || "").toString();
+    const eff = normalizeArtifactTypeForDisplay(rawType) || rawType;
+
+    return {
+      ...a,
+      effective_type: eff,
+      _raw_type: rawType,
+    };
+  });
 
   return { list: normalized, error };
 }
@@ -263,9 +297,8 @@ async function queryArtifacts(sb: any, projectUuid: string) {
 
 function isSubmittedArtifact(a: any) {
   const s = safeLower(a?.approval_status);
-  if (!s) return false; // treat null/empty as Draft
+  if (!s) return false;
   if (s === "draft") return false;
-  // anything else implies it has been submitted into a workflow
   return true;
 }
 
@@ -342,6 +375,17 @@ export default async function ArtifactsSidebar({ projectId }: { projectId: strin
             New Artifact
           </Link>
         </div>
+
+        {/* ✅ Quick access to legacy change control board */}
+        <div className="mt-3">
+          <Link
+            href={`/projects/${projectId}/change`}
+            className="inline-flex items-center px-3 py-1.5 rounded-lg border border-gray-200 text-xs hover:bg-gray-50"
+            title="Open Change Requests board (legacy template)"
+          >
+            Change Requests board
+          </Link>
+        </div>
       </div>
 
       <div className="p-3">
@@ -351,20 +395,25 @@ export default async function ArtifactsSidebar({ projectId }: { projectId: strin
           <nav className="space-y-1">
             {list.map((a: any) => {
               const id = String(a.id);
+              const rawType = safeStr((a as any)._raw_type || a.artifact_type || a.type);
+              const effectiveType = safeStr((a as any).effective_type || rawType) || "—";
               const title = displayArtifactTitle(a);
-              const type = safeStr((a as any).effective_type || a.artifact_type || a.type) || "—";
               const submitted = isSubmittedArtifact(a);
+              const href = artifactHref(projectId, id, rawType);
 
               return (
                 <Link
                   key={id}
-                  href={`/projects/${projectId}/artifacts/${id}`}
+                  href={href}
                   className="block rounded-xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50 px-3 py-2"
+                  title={isChangeRequestsType(rawType) ? "Opens the Change Requests board (legacy template)" : title}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-gray-900 truncate">{title}</div>
-                      <div className="mt-1 text-[11px] text-gray-500 font-mono truncate">{type}</div>
+                      <div className="mt-1 text-[11px] text-gray-500 font-mono truncate">
+                        {effectiveType}
+                      </div>
                     </div>
 
                     <StatusPill submitted={submitted} />

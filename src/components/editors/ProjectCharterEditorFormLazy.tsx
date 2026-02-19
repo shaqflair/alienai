@@ -5,6 +5,38 @@ import React, { useEffect, useMemo, useRef, useState, useTransition } from "reac
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 
+import { PROJECT_CHARTER_TEMPLATE } from "@/components/editors/charter-template";
+import {
+  autosaveProjectCharterV2,
+  saveProjectCharterV2Manual,
+} from "@/app/projects/[id]/artifacts/[artifactId]/charter-v2-actions";
+
+import type { ImproveSectionPayload } from "./ProjectCharterSectionEditor";
+import { formatDateTimeAuto } from "@/lib/date/format";
+
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+import {
+  Download,
+  FileText,
+  File,
+  Loader2,
+  Sparkles,
+  Save,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  ChevronDown,
+  Send,
+  Wand2,
+} from "lucide-react";
+
 const ProjectCharterEditor = dynamic(() => import("./ProjectCharterEditor"), {
   ssr: false,
   loading: () => <div className="text-sm text-slate-500">Loading editor…</div>,
@@ -24,38 +56,6 @@ const CharterV2DebugPanel = dynamic(() => import("@/components/editors/CharterV2
   ssr: false,
   loading: () => null,
 });
-
-import { PROJECT_CHARTER_TEMPLATE } from "@/components/editors/charter-template";
-
-import {
-  autosaveProjectCharterV2,
-  saveProjectCharterV2Manual,
-} from "@/app/projects/[id]/artifacts/[artifactId]/charter-v2-actions";
-
-import type { ImproveSectionPayload } from "./ProjectCharterSectionEditor";
-import { formatDateTimeAuto } from "@/lib/date/format";
-
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Download,
-  FileText,
-  File,
-  Loader2,
-  Sparkles,
-  Save,
-  AlertCircle,
-  CheckCircle2,
-  Clock,
-  ChevronDown,
-  Send,
-  Wand2,
-} from "lucide-react";
 
 /* ---------------------------------------------
    UK formatting + bullet normalization
@@ -94,6 +94,7 @@ function normalizeBulletLine(line: string) {
   }
   return s; // do NOT trimEnd here; keeps typing stable
 }
+
 function normalizeBulletsText(text: string) {
   const raw = String(text ?? "");
   const lines = raw.split("\n");
@@ -342,12 +343,12 @@ function applyProjectMetaDefaults(doc: any, defaults: { projectTitle?: string; p
   const title = String(defaults.projectTitle ?? "").trim();
   const pm = String(defaults.projectManagerName ?? "").trim();
 
-  if (!String(next.project_title ?? "").trim() && title) next.project_title = title;
-  if (!String(next.project_manager ?? "").trim() && pm) next.project_manager = pm;
+  if (!String((next as any).project_title ?? "").trim() && title) (next as any).project_title = title;
+  if (!String((next as any).project_manager ?? "").trim() && pm) (next as any).project_manager = pm;
 
   const changed =
-    String(next.project_title ?? "") !== String(meta.project_title ?? "") ||
-    String(next.project_manager ?? "") !== String(meta.project_manager ?? "");
+    String((next as any).project_title ?? "") !== String((meta as any).project_title ?? "") ||
+    String((next as any).project_manager ?? "") !== String((meta as any).project_manager ?? "");
 
   if (changed) return { ...d, meta: next };
   return d;
@@ -463,7 +464,7 @@ export default function ProjectCharterEditorFormLazy({
   );
   const [aiFullBusy, setAiFullBusy] = useState(false);
 
-  // (kept as-is in your snippet; not wired in this file yet)
+  // (kept as-is; not wired in this file yet)
   const [improveOpen, setImproveOpen] = useState(false);
   const [improvePayload, setImprovePayload] = useState<ImproveSectionPayload | null>(null);
   const [improveNotes, setImproveNotes] = useState<string>("");
@@ -483,6 +484,19 @@ export default function ProjectCharterEditorFormLazy({
   const [exportBusy, setExportBusy] = useState<null | "pdf" | "docx">(null);
   const [exportErr, setExportErr] = useState<string>("");
 
+  // lightweight refs to support autosave state machine
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autosaveInFlightRef = useRef(false);
+  const pendingSigRef = useRef<string | null>(null);
+
+  function markAutosaveSuccess() {
+    autosaveInFlightRef.current = false;
+    pendingSigRef.current = null;
+  }
+  function markAutosaveFailure() {
+    autosaveInFlightRef.current = false;
+  }
+
   useEffect(() => setMounted(true), []);
 
   // ✅ If projectTitle / projectManagerName arrives after initial render, seed once (without overwriting manual edits)
@@ -499,8 +513,8 @@ export default function ProjectCharterEditorFormLazy({
       const prevMeta = ensureCanonicalCharter(prev)?.meta ?? {};
       const nextMeta = ensureCanonicalCharter(next)?.meta ?? {};
       const changed =
-        String(prevMeta?.project_title ?? "") !== String(nextMeta?.project_title ?? "") ||
-        String(prevMeta?.project_manager ?? "") !== String(nextMeta?.project_manager ?? "");
+        String((prevMeta as any)?.project_title ?? "") !== String((nextMeta as any)?.project_title ?? "") ||
+        String((prevMeta as any)?.project_manager ?? "") !== String((nextMeta as any)?.project_manager ?? "");
       if (changed) {
         lastLocalEditAtRef.current = Date.now();
         setDirty(true);
@@ -554,30 +568,25 @@ export default function ProjectCharterEditorFormLazy({
 
   // ✅ CRITICAL FIX:
   // Don’t adopt incoming server JSON if it’s older than our current local doc.
-  // This prevents “I type and it disappears” after autosave when server data lags.
   useEffect(() => {
     // if user is actively editing, never adopt
     if (dirty) return;
 
-    // if we edited very recently, don’t adopt (stabilizes UX)
+    // if we edited very recently, don’t adopt
     const sinceEdit = Date.now() - (lastLocalEditAtRef.current || 0);
     if (sinceEdit < 2000) return;
 
     // no change in incoming
     if (incomingSig === adoptedSigRef.current) return;
 
-    // If incoming is not equal to what we already have locally, it’s likely stale → ignore.
-    // We only adopt when server matches our local (or when local is empty/brand-new).
-    if (incomingSig !== localSig) {
-      return;
-    }
+    // If incoming differs from local, it's likely stale → ignore.
+    if (incomingSig !== localSig) return;
 
     adoptedSigRef.current = incomingSig;
 
     const next = applyProjectMetaDefaults(ensureCanonicalCharter(initialJson), { projectTitle, projectManagerName });
     setDoc(next);
 
-    // keep PM brief in sync if server has it (but only if user hasn't typed in this field)
     const serverPmBrief = getPmBrief((ensureCanonicalCharter(initialJson) as any)?.meta);
     setPmBrief((cur) => (cur.trim().length ? cur : serverPmBrief));
 
@@ -598,72 +607,73 @@ export default function ProjectCharterEditorFormLazy({
     setDirty(true);
   }
 
-  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const autosaveInFlightRef = useRef(false);
+  function saveNow(reason: "manual" | "autosave") {
+    if (!canEdit) return;
 
- function saveNow(reason: "manual" | "autosave") {
-  if (!canEdit) return;
+    const payload = v2ForSave;
+    const sigAtStart = stableSig(payload);
+    const saveStartedAt = Date.now();
 
-  const payload = v2ForSave;
-  const sigAtStart = stableSig(payload);
-  const saveStartedAt = Date.now();
+    startTransition(() => {
+      void (async () => {
+        if (reason === "autosave") {
+          setAutosaveState("saving");
+          pendingSigRef.current = sigAtStart;
+          autosaveInFlightRef.current = true;
 
-  startTransition(async () => {
-    if (reason === "autosave") {
-      setAutosaveState("saving");
-      pendingSigRef.current = sigAtStart;
-      autosaveInFlightRef.current = true;
+          try {
+            await autosaveProjectCharterV2({
+              projectId,
+              artifactId,
+              charterV2: payload,
+              clearLegacyContent: true,
+            });
 
-      try {
-        await autosaveProjectCharterV2({
-          projectId,
-          artifactId,
-          charterV2: payload,
-          clearLegacyContent: true,
-        });
+            markAutosaveSuccess();
+            setLastSavedIso(new Date().toISOString());
+            adoptedSigRef.current = sigAtStart;
 
-        markAutosaveSuccess();
-        setLastSavedIso(new Date().toISOString());
-        adoptedSigRef.current = sigAtStart;
+            // ✅ Only mark clean if user hasn't typed since save started
+            if ((lastLocalEditAtRef.current || 0) <= saveStartedAt) {
+              setDirty(false);
+              setAutosaveState("idle");
+            } else {
+              // user typed during save; stay dirty and queue next save
+              setAutosaveState("queued");
+            }
+          } catch {
+            markAutosaveFailure();
+            setAutosaveState("queued");
+          }
+          return;
+        }
 
-        // ✅ Only mark clean if user hasn't typed since save started
-        if ((lastLocalEditAtRef.current || 0) <= saveStartedAt) {
-          setDirty(false);
+        // manual save
+        try {
+          const res = await saveProjectCharterV2Manual({
+            mode: "manual",
+            projectId,
+            artifactId,
+            charterV2: payload,
+            clearLegacyContent: true,
+          });
+
+          const newId = (res as any)?.newArtifactId ? String((res as any).newArtifactId) : "";
+
+          adoptedSigRef.current = sigAtStart;
+          setLastSavedIso(new Date().toISOString());
           setAutosaveState("idle");
-        } else {
-          // user typed during save; stay dirty and queue next save
+          setDirty(false);
+
+          if (newId && newId !== artifactId) {
+            router.replace(`/projects/${projectId}/artifacts/${newId}`);
+            router.refresh();
+          }
+        } catch {
+          // keep dirty true; show queued state so user knows it didn't persist
           setAutosaveState("queued");
         }
-      } catch {
-        markAutosaveFailure();
-        setAutosaveState("queued");
-      }
-      return;
-    }
-
-    // manual branch unchanged...
-  });
-}
-
-      const res = await saveProjectCharterV2Manual({
-        mode: "manual",
-        projectId,
-        artifactId,
-        charterV2: payload,
-        clearLegacyContent: true,
-      });
-
-      const newId = (res as any)?.newArtifactId ? String((res as any).newArtifactId) : "";
-
-      adoptedSigRef.current = sigAtStart;
-      setLastSavedIso(new Date().toISOString());
-      setAutosaveState("idle");
-      setDirty(false);
-
-      if (newId && newId !== artifactId) {
-        router.replace(`/projects/${projectId}/artifacts/${newId}`);
-        router.refresh();
-      }
+      })();
     });
   }
 
@@ -698,6 +708,7 @@ export default function ProjectCharterEditorFormLazy({
     let effectiveArtifactId = artifactId;
 
     try {
+      // Save first if dirty (so exports match the visible state)
       if (canEdit && dirty && !isPending) {
         const res = await saveProjectCharterV2Manual({
           mode: "manual",
@@ -738,7 +749,7 @@ export default function ProjectCharterEditorFormLazy({
         const raw = await res.text().catch(() => "");
         try {
           const j = JSON.parse(raw);
-          throw new Error(String(j?.error || j?.message || `Export failed (${res.status})`));
+          throw new Error(String((j as any)?.error || (j as any)?.message || `Export failed (${res.status})`));
         } catch {
           throw new Error(raw?.trim() ? raw.slice(0, 300) : `Export failed (${res.status}). Check server logs.`);
         }
@@ -845,8 +856,7 @@ export default function ProjectCharterEditorFormLazy({
     try {
       const brief = String(pmBrief ?? "");
 
-      // ✅ Update local doc immediately (UX), and also build a request payload that includes the brief
-      // without relying on React state having re-rendered yet.
+      // Update local doc immediately (UX)
       setDoc((prev) => setPmBriefInMeta(prev, brief));
       markDirty();
 
@@ -875,7 +885,6 @@ export default function ProjectCharterEditorFormLazy({
       try {
         data = text ? JSON.parse(text) : {};
       } catch {
-        // If your API returns non-JSON on error
         if (!res.ok) throw new Error(text?.trim() ? text.slice(0, 300) : `AI failed (${res.status})`);
       }
 
@@ -918,9 +927,10 @@ export default function ProjectCharterEditorFormLazy({
       });
 
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(String(data?.error ?? "AI regeneration failed"));
+      if (!res.ok) throw new Error(String((data as any)?.error ?? "AI regeneration failed"));
 
-      // keep your existing patch extraction logic (unchanged in your snippet)
+      // NOTE: keep your existing patch application logic in the section editor;
+      // this function is just the trigger.
       void data;
     } catch (e: any) {
       setAiState("error");
