@@ -1,4 +1,4 @@
-// src/app/api/wireai/generate/route.ts
+﻿// src/app/api/wireai/generate/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -6,6 +6,7 @@ import OpenAI from "openai";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type RowObj = { type: "header" | "data"; cells: string[] };
 
@@ -31,7 +32,7 @@ type Patch =
     };
 
 /* =========================================================================================
-   ? Weekly Report (simple, stable schema)
+   Weekly Report schema (kept as-is)
 ========================================================================================= */
 
 type WeeklyRag = "green" | "amber" | "red";
@@ -59,7 +60,6 @@ type WeeklyReportDocV1 = {
 
   operationalBlockers: string; // bullets, one per line
 
-  // ? ADD: optional meta used by exports (non-breaking)
   meta?: {
     previous?: {
       rag?: WeeklyRag;
@@ -178,7 +178,6 @@ function normalizeWeeklyDoc(doc: any, fallback: { from: string; to: string; rag:
 
   const operationalBlockers = normalizeWeeklyBullets(doc?.operationalBlockers ?? doc?.blockers ?? "");
 
-  // ? Preserve meta (non-breaking)
   const metaIn = doc?.meta && typeof doc.meta === "object" ? doc.meta : undefined;
 
   return {
@@ -198,16 +197,14 @@ function normalizeWeeklyDoc(doc: any, fallback: { from: string; to: string; rag:
 }
 
 /* =========================================================================================
-   OPTIONAL enrichment (projectId -> previous trend + dimensions + schedule milestones)
+   OPTIONAL enrichment (weekly) - kept as-is
 ========================================================================================= */
 
 function isEarlier(aYmd: string, bYmd: string) {
-  // true if a < b
   return aYmd && bYmd && aYmd < bYmd;
 }
 
 function pickLatestDocBeforePeriod(docs: WeeklyReportDocV1[], fromYmd: string) {
-  // choose the report whose periodTo is < fromYmd, with the latest periodTo
   const candidates = docs
     .filter((d) => looksLikeYmd(s(d?.periodTo)) && isEarlier(s(d.periodTo), fromYmd))
     .sort((a, b) => (s(a.periodTo) < s(b.periodTo) ? 1 : -1));
@@ -221,13 +218,10 @@ function tableFirstColBullets(table: { rows: RowObj[] } | null | undefined, max 
   return out.slice(0, max);
 }
 
-// --- compute Time/Scope from schedule+wbs (simple stable heuristics)
 function computeTimeRagFromSchedule(scheduleJson: any, periodTo: string): WeeklyRag {
-  // expect your schedule doc shape: items[] with type/status/end/due/start fields
   const items = Array.isArray(scheduleJson?.items) ? scheduleJson.items : [];
   const milestones = items.filter((it: any) => s(it?.type).toLowerCase() === "milestone");
 
-  // overdue milestone => red
   const overdue = milestones.some((m: any) => {
     const due = s(m?.end || m?.due || m?.date || "").slice(0, 10);
     const status = s(m?.status).toLowerCase();
@@ -237,7 +231,6 @@ function computeTimeRagFromSchedule(scheduleJson: any, periodTo: string): Weekly
   });
   if (overdue) return "red";
 
-  // due in next 7 days and not on_track/done => amber
   const toDt = new Date(`${periodTo}T00:00:00Z`);
   const soon = milestones.some((m: any) => {
     const due = s(m?.end || m?.due || m?.date || "").slice(0, 10);
@@ -255,7 +248,6 @@ function computeTimeRagFromSchedule(scheduleJson: any, periodTo: string): Weekly
 }
 
 function computeScopeRagFromWbs(wbsJson: any): WeeklyRag {
-  // expect wbs tasks/items list with status
   const items = Array.isArray(wbsJson?.items)
     ? wbsJson.items
     : Array.isArray(wbsJson?.workItems)
@@ -266,7 +258,6 @@ function computeScopeRagFromWbs(wbsJson: any): WeeklyRag {
   const blocked = items.filter((it: any) => s(it?.status).toLowerCase() === "blocked").length;
   const total = items.length;
 
-  // simple thresholds
   const ratio = total ? blocked / total : 0;
   if (ratio >= 0.25) return "red";
   if (ratio >= 0.1) return "amber";
@@ -276,8 +267,6 @@ function computeScopeRagFromWbs(wbsJson: any): WeeklyRag {
 async function loadProjectArtifacts(projectId: string) {
   const sb = await createClient();
 
-  // You may need to adjust table/columns to your schema.
-  // Assumption: artifacts table has { project_id, type, content_json, updated_at }
   const { data, error } = await sb
     .from("artifacts")
     .select("id,type,content_json,updated_at")
@@ -290,7 +279,7 @@ async function loadProjectArtifacts(projectId: string) {
 }
 
 /* =========================================================================================
-   ? Section Allowlist + Closure support (existing)
+   Charter allowlist + normalize
 ========================================================================================= */
 
 const CHARTER_REQUIRED_SECTIONS: Array<{
@@ -447,7 +436,7 @@ function normalizeReplaceAllDoc(doc: any) {
 }
 
 /* =========================================================================================
-   ? Prompts
+   Prompts
 ========================================================================================= */
 
 function buildSystemPromptForMode(mode: "full" | "section" | "suggest" | "validate") {
@@ -519,7 +508,7 @@ function buildWeeklySystemPrompt() {
 }
 
 /**
- * ? OpenAI call (returns JSON string)
+ * OpenAI call (returns JSON string)
  */
 async function callYourLLM(args: { system: string; user: string }) {
   const apiKey = mustEnv("WIRE_AI_API_KEY");
@@ -553,7 +542,6 @@ function isAllowedSectionKey(key: string) {
   if (!k) return false;
 
   if (requiredByKey().has(k)) return true;
-
   if (CLOSURE_ALLOWED_KEYS.has(k)) return true;
   if (isClosureKey(k)) return true;
 
@@ -564,20 +552,67 @@ function isWeeklyRequest(body: any) {
   const t = s(body?.artifactType || body?.type || body?.doc?.type || "").trim().toLowerCase();
   if (t === "weekly_report" || t === "weeklyreport") return true;
   if (body?.weekly === true) return true;
-  // Some clients might pass mode="weekly"
   if (s(body?.mode).trim().toLowerCase() === "weekly") return true;
   return false;
 }
 
+/* =========================================================================================
+   Response helpers
+========================================================================================= */
+
+function json(data: any, status = 200) {
+  const res = NextResponse.json(data, { status });
+  res.headers.set("Cache-Control", "no-store, max-age=0");
+  return res;
+}
+
+function normalizeFullPrompt(body: any, meta: any) {
+  // UI v2 sends: meta.pm_brief + instructions[]
+  const userPrompt = s(body?.userPrompt || body?.prompt || body?.pmBrief || "");
+  const pmBrief = s(meta?.pm_brief || meta?.pmBrief || "");
+  const instructions = Array.isArray(body?.instructions) ? body.instructions.map((x: any) => s(x)).filter(Boolean) : [];
+
+  const parts: string[] = [];
+  if (pmBrief.trim()) parts.push("PM Brief:", pmBrief.trim(), "");
+  if (userPrompt.trim()) parts.push("User Prompt:", userPrompt.trim(), "");
+  if (instructions.length) parts.push("Instructions:", ...instructions.map((x) => `- ${x}`), "");
+
+  const combined = parts.join("\n").trim();
+  return combined;
+}
+
+/* =========================================================================================
+   Handler
+========================================================================================= */
+
 export async function POST(req: Request) {
+  // Optional: ensure auth is present (prevents mysterious RLS behaviour later)
+  try {
+    const sb = await createClient();
+    const { data } = await sb.auth.getUser();
+    if (!data?.user) {
+      return json({ ok: false, error: "Not authenticated" }, 401);
+    }
+  } catch {
+    // if auth lookup fails, still continue; but most setups should have it
+  }
+
   const body = await req.json().catch(() => ({}));
 
-  // ? Weekly Report path (separate payload contract)
+  // Weekly path (kept as-is)
   if (isWeeklyRequest(body)) {
     const p = provider();
 
-    const from = looksLikeYmd(s(body?.periodFrom)) ? s(body.periodFrom) : looksLikeYmd(s(body?.from)) ? s(body.from) : "";
-    const to = looksLikeYmd(s(body?.periodTo)) ? s(body.periodTo) : looksLikeYmd(s(body?.to)) ? s(body.to) : "";
+    const from = looksLikeYmd(s(body?.periodFrom))
+      ? s(body.periodFrom)
+      : looksLikeYmd(s(body?.from))
+        ? s(body.from)
+        : "";
+    const to = looksLikeYmd(s(body?.periodTo))
+      ? s(body.periodTo)
+      : looksLikeYmd(s(body?.to))
+        ? s(body.to)
+        : "";
     const rag = coerceRag(body?.rag);
 
     const fallbackFrom = from || new Date().toISOString().slice(0, 10);
@@ -586,7 +621,6 @@ export async function POST(req: Request) {
     const meta = body?.meta && typeof body.meta === "object" ? body.meta : {};
     const context = clampStr(body?.userPrompt || body?.prompt || body?.notes || "");
 
-    // ? Add projectId-based enrichment (safe no-op when absent)
     const projectId = s(body?.projectId || body?.project_id || meta?.projectId || meta?.project_id).trim();
 
     let enrichedMeta: any = meta;
@@ -595,7 +629,6 @@ export async function POST(req: Request) {
       try {
         const rows = await loadProjectArtifacts(projectId);
 
-        // collect weekly reports
         const weeklyDocs: WeeklyReportDocV1[] = rows
           .filter((r: any) => s(r?.type).toLowerCase() === "weekly_report")
           .map((r: any) => r?.content_json)
@@ -603,11 +636,9 @@ export async function POST(req: Request) {
 
         const prev = pickLatestDocBeforePeriod(weeklyDocs as any, fallbackFrom);
 
-        // schedule + wbs artifacts (adjust type names if yours differ)
         const schedule = rows.find((r: any) => s(r?.type).toLowerCase() === "schedule")?.content_json ?? null;
         const wbs = rows.find((r: any) => s(r?.type).toLowerCase() === "wbs")?.content_json ?? null;
 
-        // milestones from schedule
         const schedItems = Array.isArray(schedule?.items) ? schedule.items : [];
         const scheduleMilestones = schedItems
           .filter((it: any) => s(it?.type).toLowerCase() === "milestone")
@@ -618,27 +649,18 @@ export async function POST(req: Request) {
           .filter((m: any) => m.name)
           .slice(0, 8);
 
-        // dimension rags
         const timeRag = schedule ? computeTimeRagFromSchedule(schedule, fallbackTo) : undefined;
         const scopeRag = wbs ? computeScopeRagFromWbs(wbs) : undefined;
 
-        // previous milestone rag map (light heuristic)
         const prevMilestones: Record<string, { rag?: WeeklyRag }> = {};
         if (prev && prev?.completedThisPeriod) {
           const prevItems = tableFirstColBullets(prev.completedThisPeriod, 20);
-          for (const t of prevItems) {
-            prevMilestones[t] = { rag: prev.rag };
-          }
+          for (const t of prevItems) prevMilestones[t] = { rag: prev.rag };
         }
 
         enrichedMeta = {
           ...(meta || {}),
-          previous: prev
-            ? {
-                rag: prev.rag,
-                milestonesByName: prevMilestones,
-              }
-            : undefined,
+          previous: prev ? { rag: prev.rag, milestonesByName: prevMilestones } : undefined,
           dimensions: {
             ...(meta?.dimensions || {}),
             ...(timeRag ? { time: timeRag } : {}),
@@ -647,7 +669,6 @@ export async function POST(req: Request) {
           milestones: scheduleMilestones.length ? scheduleMilestones : undefined,
         };
       } catch {
-        // swallow errors to keep behaviour stable
         enrichedMeta = meta;
       }
     }
@@ -689,7 +710,7 @@ export async function POST(req: Request) {
         { from: fallbackFrom, to: fallbackTo, rag }
       );
 
-      return NextResponse.json({ ok: true, content_json: weeklyDoc });
+      return json({ ok: true, content_json: weeklyDoc });
     }
 
     const system = buildWeeklySystemPrompt();
@@ -710,7 +731,6 @@ export async function POST(req: Request) {
 
       const candidate = parsed?.content_json ?? parsed?.contentJson ?? parsed;
 
-      // ? ensure meta survives even if the model doesn't echo it back
       const mergedCandidate =
         candidate && typeof candidate === "object"
           ? { ...candidate, meta: { ...(candidate?.meta || {}), ...(enrichedMeta || {}) } }
@@ -718,46 +738,53 @@ export async function POST(req: Request) {
 
       const weeklyDoc = normalizeWeeklyDoc(mergedCandidate, { from: fallbackFrom, to: fallbackTo, rag });
 
-      return NextResponse.json({ ok: true, content_json: weeklyDoc });
+      return json({ ok: true, content_json: weeklyDoc });
     } catch (e: any) {
-      return NextResponse.json({ ok: false, error: e?.message ?? "Weekly report generate failed" }, { status: 500 });
+      return json({ ok: false, error: e?.message ?? "Weekly report generate failed" }, 500);
     }
   }
 
-  // ? Existing Charter/Closure patch behaviour (unchanged)
+  // Charter/Closure path
   const mode = s(body?.mode).toLowerCase() as "full" | "section" | "suggest" | "validate";
   const meta = body?.meta && typeof body.meta === "object" ? body.meta : {};
   const doc = body?.doc && typeof body.doc === "object" ? body.doc : null;
 
   if (!["full", "section", "suggest", "validate"].includes(mode)) {
-    return NextResponse.json({ error: "Invalid mode. Use full|section|suggest|validate." }, { status: 400 });
+    return json({ ok: false, error: "Invalid mode. Use full|section|suggest|validate." }, 400);
   }
 
   const p = provider();
-  if (p === "mock") {
-    return NextResponse.json({
-      patch: {
-        kind: "replace_all",
-        doc: normalizeReplaceAllDoc({ meta, sections: [] }),
-      },
-    });
-  }
 
   const sectionKey = s(body?.key || body?.sectionKey || "").trim();
-  const userPrompt = s(body?.userPrompt || body?.prompt || "");
   const notes = s(body?.notes || "");
   const selectedText = s(body?.selectedText || "");
 
-  if (mode === "full" && !userPrompt.trim()) {
-    return NextResponse.json({ error: "Missing userPrompt" }, { status: 400 });
+  // ✅ FIX: full mode can be driven by meta.pm_brief and/or instructions
+  const fullPrompt = normalizeFullPrompt(body, meta);
+
+  if (mode === "full" && !fullPrompt.trim()) {
+    return json(
+      {
+        ok: false,
+        error: "Missing prompt. Provide userPrompt OR meta.pm_brief OR instructions[].",
+      },
+      400
+    );
   }
 
   if ((mode === "section" || mode === "suggest") && !sectionKey) {
-    return NextResponse.json({ error: "Missing key (sectionKey)" }, { status: 400 });
+    return json({ ok: false, error: "Missing key (sectionKey)" }, 400);
   }
 
   if ((mode === "section" || mode === "suggest") && !isAllowedSectionKey(sectionKey)) {
-    return NextResponse.json({ error: `Unknown section key: ${sectionKey}` }, { status: 400 });
+    return json({ ok: false, error: `Unknown section key: ${sectionKey}` }, 400);
+  }
+
+  // MOCK for charter: return BOTH patch and charterV2 (UI-friendly)
+  if (p === "mock") {
+    const docOut = normalizeReplaceAllDoc({ meta, sections: Array.isArray(doc?.sections) ? doc.sections : [] });
+    const patchOut: Patch = { kind: "replace_all", doc: docOut };
+    return json({ ok: true, patch: patchOut, charterV2: docOut });
   }
 
   const system = buildSystemPromptForMode(mode);
@@ -765,7 +792,7 @@ export async function POST(req: Request) {
   const userLines: string[] = [];
 
   if (mode === "full") {
-    userLines.push("High-level request (from user):", userPrompt.trim(), "");
+    userLines.push("High-level request (PM Brief / Instructions):", fullPrompt.trim(), "");
   } else if (mode === "section") {
     userLines.push("Requested mode: regenerate ONE section", `sectionKey: ${sectionKey}`, "");
   } else if (mode === "suggest") {
@@ -814,30 +841,33 @@ export async function POST(req: Request) {
     const patch = extractPatch(parsed);
 
     if (!patch) {
-      return NextResponse.json({ error: "AI returned invalid JSON patch wrapper", raw }, { status: 422 });
+      return json({ ok: false, error: "AI returned invalid JSON patch wrapper", raw }, 422);
     }
 
+    // ✅ For full mode, ALWAYS return top-level charterV2 for your UI
     if (patch.kind === "replace_all") {
       const normalizedDoc = normalizeReplaceAllDoc((patch as any).doc);
-      return NextResponse.json({ patch: { kind: "replace_all", doc: normalizedDoc } satisfies Patch });
+      const patchOut: Patch = { kind: "replace_all", doc: normalizedDoc };
+      return json({ ok: true, patch: patchOut, charterV2: normalizedDoc });
     }
 
     if (patch.kind === "replace_section") {
       const k = s((patch as any).key || sectionKey).trim();
 
       if (!k || !isAllowedSectionKey(k)) {
-        return NextResponse.json({ error: "AI returned invalid section key", raw }, { status: 422 });
+        return json({ ok: false, error: "AI returned invalid section key", raw }, 422);
       }
 
       const normalized = normalizeSection(k, (patch as any).section ?? {});
-      return NextResponse.json({ patch: { kind: "replace_section", key: k, section: normalized } satisfies Patch });
+      const patchOut: Patch = { kind: "replace_section", key: k, section: normalized };
+      return json({ ok: true, patch: patchOut });
     }
 
     if (patch.kind === "suggestions") {
       const k = s((patch as any).key || sectionKey).trim();
 
       if (!k || !isAllowedSectionKey(k)) {
-        return NextResponse.json({ error: "AI returned invalid suggestions key", raw }, { status: 422 });
+        return json({ ok: false, error: "AI returned invalid suggestions key", raw }, 422);
       }
 
       const suggestionsIn = Array.isArray((patch as any).suggestions) ? (patch as any).suggestions : [];
@@ -859,7 +889,8 @@ export async function POST(req: Request) {
         suggestions.push({ id, label, section: normalizeSection(k, {}) });
       }
 
-      return NextResponse.json({ patch: { kind: "suggestions", key: k, suggestions } satisfies Patch });
+      const patchOut: Patch = { kind: "suggestions", key: k, suggestions };
+      return json({ ok: true, patch: patchOut });
     }
 
     if (patch.kind === "validate") {
@@ -884,14 +915,7 @@ export async function POST(req: Request) {
             }
           }
 
-          const safeKey =
-            isAllowedSectionKey(key)
-              ? key
-              : requiredByKey().has(key)
-                ? key
-                : isClosureKey(key)
-                  ? key
-                  : CHARTER_REQUIRED_SECTIONS[0].key;
+          const safeKey = isAllowedSectionKey(key) ? key : CHARTER_REQUIRED_SECTIONS[0].key;
 
           return {
             key: safeKey,
@@ -901,11 +925,12 @@ export async function POST(req: Request) {
           };
         });
 
-      return NextResponse.json({ patch: { kind: "validate", issues } satisfies Patch });
+      const patchOut: Patch = { kind: "validate", issues };
+      return json({ ok: true, patch: patchOut });
     }
 
-    return NextResponse.json({ error: "Unsupported patch kind", raw }, { status: 422 });
+    return json({ ok: false, error: "Unsupported patch kind", raw }, 422);
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "AI generate failed" }, { status: 500 });
+    return json({ ok: false, error: e?.message ?? "AI generate failed" }, 500);
   }
 }

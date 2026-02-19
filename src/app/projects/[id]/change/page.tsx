@@ -2,17 +2,33 @@
 import "server-only";
 
 import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 
 import ChangeHeader from "@/components/change/ChangeHeader";
 import ChangeManagementBoard from "@/components/change/ChangeManagementBoard";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 /* -------------------------------------------
-   small helper
+   small helpers
 ------------------------------------------- */
 
 function safeStr(x: unknown) {
   return typeof x === "string" ? x : "";
+}
+
+function toText(v: any) {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number") return Number.isFinite(v) ? String(v) : "";
+  if (typeof v === "bigint") return String(v);
+  try {
+    return String(v);
+  } catch {
+    return "";
+  }
 }
 
 /* -------------------------------------------
@@ -21,16 +37,24 @@ function safeStr(x: unknown) {
 
 export default async function ChangeLogPage({
   params,
+  searchParams,
 }: {
-  // ✅ Next.js can pass params as a Promise in some setups — handle both safely
+  // Next.js can pass params as a Promise in some setups — handle both safely
   params: { id?: string } | Promise<{ id?: string }>;
+  searchParams?: { [k: string]: string | string[] | undefined } | Promise<{ [k: string]: any }>;
 }) {
-  const p =
-    typeof (params as any)?.then === "function"
-      ? await (params as any)
-      : (params as any);
+  const p = typeof (params as any)?.then === "function" ? await (params as any) : (params as any);
+  const sp =
+    typeof (searchParams as any)?.then === "function" ? await (searchParams as any) : (searchParams as any);
 
   const projectId = safeStr(p?.id).trim();
+  if (!projectId) notFound();
+
+  // If some old UI is still linking to /change?view=changes, normalise it
+  const view = safeStr(sp?.view);
+  if (view && view.toLowerCase() === "changes") {
+    redirect(`/projects/${projectId}/change`);
+  }
 
   /* -------------------------------------------
      project "human id" (for UI chip only)
@@ -48,18 +72,6 @@ export default async function ChangeLogPage({
       .maybeSingle();
 
     if (!error && proj) {
-      const toText = (v: any) => {
-        if (v == null) return "";
-        if (typeof v === "string") return v;
-        if (typeof v === "number") return Number.isFinite(v) ? String(v) : "";
-        if (typeof v === "bigint") return String(v);
-        try {
-          return String(v);
-        } catch {
-          return "";
-        }
-      };
-
       const candidates = [
         toText((proj as any).project_number),
         toText((proj as any).project_no),
@@ -128,7 +140,7 @@ export default async function ChangeLogPage({
               flexWrap: "wrap",
             }}
           >
-            {projectCode && (
+            {projectCode ? (
               <span
                 className="px-3 py-2 rounded-xl border border-gray-200 text-sm"
                 title="Project ID"
@@ -136,9 +148,9 @@ export default async function ChangeLogPage({
               >
                 {`PRJ-${projectCode}`}
               </span>
-            )}
+            ) : null}
 
-            {compareHref && (
+            {compareHref ? (
               <Link
                 href={compareHref}
                 className="px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm"
@@ -146,12 +158,12 @@ export default async function ChangeLogPage({
               >
                 Compare versions
               </Link>
-            )}
+            ) : null}
           </div>
         }
       />
 
-      {/* ✅ REAL FIX — route param passed directly */}
+      {/* ✅ route param passed directly */}
       <ChangeManagementBoard projectId={projectId} />
     </main>
   );

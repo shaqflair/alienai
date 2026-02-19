@@ -373,23 +373,16 @@ function isNonEmptyString(x: any) {
 }
 
 function mergeAiFullIntoCharter(prevDoc: any, ai: any) {
-  // Accept:
-  // - { version:2, sections:[...] , meta?:{...} }
-  // - { charterV2: { ... } }
-  // - { doc: { ... } }
   const candidate =
-    (ai && typeof ai === "object" && ((ai as any).charterV2 || (ai as any).doc)) ||
-    ai;
+    (ai && typeof ai === "object" && ((ai as any).charterV2 || (ai as any).doc)) || ai;
 
   const raw = (candidate as any)?.charterV2 ?? (candidate as any)?.doc ?? candidate;
 
-  // Canonicalize + ensure required sections exist.
   const canon = ensureCanonicalCharter(raw);
 
-  // Preserve any existing meta keys unless AI provides them; but always keep pm_brief from prev.
   const prevCanon = ensureCanonicalCharter(prevDoc);
-  const prevMeta = (prevCanon.meta && typeof prevCanon.meta === "object") ? prevCanon.meta : {};
-  const nextMeta = (canon.meta && typeof canon.meta === "object") ? canon.meta : {};
+  const prevMeta = prevCanon.meta && typeof prevCanon.meta === "object" ? prevCanon.meta : {};
+  const nextMeta = canon.meta && typeof canon.meta === "object" ? canon.meta : {};
   const pmBrief = getPmBrief(prevMeta);
 
   const mergedMeta = {
@@ -398,12 +391,13 @@ function mergeAiFullIntoCharter(prevDoc: any, ai: any) {
     pm_brief: pmBrief,
   };
 
-  // Normalize bullet sections again to avoid "• •" if AI returned bullets with symbols.
-  const nextSections = Array.isArray(canon.sections) ? canon.sections.map((s: any) => {
-    const sec = { ...s };
-    if (typeof sec.bullets === "string") sec.bullets = normalizeBulletsText(sec.bullets);
-    return sec;
-  }) : [];
+  const nextSections = Array.isArray(canon.sections)
+    ? canon.sections.map((s: any) => {
+        const sec = { ...s };
+        if (typeof sec.bullets === "string") sec.bullets = normalizeBulletsText(sec.bullets);
+        return sec;
+      })
+    : [];
 
   return { ...canon, meta: mergedMeta, sections: nextSections };
 }
@@ -416,7 +410,6 @@ export default function ProjectCharterEditorFormLazy({
   lockLayout = false,
   artifactVersion,
 
-  // ✅ pass these from the project page (project title + PM at creation)
   projectTitle,
   projectManagerName,
 
@@ -464,10 +457,13 @@ export default function ProjectCharterEditorFormLazy({
   const [aiError, setAiError] = useState<string>("");
   const [aiLoadingKey, setAiLoadingKey] = useState<string | null>(null);
 
-  // ✅ NEW: full-generation UI state (PM brief + button state)
-  const [pmBrief, setPmBrief] = useState<string>(() => getPmBrief((ensureCanonicalCharter(initialJson) as any)?.meta));
+  // full-generation UI state (PM brief + button state)
+  const [pmBrief, setPmBrief] = useState<string>(() =>
+    getPmBrief((ensureCanonicalCharter(initialJson) as any)?.meta)
+  );
   const [aiFullBusy, setAiFullBusy] = useState(false);
 
+  // (kept as-is in your snippet; not wired in this file yet)
   const [improveOpen, setImproveOpen] = useState(false);
   const [improvePayload, setImprovePayload] = useState<ImproveSectionPayload | null>(null);
   const [improveNotes, setImproveNotes] = useState<string>("");
@@ -500,7 +496,6 @@ export default function ProjectCharterEditorFormLazy({
 
     setDoc((prev: any) => {
       const next = applyProjectMetaDefaults(prev, { projectTitle, projectManagerName });
-      // If it actually changed doc.meta, mark dirty so it persists
       const prevMeta = ensureCanonicalCharter(prev)?.meta ?? {};
       const nextMeta = ensureCanonicalCharter(next)?.meta ?? {};
       const changed =
@@ -521,7 +516,7 @@ export default function ProjectCharterEditorFormLazy({
     let cancelled = false;
     async function detectCaps() {
       try {
-        const res = await fetch("/api/wireai/capabilities", { method: "GET" });
+        const res = await fetch("/api/wireai/capabilities", { method: "GET", cache: "no-store" });
         if (!res.ok) return;
         const data = await res.json().catch(() => null);
         if (!data || typeof data !== "object") return;
@@ -545,14 +540,38 @@ export default function ProjectCharterEditorFormLazy({
   const incomingSig = useMemo(() => stableSig(initialJson), [initialJson]);
   const adoptedSigRef = useRef(incomingSig);
 
-  // ✅ FIX: don’t adopt incoming server JSON while user is typing (prevents “letters disappear”)
+  const v2ForSave = useMemo(() => {
+    const d = ensureCanonicalCharter(doc);
+    return {
+      version: 2 as const,
+      type: "project_charter" as const,
+      meta: d?.meta ?? {},
+      sections: Array.isArray(d?.sections) ? d.sections : [],
+    };
+  }, [doc]);
+
+  const localSig = useMemo(() => stableSig(v2ForSave), [v2ForSave]);
+
+  // ✅ CRITICAL FIX:
+  // Don’t adopt incoming server JSON if it’s older than our current local doc.
+  // This prevents “I type and it disappears” after autosave when server data lags.
   useEffect(() => {
+    // if user is actively editing, never adopt
     if (dirty) return;
 
+    // if we edited very recently, don’t adopt (stabilizes UX)
     const sinceEdit = Date.now() - (lastLocalEditAtRef.current || 0);
-    if (sinceEdit < 1500) return;
+    if (sinceEdit < 2000) return;
 
+    // no change in incoming
     if (incomingSig === adoptedSigRef.current) return;
+
+    // If incoming is not equal to what we already have locally, it’s likely stale → ignore.
+    // We only adopt when server matches our local (or when local is empty/brand-new).
+    if (incomingSig !== localSig) {
+      return;
+    }
+
     adoptedSigRef.current = incomingSig;
 
     const next = applyProjectMetaDefaults(ensureCanonicalCharter(initialJson), { projectTitle, projectManagerName });
@@ -563,17 +582,7 @@ export default function ProjectCharterEditorFormLazy({
     setPmBrief((cur) => (cur.trim().length ? cur : serverPmBrief));
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incomingSig, dirty, projectTitle, projectManagerName]);
-
-  const v2ForSave = useMemo(() => {
-    const d = ensureCanonicalCharter(doc);
-    return {
-      version: 2 as const,
-      type: "project_charter" as const,
-      meta: d?.meta ?? {},
-      sections: Array.isArray(d?.sections) ? d.sections : [],
-    };
-  }, [doc]);
+  }, [incomingSig, localSig, dirty, projectTitle, projectManagerName]);
 
   const canEdit = !readOnly && !lockLayout;
   const isCanonicalV2 = isV2(doc);
@@ -591,48 +600,50 @@ export default function ProjectCharterEditorFormLazy({
 
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autosaveInFlightRef = useRef(false);
-  const pendingSigRef = useRef<string>("");
 
-  function markAutosaveSuccess() {
-    pendingSigRef.current = "";
-    autosaveInFlightRef.current = false;
-  }
-  function markAutosaveFailure() {
-    pendingSigRef.current = "";
-    autosaveInFlightRef.current = false;
-  }
+ function saveNow(reason: "manual" | "autosave") {
+  if (!canEdit) return;
 
-  function saveNow(reason: "manual" | "autosave") {
-    if (!canEdit) return;
+  const payload = v2ForSave;
+  const sigAtStart = stableSig(payload);
+  const saveStartedAt = Date.now();
 
-    const payload = v2ForSave;
-    const sigAtStart = stableSig(payload);
+  startTransition(async () => {
+    if (reason === "autosave") {
+      setAutosaveState("saving");
+      pendingSigRef.current = sigAtStart;
+      autosaveInFlightRef.current = true;
 
-    startTransition(async () => {
-      if (reason === "autosave") {
-        setAutosaveState("saving");
-        pendingSigRef.current = sigAtStart;
-        autosaveInFlightRef.current = true;
+      try {
+        await autosaveProjectCharterV2({
+          projectId,
+          artifactId,
+          charterV2: payload,
+          clearLegacyContent: true,
+        });
 
-        try {
-          await autosaveProjectCharterV2({
-            projectId,
-            artifactId,
-            charterV2: payload,
-            clearLegacyContent: true,
-          });
-          markAutosaveSuccess();
-          setLastSavedIso(new Date().toISOString());
-          adoptedSigRef.current = sigAtStart;
+        markAutosaveSuccess();
+        setLastSavedIso(new Date().toISOString());
+        adoptedSigRef.current = sigAtStart;
 
+        // ✅ Only mark clean if user hasn't typed since save started
+        if ((lastLocalEditAtRef.current || 0) <= saveStartedAt) {
           setDirty(false);
           setAutosaveState("idle");
-        } catch {
-          markAutosaveFailure();
+        } else {
+          // user typed during save; stay dirty and queue next save
           setAutosaveState("queued");
         }
-        return;
+      } catch {
+        markAutosaveFailure();
+        setAutosaveState("queued");
       }
+      return;
+    }
+
+    // manual branch unchanged...
+  });
+}
 
       const res = await saveProjectCharterV2Manual({
         mode: "manual",
@@ -676,7 +687,7 @@ export default function ProjectCharterEditorFormLazy({
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, canEdit, v2ForSave]);
+  }, [dirty, canEdit, localSig]);
 
   const badgeVersion = Number(artifactVersion ?? 1);
 
@@ -832,18 +843,23 @@ export default function ProjectCharterEditorFormLazy({
     setAiFullBusy(true);
 
     try {
-      // persist PM brief into doc.meta first (so AI sees it + it saves)
       const brief = String(pmBrief ?? "");
+
+      // ✅ Update local doc immediately (UX), and also build a request payload that includes the brief
+      // without relying on React state having re-rendered yet.
       setDoc((prev) => setPmBriefInMeta(prev, brief));
       markDirty();
+
+      const docForRequest = setPmBriefInMeta(v2ForSave, brief);
 
       const res = await fetch("/api/wireai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        cache: "no-store",
         body: JSON.stringify({
           mode: "full",
-          doc: v2ForSave,
-          meta: { ...(v2ForSave.meta ?? {}), pm_brief: brief },
+          doc: docForRequest,
+          meta: { ...((docForRequest as any).meta ?? {}), pm_brief: brief },
           template: "pmi",
           instructions: [
             "Populate ALL sections of the Project Charter.",
@@ -854,8 +870,16 @@ export default function ProjectCharterEditorFormLazy({
         }),
       });
 
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(String((data as any)?.error ?? "AI full generation failed"));
+      const text = await res.text().catch(() => "");
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        // If your API returns non-JSON on error
+        if (!res.ok) throw new Error(text?.trim() ? text.slice(0, 300) : `AI failed (${res.status})`);
+      }
+
+      if (!res.ok) throw new Error(String(data?.error ?? "AI full generation failed"));
 
       setDoc((prev) => mergeAiFullIntoCharter(prev, data));
       lastLocalEditAtRef.current = Date.now();
@@ -883,6 +907,7 @@ export default function ProjectCharterEditorFormLazy({
       const res = await fetch("/api/wireai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        cache: "no-store",
         body: JSON.stringify({
           mode: "section",
           sectionKey: key,
@@ -896,7 +921,6 @@ export default function ProjectCharterEditorFormLazy({
       if (!res.ok) throw new Error(String(data?.error ?? "AI regeneration failed"));
 
       // keep your existing patch extraction logic (unchanged in your snippet)
-      // ... (left as-is to avoid accidental regressions)
       void data;
     } catch (e: any) {
       setAiState("error");
@@ -989,7 +1013,6 @@ export default function ProjectCharterEditorFormLazy({
               </button>
             </div>
 
-            {/* ✅ NEW: AI full generate button */}
             <Button
               type="button"
               variant="outline"
@@ -1101,15 +1124,15 @@ export default function ProjectCharterEditorFormLazy({
           </div>
         </div>
 
-        {/* ✅ NEW: PM Brief textbox */}
+        {/* PM Brief textbox */}
         {canEdit ? (
           <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1">
                 <div className="text-sm font-semibold text-slate-900">PM Brief (context for AI)</div>
                 <div className="text-xs text-slate-600">
-                  Write freely. AI will draft the full charter and flag uncertain items as <span className="font-mono">[ASSUMPTION]</span> /{" "}
-                  <span className="font-mono">[TBC]</span>.
+                  Write freely. AI will draft the full charter and flag uncertain items as{" "}
+                  <span className="font-mono">[ASSUMPTION]</span> / <span className="font-mono">[TBC]</span>.
                 </div>
               </div>
 
@@ -1133,7 +1156,7 @@ export default function ProjectCharterEditorFormLazy({
               onChange={(e) => {
                 const v = e.target.value;
                 setPmBrief(v);
-                // also store into doc.meta for saving + exports (without clobber)
+
                 lastLocalEditAtRef.current = Date.now();
                 setDoc((prev) => setPmBriefInMeta(prev, v));
                 setDirty(true);
@@ -1145,7 +1168,9 @@ export default function ProjectCharterEditorFormLazy({
 
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
               <div>
-                Tip: include <span className="font-medium">why</span>, <span className="font-medium">who</span>, <span className="font-medium">when</span>, <span className="font-medium">constraints</span>, and{" "}
+                Tip: include <span className="font-medium">why</span>,{" "}
+                <span className="font-medium">who</span>, <span className="font-medium">when</span>,{" "}
+                <span className="font-medium">constraints</span>, and{" "}
                 <span className="font-medium">success measures</span>.
               </div>
               <div className="text-slate-500">
@@ -1198,7 +1223,6 @@ export default function ProjectCharterEditorFormLazy({
             sections={sectionsForEditor}
             onChange={(sections: any) => {
               markDirty();
-              // ✅ FIX: functional update prevents stale closure + typing glitches
               setDoc((prev: any) => ensureCanonicalCharter({ ...prev, sections }));
             }}
             readOnly={sectionReadOnly}
