@@ -142,11 +142,8 @@ const REQUIRED_SECTIONS: Array<{
   kind: "bullets" | "table";
   headers?: string[];
 }> = [
-  // ✅ per your request: Business case + Objectives should be FREE TEXT (we implement as bullets-section,
-  // but the section editor should render as textarea. We'll wire that in the SectionEditor file next.)
   { key: "business_case", title: "1. Business Case", kind: "bullets" },
   { key: "objectives", title: "2. Objectives", kind: "bullets" },
-
   {
     key: "scope_in_out",
     title: "3. Scope (In / Out of Scope)",
@@ -166,13 +163,10 @@ const REQUIRED_SECTIONS: Array<{
     kind: "table",
     headers: ["Item", "Amount", "Currency", "Notes"],
   },
-
-  // ✅ per your request: keep these visible as bullet lists
   { key: "risks", title: "7. Risks", kind: "bullets" },
   { key: "issues", title: "8. Issues", kind: "bullets" },
   { key: "assumptions", title: "9. Assumptions", kind: "bullets" },
   { key: "dependencies", title: "10. Dependencies", kind: "bullets" },
-
   {
     key: "project_team",
     title: "11. Project Team",
@@ -410,8 +404,7 @@ function mergeAiFullIntoCharter(prevDoc: any, ai: any) {
 }
 
 /* ---------------------------------------------
-   Improve Section UI (lightweight stub to avoid
-   TS noUnusedLocals and give a clear UX)
+   Improve Section UI (lightweight stub)
 ---------------------------------------------- */
 
 function ImprovePanelStub({
@@ -509,7 +502,6 @@ export default function ProjectCharterEditorFormLazy({
 }) {
   const router = useRouter();
 
-  // used to avoid clobbering active typing
   const lastLocalEditAtRef = useRef<number>(0);
 
   const [doc, setDoc] = useState<any>(() =>
@@ -528,20 +520,17 @@ export default function ProjectCharterEditorFormLazy({
   const [aiError, setAiError] = useState<string>("");
   const [aiLoadingKey, setAiLoadingKey] = useState<string | null>(null);
 
-  // full-generation UI state (PM brief + button state)
   const [pmBrief, setPmBrief] = useState<string>(() =>
     getPmBrief((ensureCanonicalCharter(initialJson) as any)?.meta)
   );
   const [aiFullBusy, setAiFullBusy] = useState(false);
 
-  // Improve flow (now surfaced as a lightweight stub panel to avoid unused locals)
   const [improveOpen, setImproveOpen] = useState(false);
   const [improvePayload, setImprovePayload] = useState<ImproveSectionPayload | null>(null);
   const [improveNotes, setImproveNotes] = useState<string>("");
   const [improveRunning, setImproveRunning] = useState(false);
   const [improveError, setImproveError] = useState<string>("");
 
-  // kept for next wiring (but referenced to avoid TS noUnusedLocals)
   const [improveSuggestions, setImproveSuggestions] = useState<{ id: string; label: string; section: any }[]>([]);
   const [improveSelectedId, setImproveSelectedId] = useState<string>("");
 
@@ -555,7 +544,6 @@ export default function ProjectCharterEditorFormLazy({
   const [exportBusy, setExportBusy] = useState<null | "pdf" | "docx">(null);
   const [exportErr, setExportErr] = useState<string>("");
 
-  // lightweight refs to support autosave state machine
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autosaveInFlightRef = useRef(false);
   const pendingSigRef = useRef<string | null>(null);
@@ -570,7 +558,6 @@ export default function ProjectCharterEditorFormLazy({
 
   useEffect(() => setMounted(true), []);
 
-  // ✅ If projectTitle / projectManagerName arrives after initial render, seed once (without overwriting manual edits)
   const seededDefaultsRef = useRef(false);
   useEffect(() => {
     if (seededDefaultsRef.current) return;
@@ -637,20 +624,11 @@ export default function ProjectCharterEditorFormLazy({
 
   const localSig = useMemo(() => stableSig(v2ForSave), [v2ForSave]);
 
-  // ✅ CRITICAL FIX:
-  // Don’t adopt incoming server JSON if it’s older than our current local doc.
   useEffect(() => {
-    // if user is actively editing, never adopt
     if (dirty) return;
-
-    // if we edited very recently, don’t adopt
     const sinceEdit = Date.now() - (lastLocalEditAtRef.current || 0);
     if (sinceEdit < 2000) return;
-
-    // no change in incoming
     if (incomingSig === adoptedSigRef.current) return;
-
-    // If incoming differs from local, it's likely stale → ignore.
     if (incomingSig !== localSig) return;
 
     adoptedSigRef.current = incomingSig;
@@ -704,12 +682,10 @@ export default function ProjectCharterEditorFormLazy({
             setLastSavedIso(new Date().toISOString());
             adoptedSigRef.current = sigAtStart;
 
-            // ✅ Only mark clean if user hasn't typed since save started
             if ((lastLocalEditAtRef.current || 0) <= saveStartedAt) {
               setDirty(false);
               setAutosaveState("idle");
             } else {
-              // user typed during save; stay dirty and queue next save
               setAutosaveState("queued");
             }
           } catch {
@@ -719,7 +695,6 @@ export default function ProjectCharterEditorFormLazy({
           return;
         }
 
-        // manual save
         try {
           const res = await saveProjectCharterV2Manual({
             mode: "manual",
@@ -741,7 +716,6 @@ export default function ProjectCharterEditorFormLazy({
             router.refresh();
           }
         } catch {
-          // keep dirty true; show queued state so user knows it didn't persist
           setAutosaveState("queued");
         }
       })();
@@ -779,7 +753,6 @@ export default function ProjectCharterEditorFormLazy({
     let effectiveArtifactId = artifactId;
 
     try {
-      // Save first if dirty (so exports match the visible state)
       if (canEdit && dirty && !isPending) {
         const res = await saveProjectCharterV2Manual({
           mode: "manual",
@@ -914,7 +887,6 @@ export default function ProjectCharterEditorFormLazy({
     setImproveError("");
     setImproveOpen(true);
 
-    // keep these for the upcoming wiring; touch to avoid lint/ts unused in strict setups
     setImproveSuggestions((cur) => cur);
     setImproveSelectedId((cur) => cur);
   }
@@ -938,19 +910,17 @@ export default function ProjectCharterEditorFormLazy({
     try {
       const brief = String(pmBrief ?? "");
 
-      // Update local doc immediately (UX)
       setDoc((prev) => setPmBriefInMeta(prev, brief));
       markDirty();
 
       const docForRequest = setPmBriefInMeta(v2ForSave, brief);
 
-      // ✅ New system prompt to help PMs generate consistently
       const systemPrompt = [
         "Act as a senior programme manager and PMO governance expert.",
-        "Generate a complete, executive-ready Project Charter using best practice (PRINCE2/PMBOK hybrid).",
-        "Use a crisp, structured style suitable for Steering Committee packs.",
-        "Avoid generic filler. Be specific and realistic.",
-        "Flag uncertainty explicitly using [ASSUMPTION] or [TBC].",
+        "Generate a complete, executive-ready Project Charter using best-practice (PRINCE2/PMBOK hybrid).",
+        "Be concise, structured, and realistic for enterprise delivery.",
+        "Flag assumptions clearly and avoid generic filler.",
+        "Ensure objectives are measurable and aligned to business value.",
         "Write Business Case and Objectives as clear prose (short paragraphs), not a table.",
         "Write Risks, Issues, Assumptions, Dependencies as bullet points (one per line).",
       ].join("\n");
@@ -964,7 +934,6 @@ export default function ProjectCharterEditorFormLazy({
           doc: docForRequest,
           meta: { ...((docForRequest as any).meta ?? {}), pm_brief: brief },
           template: "pmi",
-          // keep existing instructions but add the new strong prompt first
           instructions: [
             systemPrompt,
             "Populate ALL sections of the Project Charter.",
@@ -1024,8 +993,6 @@ export default function ProjectCharterEditorFormLazy({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(String((data as any)?.error ?? "AI regeneration failed"));
 
-      // NOTE: keep your existing patch application logic in the section editor;
-      // this function is just the trigger.
       void data;
     } catch (e: any) {
       setAiState("error");
@@ -1080,31 +1047,6 @@ export default function ProjectCharterEditorFormLazy({
             </div>
 
             <StatusBadge state={autosaveState} />
-
-            {/* ✅ Move AI generate button ABOVE the PM Brief context (and keep it as a primary call-to-action) */}
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-lg border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-900"
-              disabled={!canEdit || isPending || aiState === "generating" || aiFullBusy || !wireCaps.full}
-              onClick={() => generateFullCharter()}
-              title={
-                !wireCaps.full
-                  ? "Full AI generation is not available."
-                  : !canEdit
-                  ? "Read-only / locked"
-                  : pmBriefEmpty
-                  ? "Add a brief first (recommended)"
-                  : "Generate the full charter from your brief"
-              }
-            >
-              {aiFullBusy ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Wand2 className="h-4 w-4 mr-2 text-indigo-700" />
-              )}
-              <span className="whitespace-nowrap">AI: Generate Charter</span>
-            </Button>
 
             <Button
               type="button"
@@ -1230,7 +1172,6 @@ export default function ProjectCharterEditorFormLazy({
           </div>
         </div>
 
-        {/* Improve Section stub panel (only appears when user clicks Improve in section editor) */}
         <ImprovePanelStub
           open={improveOpen}
           payload={improvePayload}
@@ -1246,25 +1187,51 @@ export default function ProjectCharterEditorFormLazy({
           <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1">
-                <div className="text-sm font-semibold text-slate-900">PM Brief (context for AI)</div>
+                <div className="text-sm font-semibold text-slate-900">PM Brief</div>
                 <div className="text-xs text-slate-600">
-                  Write freely. AI will draft the full charter and flag uncertain items as{" "}
-                  <span className="font-mono">[ASSUMPTION]</span> / <span className="font-mono">[TBC]</span>.
+                  Provide context for AI generation. Keep it crisp and specific.
                 </div>
               </div>
 
-              <div className="text-xs text-slate-500">
-                {pmBriefEmpty ? (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-800">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                    Recommended
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-800">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    Ready
-                  </span>
-                )}
+              <div className="flex items-center gap-2">
+                <div className="text-xs text-slate-500">
+                  {pmBriefEmpty ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-800">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                      Recommended
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-800">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      Ready
+                    </span>
+                  )}
+                </div>
+
+                {/* ✅ AI generate button moved HERE (near Recommended) */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 rounded-lg border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-900"
+                  disabled={!canEdit || isPending || aiState === "generating" || aiFullBusy || !wireCaps.full}
+                  onClick={() => generateFullCharter()}
+                  title={
+                    !wireCaps.full
+                      ? "Full AI generation is not available."
+                      : !canEdit
+                      ? "Read-only / locked"
+                      : pmBriefEmpty
+                      ? "Add a brief first (recommended)"
+                      : "Generate the full charter from your brief"
+                  }
+                >
+                  {aiFullBusy ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Wand2 className="h-4 w-4 mr-2 text-indigo-700" />
+                  )}
+                  <span className="whitespace-nowrap">Generate</span>
+                </Button>
               </div>
             </div>
 
@@ -1278,20 +1245,18 @@ export default function ProjectCharterEditorFormLazy({
                 setDoc((prev) => setPmBriefInMeta(prev, v));
                 setDirty(true);
               }}
-              rows={6}
-              placeholder={`Example:\n- Purpose: migrate finance processes to Workday\n- Scope: HR + Finance modules\n- Timeline: Apr–Oct\n- Constraints: limited SMEs, regulatory deadlines\n- Success criteria: reduced close cycle, improved data quality`}
+              rows={7}
+              placeholder={[
+                "Act as a senior programme manager and PMO governance expert.",
+                "Generate a complete, executive-ready Project Charter using best-practice (PRINCE2/PMBOK hybrid).",
+                "Be concise, structured, and realistic for enterprise delivery.",
+                "Flag assumptions clearly and avoid generic filler.",
+                "Ensure objectives are measurable and aligned to business value.",
+              ].join("\n")}
               className="mt-3 w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-200"
             />
 
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
-              <div>
-                Tip: include <span className="font-medium">why</span>,{" "}
-                <span className="font-medium">who</span>, <span className="font-medium">when</span>,{" "}
-                <span className="font-medium">constraints</span>, and{" "}
-                <span className="font-medium">success measures</span>.
-              </div>
-              {/* ✅ Removed: "Stored in meta.pm_brief" */}
-            </div>
+            {/* ✅ Removed generic tip + stored-in-meta line */}
           </div>
         ) : null}
 
@@ -1362,7 +1327,6 @@ export default function ProjectCharterEditorFormLazy({
 
       <CharterV2DebugPanel value={v2ForSave} />
 
-      {/* Touch “kept-for-next” improve vars so strict TS noUnusedLocals builds don’t fail */}
       <span className="sr-only">
         {String(improveSuggestions.length)}-{String(improveSelectedId || "")}
       </span>
