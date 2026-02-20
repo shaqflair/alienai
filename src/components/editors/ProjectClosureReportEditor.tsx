@@ -72,6 +72,7 @@ type ClosureDocV1 = {
     sponsor: string;
     pm: string;
   };
+  // ✅ Summary must be FREE TEXT (no bullets)
   health: { rag: Rag; overall_health: "good" | "watch" | "critical"; summary: string };
   stakeholders: { key: KeyStakeholder[] };
   achievements: { key_achievements: Achievement[] };
@@ -117,6 +118,14 @@ type ClosureDocV1 = {
   };
 };
 
+type ProjectMeta = {
+  project_name?: string | null;
+  project_code?: string | null;
+  client_name?: string | null;
+  sponsor?: string | null;
+  pm?: string | null;
+};
+
 function safeJson(x: any): any {
   if (!x) return null;
   if (typeof x === "object") return x;
@@ -125,6 +134,10 @@ function safeJson(x: any): any {
   } catch {
     return null;
   }
+}
+
+function safeStr(x: unknown) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
 function asMoney(v: string): Money {
@@ -152,7 +165,7 @@ function makeDefaultDoc(): ClosureDocV1 {
     success: { criteria: [] },
     deliverables: {
       delivered: [],
-      outstanding: [], // ✅ include outstanding by default
+      outstanding: [],
       acceptance_checklist: { sponsor_signed: false, bau_accepted: false, knowledge_transfer_done: false },
       sponsor_signoff_name: "",
       sponsor_signoff_date: null,
@@ -200,7 +213,7 @@ function generateRiskHumanId(existingRisks: Array<Partial<RiskIssueRow>>): strin
   }
 
   const nextNum = maxNum + 1;
-  return `R-${String(nextNum).padStart(6, "0")}`; // ✅ 6 digits like your screenshot
+  return `R-${String(nextNum).padStart(6, "0")}`; // ✅ 6 digits
 }
 
 function makeInternalId(): string {
@@ -214,13 +227,11 @@ function normalizeRisks(rows: any[]): { rows: RiskIssueRow[]; changed: boolean }
   const safeRows = Array.isArray(rows) ? rows : [];
   let changed = false;
 
-  // First pass: coerce & collect existing human ids
   const nextRows: any[] = safeRows.map((r) => {
     const rr = r ?? {};
     const id = typeof rr.id === "string" && rr.id.trim() ? rr.id : makeInternalId();
     if (id !== rr.id) changed = true;
 
-    // Back-compat: if old docs stored the human id in `id` (R-xxxxxx), map it to human_id
     let human_id =
       typeof rr.human_id === "string" && rr.human_id.trim()
         ? rr.human_id.trim()
@@ -244,7 +255,6 @@ function normalizeRisks(rows: any[]): { rows: RiskIssueRow[]; changed: boolean }
     };
   });
 
-  // Second pass: assign missing human_ids sequentially
   const assigned: RiskIssueRow[] = [];
   for (const r of nextRows) {
     if (!r.human_id || !String(r.human_id).toUpperCase().startsWith("R-")) {
@@ -255,6 +265,41 @@ function normalizeRisks(rows: any[]): { rows: RiskIssueRow[]; changed: boolean }
   }
 
   return { rows: assigned, changed };
+}
+
+/* ─────────────────────────────────────────────── FREE TEXT normalisation (no bullets) ────────────────────────────────────────────── */
+function normalizeFreeTextNoBullets(raw: string) {
+  const s = safeStr(raw);
+  if (!s.trim()) return "";
+
+  const lines = s
+    .split("\n")
+    .map((l) => l.replace(/^\s*(?:[•\-\*\u2022\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/g, "").trimEnd());
+
+  // If it was bullet-style (many short lines), convert to paragraph-ish while preserving intentional paragraphs.
+  const compact = lines.join("\n").trim();
+  const nonEmpty = lines.filter((l) => l.trim()).length;
+  const hasManyLines = nonEmpty >= 3;
+
+  if (!hasManyLines) return compact;
+
+  // Merge single-line bullet fragments into a paragraph; keep blank lines as paragraph breaks.
+  const paras: string[] = [];
+  let cur: string[] = [];
+  for (const l of lines) {
+    const t = l.trim();
+    if (!t) {
+      if (cur.length) {
+        paras.push(cur.join(" ").replace(/\s+/g, " ").trim());
+        cur = [];
+      }
+      continue;
+    }
+    cur.push(t);
+  }
+  if (cur.length) paras.push(cur.join(" ").replace(/\s+/g, " ").trim());
+
+  return paras.join("\n\n").trim();
 }
 
 /* ─────────────────────────────────────────────── AI helpers & mapping ────────────────────────────────────────────── */
@@ -274,8 +319,13 @@ function linesFromBullets(bullets: string) {
 }
 
 function getClosureSection(doc: any, key: string): AiSection {
+  // ✅ Summary is FREE TEXT (not bullets). We still pass it via AiSection.bullets because the hook expects it.
   if (key === "closure.health.summary") {
-    return { key, title: "Project Summary (Health Summary)", bullets: String(doc?.health?.summary || "") };
+    return {
+      key,
+      title: "Executive Closure Summary (Free text — no bullet points)",
+      bullets: String(doc?.health?.summary || ""),
+    };
   }
 
   if (key === "closure.achievements") {
@@ -318,15 +368,17 @@ function getClosureSection(doc: any, key: string): AiSection {
 }
 
 function applyClosureSectionReplace(setDoc: any, key: string, section: AiSection) {
-  const bullets = String(section?.bullets || "");
+  const raw = String(section?.bullets || "");
 
   if (key === "closure.health.summary") {
-    setDoc((d: any) => ({ ...d, health: { ...d.health, summary: bullets } }));
+    // ✅ Force summary to be free-text (strip bullets, merge lines)
+    const free = normalizeFreeTextNoBullets(raw);
+    setDoc((d: any) => ({ ...d, health: { ...d.health, summary: free } }));
     return;
   }
 
   if (key === "closure.achievements") {
-    const lines = linesFromBullets(bullets);
+    const lines = linesFromBullets(raw);
     setDoc((d: any) => ({
       ...d,
       achievements: { key_achievements: lines.map((t) => ({ text: t })) },
@@ -335,7 +387,7 @@ function applyClosureSectionReplace(setDoc: any, key: string, section: AiSection
   }
 
   if (key === "closure.lessons.went_well") {
-    const lines = linesFromBullets(bullets);
+    const lines = linesFromBullets(raw);
     setDoc((d: any) => ({
       ...d,
       lessons: { ...d.lessons, went_well: lines.map((t) => ({ text: t, action: "" })) },
@@ -344,7 +396,7 @@ function applyClosureSectionReplace(setDoc: any, key: string, section: AiSection
   }
 
   if (key === "closure.lessons.didnt_go_well") {
-    const lines = linesFromBullets(bullets);
+    const lines = linesFromBullets(raw);
     setDoc((d: any) => ({
       ...d,
       lessons: { ...d.lessons, didnt_go_well: lines.map((t) => ({ text: t, action: "" })) },
@@ -353,7 +405,7 @@ function applyClosureSectionReplace(setDoc: any, key: string, section: AiSection
   }
 
   if (key === "closure.lessons.surprises_risks") {
-    const lines = linesFromBullets(bullets);
+    const lines = linesFromBullets(raw);
     setDoc((d: any) => ({
       ...d,
       lessons: { ...d.lessons, surprises_risks: lines.map((t) => ({ text: t, action: "" })) },
@@ -362,7 +414,7 @@ function applyClosureSectionReplace(setDoc: any, key: string, section: AiSection
   }
 
   if (key === "closure.recommendations") {
-    const lines = linesFromBullets(bullets);
+    const lines = linesFromBullets(raw);
     setDoc((d: any) => ({
       ...d,
       recommendations: { items: lines.map((t) => ({ text: t, owner: "", due: null })) },
@@ -465,6 +517,77 @@ function fmtPounds(n: number) {
   }
 }
 
+/* ─────────────────────────────────────────────── API best-effort fetchers ────────────────────────────────────────────── */
+async function tryFetchJson(url: string, init?: RequestInit): Promise<any | null> {
+  try {
+    const res = await fetch(url, init);
+    const json = await res.json().catch(() => null);
+    if (!res.ok) return null;
+    return json;
+  } catch {
+    return null;
+  }
+}
+
+function parseProjectMetaFromAny(payload: any): ProjectMeta | null {
+  if (!payload || typeof payload !== "object") return null;
+
+  // Common wrappers: { ok, ... }, { data }, { project }, { item }
+  const root = payload?.project ?? payload?.data ?? payload?.item ?? payload;
+
+  // Some APIs return arrays (e.g. list endpoints)
+  const p = Array.isArray(root) ? root?.[0] : root;
+  if (!p || typeof p !== "object") return null;
+
+  const project_code = safeStr((p as any).project_code ?? (p as any).code ?? (p as any).projectCode).trim() || null;
+  const project_name =
+    safeStr((p as any).title ?? (p as any).project_name ?? (p as any).name ?? (p as any).projectName).trim() || null;
+  const client_name = safeStr((p as any).client_name ?? (p as any).client ?? (p as any).business).trim() || null;
+
+  // sponsor / pm are often stored differently in different schemas
+  const sponsor = safeStr((p as any).sponsor ?? (p as any).sponsor_name ?? (p as any).sponsorName).trim() || null;
+  const pm =
+    safeStr(
+      (p as any).project_manager ??
+        (p as any).project_manager_name ??
+        (p as any).pm ??
+        (p as any).pm_name ??
+        (p as any).projectManager
+    ).trim() || null;
+
+  // If absolutely nothing useful found, return null
+  if (!project_code && !project_name && !client_name && !sponsor && !pm) return null;
+
+  return { project_code, project_name, client_name, sponsor, pm };
+}
+
+function parseStakeholdersFromAny(payload: any): KeyStakeholder[] {
+  if (!payload) return [];
+  const root = payload?.items ?? payload?.data ?? payload?.stakeholders ?? payload?.rows ?? payload;
+  const arr = Array.isArray(root) ? root : [];
+  const mapped: KeyStakeholder[] = arr
+    .map((s: any) => {
+      const name =
+        safeStr(s?.name ?? s?.display_name ?? s?.full_name ?? s?.stakeholder_name ?? s?.title ?? "").trim() || "";
+      const role =
+        safeStr(s?.role ?? s?.responsibility ?? s?.position ?? s?.stakeholder_role ?? s?.job_title ?? "").trim() || "";
+      if (!name && !role) return null;
+      return { name, role };
+    })
+    .filter(Boolean) as any;
+
+  // De-dupe by (name|role)
+  const seen = new Set<string>();
+  const out: KeyStakeholder[] = [];
+  for (const k of mapped) {
+    const key = `${k.name.toLowerCase()}|${k.role.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(k);
+  }
+  return out;
+}
+
 /* ─────────────────────────────────────────────── Main Component ────────────────────────────────────────────── */
 export default function ProjectClosureReportEditor({
   artifactId,
@@ -491,6 +614,15 @@ export default function ProjectClosureReportEditor({
     const parsed = safeJson(initialJson);
     return parsed?.version === 1 ? (parsed as ClosureDocV1) : makeDefaultDoc();
   });
+
+  // Meta auto-population status
+  const [metaBusy, setMetaBusy] = useState(false);
+  const [metaMsg, setMetaMsg] = useState<string | null>(null);
+  const [metaApplied, setMetaApplied] = useState(false);
+
+  const [stakeBusy, setStakeBusy] = useState(false);
+  const [stakeMsg, setStakeMsg] = useState<string | null>(null);
+  const [stakeAutoApplied, setStakeAutoApplied] = useState(false);
 
   // ✅ Ensure legacy docs get proper human ids for risks
   useEffect(() => {
@@ -547,6 +679,175 @@ export default function ProjectClosureReportEditor({
     return { budget, actual, variance, pct };
   }, [doc.financial_closeout.budget_rows]);
 
+  /* ── Auto-populate Project Code + PM (and other fields if empty) ───────────────── */
+  useEffect(() => {
+    let cancelled = false;
+
+    async function run() {
+      const pid = safeStr(projectId).trim();
+      if (!pid) return;
+
+      // Only auto-apply once per mount (unless doc is blank)
+      if (metaApplied && doc?.project?.project_code?.trim() && doc?.project?.pm?.trim()) return;
+
+      setMetaBusy(true);
+      setMetaMsg(null);
+
+      // Best-effort: try common endpoints (non-breaking if one doesn't exist)
+      const candidates = [
+        `/api/projects/${pid}/meta`,
+        `/api/projects/${pid}`,
+        `/api/projects/get?id=${encodeURIComponent(pid)}`,
+        `/api/project/${pid}`,
+      ];
+
+      let meta: ProjectMeta | null = null;
+      for (const url of candidates) {
+        const json = await tryFetchJson(url);
+        const parsed = parseProjectMetaFromAny(json);
+        if (parsed) {
+          meta = parsed;
+          break;
+        }
+      }
+
+      if (cancelled) return;
+
+      if (!meta) {
+        setMetaMsg("Could not load project meta (code/PM) from API.");
+        setMetaBusy(false);
+        setTimeout(() => setMetaMsg(null), 4000);
+        return;
+      }
+
+      setDoc((d) => {
+        const next = { ...d };
+        const cur = next.project ?? { project_name: "", project_code: "", client_name: "", sponsor: "", pm: "" };
+
+        // ✅ Only fill if empty (so we don't overwrite user edits)
+        const project_code = cur.project_code?.trim() ? cur.project_code : safeStr(meta?.project_code).trim();
+        const pm = cur.pm?.trim() ? cur.pm : safeStr(meta?.pm).trim();
+        const project_name = cur.project_name?.trim()
+          ? cur.project_name
+          : safeStr(meta?.project_name).trim() || cur.project_name;
+        const client_name = cur.client_name?.trim()
+          ? cur.client_name
+          : safeStr(meta?.client_name).trim() || cur.client_name;
+        const sponsor = cur.sponsor?.trim() ? cur.sponsor : safeStr(meta?.sponsor).trim() || cur.sponsor;
+
+        next.project = { ...cur, project_code, pm, project_name, client_name, sponsor };
+        return next;
+      });
+
+      setMetaApplied(true);
+      setMetaMsg("Project Code / PM auto-populated.");
+      setMetaBusy(false);
+      setTimeout(() => setMetaMsg(null), 3000);
+    }
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+    // We intentionally omit doc from deps to avoid overwriting user edits repeatedly
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, metaApplied]);
+
+  /* ── Auto-generate Key Stakeholders from Stakeholder Register ───────────────── */
+  useEffect(() => {
+    let cancelled = false;
+
+    async function run() {
+      const pid = safeStr(projectId).trim();
+      if (!pid) return;
+
+      // Auto-apply only if empty
+      if (stakeAutoApplied) return;
+      if (doc?.stakeholders?.key?.length) {
+        setStakeAutoApplied(true);
+        return;
+      }
+
+      setStakeBusy(true);
+      setStakeMsg(null);
+
+      const candidates = [
+        `/api/projects/${pid}/stakeholders`,
+        `/api/stakeholders?project_id=${encodeURIComponent(pid)}`,
+        `/api/stakeholders/list?project_id=${encodeURIComponent(pid)}`,
+      ];
+
+      let list: KeyStakeholder[] = [];
+      for (const url of candidates) {
+        const json = await tryFetchJson(url);
+        const parsed = parseStakeholdersFromAny(json);
+        if (parsed.length) {
+          list = parsed;
+          break;
+        }
+      }
+
+      if (cancelled) return;
+
+      if (!list.length) {
+        setStakeMsg("No stakeholders found (or stakeholder API not available).");
+        setStakeBusy(false);
+        setTimeout(() => setStakeMsg(null), 4000);
+        setStakeAutoApplied(true);
+        return;
+      }
+
+      setDoc((d) => ({ ...d, stakeholders: { key: list } }));
+      setStakeMsg("Key stakeholders generated from Stakeholder Register.");
+      setStakeBusy(false);
+      setTimeout(() => setStakeMsg(null), 3000);
+      setStakeAutoApplied(true);
+    }
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, doc?.stakeholders?.key?.length, stakeAutoApplied]);
+
+  async function refreshStakeholdersFromRegister() {
+    const pid = safeStr(projectId).trim();
+    if (!pid) return;
+
+    setStakeBusy(true);
+    setStakeMsg(null);
+
+    const candidates = [
+      `/api/projects/${pid}/stakeholders`,
+      `/api/stakeholders?project_id=${encodeURIComponent(pid)}`,
+      `/api/stakeholders/list?project_id=${encodeURIComponent(pid)}`,
+    ];
+
+    let list: KeyStakeholder[] = [];
+    for (const url of candidates) {
+      const json = await tryFetchJson(url);
+      const parsed = parseStakeholdersFromAny(json);
+      if (parsed.length) {
+        list = parsed;
+        break;
+      }
+    }
+
+    if (!list.length) {
+      setStakeMsg("No stakeholders found (or stakeholder API not available).");
+      setStakeBusy(false);
+      setTimeout(() => setStakeMsg(null), 4000);
+      return;
+    }
+
+    setDoc((d) => ({ ...d, stakeholders: { key: list } }));
+    setStakeMsg("Key stakeholders refreshed from Stakeholder Register.");
+    setStakeBusy(false);
+    setTimeout(() => setStakeMsg(null), 3000);
+  }
+
   /* ── AI wiring (Closure Report) ─────────────────────────────────────────── */
 
   const closureMeta = useMemo(() => {
@@ -557,6 +858,8 @@ export default function ProjectClosureReportEditor({
       sponsor: doc?.project?.sponsor,
       pm: doc?.project?.pm,
       artifactType: "PROJECT_CLOSURE_REPORT",
+      // ✅ Hint for the AI layer: summary is free text
+      summary_format: "free_text_no_bullets",
     };
   }, [doc]);
 
@@ -572,7 +875,7 @@ export default function ProjectClosureReportEditor({
 
   /* ── Item Mutators ───────────────────────────────────────────────────────── */
 
-  // Stakeholders
+  // Stakeholders (manual override still allowed)
   const addStakeholder = () => {
     if (!canEdit) return;
     setDoc((d) => ({
@@ -751,7 +1054,6 @@ export default function ProjectClosureReportEditor({
   async function saveBestEffort() {
     if (isReadOnly) return;
 
-    // Try project-scoped endpoint first (if you have it)
     if (projectId) {
       try {
         const res = await fetch(`/api/artifacts/${artifactId}/content-json`, {
@@ -764,7 +1066,6 @@ export default function ProjectClosureReportEditor({
       } catch {}
     }
 
-    // Fallback generic update
     const res = await fetch("/api/artifacts/update-json", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -815,13 +1116,10 @@ export default function ProjectClosureReportEditor({
     setDlMsg(null);
 
     try {
-      // ✅ Ensure latest editor content is persisted (exporters read from DB)
       try {
         await saveBestEffort();
         setOriginalDoc(doc);
-      } catch {
-        // best-effort: proceed to export even if save fails
-      }
+      } catch {}
 
       const endpoint = `/api/artifacts/closure-report/export/${type}`;
 
@@ -853,7 +1151,6 @@ export default function ProjectClosureReportEditor({
 
       const blob = await res.blob();
 
-      // ✅ Use the server's filename (Capitalised) if provided
       const cd = res.headers.get("content-disposition");
       const serverName =
         filenameFromContentDisposition(cd) || `Closure-Report.${type === "pdf" ? "pdf" : "docx"}`;
@@ -879,8 +1176,6 @@ export default function ProjectClosureReportEditor({
     setUploadMsg(null);
 
     try {
-      // Best-effort uploader: expects your API to accept multipart form data
-      // If your route differs, swap URL + field names.
       const form = new FormData();
       form.append("artifact_id", artifactId);
       if (projectId) form.append("project_id", String(projectId));
@@ -946,6 +1241,9 @@ export default function ProjectClosureReportEditor({
       setTimeout(() => setUploadMsg(null), 4000);
     }
   }
+
+  // ✅ Project Code + PM should be auto-populated (read-only when projectId exists)
+  const projectFieldsAuto = !!safeStr(projectId).trim();
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
@@ -1013,6 +1311,12 @@ export default function ProjectClosureReportEditor({
               </DropdownMenuContent>
             </DropdownMenu>
 
+            {(metaBusy || metaMsg) && (
+              <span className={`text-sm font-medium ${metaMsg?.includes("Could not") ? "text-amber-700" : "text-slate-600"}`}>
+                {metaBusy ? "Loading project meta…" : metaMsg}
+              </span>
+            )}
+
             {saveMsg && (
               <span className={`text-sm font-medium ${saveMsg.includes("failed") ? "text-red-600" : "text-green-600"}`}>
                 {saveMsg}
@@ -1042,14 +1346,18 @@ export default function ProjectClosureReportEditor({
                   onChange={(e) => setDoc((d) => ({ ...d, project: { ...d.project, project_name: e.target.value } }))}
                 />
               </Field>
+
               <Field label="Project Code / ID">
                 <input
                   className={inputBase}
                   value={doc.project.project_code}
-                  disabled={isReadOnly}
+                  disabled={isReadOnly || projectFieldsAuto}
                   onChange={(e) => setDoc((d) => ({ ...d, project: { ...d.project, project_code: e.target.value } }))}
+                  placeholder={projectFieldsAuto ? "Auto-populated" : ""}
+                  title={projectFieldsAuto ? "Auto-populated from the project record" : undefined}
                 />
               </Field>
+
               <Field label="Client / Business">
                 <input
                   className={inputBase}
@@ -1058,6 +1366,7 @@ export default function ProjectClosureReportEditor({
                   onChange={(e) => setDoc((d) => ({ ...d, project: { ...d.project, client_name: e.target.value } }))}
                 />
               </Field>
+
               <Field label="Sponsor">
                 <input
                   className={inputBase}
@@ -1066,12 +1375,15 @@ export default function ProjectClosureReportEditor({
                   onChange={(e) => setDoc((d) => ({ ...d, project: { ...d.project, sponsor: e.target.value } }))}
                 />
               </Field>
+
               <Field label="Project Manager">
                 <input
                   className={inputBase}
                   value={doc.project.pm}
-                  disabled={isReadOnly}
+                  disabled={isReadOnly || projectFieldsAuto}
                   onChange={(e) => setDoc((d) => ({ ...d, project: { ...d.project, pm: e.target.value } }))}
+                  placeholder={projectFieldsAuto ? "Auto-populated" : ""}
+                  title={projectFieldsAuto ? "Auto-populated from the project record" : undefined}
                 />
               </Field>
             </RowGrid>
@@ -1089,6 +1401,7 @@ export default function ProjectClosureReportEditor({
                   <option value="red">Red</option>
                 </select>
               </Field>
+
               <Field label="Overall Health">
                 <select
                   className={`${selectBase} ${overallSelectAccent(doc.health.overall_health)}`}
@@ -1104,9 +1417,9 @@ export default function ProjectClosureReportEditor({
                 </select>
               </Field>
 
-              <Field label="Summary">
+              <Field label="Summary (Free text)">
                 <div className="flex items-center justify-between gap-2 mb-2">
-                  <div className="text-xs text-gray-500">AI can improve/regenerate this text.</div>
+                  <div className="text-xs text-gray-500">Executive summary. Free text only (no bullet points).</div>
                   <div className="flex gap-2">
                     <button
                       type="button"
@@ -1132,7 +1445,16 @@ export default function ProjectClosureReportEditor({
                   value={doc.health.summary}
                   disabled={isReadOnly}
                   onChange={(e) => setDoc((d) => ({ ...d, health: { ...d.health, summary: e.target.value } }))}
+                  placeholder="Write an executive closure summary (paragraph form)."
                 />
+
+                {/* gentle guardrail if user pastes bullets */}
+                {!!doc.health.summary.trim() && /^\s*[•\-\*]/m.test(doc.health.summary) && (
+                  <div className="mt-2 text-xs text-amber-700">
+                    Tip: This field is free text. If you pasted bullets, they will be removed automatically when AI edits
+                    are applied.
+                  </div>
+                )}
               </Field>
             </div>
           </Section>
@@ -1141,10 +1463,36 @@ export default function ProjectClosureReportEditor({
         {/* KEY STAKEHOLDERS */}
         <Section
           title="Key Stakeholders"
-          right={canEdit && <button type="button" className={smallBtn} onClick={addStakeholder}>+ Add Stakeholder</button>}
+          right={
+            <div className="flex items-center gap-2">
+              {stakeMsg && (
+                <span className={`text-xs ${stakeMsg.includes("No stakeholders") ? "text-amber-700" : "text-slate-600"}`}>
+                  {stakeMsg}
+                </span>
+              )}
+              <button
+                type="button"
+                className={smallBtn}
+                disabled={isReadOnly || stakeBusy || !safeStr(projectId).trim()}
+                onClick={refreshStakeholdersFromRegister}
+                title={!safeStr(projectId).trim() ? "Project id required to load stakeholder register" : undefined}
+              >
+                {stakeBusy ? "Refreshing…" : "Refresh from Stakeholder Register"}
+              </button>
+
+              {canEdit && (
+                <button type="button" className={smallBtn} onClick={addStakeholder}>
+                  + Add Stakeholder
+                </button>
+              )}
+            </div>
+          }
         >
           {doc.stakeholders.key.length === 0 ? (
-            <p className="text-sm text-gray-500">No key stakeholders recorded yet.</p>
+            <p className="text-sm text-gray-500">
+              No key stakeholders recorded yet.
+              {safeStr(projectId).trim() ? " (They can be generated from the Stakeholder Register.)" : ""}
+            </p>
           ) : (
             <div className="space-y-4">
               {doc.stakeholders.key.map((stake, i) => (
@@ -1265,7 +1613,11 @@ export default function ProjectClosureReportEditor({
         {/* SUCCESS CRITERIA */}
         <Section
           title="Success Criteria"
-          right={canEdit && <button type="button" className={smallBtn} onClick={addCriterion}>+ Add</button>}
+          right={canEdit && (
+            <button type="button" className={smallBtn} onClick={addCriterion}>
+              + Add
+            </button>
+          )}
         >
           {doc.success.criteria.length === 0 ? (
             <p className="text-sm text-gray-500">No success criteria recorded.</p>
@@ -1991,7 +2343,10 @@ export default function ProjectClosureReportEditor({
                                 ...d,
                                 handover: {
                                   ...d.handover,
-                                  risks_issues: updateArray(d.handover.risks_issues, i, (r) => ({ ...r, owner: e.target.value })),
+                                  risks_issues: updateArray(d.handover.risks_issues, i, (r) => ({
+                                    ...r,
+                                    owner: e.target.value,
+                                  })),
                                 },
                               }))
                             }
@@ -2008,7 +2363,10 @@ export default function ProjectClosureReportEditor({
                                 ...d,
                                 handover: {
                                   ...d.handover,
-                                  risks_issues: updateArray(d.handover.risks_issues, i, (r) => ({ ...r, status: e.target.value })),
+                                  risks_issues: updateArray(d.handover.risks_issues, i, (r) => ({
+                                    ...r,
+                                    status: e.target.value,
+                                  })),
                                 },
                               }))
                             }
@@ -2069,7 +2427,10 @@ export default function ProjectClosureReportEditor({
                               ...d,
                               handover: {
                                 ...d.handover,
-                                team_moves: updateArray(d.handover.team_moves, i, (t) => ({ ...t, person: e.target.value })),
+                                team_moves: updateArray(d.handover.team_moves, i, (t) => ({
+                                  ...t,
+                                  person: e.target.value,
+                                })),
                               },
                             }))
                           }
@@ -2086,7 +2447,10 @@ export default function ProjectClosureReportEditor({
                               ...d,
                               handover: {
                                 ...d.handover,
-                                team_moves: updateArray(d.handover.team_moves, i, (t) => ({ ...t, change: e.target.value })),
+                                team_moves: updateArray(d.handover.team_moves, i, (t) => ({
+                                  ...t,
+                                  change: e.target.value,
+                                })),
                               },
                             }))
                           }
@@ -2103,7 +2467,10 @@ export default function ProjectClosureReportEditor({
                               ...d,
                               handover: {
                                 ...d.handover,
-                                team_moves: updateArray(d.handover.team_moves, i, (t) => ({ ...t, date: e.target.value })),
+                                team_moves: updateArray(d.handover.team_moves, i, (t) => ({
+                                  ...t,
+                                  date: e.target.value,
+                                })),
                               },
                             }))
                           }
@@ -2330,7 +2697,13 @@ export default function ProjectClosureReportEditor({
         {/* USEFUL LINKS */}
         <Section
           title="Useful Links & References"
-          right={canEdit && <button type="button" className={smallBtn} onClick={addLink}>+ Add link</button>}
+          right={
+            canEdit && (
+              <button type="button" className={smallBtn} onClick={addLink}>
+                + Add link
+              </button>
+            )
+          }
         >
           {doc.links.items.length === 0 ? (
             <p className="text-sm text-gray-500">No links added yet.</p>
@@ -2414,7 +2787,10 @@ export default function ProjectClosureReportEditor({
                 const busy = attBusy === removeKey;
 
                 return (
-                  <div key={i} className="border border-gray-200 rounded-lg p-4 flex justify-between items-start gap-3 bg-white">
+                  <div
+                    key={i}
+                    className="border border-gray-200 rounded-lg p-4 flex justify-between items-start gap-3 bg-white"
+                  >
                     <div className="min-w-0 flex-1">
                       <div className="font-medium text-sm truncate">{att.label || att.filename || "Attachment"}</div>
                       <a
