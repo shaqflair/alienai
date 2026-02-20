@@ -111,43 +111,6 @@ function isOpenishStatus(s: any) {
   return v === "open" || v === "in progress" || v === "in_progress" || v === "inprogress";
 }
 
-function initials(label: any) {
-  const s = safeStr(label).trim();
-  if (!s) return "—";
-  const parts = s.split(/\s+/).filter(Boolean);
-  const a = parts[0]?.[0] || "";
-  const b = parts.length > 1 ? parts[parts.length - 1]?.[0] || "" : "";
-  return (a + b).toUpperCase().slice(0, 2);
-}
-
-function completionFromStatus(status: any): number {
-  const st = statusToken(status);
-  if (st === "closed") return 100;
-  if (st === "mitigated") return 80;
-  if (st === "inprogress") return 35;
-  if (st === "invalid") return 0;
-  return 15;
-}
-
-function timelineLabel(it: RaidItem) {
-  // Today: RAID only has due_date. Render as a “timeline pill” based on due_date.
-  const d = safeStr(it.due_date).trim();
-  if (!d) return "—";
-  try {
-    const dt = new Date(d);
-    if (Number.isNaN(dt.getTime())) return d;
-    return dt.toLocaleDateString("en-GB", { month: "short", day: "numeric" });
-  } catch {
-    return d;
-  }
-}
-
-function impactedKpis(it: RaidItem): string[] {
-  const k = it?.related_refs?.kpis;
-  if (Array.isArray(k)) return k.map(String).map((x) => x.trim()).filter(Boolean).slice(0, 6);
-  return [];
-}
-
 /* ---------------- keyboard shortcuts ---------------- */
 
 const STATUS_ORDER = ["Open", "In Progress", "Mitigated", "Closed", "Invalid"] as const;
@@ -166,15 +129,16 @@ function cycleInList(list: readonly string[], current: string) {
   return list[(idx + 1) % list.length];
 }
 
-/* ---------------- styling tokens ---------------- */
+/* ---------------- styling tokens - Monday.com Style ---------------- */
 
-const TYPE_STYLES: Record<RaidType, { bg: string; border: string; text: string; icon: string; desc: string }> = {
+const TYPE_STYLES: Record<RaidType, { bg: string; border: string; text: string; icon: string; desc: string; headerBg: string }> = {
   Risk: {
     bg: "bg-rose-50",
     border: "border-rose-200",
     text: "text-rose-900",
     icon: "text-rose-600",
     desc: "Events that may happen — mitigate early",
+    headerBg: "bg-gradient-to-r from-rose-50 to-rose-100/50",
   },
   Assumption: {
     bg: "bg-amber-50",
@@ -182,6 +146,7 @@ const TYPE_STYLES: Record<RaidType, { bg: string; border: string; text: string; 
     text: "text-amber-900",
     icon: "text-amber-600",
     desc: "Beliefs we hold — validate them",
+    headerBg: "bg-gradient-to-r from-amber-50 to-amber-100/50",
   },
   Issue: {
     bg: "bg-orange-50",
@@ -189,6 +154,7 @@ const TYPE_STYLES: Record<RaidType, { bg: string; border: string; text: string; 
     text: "text-orange-900",
     icon: "text-orange-600",
     desc: "Active problems — resolve quickly",
+    headerBg: "bg-gradient-to-r from-orange-50 to-orange-100/50",
   },
   Dependency: {
     bg: "bg-blue-50",
@@ -196,73 +162,103 @@ const TYPE_STYLES: Record<RaidType, { bg: string; border: string; text: string; 
     text: "text-blue-900",
     icon: "text-blue-600",
     desc: "External blockers — track closely",
+    headerBg: "bg-gradient-to-r from-blue-50 to-blue-100/50",
   },
 };
 
-// Glossy, bright “Monday-style” pills for Status/Priority
-const GLOSSY_STATUS: Record<
-  ReturnType<typeof statusToken>,
-  { pill: string; dot: string }
-> = {
-  open: {
-    pill:
-      "bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-[0_6px_14px_rgba(16,185,129,0.35)] ring-1 ring-white/20 [text-shadow:0_1px_0_rgba(0,0,0,0.15)]",
-    dot: "bg-emerald-200/90",
+// Monday.com style glossy status badges - full background colors
+const STATUS_STYLES: Record<string, { 
+  bg: string; 
+  text: string; 
+  border: string;
+  shadow: string;
+  gradient: string;
+}> = {
+  open: { 
+    bg: "bg-[#c4c4c4]", 
+    text: "text-white", 
+    border: "border-[#a0a0a0]",
+    shadow: "shadow-[0_2px_4px_rgba(196,196,196,0.4)]",
+    gradient: "bg-gradient-to-b from-[#d4d4d4] to-[#b0b0b0]"
   },
-  inprogress: {
-    pill:
-      "bg-gradient-to-r from-rose-500 to-pink-500 text-white shadow-[0_6px_14px_rgba(244,63,94,0.35)] ring-1 ring-white/20 [text-shadow:0_1px_0_rgba(0,0,0,0.15)]",
-    dot: "bg-rose-200/90",
+  inprogress: { 
+    bg: "bg-[#579bfc]", 
+    text: "text-white", 
+    border: "border-[#3d7de6]",
+    shadow: "shadow-[0_2px_4px_rgba(87,155,252,0.4)]",
+    gradient: "bg-gradient-to-b from-[#6babff] to-[#4785e8]"
   },
-  mitigated: {
-    pill:
-      "bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white shadow-[0_6px_14px_rgba(139,92,246,0.35)] ring-1 ring-white/20 [text-shadow:0_1px_0_rgba(0,0,0,0.15)]",
-    dot: "bg-violet-200/90",
+  mitigated: { 
+    bg: "bg-[#00c875]", 
+    text: "text-white", 
+    border: "border-[#00a862]",
+    shadow: "shadow-[0_2px_4px_rgba(0,200,117,0.4)]",
+    gradient: "bg-gradient-to-b from-[#0dd885] to-[#00b86b]"
   },
-  closed: {
-    pill:
-      "bg-gradient-to-r from-cyan-600 to-sky-600 text-white shadow-[0_6px_14px_rgba(2,132,199,0.35)] ring-1 ring-white/20 [text-shadow:0_1px_0_rgba(0,0,0,0.15)]",
-    dot: "bg-cyan-200/90",
+  closed: { 
+    bg: "bg-[#0086c0]", 
+    text: "text-white", 
+    border: "border-[#006a9c]",
+    shadow: "shadow-[0_2px_4px_rgba(0,134,192,0.4)]",
+    gradient: "bg-gradient-to-b from-[#0095d4] to-[#0077b0]"
   },
-  invalid: {
-    pill:
-      "bg-gradient-to-r from-slate-400 to-slate-500 text-white shadow-[0_6px_14px_rgba(100,116,139,0.25)] ring-1 ring-white/20 [text-shadow:0_1px_0_rgba(0,0,0,0.12)]",
-    dot: "bg-slate-200/90",
+  invalid: { 
+    bg: "bg-[#9d9d9d]", 
+    text: "text-white", 
+    border: "border-[#7a7a7a]",
+    shadow: "shadow-[0_2px_4px_rgba(157,157,157,0.4)]",
+    gradient: "bg-gradient-to-b from-[#adadad] to-[#8d8d8d]"
   },
 };
 
-const GLOSSY_PRIORITY: Record<
-  ReturnType<typeof priorityToken>,
-  { pill: string; dot: string; label: string }
-> = {
-  "": {
-    pill: "bg-gradient-to-r from-slate-100 to-slate-200 text-slate-700 ring-1 ring-slate-200/70",
-    dot: "bg-slate-400",
-    label: "—",
+// Monday.com style priority badges - bright glossy colors
+const PRIORITY_STYLES: Record<string, { 
+  bg: string; 
+  text: string; 
+  border: string;
+  shadow: string;
+  gradient: string;
+  label: string;
+}> = {
+  "": { 
+    bg: "bg-gray-100", 
+    text: "text-gray-500", 
+    border: "border-gray-300",
+    shadow: "shadow-none",
+    gradient: "bg-gradient-to-b from-gray-50 to-gray-100",
+    label: "—"
   },
-  low: {
-    pill:
-      "bg-gradient-to-r from-slate-200 to-slate-300 text-slate-800 shadow-[0_6px_14px_rgba(148,163,184,0.25)] ring-1 ring-white/25",
-    dot: "bg-slate-600",
-    label: "P3 - Low",
+  low: { 
+    bg: "bg-[#9d9d9d]", 
+    text: "text-white", 
+    border: "border-[#7a7a7a]",
+    shadow: "shadow-[0_2px_4px_rgba(157,157,157,0.4)]",
+    gradient: "bg-gradient-to-b from-[#adadad] to-[#8d8d8d]",
+    label: "Low"
   },
-  medium: {
-    pill:
-      "bg-gradient-to-r from-blue-200 to-sky-200 text-blue-900 shadow-[0_6px_14px_rgba(59,130,246,0.20)] ring-1 ring-white/25",
-    dot: "bg-blue-600",
-    label: "P2 - Medium",
+  medium: { 
+    bg: "bg-[#579bfc]", 
+    text: "text-white", 
+    border: "border-[#3d7de6]",
+    shadow: "shadow-[0_2px_4px_rgba(87,155,252,0.4)]",
+    gradient: "bg-gradient-to-b from-[#6babff] to-[#4785e8]",
+    label: "Medium"
   },
-  high: {
-    pill:
-      "bg-gradient-to-r from-amber-200 to-yellow-200 text-amber-950 shadow-[0_6px_14px_rgba(245,158,11,0.22)] ring-1 ring-white/25",
-    dot: "bg-amber-700",
-    label: "P1 - High",
+  high: { 
+    bg: "bg-[#ffcb00]", 
+    text: "text-white", 
+    border: "border-[#e6b800]",
+    shadow: "shadow-[0_2px_4px_rgba(255,203,0,0.4)]",
+    gradient: "bg-gradient-to-b from-[#ffd633] to-[#e6c200]",
+    label: "High"
   },
-  critical: {
-    pill:
-      "bg-gradient-to-r from-rose-200 to-pink-200 text-rose-950 shadow-[0_6px_14px_rgba(244,63,94,0.22)] ring-1 ring-white/25",
-    dot: "bg-rose-700",
-    label: "P0 - Critical",
+  critical: { 
+    bg: "bg-[#e2445c]", 
+    text: "text-white", 
+    border: "border-[#c73a4f]",
+    shadow: "shadow-[0_2px_4px_rgba(226,68,92,0.4)]",
+    gradient: "bg-gradient-to-b from-[#f05a70] to-[#d63a52]",
+    label: "Critical"
   },
 };
 
@@ -366,6 +362,9 @@ async function fetchAiHistory(raidId: string) {
 
 /* ---------------- component ---------------- */
 
+type ColKey = "desc" | "resp";
+const DEFAULT_COL_WIDTHS: Record<ColKey, number> = { desc: 340, resp: 300 };
+
 export default function RaidClient({
   projectId,
   projectRouteId,
@@ -392,8 +391,6 @@ export default function RaidClient({
   const [digest, setDigest] = useState<any>(null);
 
   const [aiOpenId, setAiOpenId] = useState<string>("");
-  const [detailsOpenId, setDetailsOpenId] = useState<string>("");
-
   const [staleById, setStaleById] = useState<Record<string, { at: string; message: string }>>({});
   const [aiHistOpenId, setAiHistOpenId] = useState<string>("");
   const [aiRunsById, setAiRunsById] = useState<Record<string, AiRun[]>>({});
@@ -410,6 +407,9 @@ export default function RaidClient({
   const [menuOpenFor, setMenuOpenFor] = useState<RaidType | "">("");
   const menuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const menuRef = useRef<HTMLDivElement | null>(null);
+
+  const [colW, setColW] = useState<Record<ColKey, number>>(DEFAULT_COL_WIDTHS);
+  const resizeRef = useRef<{ key: ColKey | ""; startX: number; startW: number }>({ key: "", startX: 0, startW: 0 });
 
   const [touchedById, setTouchedById] = useState<Record<string, { owner?: boolean; plan?: boolean }>>({});
   const [hotRowId, setHotRowId] = useState<string>("");
@@ -438,6 +438,37 @@ export default function RaidClient({
     };
   }, [menuOpenFor]);
 
+  // Column resize handlers
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      const key = resizeRef.current.key;
+      if (!key) return;
+      const dx = e.clientX - resizeRef.current.startX;
+      const next = Math.max(200, Math.min(800, resizeRef.current.startW + dx));
+      setColW((prev) => ({ ...prev, [key]: next }));
+    }
+    function onUp() {
+      if (!resizeRef.current.key) return;
+      resizeRef.current.key = "";
+      document.body.style.cursor = "";
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  const startResize = useCallback(
+    (key: ColKey, e: React.MouseEvent) => {
+      e.preventDefault();
+      resizeRef.current = { key, startX: e.clientX, startW: colW[key] };
+      document.body.style.cursor = "col-resize";
+    },
+    [colW]
+  );
+
   const toggleGroup = useCallback((type: RaidType) => {
     setOpenGroups((prev) => ({ ...prev, [type]: !prev[type] }));
   }, []);
@@ -464,10 +495,7 @@ export default function RaidClient({
     };
   }, [items]);
 
-  const humanProjectId = useMemo(
-    () => safeStr(projectPublicId).trim() || projectId.slice(0, 8) + "…",
-    [projectPublicId, projectId]
-  );
+  const humanProjectId = useMemo(() => safeStr(projectPublicId).trim() || projectId.slice(0, 8) + "…", [projectPublicId, projectId]);
   const humanProjectTitle = useMemo(() => safeStr(projectTitle).trim() || "Untitled project", [projectTitle]);
   const humanClient = useMemo(() => safeStr(projectClient).trim(), [projectClient]);
 
@@ -591,7 +619,6 @@ export default function RaidClient({
       setItems((cur) => cur.filter((x) => x.id !== id));
       if (aiOpenId === id) setAiOpenId("");
       if (aiHistOpenId === id) setAiHistOpenId("");
-      if (detailsOpenId === id) setDetailsOpenId("");
       try {
         await deleteRaidItem(id, expected);
         setMsg("Deleted");
@@ -612,7 +639,7 @@ export default function RaidClient({
         setBusyId("");
       }
     },
-    [items, aiOpenId, aiHistOpenId, detailsOpenId]
+    [items, aiOpenId, aiHistOpenId]
   );
 
   const onAiRefresh = useCallback(async (id: string) => {
@@ -673,8 +700,7 @@ export default function RaidClient({
         const runs = await fetchAiHistory(id);
         setAiRunsById((prev) => ({ ...prev, [id]: runs }));
         if (runs.length >= 2) setAiCompareById((prev) => ({ ...prev, [id]: { a: runs[0].id, b: runs[1].id } }));
-        else if (runs.length === 1)
-          setAiCompareById((prev) => ({ ...prev, [id]: { a: runs[0].id, b: runs[0].id } }));
+        else if (runs.length === 1) setAiCompareById((prev) => ({ ...prev, [id]: { a: runs[0].id, b: runs[0].id } }));
       } catch (e: any) {
         setErr(e?.message || "Failed to load AI history");
       } finally {
@@ -861,18 +887,12 @@ export default function RaidClient({
   }
 
   function exportGroupExcel(type: RaidType) {
-    window.open(
-      `/api/raid/export/excel?projectId=${encodeURIComponent(projectId)}&type=${encodeURIComponent(type)}`,
-      "_blank"
-    );
+    window.open(`/api/raid/export/excel?projectId=${encodeURIComponent(projectId)}&type=${encodeURIComponent(type)}`, "_blank");
     closeMenu();
   }
 
   function exportGroupPdf(type: RaidType) {
-    window.open(
-      `/api/raid/export/pdf?projectId=${encodeURIComponent(projectId)}&type=${encodeURIComponent(type)}`,
-      "_blank"
-    );
+    window.open(`/api/raid/export/pdf?projectId=${encodeURIComponent(projectId)}&type=${encodeURIComponent(type)}`, "_blank");
     closeMenu();
   }
 
@@ -911,7 +931,7 @@ export default function RaidClient({
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans">
+    <div className="min-h-screen bg-[#f6f7fb] text-gray-900 font-sans">
       {/* Top Navigation Bar */}
       <header className="sticky top-0 z-40 bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8">
@@ -961,17 +981,13 @@ export default function RaidClient({
                 </button>
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
                   <button
-                    onClick={() =>
-                      window.open(`/api/raid/export/excel?projectId=${encodeURIComponent(projectId)}`, "_blank")
-                    }
+                    onClick={() => window.open(`/api/raid/export/excel?projectId=${encodeURIComponent(projectId)}`, "_blank")}
                     className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 first:rounded-t-lg"
                   >
                     Export Excel
                   </button>
                   <button
-                    onClick={() =>
-                      window.open(`/api/raid/export/pdf?projectId=${encodeURIComponent(projectId)}`, "_blank")
-                    }
+                    onClick={() => window.open(`/api/raid/export/pdf?projectId=${encodeURIComponent(projectId)}`, "_blank")}
                     className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 last:rounded-b-lg"
                   >
                     Export PDF
@@ -984,19 +1000,19 @@ export default function RaidClient({
           {/* Stats Bar */}
           <div className="flex items-center gap-6 py-3 border-t border-gray-100">
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-blue-500" />
+              <div className="w-2 h-2 rounded-full bg-[#579bfc]" />
               <span className="text-sm text-gray-600">
                 <span className="font-semibold text-gray-900">{stats.open}</span> Open
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-rose-500" />
+              <div className="w-2 h-2 rounded-full bg-[#e2445c]" />
               <span className="text-sm text-gray-600">
                 <span className="font-semibold text-gray-900">{stats.high}</span> High Exposure
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-500" />
+              <div className="w-2 h-2 rounded-full bg-[#00c875]" />
               <span className="text-sm text-gray-600">
                 <span className="font-semibold text-gray-900">{stats.mitigated}</span> Mitigated
               </span>
@@ -1037,48 +1053,25 @@ export default function RaidClient({
             const isOpen = openGroups[type];
 
             return (
-              <section
-                key={type}
-                className={`bg-white rounded-xl border ${typeStyle.border} shadow-sm overflow-hidden transition-all duration-200 relative`}
-              >
+              <section key={type} className={`bg-white rounded-lg border ${typeStyle.border} shadow-sm overflow-hidden transition-all duration-200`}>
                 {/* Group Header */}
-                <div className={`${typeStyle.bg} px-4 py-3 border-b ${typeStyle.border} flex items-center justify-between`}>
+                <div className={`${typeStyle.headerBg} px-4 py-3 border-b ${typeStyle.border} flex items-center justify-between`}>
                   <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => toggleGroup(type)}
-                      className={`p-1 rounded hover:bg-white/50 transition-colors ${typeStyle.text}`}
-                    >
-                      <svg
-                        className={`w-5 h-5 transform transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
+                    <button onClick={() => toggleGroup(type)} className={`p-1 rounded hover:bg-white/50 transition-colors ${typeStyle.text}`}>
+                      <svg className={`w-5 h-5 transform transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
                     </button>
 
-                    <div
-                      className={`w-8 h-8 rounded-lg bg-white border ${typeStyle.border} flex items-center justify-center ${typeStyle.icon}`}
-                    >
+                    <div className={`w-8 h-8 rounded-lg bg-white border ${typeStyle.border} flex items-center justify-center ${typeStyle.icon}`}>
                       {type === "Risk" && (
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                          />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                         </svg>
                       )}
                       {type === "Assumption" && (
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-                          />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                         </svg>
                       )}
                       {type === "Issue" && (
@@ -1088,12 +1081,7 @@ export default function RaidClient({
                       )}
                       {type === "Dependency" && (
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-                          />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                         </svg>
                       )}
                     </div>
@@ -1103,9 +1091,7 @@ export default function RaidClient({
                       <p className="text-xs text-gray-500">{typeStyle.desc}</p>
                     </div>
 
-                    <span className="ml-2 px-2.5 py-0.5 bg-white border border-gray-200 rounded-full text-xs font-medium text-gray-600">
-                      {groupItems.length}
-                    </span>
+                    <span className="ml-2 px-2.5 py-0.5 bg-white border border-gray-200 rounded-full text-xs font-medium text-gray-600">{groupItems.length}</span>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -1122,23 +1108,12 @@ export default function RaidClient({
                     </button>
 
                     {menuOpenFor === type && (
-                      <div
-                        ref={menuRef}
-                        className="absolute right-4 top-[52px] w-56 bg-white rounded-lg shadow-xl border border-gray-200 z-50 py-1"
-                      >
-                        <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                          {type} Actions
-                        </div>
-                        <button
-                          onClick={() => exportGroupExcel(type)}
-                          className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                        >
+                      <div ref={menuRef} className="absolute right-8 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 z-50 py-1">
+                        <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">{type} Actions</div>
+                        <button onClick={() => exportGroupExcel(type)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
                           Export to Excel
                         </button>
-                        <button
-                          onClick={() => exportGroupPdf(type)}
-                          className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                        >
+                        <button onClick={() => exportGroupPdf(type)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
                           Export to PDF
                         </button>
                         <div className="h-px bg-gray-100 my-1" />
@@ -1149,10 +1124,7 @@ export default function RaidClient({
                         >
                           {busyId === `ai:group:${type}` ? "Refreshing AI…" : "Refresh AI (Group)"}
                         </button>
-                        <button
-                          onClick={() => copyGroupLink(type)}
-                          className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                        >
+                        <button onClick={() => copyGroupLink(type)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
                           Copy Group Link
                         </button>
                       </div>
@@ -1174,33 +1146,39 @@ export default function RaidClient({
                 {/* Table */}
                 {isOpen && (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-white border-b border-slate-200">
-                        <tr className="text-xs font-semibold text-slate-500">
-                          <th className="px-4 py-3 text-left w-[520px]">Item</th>
-                          <th className="px-3 py-3 text-left w-[170px]">Owner</th>
-                          <th className="px-3 py-3 text-left w-[170px]">Status</th>
-                          <th className="px-3 py-3 text-left w-[180px]">Timeline</th>
-                          <th className="px-3 py-3 text-left w-[160px]">Completion %</th>
-                          <th className="px-3 py-3 text-left w-[180px]">Priority</th>
-                          <th className="px-3 py-3 text-left w-[340px]">Impacted KPIs</th>
-                          <th className="px-3 py-3 text-right w-[160px]"></th>
+                    <table className="w-full text-sm border-collapse">
+                      <thead className="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-32 border-r border-gray-200">ID</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider relative group border-r border-gray-200" style={{ width: colW.desc }}>
+                            Description
+                            <span className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-300 transition-colors" onMouseDown={(e) => startResize("desc", e)} />
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-48 border-r border-gray-200">Owner *</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-40 border-r border-gray-200">Status *</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-36 border-r border-gray-200">Priority</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-24 border-r border-gray-200">Likelihood</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-24 border-r border-gray-200">Severity</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-20 border-r border-gray-200">Score</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-32 border-r border-gray-200">Due Date</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider relative group border-r border-gray-200" style={{ width: colW.resp }}>
+                            Response Plan
+                            <span className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-300 transition-colors" onMouseDown={(e) => startResize("resp", e)} />
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-48 border-r border-gray-200">AI Rollup</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-24 border-r border-gray-200">Updated</th>
+                          <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider w-24">Actions</th>
                         </tr>
                       </thead>
 
-                      <tbody className="divide-y divide-gray-100">
+                      <tbody className="divide-y divide-gray-200">
                         {groupItems.length === 0 ? (
                           <tr>
-                            <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
+                            <td colSpan={13} className="px-4 py-12 text-center text-gray-500">
                               <div className="flex flex-col items-center gap-2">
                                 <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center text-gray-400">
                                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                    />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                   </svg>
                                 </div>
                                 <p>No {type.toLowerCase()}s yet. Create one to get started.</p>
@@ -1224,9 +1202,8 @@ export default function RaidClient({
 
                             const stKey = statusToken(it.status);
                             const priKey = priorityToken(it.priority);
-
-                            const stGloss = GLOSSY_STATUS[stKey];
-                            const priGloss = GLOSSY_PRIORITY[priKey];
+                            const stStyle = STATUS_STYLES[stKey];
+                            const priStyle = PRIORITY_STYLES[priKey];
 
                             const ai = it?.related_refs?.ai || {};
                             const runs = aiRunsById[it.id] || [];
@@ -1238,405 +1215,240 @@ export default function RaidClient({
                             const diffRecs = runA && runB ? diffList(runA.ai?.recommendations, runB.ai?.recommendations) : null;
 
                             const stale = staleById[it.id];
-                            const kpis = impactedKpis(it);
-                            const completion = completionFromStatus(it.status);
 
                             return (
                               <React.Fragment key={it.id}>
                                 <tr
                                   data-raid-id={it.id}
                                   data-raid-public={safeStr(it.public_id || "").trim()}
-                                  className={`border-b border-slate-100 hover:bg-slate-50/70 transition-colors ${
-                                    isBusy ? "opacity-60" : ""
-                                  } ${stale ? "bg-amber-50/30" : ""}`}
+                                  className={`group hover:bg-gray-50/80 transition-colors ${isBusy ? "opacity-60" : ""} ${stale ? "bg-amber-50/30" : ""}`}
                                   tabIndex={0}
                                   onFocus={() => setHotRowId(it.id)}
                                   onMouseDown={() => setHotRowId(it.id)}
                                 >
-                                  {/* Item */}
-                                  <td className="px-4 py-3">
-                                    <div className="flex items-center gap-3">
-                                      <div className="min-w-[80px]">
-                                        <div className="flex items-center gap-2">
-                                          <span className="inline-flex items-center rounded-md bg-slate-100 text-slate-700 border border-slate-200 px-2 py-1 font-mono text-xs">
-                                            {safeStr(it.public_id) || "—"}
-                                          </span>
-                                          {stale && (
-                                            <button
-                                              onClick={() => onReloadRow(it.id)}
-                                              title="Reload"
-                                              className="text-amber-600 hover:text-amber-700"
-                                            >
-                                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path
-                                                  strokeLinecap="round"
-                                                  strokeLinejoin="round"
-                                                  strokeWidth={2}
-                                                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                                                />
-                                              </svg>
-                                            </button>
-                                          )}
-                                        </div>
-                                      </div>
-
-                                      <div className="min-w-0 flex-1">
-                                        <input
-                                          className="w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
-                                          value={safeStr(it.title || "")}
-                                          placeholder="Item title…"
-                                          disabled={isBusy}
-                                          onChange={(e) =>
-                                            setItems((prev) =>
-                                              prev.map((x) => (x.id === it.id ? { ...x, title: e.target.value } : x))
-                                            )
-                                          }
-                                          onBlur={() => onPatch(it.id, { title: safeStr(it.title || "").trim() || null })}
-                                        />
-                                        <input
-                                          className="w-full bg-transparent text-xs text-slate-500 outline-none mt-0.5"
-                                          value={safeStr(it.description || "")}
-                                          placeholder="Short description…"
-                                          disabled={isBusy}
-                                          onChange={(e) =>
-                                            setItems((prev) =>
-                                              prev.map((x) =>
-                                                x.id === it.id ? { ...x, description: e.target.value } : x
-                                              )
-                                            )
-                                          }
-                                          onBlur={() => onPatch(it.id, { description: safeStr(it.description).trim() || "Untitled" })}
-                                        />
-                                        {stale && <div className="text-xs text-amber-700 mt-1">{stale.message}</div>}
-                                      </div>
-                                    </div>
-                                  </td>
-
-                                  {/* Owner */}
-                                  <td className="px-3 py-3">
+                                  <td className="px-4 py-3 border-r border-gray-200">
                                     <div className="flex items-center gap-2">
-                                      <div className="h-8 w-8 rounded-full bg-orange-500 text-white text-xs font-bold flex items-center justify-center shadow-[0_6px_14px_rgba(249,115,22,0.25)]">
-                                        {initials(it.owner_label)}
-                                      </div>
-                                      <div className="min-w-0 flex-1">
-                                        <input
-                                          className={`w-full text-sm bg-transparent outline-none ${
-                                            showOwnerWarn ? "text-rose-700" : "text-slate-900"
-                                          }`}
-                                          value={safeStr(it.owner_label)}
-                                          placeholder="Owner *"
-                                          disabled={isBusy}
-                                          onChange={(e) =>
-                                            setItems((prev) =>
-                                              prev.map((x) => (x.id === it.id ? { ...x, owner_label: e.target.value } : x))
-                                            )
-                                          }
-                                          onBlur={() => {
-                                            touch(it.id, "owner");
-                                            onPatch(it.id, { owner_label: safeStr(it.owner_label).trim() });
-                                          }}
-                                        />
-                                        {showOwnerWarn && <div className="text-[11px] text-rose-600 font-semibold mt-0.5">Owner required</div>}
-                                      </div>
+                                      <span className="font-mono text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded border border-gray-200">{safeStr(it.public_id) || "—"}</span>
+                                      {stale && (
+                                        <button onClick={() => onReloadRow(it.id)} title="Reload" className="text-amber-600 hover:text-amber-700">
+                                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                          </svg>
+                                        </button>
+                                      )}
+                                    </div>
+                                    {stale && <div className="text-xs text-amber-700 mt-1 max-w-[200px]">{stale.message}</div>}
+                                  </td>
+
+                                  <td className="px-4 py-3 border-r border-gray-200" style={{ width: colW.desc }}>
+                                    <textarea
+                                      className="w-full min-h-[60px] p-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-y transition-shadow"
+                                      value={safeStr(it.description)}
+                                      disabled={isBusy}
+                                      placeholder="Describe the item…"
+                                      onChange={(e) => setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, description: e.target.value } : x)))}
+                                      onBlur={() => onPatch(it.id, { description: safeStr(it.description).trim() || "Untitled" })}
+                                    />
+                                  </td>
+
+                                  <td className="px-4 py-3 border-r border-gray-200">
+                                    <div className="space-y-1">
+                                      <input
+                                        className={`w-full px-2 py-1.5 text-sm border rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors ${
+                                          showOwnerWarn ? "border-rose-500 bg-rose-50" : "border-gray-200"
+                                        }`}
+                                        value={safeStr(it.owner_label)}
+                                        disabled={isBusy}
+                                        placeholder="e.g. Alex Adu-Poku"
+                                        onChange={(e) => setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, owner_label: e.target.value } : x)))}
+                                        onBlur={() => {
+                                          touch(it.id, "owner");
+                                          onPatch(it.id, { owner_label: safeStr(it.owner_label).trim() });
+                                        }}
+                                      />
+                                      {showOwnerWarn && <div className="text-xs text-rose-600 font-medium">Owner required</div>}
                                     </div>
                                   </td>
 
-                                  {/* Status (glossy) */}
-                                  <td className="px-3 py-3">
-                                    <div className="relative inline-flex">
+                                  {/* Status Column - Monday.com Style Glossy Badge */}
+                                  <td className="px-4 py-3 border-r border-gray-200">
+                                    <div className="relative">
                                       <select
-                                        className={`h-9 rounded-full pl-10 pr-9 text-sm font-extrabold tracking-tight appearance-none cursor-pointer ${stGloss.pill} shadow-inner`}
+                                        className={`w-full appearance-none px-3 py-2 text-sm font-semibold rounded-md border-0 ${stStyle.gradient} ${stStyle.text} ${stStyle.shadow} cursor-pointer focus:ring-2 focus:ring-offset-1 focus:ring-gray-200 transition-all hover:brightness-110`}
                                         value={safeStr(it.status || "Open")}
                                         disabled={isBusy}
                                         onChange={(e) => onPatch(it.id, { status: e.target.value })}
                                       >
-                                        <option value="Open">Open</option>
-                                        <option value="In Progress">In Progress</option>
-                                        <option value="Mitigated">Mitigated</option>
-                                        <option value="Closed">Closed</option>
-                                        <option value="Invalid">Invalid</option>
+                                        <option value="Open" className="bg-gray-500 text-white">Open</option>
+                                        <option value="In Progress" className="bg-blue-500 text-white">In Progress</option>
+                                        <option value="Mitigated" className="bg-green-500 text-white">Mitigated</option>
+                                        <option value="Closed" className="bg-cyan-600 text-white">Closed</option>
+                                        <option value="Invalid" className="bg-gray-400 text-white">Invalid</option>
                                       </select>
-                                      <span className={`absolute left-3 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full ${stGloss.dot}`} />
-                                      <span className="absolute inset-x-1 top-1 h-[10px] rounded-full bg-white/20 pointer-events-none" />
-                                      <svg
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 opacity-90 pointer-events-none text-white"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                      >
+                                      <svg className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-white/80 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                                       </svg>
                                     </div>
                                   </td>
 
-                                  {/* Timeline (glossy pill) */}
-                                  <td className="px-3 py-3">
-                                    <div className="inline-flex items-center gap-2">
-                                      <span className="h-9 inline-flex items-center rounded-full bg-gradient-to-r from-emerald-600 to-emerald-700 text-white px-4 text-sm font-extrabold shadow-[0_6px_14px_rgba(16,185,129,0.25)] ring-1 ring-white/20">
-                                        {timelineLabel(it)}
-                                      </span>
-                                      {/* keep full functionality: still editable due_date */}
-                                      <input
-                                        className="h-9 w-10 opacity-0 absolute"
-                                        type="date"
-                                        value={fmtDateOnly(it.due_date)}
-                                        disabled={isBusy}
-                                        onChange={(e) =>
-                                          setItems((prev) =>
-                                            prev.map((x) => (x.id === it.id ? { ...x, due_date: e.target.value || null } : x))
-                                          )
-                                        }
-                                        onBlur={() => onPatch(it.id, { due_date: safeStr(it.due_date).trim() || null })}
-                                      />
-                                    </div>
-                                  </td>
-
-                                  {/* Completion */}
-                                  <td className="px-3 py-3">
-                                    <div className="flex items-center gap-3">
-                                      <div className="text-sm text-slate-700 font-semibold w-10">{completion}</div>
-                                      <div className="h-2.5 w-28 rounded-full bg-slate-200 overflow-hidden">
-                                        <div className="h-full bg-slate-700" style={{ width: `${completion}%` }} />
-                                      </div>
-                                    </div>
-                                  </td>
-
-                                  {/* Priority (glossy) */}
-                                  <td className="px-3 py-3">
-                                    <div className="relative inline-flex">
+                                  {/* Priority Column - Monday.com Style Glossy Badge */}
+                                  <td className="px-4 py-3 border-r border-gray-200">
+                                    <div className="relative">
                                       <select
-                                        className={`h-9 rounded-full pl-10 pr-9 text-sm font-extrabold tracking-tight appearance-none cursor-pointer ${priGloss.pill} shadow-inner`}
+                                        className={`w-full appearance-none px-3 py-2 text-sm font-semibold rounded-md border-0 ${priStyle.gradient} ${priStyle.text} ${priStyle.shadow} cursor-pointer focus:ring-2 focus:ring-offset-1 focus:ring-gray-200 transition-all hover:brightness-110`}
                                         value={safeStr(it.priority || "")}
                                         disabled={isBusy}
                                         onChange={(e) => onPatch(it.id, { priority: e.target.value || null })}
                                       >
-                                        <option value="">—</option>
-                                        <option value="Low">Low</option>
-                                        <option value="Medium">Medium</option>
-                                        <option value="High">High</option>
-                                        <option value="Critical">Critical</option>
+                                        <option value="" className="bg-gray-300 text-gray-600">— Select —</option>
+                                        <option value="Low" className="bg-gray-400 text-white">Low</option>
+                                        <option value="Medium" className="bg-blue-400 text-white">Medium</option>
+                                        <option value="High" className="bg-yellow-400 text-white">High</option>
+                                        <option value="Critical" className="bg-red-500 text-white">Critical</option>
                                       </select>
-                                      <span className={`absolute left-3 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full ${priGloss.dot}`} />
-                                      <span className="absolute inset-x-1 top-1 h-[10px] rounded-full bg-white/25 pointer-events-none" />
-                                      <svg
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 opacity-80 pointer-events-none text-slate-700"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                      >
+                                      <svg className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-white/80 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                                       </svg>
                                     </div>
                                   </td>
 
-                                  {/* Impacted KPIs */}
-                                  <td className="px-3 py-3">
-                                    <div className="flex flex-wrap gap-2">
-                                      {kpis.length ? (
-                                        kpis.map((k) => (
-                                          <span
-                                            key={k}
-                                            className="h-8 inline-flex items-center rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 shadow-sm"
-                                            title={k}
-                                          >
-                                            {k.length > 26 ? k.slice(0, 26) + "…" : k}
-                                          </span>
-                                        ))
+                                  <td className="px-4 py-3 border-r border-gray-200">
+                                    <input
+                                      className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                      type="number"
+                                      min={0}
+                                      max={100}
+                                      value={Number.isFinite(Number(it.probability)) ? Number(it.probability) : 0}
+                                      disabled={isBusy}
+                                      onChange={(e) =>
+                                        setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, probability: clampNum(e.target.value, 0, 100) } : x)))
+                                      }
+                                      onBlur={() => onPatch(it.id, { probability: clampNum(it.probability ?? 0, 0, 100) })}
+                                    />
+                                  </td>
+
+                                  <td className="px-4 py-3 border-r border-gray-200">
+                                    <input
+                                      className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                      type="number"
+                                      min={0}
+                                      max={100}
+                                      value={Number.isFinite(Number(it.severity)) ? Number(it.severity) : 0}
+                                      disabled={isBusy}
+                                      onChange={(e) =>
+                                        setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, severity: clampNum(e.target.value, 0, 100) } : x)))
+                                      }
+                                      onBlur={() => onPatch(it.id, { severity: clampNum(it.severity ?? 0, 0, 100) })}
+                                    />
+                                  </td>
+
+                                  <td className="px-4 py-3 border-r border-gray-200">
+                                    <div className="flex items-center gap-2">
+                                      <div
+                                        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                                          tone === "r"
+                                            ? "bg-[#e2445c] text-white"
+                                            : tone === "a"
+                                            ? "bg-[#ffcb00] text-white"
+                                            : "bg-[#00c875] text-white"
+                                        }`}
+                                      >
+                                        {sc}
+                                      </div>
+                                      <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                        <div
+                                          className={`h-full rounded-full ${tone === "r" ? "bg-[#e2445c]" : tone === "a" ? "bg-[#ffcb00]" : "bg-[#00c875]"}`}
+                                          style={{ width: `${sc}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                  </td>
+
+                                  <td className="px-4 py-3 border-r border-gray-200">
+                                    <input
+                                      className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                      type="date"
+                                      value={fmtDateOnly(it.due_date)}
+                                      disabled={isBusy}
+                                      onChange={(e) => setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, due_date: e.target.value || null } : x)))}
+                                      onBlur={() => onPatch(it.id, { due_date: safeStr(it.due_date).trim() || null })}
+                                    />
+                                  </td>
+
+                                  <td className="px-4 py-3 border-r border-gray-200" style={{ width: colW.resp }}>
+                                    <div className="space-y-1">
+                                      <textarea
+                                        className={`w-full min-h-[60px] p-2 text-sm bg-white border rounded-lg resize-y focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors ${
+                                          showPlanWarn ? "border-rose-300 bg-rose-50" : "border-gray-200"
+                                        }`}
+                                        value={safeStr(it.response_plan || "")}
+                                        disabled={isBusy}
+                                        placeholder="Mitigation plan…"
+                                        onChange={(e) => setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, response_plan: e.target.value } : x)))}
+                                        onBlur={() => {
+                                          touch(it.id, "plan");
+                                          onPatch(it.id, { response_plan: safeStr(it.response_plan || "").trim() || null });
+                                        }}
+                                      />
+                                      {showPlanWarn && <div className="text-xs text-rose-600 font-medium">Plan required</div>}
+                                    </div>
+                                  </td>
+
+                                  <td className="px-4 py-3 border-r border-gray-200">
+                                    <div className="max-w-xs">
+                                      {it.ai_rollup ? (
+                                        <p className="text-sm text-gray-600 line-clamp-2" title={it.ai_rollup}>
+                                          {it.ai_rollup}
+                                        </p>
                                       ) : (
-                                        <span className="text-xs text-slate-400">—</span>
+                                        <span className="text-sm text-gray-400 italic">No AI analysis yet</span>
                                       )}
                                     </div>
                                   </td>
 
-                                  {/* Actions */}
-                                  <td className="px-3 py-3 text-right">
-                                    <div className="inline-flex items-center gap-2">
-                                      <button
-                                        onClick={() => setDetailsOpenId(detailsOpenId === it.id ? "" : it.id)}
-                                        className="h-9 w-9 rounded-md hover:bg-slate-100 text-slate-700"
-                                        title="Details"
-                                      >
-                                        <svg className="w-5 h-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6h.01M12 12h.01M12 18h.01" />
-                                        </svg>
-                                      </button>
+                                  <td className="px-4 py-3 border-r border-gray-200">
+                                    <span className="text-xs text-gray-500">{fmtWhen(it.updated_at)}</span>
+                                  </td>
+
+                                  <td className="px-4 py-3 text-right">
+                                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                       <button
                                         onClick={() => setAiOpenId(aiOpenId === it.id ? "" : it.id)}
-                                        className="h-9 w-9 rounded-md hover:bg-indigo-50 text-indigo-700"
+                                        className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
                                         title="AI Insights"
                                       >
-                                        <svg className="w-5 h-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                                         </svg>
                                       </button>
                                       <button
                                         onClick={() => onAiRefresh(it.id)}
                                         disabled={isBusy}
-                                        className="h-9 w-9 rounded-md hover:bg-slate-100 text-slate-700 disabled:opacity-50"
+                                        className="p-1.5 text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
                                         title="Refresh AI"
                                       >
-                                        <svg className="w-5 h-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                          <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={2}
-                                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                                          />
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                                         </svg>
                                       </button>
                                       <button
                                         onClick={() => onDelete(it.id)}
                                         disabled={isBusy}
-                                        className="h-9 w-9 rounded-md hover:bg-rose-50 text-rose-700 disabled:opacity-50"
+                                        className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-md transition-colors"
                                         title="Delete"
                                       >
-                                        <svg className="w-5 h-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                          <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={2}
-                                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                          />
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                         </svg>
                                       </button>
                                     </div>
                                   </td>
                                 </tr>
 
-                                {/* Details (keeps full functionality for response plan + risk scoring) */}
-                                {detailsOpenId === it.id && (
-                                  <tr>
-                                    <td colSpan={8} className="bg-slate-50 border-b border-slate-200">
-                                      <div className="p-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
-                                        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-                                          <div className="flex items-center justify-between mb-3">
-                                            <div>
-                                              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Response Plan</div>
-                                              {showPlanWarn && (
-                                                <div className="text-[11px] text-rose-600 font-semibold mt-1">
-                                                  Plan required (TBC is not acceptable)
-                                                </div>
-                                              )}
-                                            </div>
-                                            <button
-                                              onClick={() => setDetailsOpenId("")}
-                                              className="h-8 w-8 rounded-lg hover:bg-slate-100 text-slate-500"
-                                              title="Close"
-                                            >
-                                              <svg className="w-5 h-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                              </svg>
-                                            </button>
-                                          </div>
-                                          <textarea
-                                            className={`w-full min-h-[90px] p-3 text-sm bg-white border rounded-xl resize-y focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors ${
-                                              showPlanWarn ? "border-rose-300 bg-rose-50" : "border-slate-200"
-                                            }`}
-                                            value={safeStr(it.response_plan || "")}
-                                            disabled={busyId === it.id}
-                                            placeholder="Mitigation / resolution plan…"
-                                            onChange={(e) =>
-                                              setItems((prev) =>
-                                                prev.map((x) => (x.id === it.id ? { ...x, response_plan: e.target.value } : x))
-                                              )
-                                            }
-                                            onBlur={() => {
-                                              touch(it.id, "plan");
-                                              onPatch(it.id, { response_plan: safeStr(it.response_plan || "").trim() || null });
-                                            }}
-                                          />
-                                        </div>
-
-                                        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-                                          <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-                                            Exposure (Likelihood × Severity)
-                                          </div>
-
-                                          <div className="grid grid-cols-2 gap-3">
-                                            <div>
-                                              <div className="text-xs text-slate-500 mb-1">Likelihood</div>
-                                              <input
-                                                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                                type="number"
-                                                min={0}
-                                                max={100}
-                                                value={Number.isFinite(Number(it.probability)) ? Number(it.probability) : 0}
-                                                disabled={busyId === it.id}
-                                                onChange={(e) =>
-                                                  setItems((prev) =>
-                                                    prev.map((x) =>
-                                                      x.id === it.id
-                                                        ? { ...x, probability: clampNum(e.target.value, 0, 100) }
-                                                        : x
-                                                    )
-                                                  )
-                                                }
-                                                onBlur={() => onPatch(it.id, { probability: clampNum(it.probability ?? 0, 0, 100) })}
-                                              />
-                                            </div>
-
-                                            <div>
-                                              <div className="text-xs text-slate-500 mb-1">Severity</div>
-                                              <input
-                                                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                                type="number"
-                                                min={0}
-                                                max={100}
-                                                value={Number.isFinite(Number(it.severity)) ? Number(it.severity) : 0}
-                                                disabled={busyId === it.id}
-                                                onChange={(e) =>
-                                                  setItems((prev) =>
-                                                    prev.map((x) =>
-                                                      x.id === it.id ? { ...x, severity: clampNum(e.target.value, 0, 100) } : x
-                                                    )
-                                                  )
-                                                }
-                                                onBlur={() => onPatch(it.id, { severity: clampNum(it.severity ?? 0, 0, 100) })}
-                                              />
-                                            </div>
-                                          </div>
-
-                                          <div className="mt-4 flex items-center gap-3">
-                                            <div
-                                              className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-extrabold ${
-                                                tone === "r"
-                                                  ? "bg-rose-100 text-rose-700"
-                                                  : tone === "a"
-                                                  ? "bg-amber-100 text-amber-700"
-                                                  : "bg-emerald-100 text-emerald-700"
-                                              }`}
-                                            >
-                                              {sc}
-                                            </div>
-                                            <div className="flex-1">
-                                              <div className="h-2.5 bg-slate-200 rounded-full overflow-hidden">
-                                                <div
-                                                  className={`h-full ${
-                                                    tone === "r" ? "bg-rose-500" : tone === "a" ? "bg-amber-500" : "bg-emerald-500"
-                                                  }`}
-                                                  style={{ width: `${sc}%` }}
-                                                />
-                                              </div>
-                                              <div className="text-[11px] text-slate-500 mt-1">Updated: {fmtWhen(it.updated_at)}</div>
-                                            </div>
-                                          </div>
-
-                                          {it.ai_rollup ? (
-                                            <div className="mt-4 p-3 rounded-xl bg-slate-50 border border-slate-200">
-                                              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">AI Rollup</div>
-                                              <div className="text-sm text-slate-700">{it.ai_rollup}</div>
-                                            </div>
-                                          ) : null}
-                                        </div>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )}
-
                                 {/* AI Panel */}
                                 {aiOpenId === it.id && (
                                   <tr>
-                                    <td colSpan={8} className="bg-indigo-50/50 border-b border-indigo-100">
+                                    <td colSpan={13} className="bg-indigo-50/50 border-b border-indigo-100">
                                       <div className="p-4">
                                         <div className="flex items-center justify-between mb-4">
                                           <div className="flex items-center gap-3">
@@ -1662,10 +1474,7 @@ export default function RaidClient({
                                             >
                                               {aiHistBusyId === it.id ? "Loading…" : aiHistOpenId === it.id ? "Hide History" : "View History"}
                                             </button>
-                                            <button
-                                              onClick={() => setAiOpenId("")}
-                                              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                                            >
+                                            <button onClick={() => setAiOpenId("")} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
                                               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                               </svg>
@@ -1676,9 +1485,7 @@ export default function RaidClient({
                                         <div className="grid gap-4">
                                           <div className="bg-white rounded-lg p-4 border border-indigo-100 shadow-sm">
                                             <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Summary</h4>
-                                            <p className="text-sm text-gray-700 leading-relaxed">
-                                              {safeStr(ai.summary || it.ai_rollup || "No summary available.")}
-                                            </p>
+                                            <p className="text-sm text-gray-700 leading-relaxed">{safeStr(ai.summary || it.ai_rollup || "No summary available.")}</p>
                                           </div>
 
                                           <div className="bg-white rounded-lg p-4 border border-indigo-100 shadow-sm">
@@ -1687,16 +1494,12 @@ export default function RaidClient({
                                               {(ai?.recommendations || []).length > 0 ? (
                                                 ai.recommendations.map((r: string, idx: number) => (
                                                   <div key={idx} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
-                                                    <span className="flex-shrink-0 w-6 h-6 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-xs font-bold">
-                                                      {idx + 1}
-                                                    </span>
+                                                    <span className="flex-shrink-0 w-6 h-6 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-xs font-bold">{idx + 1}</span>
                                                     <p className="text-sm text-gray-700">{r}</p>
                                                   </div>
                                                 ))
                                               ) : (
-                                                <p className="text-sm text-gray-500 italic">
-                                                  No recommendations yet. Click "Refresh AI" to generate.
-                                                </p>
+                                                <p className="text-sm text-gray-500 italic">No recommendations yet. Click "Refresh AI" to generate.</p>
                                               )}
                                             </div>
                                           </div>
@@ -1717,10 +1520,7 @@ export default function RaidClient({
                                                         className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500"
                                                         value={cmp.a}
                                                         onChange={(e) =>
-                                                          setAiCompareById((prev) => ({
-                                                            ...prev,
-                                                            [it.id]: { ...prev[it.id], a: e.target.value },
-                                                          }))
+                                                          setAiCompareById((prev) => ({ ...prev, [it.id]: { ...prev[it.id], a: e.target.value } }))
                                                         }
                                                       >
                                                         {runs.map((r) => (
@@ -1737,10 +1537,7 @@ export default function RaidClient({
                                                         className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500"
                                                         value={cmp.b}
                                                         onChange={(e) =>
-                                                          setAiCompareById((prev) => ({
-                                                            ...prev,
-                                                            [it.id]: { ...prev[it.id], b: e.target.value },
-                                                          }))
+                                                          setAiCompareById((prev) => ({ ...prev, [it.id]: { ...prev[it.id], b: e.target.value } }))
                                                         }
                                                       >
                                                         {runs.map((r) => (
@@ -1784,27 +1581,17 @@ export default function RaidClient({
                                                         <div className="grid grid-cols-2 gap-4">
                                                           <div className="p-3 bg-rose-50 rounded-lg border border-rose-100">
                                                             <div className="text-xs font-semibold text-rose-700 mb-2">Previous Recommendations</div>
-                                                            <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
-                                                              {diffRecs.a.map((x, i) => (
-                                                                <li key={i}>{x}</li>
-                                                              ))}
-                                                            </ul>
+                                                            <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">{diffRecs.a.map((x, i) => <li key={i}>{x}</li>)}</ul>
                                                           </div>
                                                           <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100">
                                                             <div className="text-xs font-semibold text-emerald-700 mb-2">Current Recommendations</div>
-                                                            <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
-                                                              {diffRecs.b.map((x, i) => (
-                                                                <li key={i}>{x}</li>
-                                                              ))}
-                                                            </ul>
+                                                            <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">{diffRecs.b.map((x, i) => <li key={i}>{x}</li>)}</ul>
                                                           </div>
                                                         </div>
                                                       )}
 
                                                       {!diffRollup && !diffSummary && !diffRecs && (
-                                                        <p className="text-sm text-gray-500 text-center py-4">
-                                                          No differences between selected versions.
-                                                        </p>
+                                                        <p className="text-sm text-gray-500 text-center py-4">No differences between selected versions.</p>
                                                       )}
                                                     </div>
                                                   )}
@@ -1821,22 +1608,6 @@ export default function RaidClient({
                             );
                           })
                         )}
-
-                        {/* Monday-like add row */}
-                        <tr className="bg-white">
-                          <td colSpan={8} className="px-4 py-3">
-                            <button
-                              onClick={() => onCreate(type)}
-                              disabled={busyId === `new:${type}`}
-                              className="text-sm text-slate-500 hover:text-slate-900 inline-flex items-center gap-2"
-                            >
-                              <span className="h-7 w-7 rounded-md border border-slate-200 bg-white flex items-center justify-center shadow-sm">
-                                +
-                              </span>
-                              Add item
-                            </button>
-                          </td>
-                        </tr>
                       </tbody>
                     </table>
                   </div>
@@ -1864,10 +1635,7 @@ export default function RaidClient({
                   {fmtWhen(digest?.generated_at)}
                 </p>
               </div>
-              <button
-                onClick={() => setDigest(null)}
-                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-              >
+              <button onClick={() => setDigest(null)} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -1889,7 +1657,7 @@ export default function RaidClient({
                           const idTxt = digestId(x);
                           return (
                             <li key={safeStr(x?.id) || i} className="p-3 hover:bg-gray-50 transition-colors flex items-center gap-3">
-                              <div className={`w-2 h-2 rounded-full ${GLOSSY_STATUS[statusToken(x?.status)]?.dot || "bg-slate-400"}`} />
+                              <div className={`w-2 h-2 rounded-full ${STATUS_STYLES[statusToken(x?.status)].bg}`} />
                               <Link
                                 href={link}
                                 className="font-mono text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded hover:bg-gray-200 transition-colors"
@@ -1908,12 +1676,7 @@ export default function RaidClient({
                                   title="Copy ID"
                                 >
                                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                                    />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                                   </svg>
                                 </button>
                                 <button
@@ -1922,12 +1685,7 @@ export default function RaidClient({
                                   title="Copy Link"
                                 >
                                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-                                    />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                                   </svg>
                                 </button>
                               </div>

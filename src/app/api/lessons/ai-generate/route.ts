@@ -371,6 +371,7 @@ Rules:
 - Each lesson must be specific, non-duplicative, and actionable.
 - "description" should be 1–2 sentences, written as an observable outcome + what we learned.
 - "action_for_future" MUST start with an imperative verb (e.g. "Define", "Agree", "Escalate", "Automate", "Baseline", "Document").
+- Optional fields (impact, severity, project_stage, ai_summary) may be null if not applicable.
 - Prefer lessons that reduce repeat problems: late approvals, unclear ownership, poor change control, missing acceptance criteria, weak RAID follow-up, repeated milestone at-risk status, decision latency.
 - Use ARTIFACT_SIGNALS to detect patterns across artifacts.
 - Include evidence in ai_summary referencing:
@@ -408,7 +409,6 @@ async function generateLessonsWithOpenAI(prompt: string) {
       format: {
         type: "json_schema",
         name: "lessons_array",
-        // ✅ Root schema MUST be an object (OpenAI requirement)
         schema: {
           type: "object",
           additionalProperties: false,
@@ -421,15 +421,33 @@ async function generateLessonsWithOpenAI(prompt: string) {
               items: {
                 type: "object",
                 additionalProperties: false,
-                required: ["category", "description", "action_for_future"],
+
+                // ✅ OpenAI json_schema requirement:
+                // required MUST include every key in properties
+                required: [
+                  "category",
+                  "description",
+                  "action_for_future",
+                  "impact",
+                  "severity",
+                  "project_stage",
+                  "ai_summary",
+                ],
+
                 properties: {
                   category: { type: "string", enum: ["what_went_well", "improvements", "issues"] },
                   description: { type: "string", minLength: 8 },
                   action_for_future: { type: "string", minLength: 6 },
-                  impact: { type: "string", enum: ["Positive", "Negative"] },
-                  severity: { type: "string", enum: ["Low", "Medium", "High"] },
-                  project_stage: { type: "string" },
-                  ai_summary: { type: "string" },
+
+                  // ✅ "Optional" fields: allow null
+                  impact: {
+                    anyOf: [{ type: "string", enum: ["Positive", "Negative"] }, { type: "null" }],
+                  },
+                  severity: {
+                    anyOf: [{ type: "string", enum: ["Low", "Medium", "High"] }, { type: "null" }],
+                  },
+                  project_stage: { anyOf: [{ type: "string" }, { type: "null" }] },
+                  ai_summary: { anyOf: [{ type: "string" }, { type: "null" }] },
                 },
               },
             },
@@ -446,7 +464,6 @@ async function generateLessonsWithOpenAI(prompt: string) {
   try {
     parsed = JSON.parse(txt);
   } catch {
-    // fallback: try to extract first JSON object/array-ish blob
     const m = txt.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
     if (!m) throw new Error("AI returned non-JSON output");
     parsed = JSON.parse(m[1]);
