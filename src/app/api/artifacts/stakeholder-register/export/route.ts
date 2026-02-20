@@ -22,7 +22,7 @@ function jsonErr(message: string, status = 400, meta?: any) {
   return NextResponse.json({ ok: false, error: message, meta }, { status });
 }
 
-function redirectToFormat(req: NextRequest, format: "pdf" | "docx" | "xlsx") {
+function redirectTo(req: NextRequest, format: "pdf" | "docx" | "xlsx") {
   const url = new URL(req.url);
   url.searchParams.delete("format");
   url.pathname = url.pathname.replace(/\/export\/?$/, `/export/${format}`);
@@ -31,13 +31,13 @@ function redirectToFormat(req: NextRequest, format: "pdf" | "docx" | "xlsx") {
 
 export async function GET(req: NextRequest) {
   const format = normalizeFormat(req.nextUrl.searchParams.get("format"));
-  if (!format) return jsonErr("Unsupported format", 400, { format: safeStr(req.nextUrl.searchParams.get("format")) });
-  return redirectToFormat(req, format);
+  if (!format) return jsonErr("Unsupported format: (empty)", 400, { url: req.nextUrl.toString() });
+  return redirectTo(req, format);
 }
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({} as any));
-  const format = normalizeFormat(req.nextUrl.searchParams.get("format") || body?.format || body?.type);
-  if (!format) return jsonErr("Unsupported format", 400, { format: safeStr(body?.format || body?.type) });
-  return redirectToFormat(req, format);
+  const format = normalizeFormat(req.nextUrl.searchParams.get("format") || body?.format || body?.type || body?.fileType);
+  if (!format) return jsonErr("Unsupported format: (empty)", 400, { url: req.nextUrl.toString() });
+  return redirectTo(req, format);
 }
