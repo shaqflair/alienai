@@ -1,1390 +1,980 @@
-// src/components/editors/ProjectCharterEditorFormLazy.tsx
+// src/components/editors/ProjectCharterSectionEditor.tsx
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import dynamic from "next/dynamic";
-
-import { PROJECT_CHARTER_TEMPLATE } from "@/components/editors/charter-template";
-import {
-  autosaveProjectCharterV2,
-  saveProjectCharterV2Manual,
-} from "@/app/projects/[id]/artifacts/[artifactId]/charter-v2-actions";
-
-import type { ImproveSectionPayload } from "./ProjectCharterSectionEditor";
-import { formatDateTimeAuto } from "@/lib/date/format";
-
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-
-import {
+  Sparkles,
+  RefreshCw,
   AlertCircle,
   CheckCircle2,
-  ChevronDown,
-  Clock,
-  Download,
-  File,
+  Table as TableIcon,
+  List,
   FileText,
-  Loader2,
-  Save,
-  Send,
-  Wand2,
+  Plus,
+  Trash2,
+  Calendar as CalendarIcon,
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { format, isValid } from "date-fns";
 
-const DEV = process.env.NODE_ENV === "development";
+/* =========================================================
+   Types (matches ProjectCharterEditorFormLazy contract)
+========================================================= */
 
-const ProjectCharterEditor = dynamic(() => import("./ProjectCharterEditor"), {
-  ssr: false,
-  loading: () => <div className="text-sm text-slate-500">Loading editor…</div>,
-});
-
-const ProjectCharterClassicView = dynamic(() => import("./ProjectCharterClassicView"), {
-  ssr: false,
-  loading: () => <div className="text-sm text-slate-500">Loading classic view…</div>,
-});
-
-const ProjectCharterSectionEditor = dynamic(() => import("./ProjectCharterSectionEditor"), {
-  ssr: false,
-  loading: () => <div className="text-sm text-slate-500">Loading sections…</div>,
-});
-
-// ✅ Prod-safe: do not even define a dynamic import in production
-const CharterV2DebugPanel = DEV
-  ? dynamic(() => import("@/components/editors/CharterV2DebugPanel"), { ssr: false, loading: () => null })
-  : ((() => null) as any);
-
-/* ---------------------------------------------
-   UK formatting + bullet normalization
----------------------------------------------- */
-
-function formatDateTimeUK(isoLike: string | null | undefined) {
-  const s = String(isoLike ?? "").trim();
-  if (!s) return "—";
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) return formatDateTimeAuto(s);
-  try {
-    return new Intl.DateTimeFormat("en-GB", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(d);
-  } catch {
-    return formatDateTimeAuto(s);
-  }
-}
-
-function fmtWhenLocal(x: string | null) {
-  return formatDateTimeUK(x ?? undefined);
-}
-
-function normalizeBulletLine(line: string) {
-  let s = String(line ?? "");
-  const re = /^\s*(?:[•\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/;
-  for (let i = 0; i < 6; i++) {
-    const next = s.replace(re, "");
-    if (next === s) break;
-    s = next;
-  }
-  return s;
-}
-
-function normalizeBulletsText(text: string) {
-  const raw = String(text ?? "");
-  const lines = raw.split("\n");
-  const cleaned = lines.map((l) => normalizeBulletLine(l));
-  return cleaned.join("\n");
-}
-
-type ViewMode = "sections" | "classic";
 type RowObj = { type: "header" | "data"; cells: string[] };
 
-type V2Section = {
+export type V2Section = {
   key: string;
   title: string;
   bullets?: string;
   table?: { columns: number; rows: RowObj[] };
-  columns?: string[];
-  rows?: string[][];
 };
 
-function safeString(x: any) {
+export type ImproveSectionPayload = {
+  sectionKey: string;
+  sectionTitle: string;
+  section: V2Section;
+  selectedText?: string;
+  notes?: string;
+};
+
+type Props = {
+  meta: Record<string, any>;
+  onMetaChange: (meta: Record<string, any>) => void;
+
+  sections: V2Section[];
+  onChange: (sections: V2Section[]) => void;
+
+  readOnly?: boolean;
+
+  completenessByKey?: Record<
+    string,
+    { completeness0to100?: number; issues?: Array<{ severity: "info" | "warn" | "error"; message: string }> }
+  >;
+
+  onImproveSection?: (payload: ImproveSectionPayload) => void;
+  onRegenerateSection?: (sectionKey: string) => void;
+
+  aiDisabled?: boolean;
+  aiLoadingKey?: string | null;
+};
+
+/* =========================================================
+   Small helpers
+========================================================= */
+
+function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
-function isV2(x: any) {
-  return !!x && typeof x === "object" && Number((x as any).version) === 2 && Array.isArray((x as any).sections);
+function clampInt(n: any, min: number, max: number, fallback: number) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(v)));
 }
 
-function clone<T>(x: T): T {
-  try {
-    return structuredClone(x);
-  } catch {
-    return JSON.parse(JSON.stringify(x));
-  }
-}
+function ensureHeaderRow(table: { columns: number; rows: RowObj[] }) {
+  const rows = Array.isArray(table?.rows) ? table.rows.slice() : [];
+  const cols = Math.max(1, clampInt(table?.columns, 1, 24, 2));
 
-const REQUIRED_SECTIONS: Array<{
-  key: string;
-  title: string;
-  kind: "bullets" | "table";
-  headers?: string[];
-}> = [
-  { key: "business_case", title: "1. Business Case", kind: "bullets" },
-  { key: "objectives", title: "2. Objectives", kind: "bullets" },
-  { key: "scope_in_out", title: "3. Scope (In / Out of Scope)", kind: "table", headers: ["In Scope", "Out of Scope"] },
-  { key: "key_deliverables", title: "4. Key Deliverables", kind: "bullets" },
-  {
-    key: "milestones_timeline",
-    title: "5. Milestones & Timeline",
-    kind: "table",
-    headers: ["Milestone", "Target Date", "Actual Date", "Notes"],
-  },
-  { key: "financials", title: "6. Financials", kind: "table", headers: ["Item", "Amount", "Currency", "Notes"] },
-  { key: "risks", title: "7. Risks", kind: "bullets" },
-  { key: "issues", title: "8. Issues", kind: "bullets" },
-  { key: "assumptions", title: "9. Assumptions", kind: "bullets" },
-  { key: "dependencies", title: "10. Dependencies", kind: "bullets" },
-  {
-    key: "project_team",
-    title: "11. Project Team",
-    kind: "table",
-    headers: ["Role", "Name", "Organisation", "Responsibilities / Notes"],
-  },
-  {
-    key: "stakeholders",
-    title: "12. Stakeholders",
-    kind: "table",
-    headers: ["Stakeholder", "Role/Interest", "Influence", "Engagement / Notes"],
-  },
-  {
-    key: "approval_committee",
-    title: "13. Approval / Review Committee",
-    kind: "table",
-    headers: ["Role", "Name", "Date", "Decision/Notes"],
-  },
-];
-
-function buildEmptyTable(headers: string[]): { columns: number; rows: RowObj[] } {
-  const cols = Math.max(1, headers.length);
-  return {
-    columns: cols,
-    rows: [
-      { type: "header", cells: headers.map((h) => safeString(h)) },
-      // ✅ keep at least 2 data rows (export/AI/validators expect this)
-      { type: "data", cells: Array.from({ length: cols }, () => "") },
-      { type: "data", cells: Array.from({ length: cols }, () => "") },
-    ],
-  };
-}
-
-function stripNumberPrefix(title: string) {
-  return String(title ?? "").replace(/^\s*\d+\.\s*/, "").trim();
-}
-
-function ensureCanonicalCharter(input: any) {
-  let base: any;
-
-  if (isV2(input)) {
-    base = clone(input);
-  } else if (input && typeof input === "object" && Array.isArray((input as any)?.content?.sections)) {
-    base = {
-      version: 2,
-      type: "project_charter",
-      meta: (input as any)?.meta ?? {},
-      sections: (input as any).content.sections,
-    };
-  } else {
-    base = isV2(PROJECT_CHARTER_TEMPLATE)
-      ? clone(PROJECT_CHARTER_TEMPLATE)
-      : { version: 2, type: "project_charter", meta: {}, sections: [] as V2Section[] };
+  if (!rows.length || rows[0]?.type !== "header") {
+    const headerCells = Array.from({ length: cols }, (_, i) => `Column ${i + 1}`);
+    return { columns: cols, rows: [{ type: "header", cells: headerCells }, ...rows] };
   }
 
-  base.version = 2;
-  base.type = base.type || "project_charter";
-  base.meta = base.meta && typeof base.meta === "object" ? base.meta : {};
-  base.sections = Array.isArray(base.sections) ? base.sections : [];
+  const header = rows[0];
+  const hc = Array.isArray(header.cells) ? header.cells.slice() : [];
+  while (hc.length < cols) hc.push(`Column ${hc.length + 1}`);
+  header.cells = hc.slice(0, cols);
 
-  const byKey = new Map<string, V2Section>();
-  for (const s of base.sections as V2Section[]) {
-    const k = safeString((s as any)?.key || "").toLowerCase().trim();
-    if (!k) continue;
-    byKey.set(k, s);
-  }
+  const hasData = rows.some((r) => r.type === "data");
+  if (!hasData) rows.push({ type: "data", cells: Array.from({ length: cols }, () => "") });
 
-  const nextSections: V2Section[] = REQUIRED_SECTIONS.map((req) => {
-    const existing = byKey.get(req.key.toLowerCase());
-    if (existing) {
-      const s = clone(existing);
-      s.key = req.key;
-      s.title = req.title;
-
-      if (req.kind === "table") {
-        const hasTable = (s.table && Array.isArray(s.table.rows)) || Array.isArray(s.columns) || Array.isArray(s.rows);
-        if (!hasTable) {
-          s.table = buildEmptyTable(req.headers ?? ["", "", "", ""]);
-          s.bullets = undefined;
-          s.columns = undefined;
-          s.rows = undefined;
-        }
-
-        if (req.key === "financials" && s.table) {
-          const t = s.table;
-          const currencyIdx = 2;
-          for (const r of t.rows ?? []) {
-            if (r.type !== "data") continue;
-            const cells = Array.isArray(r.cells) ? r.cells : [];
-            while (cells.length < (t.columns || 4)) cells.push("");
-            if (!safeString(cells[currencyIdx] ?? "").trim()) cells[currencyIdx] = "GBP";
-            r.cells = cells;
-          }
-        }
-      }
-
-      if (req.kind === "bullets") {
-        const hasBullets = typeof s.bullets === "string";
-        const hasAnyTable = !!(s.table || s.columns || s.rows);
-        if (!hasBullets && !hasAnyTable) s.bullets = "";
-        if (typeof s.bullets === "string") s.bullets = normalizeBulletsText(s.bullets);
-      }
-
-      return s;
-    }
-
-    if (req.kind === "table") {
-      const t = buildEmptyTable(req.headers ?? ["", "", "", ""]);
-      if (req.key === "financials") {
-        const currencyIdx = 2;
-        // Ensure currency defaults for all data rows
-        for (const r of t.rows) {
-          if (r.type !== "data") continue;
-          while (r.cells.length < t.columns) r.cells.push("");
-          if (!safeString(r.cells[currencyIdx] ?? "").trim()) r.cells[currencyIdx] = "GBP";
-        }
-      }
-      return { key: req.key, title: req.title, table: t };
-    }
-
-    return { key: req.key, title: req.title, bullets: "" };
+  const norm = rows.map((r) => {
+    const cells = Array.isArray(r.cells) ? r.cells.slice() : [];
+    while (cells.length < cols) cells.push("");
+    return { ...r, cells: cells.slice(0, cols) };
   });
 
-  base.sections = nextSections;
-  return base;
+  return { columns: cols, rows: norm };
 }
 
-function stableSig(x: any) {
-  try {
-    return JSON.stringify(x ?? {});
-  } catch {
-    return String(x ?? "");
+/* =========================================================
+   Guards: prevent accidental structural delete
+========================================================= */
+
+function guardTableCellKeys(e: React.KeyboardEvent<HTMLInputElement>) {
+  if (e.key === "Backspace" || e.key === "Delete") {
+    e.stopPropagation();
+    return;
+  }
+  if (e.key === "Enter") {
+    e.stopPropagation();
+    return;
   }
 }
 
-type WireCaps = { full: boolean; section: boolean; suggest: boolean; validate: boolean };
-type LegacyExports = { pdf?: string; docx?: string; xlsx?: string };
+/* =========================================================
+   UK date helpers (dd/mm/yyyy)
+========================================================= */
 
-function safeFilenameBase(x: string) {
-  const s = String(x || "project_charter").trim() || "project_charter";
-  return s.replace(/[^a-z0-9]+/gi, "_");
+function isIsoDateOnly(v: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(v);
+}
+function isIsoDateTime(v: string) {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v);
+}
+function isUkDate(v: string) {
+  return /^\d{2}\/\d{2}\/\d{4}$/.test(v);
 }
 
-function LegacyLinks({ legacy }: { legacy?: LegacyExports | null }) {
-  const hasAny = !!(legacy?.pdf || legacy?.docx || legacy?.xlsx);
-  if (!hasAny) return null;
+function parseUkDate(v: string): Date | null {
+  if (!v) return null;
+  if (isUkDate(v)) {
+    const [day, month, year] = v.split("/").map(Number);
+    const d = new Date(year, month - 1, day);
+    return isValid(d) ? d : null;
+  }
+  if (isIsoDateOnly(v) || isIsoDateTime(v)) {
+    const d = new Date(isIsoDateOnly(v) ? `${v}T00:00:00` : v);
+    return isValid(d) ? d : null;
+  }
+  const m = v.match(/^(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{4})$/);
+  if (m) {
+    const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+    return isValid(d) ? d : null;
+  }
+  return null;
+}
+
+function toUkDateDisplay(value: string) {
+  const s = safeStr(value).trim();
+  if (!s) return "";
+  if (isUkDate(s)) return s;
+
+  if (isIsoDateOnly(s) || isIsoDateTime(s)) {
+    const d = new Date(isIsoDateOnly(s) ? `${s}T00:00:00` : s);
+    if (!Number.isNaN(d.getTime())) {
+      try {
+        return format(d, "dd/MM/yyyy");
+      } catch {}
+    }
+  }
+
+  const m = s.match(/^(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{4})$/);
+  if (m) {
+    const dd = String(m[1]).padStart(2, "0");
+    const mm = String(m[2]).padStart(2, "0");
+    const yyyy = String(m[3]);
+    return `${dd}/${mm}/${yyyy}`;
+  }
+
+  return s;
+}
+
+function formatDateToUk(date: Date | undefined): string {
+  if (!date || !isValid(date)) return "";
+  return format(date, "dd/MM/yyyy");
+}
+
+function normalizeUkDateInput(value: string) {
+  return toUkDateDisplay(value);
+}
+
+function headerSuggestsDate(header: string) {
+  const h = safeStr(header).toLowerCase();
+  return h.includes("date");
+}
+
+/* =========================================================
+   Bullets helpers (auto bullet on Enter)
+========================================================= */
+
+function insertAtCursor(el: HTMLTextAreaElement, insert: string, afterCaretOffset = 0) {
+  const start = el.selectionStart ?? 0;
+  const end = el.selectionEnd ?? start;
+  const before = el.value.slice(0, start);
+  const after = el.value.slice(end);
+  const next = before + insert + after;
+  const nextPos = start + insert.length + afterCaretOffset;
+  return { next, nextPos };
+}
+
+function currentLinePrefix(text: string, cursorPos: number) {
+  const before = text.slice(0, cursorPos);
+  const lastNl = before.lastIndexOf("\n");
+  const line = before.slice(lastNl + 1);
+  const trimmed = line.trimStart();
+  const indent = line.match(/^\s*/)?.[0] ?? "";
+  const markerMatch = trimmed.match(/^([•\-\*])\s*/);
+  const marker = markerMatch?.[1] ?? "•";
+  return { indent, marker };
+}
+
+function normalizeBulletsToList(text: string) {
+  const raw = safeStr(text);
+  const lines = raw
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const cleaned = lines.map((l) =>
+    l.replace(/^\s*(?:[•\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/g, "")
+  );
+  return cleaned;
+}
+
+/* =========================================================
+   Special section rendering rules
+========================================================= */
+
+function isFreeTextSectionKey(k: string) {
+  const key = safeStr(k).toLowerCase();
+  return key === "business_case" || key === "objectives";
+}
+
+function cx(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
+
+/* =========================================================
+   Component
+========================================================= */
+
+export default function ProjectCharterSectionEditor({
+  meta,
+  onMetaChange,
+  sections,
+  onChange,
+  readOnly = false,
+  completenessByKey,
+  onImproveSection,
+  onRegenerateSection,
+  aiDisabled = false,
+  aiLoadingKey = null,
+}: Props) {
+  const safeSections = useMemo(() => (Array.isArray(sections) ? sections : []), [sections]);
+
+  // ✅ local draft meta state so typing never gets clobbered by doc re-hydration
+  const didInitMetaRef = useRef(false);
+  const lastMetaEditAtRef = useRef<number>(0);
+
+  const [metaDraft, setMetaDraft] = useState<Record<string, any>>(() => ({
+    project_title: "",
+    project_manager: "",
+    sponsor: "",
+    dates: "",
+  }));
+
+  // init once (or when meta becomes available the first time)
+  useEffect(() => {
+    if (didInitMetaRef.current) return;
+
+    const incoming = meta && typeof meta === "object" ? meta : {};
+    setMetaDraft({
+      project_title: safeStr((incoming as any).project_title),
+      project_manager: safeStr((incoming as any).project_manager),
+      sponsor: safeStr((incoming as any).sponsor),
+      dates: safeStr((incoming as any).dates),
+    });
+
+    didInitMetaRef.current = true;
+  }, [meta]);
+
+  // If parent meta changes later, we allow sync ONLY if user hasn’t typed recently.
+  // Additionally, we seed empty local fields from incoming values.
+  useEffect(() => {
+    if (!didInitMetaRef.current) return;
+
+    const sinceEdit = Date.now() - (lastMetaEditAtRef.current || 0);
+    if (sinceEdit < 1200) return;
+
+    const incoming = meta && typeof meta === "object" ? meta : {};
+    const incomingTitle = safeStr((incoming as any).project_title);
+    const incomingPm = safeStr((incoming as any).project_manager);
+    const incomingSponsor = safeStr((incoming as any).sponsor);
+    const incomingDates = safeStr((incoming as any).dates);
+
+    setMetaDraft((cur) => {
+      const next = { ...(cur || {}) };
+
+      if (!safeStr(next.project_title).trim() && incomingTitle.trim()) next.project_title = incomingTitle;
+      if (!safeStr(next.project_manager).trim() && incomingPm.trim()) next.project_manager = incomingPm;
+      if (!safeStr(next.sponsor).trim() && incomingSponsor.trim()) next.sponsor = incomingSponsor;
+      if (!safeStr(next.dates).trim() && incomingDates.trim()) next.dates = incomingDates;
+
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meta]);
+
+  // Debounced push up to parent
+  useEffect(() => {
+    if (!didInitMetaRef.current) return;
+    if (readOnly) return;
+
+    const t = setTimeout(() => {
+      onMetaChange({
+        ...(meta && typeof meta === "object" ? meta : {}),
+        ...metaDraft,
+      });
+    }, 350);
+
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metaDraft, readOnly]);
+
+  function patchSection(idx: number, next: Partial<V2Section>) {
+    if (readOnly) return;
+    const arr = safeSections.slice();
+    const cur = arr[idx] || { key: "", title: "" };
+    arr[idx] = { ...cur, ...next };
+    onChange(arr);
+  }
+
+  function patchTable(idx: number, nextTable: { columns: number; rows: RowObj[] }) {
+    patchSection(idx, { table: ensureHeaderRow(nextTable), bullets: undefined });
+  }
+
+  function patchBullets(idx: number, text: string) {
+    patchSection(idx, { bullets: text, table: undefined });
+  }
+
+  function addTableRow(idx: number) {
+    if (readOnly) return;
+    const s = safeSections[idx];
+    const t = ensureHeaderRow(s?.table ?? { columns: 2, rows: [] });
+    t.rows.push({ type: "data", cells: Array.from({ length: t.columns }, () => "") });
+    patchTable(idx, t);
+  }
+
+  function delTableRow(idx: number, rowIndexInData: number) {
+    if (readOnly) return;
+    const s = safeSections[idx];
+    const t = ensureHeaderRow(s?.table ?? { columns: 2, rows: [] });
+
+    const dataIdxs = t.rows
+      .map((r, i) => ({ r, i }))
+      .filter((x) => x.r.type === "data")
+      .map((x) => x.i);
+
+    const target = dataIdxs[rowIndexInData];
+    if (target == null) return;
+
+    const nextRows = t.rows.slice();
+    nextRows.splice(target, 1);
+
+    const stillHasData = nextRows.some((r) => r.type === "data");
+    if (!stillHasData) nextRows.push({ type: "data", cells: Array.from({ length: t.columns }, () => "") });
+
+    patchTable(idx, { columns: t.columns, rows: nextRows });
+  }
+
+  function addColumn(idx: number) {
+    if (readOnly) return;
+    const s = safeSections[idx];
+    const t = ensureHeaderRow(s?.table ?? { columns: 2, rows: [] });
+    const cols = Math.min(24, (t.columns || 2) + 1);
+    const nextRows = t.rows.map((r) => ({
+      ...r,
+      cells: [...(r.cells ?? []), r.type === "header" ? `Column ${cols}` : ""],
+    }));
+    patchTable(idx, { columns: cols, rows: nextRows });
+  }
+
+  function delColumn(idx: number, colIndex: number) {
+    if (readOnly) return;
+    const s = safeSections[idx];
+    const t = ensureHeaderRow(s?.table ?? { columns: 2, rows: [] });
+    if (t.columns <= 1) return;
+
+    const cols = t.columns - 1;
+    const nextRows = t.rows.map((r) => {
+      const cells = (r.cells ?? []).slice();
+      cells.splice(colIndex, 1);
+      return { ...r, cells };
+    });
+
+    patchTable(idx, { columns: cols, rows: nextRows });
+  }
+
+  const [metaOpen, setMetaOpen] = useState(true);
 
   return (
-    <div className="flex items-center gap-2 text-xs text-slate-500">
-      <span className="font-medium text-slate-600">Legacy:</span>
-      {legacy?.pdf ? (
-        <a className="underline hover:text-slate-700" href={legacy.pdf} target="_blank" rel="noreferrer">
-          PDF
-        </a>
-      ) : null}
-      {legacy?.docx ? (
-        <a className="underline hover:text-slate-700" href={legacy.docx} target="_blank" rel="noreferrer">
-          DOCX
-        </a>
-      ) : null}
-      {legacy?.xlsx ? (
-        <a className="underline hover:text-slate-700" href={legacy.xlsx} target="_blank" rel="noreferrer">
-          XLSX
-        </a>
-      ) : null}
+    <div className="space-y-6 p-6 bg-slate-50/50 min-h-screen">
+      {/* Meta */}
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-100 rounded-lg">
+              <FileText className="h-4 w-4 text-indigo-600" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-slate-900">Charter Details</div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="text-xs font-medium text-slate-600 hover:text-indigo-600 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-100"
+            onClick={() => setMetaOpen((v) => !v)}
+          >
+            {metaOpen ? "Hide" : "Show"}
+          </button>
+        </div>
+
+        {metaOpen && (
+          <div className="p-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <MetaField
+                label="Project Title"
+                value={safeStr(metaDraft?.project_title)}
+                disabled={readOnly}
+                onChange={(v) => {
+                  lastMetaEditAtRef.current = Date.now();
+                  setMetaDraft((s) => ({ ...(s || {}), project_title: v }));
+                }}
+              />
+              <MetaField
+                label="Project Manager"
+                value={safeStr(metaDraft?.project_manager)}
+                disabled={readOnly}
+                onChange={(v) => {
+                  lastMetaEditAtRef.current = Date.now();
+                  setMetaDraft((s) => ({ ...(s || {}), project_manager: v }));
+                }}
+              />
+              <MetaField
+                label="Sponsor"
+                value={safeStr(metaDraft?.sponsor)}
+                disabled={readOnly}
+                onChange={(v) => {
+                  lastMetaEditAtRef.current = Date.now();
+                  setMetaDraft((s) => ({ ...(s || {}), sponsor: v }));
+                }}
+              />
+              <MetaField
+                label="Dates (free text)"
+                value={safeStr(metaDraft?.dates)}
+                disabled={readOnly}
+                onChange={(v) => {
+                  lastMetaEditAtRef.current = Date.now();
+                  setMetaDraft((s) => ({ ...(s || {}), dates: v }));
+                }}
+                placeholder="e.g., Start 01/03/2026 • End 30/06/2026"
+              />
+            </div>
+
+            <div className="mt-4 text-xs text-slate-400 flex items-center gap-2">
+              <Sparkles className="h-3 w-3" />
+              These fields power your exports.
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Sections */}
+      <div className="space-y-5">
+        {safeSections.map((sec, idx) => {
+          const key = safeStr(sec?.key).trim();
+          const title = safeStr(sec?.title).trim() || key || `Section ${idx + 1}`;
+
+          const isTable = !!sec?.table?.rows?.length;
+          const comp = completenessByKey?.[key];
+          const score = clampInt(comp?.completeness0to100, 0, 100, 0);
+
+          const icon = isTable ? (
+            <div className="p-2 bg-blue-50 rounded-lg">
+              <TableIcon className="h-4 w-4 text-blue-600" />
+            </div>
+          ) : (
+            <div className="p-2 bg-emerald-50 rounded-lg">
+              <List className="h-4 w-4 text-emerald-600" />
+            </div>
+          );
+
+          const freeText = !isTable && isFreeTextSectionKey(key);
+
+          return (
+            <div
+              key={`${key || "sec"}_${idx}`}
+              className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden hover:shadow-md transition-shadow"
+            >
+              <div className="px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50/50 to-white flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-3">
+                    {icon}
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <div className="text-sm font-semibold text-slate-900">{title}</div>
+
+                      {completenessByKey && key ? (
+                        <span
+                          className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${
+                            score >= 80
+                              ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                              : score >= 40
+                              ? "bg-amber-50 border-amber-200 text-amber-700"
+                              : "bg-rose-50 border-rose-200 text-rose-700"
+                          }`}
+                          title="Completeness score"
+                        >
+                          {score}%
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {key && comp?.issues?.length ? (
+                    <div className="mt-3 flex items-start gap-2 text-xs">
+                      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
+                      <div className="space-y-1">
+                        {comp.issues.slice(0, 2).map((it, i) => (
+                          <div key={i} className="text-slate-600">
+                            <span
+                              className={`font-medium ${
+                                it.severity === "error"
+                                  ? "text-rose-600"
+                                  : it.severity === "warn"
+                                  ? "text-amber-600"
+                                  : "text-blue-600"
+                              }`}
+                            >
+                              {it.severity.toUpperCase()}:
+                            </span>{" "}
+                            {it.message}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {/* ✅ Context removed. Only Improve + Regenerate. */}
+                  {onImproveSection ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={readOnly || aiDisabled}
+                      onClick={() =>
+                        onImproveSection({
+                          sectionKey: key,
+                          sectionTitle: title,
+                          section: sec,
+                          selectedText: "",
+                        })
+                      }
+                      className="rounded-lg border-indigo-200 hover:bg-indigo-50 hover:border-indigo-300"
+                      title="Improve this section with AI"
+                    >
+                      <Sparkles className="h-4 w-4 mr-2 text-indigo-600" />
+                      Improve
+                    </Button>
+                  ) : null}
+
+                  {onRegenerateSection ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={readOnly || aiDisabled || !key || aiLoadingKey === key}
+                      onClick={() => key && onRegenerateSection(key)}
+                      className="rounded-lg border-slate-200 hover:bg-slate-50"
+                      title="Regenerate this section with AI"
+                    >
+                      <RefreshCw
+                        className={`h-4 w-4 mr-2 ${
+                          aiLoadingKey === key ? "animate-spin text-indigo-600" : "text-slate-600"
+                        }`}
+                      />
+                      {aiLoadingKey === key ? "Working..." : "Regenerate"}
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="p-5">
+                {isTable ? (
+                  <TableEditor
+                    value={ensureHeaderRow(sec.table!)}
+                    readOnly={readOnly}
+                    onChange={(t) => patchTable(idx, t)}
+                    onAddRow={() => addTableRow(idx)}
+                    onAddCol={() => addColumn(idx)}
+                    onDelCol={(c) => delColumn(idx, c)}
+                    onDelRow={(dataRowIndex) => delTableRow(idx, dataRowIndex)}
+                  />
+                ) : freeText ? (
+                  <FreeTextEditor
+                    value={safeStr(sec?.bullets)}
+                    readOnly={readOnly}
+                    onChange={(v) => patchBullets(idx, v)}
+                    label="Free text"
+                    placeholder="Write in short paragraphs. Keep it executive-friendly."
+                  />
+                ) : (
+                  <BulletsEditor
+                    value={safeStr(sec?.bullets)}
+                    readOnly={readOnly}
+                    onChange={(v) => patchBullets(idx, v)}
+                  />
+                )}
+
+                {key && completenessByKey && score >= 80 ? (
+                  <div className="mt-4 flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 border border-emerald-100">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Looks good for export.
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-/**
- * ✅ Always seed defaults if missing (even if props arrive late).
- * - Only fills when blank (never overwrites user-entered meta).
- */
-function applyProjectMetaDefaults(doc: any, defaults: { projectTitle?: string; projectManagerName?: string }) {
-  const d = ensureCanonicalCharter(doc);
-  const meta = d.meta && typeof d.meta === "object" ? d.meta : {};
-  const next = { ...meta };
+/* =========================================================
+   UI bits
+========================================================= */
 
-  const title = String(defaults.projectTitle ?? "").trim();
-  const pm = String(defaults.projectManagerName ?? "").trim();
-
-  if (!String((next as any).project_title ?? "").trim() && title) (next as any).project_title = title;
-  if (!String((next as any).project_manager ?? "").trim() && pm) (next as any).project_manager = pm;
-
-  const changed =
-    String((next as any).project_title ?? "") !== String((meta as any).project_title ?? "") ||
-    String((next as any).project_manager ?? "") !== String((meta as any).project_manager ?? "");
-
-  return changed ? { ...d, meta: next } : d;
-}
-
-/* ---------------------------------------------
-   AI helpers (per-section only)
----------------------------------------------- */
-
-function getPmBrief(meta: any) {
-  const v = meta && typeof meta === "object" ? (meta as any).pm_brief : "";
-  return typeof v === "string" ? v : "";
-}
-
-function setPmBriefInMeta(prevDoc: any, brief: string) {
-  const cur = ensureCanonicalCharter(prevDoc);
-  const meta = cur?.meta && typeof cur.meta === "object" ? cur.meta : {};
-  return { ...cur, meta: { ...meta, pm_brief: String(brief ?? "") } };
-}
-
-function isNonEmptyString(x: any) {
-  return typeof x === "string" && x.trim().length > 0;
-}
-
-function mergeAiFullIntoCharter(prevDoc: any, ai: any) {
-  const candidate = (ai && typeof ai === "object" && ((ai as any).charterV2 || (ai as any).doc)) || ai;
-  const raw = (candidate as any)?.charterV2 ?? (candidate as any)?.doc ?? candidate;
-
-  const canon = ensureCanonicalCharter(raw);
-
-  const prevCanon = ensureCanonicalCharter(prevDoc);
-  const prevMeta = prevCanon.meta && typeof prevCanon.meta === "object" ? prevCanon.meta : {};
-  const nextMeta = canon.meta && typeof canon.meta === "object" ? canon.meta : {};
-  const pmBrief = getPmBrief(prevMeta);
-
-  const mergedMeta = { ...prevMeta, ...nextMeta, pm_brief: pmBrief };
-
-  const nextSections = Array.isArray(canon.sections)
-    ? canon.sections.map((s: any) => {
-        const sec = { ...s };
-        if (typeof sec.bullets === "string") sec.bullets = normalizeBulletsText(sec.bullets);
-        return sec;
-      })
-    : [];
-
-  return { ...canon, meta: mergedMeta, sections: nextSections };
-}
-
-/**
- * ✅ Patch-first extraction (robust to API shapes)
- */
-function extractPatchFromAny(ai: any): any | null {
-  if (!ai || typeof ai !== "object") return null;
-  if ((ai as any).patch && typeof (ai as any).patch === "object" && (ai as any).patch.kind) return (ai as any).patch;
-  if ((ai as any).kind) return ai;
-  return null;
-}
-
-function applyReplaceSection(prevDoc: any, sectionKey: string, incomingSection: any) {
-  const key = String(sectionKey || "").trim();
-  if (!key) return ensureCanonicalCharter(prevDoc);
-
-  const prev = ensureCanonicalCharter(prevDoc);
-  const incoming = incomingSection && typeof incomingSection === "object" ? { ...incomingSection } : { key };
-  incoming.key = key;
-
-  if (typeof incoming.bullets === "string") incoming.bullets = normalizeBulletsText(incoming.bullets);
-
-  const next = {
-    ...prev,
-    sections: (prev.sections || []).map((s: any) => (String(s?.key ?? "").trim() === key ? { ...s, ...incoming } : s)),
-  };
-
-  return ensureCanonicalCharter(next);
-}
-
-function applyAiResultToDoc(prevDoc: any, sectionKey: string, data: any) {
-  // 1) Prefer patch wrapper
-  const patch = extractPatchFromAny(data);
-
-  if (patch?.kind === "replace_all") {
-    const rawDoc = patch.doc ?? (data as any)?.charterV2 ?? (data as any)?.doc ?? data;
-    return ensureCanonicalCharter(rawDoc);
-  }
-
-  if (patch?.kind === "replace_section") {
-    const k = String(patch.key || (data as any)?.sectionKey || sectionKey || "").trim();
-    const sec = patch.section ?? (data as any)?.section ?? (data as any)?.sections?.[0] ?? null;
-    if (!k || !sec) return ensureCanonicalCharter(prevDoc);
-    return applyReplaceSection(prevDoc, k, sec);
-  }
-
-  // 2) Fallback to UI-friendly fields (added by API)
-  const k2 = String((data as any)?.sectionKey || sectionKey || "").trim();
-  const sec2 = (data as any)?.section ?? (Array.isArray((data as any)?.sections) ? (data as any).sections[0] : null);
-  if (k2 && sec2) return applyReplaceSection(prevDoc, k2, sec2);
-
-  // 3) Final fallback: legacy extract patterns
-  const candidate = (data && typeof data === "object" && ((data as any).charterV2 || (data as any).doc)) || data;
-  const raw = (candidate as any)?.charterV2 ?? (candidate as any)?.doc ?? candidate;
-
-  if (raw?.section && typeof raw.section === "object") {
-    return applyReplaceSection(prevDoc, k2 || sectionKey, raw.section);
-  }
-
-  if (Array.isArray(raw?.sections)) {
-    const keyLower = String(sectionKey || "").trim().toLowerCase();
-    const found = raw.sections.find((s: any) => String(s?.key ?? "").toLowerCase().trim() === keyLower);
-    if (found) return applyReplaceSection(prevDoc, sectionKey, found);
-    if (raw.sections.length === 1) return applyReplaceSection(prevDoc, sectionKey, raw.sections[0]);
-  }
-
-  return ensureCanonicalCharter(prevDoc);
-}
-
-export default function ProjectCharterEditorFormLazy({
-  projectId,
-  artifactId,
-  initialJson,
-  readOnly,
-  lockLayout = false,
-  artifactVersion,
-
-  projectTitle,
-  projectManagerName,
-
-  legacyExports,
-  approvalEnabled = false,
-  canSubmitOrResubmit = false,
-  approvalStatus = null,
-  submitForApprovalAction = null,
+function MetaField({
+  label,
+  value,
+  onChange,
+  disabled,
+  placeholder,
 }: {
-  projectId: string;
-  artifactId: string;
-  initialJson: any;
-  readOnly: boolean;
-  lockLayout?: boolean;
-  artifactVersion?: number;
-
-  projectTitle?: string;
-  projectManagerName?: string;
-
-  legacyExports?: LegacyExports;
-  approvalEnabled?: boolean;
-  canSubmitOrResubmit?: boolean;
-  approvalStatus?: string | null;
-
-  submitForApprovalAction?: ((formData: FormData) => Promise<void>) | (() => Promise<void>) | null;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
 }) {
-  const router = useRouter();
-  const lastLocalEditAtRef = useRef<number>(0);
-
-  const [doc, setDoc] = useState<any>(() =>
-    applyProjectMetaDefaults(ensureCanonicalCharter(initialJson), { projectTitle, projectManagerName })
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">{label}</label>
+      <input
+        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 disabled:bg-slate-50 disabled:text-slate-400 transition-all"
+        value={value}
+        disabled={!!disabled}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
   );
-  const [isPending, startTransition] = useTransition();
-
-  const [mounted, setMounted] = useState(false);
-  const [lastSavedIso, setLastSavedIso] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("sections");
-  const [dirty, setDirty] = useState(false);
-
-  const [autosaveState, setAutosaveState] = useState<"idle" | "saving" | "queued">("idle");
-
-  // ✅ NEW: autosave error + stop retrying same signature endlessly
-  const [autosaveError, setAutosaveError] = useState<string>("");
-  const failedSigRef = useRef<string | null>(null);
-
-  const [aiState, setAiState] = useState<"idle" | "generating" | "error">("idle");
-  const [aiError, setAiError] = useState<string>("");
-  const [aiLoadingKey, setAiLoadingKey] = useState<string | null>(null);
-
-  const [pmBrief, setPmBrief] = useState<string>(() => getPmBrief((ensureCanonicalCharter(initialJson) as any)?.meta));
-  const [aiFullBusy, setAiFullBusy] = useState(false);
-
-  const [wireCaps, setWireCaps] = useState<WireCaps>({
-    full: true,
-    section: false,
-    suggest: false,
-    validate: false,
-  });
-
-  const [exportBusy, setExportBusy] = useState<null | "pdf" | "docx">(null);
-  const [exportErr, setExportErr] = useState<string>("");
-
-  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const autosaveInFlightRef = useRef(false);
-  const pendingSigRef = useRef<string | null>(null);
-
-  function markDirty() {
-    lastLocalEditAtRef.current = Date.now();
-    setDirty(true);
-    // user changed something => allow autosave again
-    setAutosaveError("");
-    failedSigRef.current = null;
-  }
-
-  useEffect(() => setMounted(true), []);
-
-  /**
-   * ✅ Fix: keep trying to seed project_title + project_manager whenever props arrive
-   * - Only seeds when meta fields are blank.
-   * - Marks dirty only if it actually changed doc.meta.
-   */
-  useEffect(() => {
-    const title = String(projectTitle ?? "").trim();
-    const pm = String(projectManagerName ?? "").trim();
-    if (!title && !pm) return;
-
-    setDoc((prev: any) => {
-      const next = applyProjectMetaDefaults(prev, { projectTitle, projectManagerName });
-      const prevMeta = ensureCanonicalCharter(prev)?.meta ?? {};
-      const nextMeta = ensureCanonicalCharter(next)?.meta ?? {};
-      const changed =
-        String((prevMeta as any)?.project_title ?? "") !== String((nextMeta as any)?.project_title ?? "") ||
-        String((prevMeta as any)?.project_manager ?? "") !== String((nextMeta as any)?.project_manager ?? "");
-      if (changed) {
-        lastLocalEditAtRef.current = Date.now();
-        setDirty(true);
-      }
-      return next;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectTitle, projectManagerName]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function detectCaps() {
-      try {
-        const res = await fetch("/api/wireai/capabilities", { method: "GET", cache: "no-store" });
-        if (!res.ok) return;
-        const data = await res.json().catch(() => null);
-        if (!data || typeof data !== "object") return;
-
-        const next: WireCaps = {
-          full: !!(data as any).full,
-          section: !!(data as any).section,
-          suggest: !!(data as any).suggest,
-          validate: !!(data as any).validate,
-        };
-
-        if (!cancelled) setWireCaps(next);
-      } catch {}
-    }
-    void detectCaps();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const incomingSig = useMemo(() => stableSig(initialJson), [initialJson]);
-  const adoptedSigRef = useRef(incomingSig);
-
-  const v2ForSave = useMemo(() => {
-    const d = ensureCanonicalCharter(doc);
-    return {
-      version: 2 as const,
-      type: "project_charter" as const,
-      meta: d?.meta ?? {},
-      sections: Array.isArray(d?.sections) ? d.sections : [],
-    };
-  }, [doc]);
-
-  const localSig = useMemo(() => stableSig(v2ForSave), [v2ForSave]);
-
-  /**
-   * If server pushes new initialJson and user is not dirty, adopt it safely.
-   * (And re-apply meta defaults as a second safety net.)
-   */
-  useEffect(() => {
-    if (dirty) return;
-    const sinceEdit = Date.now() - (lastLocalEditAtRef.current || 0);
-    if (sinceEdit < 2000) return;
-    if (incomingSig === adoptedSigRef.current) return;
-    if (incomingSig !== localSig) return;
-
-    adoptedSigRef.current = incomingSig;
-
-    const next = applyProjectMetaDefaults(ensureCanonicalCharter(initialJson), { projectTitle, projectManagerName });
-    setDoc(next);
-
-    const serverPmBrief = getPmBrief((ensureCanonicalCharter(initialJson) as any)?.meta);
-    setPmBrief((cur) => (cur.trim().length ? cur : serverPmBrief));
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incomingSig, localSig, dirty, projectTitle, projectManagerName]);
-
-  const canEdit = !readOnly && !lockLayout;
-  const isCanonicalV2 = isV2(doc);
-  const sectionReadOnly = readOnly || lockLayout;
-
-  const sectionsForEditor = useMemo(() => {
-    const secs = Array.isArray(doc?.sections) ? doc.sections : [];
-    return secs.map((s: any) => ({ ...s, title: stripNumberPrefix(String(s?.title ?? "")) }));
-  }, [doc?.sections]);
-
-  function saveNow(reason: "manual" | "autosave") {
-    if (!canEdit) return;
-
-    const payload = v2ForSave;
-    const sigAtStart = stableSig(payload);
-    const saveStartedAt = Date.now();
-
-    startTransition(() => {
-      void (async () => {
-        if (reason === "autosave") {
-          setAutosaveState("saving");
-          pendingSigRef.current = sigAtStart;
-          autosaveInFlightRef.current = true;
-
-          try {
-            await autosaveProjectCharterV2({
-              projectId,
-              artifactId,
-              charterV2: payload,
-              clearLegacyContent: true,
-            });
-
-            autosaveInFlightRef.current = false;
-            pendingSigRef.current = null;
-
-            setAutosaveError("");
-            failedSigRef.current = null;
-
-            setLastSavedIso(new Date().toISOString());
-            adoptedSigRef.current = sigAtStart;
-
-            if ((lastLocalEditAtRef.current || 0) <= saveStartedAt) {
-              setDirty(false);
-              setAutosaveState("idle");
-            } else {
-              setAutosaveState("queued");
-            }
-          } catch (e: any) {
-            autosaveInFlightRef.current = false;
-
-            // ✅ STOP infinite pending: mark this signature as failed and go idle + show error
-            failedSigRef.current = sigAtStart;
-            setAutosaveError(String(e?.message ?? "Autosave failed"));
-            setAutosaveState("idle");
-          }
-          return;
-        }
-
-        try {
-          const res = await saveProjectCharterV2Manual({
-            mode: "manual",
-            projectId,
-            artifactId,
-            charterV2: payload,
-            clearLegacyContent: true,
-          });
-
-          const newId = (res as any)?.newArtifactId ? String((res as any).newArtifactId) : "";
-
-          adoptedSigRef.current = sigAtStart;
-          setLastSavedIso(new Date().toISOString());
-          setAutosaveError("");
-          failedSigRef.current = null;
-
-          setAutosaveState("idle");
-          setDirty(false);
-
-          if (newId && newId !== artifactId) {
-            router.replace(`/projects/${projectId}/artifacts/${newId}`);
-            router.refresh();
-          }
-        } catch (e: any) {
-          setAutosaveError(String(e?.message ?? "Save failed"));
-          setAutosaveState("idle");
-        }
-      })();
-    });
-  }
-
-  useEffect(() => {
-    if (!canEdit) return;
-    if (!dirty) return;
-
-    // ✅ If autosave already failed for *this* signature, do not keep retrying automatically
-    if (autosaveError && failedSigRef.current && failedSigRef.current === localSig) {
-      return;
-    }
-
-    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
-
-    autosaveTimerRef.current = setTimeout(() => {
-      if (autosaveInFlightRef.current) {
-        setAutosaveState("queued");
-        return;
-      }
-      saveNow("autosave");
-    }, 900);
-
-    setAutosaveState((s) => (s === "idle" ? "queued" : s));
-
-    return () => {
-      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, canEdit, localSig, autosaveError]);
-
-  const badgeVersion = Number(artifactVersion ?? 1);
-
-  async function exportCharter(kind: "pdf" | "docx") {
-    setExportErr("");
-    setExportBusy(kind);
-
-    let effectiveArtifactId = artifactId;
-
-    try {
-      if (canEdit && dirty && !isPending) {
-        const res = await saveProjectCharterV2Manual({
-          mode: "manual",
-          projectId,
-          artifactId,
-          charterV2: v2ForSave,
-          clearLegacyContent: true,
-        });
-
-        const newId = (res as any)?.newArtifactId ? String((res as any).newArtifactId) : "";
-        if (newId && newId !== artifactId) {
-          effectiveArtifactId = newId;
-          router.replace(`/projects/${projectId}/artifacts/${newId}`);
-          router.refresh();
-        }
-
-        setLastSavedIso(new Date().toISOString());
-        setDirty(false);
-        setAutosaveState("idle");
-        setAutosaveError("");
-        failedSigRef.current = null;
-      }
-
-      const endpoint = `/api/artifacts/${effectiveArtifactId}/export/${kind}`;
-
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept:
-            kind === "pdf"
-              ? "application/pdf"
-              : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        },
-        body: JSON.stringify({ projectId, content_json: v2ForSave }),
-        cache: "no-store",
-      });
-
-      if (!res.ok) {
-        const raw = await res.text().catch(() => "");
-        try {
-          const j = JSON.parse(raw);
-          throw new Error(String((j as any)?.error || (j as any)?.message || `Export failed (${res.status})`));
-        } catch {
-          throw new Error(raw?.trim() ? raw.slice(0, 300) : `Export failed (${res.status}). Check server logs.`);
-        }
-      }
-
-      const blob = await res.blob();
-
-      const disp = res.headers.get("content-disposition") || "";
-      const m = disp.match(/filename="?([^"]+)"?/i);
-
-      const fallback = `${safeFilenameBase("project_charter")}_${projectId.slice(0, 8)}.${kind}`;
-      const filename = m?.[1] || fallback;
-
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (e: any) {
-      setExportErr(String(e?.message ?? e ?? "Export failed"));
-    } finally {
-      setExportBusy(null);
-    }
-  }
-
-  const StatusBadge = ({ state }: { state: typeof autosaveState }) => {
-    const configs = {
-      idle: {
-        icon: CheckCircle2,
-        color: "text-emerald-600",
-        bg: "bg-emerald-50",
-        border: "border-emerald-200",
-        label: "Saved",
-      },
-      saving: {
-        icon: Loader2,
-        color: "text-blue-600",
-        bg: "bg-blue-50",
-        border: "border-blue-200",
-        label: "Saving...",
-      },
-      queued: {
-        icon: Clock,
-        color: "text-amber-600",
-        bg: "bg-amber-50",
-        border: "border-amber-200",
-        label: "Pending",
-      },
-    };
-    const config = (configs as any)[state];
-    const Icon = config.icon;
-    return (
-      <span
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${config.bg} ${config.border} ${config.color}`}
-      >
-        <Icon className={`h-3.5 w-3.5 ${state === "saving" ? "animate-spin" : ""}`} />
-        {config.label}
-      </span>
-    );
-  };
-
-  const submitWired = !!submitForApprovalAction;
-
-  const submitLabel =
-    String(approvalStatus || "").toLowerCase() === "changes_requested"
-      ? "Resubmit for approval"
-      : "Submit for approval";
-
-  const submitDisabled = !submitWired || !canSubmitOrResubmit || readOnly || lockLayout || isPending;
-
-  const submitDisabledReason = !submitWired
-    ? "Submit action is not wired."
-    : !canSubmitOrResubmit
-      ? "You can’t submit right now (role/status/current revision)."
-      : readOnly
-        ? "View-only mode."
-        : lockLayout
-          ? "Layout is locked."
-          : isPending
-            ? "Please wait…"
-            : "";
-
-  async function generateFullCharter() {
-    if (!canEdit) return;
-    if (!wireCaps.full) return;
-
-    setAiError("");
-    setAiState("generating");
-    setAiLoadingKey("__full__");
-    setAiFullBusy(true);
-
-    try {
-      const brief = String(pmBrief ?? "");
-
-      setDoc((prev) => setPmBriefInMeta(prev, brief));
-      markDirty();
-
-      const docForRequest = setPmBriefInMeta(v2ForSave, brief);
-
-      const systemPrompt = [
-        "Act as a senior programme manager and PMO governance expert.",
-        "Generate a complete, executive-ready Project Charter using best-practice (PRINCE2/PMBOK hybrid).",
-        "Be concise, structured, and realistic for enterprise delivery.",
-        "Flag assumptions clearly and avoid generic filler.",
-        "Ensure objectives are measurable and aligned to business value.",
-        "Write Business Case and Objectives as clear prose (short paragraphs), not a table.",
-        "Write Risks, Issues, Assumptions, Dependencies as bullet points (one per line).",
-      ].join("\n");
-
-      const res = await fetch("/api/wireai/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          mode: "full",
-          doc: docForRequest,
-          meta: { ...((docForRequest as any).meta ?? {}), pm_brief: brief },
-          template: "pmi",
-          instructions: [
-            systemPrompt,
-            "Populate ALL sections of the Project Charter.",
-            "For any uncertain item, prefix with [ASSUMPTION] or [TBC].",
-            "Use concise, executive-friendly bullets.",
-            "Keep tables structured and complete where possible.",
-          ],
-        }),
-      });
-
-      const text = await res.text().catch(() => "");
-      let data: any = {};
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        if (!res.ok) throw new Error(text?.trim() ? text.slice(0, 300) : `AI failed (${res.status})`);
-      }
-
-      if (!res.ok) throw new Error(String(data?.error ?? "AI full generation failed"));
-
-      setDoc((prev) => mergeAiFullIntoCharter(prev, data));
-      lastLocalEditAtRef.current = Date.now();
-      setDirty(true);
-    } catch (e: any) {
-      setAiState("error");
-      setAiError(String(e?.message ?? "AI full generation failed"));
-    } finally {
-      setAiLoadingKey(null);
-      setAiState("idle");
-      setAiFullBusy(false);
-    }
-  }
-
-  async function regenerateSection(sectionKey: string) {
-    if (!canEdit) return;
-    const key = String(sectionKey || "").trim();
-    if (!key) return;
-
-    if (!wireCaps.section) {
-      setAiState("error");
-      setAiError("Section regeneration is not available (capability off).");
-      return;
-    }
-
-    setAiError("");
-    setAiState("generating");
-    setAiLoadingKey(key);
-
-    try {
-      const docForRequest = setPmBriefInMeta(v2ForSave, String(pmBrief ?? ""));
-
-      const res = await fetch("/api/wireai/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          mode: "section",
-          sectionKey: key,
-          doc: docForRequest,
-          meta: { ...(docForRequest.meta ?? {}), pm_brief: String(pmBrief ?? "") },
-          template: "pmi",
-        }),
-      });
-
-      const rawText = await res.text().catch(() => "");
-      let data: any = {};
-      try {
-        data = rawText ? JSON.parse(rawText) : {};
-      } catch {
-        if (!res.ok)
-          throw new Error(rawText?.trim() ? rawText.slice(0, 300) : `AI regeneration failed (${res.status})`);
-      }
-
-      if (!res.ok) throw new Error(String(data?.error ?? "AI regeneration failed"));
-
-      // ✅ PATCH-FIRST APPLY (fixes “spinner but no change”)
-      setDoc((prev) => applyAiResultToDoc(prev, key, data));
-      lastLocalEditAtRef.current = Date.now();
-      setDirty(true);
-    } catch (e: any) {
-      setAiState("error");
-      setAiError(String(e?.message ?? "AI regeneration failed"));
-    } finally {
-      setAiLoadingKey(null);
-      setAiState("idle");
-    }
-  }
-
-  // ✅ FIX: Improve should directly improve the clicked section (no notes UI / no top box)
-  async function improveSection(payload: ImproveSectionPayload) {
-    if (!canEdit) return;
-    if (!wireCaps.suggest && !wireCaps.section) {
-      setAiState("error");
-      setAiError("Improve is not available (capability off).");
-      return;
-    }
-
-    const key = String(payload?.sectionKey ?? "").trim();
-    if (!key) return;
-
-    setAiError("");
-    setAiState("generating");
-    setAiLoadingKey(key);
-
-    try {
-      const docForRequest = setPmBriefInMeta(v2ForSave, String(pmBrief ?? ""));
-
-      const res = await fetch("/api/wireai/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          mode: "section",
-          sectionKey: key,
-          doc: docForRequest,
-          meta: { ...(docForRequest.meta ?? {}), pm_brief: String(pmBrief ?? "") },
-          template: "pmi",
-          instructions: [
-            "Improve the section content while keeping it realistic and executive-ready.",
-            "Do not invent facts. If uncertain, mark [TBC] or [ASSUMPTION].",
-            "Keep format consistent with the section type (table vs bullets/prose).",
-          ],
-        }),
-      });
-
-      const rawText = await res.text().catch(() => "");
-      let data: any = {};
-      try {
-        data = rawText ? JSON.parse(rawText) : {};
-      } catch {
-        if (!res.ok) throw new Error(rawText?.trim() ? rawText.slice(0, 300) : `AI improve failed (${res.status})`);
-      }
-
-      if (!res.ok) throw new Error(String(data?.error ?? "AI improve failed"));
-
-      // ✅ PATCH-FIRST APPLY (fixes “spinner but no change”)
-      setDoc((prev) => applyAiResultToDoc(prev, key, data));
-      lastLocalEditAtRef.current = Date.now();
-      setDirty(true);
-    } catch (e: any) {
-      setAiState("error");
-      setAiError(String(e?.message ?? "AI improve failed"));
-    } finally {
-      setAiLoadingKey(null);
-      setAiState("idle");
-    }
-  }
-
-  const pmBriefEmpty = !isNonEmptyString(pmBrief);
+}
+
+function FreeTextEditor({
+  value,
+  readOnly,
+  onChange,
+  label = "Free text",
+  placeholder,
+}: {
+  value: string;
+  readOnly: boolean;
+  onChange: (v: string) => void;
+  label?: string;
+  placeholder?: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="text-xs font-medium text-slate-500 flex items-center gap-2">
+        <FileText className="h-3 w-3" />
+        {label}
+      </div>
+      <textarea
+        className="w-full min-h-[180px] rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 disabled:bg-slate-50 disabled:text-slate-400 resize-y transition-all leading-relaxed"
+        value={value}
+        disabled={readOnly}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder || "Write here..."}
+      />
+    </div>
+  );
+}
+
+function BulletsEditor({
+  value,
+  readOnly,
+  onChange,
+}: {
+  value: string;
+  readOnly: boolean;
+  onChange: (v: string) => void;
+}) {
+  useMemo(() => normalizeBulletsToList(value), [value]);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Project Charter</h1>
-              <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs font-semibold border border-slate-200">
-                v{badgeVersion}
-              </span>
-
-              {approvalEnabled ? (
-                <span className="px-2.5 py-0.5 rounded-full bg-slate-900 text-white text-xs font-semibold border border-slate-900">
-                  {String(approvalStatus || "draft").replace(/_/g, " ")}
-                </span>
-              ) : null}
-            </div>
-
-            <p className="text-sm text-slate-500">
-              {readOnly
-                ? "View-only mode"
-                : lockLayout
-                  ? "Layout locked after submission"
-                  : "Edit and manage your project charter"}
-            </p>
-
-            <LegacyLinks legacy={legacyExports ?? null} />
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <StatusBadge state={autosaveState} />
-
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-lg border-slate-300 hover:bg-slate-50 text-slate-900"
-              disabled={!canEdit || isPending || autosaveState === "saving"}
-              onClick={() => saveNow("manual")}
-              title={!canEdit ? "Read-only / locked" : dirty ? "Save changes" : "No unsaved changes"}
-            >
-              <Save className="h-4 w-4 mr-2 text-slate-700" />
-              <span className="whitespace-nowrap">Save</span>
-            </Button>
-
-            <div className="flex items-center bg-slate-100 rounded-lg p-1 border border-slate-200">
-              <button
-                type="button"
-                onClick={() => setViewMode("sections")}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                  viewMode === "sections"
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                Sections
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("classic")}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                  viewMode === "classic"
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                Classic Table
-              </button>
-            </div>
-
-            {approvalEnabled ? (
-              submitWired ? (
-                <form action={submitForApprovalAction as any}>
-                  <Button
-                    type="submit"
-                    variant="outline"
-                    className="rounded-lg border-slate-300 hover:bg-slate-50 text-slate-900"
-                    disabled={submitDisabled}
-                    title={submitDisabled ? submitDisabledReason : "Submit this charter for approval"}
-                  >
-                    <Send className="h-4 w-4 mr-2 text-slate-700" />
-                    <span className="whitespace-nowrap">{submitLabel}</span>
-                  </Button>
-                </form>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-lg border-slate-300 text-slate-900"
-                  disabled
-                  title={submitDisabledReason}
-                >
-                  <Send className="h-4 w-4 mr-2 text-slate-700" />
-                  <span className="whitespace-nowrap">{submitLabel}</span>
-                </Button>
-              )
-            ) : null}
-
-            {mounted ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="rounded-lg border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors"
-                    disabled={!!exportBusy}
-                  >
-                    {exportBusy ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Download className="h-4 w-4 mr-2" />
-                    )}
-                    {exportBusy ? "Exporting..." : "Export"}
-                    <ChevronDown className="h-3 w-3 ml-2 opacity-50" />
-                  </Button>
-                </DropdownMenuTrigger>
-
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem
-                    onClick={() => exportCharter("pdf")}
-                    disabled={!!exportBusy}
-                    className="cursor-pointer focus:bg-slate-50"
-                  >
-                    <FileText className="h-4 w-4 mr-2 text-red-600" />
-                    <div className="flex flex-col">
-                      <span className="text-sm">Export PDF</span>
-                      <span className="text-xs text-slate-500">Professional document</span>
-                    </div>
-                  </DropdownMenuItem>
-
-                  <DropdownMenuItem
-                    onClick={() => exportCharter("docx")}
-                    disabled={!!exportBusy}
-                    className="cursor-pointer focus:bg-slate-50"
-                  >
-                    <File className="h-4 w-4 mr-2 text-blue-600" />
-                    <div className="flex flex-col">
-                      <span className="text-sm">Export Word</span>
-                      <span className="text-xs text-slate-500">Editable document</span>
-                    </div>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <Button
-                variant="outline"
-                className="rounded-lg border-slate-300"
-                disabled
-                title="Export menu loads after page is ready"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Export
-                <ChevronDown className="h-3 w-3 ml-2 opacity-50" />
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* ✅ Autosave failure (prevents “stuck pending”) */}
-        {autosaveError ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-4 py-3">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-4 w-4" />
-              <span className="font-medium">Autosave failed:</span>
-              <span className="text-rose-800/90">{autosaveError}</span>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-lg border-rose-200 hover:bg-rose-100 text-rose-800"
-              disabled={!canEdit || isPending}
-              onClick={() => {
-                setAutosaveError("");
-                failedSigRef.current = null;
-                saveNow("autosave");
-              }}
-            >
-              Retry autosave
-            </Button>
-          </div>
-        ) : null}
-
-        {/* PM Brief (kept) */}
-        {canEdit ? (
-          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <div className="text-sm font-semibold text-slate-900">PM Brief</div>
-                <div className="text-xs text-slate-600">Provide context for AI generation. Keep it crisp and specific.</div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div className="text-xs text-slate-500">
-                  {pmBriefEmpty ? (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-800">
-                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                      Recommended
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-800">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                      Ready
-                    </span>
-                  )}
-                </div>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-8 rounded-lg border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-900"
-                  disabled={!canEdit || isPending || aiState === "generating" || aiFullBusy || !wireCaps.full}
-                  onClick={() => generateFullCharter()}
-                  title={
-                    !wireCaps.full
-                      ? "Full AI generation is not available."
-                      : pmBriefEmpty
-                        ? "Add a brief first (recommended)"
-                        : "Generate the full charter from your brief"
-                  }
-                >
-                  {aiFullBusy ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Wand2 className="h-4 w-4 mr-2 text-indigo-700" />
-                  )}
-                  <span className="whitespace-nowrap">Generate</span>
-                </Button>
-              </div>
-            </div>
-
-            <textarea
-              value={pmBrief}
-              onChange={(e) => {
-                const v = e.target.value;
-                setPmBrief(v);
-                lastLocalEditAtRef.current = Date.now();
-                setDoc((prev) => setPmBriefInMeta(prev, v));
-                setDirty(true);
-              }}
-              rows={7}
-              placeholder={[
-                "Act as a senior programme manager and PMO governance expert.",
-                "Generate a complete, executive-ready Project Charter using best-practice (PRINCE2/PMBOK hybrid).",
-                "Be concise, structured, and realistic for enterprise delivery.",
-                "Flag assumptions clearly and avoid generic filler.",
-                "Ensure objectives are measurable and aligned to business value.",
-              ].join("\n")}
-              className="mt-3 w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-            />
-          </div>
-        ) : null}
-
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-xs text-slate-500">
-            {lastSavedIso ? (
-              <>
-                Last saved: <span className="font-mono">{fmtWhenLocal(lastSavedIso)}</span>
-              </>
-            ) : (
-              "—"
-            )}
-          </div>
-
-          {aiState === "error" && aiError ? (
-            <div className="flex items-center gap-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
-              <AlertCircle className="h-4 w-4" />
-              {aiError}
-            </div>
-          ) : null}
-        </div>
-
-        {exportErr && (
-          <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
-            <AlertCircle className="h-4 w-4" />
-            {exportErr}
-          </div>
-        )}
+    <div className="space-y-3">
+      <div className="text-xs font-medium text-slate-500 flex items-center gap-2">
+        <List className="h-3 w-3" />
+        Bullet points (one per line)
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm min-h-[600px]">
-        {viewMode === "classic" ? (
-          <ProjectCharterClassicView doc={doc} projectTitleFromProject={projectTitle} />
-        ) : isCanonicalV2 ? (
-          <ProjectCharterSectionEditor
-            meta={doc?.meta ?? {}}
-            onMetaChange={(meta: any) => {
-              markDirty();
-              setDoc((prev: any) => {
-                const cur = ensureCanonicalCharter(prev);
-                return applyProjectMetaDefaults({ ...cur, meta }, { projectTitle, projectManagerName });
-              });
-            }}
-            sections={sectionsForEditor}
-            onChange={(sections: any) => {
-              markDirty();
-              setDoc((prev: any) =>
-                applyProjectMetaDefaults(ensureCanonicalCharter({ ...prev, sections }), {
-                  projectTitle,
-                  projectManagerName,
-                })
-              );
-            }}
-            readOnly={sectionReadOnly}
-            onImproveSection={(payload: ImproveSectionPayload) => improveSection(payload)}
-            onRegenerateSection={(sectionKey: string) => regenerateSection(sectionKey)}
-            aiDisabled={!canEdit || isPending || aiState === "generating"}
-            aiLoadingKey={aiLoadingKey}
-          />
-        ) : (
-          <ProjectCharterEditor
-            initialJson={doc}
-            onChange={(next: any) => {
-              markDirty();
-              setDoc(applyProjectMetaDefaults(next, { projectTitle, projectManagerName }));
-            }}
-            readOnly={readOnly}
-            lockLayout={lockLayout}
-          />
-        )}
+      <textarea
+        className="w-full min-h-[160px] rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 disabled:bg-slate-50 disabled:text-slate-400 resize-y transition-all leading-relaxed"
+        value={value}
+        disabled={readOnly}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="• Add bullet points here..."
+        onKeyDown={(e) => {
+          if (readOnly) return;
+
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+
+            const el = e.currentTarget;
+            const pos = el.selectionStart ?? el.value.length;
+            const { indent, marker } = currentLinePrefix(el.value, pos);
+
+            const insert = `\n${indent}${marker} `;
+            const { next, nextPos } = insertAtCursor(el, insert);
+            onChange(next);
+
+            requestAnimationFrame(() => {
+              try {
+                el.selectionStart = el.selectionEnd = nextPos;
+              } catch {}
+            });
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+/* =========================================================
+   Date Picker Cell Component
+========================================================= */
+
+function DatePickerCell({
+  value,
+  onChange,
+  disabled,
+  placeholder = "dd/mm/yyyy",
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const date = useMemo(() => parseUkDate(value), [value]);
+  const displayValue = useMemo(() => toUkDateDisplay(value), [value]);
+
+  const handleSelect = (selectedDate: Date | undefined) => {
+    if (selectedDate && isValid(selectedDate)) {
+      onChange(formatDateToUk(selectedDate));
+    }
+    setOpen(false);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    onChange(e.target.value);
+  };
+
+  const handleBlur = () => {
+    const normalized = normalizeUkDateInput(value);
+    if (normalized !== value) onChange(normalized);
+  };
+
+  if (disabled) {
+    return (
+      <div className="w-full px-3 py-2 text-sm text-slate-600 bg-slate-50 rounded-md border border-slate-200">
+        {displayValue || placeholder}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="text"
+        className="flex-1 min-w-0 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-all"
+        value={displayValue}
+        placeholder={placeholder}
+        onChange={handleInputChange}
+        onBlur={handleBlur}
+        onKeyDown={guardTableCellKeys}
+      />
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="p-2 rounded-md border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-colors text-slate-500 hover:text-indigo-600"
+            title="Pick date"
+          >
+            <CalendarIcon className="h-4 w-4" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0" align="end">
+          <Calendar mode="single" selected={date || undefined} onSelect={handleSelect} initialFocus className="rounded-lg border-0" />
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+/* =========================================================
+   Table Editor with Date Picker Support
+========================================================= */
+
+function TableEditor({
+  value,
+  readOnly,
+  onChange,
+  onAddRow,
+  onAddCol,
+  onDelRow,
+  onDelCol,
+}: {
+  value: { columns: number; rows: RowObj[] };
+  readOnly: boolean;
+  onChange: (t: { columns: number; rows: RowObj[] }) => void;
+  onAddRow: () => void;
+  onAddCol: () => void;
+  onDelRow: (dataRowIndex: number) => void;
+  onDelCol: (colIndex: number) => void;
+}) {
+  const t = ensureHeaderRow(value);
+  const header = t.rows[0].cells;
+  const dataRows = t.rows.filter((r) => r.type === "data");
+
+  const dateCols = useMemo(() => {
+    const idxs = new Set<number>();
+    header.forEach((h, i) => {
+      if (headerSuggestsDate(h)) idxs.add(i);
+    });
+    return idxs;
+  }, [header.join("|")]);
+
+  function setHeader(col: number, v: string) {
+    const next = ensureHeaderRow(t);
+    next.rows[0].cells[col] = v;
+    onChange(next);
+  }
+
+  function setCell(dataRowIndex: number, col: number, v: string) {
+    const next = ensureHeaderRow(t);
+    const dataIdxs = next.rows
+      .map((r, i) => ({ r, i }))
+      .filter((x) => x.r.type === "data")
+      .map((x) => x.i);
+
+    const rowIdx = dataIdxs[dataRowIndex];
+    if (rowIdx == null) return;
+
+    next.rows[rowIdx].cells[col] = v;
+    onChange(next);
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+        <table className="w-full text-sm border-collapse">
+          <thead className="bg-slate-50 border-b border-slate-200">
+            <tr>
+              {header.map((h, i) => (
+                <th key={i} className="px-4 py-3 text-left align-middle border-r border-slate-100 last:border-r-0">
+                  <div className="flex items-center gap-2">
+                    <input
+                      className="w-full bg-transparent outline-none font-semibold text-slate-700 placeholder:text-slate-400"
+                      value={safeStr(h)}
+                      disabled={readOnly}
+                      onChange={(e) => setHeader(i, e.target.value)}
+                      onKeyDown={guardTableCellKeys}
+                      placeholder={`Column ${i + 1}`}
+                    />
+
+                    {!readOnly && t.columns > 1 ? (
+                      <button
+                        type="button"
+                        className="shrink-0 rounded-md p-1.5 hover:bg-rose-100 text-slate-400 hover:text-rose-600 transition-colors"
+                        title="Delete this column"
+                        onClick={() => onDelCol(i)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
+                  </div>
+                </th>
+              ))}
+              {!readOnly ? <th className="w-16 px-2 py-3 bg-slate-50" /> : null}
+            </tr>
+          </thead>
+
+          <tbody className="divide-y divide-slate-100">
+            {dataRows.map((r, ri) => (
+              <tr key={ri} className="hover:bg-slate-50/50 transition-colors">
+                {header.map((_, ci) => {
+                  const isDate = dateCols.has(ci);
+                  const raw = safeStr(r.cells?.[ci]);
+
+                  return (
+                    <td key={ci} className="px-4 py-3 align-top border-r border-slate-100 last:border-r-0">
+                      {isDate ? (
+                        <DatePickerCell value={raw} onChange={(v) => setCell(ri, ci, v)} disabled={readOnly} />
+                      ) : (
+                        <input
+                          className="w-full outline-none bg-transparent text-slate-700 placeholder:text-slate-400"
+                          value={raw}
+                          disabled={readOnly}
+                          onChange={(e) => setCell(ri, ci, e.target.value)}
+                          onKeyDown={guardTableCellKeys}
+                        />
+                      )}
+                    </td>
+                  );
+                })}
+
+                {!readOnly ? (
+                  <td className="px-2 py-3 text-center">
+                    <button
+                      type="button"
+                      onClick={() => onDelRow(ri)}
+                      className="rounded-md p-2 hover:bg-rose-100 text-slate-400 hover:text-rose-600 transition-colors"
+                      title="Delete row"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </td>
+                ) : null}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      {/* ✅ Dev-only panel (never rendered/imported in prod) */}
-      {DEV ? <CharterV2DebugPanel value={v2ForSave} /> : null}
+      {!readOnly ? (
+        <div className="flex flex-wrap gap-3 items-center">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onAddRow}
+            className="rounded-lg border-slate-300 hover:bg-slate-50 hover:border-slate-400"
+          >
+            <Plus className="h-4 w-4 mr-1.5" /> Add Row
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onAddCol}
+            className="rounded-lg border-slate-300 hover:bg-slate-50 hover:border-slate-400"
+          >
+            <Plus className="h-4 w-4 mr-1.5" /> Add Column
+          </Button>
+
+          <div className="ml-auto text-xs text-slate-400">
+            {dataRows.length} row{dataRows.length !== 1 ? "s" : ""} × {header.length} column{header.length !== 1 ? "s" : ""}s
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

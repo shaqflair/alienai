@@ -1,4 +1,4 @@
-﻿// src/lib/exports/closure-report/exportClosureReportDocxBuffer.ts
+// src/lib/exports/closure-report/exportClosureReportDocxBuffer.ts
 import "server-only";
 
 import {
@@ -38,53 +38,6 @@ const COLORS = {
 
 const META_LABEL_SIZE = 16;
 const META_VALUE_SIZE = 20;
-
-/* ==================== tiny safe helpers ==================== */
-
-function devLog(...args: any[]) {
-  if (process.env.NODE_ENV === "development") {
-    // eslint-disable-next-line no-console
-    console.log(...args);
-  }
-}
-
-function clampStr(x: any, max = 160): string {
-  const s = safeStr(x).trim();
-  return s.length > max ? s.slice(0, max) : s;
-}
-
-function pad2(n: number) {
-  return n < 10 ? `0${n}` : String(n);
-}
-
-function yyyyMmDdFromAny(x: any): string {
-  const s = safeStr(x).trim();
-  if (!s) {
-    const d = new Date();
-    return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
-  }
-
-  // Prefer ISO-like YYYY-MM-DD
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-
-  const d = new Date(s);
-  if (!Number.isFinite(d.getTime())) {
-    const now = new Date();
-    return `${now.getUTCFullYear()}-${pad2(now.getUTCMonth() + 1)}-${pad2(now.getUTCDate())}`;
-  }
-  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
-}
-
-function slugFilePart(x: any, fallback = "project") {
-  const s = safeStr(x).trim().toLowerCase();
-  const cleaned = s
-    .replace(/['"]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-  return cleaned || fallback;
-}
 
 /* ==================== tolerant getters ==================== */
 
@@ -227,7 +180,7 @@ function normaliseOverall(v: any): string {
   if (!s) return "—";
   const t = s.toLowerCase();
 
-  // editor: good | watch | critical
+  // your editor uses: good | watch | critical
   if (t === "good") return "Good";
   if (t === "watch") return "Watch";
   if (t === "critical") return "Critical";
@@ -300,7 +253,9 @@ function blueHeaderBand(badge: string, title: string, subtitle: string) {
             children: [
               new Paragraph({
                 spacing: { after: 100 },
-                children: [new TextRun({ text: safeStr(title), bold: true, size: 48, color: COLORS.slate900 })],
+                children: [
+                  new TextRun({ text: safeStr(title), bold: true, size: 48, color: COLORS.slate900 }),
+                ],
               }),
               new Paragraph({
                 children: [new TextRun({ text: safeStr(subtitle), size: 28, color: COLORS.slate500 })],
@@ -319,7 +274,9 @@ function metaCell(label: string, value: string, opts?: { isCode?: boolean }) {
     margins: { top: 100, bottom: 100, left: 120, right: 120 },
     children: [
       new Paragraph({
-        children: [new TextRun({ text: safeStr(label), size: META_LABEL_SIZE, color: COLORS.slate500, bold: true })],
+        children: [
+          new TextRun({ text: safeStr(label), size: META_LABEL_SIZE, color: COLORS.slate500, bold: true }),
+        ],
       }),
       new Paragraph({
         children: [
@@ -399,18 +356,17 @@ function charterTable(headers: string[], rows: string[][]) {
   };
 
   const headerRow = new TableRow({
-    children: headers.map(
-      (h) =>
-        new TableCell({
-          shading: { type: ShadingType.CLEAR, fill: COLORS.bgHeader },
-          margins: { top: 60, bottom: 60, left: 100, right: 100 },
-          children: [
-            new Paragraph({
-              children: [new TextRun({ text: safeStr(h), bold: true, size: 18, color: COLORS.blue })],
-            }),
-          ],
-        })
-    ),
+    children: headers.map((h) => (
+      new TableCell({
+        shading: { type: ShadingType.CLEAR, fill: COLORS.bgHeader },
+        margins: { top: 60, bottom: 60, left: 100, right: 100 },
+        children: [
+          new Paragraph({
+            children: [new TextRun({ text: safeStr(h), bold: true, size: 18, color: COLORS.blue })],
+          }),
+        ],
+      })
+    )),
   });
 
   const safeRows = Array.isArray(rows) && rows.length ? rows : [["—"]];
@@ -419,14 +375,13 @@ function charterTable(headers: string[], rows: string[][]) {
   const bodyRows = safeRows.map((r, idx) => {
     const shading = idx % 2 === 1 ? { type: ShadingType.CLEAR, fill: COLORS.bgAlt } : undefined;
     return new TableRow({
-      children: Array.from({ length: colCount }, (_, c) => safeStr(r?.[c] ?? "—")).map(
-        (cell) =>
-          new TableCell({
-            shading,
-            margins: { top: 60, bottom: 60, left: 100, right: 100 },
-            children: [new Paragraph({ children: [new TextRun({ text: cell || "—", size: 20 })] })],
-          })
-      ),
+      children: Array.from({ length: colCount }, (_, c) => safeStr(r?.[c] ?? "—")).map((cell) => (
+        new TableCell({
+          shading,
+          margins: { top: 60, bottom: 60, left: 100, right: 100 },
+          children: [new Paragraph({ children: [new TextRun({ text: cell || "—", size: 20 })] })],
+        })
+      )),
     });
   });
 
@@ -478,83 +433,141 @@ function moneyStr(v: any): string {
   return safeStr(v).trim() || "—";
 }
 
-/* ==================== Filename helper ==================== */
+/* ==================== DEBUG PROBE (server console) ==================== */
 
-export function closureReportDocxFilename(meta?: any) {
-  const projectName =
-    pickAny(meta, ["projectName", "title", "project_title", "project.project_name"]) ||
-    pickAny(meta, ["meta.projectName", "meta.title"]) ||
-    "project";
+function preview(x: any, max = 120) {
+  const s =
+    x == null
+      ? ""
+      : typeof x === "string"
+        ? x
+        : typeof x === "number" || typeof x === "boolean"
+          ? String(x)
+          : (() => {
+              try {
+                return JSON.stringify(x);
+              } catch {
+                return String(x);
+              }
+            })();
 
-  const codeRaw =
-    pickAny(meta, ["projectCode", "project_code", "projectId", "project_id", "project.project_code"]) ||
-    pickAny(meta, ["meta.projectCode"]) ||
-    "";
+  return s.length > max ? s.slice(0, max) + "…" : s;
+}
 
-  const code = toProjectCode(codeRaw) || "";
-  const date = yyyyMmDdFromAny(pickAny(meta, ["generatedAt", "generated", "generatedDateTime", "generatedDateTimeUk"]) || "");
+function isPlainObject(x: any) {
+  return x != null && typeof x === "object" && !Array.isArray(x);
+}
 
-  const parts = [
-    "project-closure-report",
-    code ? slugFilePart(code, "project") : slugFilePart(projectName, "project"),
-    date,
-  ].filter(Boolean);
+function topKeys(x: any) {
+  if (!isPlainObject(x)) return [];
+  return Object.keys(x).slice(0, 50);
+}
 
-  return `${parts.join("-")}.docx`;
+function pathHit(model: any, path: string) {
+  const v = getPath(model, path);
+
+  const exists =
+    v !== undefined &&
+    v !== null &&
+    !(typeof v === "string" && v.trim() === "") &&
+    !(Array.isArray(v) && v.length === 0) &&
+    !(isPlainObject(v) && Object.keys(v).length === 0);
+
+  return { path, exists, type: Array.isArray(v) ? "array" : typeof v, preview: preview(v) };
+}
+
+function debugPickAny(model: any, label: string, paths: string[]) {
+  const hits = paths.map((p) => pathHit(model, p));
+  const winner = hits.find((h) => h.exists);
+  return { label, winner: winner?.path || null, hits: hits.filter((h) => h.exists) };
+}
+
+export function debugClosureModel(model: any) {
+  const sections = {
+    rootKeys: topKeys(model),
+    metaKeys: topKeys(model?.meta),
+    projectKeys: topKeys(model?.project),
+    healthKeys: topKeys(model?.health),
+  };
+
+  const checks = [
+    debugPickAny(model, "projectName", ["project.project_name", "meta.projectName", "title", "projectName"]),
+    debugPickAny(model, "projectCode", ["project.project_code", "meta.projectCode", "project_code", "projectId"]),
+    debugPickAny(model, "clientName", ["project.client_name", "meta.clientName", "client", "client_name"]),
+    debugPickAny(model, "rag", ["health.rag", "meta.rag", "rag", "rag_status"]),
+    debugPickAny(model, "overall", ["health.overall_health", "meta.overall", "overall", "overall_health"]),
+    debugPickAny(model, "executiveSummary", ["health.summary", "executiveSummary", "summary"]),
+  ];
+
+  const arrays = [
+    { label: "stakeholders", candidates: ["stakeholders.key", "stakeholders", "keyStakeholders"] },
+    { label: "achievements", candidates: ["achievements.key_achievements", "achievements", "keyAchievements"] },
+    { label: "criteria", candidates: ["success.criteria", "criteria", "successCriteria"] },
+    { label: "delivered", candidates: ["deliverables.delivered", "delivered"] },
+    { label: "outstanding", candidates: ["deliverables.outstanding", "outstanding"] },
+    { label: "budgetRows", candidates: ["financial_closeout.budget_rows", "budgetRows", "financial.budget_rows"] },
+    { label: "wentWell", candidates: ["lessons.went_well", "wentWell"] },
+    { label: "didntGoWell", candidates: ["lessons.didnt_go_well", "didntGoWell"] },
+    { label: "surprises", candidates: ["lessons.surprises_risks", "surprises"] },
+    { label: "risksIssues", candidates: ["handover.risks_issues", "risksIssues"] },
+    { label: "recommendations", candidates: ["recommendations.items", "recommendations"] },
+  ].map((a) => ({
+    label: a.label,
+    hits: a.candidates.map((p) => pathHit(model, p)).filter((h) => h.exists),
+  }));
+
+  console.log("---------------- CLOSURE EXPORT DEBUG ----------------");
+  console.log("Sections(keys):", sections);
+  console.log(
+    "Field path winners:",
+    checks.map((c) => ({ label: c.label, winner: c.winner, hits: c.hits.map((h) => h.path) }))
+  );
+  console.log("Array/object hits:", arrays);
+  console.log("------------------------------------------------------");
 }
 
 /* ==================== Main Closure DOCX (Charter layout) ==================== */
 
-export async function exportClosureReportDocxBuffer({
-  doc,
-  meta,
-}: {
-  doc: any;
-  meta?: any;
-}): Promise<Buffer> {
-  const model = doc ?? {};
-
+export async function exportClosureReportDocxBuffer(model: any): Promise<Buffer> {
   // ---- PRIMARY: support the editor schema (ClosureDocV1) ----
 
   const projectName =
     pickAny(model, ["project.project_name"]) ||
-    pickAny(meta, ["projectName", "title", "project_title"]) ||
     pickAny(model, ["meta.projectName", "meta.title", "projectName", "title"]) ||
     "Project";
 
   const projectCodeRaw =
     pickAny(model, ["project.project_code"]) ||
-    pickAny(meta, ["projectCode", "project_code", "projectId", "project_id"]) ||
     pickAny(model, ["meta.projectCode", "project_code", "projectId", "project_id"]) ||
     "";
 
   const projectCode = toProjectCode(projectCodeRaw);
 
+  // Organisation is not in your editor doc; keep fallbacks
   const orgName =
-    pickAny(meta, ["organisationName", "orgName", "organisation", "organisation_name"]) ||
-    pickAny(model, ["meta.organisationName", "meta.orgName", "organisation", "organisation_name", "org_name", "orgName"]) ||
-    "—";
+    pickAny(model, ["meta.organisationName", "meta.orgName", "organisation", "organisation_name", "org_name", "orgName"]) || "—";
 
   const clientName =
     pickAny(model, ["project.client_name"]) ||
-    pickAny(meta, ["clientName", "client", "client_name"]) ||
     pickAny(model, ["meta.clientName", "client_business", "clientBusiness", "client", "client_name"]) ||
     "—";
 
   const generatedFooter =
-    pickAny(meta, ["generatedDateTimeUk", "generatedDateTime", "generated", "generatedAt"]) ||
+    pickAny(model, ["meta.generatedDateTimeUk", "meta.generatedDateTime", "meta.generated", "meta.generatedAt"]) ||
+    pickAny(model, ["generatedDateTimeUk", "generatedDateTime", "generated"]) ||
+    "—";
+  const generatedGrid =
     pickAny(model, ["meta.generatedDateTimeUk", "meta.generatedDateTime", "meta.generated", "meta.generatedAt"]) ||
     pickAny(model, ["generatedDateTimeUk", "generatedDateTime", "generated"]) ||
     "—";
 
-  const generatedGrid = generatedFooter;
-
   const ragRaw =
-    pickAny(model, ["health.rag"]) || pickAny(meta, ["rag", "rag_status", "ragStatus"]) || pickAny(model, ["meta.rag", "rag", "rag_status", "ragStatus"]) || "—";
+    pickAny(model, ["health.rag"]) ||
+    pickAny(model, ["meta.rag", "rag", "rag_status", "ragStatus"]) ||
+    "—";
 
   const overallRaw =
     pickAny(model, ["health.overall_health"]) ||
-    pickAny(meta, ["overall", "overall_health", "overallHealth"]) ||
     pickAny(model, ["meta.overall", "overall", "overall_health", "overallHealth"]) ||
     "—";
 
@@ -568,11 +581,17 @@ export async function exportClosureReportDocxBuffer({
 
   // Stakeholders (editor: stakeholders.key)
   const stakeholdersRaw =
-    getPath(model, "stakeholders.key") ?? getPath(model, "stakeholders") ?? getPath(model, "keyStakeholders") ?? null;
+    getPath(model, "stakeholders.key") ??
+    getPath(model, "stakeholders") ??
+    getPath(model, "keyStakeholders") ??
+    null;
 
   // Achievements (editor: achievements.key_achievements)
   const achievementsRaw =
-    getPath(model, "achievements.key_achievements") ?? getPath(model, "achievements") ?? getPath(model, "keyAchievements") ?? null;
+    getPath(model, "achievements.key_achievements") ??
+    getPath(model, "achievements") ??
+    getPath(model, "keyAchievements") ??
+    null;
 
   const stakeholdersArr = unwrapArray(stakeholdersRaw, ["key", "stakeholders", "items", "rows", "data"]);
   const achievementsArr = unwrapArray(achievementsRaw, ["key_achievements", "achievements", "items", "rows", "data"]);
@@ -595,7 +614,10 @@ export async function exportClosureReportDocxBuffer({
 
   // Financial rows (editor: financial_closeout.budget_rows)
   const budgetRowsRaw =
-    getPath(model, "financial_closeout.budget_rows") ?? getPath(model, "budgetRows") ?? getPath(model, "financial.budget_rows") ?? null;
+    getPath(model, "financial_closeout.budget_rows") ??
+    getPath(model, "budgetRows") ??
+    getPath(model, "financial.budget_rows") ??
+    null;
   const budgetRowsArr = unwrapArray(budgetRowsRaw, ["budget_rows", "budgetRows", "items", "rows", "data"]);
 
   // Lessons learned (editor: lessons.*)
@@ -610,7 +632,10 @@ export async function exportClosureReportDocxBuffer({
 
   // Risks/issues handover (editor: handover.risks_issues)
   const risksIssuesRaw =
-    getPath(model, "handover.risks_issues") ?? getPath(model, "risksIssues") ?? getPath(model, "risks_issues") ?? null;
+    getPath(model, "handover.risks_issues") ??
+    getPath(model, "risksIssues") ??
+    getPath(model, "risks_issues") ??
+    null;
   const risksIssuesArr = unwrapArray(risksIssuesRaw, ["risks_issues", "risksIssues", "items", "rows", "data"]);
 
   // Recommendations (editor: recommendations.items)
@@ -624,10 +649,6 @@ export async function exportClosureReportDocxBuffer({
 
   // Sign-off (editor: signoff)
   const signoff = getPath(model, "signoff") ?? getPath(model, "finalSignOff") ?? getPath(model, "final_sign_off") ?? {};
-
-  // Optional, gated dev probe (kept minimal + safe)
-  devLog("[closure-docx] model keys:", Object.keys(model || {}).slice(0, 30));
-  devLog("[closure-docx] project:", { projectName: clampStr(projectName), projectCode: clampStr(projectCodeRaw) });
 
   /* ==================== build document ==================== */
 
@@ -690,6 +711,7 @@ export async function exportClosureReportDocxBuffer({
         ["Criterion", "Achieved"],
         criteriaArr.map((c: any) => [
           safeStr(firstString(c, ["text", "criterion", "title"]) || textFromAny(c) || "—"),
+          // editor uses achieved: yes | partial | no
           (() => {
             const a = safeStr(c?.achieved).toLowerCase();
             if (a === "yes") return "Yes";
@@ -841,10 +863,7 @@ export async function exportClosureReportDocxBuffer({
         ["Sponsor Name", safeStr(signoff?.sponsor_name ?? signoff?.sponsorName ?? signoff?.sponsor ?? "—")],
         ["Sponsor Date", safeStr(signoff?.sponsor_date ?? signoff?.sponsorDate ?? "—")],
         ["Sponsor Decision", safeStr(signoff?.sponsor_decision ?? signoff?.sponsorDecision ?? "—")],
-        [
-          "PM Name",
-          safeStr(signoff?.pm_name ?? signoff?.pmName ?? signoff?.project_manager ?? signoff?.projectManager ?? "—"),
-        ],
+        ["PM Name", safeStr(signoff?.pm_name ?? signoff?.pmName ?? signoff?.project_manager ?? signoff?.projectManager ?? "—")],
         ["PM Date", safeStr(signoff?.pm_date ?? signoff?.pmDate ?? "—")],
         ["PM Approved", boolToYesNo(signoff?.pm_approved ?? signoff?.pmApproved)],
       ]
@@ -858,7 +877,7 @@ export async function exportClosureReportDocxBuffer({
     const ch = cleaned[i];
     const ok = ch instanceof Paragraph || ch instanceof Table;
     if (!ok) {
-      console.error("[closure-docx] Invalid DOCX child at index", i, ch);
+      console.error("? Invalid DOCX child at index", i, ch);
       throw new Error(`Invalid DOCX child at index ${i}: ${Object.prototype.toString.call(ch)}`);
     }
   }
