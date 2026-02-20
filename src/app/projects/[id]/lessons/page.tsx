@@ -91,6 +91,7 @@ function formatUKDate(dateString: string) {
 
 function safeExcelCell(v: any) {
   const s = String(v ?? "");
+  // prevent Excel formula injection
   if (/^[=+\-@]/.test(s)) return "'" + s;
   return s;
 }
@@ -177,6 +178,7 @@ export default function LessonsPage() {
     setLoading(true);
 
     // Keep backward compatibility with your existing API query param.
+    // Server should resolve whether this is UUID or project_code.
     const url = `/api/lessons?projectId=${encodeURIComponent(projectRef)}`;
 
     try {
@@ -205,7 +207,7 @@ export default function LessonsPage() {
     if (!projectRef) return;
 
     try {
-      // ✅ FIX: missing slash
+      // ✅ FIX: correct route path
       const r = await fetch(`/api/projects/${encodeURIComponent(projectRef)}/meta`, { cache: "no-store" });
       const raw = await r.clone().text();
       let j: any = null;
@@ -214,19 +216,17 @@ export default function LessonsPage() {
       } catch {
         j = null;
       }
+
       if (r.ok && j?.ok && j?.project) {
-        // ✅ FIX: projects table has project_code, not human_id
-        const code = safeStr(j.project.project_code || j.project.code || projectRef);
+        const code = safeStr(j.project.project_code || j.project.code || projectRef).trim() || projectRef;
         setMeta({
           title: safeStr(j.project.title) || "Project",
-          project_code: code || projectRef,
+          project_code: code,
         });
       } else {
-        // fallback
         setMeta((m) => ({ ...m, project_code: projectRef || m.project_code }));
       }
     } catch {
-      // fallback only
       setMeta((m) => ({ ...m, project_code: projectRef || m.project_code }));
     }
   }
@@ -309,9 +309,10 @@ export default function LessonsPage() {
   async function createLesson() {
     if (!description.trim()) return;
     setSaving(true);
+
     try {
       const payload = {
-        // ✅ send both; API can resolve either
+        // ✅ send both; API can resolve either UUID or code
         project_id: projectRef,
         project_code: projectRef,
 
@@ -328,7 +329,7 @@ export default function LessonsPage() {
       const r = await fetch("/api/lessons", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload), // ✅ FIXED (was broken JSON)
+        body: JSON.stringify(payload),
       });
 
       const j = await r.json().catch(() => ({}));
@@ -348,7 +349,7 @@ export default function LessonsPage() {
     if (!editing) return;
     const id = String(editing.id || "").trim();
     if (!isUuidClient(id)) {
-      alert(`Cannot update: invalid id`);
+      alert("Cannot update: invalid id");
       return;
     }
     if (!description.trim()) return;
@@ -405,7 +406,6 @@ export default function LessonsPage() {
       const r = await fetch("/api/lessons/ai-generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // ✅ send both so route can resolve either UUID or code
         body: JSON.stringify({ project_id: projectRef, project_code: projectRef }),
       });
 
@@ -491,6 +491,8 @@ export default function LessonsPage() {
             <button
               onClick={() => router.back()}
               className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
+              aria-label="Back"
+              title="Back"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -603,16 +605,7 @@ export default function LessonsPage() {
 
       {/* Main */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* (rest of your UI stays exactly the same) */}
-        {/* ✅ No further functional changes required below this line */}
-        {/* ... */}
-      </main>
-
-      {/* Modal */}
-      {/* ... unchanged ... */}
-    </div>
-  );
-}        {/* LESSONS TAB */}
+        {/* LESSONS TAB */}
         {activeTab === "lessons" && (
           <>
             {/* Filters Bar */}
@@ -663,7 +656,7 @@ export default function LessonsPage() {
                 <button
                   onClick={runAi}
                   disabled={loading}
-                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors disabled:opacity-60"
                 >
                   <span>✨</span> AI Generate
                 </button>
@@ -724,18 +717,24 @@ export default function LessonsPage() {
                         className={`w-1.5 flex-shrink-0 ${
                           l.category === "issues" ? "bg-rose-500" : l.category === "improvements" ? "bg-violet-500" : "bg-emerald-500"
                         }`}
-                      ></div>
+                      />
 
                       <div className="flex-1 p-5 sm:p-6">
                         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                           <div className="flex-1 space-y-3">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${pillForCategory(l.category)}`}>
+                              <span
+                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${pillForCategory(
+                                  l.category
+                                )}`}
+                              >
                                 {String(l.category || "").replace(/_/g, " ")}
                               </span>
 
                               <span
-                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${pillForStatus(l.status || "Open")}`}
+                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${pillForStatus(
+                                  l.status || "Open"
+                                )}`}
                               >
                                 {l.status || "Open"}
                               </span>
@@ -788,7 +787,7 @@ export default function LessonsPage() {
 
                                 {l.impact && (
                                   <div className="flex items-center gap-1.5">
-                                    <span className={`w-2 h-2 rounded-full ${l.impact === "Positive" ? "bg-emerald-500" : "bg-rose-500"}`}></span>
+                                    <span className={`w-2 h-2 rounded-full ${l.impact === "Positive" ? "bg-emerald-500" : "bg-rose-500"}`} />
                                     <span>{l.impact} Impact</span>
                                   </div>
                                 )}
@@ -1040,9 +1039,7 @@ export default function LessonsPage() {
           <div className="space-y-6">
             <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-6">
               <h3 className="text-lg font-semibold text-indigo-900 mb-2">Organization Library</h3>
-              <p className="text-indigo-700 mb-4">
-                Published lessons are shared across your organization for knowledge transfer.
-              </p>
+              <p className="text-indigo-700 mb-4">Published lessons are shared across your organization for knowledge transfer.</p>
 
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
@@ -1127,7 +1124,6 @@ export default function LessonsPage() {
                 <h3 className="text-lg font-semibold text-slate-900">Export Lessons</h3>
                 <p className="text-sm text-slate-500 mt-1">Download your lessons in various formats</p>
 
-                {/* ✅ Scope selector */}
                 <div className="mt-4 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
                   <button
                     onClick={() => setExportScope("lessons")}
@@ -1204,18 +1200,27 @@ export default function LessonsPage() {
       {/* Modal */}
       {open && (
         <div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => { setOpen(false); resetForm(); }} />
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm"
+            onClick={() => {
+              setOpen(false);
+              resetForm();
+            }}
+          />
 
           <div className="fixed inset-0 overflow-y-auto">
             <div className="min-h-full flex items-end sm:items-center justify-center p-4 sm:p-6">
               <div className="w-full sm:max-w-2xl bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
                 <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex justify-between items-center">
-                  <h3 className="text-lg font-bold text-slate-900">
-                    {mode === "edit" ? "Edit Lesson" : "Record New Lesson"}
-                  </h3>
+                  <h3 className="text-lg font-bold text-slate-900">{mode === "edit" ? "Edit Lesson" : "Record New Lesson"}</h3>
                   <button
-                    onClick={() => { setOpen(false); resetForm(); }}
+                    onClick={() => {
+                      setOpen(false);
+                      resetForm();
+                    }}
                     className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-200 transition-colors"
+                    aria-label="Close"
+                    title="Close"
                   >
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1356,7 +1361,10 @@ export default function LessonsPage() {
 
                   <button
                     type="button"
-                    onClick={() => { setOpen(false); resetForm(); }}
+                    onClick={() => {
+                      setOpen(false);
+                      resetForm();
+                    }}
                     className="w-full sm:w-auto inline-flex justify-center rounded-lg border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:text-sm"
                   >
                     Cancel
