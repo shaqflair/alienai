@@ -12,11 +12,11 @@ import {
 } from "./utils";
 
 /* ==========================================================================
-   Constants & Design System (unchanged)
+   Constants & Design System
 ========================================================================== */
 
 const THEME = {
-  primary: "FF2563EB",
+  primary: "FF2563EB", // Charter blue
   secondary: "FF7C3AED",
   success: "FF10B981",
   warning: "FFF59E0B",
@@ -51,7 +51,38 @@ const COLUMN_WIDTHS = {
 };
 
 /* ==========================================================================
-   Tree connector helpers (FIX: "connector just as before")
+   Color helpers (FIX: prevent invalid 10-char ARGB -> black fills)
+========================================================================== */
+
+/**
+ * ExcelJS expects ARGB as 8 hex chars: AARRGGBB.
+ * Your theme colors are already AARRGGBB (usually "FFRRGGBB").
+ * To create translucent tints, replace the AA component instead of appending.
+ */
+function argbWithAlpha(color: string, alphaHex: string) {
+  const c = String(color || "").trim().toUpperCase();
+  const a = String(alphaHex || "FF").trim().toUpperCase().padStart(2, "0").slice(0, 2);
+
+  // If it's already AARRGGBB
+  if (/^[0-9A-F]{8}$/.test(c)) return `${a}${c.slice(2)}`;
+
+  // If it's RRGGBB
+  if (/^[0-9A-F]{6}$/.test(c)) return `${a}${c}`;
+
+  // Fallback: return something safe (no transparency)
+  return /^[0-9A-F]{8}$/.test(THEME.neutral[50]) ? THEME.neutral[50] : "FFFFFFFF";
+}
+
+const ALPHA = {
+  faint: "14", // ~8%
+  light: "26", // ~15%
+  soft: "33", // ~20%
+  mid: "4D", // ~30%
+  strong: "66", // ~40%
+};
+
+/* ==========================================================================
+   Tree connector helpers
 ========================================================================== */
 
 function clampLevel(x: any): number {
@@ -60,32 +91,16 @@ function clampLevel(x: any): number {
   return Math.max(0, Math.min(50, Math.floor(n)));
 }
 
-/**
- * Determine whether the row at idx is the "last sibling" at its level.
- * We scan forward until we hit a row with level <= current level.
- * - if we hit same level => not last
- * - if we hit lower level or end => last
- */
 function isLastSibling(rows: any[], idx: number): boolean {
   const curLevel = clampLevel(rows[idx]?.level);
   for (let j = idx + 1; j < rows.length; j++) {
     const nextLevel = clampLevel(rows[j]?.level);
     if (nextLevel < curLevel) return true;
     if (nextLevel === curLevel) return false;
-    // if nextLevel > curLevel, keep scanning (we're inside children)
   }
   return true;
 }
 
-/**
- * Render deliverable with connector:
- * level 0 => "Title"
- * level 1 => "+ Title" or "+ Title"
- * level 2 => "  + Title" etc.
- *
- * Note: We keep it simple (no vertical '¦' lines), matching your "+" style,
- * but now correctly uses + vs +.
- */
 function formatDeliverableWithConnector(rows: any[], idx: number): string {
   const row = rows[idx];
   const lvl = clampLevel(row?.level);
@@ -171,6 +186,9 @@ class WBSWorkbookBuilder {
     const { project, artifact, exportDate } = this.metadata;
     const sheet = this.workbook.addWorksheet("Summary");
 
+    // Optional: make the tab look Charter-ish
+    sheet.properties.tabColor = { argb: THEME.primary };
+
     sheet.mergeCells("A1:E1");
     const titleCell = sheet.getCell("A1");
     titleCell.value = "Work Breakdown Structure";
@@ -229,8 +247,9 @@ class WBSWorkbookBuilder {
       cell.value = `${m.label}\n${m.value}`;
       cell.alignment = { horizontal: "center", vertical: "center", wrapText: true };
       cell.font = { bold: true, size: 11 };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `${m.color}20` } };
-      cell.border = { outline: { style: "thin", color: { argb: `${m.color}60` } } };
+
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argbWithAlpha(m.color, ALPHA.soft) } };
+      cell.border = { outline: { style: "thin", color: { argb: argbWithAlpha(m.color, ALPHA.strong) } } };
     });
 
     currentRow += 3;
@@ -240,13 +259,15 @@ class WBSWorkbookBuilder {
     currentRow++;
 
     Object.entries(metrics.byStatus).forEach(([status, count]) => {
+      const c = statusColor(status, THEME);
+
       sheet.getCell(currentRow, 1).value = status;
       sheet.getCell(currentRow, 2).value = count;
       sheet.getCell(currentRow, 2).font = { bold: true };
       sheet.getCell(currentRow, 2).fill = {
         type: "pattern",
         pattern: "solid",
-        fgColor: { argb: `${statusColor(status, THEME)}20` },
+        fgColor: { argb: argbWithAlpha(c, ALPHA.soft) },
       };
       currentRow++;
     });
@@ -260,6 +281,9 @@ class WBSWorkbookBuilder {
     const sheet = this.workbook.addWorksheet("WBS", {
       views: [{ state: "frozen", ySplit: 1, xSplit: 2 }],
     });
+
+    // Optional: Charter-ish tab color
+    sheet.properties.tabColor = { argb: THEME.primary };
 
     sheet.columns = [
       { key: "code", header: "WBS Code", width: COLUMN_WIDTHS.code },
@@ -275,13 +299,30 @@ class WBSWorkbookBuilder {
       { key: "acceptance_criteria", header: "Acceptance Criteria", width: COLUMN_WIDTHS.acceptance },
     ];
 
+    /* =========================
+       ✅ Charter-style header band
+    ========================= */
+
     const headerRow = sheet.getRow(1);
-    headerRow.height = 24;
+    headerRow.height = 26;
+
     headerRow.eachCell((cell) => {
+      // Text: white, bold
       cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: THEME.neutral[800] } };
+
+      // Fill: Charter blue band
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: THEME.primary } };
+
+      // Alignment
       cell.alignment = { vertical: "middle", horizontal: "left" };
-      cell.border = { bottom: { style: "thin", color: { argb: THEME.neutral[600] } } };
+
+      // Borders: subtle darker bottom edge (Charter-ish)
+      cell.border = {
+        bottom: { style: "thin", color: { argb: argbWithAlpha(THEME.neutral[900], ALPHA.strong) } },
+        left: { style: "thin", color: { argb: argbWithAlpha("FFFFFF", ALPHA.faint) } },
+        right: { style: "thin", color: { argb: argbWithAlpha("FFFFFF", ALPHA.faint) } },
+        top: { style: "thin", color: { argb: argbWithAlpha("FFFFFF", ALPHA.faint) } },
+      };
     });
 
     rows.forEach((row, idx) => {
@@ -294,7 +335,6 @@ class WBSWorkbookBuilder {
         : safeStr(row?.tags || "");
 
       const dueDate = row?.due_date ? formatDateUK(row.due_date) : "";
-
       const deliverableWithConnector = formatDeliverableWithConnector(rows, idx);
 
       const excelRow = sheet.addRow({
@@ -313,17 +353,29 @@ class WBSWorkbookBuilder {
 
       const isEven = idx % 2 === 0;
       excelRow.alignment = { vertical: "top", wrapText: true };
-      if (!isEven) excelRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: THEME.neutral[50] } };
+      if (!isEven) {
+        excelRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: THEME.neutral[50] } };
+      }
 
+      const stColor = statusColor(status, THEME);
       const statusCell = excelRow.getCell("status");
-      statusCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `${statusColor(status, THEME)}15` } };
-      statusCell.font = { color: { argb: statusColor(status, THEME) }, bold: true };
-      statusCell.border = { outline: { style: "thin", color: { argb: `${statusColor(status, THEME)}40` } } };
+      statusCell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: argbWithAlpha(stColor, ALPHA.light) },
+      };
+      statusCell.font = { color: { argb: stColor }, bold: true };
+      statusCell.border = { outline: { style: "thin", color: { argb: argbWithAlpha(stColor, ALPHA.mid) } } };
 
       if (effort) {
+        const efColor = effortColor(effort, THEME);
         const effortCell = excelRow.getCell("effort");
-        effortCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `${effortColor(effort, THEME)}15` } };
-        effortCell.font = { color: { argb: effortColor(effort, THEME) } };
+        effortCell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: argbWithAlpha(efColor, ALPHA.light) },
+        };
+        effortCell.font = { color: { argb: efColor } };
       }
 
       if (level === 0) excelRow.getCell("deliverable").font = { bold: true };
@@ -338,6 +390,9 @@ class WBSWorkbookBuilder {
   private addMetadataSheet() {
     const { project, artifact, exportDate } = this.metadata;
     const sheet = this.workbook.addWorksheet("Document Info");
+
+    // Optional: Charter-ish tab color
+    sheet.properties.tabColor = { argb: THEME.primary };
 
     sheet.columns = [
       { key: "field", width: 25 },
