@@ -39,11 +39,18 @@ function isUuid(x: string) {
   );
 }
 
+/**
+ * ✅ More tolerant:
+ * - "pdf", "pdf-document", "application/pdf"
+ * - "docx", "word", "word-document"
+ * - "xlsx", "excel", "application/vnd..."
+ */
 function normalizeFormat(x: string) {
   const f = safeStr(x).toLowerCase();
-  if (f === "pdf") return "pdf";
-  if (f === "docx" || f === "word") return "docx";
-  if (f === "xlsx" || f === "excel") return "xlsx";
+  if (!f) return "";
+  if (f === "pdf" || f.includes("pdf")) return "pdf";
+  if (f === "docx" || f === "word" || f.includes("doc") || f.includes("word")) return "docx";
+  if (f === "xlsx" || f === "excel" || f.includes("xls") || f.includes("excel")) return "xlsx";
   return "";
 }
 
@@ -105,6 +112,26 @@ async function readIds(req: NextRequest) {
 }
 
 /**
+ * ✅ Get format from:
+ * 1) route param
+ * 2) query string (?format=pdf)
+ * 3) POST body ({ format: "pdf" })
+ */
+async function readFormat(req: NextRequest, formatParamRaw?: string) {
+  const qp = safeStr(req.nextUrl.searchParams.get("format"));
+  if (formatParamRaw && safeStr(formatParamRaw)) return safeStr(formatParamRaw);
+  if (qp) return qp;
+
+  if (req.method !== "GET") {
+    const body = await req.json().catch(() => ({} as any));
+    const bf = safeStr(body?.format ?? body?.fileType ?? body?.type);
+    if (bf) return bf;
+  }
+
+  return "";
+}
+
+/**
  * Membership check (project_members)
  */
 async function requireMember(supabase: any, projectId: string) {
@@ -128,11 +155,16 @@ async function requireMember(supabase: any, projectId: string) {
 
 /* ---------------- core handler ---------------- */
 
-async function handle(req: NextRequest, formatRaw: string) {
+async function handle(req: NextRequest, formatParamRaw?: string) {
   try {
+    const formatRaw = await readFormat(req, formatParamRaw);
     const format = normalizeFormat(formatRaw);
+
     if (!["pdf", "xlsx", "docx"].includes(format)) {
-      return jsonErr(`Unsupported format: ${formatRaw}`, 400);
+      return jsonErr(`Unsupported format: ${formatRaw || "(empty)"}`, 400, {
+        formatRaw,
+        queryFormat: safeStr(req.nextUrl.searchParams.get("format")),
+      });
     }
 
     const { projectId, artifactId } = await readIds(req);
@@ -151,7 +183,7 @@ async function handle(req: NextRequest, formatRaw: string) {
 
     if (format === "pdf") {
       const out = await exportStakeholderRegisterPdfBuffer({ supabase, projectId, artifactId, logoUrl });
-      const pdf = toUint8((out as any)?.pdf);
+      const pdf = toUint8((out as any)?.pdf ?? (out as any)?.bytes ?? (out as any)?.buffer);
       if (!pdf?.length) return jsonErr("PDF export returned empty output", 500);
 
       const baseName =
@@ -217,12 +249,14 @@ async function handle(req: NextRequest, formatRaw: string) {
   }
 }
 
-export async function GET(req: NextRequest, ctx: { params: Promise<{ format?: string }> }) {
-  const params = await Promise.resolve(ctx.params as any);
-  return handle(req, safeStr(params?.format));
+/**
+ * ✅ Next.js route params are NOT Promises.
+ * Keep these types simple to avoid Turbopack weirdness.
+ */
+export async function GET(req: NextRequest, ctx: { params?: { format?: string } }) {
+  return handle(req, safeStr(ctx?.params?.format));
 }
 
-export async function POST(req: NextRequest, ctx: { params: Promise<{ format?: string }> }) {
-  const params = await Promise.resolve(ctx.params as any);
-  return handle(req, safeStr(params?.format));
+export async function POST(req: NextRequest, ctx: { params?: { format?: string } }) {
+  return handle(req, safeStr(ctx?.params?.format));
 }

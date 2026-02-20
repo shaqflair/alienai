@@ -92,20 +92,20 @@ function kvTable(rows: { k: string; v: string }[]) {
       ${r
         .map(
           (x) =>
-            `<tr><td class="kvK">${escapeHtml(x.k)}</td><td class="kvV">${escapeHtml(
-              (x.v || "—").trim() || "—"
-            )}</td></tr>`
+            `<tr><td class="kvK">${escapeHtml(x.k)}</td><td class="kvV">${escapeHtml((x.v || "—").trim() || "—")}</td></tr>`
         )
         .join("")}
     </table>
   `;
 }
 
-function section(title: string, _note: string, bodyHtml: string) {
+function section(title: string, bodyHtml: string, note?: string) {
+  const n = safeStr(note).trim();
   return `
     <div class="section">
       <div class="sectionHead">
         <div class="t">${escapeHtml(title)}</div>
+        ${n ? `<div class="n">${escapeHtml(n)}</div>` : ``}
       </div>
       <div class="sectionBody">${bodyHtml || `<div class="muted">—</div>`}</div>
     </div>
@@ -120,15 +120,10 @@ function riskHumanId(r: any) {
 
 /**
  * Renders the narrative sections for a Project Closure Report.
- * Expected by renderClosureReportHtml.ts:
- *   const { generatedDateTime, sectionsHtml } = renderClosureReportSections(model)
  */
 export function renderClosureReportSections(model: any) {
-  const nowIso = new Date().toISOString();
-  const genIso = safeStr(model?.meta?.generatedIso || model?.generatedIso || nowIso);
-
-  const generatedDate = ukDate(genIso);
-  const generatedDateTime = ukDateTime(genIso);
+  const generatedDate = ukDate(model?.meta?.generatedIso || new Date().toISOString());
+  const generatedDateTime = ukDateTime(model?.meta?.generatedIso || new Date().toISOString());
 
   const risksIssues = safeArr(model?.risksIssues);
   const stakeholders = safeArr(model?.stakeholders);
@@ -145,25 +140,31 @@ export function renderClosureReportSections(model: any) {
 
   const openRisksCount = risksIssues.filter((x: any) => String(x?.status || "").toLowerCase() !== "closed").length;
 
+  // ✅ No more “items” / tip labels in section headers
   const sectionsHtml =
     section(
       "Executive Summary",
-      "High-level closeout",
       `<div>${escapeHtml(safeStr(model?.executiveSummary) || "—")}</div>`
     ) +
     section(
+      "Health",
+      kvTable([
+        { k: "RAG", v: safeStr(model?.rag || "—").toUpperCase() || "—" },
+        { k: "Overall", v: safeStr(model?.overall) || "—" },
+        { k: "Open Risks / Issues", v: String(openRisksCount) },
+      ])
+    ) +
+    section(
       "Key Stakeholders",
-      `${stakeholders.length} items`,
       bullets(stakeholders, (s) => {
         const name = safeStr(s?.name) || "—";
         const role = safeStr(s?.role);
         return role ? `${name} — ${role}` : name;
       })
     ) +
-    section("Key Achievements", `${achievements.length} items`, bullets(achievements, (a) => safeStr(a?.text) || "—")) +
+    section("Key Achievements", bullets(achievements, (a) => safeStr(a?.text) || "—")) +
     section(
       "Success Criteria",
-      `${criteria.length} items`,
       bullets(criteria, (c) => {
         const txt = safeStr(c?.text) || "—";
         const achieved = boolHuman(c?.achieved);
@@ -172,7 +173,6 @@ export function renderClosureReportSections(model: any) {
     ) +
     section(
       "Deliverables — Delivered",
-      `${delivered.length} items`,
       bullets(delivered, (d) => {
         const deliverable = safeStr(d?.deliverable) || "—";
         const acceptedBy = safeStr(d?.accepted_by) || safeStr(d?.acceptedBy) || "—";
@@ -182,7 +182,6 @@ export function renderClosureReportSections(model: any) {
     ) +
     section(
       "Deliverables — Outstanding",
-      `${outstanding.length} items`,
       bullets(outstanding, (o) => {
         const item = safeStr(o?.item) || safeStr(o?.deliverable) || "—";
         const owner = safeStr(o?.owner) || "—";
@@ -193,7 +192,6 @@ export function renderClosureReportSections(model: any) {
     ) +
     section(
       "Handover — Open Risks & Issues",
-      `${risksIssues.length} items`,
       risksIssues.length
         ? `
           <table class="dataTable" style="width:100%; border-collapse:collapse; font-size:10px; margin-top:8px;">
@@ -231,7 +229,6 @@ export function renderClosureReportSections(model: any) {
     ) +
     section(
       "Financial Closeout",
-      `${budgetRows.length} budget lines`,
       kvTable([
         { k: "Budget Lines", v: String(budgetRows.length) },
         { k: "Annual Benefit", v: formatMoneyGBP(model?.roi?.annual_benefit ?? model?.roi?.annualBenefit) },
@@ -240,7 +237,6 @@ export function renderClosureReportSections(model: any) {
     ) +
     section(
       "Lessons — What Went Well",
-      `${wentWell.length} items`,
       bullets(wentWell, (l) => {
         const text = safeStr(l?.text) || "—";
         const action = safeStr(l?.action).trim();
@@ -248,8 +244,7 @@ export function renderClosureReportSections(model: any) {
       })
     ) +
     section(
-      "Lessons — What Didn't Go Well",
-      `${didntGoWell.length} items`,
+      "Lessons — What Didn’t Go Well",
       bullets(didntGoWell, (l) => {
         const text = safeStr(l?.text) || "—";
         const action = safeStr(l?.action).trim();
@@ -258,7 +253,6 @@ export function renderClosureReportSections(model: any) {
     ) +
     section(
       "Lessons — Surprises & Risks",
-      `${surprises.length} items`,
       bullets(surprises, (l) => {
         const text = safeStr(l?.text) || "—";
         const action = safeStr(l?.action).trim();
@@ -267,7 +261,6 @@ export function renderClosureReportSections(model: any) {
     ) +
     section(
       "Handover — Team Moves",
-      `${teamMoves.length} items`,
       bullets(teamMoves, (t) => {
         const person = safeStr(t?.person) || "—";
         const change = safeStr(t?.change) || "—";
@@ -277,7 +270,6 @@ export function renderClosureReportSections(model: any) {
     ) +
     section(
       "Recommendations & Follow-up",
-      `${recommendations.length} items`,
       bullets(recommendations, (r) => {
         const text = safeStr(r?.text) || "—";
         const owner = safeStr(r?.owner) || "—";
@@ -287,12 +279,8 @@ export function renderClosureReportSections(model: any) {
     ) +
     section(
       "Final Sign-off",
-      "Sponsor / PM",
       kvTable([
-        {
-          k: "Sponsor Name",
-          v: safeStr(model?.signoff?.sponsor_name) || safeStr(model?.signoff?.sponsorName) || "—",
-        },
+        { k: "Sponsor Name", v: safeStr(model?.signoff?.sponsor_name) || safeStr(model?.signoff?.sponsorName) || "—" },
         { k: "Sponsor Date", v: formatDateUk(model?.signoff?.sponsor_date ?? model?.signoff?.sponsorDate) },
         {
           k: "Sponsor Decision",
@@ -311,5 +299,3 @@ export function renderClosureReportSections(model: any) {
     sectionsHtml,
   };
 }
-
-export default renderClosureReportSections;

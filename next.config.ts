@@ -17,15 +17,6 @@ const nextConfig: NextConfig = {
   },
 
   /**
-   * ✅ TEMP: Unblock production builds if ESLint fails during `next build`
-   * (common while cleaning up TS + lint across a repo).
-   * IMPORTANT: Keep running `npm run lint` locally/CI as your gate.
-   */
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-
-  /**
    * Keep these packages external in the server bundle.
    * Helps avoid bundling/minifying issues in Next/Turbopack.
    */
@@ -39,10 +30,7 @@ const nextConfig: NextConfig = {
   /**
    * ✅ CRITICAL FOR PDF EXPORTS ON VERCEL:
    * Ensure @sparticuz/chromium's non-JS assets (bin/*.br, etc.) are included
-   * in the serverless output. Without this, you'll see:
-   * "The input directory '/var/task/node_modules/@sparticuz/chromium/bin' does not exist..."
-   *
-   * We include it for all API route handlers (safe + simple).
+   * in the serverless output.
    */
   outputFileTracingIncludes: {
     "/api/**": ["./node_modules/@sparticuz/chromium/**"],
@@ -50,7 +38,6 @@ const nextConfig: NextConfig = {
 
   /**
    * ✅ Allow next/image to load remote images from Supabase Storage
-   * (Fixes: Invalid src prop ... hostname is not configured)
    */
   images: {
     remotePatterns: [
@@ -65,11 +52,10 @@ const nextConfig: NextConfig = {
   /**
    * ✅ IMPORTANT:
    * `output: "standalone"` triggers file-tracing + copy into `.next/standalone`.
-   * On Windows, Turbopack can emit traced chunk names like `node:fs` (contains `:`),
+   * On Windows, Turbopack can emit traced chunk names like `node:https` (contains `:`),
    * which causes `copyfile EINVAL` during the standalone copy step.
    *
-   * Vercel does NOT require standalone output, so disable it there.
-   * Keep standalone for Docker/self-hosting builds when NOT on Vercel.
+   * Vercel does NOT require standalone output, so keep standalone ONLY when NOT on Vercel.
    */
   ...(isVercel ? {} : { output: "standalone" }),
 };
