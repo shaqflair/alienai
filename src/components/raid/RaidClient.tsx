@@ -2,9 +2,10 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 
 type RaidType = "Risk" | "Assumption" | "Issue" | "Dependency";
-// ✅ Removed "Invalid" from the *UI* status model (we still tolerate legacy "Invalid" values coming from DB)
+// ✅ Invalid removed from dropdown + keyboard cycling
 type RaidStatus = "Open" | "In Progress" | "Mitigated" | "Closed";
 
 export type RaidItem = {
@@ -43,7 +44,7 @@ type AiRun = {
 /* ---------------- utils ---------------- */
 
 function safeStr(x: unknown) {
-  return typeof x === "string" ? x : "";
+  return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
 function clampNum(n: any, min = 0, max = 100) {
@@ -88,13 +89,14 @@ function fmtDateOnly(x: any) {
   return s;
 }
 
+// Note: we still handle "invalid" rows coming from DB, but we DON'T offer it in the UI.
 function statusToken(s: any): "open" | "inprogress" | "mitigated" | "closed" | "invalid" {
   const v = safeStr(s).toLowerCase().trim();
   if (v === "open") return "open";
   if (v === "in progress" || v === "in_progress" || v === "inprogress") return "inprogress";
   if (v === "mitigated") return "mitigated";
   if (v === "closed") return "closed";
-  if (v === "invalid") return "invalid"; // legacy
+  if (v === "invalid") return "invalid";
   return "open";
 }
 
@@ -114,7 +116,7 @@ function isOpenishStatus(s: any) {
 
 /* ---------------- keyboard shortcuts ---------------- */
 
-// ✅ Removed Invalid from cycling list
+// ✅ Invalid removed
 const STATUS_ORDER = ["Open", "In Progress", "Mitigated", "Closed"] as const;
 const PRIORITY_ORDER = ["Low", "Medium", "High", "Critical"] as const;
 
@@ -131,14 +133,7 @@ function cycleInList(list: readonly string[], current: string) {
   return list[(idx + 1) % list.length];
 }
 
-function coerceStatusForUi(v: any): string {
-  const s = safeStr(v).trim();
-  if (s === "Open" || s === "In Progress" || s === "Mitigated" || s === "Closed") return s;
-  // legacy "Invalid" (or anything else) -> Closed in UI
-  return "Closed";
-}
-
-/* ---------------- styling tokens - Monday.com Style ---------------- */
+/* ---------------- styling tokens - Monday/Notion-ish ---------------- */
 
 const TYPE_STYLES: Record<
   RaidType,
@@ -178,98 +173,83 @@ const TYPE_STYLES: Record<
   },
 };
 
-// ✅ Brighter + glossier (stronger gradients + inset highlight)
+// ✅ Glossy bright, full cell background (Excel/Monday vibe)
 const STATUS_STYLES: Record<
   string,
-  { text: string; shadow: string; gradient: string; dot: string }
+  { text: string; shadow: string; gradient: string; ring: string }
 > = {
   open: {
     text: "text-white",
-    shadow:
-      "shadow-[inset_0_1px_0_rgba(255,255,255,0.42),0_6px_14px_rgba(0,0,0,0.10)]",
-    gradient: "bg-gradient-to-b from-[#E5E7EB] via-[#C7CBD1] to-[#9CA3AF]",
-    dot: "bg-[#AEB4BC]",
+    shadow: "shadow-[0_6px_14px_rgba(148,163,184,0.25)]",
+    gradient: "bg-gradient-to-b from-[#cfd4da] to-[#aeb6c0]",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#aeb6c0]/50",
   },
   inprogress: {
     text: "text-white",
-    shadow:
-      "shadow-[inset_0_1px_0_rgba(255,255,255,0.40),0_6px_14px_rgba(87,155,252,0.28)]",
-    gradient: "bg-gradient-to-b from-[#7DB6FF] via-[#579BFC] to-[#2F75E8]",
-    dot: "bg-[#579BFC]",
+    shadow: "shadow-[0_6px_14px_rgba(87,155,252,0.28)]",
+    gradient: "bg-gradient-to-b from-[#75b5ff] to-[#3e86f0]",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#579bfc]/50",
   },
   mitigated: {
     text: "text-white",
-    shadow:
-      "shadow-[inset_0_1px_0_rgba(255,255,255,0.40),0_6px_14px_rgba(0,200,117,0.26)]",
-    gradient: "bg-gradient-to-b from-[#27E29B] via-[#00C875] to-[#00A862]",
-    dot: "bg-[#00C875]",
+    shadow: "shadow-[0_6px_14px_rgba(0,200,117,0.26)]",
+    gradient: "bg-gradient-to-b from-[#1be69a] to-[#00b86b]",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#00c875]/45",
   },
   closed: {
     text: "text-white",
-    shadow:
-      "shadow-[inset_0_1px_0_rgba(255,255,255,0.38),0_6px_14px_rgba(0,134,192,0.24)]",
-    gradient: "bg-gradient-to-b from-[#27B3F0] via-[#0086C0] to-[#006A9C]",
-    dot: "bg-[#0086C0]",
+    shadow: "shadow-[0_6px_14px_rgba(0,134,192,0.26)]",
+    gradient: "bg-gradient-to-b from-[#1aa6e6] to-[#0077b0]",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#0086c0]/45",
   },
   invalid: {
     text: "text-white",
-    shadow:
-      "shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_6px_14px_rgba(0,0,0,0.10)]",
-    gradient: "bg-gradient-to-b from-[#D1D5DB] via-[#9CA3AF] to-[#6B7280]",
-    dot: "bg-[#9CA3AF]",
+    shadow: "shadow-[0_6px_14px_rgba(120,120,120,0.2)]",
+    gradient: "bg-gradient-to-b from-[#b6b6b6] to-[#8c8c8c]",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#9d9d9d]/40",
   },
 };
 
 const PRIORITY_STYLES: Record<
   string,
-  { text: string; shadow: string; gradient: string; label: string; dot: string }
+  { text: string; shadow: string; gradient: string; ring: string; label: string }
 > = {
   "": {
-    text: "text-gray-700",
-    shadow:
-      "shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_4px_10px_rgba(0,0,0,0.06)]",
-    gradient: "bg-gradient-to-b from-[#F3F4F6] via-[#E5E7EB] to-[#D1D5DB]",
+    text: "text-slate-700",
+    shadow: "shadow-none",
+    gradient: "bg-gradient-to-b from-[#eef2f7] to-[#e6ebf2]",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#cbd5e1]/60",
     label: "—",
-    dot: "bg-[#D1D5DB]",
   },
   low: {
     text: "text-white",
-    shadow:
-      "shadow-[inset_0_1px_0_rgba(255,255,255,0.38),0_6px_14px_rgba(0,0,0,0.10)]",
-    gradient: "bg-gradient-to-b from-[#BFC4CC] via-[#9CA3AF] to-[#6B7280]",
+    shadow: "shadow-[0_6px_14px_rgba(157,157,157,0.22)]",
+    gradient: "bg-gradient-to-b from-[#b3b3b3] to-[#8d8d8d]",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#9d9d9d]/45",
     label: "Low",
-    dot: "bg-[#9CA3AF]",
   },
   medium: {
     text: "text-white",
-    shadow:
-      "shadow-[inset_0_1px_0_rgba(255,255,255,0.40),0_6px_14px_rgba(87,155,252,0.26)]",
-    gradient: "bg-gradient-to-b from-[#7DB6FF] via-[#579BFC] to-[#2F75E8]",
+    shadow: "shadow-[0_6px_14px_rgba(87,155,252,0.25)]",
+    gradient: "bg-gradient-to-b from-[#7fbaff] to-[#4785e8]",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#579bfc]/45",
     label: "Medium",
-    dot: "bg-[#579BFC]",
   },
   high: {
     text: "text-white",
-    shadow:
-      "shadow-[inset_0_1px_0_rgba(255,255,255,0.40),0_6px_14px_rgba(255,203,0,0.28)]",
-    gradient: "bg-gradient-to-b from-[#FFE36D] via-[#FFCB00] to-[#D9AE00]",
+    shadow: "shadow-[0_6px_14px_rgba(255,203,0,0.22)]",
+    gradient: "bg-gradient-to-b from-[#ffe266] to-[#e6c200]",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#ffcb00]/40",
     label: "High",
-    dot: "bg-[#FFCB00]",
   },
   critical: {
     text: "text-white",
-    shadow:
-      "shadow-[inset_0_1px_0_rgba(255,255,255,0.36),0_6px_14px_rgba(226,68,92,0.26)]",
-    gradient: "bg-gradient-to-b from-[#FF6C82] via-[#E2445C] to-[#C73A4F]",
+    shadow: "shadow-[0_6px_14px_rgba(226,68,92,0.24)]",
+    gradient: "bg-gradient-to-b from-[#ff6f86] to-[#d63a52]",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#e2445c]/45",
     label: "Critical",
-    dot: "bg-[#E2445C]",
   },
 };
-
-const GLOSSY_SELECT_BASE =
-  "w-full appearance-none px-3 py-2 text-sm font-semibold rounded-md border-0 cursor-pointer " +
-  "focus:ring-2 focus:ring-offset-1 focus:ring-gray-200 transition-all hover:brightness-110 " +
-  "shadow-[inset_0_1px_0_rgba(255,255,255,0.40),0_6px_14px_rgba(0,0,0,0.10)]";
 
 /* ---------------- digest helpers ---------------- */
 
@@ -297,35 +277,17 @@ function digestDeepLink(projectRouteId: string, x: any) {
 
 /* ---------------- api helpers ---------------- */
 
-// ✅ Adds a 405 fallback for PATCH/DELETE by retrying as POST with x-http-method-override.
-// This fixes “405 Method Not Allowed” when an edge/server route is deployed without PATCH/DELETE handlers.
-async function requestJson(
-  url: string,
-  method: string,
-  body?: any,
-  headers?: Record<string, string>
-) {
-  async function doFetch(m: string, extraHeaders?: Record<string, string>) {
-    const res = await fetch(url, {
-      method: m,
-      headers: {
-        ...(body ? { "Content-Type": "application/json" } : {}),
-        ...(headers ?? {}),
-        ...(extraHeaders ?? {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
+async function postJson(url: string, method: string, body?: any, headers?: Record<string, string>) {
+  const res = await fetch(url, {
+    method,
+    headers: {
+      ...(body ? { "Content-Type": "application/json" } : {}),
+      ...(headers ?? {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
 
-    const j = await res.json().catch(() => null);
-    return { res, j };
-  }
-
-  let { res, j } = await doFetch(method);
-
-  if (res.status === 405 && (method === "PATCH" || method === "DELETE")) {
-    // Retry as POST override (common workaround in some deployments / proxies)
-    ({ res, j } = await doFetch("POST", { "x-http-method-override": method }));
-  }
+  const j = await res.json().catch(() => null);
 
   if (!res.ok || !j?.ok) {
     const err = new Error(j?.error || `Failed (${res.status})`);
@@ -335,10 +297,6 @@ async function requestJson(
   }
 
   return j;
-}
-
-async function postJson(url: string, method: string, body?: any, headers?: Record<string, string>) {
-  return requestJson(url, method, body, headers);
 }
 
 async function fetchRaidItems(projectId: string) {
@@ -379,10 +337,19 @@ async function aiRefreshRaidItem(id: string) {
   return j.item as RaidItem;
 }
 
+// ✅ Fix 405: try GET first; if endpoint is POST-only (or misconfigured), retry with POST.
 async function fetchWeeklyDigest(projectId: string) {
-  // NOTE: this endpoint should be GET; requestJson supports GET too.
-  const j = await requestJson(`/api/raid/digest?projectId=${encodeURIComponent(projectId)}`, "GET");
-  return j.digest as any;
+  const url = `/api/raid/digest?projectId=${encodeURIComponent(projectId)}`;
+  try {
+    const j = await postJson(url, "GET");
+    return j.digest as any;
+  } catch (e: any) {
+    if ((e as any)?.status === 405) {
+      const j2 = await postJson(`/api/raid/digest`, "POST", { projectId });
+      return j2.digest as any;
+    }
+    throw e;
+  }
 }
 
 async function fetchAiHistory(raidId: string) {
@@ -397,53 +364,25 @@ async function fetchAiHistory(raidId: string) {
 type ColKey = "desc" | "resp";
 const DEFAULT_COL_WIDTHS: Record<ColKey, number> = { desc: 340, resp: 300 };
 
-function Banner({
-  tone,
-  text,
-  onClose,
-}: {
-  tone: "success" | "error";
-  text: string;
-  onClose: () => void;
-}) {
-  const base =
-    "mb-4 p-3 rounded-lg text-sm flex items-center justify-between gap-3 border";
-  const cls =
-    tone === "success"
-      ? `${base} bg-emerald-50 border-emerald-200 text-emerald-800`
-      : `${base} bg-rose-50 border-rose-200 text-rose-800`;
+/* ---------------- dnd helpers ---------------- */
 
-  return (
-    <div className={cls} role="status" aria-live="polite">
-      <div className="flex items-center gap-2 min-w-0">
-        {tone === "success" ? (
-          <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-        ) : (
-          <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
-        )}
-        <span className="truncate">{text}</span>
-      </div>
-      <button
-        onClick={onClose}
-        className="p-1.5 rounded-md hover:bg-black/5 transition-colors flex-shrink-0"
-        aria-label="Dismiss"
-        title="Dismiss"
-      >
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-    </div>
-  );
+function reorder<T>(list: T[], startIndex: number, endIndex: number) {
+  const result = Array.from(list);
+  const [removed] = result.splice(startIndex, 1);
+  result.splice(endIndex, 0, removed);
+  return result;
+}
+
+function dndIdForRaid(it: { id: string }) {
+  return `raid:${it.id}`;
+}
+
+/* ---------------- banners ---------------- */
+
+type Banner = { kind: "success" | "error"; text: string; id: string };
+
+function newBanner(kind: Banner["kind"], text: string): Banner {
+  return { kind, text, id: `${kind}:${Date.now()}:${Math.random().toString(16).slice(2)}` };
 }
 
 export default function RaidClient({
@@ -465,8 +404,17 @@ export default function RaidClient({
 
   const [items, setItems] = useState<RaidItem[]>(initialItems ?? []);
   const [busyId, setBusyId] = useState<string>("");
-  const [msg, setMsg] = useState<string>("");
-  const [err, setErr] = useState<string>("");
+
+  // ✅ banners that you can dismiss (fixes “AI updated / Refresh doesn’t disappear”)
+  const [banners, setBanners] = useState<Banner[]>([]);
+  const pushBanner = useCallback((kind: Banner["kind"], text: string) => {
+    const b = newBanner(kind, text);
+    setBanners((prev) => [b, ...prev].slice(0, 3));
+    window.setTimeout(() => {
+      setBanners((prev) => prev.filter((x) => x.id !== b.id));
+    }, 4000);
+  }, []);
+  const dismissBanner = useCallback((id: string) => setBanners((prev) => prev.filter((x) => x.id !== id)), []);
 
   const [digestBusy, setDigestBusy] = useState<boolean>(false);
   const [digest, setDigest] = useState<any>(null);
@@ -525,7 +473,7 @@ export default function RaidClient({
       const key = resizeRef.current.key;
       if (!key) return;
       const dx = e.clientX - resizeRef.current.startX;
-      const next = Math.max(200, Math.min(800, resizeRef.current.startW + dx));
+      const next = Math.max(200, Math.min(900, resizeRef.current.startW + dx));
       setColW((prev) => ({ ...prev, [key]: next }));
     }
     function onUp() {
@@ -558,6 +506,7 @@ export default function RaidClient({
     const g: Record<RaidType, RaidItem[]> = { Risk: [], Assumption: [], Issue: [], Dependency: [] };
     for (const it of items) g[normalizeType(it.type)].push(it);
     (Object.keys(g) as RaidType[]).forEach((k) => {
+      // latest first by updated_at
       g[k].sort((a, b) => (safeStr(b.updated_at) > safeStr(a.updated_at) ? 1 : -1));
     });
     return g;
@@ -588,39 +537,41 @@ export default function RaidClient({
     setTouchedById((prev) => ({ ...prev, [id]: { ...(prev[id] || {}), [key]: true } }));
   }, []);
 
-  const requireOwner = useCallback((owner: any) => {
-    const o = safeStr(owner).trim();
-    if (!o) {
-      setErr("Owner is mandatory");
-      return null;
-    }
-    return o;
-  }, []);
+  const requireOwner = useCallback(
+    (owner: any) => {
+      const o = safeStr(owner).trim();
+      if (!o) {
+        pushBanner("error", "Owner is mandatory");
+        return null;
+      }
+      return o;
+    },
+    [pushBanner]
+  );
 
-  const onReloadRow = useCallback(async (id: string) => {
-    setErr("");
-    setMsg("");
-    setBusyId(id);
-    try {
-      const fresh = await fetchRaidItemById(id);
-      setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...fresh } : x)));
-      setStaleById((prev) => {
-        const n = { ...prev };
-        delete n[id];
-        return n;
-      });
-      setMsg("Reloaded");
-    } catch (e: any) {
-      setErr(e?.message || "Reload failed");
-    } finally {
-      setBusyId("");
-    }
-  }, []);
+  const onReloadRow = useCallback(
+    async (id: string) => {
+      setBusyId(id);
+      try {
+        const fresh = await fetchRaidItemById(id);
+        setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...fresh } : x)));
+        setStaleById((prev) => {
+          const n = { ...prev };
+          delete n[id];
+          return n;
+        });
+        pushBanner("success", "Reloaded");
+      } catch (e: any) {
+        pushBanner("error", e?.message || "Reload failed");
+      } finally {
+        setBusyId("");
+      }
+    },
+    [pushBanner]
+  );
 
   const onPatch = useCallback(
     async (id: string, patch: any) => {
-      setErr("");
-      setMsg("");
       setBusyId(id);
       try {
         const current = items.find((x) => x.id === id);
@@ -632,8 +583,10 @@ export default function RaidClient({
           patch.owner_label = ok;
         }
 
-        // ✅ never allow "Invalid" to be written from UI
-        if ("status" in patch) patch.status = coerceStatusForUi(patch.status);
+        // ✅ Safety: never write "Invalid" from UI
+        if ("status" in patch && safeStr(patch.status).trim().toLowerCase() === "invalid") {
+          patch.status = "Closed";
+        }
 
         const updated = await patchRaidItem(id, { ...patch, expected_updated_at: expected || undefined });
         setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...updated } : x)));
@@ -642,7 +595,7 @@ export default function RaidClient({
           delete n[id];
           return n;
         });
-        setMsg("Saved");
+        pushBanner("success", "Saved");
       } catch (e: any) {
         const status = (e as any)?.status;
         const payload = (e as any)?.payload;
@@ -654,24 +607,22 @@ export default function RaidClient({
           try {
             const fresh = await fetchRaidItemById(id);
             setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...fresh } : x)));
-            setMsg("Reloaded with latest changes");
+            pushBanner("success", "Reloaded with latest changes");
           } catch (re: any) {
-            setErr(re?.message || "Stale update");
+            pushBanner("error", re?.message || "Stale update");
           }
           return;
         }
-        setErr(e?.message || "Update failed");
+        pushBanner("error", e?.message || "Update failed");
       } finally {
         setBusyId("");
       }
     },
-    [items, requireOwner]
+    [items, requireOwner, pushBanner]
   );
 
   const onCreate = useCallback(
     async (type: RaidType) => {
-      setErr("");
-      setMsg("");
       setBusyId(`new:${type}`);
       try {
         const created = await createRaidItem({
@@ -686,31 +637,31 @@ export default function RaidClient({
           response_plan: null,
         });
         setItems((prev) => [created, ...prev]);
-        setMsg(`${type} created`);
+        pushBanner("success", `${type} created`);
       } catch (e: any) {
-        setErr(e?.message || "Create failed");
+        pushBanner("error", e?.message || "Create failed");
       } finally {
         setBusyId("");
       }
     },
-    [projectId]
+    [projectId, pushBanner]
   );
 
   const onDelete = useCallback(
     async (id: string) => {
       if (!confirm("Delete this RAID item?")) return;
-      setErr("");
-      setMsg("");
       setBusyId(id);
       const current = items.find((x) => x.id === id);
       const expected = safeStr(current?.updated_at).trim() || undefined;
+
       const prev = items;
       setItems((cur) => cur.filter((x) => x.id !== id));
       if (aiOpenId === id) setAiOpenId("");
       if (aiHistOpenId === id) setAiHistOpenId("");
+
       try {
         await deleteRaidItem(id, expected);
-        setMsg("Deleted");
+        pushBanner("success", "Deleted");
       } catch (e: any) {
         const status = (e as any)?.status;
         const payload = (e as any)?.payload;
@@ -720,68 +671,64 @@ export default function RaidClient({
             ...p,
             [id]: { at: new Date().toISOString(), message: "Delete blocked: item was updated by someone else" },
           }));
+          pushBanner("error", "Delete blocked: item updated by someone else");
           return;
         }
         setItems(prev);
-        setErr(e?.message || "Delete failed");
+        pushBanner("error", e?.message || "Delete failed");
       } finally {
         setBusyId("");
       }
     },
-    [items, aiOpenId, aiHistOpenId]
+    [items, aiOpenId, aiHistOpenId, pushBanner]
   );
 
-  const onAiRefresh = useCallback(async (id: string) => {
-    setErr("");
-    setMsg("");
-    setBusyId(id);
-    try {
-      const updated = await aiRefreshRaidItem(id);
-      setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...updated } : x)));
-      setMsg("AI updated");
-      setAiOpenId(id);
-    } catch (e: any) {
-      setErr(e?.message || "AI refresh failed");
-      setAiOpenId(id);
-    } finally {
-      setBusyId("");
-    }
-  }, []);
+  const onAiRefresh = useCallback(
+    async (id: string) => {
+      setBusyId(id);
+      try {
+        const updated = await aiRefreshRaidItem(id);
+        setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...updated } : x)));
+        pushBanner("success", "AI updated");
+        setAiOpenId(id);
+      } catch (e: any) {
+        pushBanner("error", e?.message || "AI refresh failed");
+        setAiOpenId(id);
+      } finally {
+        setBusyId("");
+      }
+    },
+    [pushBanner]
+  );
 
   const onWeeklyDigest = useCallback(async () => {
-    setErr("");
-    setMsg("");
     setDigestBusy(true);
     try {
       const d = await fetchWeeklyDigest(projectId);
       setDigest(d);
-      setMsg("Digest generated");
+      pushBanner("success", "Digest generated");
     } catch (e: any) {
-      setErr(e?.message || "Digest failed");
+      pushBanner("error", e?.message || "Digest failed");
     } finally {
       setDigestBusy(false);
     }
-  }, [projectId]);
+  }, [projectId, pushBanner]);
 
   const onRefreshAll = useCallback(async () => {
-    setErr("");
-    setMsg("");
     setBusyId("refresh:all");
     try {
       const fresh = await fetchRaidItems(projectId);
       setItems(fresh);
-      setMsg("Refreshed");
+      pushBanner("success", "Refreshed");
     } catch (e: any) {
-      setErr(e?.message || "Refresh failed");
+      pushBanner("error", e?.message || "Refresh failed");
     } finally {
       setBusyId("");
     }
-  }, [projectId]);
+  }, [projectId, pushBanner]);
 
   const openHistory = useCallback(
     async (id: string) => {
-      setErr("");
-      setMsg("");
       setAiHistOpenId((cur) => (cur === id ? "" : id));
       if (aiRunsById[id]?.length) return;
       setAiHistBusyId(id);
@@ -791,12 +738,12 @@ export default function RaidClient({
         if (runs.length >= 2) setAiCompareById((prev) => ({ ...prev, [id]: { a: runs[0].id, b: runs[1].id } }));
         else if (runs.length === 1) setAiCompareById((prev) => ({ ...prev, [id]: { a: runs[0].id, b: runs[0].id } }));
       } catch (e: any) {
-        setErr(e?.message || "Failed to load AI history");
+        pushBanner("error", e?.message || "Failed to load AI history");
       } finally {
         setAiHistBusyId("");
       }
     },
-    [aiRunsById]
+    [aiRunsById, pushBanner]
   );
 
   function getRun(runs: AiRun[], id: string) {
@@ -890,7 +837,7 @@ export default function RaidClient({
 
       if (key === "s") {
         e.preventDefault();
-        const next = cycleInList(STATUS_ORDER, coerceStatusForUi(it.status) || "Open");
+        const next = cycleInList(STATUS_ORDER, safeStr(it.status) || "Open");
         void onPatch(it.id, { status: next });
         return;
       }
@@ -963,9 +910,9 @@ export default function RaidClient({
   async function copyToClipboard(text: string) {
     try {
       await navigator.clipboard.writeText(text);
-      setMsg(`Copied ${text}`);
+      pushBanner("success", `Copied ${text}`);
     } catch {
-      setErr("Copy failed");
+      pushBanner("error", "Copy failed");
     }
   }
 
@@ -987,11 +934,9 @@ export default function RaidClient({
 
   async function refreshAiForGroup(type: RaidType) {
     closeMenu();
-    setMsg("");
-    setErr("");
     const groupItems = items.filter((x) => normalizeType(x.type) === type);
     if (!groupItems.length) {
-      setMsg(`No ${type} items to refresh`);
+      pushBanner("success", `No ${type} items to refresh`);
       return;
     }
     setBusyId(`ai:group:${type}`);
@@ -1006,9 +951,9 @@ export default function RaidClient({
         }
         await new Promise((r) => setTimeout(r, 350));
       }
-      setMsg(`${type}: AI refreshed (${groupItems.length})`);
+      pushBanner("success", `${type}: AI refreshed (${groupItems.length})`);
     } catch (e: any) {
-      setErr(e?.message || "Group AI refresh failed");
+      pushBanner("error", e?.message || "Group AI refresh failed");
     } finally {
       setBusyId("");
     }
@@ -1018,6 +963,31 @@ export default function RaidClient({
     await copyLinkToClipboard(`/projects/${routeProjectId}/raid#${encodeURIComponent(type.toLowerCase())}`);
     closeMenu();
   }
+
+  // ✅ DnD: reorder only within a group
+  const onDragEnd = useCallback((result: DropResult) => {
+    const { destination, source, draggableId } = result;
+    if (!destination) return;
+    if (destination.droppableId === source.droppableId && destination.index === source.index) return;
+
+    const srcGroup = source.droppableId.replace(/^group:/, "") as RaidType;
+    const dstGroup = destination.droppableId.replace(/^group:/, "") as RaidType;
+
+    // only within group (Excel-like reorder)
+    if (srcGroup !== dstGroup) return;
+
+    setItems((prev) => {
+      const group = prev.filter((x) => normalizeType(x.type) === srcGroup);
+      const moving = group.find((x) => dndIdForRaid(x) === draggableId);
+      if (!moving) return prev;
+
+      const nextGroup = reorder(group, source.index, destination.index);
+      const others = prev.filter((x) => normalizeType(x.type) !== srcGroup);
+      return [...nextGroup, ...others];
+    });
+
+    pushBanner("success", `${srcGroup}: reordered`);
+  }, [pushBanner]);
 
   return (
     <div className="min-h-screen bg-[#f6f7fb] text-gray-900 font-sans">
@@ -1113,618 +1083,700 @@ export default function RaidClient({
         </div>
       </header>
 
-      {/* Messages (✅ dismissible) */}
-      <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 mt-4">
-        {msg && <Banner tone="success" text={msg} onClose={() => setMsg("")} />}
-        {err && <Banner tone="error" text={err} onClose={() => setErr("")} />}
+      {/* Dismissable Banners */}
+      <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 mt-4 space-y-2">
+        {banners.map((b) => (
+          <div
+            key={b.id}
+            className={[
+              "p-3 rounded-lg text-sm flex items-center gap-2 border",
+              b.kind === "success"
+                ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+                : "bg-rose-50 border-rose-200 text-rose-900",
+            ].join(" ")}
+          >
+            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-white/70 border border-black/5">
+              {b.kind === "success" ? "✓" : "!"}
+            </span>
+            <div className="flex-1">{b.text}</div>
+            <button
+              onClick={() => dismissBanner(b.id)}
+              className="p-1.5 rounded-md hover:bg-black/5 transition-colors"
+              aria-label="Dismiss"
+              title="Dismiss"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        ))}
       </div>
 
       {/* Main Content */}
       <main className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-20">
-        <div className="space-y-6">
-          {(Object.keys(grouped) as RaidType[]).map((type) => {
-            const typeStyle = TYPE_STYLES[type];
-            const groupItems = grouped[type];
-            const isOpen = openGroups[type];
+        <DragDropContext onDragEnd={onDragEnd}>
+          <div className="space-y-6">
+            {(Object.keys(grouped) as RaidType[]).map((type) => {
+              const typeStyle = TYPE_STYLES[type];
+              const groupItems = grouped[type];
+              const isOpen = openGroups[type];
 
-            return (
-              <section
-                key={type}
-                className={`bg-white rounded-lg border ${typeStyle.border} shadow-sm overflow-hidden transition-all duration-200`}
-              >
-                {/* Group Header */}
-                <div className={`${typeStyle.headerBg} px-4 py-3 border-b ${typeStyle.border} flex items-center justify-between`}>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => toggleGroup(type)}
-                      className={`p-1 rounded hover:bg-white/50 transition-colors ${typeStyle.text}`}
-                    >
-                      <svg
-                        className={`w-5 h-5 transform transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </button>
-
-                    <div className={`w-8 h-8 rounded-lg bg-white border ${typeStyle.border} flex items-center justify-center ${typeStyle.icon}`}>
-                      {type === "Risk" && (
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              return (
+                <section key={type} className={`bg-white rounded-lg border ${typeStyle.border} shadow-sm overflow-hidden transition-all duration-200`}>
+                  {/* Group Header */}
+                  <div className={`${typeStyle.headerBg} px-4 py-3 border-b ${typeStyle.border} flex items-center justify-between`}>
+                    <div className="flex items-center gap-3">
+                      <button onClick={() => toggleGroup(type)} className={`p-1 rounded hover:bg-white/50 transition-colors ${typeStyle.text}`}>
+                        <svg className={`w-5 h-5 transform transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                         </svg>
-                      )}
-                      {type === "Assumption" && (
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                        </svg>
-                      )}
-                      {type === "Issue" && (
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                        </svg>
-                      )}
-                      {type === "Dependency" && (
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                        </svg>
-                      )}
-                    </div>
+                      </button>
 
-                    <div>
-                      <h2 className={`font-semibold ${typeStyle.text}`}>{type}s</h2>
-                      <p className="text-xs text-gray-500">{typeStyle.desc}</p>
-                    </div>
-
-                    <span className="ml-2 px-2.5 py-0.5 bg-white border border-gray-200 rounded-full text-xs font-medium text-gray-600">
-                      {groupItems.length}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      ref={(el) => {
-                        menuBtnRefs.current[type] = el;
-                      }}
-                      onClick={() => setMenuOpenFor(menuOpenFor === type ? "" : type)}
-                      className="p-2 text-gray-500 hover:text-gray-700 hover:bg-white/50 rounded-lg transition-colors"
-                    >
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
-                      </svg>
-                    </button>
-
-                    {menuOpenFor === type && (
-                      <div ref={menuRef} className="absolute right-8 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 z-50 py-1">
-                        <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">{type} Actions</div>
-                        <button onClick={() => exportGroupExcel(type)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                          Export to Excel
-                        </button>
-                        <button onClick={() => exportGroupPdf(type)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                          Export to PDF
-                        </button>
-                        <div className="h-px bg-gray-100 my-1" />
-                        <button
-                          onClick={() => refreshAiForGroup(type)}
-                          disabled={busyId === `ai:group:${type}`}
-                          className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                        >
-                          {busyId === `ai:group:${type}` ? "Refreshing AI…" : "Refresh AI (Group)"}
-                        </button>
-                        <button onClick={() => copyGroupLink(type)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                          Copy Group Link
-                        </button>
+                      <div className={`w-8 h-8 rounded-lg bg-white border ${typeStyle.border} flex items-center justify-center ${typeStyle.icon}`}>
+                        {type === "Risk" && (
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                        )}
+                        {type === "Assumption" && (
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                          </svg>
+                        )}
+                        {type === "Issue" && (
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                        )}
+                        {type === "Dependency" && (
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                          </svg>
+                        )}
                       </div>
-                    )}
 
-                    <button
-                      onClick={() => onCreate(type)}
-                      disabled={busyId === `new:${type}`}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border ${typeStyle.border} ${typeStyle.text} text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors shadow-sm`}
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                      </svg>
-                      New {type}
-                    </button>
+                      <div>
+                        <h2 className={`font-semibold ${typeStyle.text}`}>{type}s</h2>
+                        <p className="text-xs text-gray-500">{typeStyle.desc}</p>
+                      </div>
+
+                      <span className="ml-2 px-2.5 py-0.5 bg-white border border-gray-200 rounded-full text-xs font-medium text-gray-600">{groupItems.length}</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        ref={(el) => {
+                          menuBtnRefs.current[type] = el;
+                        }}
+                        onClick={() => setMenuOpenFor(menuOpenFor === type ? "" : type)}
+                        className="p-2 text-gray-500 hover:text-gray-700 hover:bg-white/50 rounded-lg transition-colors"
+                      >
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                        </svg>
+                      </button>
+
+                      {menuOpenFor === type && (
+                        <div ref={menuRef} className="absolute right-8 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 z-50 py-1">
+                          <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">{type} Actions</div>
+                          <button onClick={() => exportGroupExcel(type)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                            Export to Excel
+                          </button>
+                          <button onClick={() => exportGroupPdf(type)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                            Export to PDF
+                          </button>
+                          <div className="h-px bg-gray-100 my-1" />
+                          <button
+                            onClick={() => refreshAiForGroup(type)}
+                            disabled={busyId === `ai:group:${type}`}
+                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            {busyId === `ai:group:${type}` ? "Refreshing AI…" : "Refresh AI (Group)"}
+                          </button>
+                          <button onClick={() => copyGroupLink(type)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                            Copy Group Link
+                          </button>
+                        </div>
+                      )}
+
+                      <button
+                        onClick={() => onCreate(type)}
+                        disabled={busyId === `new:${type}`}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border ${typeStyle.border} ${typeStyle.text} text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors shadow-sm`}
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        New {type}
+                      </button>
+                    </div>
                   </div>
-                </div>
 
-                {/* Table */}
-                {isOpen && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm border-collapse">
-                      <thead className="bg-gray-50 border-b border-gray-200">
-                        <tr>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-32 border-r border-gray-200">ID</th>
-                          <th
-                            className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider relative group border-r border-gray-200"
-                            style={{ width: colW.desc }}
-                          >
-                            Description
-                            <span
-                              className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-300 transition-colors"
-                              onMouseDown={(e) => startResize("desc", e)}
-                            />
-                          </th>
-
-                          {/* ✅ Owner column widened so full names show */}
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-72 border-r border-gray-200">
-                            Owner *
-                          </th>
-
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-44 border-r border-gray-200">Status *</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-40 border-r border-gray-200">Priority</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-24 border-r border-gray-200">Likelihood</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-24 border-r border-gray-200">Severity</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-20 border-r border-gray-200">Score</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-32 border-r border-gray-200">Due Date</th>
-                          <th
-                            className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider relative group border-r border-gray-200"
-                            style={{ width: colW.resp }}
-                          >
-                            Response Plan
-                            <span
-                              className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-300 transition-colors"
-                              onMouseDown={(e) => startResize("resp", e)}
-                            />
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-48 border-r border-gray-200">AI Rollup</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-24 border-r border-gray-200">Updated</th>
-                          <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider w-24">Actions</th>
-                        </tr>
-                      </thead>
-
-                      <tbody className="divide-y divide-gray-200">
-                        {groupItems.length === 0 ? (
-                          <tr>
-                            <td colSpan={13} className="px-4 py-12 text-center text-gray-500">
-                              <div className="flex flex-col items-center gap-2">
-                                <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center text-gray-400">
-                                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                  </svg>
-                                </div>
-                                <p>No {type.toLowerCase()}s yet. Create one to get started.</p>
-                              </div>
-                            </td>
-                          </tr>
-                        ) : (
-                          groupItems.map((it) => {
-                            const sc = calcScore(it.probability, it.severity);
-                            const tone = toneFromScore(sc);
-                            const isBusy = busyId === it.id;
-
-                            const owner = safeStr(it.owner_label).trim();
-                            const ownerOk = owner.length > 0 && owner.toLowerCase() !== "tbc";
-                            const plan = safeStr(it.response_plan || "").trim();
-                            const planOk = plan.length > 0 && plan.toLowerCase() !== "tbc";
-
-                            const touched = touchedById[it.id] || {};
-                            const showOwnerWarn = Boolean(touched.owner) && !ownerOk;
-                            const showPlanWarn = Boolean(touched.plan) && !planOk;
-
-                            const stKey = statusToken(it.status);
-                            const priKey = priorityToken(it.priority);
-                            const stStyle = STATUS_STYLES[stKey];
-                            const priStyle = PRIORITY_STYLES[priKey];
-
-                            const ai = it?.related_refs?.ai || {};
-                            const runs = aiRunsById[it.id] || [];
-                            const cmp = aiCompareById[it.id] || { a: "", b: "" };
-                            const runA = cmp.a ? getRun(runs, cmp.a) : null;
-                            const runB = cmp.b ? getRun(runs, cmp.b) : null;
-                            const diffSummary = runA && runB ? diffLines(runA.ai?.summary, runB.ai?.summary) : null;
-                            const diffRollup = runA && runB ? diffLines(runA.ai?.rollup, runB.ai?.rollup) : null;
-                            const diffRecs = runA && runB ? diffList(runA.ai?.recommendations, runB.ai?.recommendations) : null;
-
-                            const stale = staleById[it.id];
-
-                            return (
-                              <React.Fragment key={it.id}>
-                                <tr
-                                  data-raid-id={it.id}
-                                  data-raid-public={safeStr(it.public_id || "").trim()}
-                                  className={`group hover:bg-gray-50/80 transition-colors ${isBusy ? "opacity-60" : ""} ${stale ? "bg-amber-50/30" : ""}`}
-                                  tabIndex={0}
-                                  onFocus={() => setHotRowId(it.id)}
-                                  onMouseDown={() => setHotRowId(it.id)}
+                  {/* Table */}
+                  {isOpen && (
+                    <Droppable droppableId={`group:${type}`} direction="vertical">
+                      {(dropProvided, dropSnapshot) => (
+                        <div
+                          ref={dropProvided.innerRef}
+                          {...dropProvided.droppableProps}
+                          className={`overflow-x-auto ${dropSnapshot.isDraggingOver ? "bg-indigo-50/30" : ""}`}
+                        >
+                          <table className="w-full text-sm border-collapse table-fixed">
+                            <thead className="bg-gray-50 border-b border-gray-200 sticky top-16 z-10">
+                              <tr>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-36 border-r border-gray-200">ID</th>
+                                <th
+                                  className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider relative group border-r border-gray-200"
+                                  style={{ width: colW.desc }}
                                 >
-                                  <td className="px-4 py-3 border-r border-gray-200">
-                                    <div className="flex items-center gap-2">
-                                      <span className="font-mono text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded border border-gray-200">
-                                        {safeStr(it.public_id) || "—"}
-                                      </span>
-                                      {stale && (
-                                        <button onClick={() => onReloadRow(it.id)} title="Reload" className="text-amber-600 hover:text-amber-700">
-                                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                          </svg>
-                                        </button>
-                                      )}
-                                    </div>
-                                    {stale && <div className="text-xs text-amber-700 mt-1 max-w-[200px]">{stale.message}</div>}
-                                  </td>
+                                  Description
+                                  <span className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-300 transition-colors" onMouseDown={(e) => startResize("desc", e)} />
+                                </th>
 
-                                  <td className="px-4 py-3 border-r border-gray-200" style={{ width: colW.desc }}>
-                                    <textarea
-                                      className="w-full min-h-[60px] p-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-y transition-shadow"
-                                      value={safeStr(it.description)}
-                                      disabled={isBusy}
-                                      placeholder="Describe the item…"
-                                      onChange={(e) => setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, description: e.target.value } : x)))}
-                                      onBlur={() => onPatch(it.id, { description: safeStr(it.description).trim() || "Untitled" })}
-                                    />
-                                  </td>
+                                {/* ✅ Wider Owner column */}
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-72 border-r border-gray-200">
+                                  Owner *
+                                </th>
 
-                                  {/* ✅ Wider owner cell */}
-                                  <td className="px-4 py-3 border-r border-gray-200 min-w-[260px]">
-                                    <div className="space-y-1">
-                                      <input
-                                        className={`w-full px-2 py-1.5 text-sm border rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors ${
-                                          showOwnerWarn ? "border-rose-500 bg-rose-50" : "border-gray-200"
-                                        }`}
-                                        value={safeStr(it.owner_label)}
-                                        disabled={isBusy}
-                                        placeholder="e.g. Alex Adu-Poku"
-                                        onChange={(e) => setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, owner_label: e.target.value } : x)))}
-                                        onBlur={() => {
-                                          touch(it.id, "owner");
-                                          onPatch(it.id, { owner_label: safeStr(it.owner_label).trim() });
-                                        }}
-                                      />
-                                      {showOwnerWarn && <div className="text-xs text-rose-600 font-medium">Owner required</div>}
-                                    </div>
-                                  </td>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-44 border-r border-gray-200">Status *</th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-40 border-r border-gray-200">Priority</th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-24 border-r border-gray-200">Likelihood</th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-24 border-r border-gray-200">Severity</th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-20 border-r border-gray-200">Score</th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-36 border-r border-gray-200">Due Date</th>
+                                <th
+                                  className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider relative group border-r border-gray-200"
+                                  style={{ width: colW.resp }}
+                                >
+                                  Response Plan
+                                  <span className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-300 transition-colors" onMouseDown={(e) => startResize("resp", e)} />
+                                </th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-64 border-r border-gray-200">AI Rollup</th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-24 border-r border-gray-200">Updated</th>
+                                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider w-28">Actions</th>
+                              </tr>
+                            </thead>
 
-                                  {/* Status Column - ✅ Glossy + bright + NO "Invalid" option */}
-                                  <td className="px-4 py-3 border-r border-gray-200">
-                                    <div className="relative">
-                                      <select
-                                        className={`${GLOSSY_SELECT_BASE} ${stStyle.gradient} ${stStyle.text} ${stStyle.shadow}`}
-                                        value={coerceStatusForUi(it.status || "Open")}
-                                        disabled={isBusy}
-                                        onChange={(e) => onPatch(it.id, { status: e.target.value })}
-                                      >
-                                        <option value="Open" className="bg-gray-700 text-white">Open</option>
-                                        <option value="In Progress" className="bg-blue-600 text-white">In Progress</option>
-                                        <option value="Mitigated" className="bg-emerald-600 text-white">Mitigated</option>
-                                        <option value="Closed" className="bg-cyan-700 text-white">Closed</option>
-                                      </select>
-                                      <svg
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-white/85 pointer-events-none"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                      >
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                      </svg>
-                                    </div>
-                                  </td>
-
-                                  {/* Priority Column - ✅ Glossy + bright */}
-                                  <td className="px-4 py-3 border-r border-gray-200">
-                                    <div className="relative">
-                                      <select
-                                        className={`${GLOSSY_SELECT_BASE} ${priStyle.gradient} ${priStyle.text} ${priStyle.shadow}`}
-                                        value={safeStr(it.priority || "")}
-                                        disabled={isBusy}
-                                        onChange={(e) => onPatch(it.id, { priority: e.target.value || null })}
-                                      >
-                                        <option value="" className="bg-gray-200 text-gray-700">— Select —</option>
-                                        <option value="Low" className="bg-gray-600 text-white">Low</option>
-                                        <option value="Medium" className="bg-blue-600 text-white">Medium</option>
-                                        <option value="High" className="bg-yellow-500 text-white">High</option>
-                                        <option value="Critical" className="bg-red-600 text-white">Critical</option>
-                                      </select>
-                                      <svg
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-white/85 pointer-events-none"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                      >
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                      </svg>
-                                    </div>
-                                  </td>
-
-                                  <td className="px-4 py-3 border-r border-gray-200">
-                                    <input
-                                      className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                      type="number"
-                                      min={0}
-                                      max={100}
-                                      value={Number.isFinite(Number(it.probability)) ? Number(it.probability) : 0}
-                                      disabled={isBusy}
-                                      onChange={(e) =>
-                                        setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, probability: clampNum(e.target.value, 0, 100) } : x)))
-                                      }
-                                      onBlur={() => onPatch(it.id, { probability: clampNum(it.probability ?? 0, 0, 100) })}
-                                    />
-                                  </td>
-
-                                  <td className="px-4 py-3 border-r border-gray-200">
-                                    <input
-                                      className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                      type="number"
-                                      min={0}
-                                      max={100}
-                                      value={Number.isFinite(Number(it.severity)) ? Number(it.severity) : 0}
-                                      disabled={isBusy}
-                                      onChange={(e) =>
-                                        setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, severity: clampNum(e.target.value, 0, 100) } : x)))
-                                      }
-                                      onBlur={() => onPatch(it.id, { severity: clampNum(it.severity ?? 0, 0, 100) })}
-                                    />
-                                  </td>
-
-                                  <td className="px-4 py-3 border-r border-gray-200">
-                                    <div className="flex items-center gap-2">
-                                      <div
-                                        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
-                                          tone === "r" ? "bg-[#e2445c] text-white" : tone === "a" ? "bg-[#ffcb00] text-white" : "bg-[#00c875] text-white"
-                                        }`}
-                                      >
-                                        {sc}
+                            <tbody className="divide-y divide-gray-200">
+                              {groupItems.length === 0 ? (
+                                <tr>
+                                  <td colSpan={13} className="px-4 py-12 text-center text-gray-500">
+                                    <div className="flex flex-col items-center gap-2">
+                                      <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center text-gray-400">
+                                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
                                       </div>
-                                      <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                                        <div
-                                          className={`h-full rounded-full ${tone === "r" ? "bg-[#e2445c]" : tone === "a" ? "bg-[#ffcb00]" : "bg-[#00c875]"}`}
-                                          style={{ width: `${sc}%` }}
-                                        />
-                                      </div>
-                                    </div>
-                                  </td>
-
-                                  <td className="px-4 py-3 border-r border-gray-200">
-                                    <input
-                                      className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                      type="date"
-                                      value={fmtDateOnly(it.due_date)}
-                                      disabled={isBusy}
-                                      onChange={(e) => setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, due_date: e.target.value || null } : x)))}
-                                      onBlur={() => onPatch(it.id, { due_date: safeStr(it.due_date).trim() || null })}
-                                    />
-                                  </td>
-
-                                  <td className="px-4 py-3 border-r border-gray-200" style={{ width: colW.resp }}>
-                                    <div className="space-y-1">
-                                      <textarea
-                                        className={`w-full min-h-[60px] p-2 text-sm bg-white border rounded-lg resize-y focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors ${
-                                          showPlanWarn ? "border-rose-300 bg-rose-50" : "border-gray-200"
-                                        }`}
-                                        value={safeStr(it.response_plan || "")}
-                                        disabled={isBusy}
-                                        placeholder="Mitigation plan…"
-                                        onChange={(e) => setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, response_plan: e.target.value } : x)))}
-                                        onBlur={() => {
-                                          touch(it.id, "plan");
-                                          onPatch(it.id, { response_plan: safeStr(it.response_plan || "").trim() || null });
-                                        }}
-                                      />
-                                      {showPlanWarn && <div className="text-xs text-rose-600 font-medium">Plan required</div>}
-                                    </div>
-                                  </td>
-
-                                  <td className="px-4 py-3 border-r border-gray-200">
-                                    <div className="max-w-xs">
-                                      {it.ai_rollup ? (
-                                        <p className="text-sm text-gray-600 line-clamp-2" title={it.ai_rollup}>
-                                          {it.ai_rollup}
-                                        </p>
-                                      ) : (
-                                        <span className="text-sm text-gray-400 italic">No AI analysis yet</span>
-                                      )}
-                                    </div>
-                                  </td>
-
-                                  <td className="px-4 py-3 border-r border-gray-200">
-                                    <span className="text-xs text-gray-500">{fmtWhen(it.updated_at)}</span>
-                                  </td>
-
-                                  <td className="px-4 py-3 text-right">
-                                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                      <button
-                                        onClick={() => setAiOpenId(aiOpenId === it.id ? "" : it.id)}
-                                        className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
-                                        title="AI Insights"
-                                      >
-                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                        </svg>
-                                      </button>
-                                      <button
-                                        onClick={() => onAiRefresh(it.id)}
-                                        disabled={isBusy}
-                                        className="p-1.5 text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
-                                        title="Refresh AI"
-                                      >
-                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                        </svg>
-                                      </button>
-                                      <button
-                                        onClick={() => onDelete(it.id)}
-                                        disabled={isBusy}
-                                        className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-md transition-colors"
-                                        title="Delete"
-                                      >
-                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                        </svg>
-                                      </button>
+                                      <p>No {type.toLowerCase()}s yet. Create one to get started.</p>
                                     </div>
                                   </td>
                                 </tr>
+                              ) : (
+                                groupItems.map((it, index) => {
+                                  const sc = calcScore(it.probability, it.severity);
+                                  const tone = toneFromScore(sc);
+                                  const isBusy = busyId === it.id;
 
-                                {/* AI Panel */}
-                                {aiOpenId === it.id && (
-                                  <tr>
-                                    <td colSpan={13} className="bg-indigo-50/50 border-b border-indigo-100">
-                                      <div className="p-4">
-                                        <div className="flex items-center justify-between mb-4">
-                                          <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600">
-                                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                              </svg>
-                                            </div>
-                                            <div>
-                                              <h3 className="font-semibold text-gray-900">AI Insights</h3>
-                                              <p className="text-xs text-gray-500">
-                                                Status: {safeStr(ai.ai_status) || "—"} • Quality:{" "}
-                                                {Number.isFinite(ai.ai_quality) ? `${Math.round(ai.ai_quality)}/100` : "—"} •{" "}
-                                                {safeStr(ai.last_run_at) ? fmtWhen(ai.last_run_at) : "Never"}
-                                              </p>
-                                            </div>
-                                          </div>
-                                          <div className="flex items-center gap-2">
-                                            <button
-                                              onClick={() => openHistory(it.id)}
-                                              disabled={aiHistBusyId === it.id}
-                                              className="px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-100 hover:bg-indigo-200 rounded-lg transition-colors"
-                                            >
-                                              {aiHistBusyId === it.id ? "Loading…" : aiHistOpenId === it.id ? "Hide History" : "View History"}
-                                            </button>
-                                            <button onClick={() => setAiOpenId("")} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-                                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                              </svg>
-                                            </button>
-                                          </div>
-                                        </div>
+                                  const owner = safeStr(it.owner_label).trim();
+                                  const ownerOk = owner.length > 0 && owner.toLowerCase() !== "tbc";
+                                  const plan = safeStr(it.response_plan || "").trim();
+                                  const planOk = plan.length > 0 && plan.toLowerCase() !== "tbc";
 
-                                        <div className="grid gap-4">
-                                          <div className="bg-white rounded-lg p-4 border border-indigo-100 shadow-sm">
-                                            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Summary</h4>
-                                            <p className="text-sm text-gray-700 leading-relaxed">{safeStr(ai.summary || it.ai_rollup || "No summary available.")}</p>
-                                          </div>
+                                  const touched = touchedById[it.id] || {};
+                                  const showOwnerWarn = Boolean(touched.owner) && !ownerOk;
+                                  const showPlanWarn = Boolean(touched.plan) && !planOk;
 
-                                          <div className="bg-white rounded-lg p-4 border border-indigo-100 shadow-sm">
-                                            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Recommendations</h4>
-                                            <div className="grid gap-2">
-                                              {(ai?.recommendations || []).length > 0 ? (
-                                                ai.recommendations.map((r: string, idx: number) => (
-                                                  <div key={idx} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
-                                                    <span className="flex-shrink-0 w-6 h-6 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-xs font-bold">{idx + 1}</span>
-                                                    <p className="text-sm text-gray-700">{r}</p>
-                                                  </div>
-                                                ))
-                                              ) : (
-                                                <p className="text-sm text-gray-500 italic">No recommendations yet. Click "Refresh AI" to generate.</p>
-                                              )}
-                                            </div>
-                                          </div>
+                                  const stKey = statusToken(it.status);
+                                  const priKey = priorityToken(it.priority);
+                                  const stStyle = STATUS_STYLES[stKey] || STATUS_STYLES.open;
+                                  const priStyle = PRIORITY_STYLES[priKey] || PRIORITY_STYLES[""];
 
-                                          {/* History Comparison */}
-                                          {aiHistOpenId === it.id && (
-                                            <div className="bg-white rounded-lg p-4 border border-indigo-100 shadow-sm mt-2">
-                                              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Version History & Diff</h4>
+                                  const ai = it?.related_refs?.ai || {};
+                                  const runs = aiRunsById[it.id] || [];
+                                  const cmp = aiCompareById[it.id] || { a: "", b: "" };
+                                  const runA = cmp.a ? getRun(runs, cmp.a) : null;
+                                  const runB = cmp.b ? getRun(runs, cmp.b) : null;
+                                  const diffSummary = runA && runB ? diffLines(runA.ai?.summary, runB.ai?.summary) : null;
+                                  const diffRollup = runA && runB ? diffLines(runA.ai?.rollup, runB.ai?.rollup) : null;
+                                  const diffRecs = runA && runB ? diffList(runA.ai?.recommendations, runB.ai?.recommendations) : null;
 
-                                              {runs.length === 0 ? (
-                                                <p className="text-sm text-gray-500">No history available.</p>
-                                              ) : (
-                                                <div className="space-y-4">
-                                                  <div className="flex items-center gap-4">
-                                                    <div className="flex-1">
-                                                      <label className="text-xs text-gray-500 mb-1 block">Version A</label>
-                                                      <select
-                                                        className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500"
-                                                        value={cmp.a}
-                                                        onChange={(e) => setAiCompareById((prev) => ({ ...prev, [it.id]: { ...prev[it.id], a: e.target.value } }))}
-                                                      >
-                                                        {runs.map((r) => (
-                                                          <option key={r.id} value={r.id}>
-                                                            {fmtWhen(r.created_at)} • {safeStr(r.version) || "v?"} • Q{Math.round(r.ai_quality || 0)}
-                                                          </option>
-                                                        ))}
-                                                      </select>
-                                                    </div>
-                                                    <div className="text-gray-400 pt-5">vs</div>
-                                                    <div className="flex-1">
-                                                      <label className="text-xs text-gray-500 mb-1 block">Version B</label>
-                                                      <select
-                                                        className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500"
-                                                        value={cmp.b}
-                                                        onChange={(e) => setAiCompareById((prev) => ({ ...prev, [it.id]: { ...prev[it.id], b: e.target.value } }))}
-                                                      >
-                                                        {runs.map((r) => (
-                                                          <option key={r.id} value={r.id}>
-                                                            {fmtWhen(r.created_at)} • {safeStr(r.version) || "v?"} • Q{Math.round(r.ai_quality || 0)}
-                                                          </option>
-                                                        ))}
-                                                      </select>
-                                                    </div>
-                                                  </div>
+                                  const stale = staleById[it.id];
 
-                                                  {runA && runB && (
-                                                    <div className="space-y-3 border-t border-gray-100 pt-4">
-                                                      {diffRollup && (
-                                                        <div className="grid grid-cols-2 gap-4">
-                                                          <div className="p-3 bg-rose-50 rounded-lg border border-rose-100">
-                                                            <div className="text-xs font-semibold text-rose-700 mb-1">Previous</div>
-                                                            <div className="text-sm text-gray-700">{diffRollup.a}</div>
-                                                          </div>
-                                                          <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100">
-                                                            <div className="text-xs font-semibold text-emerald-700 mb-1">Current</div>
-                                                            <div className="text-sm text-gray-700">{diffRollup.b}</div>
-                                                          </div>
-                                                        </div>
-                                                      )}
+                                  return (
+                                    <Draggable
+                                      key={dndIdForRaid(it)}
+                                      draggableId={dndIdForRaid(it)}
+                                      index={index}
+                                      isDragDisabled={Boolean(isBusy)}
+                                    >
+                                      {(dragProvided, dragSnapshot) => (
+                                        <React.Fragment>
+                                          <tr
+                                            ref={dragProvided.innerRef}
+                                            {...dragProvided.draggableProps}
+                                            data-raid-id={it.id}
+                                            data-raid-public={safeStr(it.public_id || "").trim()}
+                                            className={[
+                                              "group transition-colors",
+                                              "hover:bg-gray-50/80",
+                                              isBusy ? "opacity-60" : "",
+                                              stale ? "bg-amber-50/30" : "",
+                                              dragSnapshot.isDragging ? "bg-indigo-50" : "",
+                                            ].join(" ")}
+                                            tabIndex={0}
+                                            onFocus={() => setHotRowId(it.id)}
+                                            onMouseDown={() => setHotRowId(it.id)}
+                                          >
+                                            {/* ID + Drag handle */}
+                                            <td className="px-4 py-3 border-r border-gray-200">
+                                              <div className="flex items-center gap-2">
+                                                <button
+                                                  type="button"
+                                                  {...dragProvided.dragHandleProps}
+                                                  className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 cursor-grab active:cursor-grabbing"
+                                                  title="Drag to reorder"
+                                                  aria-label="Drag to reorder"
+                                                >
+                                                  <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0zM7 10a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0zM7 16a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0z" />
+                                                  </svg>
+                                                </button>
 
-                                                      {diffSummary && (
-                                                        <div className="grid grid-cols-2 gap-4">
-                                                          <div className="p-3 bg-rose-50 rounded-lg border border-rose-100">
-                                                            <div className="text-xs font-semibold text-rose-700 mb-1">Previous Summary</div>
-                                                            <div className="text-sm text-gray-700">{diffSummary.a}</div>
-                                                          </div>
-                                                          <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100">
-                                                            <div className="text-xs font-semibold text-emerald-700 mb-1">Current Summary</div>
-                                                            <div className="text-sm text-gray-700">{diffSummary.b}</div>
-                                                          </div>
-                                                        </div>
-                                                      )}
+                                                <span className="font-mono text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded border border-gray-200">
+                                                  {safeStr(it.public_id) || "—"}
+                                                </span>
 
-                                                      {diffRecs && (
-                                                        <div className="grid grid-cols-2 gap-4">
-                                                          <div className="p-3 bg-rose-50 rounded-lg border border-rose-100">
-                                                            <div className="text-xs font-semibold text-rose-700 mb-2">Previous Recommendations</div>
-                                                            <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">{diffRecs.a.map((x, i) => <li key={i}>{x}</li>)}</ul>
-                                                          </div>
-                                                          <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100">
-                                                            <div className="text-xs font-semibold text-emerald-700 mb-2">Current Recommendations</div>
-                                                            <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">{diffRecs.b.map((x, i) => <li key={i}>{x}</li>)}</ul>
-                                                          </div>
-                                                        </div>
-                                                      )}
+                                                {stale && (
+                                                  <button onClick={() => onReloadRow(it.id)} title="Reload" className="text-amber-600 hover:text-amber-700">
+                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                                    </svg>
+                                                  </button>
+                                                )}
+                                              </div>
+                                              {stale && <div className="text-xs text-amber-700 mt-1 max-w-[220px]">{stale.message}</div>}
+                                            </td>
 
-                                                      {!diffRollup && !diffSummary && !diffRecs && (
-                                                        <p className="text-sm text-gray-500 text-center py-4">No differences between selected versions.</p>
-                                                      )}
-                                                    </div>
-                                                  )}
+                                            <td className="px-4 py-3 border-r border-gray-200" style={{ width: colW.desc }}>
+                                              <textarea
+                                                className="w-full min-h-[60px] p-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-y transition-shadow"
+                                                value={safeStr(it.description)}
+                                                disabled={isBusy}
+                                                placeholder="Describe the item…"
+                                                onChange={(e) =>
+                                                  setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, description: e.target.value } : x)))
+                                                }
+                                                onBlur={() => onPatch(it.id, { description: safeStr(it.description).trim() || "Untitled" })}
+                                              />
+                                            </td>
+
+                                            {/* ✅ wider owner */}
+                                            <td className="px-4 py-3 border-r border-gray-200">
+                                              <div className="space-y-1">
+                                                <input
+                                                  className={`w-full px-2 py-1.5 text-sm border rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors ${
+                                                    showOwnerWarn ? "border-rose-500 bg-rose-50" : "border-gray-200"
+                                                  }`}
+                                                  value={safeStr(it.owner_label)}
+                                                  disabled={isBusy}
+                                                  placeholder="e.g. Alex Adu-Poku"
+                                                  onChange={(e) =>
+                                                    setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, owner_label: e.target.value } : x)))
+                                                  }
+                                                  onBlur={() => {
+                                                    touch(it.id, "owner");
+                                                    onPatch(it.id, { owner_label: safeStr(it.owner_label).trim() });
+                                                  }}
+                                                />
+                                                {showOwnerWarn && <div className="text-xs text-rose-600 font-medium">Owner required</div>}
+                                              </div>
+                                            </td>
+
+                                            {/* ✅ Status Column: glossy, no dropdown arrow */}
+                                            <td className="px-4 py-3 border-r border-gray-200">
+                                              <select
+                                                className={[
+                                                  "w-full px-3 py-2 text-sm font-semibold rounded-md border-0 appearance-none",
+                                                  stStyle.gradient,
+                                                  stStyle.text,
+                                                  stStyle.shadow,
+                                                  stStyle.ring,
+                                                  "cursor-pointer transition-all hover:brightness-110",
+                                                ].join(" ")}
+                                                value={safeStr(it.status || "Open")}
+                                                disabled={isBusy}
+                                                onChange={(e) => onPatch(it.id, { status: e.target.value })}
+                                              >
+                                                <option value="Open">Open</option>
+                                                <option value="In Progress">In Progress</option>
+                                                <option value="Mitigated">Mitigated</option>
+                                                <option value="Closed">Closed</option>
+                                                {/* ✅ Invalid removed */}
+                                              </select>
+                                            </td>
+
+                                            {/* ✅ Priority Column: glossy, no dropdown arrow */}
+                                            <td className="px-4 py-3 border-r border-gray-200">
+                                              <select
+                                                className={[
+                                                  "w-full px-3 py-2 text-sm font-semibold rounded-md border-0 appearance-none",
+                                                  priStyle.gradient,
+                                                  priStyle.text,
+                                                  priStyle.shadow,
+                                                  priStyle.ring,
+                                                  "cursor-pointer transition-all hover:brightness-110",
+                                                ].join(" ")}
+                                                value={safeStr(it.priority || "")}
+                                                disabled={isBusy}
+                                                onChange={(e) => onPatch(it.id, { priority: e.target.value || null })}
+                                              >
+                                                <option value="">—</option>
+                                                <option value="Low">Low</option>
+                                                <option value="Medium">Medium</option>
+                                                <option value="High">High</option>
+                                                <option value="Critical">Critical</option>
+                                              </select>
+                                            </td>
+
+                                            <td className="px-4 py-3 border-r border-gray-200">
+                                              <input
+                                                className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                type="number"
+                                                min={0}
+                                                max={100}
+                                                value={Number.isFinite(Number(it.probability)) ? Number(it.probability) : 0}
+                                                disabled={isBusy}
+                                                onChange={(e) =>
+                                                  setItems((prev) =>
+                                                    prev.map((x) => (x.id === it.id ? { ...x, probability: clampNum(e.target.value, 0, 100) } : x))
+                                                  )
+                                                }
+                                                onBlur={() => onPatch(it.id, { probability: clampNum(it.probability ?? 0, 0, 100) })}
+                                              />
+                                            </td>
+
+                                            <td className="px-4 py-3 border-r border-gray-200">
+                                              <input
+                                                className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                type="number"
+                                                min={0}
+                                                max={100}
+                                                value={Number.isFinite(Number(it.severity)) ? Number(it.severity) : 0}
+                                                disabled={isBusy}
+                                                onChange={(e) =>
+                                                  setItems((prev) =>
+                                                    prev.map((x) => (x.id === it.id ? { ...x, severity: clampNum(e.target.value, 0, 100) } : x))
+                                                  )
+                                                }
+                                                onBlur={() => onPatch(it.id, { severity: clampNum(it.severity ?? 0, 0, 100) })}
+                                              />
+                                            </td>
+
+                                            <td className="px-4 py-3 border-r border-gray-200">
+                                              <div className="flex items-center gap-2">
+                                                <div
+                                                  className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                                                    tone === "r"
+                                                      ? "bg-[#e2445c] text-white"
+                                                      : tone === "a"
+                                                      ? "bg-[#ffcb00] text-white"
+                                                      : "bg-[#00c875] text-white"
+                                                  }`}
+                                                >
+                                                  {sc}
                                                 </div>
-                                              )}
-                                            </div>
+                                                <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                                  <div
+                                                    className={`h-full rounded-full ${tone === "r" ? "bg-[#e2445c]" : tone === "a" ? "bg-[#ffcb00]" : "bg-[#00c875]"}`}
+                                                    style={{ width: `${sc}%` }}
+                                                  />
+                                                </div>
+                                              </div>
+                                            </td>
+
+                                            <td className="px-4 py-3 border-r border-gray-200">
+                                              <input
+                                                className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                type="date"
+                                                value={fmtDateOnly(it.due_date)}
+                                                disabled={isBusy}
+                                                onChange={(e) =>
+                                                  setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, due_date: e.target.value || null } : x)))
+                                                }
+                                                onBlur={() => onPatch(it.id, { due_date: safeStr(it.due_date).trim() || null })}
+                                              />
+                                            </td>
+
+                                            <td className="px-4 py-3 border-r border-gray-200" style={{ width: colW.resp }}>
+                                              <div className="space-y-1">
+                                                <textarea
+                                                  className={`w-full min-h-[60px] p-2 text-sm bg-white border rounded-lg resize-y focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors ${
+                                                    showPlanWarn ? "border-rose-300 bg-rose-50" : "border-gray-200"
+                                                  }`}
+                                                  value={safeStr(it.response_plan || "")}
+                                                  disabled={isBusy}
+                                                  placeholder="Mitigation plan…"
+                                                  onChange={(e) =>
+                                                    setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, response_plan: e.target.value } : x)))
+                                                  }
+                                                  onBlur={() => {
+                                                    touch(it.id, "plan");
+                                                    onPatch(it.id, { response_plan: safeStr(it.response_plan || "").trim() || null });
+                                                  }}
+                                                />
+                                                {showPlanWarn && <div className="text-xs text-rose-600 font-medium">Plan required</div>}
+                                              </div>
+                                            </td>
+
+                                            <td className="px-4 py-3 border-r border-gray-200">
+                                              <div className="max-w-xs">
+                                                {it.ai_rollup ? (
+                                                  <p className="text-sm text-gray-600 line-clamp-2" title={it.ai_rollup}>
+                                                    {it.ai_rollup}
+                                                  </p>
+                                                ) : (
+                                                  <span className="text-sm text-gray-400 italic">No AI analysis yet</span>
+                                                )}
+                                              </div>
+                                            </td>
+
+                                            <td className="px-4 py-3 border-r border-gray-200">
+                                              <span className="text-xs text-gray-500">{fmtWhen(it.updated_at)}</span>
+                                            </td>
+
+                                            <td className="px-4 py-3 text-right">
+                                              <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button
+                                                  onClick={() => setAiOpenId(aiOpenId === it.id ? "" : it.id)}
+                                                  className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+                                                  title="AI Insights"
+                                                >
+                                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                                  </svg>
+                                                </button>
+                                                <button
+                                                  onClick={() => onAiRefresh(it.id)}
+                                                  disabled={isBusy}
+                                                  className="p-1.5 text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+                                                  title="Refresh AI"
+                                                >
+                                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                                  </svg>
+                                                </button>
+                                                <button
+                                                  onClick={() => onDelete(it.id)}
+                                                  disabled={isBusy}
+                                                  className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-md transition-colors"
+                                                  title="Delete"
+                                                >
+                                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                  </svg>
+                                                </button>
+                                              </div>
+                                            </td>
+                                          </tr>
+
+                                          {/* AI Panel */}
+                                          {aiOpenId === it.id && (
+                                            <tr>
+                                              <td colSpan={13} className="bg-indigo-50/50 border-b border-indigo-100">
+                                                <div className="p-4">
+                                                  <div className="flex items-center justify-between mb-4">
+                                                    <div className="flex items-center gap-3">
+                                                      <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600">
+                                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                                        </svg>
+                                                      </div>
+                                                      <div>
+                                                        <h3 className="font-semibold text-gray-900">AI Insights</h3>
+                                                        <p className="text-xs text-gray-500">
+                                                          Status: {safeStr(ai.ai_status) || "—"} • Quality:{" "}
+                                                          {Number.isFinite(ai.ai_quality) ? `${Math.round(ai.ai_quality)}/100` : "—"} •{" "}
+                                                          {safeStr(ai.last_run_at) ? fmtWhen(ai.last_run_at) : "Never"}
+                                                        </p>
+                                                      </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                      <button
+                                                        onClick={() => openHistory(it.id)}
+                                                        disabled={aiHistBusyId === it.id}
+                                                        className="px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-100 hover:bg-indigo-200 rounded-lg transition-colors"
+                                                      >
+                                                        {aiHistBusyId === it.id ? "Loading…" : aiHistOpenId === it.id ? "Hide History" : "View History"}
+                                                      </button>
+                                                      <button
+                                                        onClick={() => setAiOpenId("")}
+                                                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                                                      >
+                                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                        </svg>
+                                                      </button>
+                                                    </div>
+                                                  </div>
+
+                                                  <div className="grid gap-4">
+                                                    <div className="bg-white rounded-lg p-4 border border-indigo-100 shadow-sm">
+                                                      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Summary</h4>
+                                                      <p className="text-sm text-gray-700 leading-relaxed">{safeStr(ai.summary || it.ai_rollup || "No summary available.")}</p>
+                                                    </div>
+
+                                                    <div className="bg-white rounded-lg p-4 border border-indigo-100 shadow-sm">
+                                                      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Recommendations</h4>
+                                                      <div className="grid gap-2">
+                                                        {(ai?.recommendations || []).length > 0 ? (
+                                                          ai.recommendations.map((r: string, idx: number) => (
+                                                            <div key={idx} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                                                              <span className="flex-shrink-0 w-6 h-6 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-xs font-bold">
+                                                                {idx + 1}
+                                                              </span>
+                                                              <p className="text-sm text-gray-700">{r}</p>
+                                                            </div>
+                                                          ))
+                                                        ) : (
+                                                          <p className="text-sm text-gray-500 italic">No recommendations yet. Click "Refresh AI" to generate.</p>
+                                                        )}
+                                                      </div>
+                                                    </div>
+
+                                                    {/* History Comparison */}
+                                                    {aiHistOpenId === it.id && (
+                                                      <div className="bg-white rounded-lg p-4 border border-indigo-100 shadow-sm mt-2">
+                                                        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Version History & Diff</h4>
+
+                                                        {runs.length === 0 ? (
+                                                          <p className="text-sm text-gray-500">No history available.</p>
+                                                        ) : (
+                                                          <div className="space-y-4">
+                                                            <div className="flex items-center gap-4">
+                                                              <div className="flex-1">
+                                                                <label className="text-xs text-gray-500 mb-1 block">Version A</label>
+                                                                <select
+                                                                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500"
+                                                                  value={cmp.a}
+                                                                  onChange={(e) =>
+                                                                    setAiCompareById((prev) => ({
+                                                                      ...prev,
+                                                                      [it.id]: { ...prev[it.id], a: e.target.value },
+                                                                    }))
+                                                                  }
+                                                                >
+                                                                  {runs.map((r) => (
+                                                                    <option key={r.id} value={r.id}>
+                                                                      {fmtWhen(r.created_at)} • {safeStr(r.version) || "v?"} • Q{Math.round(r.ai_quality || 0)}
+                                                                    </option>
+                                                                  ))}
+                                                                </select>
+                                                              </div>
+                                                              <div className="text-gray-400 pt-5">vs</div>
+                                                              <div className="flex-1">
+                                                                <label className="text-xs text-gray-500 mb-1 block">Version B</label>
+                                                                <select
+                                                                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500"
+                                                                  value={cmp.b}
+                                                                  onChange={(e) =>
+                                                                    setAiCompareById((prev) => ({
+                                                                      ...prev,
+                                                                      [it.id]: { ...prev[it.id], b: e.target.value },
+                                                                    }))
+                                                                  }
+                                                                >
+                                                                  {runs.map((r) => (
+                                                                    <option key={r.id} value={r.id}>
+                                                                      {fmtWhen(r.created_at)} • {safeStr(r.version) || "v?"} • Q{Math.round(r.ai_quality || 0)}
+                                                                    </option>
+                                                                  ))}
+                                                                </select>
+                                                              </div>
+                                                            </div>
+
+                                                            {runA && runB && (
+                                                              <div className="space-y-3 border-t border-gray-100 pt-4">
+                                                                {diffRollup && (
+                                                                  <div className="grid grid-cols-2 gap-4">
+                                                                    <div className="p-3 bg-rose-50 rounded-lg border border-rose-100">
+                                                                      <div className="text-xs font-semibold text-rose-700 mb-1">Previous</div>
+                                                                      <div className="text-sm text-gray-700">{diffRollup.a}</div>
+                                                                    </div>
+                                                                    <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                                                                      <div className="text-xs font-semibold text-emerald-700 mb-1">Current</div>
+                                                                      <div className="text-sm text-gray-700">{diffRollup.b}</div>
+                                                                    </div>
+                                                                  </div>
+                                                                )}
+
+                                                                {diffSummary && (
+                                                                  <div className="grid grid-cols-2 gap-4">
+                                                                    <div className="p-3 bg-rose-50 rounded-lg border border-rose-100">
+                                                                      <div className="text-xs font-semibold text-rose-700 mb-1">Previous Summary</div>
+                                                                      <div className="text-sm text-gray-700">{diffSummary.a}</div>
+                                                                    </div>
+                                                                    <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                                                                      <div className="text-xs font-semibold text-emerald-700 mb-1">Current Summary</div>
+                                                                      <div className="text-sm text-gray-700">{diffSummary.b}</div>
+                                                                    </div>
+                                                                  </div>
+                                                                )}
+
+                                                                {diffRecs && (
+                                                                  <div className="grid grid-cols-2 gap-4">
+                                                                    <div className="p-3 bg-rose-50 rounded-lg border border-rose-100">
+                                                                      <div className="text-xs font-semibold text-rose-700 mb-2">Previous Recommendations</div>
+                                                                      <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
+                                                                        {diffRecs.a.map((x, i) => (
+                                                                          <li key={i}>{x}</li>
+                                                                        ))}
+                                                                      </ul>
+                                                                    </div>
+                                                                    <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                                                                      <div className="text-xs font-semibold text-emerald-700 mb-2">Current Recommendations</div>
+                                                                      <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
+                                                                        {diffRecs.b.map((x, i) => (
+                                                                          <li key={i}>{x}</li>
+                                                                        ))}
+                                                                      </ul>
+                                                                    </div>
+                                                                  </div>
+                                                                )}
+
+                                                                {!diffRollup && !diffSummary && !diffRecs && (
+                                                                  <p className="text-sm text-gray-500 text-center py-4">No differences between selected versions.</p>
+                                                                )}
+                                                              </div>
+                                                            )}
+                                                          </div>
+                                                        )}
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              </td>
+                                            </tr>
                                           )}
-                                        </div>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )}
-                              </React.Fragment>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-            );
-          })}
-        </div>
+                                        </React.Fragment>
+                                      )}
+                                    </Draggable>
+                                  );
+                                })
+                              )}
+
+                              {dropProvided.placeholder}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </Droppable>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        </DragDropContext>
       </main>
 
       {/* Digest Modal */}
@@ -1764,10 +1816,9 @@ export default function RaidClient({
                         sec.items.map((x: any, i: number) => {
                           const link = digestDeepLink(routeProjectId, x);
                           const idTxt = digestId(x);
-                          const st = STATUS_STYLES[statusToken(x?.status)];
                           return (
                             <li key={safeStr(x?.id) || i} className="p-3 hover:bg-gray-50 transition-colors flex items-center gap-3">
-                              <div className={`w-2 h-2 rounded-full ${st.dot}`} />
+                              <div className={`w-2 h-2 rounded-full ${statusToken(x?.status) === "mitigated" ? "bg-[#00c875]" : statusToken(x?.status) === "closed" ? "bg-[#0086c0]" : statusToken(x?.status) === "inprogress" ? "bg-[#579bfc]" : "bg-slate-400"}`} />
                               <Link
                                 href={link}
                                 className="font-mono text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded hover:bg-gray-200 transition-colors"
