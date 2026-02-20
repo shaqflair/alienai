@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import type { StakeholderRegisterMeta, StakeholderRegisterRow } from "./types";
 import { escapeHtml } from "./stakeholderShared";
@@ -12,23 +12,83 @@ function cell(v: any) {
   return s ? s : "—";
 }
 
+function norm(x: any) {
+  return String(x ?? "").trim();
+}
+
+function influenceLabel(v: any) {
+  const s = norm(v).toLowerCase();
+  if (!s) return "Medium";
+  if (s === "high") return "High";
+  if (s === "medium") return "Medium";
+  if (s === "low") return "Low";
+  return cell(v);
+}
+
+function contactInfoToString(ci: any) {
+  if (!ci) return "";
+  if (typeof ci === "string") return norm(ci);
+  if (typeof ci !== "object") return norm(ci);
+
+  const email = norm(ci?.email);
+  const phone = norm(ci?.phone);
+  const org = norm(ci?.organisation || ci?.organization);
+  const notes = norm(ci?.notes);
+
+  const parts = [email, phone, org, notes].filter(Boolean);
+  if (parts.length) return parts.join(" | ");
+
+  try {
+    const s = JSON.stringify(ci);
+    return s.length > 240 ? s.slice(0, 240) + "…" : s;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * DB-first render:
+ * - name, role, influence_level, expectations, communication_strategy, contact_info
+ * Backwards compatible:
+ * - stakeholder -> name
+ * - impact_notes/stakeholder_impact -> expectations
+ * - channels -> communication_strategy
+ * - contact -> contact string
+ */
+function rowView(r: any) {
+  const name = norm(r?.name ?? r?.stakeholder);
+  const role = norm(r?.role ?? r?.title_role ?? r?.title);
+  const influence = r?.influence_level ?? r?.influence;
+  const expectations = norm(r?.expectations ?? r?.impact_notes ?? r?.stakeholder_impact ?? r?.notes);
+  const comms = norm(r?.communication_strategy ?? r?.communication ?? r?.channels);
+  const contact =
+    contactInfoToString(r?.contact_info) ||
+    norm(r?.contact ?? r?.point_of_contact ?? r?.contact_details ?? r?.email);
+
+  return {
+    name: cell(name),
+    role: cell(role),
+    influence: influenceLabel(influence),
+    expectations: cell(expectations),
+    comms: cell(comms),
+    contact: cell(contact),
+  };
+}
+
 export function renderStakeholderRegisterHtml(args: {
   meta: StakeholderRegisterMeta;
   rows: StakeholderRegisterRow[];
   logoDataUrl?: string | null;
 }) {
-  const { meta, rows } = args;
+  const { meta, rows, logoDataUrl } = args;
 
   const cols = [
-    { key: "stakeholder", label: "Stakeholder", cls: "stakeholder" },
-    { key: "contact", label: "Contact", cls: "contact" },
-    { key: "title_role", label: "Role", cls: "role" },
-    { key: "impact", label: "Impact", cls: "impact" },
+    { key: "name", label: "Name", cls: "name" },
+    { key: "role", label: "Role", cls: "role" },
     { key: "influence", label: "Influence", cls: "influence" },
-    { key: "mapping", label: "Mapping", cls: "mapping" },
-    { key: "milestone", label: "Milestone", cls: "milestone" },
-    { key: "impact_notes", label: "Impact Notes", cls: "impactNotes" },
-    { key: "channels", label: "Channels", cls: "channels" },
+    { key: "expectations", label: "Expectations", cls: "expectations" },
+    { key: "comms", label: "Communication Strategy", cls: "comms" },
+    { key: "contact", label: "Contact Info", cls: "contact" },
   ] as const;
 
   const css = `
@@ -42,12 +102,23 @@ export function renderStakeholderRegisterHtml(args: {
     }
 
     .brand { display:flex; align-items:flex-start; gap:14px; }
+
+    .logoBox{
+      width: 44px; height: 44px; border-radius: 12px;
+      background: #0b1220;
+      display:flex; align-items:center; justify-content:center;
+      overflow:hidden;
+      border: 1px solid #e7ecf7;
+    }
+    .logoBox img{ width:100%; height:100%; object-fit:cover; }
+
     .badge {
       width: 44px; height: 44px; border-radius: 12px;
       background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
       color:#fff; display:flex; align-items:center; justify-content:center;
       font-weight:800;
     }
+
     .titles { display:flex; flex-direction:column; gap:4px; }
     .h1 { font-size: 28px; font-weight: 900; margin:0; }
     .sub { font-size: 13px; color:#64748b; font-weight:600; }
@@ -78,7 +149,7 @@ export function renderStakeholderRegisterHtml(args: {
     }
     .sectionHead .t { font-size: 18px; font-weight: 900; }
     .sectionHead .n { font-size: 12px; color:#64748b; font-weight:800; }
-    .sectionHead .right { font-size: 16px; font-weight:900; color:#64748b; }
+    .sectionHead .right { font-size: 12px; font-weight:900; color:#64748b; }
 
     .tableWrap {
       margin-top: 10px;
@@ -109,14 +180,12 @@ export function renderStakeholderRegisterHtml(args: {
     }
     tbody tr:last-child td { border-bottom:none; }
 
-    .stakeholder { width: 135px; font-weight: 900; }
-    .contact { width: 135px; }
-    .role { width: 78px; }
-    .impact, .influence { width: 70px; }
-    .mapping { width: 95px; }
-    .milestone { width: 80px; }
-    .impactNotes { width: 210px; }
-    .channels { width: 80px; }
+    .name { width: 150px; font-weight: 900; }
+    .role { width: 120px; }
+    .influence { width: 90px; }
+    .expectations { width: 330px; }
+    .comms { width: 330px; }
+    .contact { width: 180px; }
 
     .pillLevel{
       display:inline-flex;
@@ -134,20 +203,24 @@ export function renderStakeholderRegisterHtml(args: {
     rows.length === 0
       ? `<tr><td colspan="${cols.length}">No stakeholders recorded.</td></tr>`
       : rows
-          .map((r) => `
-            <tr>
-              <td class="stakeholder">${esc(cell(r.stakeholder))}</td>
-              <td class="contact">${esc(cell(r.contact))}</td>
-              <td class="role">${esc(cell(r.title_role))}</td>
-              <td class="impact"><span class="pillLevel">${esc(cell(r.impact))}</span></td>
-              <td class="influence"><span class="pillLevel">${esc(cell(r.influence))}</span></td>
-              <td class="mapping">${esc(cell(r.mapping))}</td>
-              <td class="milestone">${esc(cell(r.milestone))}</td>
-              <td class="impactNotes">${esc(cell(r.impact_notes))}</td>
-              <td class="channels">${esc(cell(r.channels))}</td>
-            </tr>
-          `)
+          .map((raw) => {
+            const r = rowView(raw);
+            return `
+              <tr>
+                <td class="name">${esc(cell(r.name))}</td>
+                <td class="role">${esc(cell(r.role))}</td>
+                <td class="influence"><span class="pillLevel">${esc(cell(r.influence))}</span></td>
+                <td class="expectations">${esc(cell(r.expectations))}</td>
+                <td class="comms">${esc(cell(r.comms))}</td>
+                <td class="contact">${esc(cell(r.contact))}</td>
+              </tr>
+            `;
+          })
           .join("");
+
+  const brandMark = logoDataUrl
+    ? `<div class="logoBox"><img alt="logo" src="${esc(logoDataUrl)}" /></div>`
+    : `<div class="badge">SR</div>`;
 
   return `<!doctype html>
 <html>
@@ -160,7 +233,7 @@ export function renderStakeholderRegisterHtml(args: {
 
   <div class="top">
     <div class="brand">
-      <div class="badge">SR</div>
+      ${brandMark}
       <div class="titles">
         <h1 class="h1">Stakeholder Register</h1>
         <div class="sub">${esc(meta.projectName || "Project")}</div>
@@ -186,13 +259,13 @@ export function renderStakeholderRegisterHtml(args: {
       <span class="t">Register</span>
       <span class="n">${rows.length} records</span>
     </div>
-    <div class="right">Influence / Impact / Mapping</div>
+    <div class="right">Influence / Expectations / Communication</div>
   </div>
 
   <div class="tableWrap">
     <table>
       <thead>
-        <tr>${cols.map(c => `<th class="${c.cls}">${c.label}</th>`).join("")}</tr>
+        <tr>${cols.map((c) => `<th class="${c.cls}">${c.label}</th>`).join("")}</tr>
       </thead>
       <tbody>${tbody}</tbody>
     </table>

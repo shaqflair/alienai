@@ -1,4 +1,5 @@
-import "server-only";
+﻿
+modified_html = '''import "server-only";
 
 // ? FIX: you already have renderClosureReportSections in ./render.ts
 import { renderClosureReportSections } from "./render";
@@ -37,10 +38,7 @@ export function renderClosureReportHtml(args: {
 }) {
   const { model, projectName, projectCode, clientName, orgName } = args;
 
-  const { generatedDateTime, openRisksCount, sectionsHtml } = renderClosureReportSections(model);
-
-  const rag = safeStr(model?.rag || "—").toUpperCase() || "—";
-  const overall = safeStr(model?.overall || "—") || "—";
+  const { generatedDateTime, sectionsHtml } = renderClosureReportSections(model);
 
   return `<!doctype html>
 <html>
@@ -94,15 +92,7 @@ export function renderClosureReportHtml(args: {
     .metaValue { margin-top: 4px; font-size: 14px; font-weight: 800; }
     .metaCode { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; color: ${COLORS.headerAccent}; }
 
-    .kpis { margin-top: 14px; }
-    .kpiRow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-    .kpi {
-      border: 1px solid ${COLORS.border};
-      border-radius: 12px;
-      padding: 10px 12px;
-    }
-    .kpiLabel { font-size: 12px; color: ${COLORS.muted}; font-weight: 700; }
-    .kpiValue { margin-top: 6px; font-size: 18px; font-weight: 900; }
+    /* REMOVED: .kpis block styles - no longer needed */
 
     /* ---- styles expected by renderClosureReportSections ---- */
     .section { margin-top: 18px; }
@@ -115,7 +105,7 @@ export function renderClosureReportHtml(args: {
       padding-bottom: 6px;
       flex: 1;
     }
-    .sectionHead .n { font-size: 11px; color: ${COLORS.muted}; font-weight: 700; white-space: nowrap; }
+    /* REMOVED: .sectionHead .n (count indicator) - no longer needed */
     .sectionBody { margin-top: 10px; }
     .muted { color: ${COLORS.muted}; font-style: italic; }
 
@@ -161,25 +151,13 @@ export function renderClosureReportHtml(args: {
       </div>
     </div>
 
-    <div class="kpis">
-      <div class="kpiRow">
-        <div class="kpi">
-          <div class="kpiLabel">RAG</div>
-          <div class="kpiValue">${escHtml(rag)}</div>
-        </div>
-        <div class="kpi">
-          <div class="kpiLabel">Overall</div>
-          <div class="kpiValue">${escHtml(overall)}</div>
-        </div>
-        <div class="kpi">
-          <div class="kpiLabel">Open Risks / Issues</div>
-          <div class="kpiValue">${escHtml(String(openRisksCount))}</div>
-        </div>
-      </div>
-    </div>
+    <!-- REMOVED: Health block (RAG, Overall, Open Risks/Issues) -->
 
     ${sectionsHtml}
   </div>
 </body>
 </html>`;
 }
+'''
+
+print(modified_html)

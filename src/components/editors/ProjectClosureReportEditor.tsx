@@ -8,7 +8,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { Save, Download, FileText, File as FileIcon, Loader2 } from "lucide-react";
+import {
+  Save,
+  Download,
+  FileText,
+  File as FileIcon,
+  Loader2,
+  ExternalLink,
+} from "lucide-react";
 
 // ✅ AI wiring (Closure Report)
 import type { Section as AiSection } from "@/lib/ai/closure-ai";
@@ -276,14 +283,12 @@ function normalizeFreeTextNoBullets(raw: string) {
     .split("\n")
     .map((l) => l.replace(/^\s*(?:[•\-\*\u2022\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/g, "").trimEnd());
 
-  // If it was bullet-style (many short lines), convert to paragraph-ish while preserving intentional paragraphs.
   const compact = lines.join("\n").trim();
   const nonEmpty = lines.filter((l) => l.trim()).length;
   const hasManyLines = nonEmpty >= 3;
 
   if (!hasManyLines) return compact;
 
-  // Merge single-line bullet fragments into a paragraph; keep blank lines as paragraph breaks.
   const paras: string[] = [];
   let cur: string[] = [];
   for (const l of lines) {
@@ -371,7 +376,6 @@ function applyClosureSectionReplace(setDoc: any, key: string, section: AiSection
   const raw = String(section?.bullets || "");
 
   if (key === "closure.health.summary") {
-    // ✅ Force summary to be free-text (strip bullets, merge lines)
     const free = normalizeFreeTextNoBullets(raw);
     setDoc((d: any) => ({ ...d, health: { ...d.health, summary: free } }));
     return;
@@ -517,6 +521,26 @@ function fmtPounds(n: number) {
   }
 }
 
+function safeUrl(raw: string): string {
+  const s = safeStr(raw).trim();
+  if (!s) return "";
+  if (/^https?:\/\//i.test(s)) return s;
+  // tolerate "www." etc
+  if (/^www\./i.test(s)) return `https://${s}`;
+  return s;
+}
+
+function canOpenUrl(raw: string): boolean {
+  const u = safeUrl(raw);
+  return /^https?:\/\//i.test(u);
+}
+
+function openUrl(raw: string) {
+  const u = safeUrl(raw);
+  if (!canOpenUrl(u)) return;
+  window.open(u, "_blank", "noopener,noreferrer");
+}
+
 /* ─────────────────────────────────────────────── API best-effort fetchers ────────────────────────────────────────────── */
 async function tryFetchJson(url: string, init?: RequestInit): Promise<any | null> {
   try {
@@ -532,10 +556,7 @@ async function tryFetchJson(url: string, init?: RequestInit): Promise<any | null
 function parseProjectMetaFromAny(payload: any): ProjectMeta | null {
   if (!payload || typeof payload !== "object") return null;
 
-  // Common wrappers: { ok, ... }, { data }, { project }, { item }
   const root = payload?.project ?? payload?.data ?? payload?.item ?? payload;
-
-  // Some APIs return arrays (e.g. list endpoints)
   const p = Array.isArray(root) ? root?.[0] : root;
   if (!p || typeof p !== "object") return null;
 
@@ -544,8 +565,8 @@ function parseProjectMetaFromAny(payload: any): ProjectMeta | null {
     safeStr((p as any).title ?? (p as any).project_name ?? (p as any).name ?? (p as any).projectName).trim() || null;
   const client_name = safeStr((p as any).client_name ?? (p as any).client ?? (p as any).business).trim() || null;
 
-  // sponsor / pm are often stored differently in different schemas
   const sponsor = safeStr((p as any).sponsor ?? (p as any).sponsor_name ?? (p as any).sponsorName).trim() || null;
+
   const pm =
     safeStr(
       (p as any).project_manager ??
@@ -555,7 +576,6 @@ function parseProjectMetaFromAny(payload: any): ProjectMeta | null {
         (p as any).projectManager
     ).trim() || null;
 
-  // If absolutely nothing useful found, return null
   if (!project_code && !project_name && !client_name && !sponsor && !pm) return null;
 
   return { project_code, project_name, client_name, sponsor, pm };
@@ -567,16 +587,14 @@ function parseStakeholdersFromAny(payload: any): KeyStakeholder[] {
   const arr = Array.isArray(root) ? root : [];
   const mapped: KeyStakeholder[] = arr
     .map((s: any) => {
-      const name =
-        safeStr(s?.name ?? s?.display_name ?? s?.full_name ?? s?.stakeholder_name ?? s?.title ?? "").trim() || "";
-      const role =
-        safeStr(s?.role ?? s?.responsibility ?? s?.position ?? s?.stakeholder_role ?? s?.job_title ?? "").trim() || "";
+      // ✅ aligns to your DB: stakeholders.name, stakeholders.role
+      const name = safeStr(s?.name ?? s?.stakeholder_name ?? s?.display_name ?? s?.full_name ?? s?.title ?? "").trim();
+      const role = safeStr(s?.role ?? s?.stakeholder_role ?? s?.position ?? s?.job_title ?? "").trim();
       if (!name && !role) return null;
-      return { name, role };
+      return { name: name || "", role: role || "" };
     })
     .filter(Boolean) as any;
 
-  // De-dupe by (name|role)
   const seen = new Set<string>();
   const out: KeyStakeholder[] = [];
   for (const k of mapped) {
@@ -615,7 +633,6 @@ export default function ProjectClosureReportEditor({
     return parsed?.version === 1 ? (parsed as ClosureDocV1) : makeDefaultDoc();
   });
 
-  // Meta auto-population status
   const [metaBusy, setMetaBusy] = useState(false);
   const [metaMsg, setMetaMsg] = useState<string | null>(null);
   const [metaApplied, setMetaApplied] = useState(false);
@@ -693,7 +710,6 @@ export default function ProjectClosureReportEditor({
       setMetaBusy(true);
       setMetaMsg(null);
 
-      // Best-effort: try common endpoints (non-breaking if one doesn't exist)
       const candidates = [
         `/api/projects/${pid}/meta`,
         `/api/projects/${pid}`,
@@ -742,7 +758,7 @@ export default function ProjectClosureReportEditor({
       setMetaApplied(true);
       setMetaMsg("Project Code / PM auto-populated.");
       setMetaBusy(false);
-      setTimeout(() => setMetaMsg(null), 3000);
+      setTimeout(() => setMetaMsg(null), 2500);
     }
 
     run();
@@ -750,11 +766,10 @@ export default function ProjectClosureReportEditor({
     return () => {
       cancelled = true;
     };
-    // We intentionally omit doc from deps to avoid overwriting user edits repeatedly
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, metaApplied]);
 
-  /* ── Auto-generate Key Stakeholders from Stakeholder Register ───────────────── */
+  /* ── Auto-generate Key Stakeholders from Stakeholder Register (DB: public.stakeholders) ───────────────── */
   useEffect(() => {
     let cancelled = false;
 
@@ -762,7 +777,6 @@ export default function ProjectClosureReportEditor({
       const pid = safeStr(projectId).trim();
       if (!pid) return;
 
-      // Auto-apply only if empty
       if (stakeAutoApplied) return;
       if (doc?.stakeholders?.key?.length) {
         setStakeAutoApplied(true);
@@ -772,10 +786,12 @@ export default function ProjectClosureReportEditor({
       setStakeBusy(true);
       setStakeMsg(null);
 
+      // ✅ Prefer endpoints that should map to your `public.stakeholders` table (project_id filter)
       const candidates = [
-        `/api/projects/${pid}/stakeholders`,
         `/api/stakeholders?project_id=${encodeURIComponent(pid)}`,
+        `/api/stakeholders?projectId=${encodeURIComponent(pid)}`,
         `/api/stakeholders/list?project_id=${encodeURIComponent(pid)}`,
+        `/api/projects/${pid}/stakeholders`,
       ];
 
       let list: KeyStakeholder[] = [];
@@ -801,7 +817,7 @@ export default function ProjectClosureReportEditor({
       setDoc((d) => ({ ...d, stakeholders: { key: list } }));
       setStakeMsg("Key stakeholders generated from Stakeholder Register.");
       setStakeBusy(false);
-      setTimeout(() => setStakeMsg(null), 3000);
+      setTimeout(() => setStakeMsg(null), 2500);
       setStakeAutoApplied(true);
     }
 
@@ -820,9 +836,10 @@ export default function ProjectClosureReportEditor({
     setStakeMsg(null);
 
     const candidates = [
-      `/api/projects/${pid}/stakeholders`,
       `/api/stakeholders?project_id=${encodeURIComponent(pid)}`,
+      `/api/stakeholders?projectId=${encodeURIComponent(pid)}`,
       `/api/stakeholders/list?project_id=${encodeURIComponent(pid)}`,
+      `/api/projects/${pid}/stakeholders`,
     ];
 
     let list: KeyStakeholder[] = [];
@@ -845,7 +862,7 @@ export default function ProjectClosureReportEditor({
     setDoc((d) => ({ ...d, stakeholders: { key: list } }));
     setStakeMsg("Key stakeholders refreshed from Stakeholder Register.");
     setStakeBusy(false);
-    setTimeout(() => setStakeMsg(null), 3000);
+    setTimeout(() => setStakeMsg(null), 2500);
   }
 
   /* ── AI wiring (Closure Report) ─────────────────────────────────────────── */
@@ -858,7 +875,6 @@ export default function ProjectClosureReportEditor({
       sponsor: doc?.project?.sponsor,
       pm: doc?.project?.pm,
       artifactType: "PROJECT_CLOSURE_REPORT",
-      // ✅ Hint for the AI layer: summary is free text
       summary_format: "free_text_no_bullets",
     };
   }, [doc]);
@@ -868,14 +884,11 @@ export default function ProjectClosureReportEditor({
     meta: closureMeta,
     getSectionByKey: (key: string) => getClosureSection(doc, key),
     applySectionReplace: (key: string, section: AiSection) => applyClosureSectionReplace(setDoc, key, section),
-    onDirty: () => {
-      // optional hook point
-    },
+    onDirty: () => {},
   });
 
   /* ── Item Mutators ───────────────────────────────────────────────────────── */
 
-  // Stakeholders (manual override still allowed)
   const addStakeholder = () => {
     if (!canEdit) return;
     setDoc((d) => ({
@@ -888,7 +901,6 @@ export default function ProjectClosureReportEditor({
     setDoc((d) => ({ ...d, stakeholders: { key: removeAt(d.stakeholders.key, idx) } }));
   };
 
-  // Achievements
   const addAchievement = () => {
     if (!canEdit) return;
     setDoc((d) => ({
@@ -904,7 +916,6 @@ export default function ProjectClosureReportEditor({
     }));
   };
 
-  // Success Criteria
   const addCriterion = () => {
     if (!canEdit) return;
     setDoc((d) => ({
@@ -917,7 +928,6 @@ export default function ProjectClosureReportEditor({
     setDoc((d) => ({ ...d, success: { criteria: removeAt(d.success.criteria, idx) } }));
   };
 
-  // Delivered
   const addDelivered = () => {
     if (!canEdit) return;
     setDoc((d) => ({
@@ -936,7 +946,6 @@ export default function ProjectClosureReportEditor({
     }));
   };
 
-  // Outstanding ✅
   const addOutstanding = () => {
     if (!canEdit) return;
     setDoc((d) => ({
@@ -955,7 +964,6 @@ export default function ProjectClosureReportEditor({
     }));
   };
 
-  // Budget
   const addBudgetRow = () => {
     if (!canEdit) return;
     setDoc((d) => ({
@@ -974,7 +982,6 @@ export default function ProjectClosureReportEditor({
     }));
   };
 
-  // Lessons
   const addLesson = (key: "went_well" | "didnt_go_well" | "surprises_risks") => {
     if (!canEdit) return;
     setDoc((d) => ({
@@ -990,7 +997,6 @@ export default function ProjectClosureReportEditor({
     }));
   };
 
-  // Risks & Issues (with human id)
   const addRiskIssue = () => {
     if (!canEdit) return;
     setDoc((d) => {
@@ -1013,7 +1019,6 @@ export default function ProjectClosureReportEditor({
     setDoc((d) => ({ ...d, handover: { ...d.handover, risks_issues: removeAt(d.handover.risks_issues, idx) } }));
   };
 
-  // Team moves
   const addTeamMove = () => {
     if (!canEdit) return;
     setDoc((d) => ({
@@ -1026,7 +1031,6 @@ export default function ProjectClosureReportEditor({
     setDoc((d) => ({ ...d, handover: { ...d.handover, team_moves: removeAt(d.handover.team_moves, idx) } }));
   };
 
-  // Recommendations
   const addRecommendation = () => {
     if (!canEdit) return;
     setDoc((d) => ({
@@ -1039,7 +1043,6 @@ export default function ProjectClosureReportEditor({
     setDoc((d) => ({ ...d, recommendations: { items: removeAt(d.recommendations.items, idx) } }));
   };
 
-  // Links
   const addLink = () => {
     if (!canEdit) return;
     setDoc((d) => ({ ...d, links: { items: [...d.links.items, { label: "", url: "" }] } }));
@@ -1152,8 +1155,7 @@ export default function ProjectClosureReportEditor({
       const blob = await res.blob();
 
       const cd = res.headers.get("content-disposition");
-      const serverName =
-        filenameFromContentDisposition(cd) || `Closure-Report.${type === "pdf" ? "pdf" : "docx"}`;
+      const serverName = filenameFromContentDisposition(cd) || `Closure-Report.${type === "pdf" ? "pdf" : "docx"}`;
 
       downloadBlob(blob, serverName);
 
@@ -1242,7 +1244,7 @@ export default function ProjectClosureReportEditor({
     }
   }
 
-  // ✅ Project Code + PM should be auto-populated (read-only when projectId exists)
+  // Used for placeholders only (do NOT disable PM field; user must be able to override)
   const projectFieldsAuto = !!safeStr(projectId).trim();
 
   return (
@@ -1312,7 +1314,9 @@ export default function ProjectClosureReportEditor({
             </DropdownMenu>
 
             {(metaBusy || metaMsg) && (
-              <span className={`text-sm font-medium ${metaMsg?.includes("Could not") ? "text-amber-700" : "text-slate-600"}`}>
+              <span
+                className={`text-sm font-medium ${metaMsg?.includes("Could not") ? "text-amber-700" : "text-slate-600"}`}
+              >
                 {metaBusy ? "Loading project meta…" : metaMsg}
               </span>
             )}
@@ -1351,10 +1355,10 @@ export default function ProjectClosureReportEditor({
                 <input
                   className={inputBase}
                   value={doc.project.project_code}
-                  disabled={isReadOnly || projectFieldsAuto}
+                  disabled={isReadOnly}
                   onChange={(e) => setDoc((d) => ({ ...d, project: { ...d.project, project_code: e.target.value } }))}
-                  placeholder={projectFieldsAuto ? "Auto-populated" : ""}
-                  title={projectFieldsAuto ? "Auto-populated from the project record" : undefined}
+                  placeholder={projectFieldsAuto ? "Auto-populated (editable)" : ""}
+                  title={projectFieldsAuto ? "Auto-populated from the project record (you can override)" : undefined}
                 />
               </Field>
 
@@ -1380,10 +1384,10 @@ export default function ProjectClosureReportEditor({
                 <input
                   className={inputBase}
                   value={doc.project.pm}
-                  disabled={isReadOnly || projectFieldsAuto}
+                  disabled={isReadOnly}
                   onChange={(e) => setDoc((d) => ({ ...d, project: { ...d.project, pm: e.target.value } }))}
-                  placeholder={projectFieldsAuto ? "Auto-populated" : ""}
-                  title={projectFieldsAuto ? "Auto-populated from the project record" : undefined}
+                  placeholder={projectFieldsAuto ? "Auto-populated (override allowed)" : ""}
+                  title={projectFieldsAuto ? "Auto-populated from the project record (you can override)" : undefined}
                 />
               </Field>
             </RowGrid>
@@ -1445,16 +1449,14 @@ export default function ProjectClosureReportEditor({
                   value={doc.health.summary}
                   disabled={isReadOnly}
                   onChange={(e) => setDoc((d) => ({ ...d, health: { ...d.health, summary: e.target.value } }))}
+                  onBlur={() =>
+                    setDoc((d) => ({
+                      ...d,
+                      health: { ...d.health, summary: normalizeFreeTextNoBullets(d.health.summary) },
+                    }))
+                  }
                   placeholder="Write an executive closure summary (paragraph form)."
                 />
-
-                {/* gentle guardrail if user pastes bullets */}
-                {!!doc.health.summary.trim() && /^\s*[•\-\*]/m.test(doc.health.summary) && (
-                  <div className="mt-2 text-xs text-amber-700">
-                    Tip: This field is free text. If you pasted bullets, they will be removed automatically when AI edits
-                    are applied.
-                  </div>
-                )}
               </Field>
             </div>
           </Section>
@@ -1613,11 +1615,13 @@ export default function ProjectClosureReportEditor({
         {/* SUCCESS CRITERIA */}
         <Section
           title="Success Criteria"
-          right={canEdit && (
-            <button type="button" className={smallBtn} onClick={addCriterion}>
-              + Add
-            </button>
-          )}
+          right={
+            canEdit && (
+              <button type="button" className={smallBtn} onClick={addCriterion}>
+                + Add
+              </button>
+            )
+          }
         >
           {doc.success.criteria.length === 0 ? (
             <p className="text-sm text-gray-500">No success criteria recorded.</p>
@@ -1771,7 +1775,7 @@ export default function ProjectClosureReportEditor({
                 )}
               </div>
 
-              {/* Outstanding ✅ */}
+              {/* Outstanding */}
               <div className="border-t pt-6">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="text-base font-medium">Outstanding Items</h3>
@@ -2709,45 +2713,77 @@ export default function ProjectClosureReportEditor({
             <p className="text-sm text-gray-500">No links added yet.</p>
           ) : (
             <div className="space-y-4">
-              {doc.links.items.map((item, i) => (
-                <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-                  <div className="md:col-span-5">
-                    <input
-                      className={inputBase}
-                      placeholder="Label"
-                      value={item.label}
-                      disabled={isReadOnly}
-                      onChange={(e) =>
-                        setDoc((d) => ({
-                          ...d,
-                          links: { items: updateArray(d.links.items, i, (it) => ({ ...it, label: e.target.value })) },
-                        }))
-                      }
-                    />
+              {doc.links.items.map((item, i) => {
+                const url = safeUrl(item.url);
+                const openable = canOpenUrl(url);
+                const displayText = item.label?.trim() ? item.label.trim() : url || "Open link";
+
+                return (
+                  <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                    <div className="md:col-span-5">
+                      <input
+                        className={inputBase}
+                        placeholder="Label"
+                        value={item.label}
+                        disabled={isReadOnly}
+                        onChange={(e) =>
+                          setDoc((d) => ({
+                            ...d,
+                            links: { items: updateArray(d.links.items, i, (it) => ({ ...it, label: e.target.value })) },
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div className="md:col-span-6">
+                      <div className="flex items-center gap-2">
+                        <input
+                          className={inputBase}
+                          placeholder="URL (https://...)"
+                          value={item.url}
+                          disabled={isReadOnly}
+                          onChange={(e) =>
+                            setDoc((d) => ({
+                              ...d,
+                              links: { items: updateArray(d.links.items, i, (it) => ({ ...it, url: e.target.value })) },
+                            }))
+                          }
+                        />
+                        <button
+                          type="button"
+                          className={smallBtn}
+                          disabled={isReadOnly || !openable}
+                          onClick={() => openUrl(url)}
+                          title={openable ? "Open link" : "Enter a valid http(s) URL to open"}
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+
+                      {/* ✅ Clickable preview using label as the visible text */}
+                      {openable && (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 text-xs text-indigo-600 hover:underline truncate block"
+                          title={url}
+                        >
+                          {displayText}
+                        </a>
+                      )}
+                    </div>
+
+                    <div className="md:col-span-1">
+                      {canEdit && (
+                        <button type="button" className={dangerBtn} onClick={() => removeLink(i)}>
+                          Remove
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <div className="md:col-span-6">
-                    <input
-                      className={inputBase}
-                      placeholder="URL"
-                      value={item.url}
-                      disabled={isReadOnly}
-                      onChange={(e) =>
-                        setDoc((d) => ({
-                          ...d,
-                          links: { items: updateArray(d.links.items, i, (it) => ({ ...it, url: e.target.value })) },
-                        }))
-                      }
-                    />
-                  </div>
-                  <div className="md:col-span-1">
-                    {canEdit && (
-                      <button type="button" className={dangerBtn} onClick={() => removeLink(i)}>
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </Section>
@@ -2786,21 +2822,29 @@ export default function ProjectClosureReportEditor({
                 const removeKey = String(att.path || att.url || att.filename || i);
                 const busy = attBusy === removeKey;
 
+                const label = (att.label || att.filename || "Attachment").trim();
+                const href = safeUrl(att.url);
+
                 return (
-                  <div
-                    key={i}
-                    className="border border-gray-200 rounded-lg p-4 flex justify-between items-start gap-3 bg-white"
-                  >
+                  <div key={i} className="border border-gray-200 rounded-lg p-4 flex justify-between items-start gap-3 bg-white">
                     <div className="min-w-0 flex-1">
-                      <div className="font-medium text-sm truncate">{att.label || att.filename || "Attachment"}</div>
-                      <a
-                        href={att.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-indigo-600 hover:underline truncate block"
-                      >
-                        {att.url}
-                      </a>
+                      <div className="font-medium text-sm truncate">{label}</div>
+
+                      {/* ✅ Link text should be the label (not the raw URL) and be clickable */}
+                      {href ? (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-indigo-600 hover:underline truncate block"
+                          title={href}
+                        >
+                          {label}
+                        </a>
+                      ) : (
+                        <div className="text-xs text-gray-500">No link available</div>
+                      )}
+
                       <div className="text-xs text-gray-500 mt-1">
                         {att.filename && `File: ${att.filename}`}
                         {att.size_bytes && ` • ${(att.size_bytes / 1024).toFixed(1)} KB`}
@@ -2908,9 +2952,7 @@ export default function ProjectClosureReportEditor({
                       type="checkbox"
                       checked={doc.signoff.pm_approved}
                       disabled={isReadOnly}
-                      onChange={(e) =>
-                        setDoc((d) => ({ ...d, signoff: { ...d.signoff, pm_approved: e.target.checked } }))
-                      }
+                      onChange={(e) => setDoc((d) => ({ ...d, signoff: { ...d.signoff, pm_approved: e.target.checked } }))}
                     />
                     PM has approved / confirmed
                   </label>
@@ -2920,7 +2962,6 @@ export default function ProjectClosureReportEditor({
           </Section>
         </div>
 
-        {/* Bottom spacing */}
         <div className="h-20" />
       </div>
     </div>

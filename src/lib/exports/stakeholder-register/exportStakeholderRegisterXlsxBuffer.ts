@@ -1,4 +1,4 @@
-// src/lib/exports/stakeholder-register/exportStakeholderRegisterXlsxBuffer.ts
+﻿// src/lib/exports/stakeholder-register/exportStakeholderRegisterXlsxBuffer.ts
 import "server-only";
 
 import { loadStakeholderExportData } from "./loadStakeholderExportData";
@@ -32,30 +32,8 @@ function safeFilename(name: string) {
 }
 
 /**
- * XLSX renderer (your renderStakeholderXlsx.ts) reads:
- * name, point_of_contact, role, impact_level, influence_level, stakeholder_mapping,
- * involvement_milestone, stakeholder_impact, channels
- *
- * Map both supported shapes into that.
- */
-function mapToXlsxRow(r: any) {
-  return {
-    name: safeStr(r?.name ?? r?.stakeholder),
-    point_of_contact: safeStr(r?.point_of_contact ?? r?.contact ?? r?.contact_details),
-    role: safeStr(r?.role ?? r?.title_role ?? r?.title),
-    impact_level: safeStr(r?.impact_level ?? r?.impact),
-    influence_level: safeStr(r?.influence_level ?? r?.influence),
-    stakeholder_mapping: safeStr(r?.stakeholder_mapping ?? r?.mapping),
-    involvement_milestone: safeStr(r?.involvement_milestone ?? r?.milestone),
-    stakeholder_impact: safeStr(r?.stakeholder_impact ?? r?.impact_notes ?? r?.impactNotes),
-    channels: r?.channels,
-    group: safeStr(r?.group),
-  };
-}
-
-/**
- * ? Canonical XLSX buffer exporter
- * Pipeline: load -> normalize -> map -> render(xlsx)
+ * ✅ Canonical XLSX buffer exporter
+ * Pipeline: load -> normalize -> render(xlsx)
  */
 export async function exportStakeholderRegisterXlsxBuffer(
   args: ExportStakeholderRegisterXlsxBufferArgs
@@ -68,21 +46,19 @@ export async function exportStakeholderRegisterXlsxBuffer(
     artifactId,
   });
 
+  // ✅ Normalize into DB canonical fields (and keep legacy aliases)
   const cleanRows = normalizeStakeholderRows(rows);
 
-  // Map to the renderer’s expected keys
-  const renderRows = (Array.isArray(cleanRows) ? cleanRows : []).map(mapToXlsxRow);
-
-  // Your XLSX renderer only needs meta.projectCode/projectName for naming
   const xlsxMeta = {
     projectName: safeStr(meta?.projectName) || "Project",
     projectCode: safeStr(meta?.projectCode) || "—",
     organisationName: safeStr(meta?.organisationName) || "—",
     clientName: safeStr(meta?.clientName) || "—",
     author: safeStr(meta?.author) || "",
+    generatedDateTime: safeStr(meta?.generatedDateTime || meta?.generated),
   };
 
-  const out = await renderStakeholderRegisterXlsx({ meta: xlsxMeta as any, rows: renderRows });
+  const out = await renderStakeholderRegisterXlsx({ meta: xlsxMeta as any, rows: cleanRows });
 
   const baseName =
     safeFilename(safeStr(out?.baseName || "")) ||
@@ -90,15 +66,15 @@ export async function exportStakeholderRegisterXlsxBuffer(
 
   return {
     meta,
-    rows: renderRows,
+    rows: cleanRows,
     xlsx: out.xlsx,
     baseName,
   };
 }
 
-/** ? Backwards-compatible aliases */
+/** ✅ Backwards-compatible aliases */
 export const exportStakeholderRegisterXlsx = exportStakeholderRegisterXlsxBuffer;
 export const exportStakeholderRegisterXlsxbuff = exportStakeholderRegisterXlsxBuffer;
 
-/** ? Default export */
+/** ✅ Default export */
 export default exportStakeholderRegisterXlsxBuffer;

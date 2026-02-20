@@ -1,4 +1,4 @@
-// src/lib/exports/stakeholder-register/loadStakeholderExportData.ts
+﻿// src/lib/exports/stakeholder-register/loadStakeholderExportData.ts
 import "server-only";
 
 import { createClient } from "@/utils/supabase/server";
@@ -20,12 +20,34 @@ function joinChannels(x: any) {
   return norm(x);
 }
 
+function contactInfoToString(ci: any) {
+  if (!ci) return "";
+  if (typeof ci === "string") return norm(ci);
+  if (typeof ci !== "object") return norm(ci);
+
+  const email = norm(ci?.email);
+  const phone = norm(ci?.phone);
+  const org = norm(ci?.organisation || ci?.organization);
+  const handle = norm(ci?.handle || ci?.teams || ci?.slack);
+  const notes = norm(ci?.notes);
+
+  const parts = [email, phone, org, handle, notes].filter(Boolean);
+  if (parts.length) return parts.join(" | ");
+
+  try {
+    const s = JSON.stringify(ci);
+    return s.length > 240 ? s.slice(0, 240) + "…" : s;
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Loads Stakeholder Register export data.
  *
- * ? NEVER returns meta as undefined (prevents "reading projectCode" crashes)
- * ? Prefers artifacts.content_json, but supports older shapes + grouped docs
- * ? Does NOT perform auth checks (routes already enforce membership)
+ * ✅ Prefers DB table: public.stakeholders (NEW source of truth)
+ * ✅ Falls back to artifacts.content_json for legacy documents
+ * ✅ NEVER returns meta as undefined
  */
 export async function loadStakeholderExportData(args: {
   projectId: string;
@@ -39,10 +61,9 @@ export async function loadStakeholderExportData(args: {
   if (!isUuid(artifactId)) throw new Error("Invalid artifactId");
 
   const supabase = args?.supabase ?? (await createClient());
-
   const now = new Date();
 
-  // ? Always initialise meta with safe defaults (NEVER undefined)
+  // ✅ Safe meta defaults
   const meta: StakeholderRegisterMeta = {
     projectId,
     artifactId,
@@ -56,7 +77,7 @@ export async function loadStakeholderExportData(args: {
   };
 
   // -------------------------------------------------------------
-  // Project + organisation (best effort; DO NOT throw if missing)
+  // Project + organisation (best effort)
   // -------------------------------------------------------------
   try {
     const { data: proj } = await supabase
@@ -77,11 +98,68 @@ export async function loadStakeholderExportData(args: {
       }
     }
   } catch {
-    // swallow — meta stays safe
+    // swallow
   }
 
   // -------------------------------------------------------------
-  // Artifact content_json (preferred), fallback to content
+  // ✅ NEW: DB source of truth (public.stakeholders)
+  // -------------------------------------------------------------
+  try {
+    const { data: dbRows, error } = await supabase
+      .from("stakeholders")
+      .select(
+        "id, project_id, artifact_id, name, role, influence_level, expectations, communication_strategy, contact_info, created_at, updated_at"
+      )
+      .eq("project_id", projectId)
+      .eq("artifact_id", artifactId);
+
+    if (!error && Array.isArray(dbRows) && dbRows.length) {
+      const rows: StakeholderRegisterRow[] = dbRows.map((r: any) => {
+        const name = norm(r?.name);
+        const role = norm(r?.role);
+        const influence_level = norm(r?.influence_level) || "medium";
+        const expectations = norm(r?.expectations);
+        const communication_strategy = norm(r?.communication_strategy);
+
+        const contact_info = r?.contact_info && typeof r.contact_info === "object" ? r.contact_info : safeJson(r?.contact_info) ?? {};
+
+        // Return in a shape that BOTH new + legacy renderers can survive.
+        // New canonical fields:
+        //   name, role, influence_level, expectations, communication_strategy, contact_info
+        // Legacy aliases (used by older HTML/DOCX/XLSX renderers):
+        //   stakeholder, contact, influence, impact_notes, channels, group, etc.
+        const contactStr = contactInfoToString(contact_info);
+
+        return {
+          // ✅ new canonical
+          name,
+          role,
+          influence_level,
+          expectations,
+          communication_strategy,
+          contact_info,
+
+          // ✅ legacy aliases (harmless if unused)
+          stakeholder: name,
+          contact: contactStr || "—",
+          influence: influence_level,
+          impact: "—",
+          mapping: "—",
+          milestone: "—",
+          impact_notes: expectations || "—",
+          channels: joinChannels((contact_info as any)?.channels) || "—",
+          group: "Project",
+        } as any;
+      });
+
+      return { meta, rows };
+    }
+  } catch {
+    // swallow — fallback to legacy below
+  }
+
+  // -------------------------------------------------------------
+  // Legacy fallback: artifact content_json/content shapes
   // -------------------------------------------------------------
   let doc: any = {};
   try {
@@ -94,22 +172,16 @@ export async function loadStakeholderExportData(args: {
 
     if (art) {
       doc = safeJson((art as any).content_json) ?? safeJson((art as any).content) ?? {};
-      // if project title missing, at least set to artifact title
       if (!meta.projectName || meta.projectName === "Project") {
         meta.projectName = norm((art as any).title) || meta.projectName;
       }
     }
   } catch {
-    // swallow — doc stays {}
+    // swallow
   }
 
-  // -------------------------------------------------------------
   // Accept multiple shapes:
-  // 1) doc.rows / doc.items / doc.stakeholders
-  // 2) doc.groups = [{ name, rows:[...] }]
-  // -------------------------------------------------------------
   let rowsRaw: any[] = [];
-
   if (Array.isArray(doc?.rows)) rowsRaw = doc.rows;
   else if (Array.isArray(doc?.items)) rowsRaw = doc.items;
   else if (Array.isArray(doc?.stakeholders)) rowsRaw = doc.stakeholders;
@@ -124,50 +196,44 @@ export async function loadStakeholderExportData(args: {
   const rows: StakeholderRegisterRow[] = (rowsRaw || []).map((r) => {
     const ci = r?.contact_info && typeof r.contact_info === "object" ? r.contact_info : null;
 
+    // Legacy fields
     const stakeholder = norm(r?.stakeholder ?? r?.name ?? ci?.name);
-
     const contact = norm(
       r?.contact ??
         r?.contact_details ??
         r?.point_of_contact ??
-        ci?.contact ??
-        ci?.contact_details ??
-        ci?.point_of_contact ??
         ci?.email ??
         r?.email ??
         ""
     );
+    const role = norm(r?.role ?? r?.title_role ?? r?.title ?? ci?.role ?? "");
 
-    const role = norm(r?.role ?? r?.title_role ?? r?.title ?? ci?.role ?? ci?.title_role ?? "");
+    const influence = norm(r?.influence ?? r?.influence_level ?? ci?.influence_level) || "medium";
+    const expectations = norm(r?.expectations ?? r?.impact_notes ?? r?.stakeholder_impact ?? r?.notes ?? ci?.notes);
+    const communication_strategy = norm(r?.communication_strategy ?? r?.channels ?? ci?.channels);
 
-    const impact = norm(r?.impact ?? r?.impact_level ?? ci?.impact ?? ci?.impact_level);
-
-    const influence = norm(r?.influence ?? r?.influence_level ?? ci?.influence ?? ci?.influence_level);
-
-    const mapping = norm(r?.mapping ?? r?.stakeholder_mapping ?? ci?.stakeholder_mapping);
-
-    const milestone = norm(r?.milestone ?? r?.involvement_milestone ?? ci?.involvement_milestone);
-
-    const impact_notes = norm(
-      r?.impact_notes ?? r?.stakeholder_impact ?? ci?.stakeholder_impact ?? r?.notes ?? ci?.notes
-    );
-
-    const channels = joinChannels(r?.channels ?? ci?.channels);
-
-    const group = norm(r?.group ?? ci?.group);
+    const contact_info = ci ?? (contact ? { email: contact } : {});
 
     return {
-      stakeholder,
-      contact,
+      // ✅ new canonical (best-effort)
+      name: stakeholder,
       role,
-      impact,
+      influence_level: influence,
+      expectations,
+      communication_strategy,
+      contact_info,
+
+      // ✅ legacy aliases
+      stakeholder,
+      contact: contact || "—",
       influence,
-      mapping,
-      milestone,
-      impact_notes,
-      channels,
-      group: group || undefined,
-    };
+      impact: "—",
+      mapping: "—",
+      milestone: "—",
+      impact_notes: expectations || "—",
+      channels: joinChannels(r?.channels ?? ci?.channels) || "—",
+      group: norm(r?.group ?? "Project") || "Project",
+    } as any;
   });
 
   return { meta, rows };

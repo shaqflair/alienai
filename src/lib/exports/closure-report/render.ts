@@ -1,4 +1,5 @@
-import "server-only";
+﻿
+modified_render = '''import "server-only";
 
 import { escapeHtml } from "@/lib/exports/shared/registerPdfShell";
 
@@ -37,7 +38,7 @@ function formatDateUk(value: any): string {
   if (!s || s === "—") return "—";
 
   // Match YYYY-MM-DD
-  const m1 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  const m1 = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(s);
   if (m1) return `${m1[3]}/${m1[2]}/${m1[1]}`;
 
   const dt = new Date(s);
@@ -60,7 +61,7 @@ function boolHuman(x: any) {
 
 function formatMoneyGBP(x: any): string {
   if (x == null || x === "" || x === "—") return "—";
-  const n = typeof x === "number" ? x : Number(String(x).replace(/[^0-9.\-]/g, ""));
+  const n = typeof x === "number" ? x : Number(String(x).replace(/[^0-9.\\-]/g, ""));
   if (Number.isNaN(n)) return safeStr(x) || "—";
   try {
     return new Intl.NumberFormat("en-GB", {
@@ -104,7 +105,7 @@ function section(title: string, note: string, bodyHtml: string) {
     <div class="section">
       <div class="sectionHead">
         <div class="t">${escapeHtml(title)}</div>
-        <div class="n">${escapeHtml(note)}</div>
+        <!-- REMOVED: count indicator <div class="n">${escapeHtml(note)}</div> -->
       </div>
       <div class="sectionBody">${bodyHtml || `<div class="muted">—</div>`}</div>
     </div>
@@ -145,15 +146,7 @@ export function renderClosureReportSections(model: any) {
       "High-level closeout",
       `<div>${escapeHtml(safeStr(model?.executiveSummary) || "—")}</div>`
     ) +
-    section(
-      "Health",
-      "RAG / overall",
-      kvTable([
-        { k: "RAG", v: safeStr(model?.rag || "—").toUpperCase() || "—" },
-        { k: "Overall", v: safeStr(model?.overall) || "—" },
-        { k: "Open Risks / Issues", v: String(openRisksCount) },
-      ])
-    ) +
+    // REMOVED: Health section (duplicate of header info)
     section(
       "Key Stakeholders",
       `${stakeholders.length} items`,
@@ -251,7 +244,7 @@ export function renderClosureReportSections(model: any) {
       })
     ) +
     section(
-      "Lessons — What Didn’t Go Well",
+      "Lessons — What Didn't Go Well",
       `${didntGoWell.length} items`,
       bullets(didntGoWell, (l) => {
         const text = safeStr(l?.text) || "—";
@@ -311,3 +304,6 @@ export function renderClosureReportSections(model: any) {
     sectionsHtml,
   };
 }
+'''
+
+print(modified_render)
