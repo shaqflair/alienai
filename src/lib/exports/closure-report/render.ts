@@ -1,5 +1,4 @@
-﻿
-modified_render = '''import "server-only";
+﻿import "server-only";
 
 import { escapeHtml } from "@/lib/exports/shared/registerPdfShell";
 
@@ -38,7 +37,7 @@ function formatDateUk(value: any): string {
   if (!s || s === "—") return "—";
 
   // Match YYYY-MM-DD
-  const m1 = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(s);
+  const m1 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (m1) return `${m1[3]}/${m1[2]}/${m1[1]}`;
 
   const dt = new Date(s);
@@ -61,7 +60,7 @@ function boolHuman(x: any) {
 
 function formatMoneyGBP(x: any): string {
   if (x == null || x === "" || x === "—") return "—";
-  const n = typeof x === "number" ? x : Number(String(x).replace(/[^0-9.\\-]/g, ""));
+  const n = typeof x === "number" ? x : Number(String(x).replace(/[^0-9.\-]/g, ""));
   if (Number.isNaN(n)) return safeStr(x) || "—";
   try {
     return new Intl.NumberFormat("en-GB", {
@@ -93,19 +92,20 @@ function kvTable(rows: { k: string; v: string }[]) {
       ${r
         .map(
           (x) =>
-            `<tr><td class="kvK">${escapeHtml(x.k)}</td><td class="kvV">${escapeHtml((x.v || "—").trim() || "—")}</td></tr>`
+            `<tr><td class="kvK">${escapeHtml(x.k)}</td><td class="kvV">${escapeHtml(
+              (x.v || "—").trim() || "—"
+            )}</td></tr>`
         )
         .join("")}
     </table>
   `;
 }
 
-function section(title: string, note: string, bodyHtml: string) {
+function section(title: string, _note: string, bodyHtml: string) {
   return `
     <div class="section">
       <div class="sectionHead">
         <div class="t">${escapeHtml(title)}</div>
-        <!-- REMOVED: count indicator <div class="n">${escapeHtml(note)}</div> -->
       </div>
       <div class="sectionBody">${bodyHtml || `<div class="muted">—</div>`}</div>
     </div>
@@ -120,10 +120,15 @@ function riskHumanId(r: any) {
 
 /**
  * Renders the narrative sections for a Project Closure Report.
+ * Expected by renderClosureReportHtml.ts:
+ *   const { generatedDateTime, sectionsHtml } = renderClosureReportSections(model)
  */
 export function renderClosureReportSections(model: any) {
-  const generatedDate = ukDate(model?.meta?.generatedIso || new Date().toISOString());
-  const generatedDateTime = ukDateTime(model?.meta?.generatedIso || new Date().toISOString());
+  const nowIso = new Date().toISOString();
+  const genIso = safeStr(model?.meta?.generatedIso || model?.generatedIso || nowIso);
+
+  const generatedDate = ukDate(genIso);
+  const generatedDateTime = ukDateTime(genIso);
 
   const risksIssues = safeArr(model?.risksIssues);
   const stakeholders = safeArr(model?.stakeholders);
@@ -146,7 +151,6 @@ export function renderClosureReportSections(model: any) {
       "High-level closeout",
       `<div>${escapeHtml(safeStr(model?.executiveSummary) || "—")}</div>`
     ) +
-    // REMOVED: Health section (duplicate of header info)
     section(
       "Key Stakeholders",
       `${stakeholders.length} items`,
@@ -285,7 +289,10 @@ export function renderClosureReportSections(model: any) {
       "Final Sign-off",
       "Sponsor / PM",
       kvTable([
-        { k: "Sponsor Name", v: safeStr(model?.signoff?.sponsor_name) || safeStr(model?.signoff?.sponsorName) || "—" },
+        {
+          k: "Sponsor Name",
+          v: safeStr(model?.signoff?.sponsor_name) || safeStr(model?.signoff?.sponsorName) || "—",
+        },
         { k: "Sponsor Date", v: formatDateUk(model?.signoff?.sponsor_date ?? model?.signoff?.sponsorDate) },
         {
           k: "Sponsor Decision",
@@ -304,6 +311,5 @@ export function renderClosureReportSections(model: any) {
     sectionsHtml,
   };
 }
-'''
 
-print(modified_render)
+export default renderClosureReportSections;
