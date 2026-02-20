@@ -91,17 +91,11 @@ type ArtifactSignal = {
 };
 
 async function getMyOrgId(sb: any): Promise<string | null> {
-  // Prefer organisations_members / organisation_members if you have it, but to avoid guessing:
-  // We can resolve org from any visible project owned/accessible by the user via RLS.
-  // However, you passed organisation_id into projects; simplest is to read the project itself.
-  // For code-based resolution, we need org. We'll use profiles/org membership if available;
-  // If not, we attempt a project_code lookup without org filter (still safe under RLS).
   try {
     const { data: userRes } = await sb.auth.getUser();
     const uid = userRes?.user?.id;
     if (!uid) return null;
 
-    // Many stacks have profiles.organisation_id. If you do, this works.
     const { data, error } = await sb.from("profiles").select("organisation_id").eq("user_id", uid).maybeSingle();
     if (!error && data?.organisation_id) return String(data.organisation_id);
 
@@ -116,9 +110,6 @@ async function getMyOrgId(sb: any): Promise<string | null> {
  * Accepts:
  * - UUID (projects.id)
  * - project_code (projects.project_code)
- *
- * IMPORTANT: project_code is unique per organisation (projects_org_project_code_uq),
- * so we try to scope by organisation_id when we can.
  */
 async function resolveProject(sb: any, refRaw: string): Promise<ResolvedProject | null> {
   const ref = safeStr(refRaw).trim();
@@ -130,8 +121,6 @@ async function resolveProject(sb: any, refRaw: string): Promise<ResolvedProject 
     const { data, error } = await sb.from("projects").select(cols).eq("id", ref).maybeSingle();
     if (error) return null;
     if (!data?.id) return null;
-
-    // ignore deleted projects
     if (data.deleted_at) return null;
 
     return {
@@ -144,7 +133,6 @@ async function resolveProject(sb: any, refRaw: string): Promise<ResolvedProject 
 
   const orgId = await getMyOrgId(sb);
 
-  // If we know org, scope it. If not, fallback to plain project_code match (RLS will still protect).
   let q = sb.from("projects").select(cols).eq("project_code", ref).is("deleted_at", null).limit(1);
   if (orgId) q = q.eq("organisation_id", orgId);
 
@@ -163,7 +151,6 @@ async function resolveProject(sb: any, refRaw: string): Promise<ResolvedProject 
 }
 
 function extractWeeklyReportSignals(cj: any): string[] {
-  // Your real schema (from sample)
   const headline = cj?.summary?.headline ?? "";
   const narrative = cj?.summary?.narrative ?? "";
 
@@ -375,7 +362,9 @@ Goal:
 - Create 4 to 12 lessons.
 
 Rules:
-- Output MUST be strict JSON ARRAY ONLY (no markdown, no wrapper text).
+- Output MUST be strict JSON OBJECT ONLY (no markdown, no wrapper text).
+- The JSON must match this shape exactly:
+  { "lessons": [ ... ] }
 - Always produce at least 4 lessons.
 - Include at least 1 "what_went_well" lesson even if delivery is on track.
 - category must be exactly one of: "what_went_well", "improvements", "issues".
@@ -419,22 +408,30 @@ async function generateLessonsWithOpenAI(prompt: string) {
       format: {
         type: "json_schema",
         name: "lessons_array",
+        // ✅ Root schema MUST be an object (OpenAI requirement)
         schema: {
-          type: "array",
-          minItems: 4,
-          maxItems: 12,
-          items: {
-            type: "object",
-            additionalProperties: false,
-            required: ["category", "description", "action_for_future"],
-            properties: {
-              category: { type: "string", enum: ["what_went_well", "improvements", "issues"] },
-              description: { type: "string", minLength: 8 },
-              action_for_future: { type: "string", minLength: 6 },
-              impact: { type: "string", enum: ["Positive", "Negative"] },
-              severity: { type: "string", enum: ["Low", "Medium", "High"] },
-              project_stage: { type: "string" },
-              ai_summary: { type: "string" },
+          type: "object",
+          additionalProperties: false,
+          required: ["lessons"],
+          properties: {
+            lessons: {
+              type: "array",
+              minItems: 4,
+              maxItems: 12,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["category", "description", "action_for_future"],
+                properties: {
+                  category: { type: "string", enum: ["what_went_well", "improvements", "issues"] },
+                  description: { type: "string", minLength: 8 },
+                  action_for_future: { type: "string", minLength: 6 },
+                  impact: { type: "string", enum: ["Positive", "Negative"] },
+                  severity: { type: "string", enum: ["Low", "Medium", "High"] },
+                  project_stage: { type: "string" },
+                  ai_summary: { type: "string" },
+                },
+              },
             },
           },
         },
@@ -445,15 +442,18 @@ async function generateLessonsWithOpenAI(prompt: string) {
 
   const txt = resp.output_text || "";
   let parsed: any;
+
   try {
     parsed = JSON.parse(txt);
   } catch {
-    const m = txt.match(/(\[.*\]|\{.*\})/);
+    // fallback: try to extract first JSON object/array-ish blob
+    const m = txt.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
     if (!m) throw new Error("AI returned non-JSON output");
-    parsed = JSON.parse(m[1].replace(/\n/g, " "));
+    parsed = JSON.parse(m[1]);
   }
 
-  return Array.isArray(parsed) ? parsed : [];
+  const arr = Array.isArray(parsed?.lessons) ? parsed.lessons : [];
+  return arr;
 }
 
 export async function POST(req: Request) {
