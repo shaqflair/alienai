@@ -1,11 +1,6 @@
+//src/app/projects/[id]/members/actions.ts//
 "use server";
 
-/* =========================================================
-   TEMP DEBUG — REMOVE AFTER CONFIRMING ENV
-   ========================================================= */
-console.log("APP_ORIGIN =", process.env.APP_ORIGIN);
-console.log("NEXT_PUBLIC_APP_ORIGIN =", process.env.NEXT_PUBLIC_APP_ORIGIN);
-/* ========================================================= */
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";

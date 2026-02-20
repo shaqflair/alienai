@@ -23,8 +23,6 @@ export async function exportClosureReportDocx(model: any): Promise<{
 }> {
   const bytes = await exportClosureReportDocxBuffer(model);
 
-  console.log("? exportClosureReportDocx bytes:", bytes?.length ?? 0);
-  console.log("? exportClosureReportDocx head(hex):", bytes?.subarray(0, 16)?.toString("hex"));
 
   const meta = (typeof model === "object" && model ? model?.meta : null) || {};
   const projectName = pickFirstTruthy(meta, ["projectName", "title", "name"]) || "Project";
@@ -37,7 +35,7 @@ export async function exportClosureReportDocx(model: any): Promise<{
   const datePart = iso && /^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10) : yyyymmdd(new Date());
 
   const base =
-    projectCode && projectCode !== "—"
+    projectCode && projectCode !== " "
       ? `Project Closure Report - ${projectCode} - ${projectName} - ${datePart}`
       : `Project Closure Report - ${projectName} - ${datePart}`;
 

@@ -1,2 +1,10 @@
-// Placeholder for Excel export logic (requires 'xlsx' or 'exceljs' library)
-export const exportToExcel = () => { console.log('Excel export not implemented'); };
+// src/lib/exports/excel.ts
+import "server-only";
+
+/**
+ * Legacy helper placeholder.
+ * Prefer using the concrete exporters under src/lib/exports/xlsx/*.
+ */
+export function exportToExcel(): never {
+  throw new Error("exportToExcel is not implemented. Use a concrete XLSX exporter under src/lib/exports/xlsx/*.");
+}

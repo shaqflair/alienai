@@ -62,8 +62,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  // TODO: Persist delivery state using event.type + event.data?.id
-  console.log("Resend webhook:", event?.type, event?.data?.id);
-
-  return NextResponse.json({ ok: true });
+// TODO: Persist delivery state using event.type + event.data?.id
+return NextResponse.json({ ok: true });
 }

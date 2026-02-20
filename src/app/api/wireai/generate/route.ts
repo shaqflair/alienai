@@ -903,7 +903,15 @@ export async function POST(req: Request) {
 
       const normalized = normalizeSection(k, (patch as any).section ?? {});
       const patchOut: Patch = { kind: "replace_section", key: k, section: normalized };
-      return json({ ok: true, patch: patchOut });
+
+      // ✅ IMPORTANT: return UI-friendly fields too (prevents “spinner but no change”)
+      return json({
+        ok: true,
+        patch: patchOut,
+        sectionKey: k,
+        section: normalized,
+        sections: [normalized],
+      });
     }
 
     if (patch.kind === "suggestions") {
