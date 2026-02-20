@@ -24,10 +24,9 @@ function isUuid(x: string) {
 function norm(s: any) {
   return String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
-
 function safeJson(v: any): any | null {
   if (!v) return null;
-  if (typeof v === "object") return v; // normal jsonb
+  if (typeof v === "object") return v; // jsonb
   if (typeof v === "string") {
     const s = v.trim();
     if (!s) return null;
@@ -39,18 +38,14 @@ function safeJson(v: any): any | null {
   }
   return null;
 }
-
 function cut(s: any, n: number) {
   return String(s ?? "").trim().slice(0, n);
 }
-
 function typeKey(a: any) {
-  // Prefer artifact_type but fall back to type
   return String(a?.artifact_type || a?.type || "")
     .trim()
     .toLowerCase();
 }
-
 function takeTextArr(arr: any[], key = "text", max = 10) {
   return (Array.isArray(arr) ? arr : [])
     .slice(0, max)
@@ -58,7 +53,6 @@ function takeTextArr(arr: any[], key = "text", max = 10) {
     .map((s) => String(s || "").trim())
     .filter(Boolean);
 }
-
 function normalizeCategory(raw: any): "what_went_well" | "improvements" | "issues" | null {
   const s = String(raw || "")
     .trim()
@@ -82,9 +76,9 @@ type AiLesson = {
 
 type ResolvedProject = {
   project_id: string; // uuid
-  project_code: string; // human/project code for display
-  title?: string | null;
-  human_id?: string | null;
+  project_code: string; // projects.project_code
+  title?: string | null; // projects.title
+  organisation_id?: string | null;
 };
 
 type ArtifactSignal = {
@@ -96,57 +90,80 @@ type ArtifactSignal = {
   signals: string[];
 };
 
+async function getMyOrgId(sb: any): Promise<string | null> {
+  // Prefer organisations_members / organisation_members if you have it, but to avoid guessing:
+  // We can resolve org from any visible project owned/accessible by the user via RLS.
+  // However, you passed organisation_id into projects; simplest is to read the project itself.
+  // For code-based resolution, we need org. We'll use profiles/org membership if available;
+  // If not, we attempt a project_code lookup without org filter (still safe under RLS).
+  try {
+    const { data: userRes } = await sb.auth.getUser();
+    const uid = userRes?.user?.id;
+    if (!uid) return null;
+
+    // Many stacks have profiles.organisation_id. If you do, this works.
+    const { data, error } = await sb.from("profiles").select("organisation_id").eq("user_id", uid).maybeSingle();
+    if (!error && data?.organisation_id) return String(data.organisation_id);
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Resolve project reference to UUID.
  * Accepts:
- * - UUID (project_id)
- * - Project code / human_id (e.g. "C4EF7C", "100011", "PRJ-00123")
+ * - UUID (projects.id)
+ * - project_code (projects.project_code)
+ *
+ * IMPORTANT: project_code is unique per organisation (projects_org_project_code_uq),
+ * so we try to scope by organisation_id when we can.
  */
 async function resolveProject(sb: any, refRaw: string): Promise<ResolvedProject | null> {
   const ref = safeStr(refRaw).trim();
   if (!ref) return null;
 
-  if (isUuid(ref)) {
-    const { data, error } = await sb
-      .from("projects")
-      .select("id,title,project_code,human_id")
-      .eq("id", ref)
-      .maybeSingle();
+  const cols = "id,title,project_code,organisation_id,deleted_at,status,lifecycle_status";
 
+  if (isUuid(ref)) {
+    const { data, error } = await sb.from("projects").select(cols).eq("id", ref).maybeSingle();
     if (error) return null;
     if (!data?.id) return null;
 
-    const code = safeStr(data.human_id || data.project_code || ref);
+    // ignore deleted projects
+    if (data.deleted_at) return null;
+
     return {
-      project_id: data.id,
-      project_code: code,
+      project_id: String(data.id),
+      project_code: safeStr(data.project_code || ref),
       title: data.title ?? null,
-      human_id: data.human_id ?? null,
+      organisation_id: data.organisation_id ? String(data.organisation_id) : null,
     };
   }
 
-  const refEsc = ref.replace(/,/g, "");
-  const { data, error } = await sb
-    .from("projects")
-    .select("id,title,project_code,human_id")
-    .or(`human_id.eq.${refEsc},project_code.eq.${refEsc}`)
-    .limit(1);
+  const orgId = await getMyOrgId(sb);
 
+  // If we know org, scope it. If not, fallback to plain project_code match (RLS will still protect).
+  let q = sb.from("projects").select(cols).eq("project_code", ref).is("deleted_at", null).limit(1);
+  if (orgId) q = q.eq("organisation_id", orgId);
+
+  const { data, error } = await q;
   if (error) return null;
+
   const row = Array.isArray(data) ? data[0] : null;
   if (!row?.id) return null;
 
-  const code = safeStr(row.human_id || row.project_code || ref);
   return {
-    project_id: row.id,
-    project_code: code,
+    project_id: String(row.id),
+    project_code: safeStr(row.project_code || ref),
     title: row.title ?? null,
-    human_id: row.human_id ?? null,
+    organisation_id: row.organisation_id ? String(row.organisation_id) : null,
   };
 }
 
 function extractWeeklyReportSignals(cj: any): string[] {
-  // Your schema (confirmed from sample)
+  // Your real schema (from sample)
   const headline = cj?.summary?.headline ?? "";
   const narrative = cj?.summary?.narrative ?? "";
 
@@ -171,24 +188,18 @@ function extractWeeklyReportSignals(cj: any): string[] {
   if (headline) sig.push(`Headline: ${cut(headline, 220)}`);
   if (narrative) sig.push(`Narrative: ${cut(narrative, 900)}`);
 
-  // Delivered
-  for (const d of takeTextArr(delivered, "text", 12)) {
-    sig.push(`Delivered: ${cut(d, 240)}`);
-  }
+  for (const d of takeTextArr(delivered, "text", 12)) sig.push(`Delivered: ${cut(d, 240)}`);
 
-  // Milestones
   const ms = (Array.isArray(milestones) ? milestones : []).slice(0, 14).map((m: any) => ({
     name: String(m?.name ?? "").trim(),
     due: String(m?.due ?? "").trim(),
     status: String(m?.status ?? "").trim(),
-    critical: Boolean(m?.critical),
   }));
   for (const m of ms) {
     if (!m.name) continue;
     if (m.status) sig.push(`Milestone: ${m.name} (${m.status}${m.due ? `, due ${m.due}` : ""})`);
   }
 
-  // Blockers / Decisions / Plan / Resourcing
   for (const b of takeTextArr(blockers, "text", 12)) {
     if (/no operational blockers/i.test(b)) continue;
     sig.push(`Blocker: ${cut(b, 260)}`);
@@ -200,7 +211,6 @@ function extractWeeklyReportSignals(cj: any): string[] {
   for (const p of takeTextArr(planNextWeek, "text", 12)) sig.push(`Next: ${cut(p, 260)}`);
   for (const r of takeTextArr(resourceSummary, "text", 12)) sig.push(`Resourcing: ${cut(r, 260)}`);
 
-  // Changes summary inside weekly report
   for (const c of (Array.isArray(changes) ? changes : []).slice(0, 14)) {
     const title = String(c?.title ?? "").trim();
     const status = String(c?.status ?? "").trim();
@@ -208,7 +218,6 @@ function extractWeeklyReportSignals(cj: any): string[] {
     sig.push(`Change noted: ${title}${status ? ` (${status})` : ""}`);
   }
 
-  // RAID summary inside weekly report
   for (const r of (Array.isArray(raid) ? raid : []).slice(0, 14)) {
     const title = String(r?.title ?? r?.text ?? "").trim();
     const status = String(r?.status ?? "").trim();
@@ -228,16 +237,13 @@ function extractSignalsFromArtifact(a: any): ArtifactSignal {
   const signals: string[] = [];
   if (status) signals.push(`Workflow: ${status}`);
 
-  // Strong weekly parsing
   if (t === "weekly_report") {
-    if (cj) {
-      signals.push(...extractWeeklyReportSignals(cj));
-    } else {
+    if (cj) signals.push(...extractWeeklyReportSignals(cj));
+    else {
       const fallback = cut(a?.content || "", 1400);
       if (fallback) signals.push(`Weekly text: ${fallback}`);
     }
   } else {
-    // Compact “scan everything” approach for other artifact types:
     if (cj) {
       const hintKeys = [
         "summary",
@@ -273,9 +279,7 @@ function extractSignalsFromArtifact(a: any): ArtifactSignal {
         }
       }
 
-      if (signals.length <= (status ? 1 : 0)) {
-        signals.push(`JSON hint: ${cut(JSON.stringify(cj), 900)}`);
-      }
+      if (signals.length <= (status ? 1 : 0)) signals.push(`JSON hint: ${cut(JSON.stringify(cj), 900)}`);
     } else {
       const fallback = cut(a?.content || "", 1000);
       if (fallback) signals.push(`Text hint: ${fallback}`);
@@ -311,7 +315,6 @@ async function collectSignals(sb: any, project_id: string) {
     .order("updated_at", { ascending: false })
     .limit(250);
 
-  // ✅ Scan ALL current artifacts (not deleted)
   const arts = await sb
     .from("artifacts")
     .select("id,title,artifact_type,type,is_current,content,content_json,status,approval_status,updated_at,created_at,deleted_at")
@@ -325,11 +328,7 @@ async function collectSignals(sb: any, project_id: string) {
     .map((a: any) => extractSignalsFromArtifact(a))
     .filter((s) => s.id && s.signals.length > 0);
 
-  const existing = await sb
-    .from("lessons_learned")
-    .select("description")
-    .eq("project_id", project_id)
-    .limit(800);
+  const existing = await sb.from("lessons_learned").select("description").eq("project_id", project_id).limit(800);
 
   const raidRows = raid.data ?? [];
   const changeRows = changes.data ?? [];
@@ -375,11 +374,6 @@ Goal:
 - Lessons must be written clearly, in plain English, in a way a PM would approve.
 - Create 4 to 12 lessons.
 
-Signals provided:
-- RAID items (issues, risks, assumptions, dependencies)
-- Change requests (scope/cost/schedule decisions)
-- Artifact signals extracted from ALL current project artifacts (including Weekly Reports, Charter, WBS, Schedule, RAID register, Change artifacts, Closure drafts, etc.)
-
 Rules:
 - Output MUST be strict JSON ARRAY ONLY (no markdown, no wrapper text).
 - Always produce at least 4 lessons.
@@ -388,24 +382,12 @@ Rules:
 - Each lesson must be specific, non-duplicative, and actionable.
 - "description" should be 1–2 sentences, written as an observable outcome + what we learned.
 - "action_for_future" MUST start with an imperative verb (e.g. "Define", "Agree", "Escalate", "Automate", "Baseline", "Document").
-- Prefer lessons that reduce repeat problems: late approvals, unclear ownership, poor change control, missing acceptance criteria, weak RAID follow-up, repeated milestone at-risk status, and decision latency.
+- Prefer lessons that reduce repeat problems: late approvals, unclear ownership, poor change control, missing acceptance criteria, weak RAID follow-up, repeated milestone at-risk status, decision latency.
 - Use ARTIFACT_SIGNALS to detect patterns across artifacts.
-- Weekly report boilerplate like "No operational blockers detected" is NOT a lesson by itself (ignore unless supporting a positive lesson).
 - Include evidence in ai_summary referencing:
   - RAID human_id + title
   - Change human_id + title/status
   - ArtifactSignal title + key bullet (and weekly period/headline when present)
-
-JSON schema per item:
-{
-  "category": "what_went_well" | "improvements" | "issues",
-  "description": string,
-  "action_for_future": string,
-  "impact": "Positive" | "Negative" (optional),
-  "severity": "Low" | "Medium" | "High" (optional),
-  "project_stage": string (optional),
-  "ai_summary": string (optional)
-}
 
 Project:
 - project_code: ${JSON.stringify(args.project_code)}
@@ -430,7 +412,6 @@ async function generateLessonsWithOpenAI(prompt: string) {
   const model = getOpenAIModel();
   const temperature = getOpenAITemperature();
 
-  // ✅ Force strict JSON ARRAY output via json_schema
   const resp = await openai.responses.create({
     model,
     temperature,
@@ -469,8 +450,7 @@ async function generateLessonsWithOpenAI(prompt: string) {
   } catch {
     const m = txt.match(/(\[.*\]|\{.*\})/);
     if (!m) throw new Error("AI returned non-JSON output");
-    const cleaned = m[1].replace(/\n/g, " ");
-    parsed = JSON.parse(cleaned);
+    parsed = JSON.parse(m[1].replace(/\n/g, " "));
   }
 
   return Array.isArray(parsed) ? parsed : [];
@@ -480,13 +460,12 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
 
-    // Accept either field name from client
-    const project_code = safeStr(body.project_code || body.projectId || body.project_id);
-    if (!project_code.trim()) return jsonErr("Missing project_code", 400);
+    // ✅ accept UUID or project_code
+    const project_ref = safeStr(body.project_id || body.project_code || body.projectId);
+    if (!project_ref.trim()) return jsonErr("Missing project_id or project_code", 400);
 
     const sb = await createClient();
-
-    const resolved = await resolveProject(sb, project_code);
+    const resolved = await resolveProject(sb, project_ref);
     if (!resolved?.project_id) return jsonErr("Project not found", 404);
 
     const signals = await collectSignals(sb, resolved.project_id);
@@ -519,7 +498,6 @@ export async function POST(req: Request) {
         ai_summary: typeof x.ai_summary === "string" ? x.ai_summary.trim() : undefined,
       };
 
-      // De-dupe vs existing + within batch
       if (signals.existingDescriptions.has(norm(item.description))) continue;
       if (clean.some((y) => norm(y.description) === norm(item.description))) continue;
 
@@ -530,11 +508,7 @@ export async function POST(req: Request) {
       return jsonOk({
         created_count: 0,
         inserted: [],
-        project: {
-          id: resolved.project_id,
-          project_code: resolved.project_code,
-          title: resolved.title ?? null,
-        },
+        project: { id: resolved.project_id, project_code: resolved.project_code, title: resolved.title ?? null },
         metrics: signals.metrics,
       });
     }
@@ -553,17 +527,12 @@ export async function POST(req: Request) {
     }));
 
     const { data, error } = await sb.from("lessons_learned").insert(inserts).select("id,category,description");
-
     if (error) return jsonErr(error.message, 400);
 
     return jsonOk({
       created_count: data?.length ?? inserts.length,
       inserted: data ?? [],
-      project: {
-        id: resolved.project_id,
-        project_code: resolved.project_code,
-        title: resolved.title ?? null,
-      },
+      project: { id: resolved.project_id, project_code: resolved.project_code, title: resolved.title ?? null },
       metrics: signals.metrics,
     });
   } catch (e: any) {

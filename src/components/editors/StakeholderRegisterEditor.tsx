@@ -172,21 +172,22 @@ function isDbUuid(x: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(x ?? ""));
 }
 
-// Full cell background colors for Impact/Influence - extending to entire cell
+// BRIGHT GLOSSY cell background colors for Impact/Influence
 function getImpactInfluenceCellClass(level: any) {
   const s = String(level ?? "").toLowerCase();
-  if (s === "high") return "bg-rose-200 border-l-4 border-l-rose-600";
-  if (s === "medium") return "bg-amber-200 border-l-4 border-l-amber-600";
-  if (s === "low") return "bg-emerald-200 border-l-4 border-l-emerald-600";
-  return "bg-white border-l-4 border-l-transparent";
+  // Using bright, saturated colors with gradient-like effect via shadow
+  if (s === "high") return "bg-gradient-to-br from-rose-400 to-red-500 shadow-inner";
+  if (s === "medium") return "bg-gradient-to-br from-amber-400 to-orange-500 shadow-inner";
+  if (s === "low") return "bg-gradient-to-br from-emerald-400 to-green-500 shadow-inner";
+  return "bg-white";
 }
 
-// BRIGHT pill classes with white backgrounds for dropdowns
+// GLOSSY pill classes - bright solid colors with white text
 function pillClassLevel(v: any) {
   const s = String(v ?? "").toLowerCase();
-  if (s === "high") return "bg-white text-rose-700 border-rose-300 font-bold shadow-sm";
-  if (s === "medium") return "bg-white text-amber-700 border-amber-300 font-bold shadow-sm";
-  if (s === "low") return "bg-white text-emerald-700 border-emerald-300 font-bold shadow-sm";
+  if (s === "high") return "bg-white text-red-600 border-2 border-red-200 font-bold shadow-lg";
+  if (s === "medium") return "bg-white text-amber-600 border-2 border-amber-200 font-bold shadow-lg";
+  if (s === "low") return "bg-white text-emerald-600 border-2 border-emerald-200 font-bold shadow-lg";
   return "bg-gray-100 text-gray-600 border-gray-200";
 }
 
@@ -1387,8 +1388,8 @@ export default function StakeholderRegisterEditor(props: {
                               {s.stakeholder_mapping ?? "—"}
                             </div>
                           </div>
-                          <div className={`rounded-lg p-2.5 border-l-4 ${getImpactInfluenceCellClass(s.impact_level)}`}>
-                            <div className="text-xs text-gray-500 mb-1">Impact</div>
+                          <div className={`rounded-lg p-2.5 ${getImpactInfluenceCellClass(s.impact_level)}`}>
+                            <div className="text-xs text-gray-600 mb-1 font-medium">Impact</div>
                             <div
                               className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium border ${pillClassLevel(
                                 s.impact_level ?? ""
@@ -1397,8 +1398,8 @@ export default function StakeholderRegisterEditor(props: {
                               {s.impact_level ?? "—"}
                             </div>
                           </div>
-                          <div className={`rounded-lg p-2.5 border-l-4 ${getImpactInfluenceCellClass(s.influence_level)}`}>
-                            <div className="text-xs text-gray-500 mb-1">Influence</div>
+                          <div className={`rounded-lg p-2.5 ${getImpactInfluenceCellClass(s.influence_level)}`}>
+                            <div className="text-xs text-gray-600 mb-1 font-medium">Influence</div>
                             <div
                               className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium border ${pillClassLevel(
                                 s.influence_level ?? ""
@@ -1594,13 +1595,13 @@ export default function StakeholderRegisterEditor(props: {
                                         />
                                       </td>
 
-                                      {/* Impact - Full cell background color */}
+                                      {/* Impact - Bright glossy cell background */}
                                       <td
                                         className={`px-4 py-3 align-top ${getImpactInfluenceCellClass(r.impact_level)}`}
                                         style={{ width: colWidths.impact_level, minWidth: colWidths.impact_level }}
                                       >
                                         <select
-                                          className={`w-full px-3 py-2 border rounded-lg text-sm font-bold focus:outline-none focus:ring-2 focus:ring-offset-0 transition-all cursor-pointer shadow-sm ${pillClassLevel(
+                                          className={`w-full px-3 py-2 border-2 rounded-lg text-sm font-bold focus:outline-none focus:ring-2 focus:ring-offset-0 transition-all cursor-pointer shadow-lg ${pillClassLevel(
                                             r.impact_level ?? ""
                                           )}`}
                                           value={r.impact_level ?? "Medium"}
@@ -1613,13 +1614,13 @@ export default function StakeholderRegisterEditor(props: {
                                         </select>
                                       </td>
 
-                                      {/* Influence - Full cell background color */}
+                                      {/* Influence - Bright glossy cell background */}
                                       <td
                                         className={`px-4 py-3 align-top ${getImpactInfluenceCellClass(r.influence_level)}`}
                                         style={{ width: colWidths.influence_level, minWidth: colWidths.influence_level }}
                                       >
                                         <select
-                                          className={`w-full px-3 py-2 border rounded-lg text-sm font-bold focus:outline-none focus:ring-2 focus:ring-offset-0 transition-all cursor-pointer shadow-sm ${pillClassLevel(
+                                          className={`w-full px-3 py-2 border-2 rounded-lg text-sm font-bold focus:outline-none focus:ring-2 focus:ring-offset-0 transition-all cursor-pointer shadow-lg ${pillClassLevel(
                                             r.influence_level ?? ""
                                           )}`}
                                           value={r.influence_level ?? "Medium"}
