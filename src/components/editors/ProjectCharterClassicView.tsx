@@ -17,7 +17,9 @@ function asText(v: any): string {
 function pickSection(doc: any, key: string) {
   const d = doc ?? {};
   if (Array.isArray(d.sections)) {
-    const hit = d.sections.find((s: any) => String(s?.key ?? s?.id ?? s?.slug ?? "").toLowerCase() === key.toLowerCase());
+    const hit = d.sections.find(
+      (s: any) => String(s?.key ?? s?.id ?? s?.slug ?? "").toLowerCase() === key.toLowerCase()
+    );
     if (hit) return hit;
   }
   if (d[key] != null) return d[key];
@@ -63,10 +65,6 @@ function sectionBody(section: any) {
 
 type V2RowObj = { type: "header" | "data"; cells: string[] };
 
-function isV2(doc: any) {
-  return !!doc && typeof doc === "object" && Array.isArray(doc.sections);
-}
-
 function pad(arr: string[], n: number) {
   const out = [...arr.map((x) => String(x ?? ""))];
   while (out.length < n) out.push("");
@@ -78,6 +76,7 @@ function formatUkDateMaybe(value: any) {
   const raw = String(value ?? "").trim();
   if (!raw) return "";
 
+  // YYYY-MM-DD -> DD/MM/YYYY
   const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (m) return `${m[3]}/${m[2]}/${m[1]}`;
 
@@ -173,21 +172,20 @@ function renderV2TableRows(table: { columns: number; rows: V2RowObj[] }) {
     <tr key={idx} className={row.type === "header" ? "bg-slate-100" : "hover:bg-slate-50/50"}>
       {pad(row.cells, table.columns).map((cell, cIdx) => {
         const val = String(cell ?? "");
-        const display = row.type === "header" 
-          ? val 
-          : isDateCol(cIdx) 
-            ? formatUkDateMaybe(val) 
-            : isMoneyCol(cIdx) 
-              ? formatUkMoneyMaybe(val) 
-              : val;
+        const display =
+          row.type === "header"
+            ? val
+            : isDateCol(cIdx)
+            ? formatUkDateMaybe(val)
+            : isMoneyCol(cIdx)
+            ? formatUkMoneyMaybe(val)
+            : val;
 
         return (
-          <td 
-            key={cIdx} 
+          <td
+            key={cIdx}
             className={`border border-slate-200 px-4 py-3 text-sm align-top whitespace-pre-wrap ${
-              row.type === "header" 
-                ? "font-semibold text-slate-700 bg-slate-50" 
-                : "text-slate-600"
+              row.type === "header" ? "font-semibold text-slate-700 bg-slate-50" : "text-slate-600"
             }`}
           >
             {display || " "}
@@ -199,14 +197,23 @@ function renderV2TableRows(table: { columns: number; rows: V2RowObj[] }) {
 }
 
 /* -----------------------------
+   Special section rules
+------------------------------ */
+
+function isFreeTextSectionKey(k: string) {
+  const key = String(k ?? "").toLowerCase();
+  return key === "business_case" || key === "objectives";
+}
+
+/* -----------------------------
    Styling helpers
 ------------------------------ */
 
 function sectionTitleRow(title: string) {
   return (
     <tr>
-      <td 
-        colSpan={4} 
+      <td
+        colSpan={4}
         className="border border-slate-300 bg-slate-800 text-white text-center py-3 text-sm font-semibold tracking-wide uppercase"
       >
         {title}
@@ -224,11 +231,7 @@ function metaCellHeader(text: string) {
 }
 
 function metaCell(value: string, className = "") {
-  return (
-    <td className={`border border-slate-200 px-4 py-3 text-sm text-slate-700 ${className}`}>
-      {value || " "}
-    </td>
-  );
+  return <td className={`border border-slate-200 px-4 py-3 text-sm text-slate-700 ${className}`}>{value || " "}</td>;
 }
 
 /* -----------------------------
@@ -237,11 +240,23 @@ function metaCell(value: string, className = "") {
 
 export default function ProjectCharterClassicView({
   doc,
+  // ✅ align with current callers (ProjectCharterEditorFormLazy passes projectId/artifactId)
+  projectId,
+  artifactId,
+  // ✅ new preferred prop
+  projectTitle,
+  // ✅ keep backward compat
   projectTitleFromProject,
 }: {
   doc: any;
+  projectId?: string;
+  artifactId?: string;
+  projectTitle?: string;
   projectTitleFromProject?: string;
 }) {
+  void projectId;
+  void artifactId;
+
   const meta = (doc?.meta && typeof doc.meta === "object" ? doc.meta : {}) || {};
   const projectTitleMeta = pickField(meta, ["project_title", "title", "projectName", "name"]);
   const projectMgr = pickField(meta, ["project_manager", "pm", "projectManager"]);
@@ -253,7 +268,8 @@ export default function ProjectCharterClassicView({
   const displayProjectTitle = (() => {
     const s = String(projectTitleMeta ?? "").trim().toLowerCase();
     if (!s || s === "(from project)" || s === "from project" || s === "from_project") {
-      return String(projectTitleFromProject ?? "").trim();
+      const fromProps = String(projectTitle ?? projectTitleFromProject ?? "").trim();
+      return fromProps;
     }
     return String(projectTitleMeta ?? "").trim();
   })();
@@ -275,26 +291,36 @@ export default function ProjectCharterClassicView({
   const stakeholders = pickSection(doc, "stakeholders");
   const approval = pickSection(doc, "approval_committee") || pickSection(doc, "approval");
 
-  const businessCaseText = useMemo(() => normalizeBulletsForDisplay(sectionBody(businessCase)), [businessCase]);
-  const objectivesText = useMemo(() => normalizeBulletsForDisplay(sectionBody(objectives)), [objectives]);
+  // ✅ Business Case + Objectives are FREE TEXT in v2 (render as prose, not forced bullets)
+  const businessCaseText = useMemo(() => String(sectionBody(businessCase) ?? "").trim(), [businessCase]);
+  const objectivesText = useMemo(() => String(sectionBody(objectives) ?? "").trim(), [objectives]);
+
   const deliverablesText = useMemo(() => normalizeBulletsForDisplay(sectionBody(deliverables)), [deliverables]);
   const risksText = useMemo(() => normalizeBulletsForDisplay(sectionBody(risks)), [risks]);
   const issuesText = useMemo(() => normalizeBulletsForDisplay(sectionBody(issues)), [issues]);
   const assumptionsText = useMemo(() => normalizeBulletsForDisplay(sectionBody(assumptions)), [assumptions]);
   const dependenciesText = useMemo(() => normalizeBulletsForDisplay(sectionBody(dependencies)), [dependencies]);
 
+  function proseCell(text: string) {
+    return (
+      <tr>
+        <td colSpan={4} className="border border-slate-200 px-4 py-4 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+          {text || " "}
+        </td>
+      </tr>
+    );
+  }
+
   return (
     <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
-      <div className="p-8 min-w-[900px]">
+      <div className="p-6 md:p-8 overflow-x-auto">
         {/* Header */}
         <div className="mb-8 text-center">
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight uppercase mb-2">
-            Project Charter
-          </h1>
-          <div className="w-24 h-1 bg-indigo-500 mx-auto rounded-full"></div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight uppercase mb-2">Project Charter</h1>
+          <div className="w-24 h-1 bg-indigo-500 mx-auto rounded-full" />
         </div>
 
-        <table className="w-full border-collapse shadow-sm rounded-lg overflow-hidden">
+        <table className="w-full border-collapse shadow-sm rounded-lg overflow-hidden min-w-[900px]">
           <tbody>
             {/* Meta rows */}
             <tr>
@@ -323,26 +349,16 @@ export default function ProjectCharterClassicView({
             {(() => {
               const t = normalizeV2Table(businessCase);
               if (t) return renderV2TableRows(t);
-              return (
-                <tr>
-                  <td colSpan={4} className="border border-slate-200 px-4 py-4 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-                    {businessCaseText || " "}
-                  </td>
-                </tr>
-              );
+              // ✅ prose (no forced bullets)
+              return proseCell(businessCaseText);
             })()}
 
             {sectionTitleRow("2. Objectives")}
             {(() => {
               const t = normalizeV2Table(objectives);
               if (t) return renderV2TableRows(t);
-              return (
-                <tr>
-                  <td colSpan={4} className="border border-slate-200 px-4 py-4 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-                    {objectivesText || " "}
-                  </td>
-                </tr>
-              );
+              // ✅ prose (no forced bullets)
+              return proseCell(objectivesText);
             })()}
 
             {sectionTitleRow("3. Scope")}
@@ -355,10 +371,16 @@ export default function ProjectCharterClassicView({
                 return (
                   <>
                     <tr>
-                      <td colSpan={2} className="border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                      <td
+                        colSpan={2}
+                        className="border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider"
+                      >
                         {String(header[0] || "In Scope")}
                       </td>
-                      <td colSpan={2} className="border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                      <td
+                        colSpan={2}
+                        className="border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider"
+                      >
                         {String(header[1] || "Out of Scope")}
                       </td>
                     </tr>
@@ -376,8 +398,12 @@ export default function ProjectCharterClassicView({
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={2} className="border border-slate-200 px-4 py-3 text-sm text-slate-700"> </td>
-                        <td colSpan={2} className="border border-slate-200 px-4 py-3 text-sm text-slate-700"> </td>
+                        <td colSpan={2} className="border border-slate-200 px-4 py-3 text-sm text-slate-700">
+                          {" "}
+                        </td>
+                        <td colSpan={2} className="border border-slate-200 px-4 py-3 text-sm text-slate-700">
+                          {" "}
+                        </td>
                       </tr>
                     )}
                   </>
@@ -387,10 +413,16 @@ export default function ProjectCharterClassicView({
               return (
                 <>
                   <tr>
-                    <td colSpan={2} className="border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <td
+                      colSpan={2}
+                      className="border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider"
+                    >
                       In Scope
                     </td>
-                    <td colSpan={2} className="border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <td
+                      colSpan={2}
+                      className="border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider"
+                    >
                       Out of Scope
                     </td>
                   </tr>
@@ -426,16 +458,24 @@ export default function ProjectCharterClassicView({
               return (
                 <>
                   <tr>
-                    <td className="border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">Milestone</td>
-                    <td className="border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">Target Date</td>
-                    <td className="border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">Actual Date</td>
-                    <td className="border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">Notes</td>
+                    <td className="border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                      Milestone
+                    </td>
+                    <td className="border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                      Target Date
+                    </td>
+                    <td className="border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                      Actual Date
+                    </td>
+                    <td className="border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                      Notes
+                    </td>
                   </tr>
                   <tr>
-                    <td className="border border-slate-200 px-4 py-3 text-sm text-slate-700"></td>
-                    <td className="border border-slate-200 px-4 py-3 text-sm text-slate-700"></td>
-                    <td className="border border-slate-200 px-4 py-3 text-sm text-slate-700"></td>
-                    <td className="border border-slate-200 px-4 py-3 text-sm text-slate-700"></td>
+                    <td className="border border-slate-200 px-4 py-3 text-sm text-slate-700"> </td>
+                    <td className="border border-slate-200 px-4 py-3 text-sm text-slate-700"> </td>
+                    <td className="border border-slate-200 px-4 py-3 text-sm text-slate-700"> </td>
+                    <td className="border border-slate-200 px-4 py-3 text-sm text-slate-700"> </td>
                   </tr>
                 </>
               );
@@ -549,9 +589,7 @@ export default function ProjectCharterClassicView({
 
         {/* Footer */}
         <div className="mt-8 pt-6 border-t border-slate-200 text-center">
-          <p className="text-xs text-slate-400 uppercase tracking-widest font-medium">
-            End of Project Charter
-          </p>
+          <p className="text-xs text-slate-400 uppercase tracking-widest font-medium">End of Project Charter</p>
         </div>
       </div>
     </div>

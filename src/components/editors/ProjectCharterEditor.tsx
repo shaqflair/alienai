@@ -27,6 +27,137 @@ export type ImproveWithAIPayload = {
   };
 };
 
+function safeStr(x: any) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+/**
+ * ✅ Bullet normalization to prevent "• •" duplicates (classic editor too).
+ * We only touch text nodes that *start* with bullet-ish prefixes, and normalize
+ * multiple markers down to a single marker.
+ */
+function normalizeBulletLine(line: string) {
+  let s = String(line ?? "");
+  const re = /^\s*(?:[•\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/;
+  for (let i = 0; i < 6; i++) {
+    const next = s.replace(re, "");
+    if (next === s) break;
+    s = next;
+  }
+  return s.trimEnd();
+}
+function normalizeLeadingBulletsText(text: string) {
+  const raw = String(text ?? "");
+  if (!raw) return raw;
+  const lines = raw.split("\n");
+  const cleaned = lines.map((l) => normalizeBulletLine(l));
+  return cleaned.join("\n").trimEnd();
+}
+function normalizeBulletsInDocJson(doc: any) {
+  if (!doc || typeof doc !== "object") return doc;
+
+  const walk = (node: any): any => {
+    if (!node || typeof node !== "object") return node;
+
+    // Normalize plain text nodes if they look like they have bullet prefixes.
+    if (node.type === "text" && typeof node.text === "string") {
+      const t = node.text;
+      // Only normalize if the string begins with bullet-like markers (avoid touching normal prose).
+      if (/^\s*(?:[•\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+\s*)+/.test(t)) {
+        const cleaned = normalizeLeadingBulletsText(t);
+        if (cleaned !== t) return { ...node, text: cleaned };
+      }
+      return node;
+    }
+
+    if (Array.isArray(node.content)) {
+      const nextContent = node.content.map(walk);
+      // Avoid allocating new objects when unchanged
+      let changed = false;
+      for (let i = 0; i < nextContent.length; i++) {
+        if (nextContent[i] !== node.content[i]) {
+          changed = true;
+          break;
+        }
+      }
+      if (changed) return { ...node, content: nextContent };
+    }
+
+    return node;
+  };
+
+  return walk(doc);
+}
+
+/**
+ * ✅ Seed meta defaults into the classic table doc, without overwriting user edits.
+ * We look for header labels and fill the adjacent cell if blank:
+ * - Project Title
+ * - Project Manager
+ */
+function seedClassicMetaDefaults(doc: any, defaults: { projectTitle?: string; projectManagerName?: string }) {
+  const title = safeStr(defaults.projectTitle).trim();
+  const pm = safeStr(defaults.projectManagerName).trim();
+  if (!title && !pm) return doc;
+
+  try {
+    const next = structuredClone(doc);
+    const table = Array.isArray(next?.content) ? next.content.find((n: any) => n?.type === "table") : null;
+    if (!table?.content?.length) return doc;
+
+    const rows = table.content;
+    const textOfCell = (cell: any) => {
+      const p = cell?.content?.[0];
+      const t = p?.content?.[0]?.text;
+      return safeStr(t);
+    };
+    const setCellTextIfBlank = (cell: any, value: string) => {
+      if (!value) return false;
+      const cur = textOfCell(cell).trim();
+      if (cur) return false;
+
+      // Ensure structure: cell -> paragraph -> text
+      cell.content = Array.isArray(cell.content) ? cell.content : [{ type: "paragraph", content: [] }];
+      if (!cell.content.length) cell.content.push({ type: "paragraph", content: [] });
+
+      const p = cell.content[0];
+      p.type = "paragraph";
+      p.content = Array.isArray(p.content) ? p.content : [];
+      if (!p.content.length) p.content.push({ type: "text", text: "" });
+
+      const tn = p.content[0];
+      tn.type = "text";
+      tn.text = value;
+      return true;
+    };
+
+    let changed = false;
+
+    for (const r of rows) {
+      if (r?.type !== "tableRow" || !Array.isArray(r.content)) continue;
+      const cells = r.content;
+
+      for (let i = 0; i < cells.length; i++) {
+        const c = cells[i];
+        const label = textOfCell(c).trim().toLowerCase();
+
+        if (label === "project title" && cells[i + 1]) {
+          if (setCellTextIfBlank(cells[i + 1], title)) changed = true;
+        }
+        if (label === "project manager" && cells[i + 1]) {
+          if (setCellTextIfBlank(cells[i + 1], pm)) changed = true;
+        }
+      }
+
+      // Handle Sponsor row variant with colspan etc: still label->next works.
+    }
+
+    return changed ? next : doc;
+  } catch {
+    return doc;
+  }
+}
+
 function makeDefaultCharterDoc() {
   return {
     type: "doc",
@@ -295,6 +426,10 @@ export default function ProjectCharterEditor({
   onImproveWithAI,
   improveEnabled = true,
   improveLoading = false,
+
+  // ✅ Optional seeds (used by V2; classic editor can benefit too)
+  projectTitle,
+  projectManagerName,
 }: {
   initialJson: any;
   onChange: (doc: any) => void;
@@ -303,14 +438,23 @@ export default function ProjectCharterEditor({
   onImproveWithAI?: (payload: ImproveWithAIPayload) => void;
   improveEnabled?: boolean;
   improveLoading?: boolean;
+
+  projectTitle?: string;
+  projectManagerName?: string;
 }) {
   const canEdit = !readOnly && !lockLayout;
 
   const content = useMemo(() => {
-    if (!isDocLike(initialJson)) return makeDefaultCharterDoc();
-    if (!hasTable(initialJson)) return makeDefaultCharterDoc();
-    return initialJson;
-  }, [initialJson]);
+    const base =
+      !isDocLike(initialJson) || !hasTable(initialJson) ? makeDefaultCharterDoc() : initialJson;
+
+    // ✅ Seed meta defaults if provided (only into blank cells)
+    const seeded = seedClassicMetaDefaults(base, { projectTitle, projectManagerName });
+
+    // ✅ Normalize leading bullets (prevents “• •” style duplication)
+    return normalizeBulletsInDocJson(seeded);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialJson, projectTitle, projectManagerName]);
 
   const contentSig = useMemo(() => stableSig(content), [content]);
 
@@ -334,7 +478,10 @@ export default function ProjectCharterEditor({
     onUpdate: ({ editor }) => {
       // When locked/readOnly, we still allow the view, but avoid emitting changes.
       if (!canEdit) return;
-      onChange(editor.getJSON());
+
+      // ✅ Normalize bullets in outgoing JSON (classic path)
+      const next = normalizeBulletsInDocJson(editor.getJSON());
+      onChange(next);
     },
     editorProps: {
       attributes: {
@@ -458,7 +605,8 @@ function Toolbar({
   improveLoading: boolean;
 }) {
   const btn = "rounded border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-100 disabled:opacity-60";
-  const btnPrimary = "rounded border border-neutral-300 px-2 py-1 text-xs bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-60";
+  const btnPrimary =
+    "rounded border border-neutral-300 px-2 py-1 text-xs bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-60";
 
   const canImprove = !!onImproveWithAI && improveEnabled && !readOnly && !lockLayout;
 

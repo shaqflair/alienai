@@ -27,7 +27,6 @@ function fmtTimeUk(x: string) {
   try {
     const d = new Date(x);
     if (Number.isNaN(d.getTime())) return x;
-    // Force UK formatting (Europe/London). Browser support is good for this.
     return d.toLocaleString("en-GB", { timeZone: "Europe/London" });
   } catch {
     return x;
@@ -107,10 +106,7 @@ export default function AiSuggestionsPanel(props: {
   title?: string;
   limit?: number;
 
-  // hide the entire panel when empty
   hideWhenEmpty?: boolean;
-
-  // controls dev-only button visibility
   showTestButton?: boolean;
 }) {
   const {
@@ -267,13 +263,6 @@ export default function AiSuggestionsPanel(props: {
     return st === "applied" || st === "rejected";
   }
 
-  /**
-   * ✅ Apply suggestion using your existing route:
-   * POST /api/ai/suggestions/apply
-   * body: { projectId, artifactId, suggestionId }
-   *
-   * This means you do NOT need /api/suggestions/[id]/accept.
-   */
   async function acceptSuggestion(s: Suggestion) {
     setApplyErr(null);
     setRejectErr(null);
@@ -325,10 +314,6 @@ export default function AiSuggestionsPanel(props: {
     }
   }
 
-  /**
-   * Reject currently uses your legacy endpoint.
-   * Keep for now unless/until you migrate rejection into /api/ai/suggestions/[id] actions.
-   */
   async function rejectSuggestion(s: Suggestion) {
     setRejectErr(null);
     setApplyErr(null);
@@ -440,7 +425,9 @@ export default function AiSuggestionsPanel(props: {
         </div>
       </div>
 
-      {err ? <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div> : null}
+      {err ? (
+        <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>
+      ) : null}
       {applyErr ? (
         <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{applyErr}</div>
       ) : null}
@@ -470,11 +457,8 @@ export default function AiSuggestionsPanel(props: {
           const isActionable = !isTerminalStatus(s);
 
           const canApplyHere = Boolean(String(artifactId ?? "").trim());
-          const acceptDisabledReason = !canApplyHere
-            ? "Open an artifact to apply suggestions"
-            : undefined;
+          const acceptDisabledReason = !canApplyHere ? "Open an artifact to apply suggestions" : undefined;
 
-          // SLA badge
           const openDays = daysOpen(s.created_at);
           const showSla = (st === "proposed" || st === "suggested") && typeof openDays === "number" && openDays >= 3;
           const slaClass =
@@ -510,7 +494,6 @@ export default function AiSuggestionsPanel(props: {
 
               {s.rationale ? <p className="mt-2 text-sm text-gray-700">{s.rationale}</p> : null}
 
-              {/* ✅ Actions first (exec-friendly) */}
               {isActionable ? (
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
@@ -540,7 +523,6 @@ export default function AiSuggestionsPanel(props: {
                 </div>
               ) : null}
 
-              {/* Details last */}
               {s.patch ? (
                 <details className="mt-3">
                   <summary className="cursor-pointer text-sm text-gray-600">View patch</summary>

@@ -44,22 +44,15 @@ function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
-function safeLower(x: any) {
-  return safeStr(x).trim().toLowerCase();
-}
-
 /**
  * ✅ Best-effort: determine a "Project Manager" display name for seeding Charter meta.
  * We try common role values first, then fall back to owner/editor if needed.
  *
- * Assumptions (safe):
+ * Assumptions (best effort):
  * - project_members has: project_id, user_id, role, is_active
- * - profiles has: user_id, full_name, email
+ * - profiles has: user_id, full_name, email (or variants)
  */
-async function getProjectManagerNameBestEffort(
-  supabase: any,
-  projectId: string
-): Promise<string | null> {
+async function getProjectManagerNameBestEffort(supabase: any, projectId: string): Promise<string | null> {
   if (!projectId) return null;
 
   const pmRoleCandidates = [
@@ -74,7 +67,32 @@ async function getProjectManagerNameBestEffort(
     "delivery manager",
   ];
 
-  // 1) Try explicit PM-like roles
+  // Small helper to read a profile name/email with flexible schema.
+  async function readProfileName(userId: string): Promise<string | null> {
+    const uid = safeStr(userId).trim();
+    if (!uid) return null;
+
+    // Try common schema variants without hard failing the page.
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("full_name, display_name, name, email, user_id, id")
+      .or(`user_id.eq.${uid},id.eq.${uid}`)
+      .maybeSingle();
+
+    const full = safeStr((prof as any)?.full_name).trim();
+    if (full) return full;
+
+    const disp = safeStr((prof as any)?.display_name).trim();
+    if (disp) return disp;
+
+    const nm = safeStr((prof as any)?.name).trim();
+    if (nm) return nm;
+
+    const email = safeStr((prof as any)?.email).trim();
+    return email || null;
+  }
+
+  // 1) Try explicit PM-like roles (case-insensitive match where possible)
   for (const role of pmRoleCandidates) {
     const { data, error } = await supabase
       .from("project_members")
@@ -85,24 +103,13 @@ async function getProjectManagerNameBestEffort(
       .limit(1);
 
     if (error) {
-      // if schema differs, just stop trying roles and fall back
+      // schema differs or ilike unsupported -> stop and fall back
       break;
     }
 
     const userId = safeStr(data?.[0]?.user_id).trim();
-    if (userId) {
-      const { data: prof } = await supabase
-        .from("profiles")
-        .select("full_name, email")
-        .eq("user_id", userId)
-        .maybeSingle();
-
-      const name = safeStr(prof?.full_name).trim();
-      if (name) return name;
-
-      const email = safeStr(prof?.email).trim();
-      if (email) return email;
-    }
+    const name = await readProfileName(userId);
+    if (name) return name;
   }
 
   // 2) Fallback: first owner/editor
@@ -117,17 +124,7 @@ async function getProjectManagerNameBestEffort(
   const fallbackUserId = safeStr(mems?.[0]?.user_id).trim();
   if (!fallbackUserId) return null;
 
-  const { data: prof2 } = await supabase
-    .from("profiles")
-    .select("full_name, email")
-    .eq("user_id", fallbackUserId)
-    .maybeSingle();
-
-  const nm2 = safeStr(prof2?.full_name).trim();
-  if (nm2) return nm2;
-
-  const em2 = safeStr(prof2?.email).trim();
-  return em2 || null;
+  return await readProfileName(fallbackUserId);
 }
 
 export default async function ArtifactDetailPage({
@@ -210,8 +207,7 @@ export default async function ArtifactDetailPage({
   const isCurrent = (artifact as any)?.is_current !== false;
 
   // Effective lock layout comes from status, not is_locked.
-  const effectiveLockLayout =
-    !!approvalEnabled && (isSubmitted || statusLower === "approved" || statusLower === "rejected");
+  const effectiveLockLayout = !!approvalEnabled && (isSubmitted || statusLower === "approved" || statusLower === "rejected");
 
   // Effective editability for charter/closure:
   const effectiveIsEditable =
@@ -221,33 +217,35 @@ export default async function ArtifactDetailPage({
 
   // Submit eligibility for charter/closure:
   const canSubmitFromServer =
-    !!approvalEnabled &&
-    !!(charterMode || closureMode) &&
-    canEditByRole &&
-    isCurrent &&
-    isDraftOrCR &&
-    !effectiveLockLayout;
+    !!approvalEnabled && !!(charterMode || closureMode) && canEditByRole && isCurrent && isDraftOrCR && !effectiveLockLayout;
 
   // For other artifact types we keep the old behaviour:
-  const canSubmitNonCharter =
-    !!approvalEnabled &&
-    !(charterMode || closureMode) &&
-    !!loaderIsEditable &&
-    !!isCurrent &&
-    !effectiveLockLayout;
+  const canSubmitNonCharter = !!approvalEnabled && !(charterMode || closureMode) && !!loaderIsEditable && !!isCurrent && !effectiveLockLayout;
 
   // ---------------------------------------------------------------------------
   // ✅ NEW: get projectManagerName for charter seeding (server-side best effort)
+  // ✅ ALSO: robustly derive a projectTitle fallback (so Charter meta can seed).
   // ---------------------------------------------------------------------------
   let projectManagerName: string | null = null;
+  let projectTitleForSeed: string = safeStr(projectTitle).trim();
+
   try {
+    const supabase = await createClient();
+
+    // Best-effort title fallback (don’t block page if schema differs)
+    if (!projectTitleForSeed && projectUuid) {
+      const { data: proj } = await supabase.from("projects").select("title").eq("id", projectUuid).maybeSingle();
+      const t = safeStr((proj as any)?.title).trim();
+      if (t) projectTitleForSeed = t;
+    }
+
     if (projectUuid) {
-      const supabase = await createClient();
       projectManagerName = await getProjectManagerNameBestEffort(supabase, String(projectUuid));
     }
   } catch {
     // best-effort only; never block rendering
-    projectManagerName = null;
+    projectManagerName = projectManagerName ?? null;
+    projectTitleForSeed = projectTitleForSeed || safeStr(projectTitle).trim();
   }
 
   // ---------------------------------------------------------------------------
@@ -333,8 +331,7 @@ export default async function ArtifactDetailPage({
     if (!projectUuid) return;
     if (!canEditByRole) return;
 
-    const blocked =
-      statusLower === "submitted" || statusLower === "approved" || statusLower === "rejected";
+    const blocked = statusLower === "submitted" || statusLower === "approved" || statusLower === "rejected";
     if (blocked) return;
 
     await setArtifactCurrent({
@@ -375,9 +372,7 @@ export default async function ArtifactDetailPage({
           )}
 
           {approvalEnabled ? (
-            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 ${pill.cls}`}>
-              {pill.label}
-            </span>
+            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 ${pill.cls}`}>{pill.label}</span>
           ) : (
             <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs bg-gray-50 border-gray-200 text-gray-700">
               Living document
@@ -402,9 +397,7 @@ export default async function ArtifactDetailPage({
             </button>
           </form>
         ) : (
-          <h1 className="text-2xl font-semibold">
-            {(artifact as any).title || (artifact as any).type || "Artifact"}
-          </h1>
+          <h1 className="text-2xl font-semibold">{(artifact as any).title || (artifact as any).type || "Artifact"}</h1>
         )}
 
         <div className="text-sm text-gray-600 flex flex-wrap items-center gap-2">
@@ -513,10 +506,7 @@ export default async function ArtifactDetailPage({
             <form action={requestChangesAction} className="border rounded-2xl p-4 space-y-2">
               <div className="font-medium">Request Changes (CR)</div>
               <textarea name="reason" rows={3} className="w-full border rounded-xl px-3 py-2 text-sm" required />
-              <button
-                className="px-4 py-2 rounded-xl border border-gray-200 text-gray-900 text-sm hover:bg-gray-50"
-                type="submit"
-              >
+              <button className="px-4 py-2 rounded-xl border border-gray-200 text-gray-900 text-sm hover:bg-gray-50" type="submit">
                 Request changes
               </button>
             </form>
@@ -530,10 +520,7 @@ export default async function ArtifactDetailPage({
                 placeholder='Type "REJECT" to confirm'
                 required
               />
-              <button
-                className="px-4 py-2 rounded-xl border border-gray-200 text-gray-900 text-sm hover:bg-gray-50"
-                type="submit"
-              >
+              <button className="px-4 py-2 rounded-xl border border-gray-200 text-gray-900 text-sm hover:bg-gray-50" type="submit">
                 Reject final
               </button>
             </form>
@@ -552,7 +539,7 @@ export default async function ArtifactDetailPage({
         typedInitialJson={typedInitialJson}
         rawContentJson={(artifact as any).content_json ?? null}
         rawContentText={String((artifact as any).content ?? "")}
-        projectTitle={projectTitle}
+        projectTitle={projectTitleForSeed || safeStr(projectTitle).trim()} // ✅ robust seed value
         projectManagerName={projectManagerName} // ✅ NEW (for Charter meta seeding)
         projectStartDate={projectStartDate}
         projectFinishDate={projectFinishDate}
@@ -592,11 +579,7 @@ export default async function ArtifactDetailPage({
 
             <label className="grid gap-2">
               <span className="text-sm font-medium">Title</span>
-              <input
-                name="title"
-                defaultValue={String((artifact as any).title ?? "")}
-                className="border rounded-xl px-3 py-2"
-              />
+              <input name="title" defaultValue={String((artifact as any).title ?? "")} className="border rounded-xl px-3 py-2" />
             </label>
 
             <label className="grid gap-2">

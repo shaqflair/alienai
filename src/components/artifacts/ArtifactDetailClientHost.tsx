@@ -5,86 +5,52 @@ import React, { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 
 /**
- * ? Keep Charter entry as normal import.
+ * ✅ Keep Charter entry as normal import.
  * Heavy internals are already lazy-loaded inside ProjectCharterEditorFormLazy.tsx.
  */
 import ProjectCharterEditorFormLazy from "@/components/editors/ProjectCharterEditorFormLazy";
 
 /* ---------------- dynamic client components ---------------- */
 
-const StakeholderRegisterEditor = dynamic(
-  () => import("@/components/editors/StakeholderRegisterEditor"),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="text-sm text-gray-500">Loading Stakeholder editor…</div>
-    ),
-  }
-);
+const StakeholderRegisterEditor = dynamic(() => import("@/components/editors/StakeholderRegisterEditor"), {
+  ssr: false,
+  loading: () => <div className="text-sm text-gray-500">Loading Stakeholder editor…</div>,
+});
 
 const WBSEditor = dynamic(() => import("@/components/editors/WBSEditor"), {
   ssr: false,
   loading: () => <div className="text-sm text-gray-500">Loading WBS editor…</div>,
 });
 
-const ScheduleGanttEditor = dynamic(
-  () => import("@/components/editors/ScheduleGanttEditor"),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="text-sm text-gray-500">Loading Schedule editor…</div>
-    ),
-  }
-);
+const ScheduleGanttEditor = dynamic(() => import("@/components/editors/ScheduleGanttEditor"), {
+  ssr: false,
+  loading: () => <div className="text-sm text-gray-500">Loading Schedule editor…</div>,
+});
 
-const ProjectClosureReportEditor = dynamic(
-  () => import("@/components/editors/ProjectClosureReportEditor"),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="text-sm text-gray-500">
-        Loading Closure Report editor…
-      </div>
-    ),
-  }
-);
+const ProjectClosureReportEditor = dynamic(() => import("@/components/editors/ProjectClosureReportEditor"), {
+  ssr: false,
+  loading: () => <div className="text-sm text-gray-500">Loading Closure Report editor…</div>,
+});
 
-const ChangeManagementBoard = dynamic(
-  () => import("@/components/change/ChangeManagementBoard"),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="text-sm text-gray-500">Loading Change Board…</div>
-    ),
-  }
-);
+const ChangeManagementBoard = dynamic(() => import("@/components/change/ChangeManagementBoard"), {
+  ssr: false,
+  loading: () => <div className="text-sm text-gray-500">Loading Change Board…</div>,
+});
 
-const WeeklyReportEditor = dynamic(
-  () => import("@/components/editors/WeeklyReportEditor"),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="text-sm text-gray-500">
-        Loading Weekly Report editor…
-      </div>
-    ),
-  }
-);
+const WeeklyReportEditor = dynamic(() => import("@/components/editors/WeeklyReportEditor"), {
+  ssr: false,
+  loading: () => <div className="text-sm text-gray-500">Loading Weekly Report editor…</div>,
+});
 
 const AiSuggestionsPanel = dynamic(() => import("@/components/ai/AiSuggestionsPanel"), {
   ssr: false,
-  loading: () => (
-    <div className="text-sm text-gray-500">Loading AI suggestions…</div>
-  ),
+  loading: () => <div className="text-sm text-gray-500">Loading AI suggestions…</div>,
 });
 
-const ArtifactTimeline = dynamic(
-  () => import("@/components/artifacts/ArtifactTimeline"),
-  {
-    ssr: false,
-    loading: () => <div className="text-sm text-gray-500">Loading timeline…</div>,
-  }
-);
+const ArtifactTimeline = dynamic(() => import("@/components/artifacts/ArtifactTimeline"), {
+  ssr: false,
+  loading: () => <div className="text-sm text-gray-500">Loading timeline…</div>,
+});
 
 /* ---------------- types ---------------- */
 
@@ -125,7 +91,7 @@ export type ArtifactDetailClientHostProps = {
 
   // project extras (charter seeds + schedule header)
   projectTitle?: string;
-  projectManagerName?: string | null; // ✅ NEW: seed charter meta
+  projectManagerName?: string | null; // ✅ seed charter meta
   projectStartDate?: string | null;
   projectFinishDate?: string | null;
 
@@ -149,12 +115,10 @@ export type ArtifactDetailClientHostProps = {
   submitForApprovalAction?: any | null;
 
   /**
-   * ? Optional server action (same idea as Charter save)
+   * ✅ Optional server action (same idea as Charter save)
    * Provide this from the Server Component host.
    */
-  updateArtifactJsonAction?: (
-    args: UpdateArtifactJsonArgs
-  ) => Promise<UpdateArtifactJsonResult>;
+  updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
 };
 
 function cx(...xs: Array<string | false | null | undefined>) {
@@ -162,11 +126,7 @@ function cx(...xs: Array<string | false | null | undefined>) {
 }
 
 function getArtifactVersion(typedInitialJson: any) {
-  const v = Number(
-    (typedInitialJson as any)?.version ??
-      (typedInitialJson as any)?.content?.version ??
-      1
-  );
+  const v = Number((typedInitialJson as any)?.version ?? (typedInitialJson as any)?.content?.version ?? 1);
   return Number.isFinite(v) && v > 0 ? v : 1;
 }
 
@@ -184,11 +144,10 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     rawContentText,
 
     projectTitle,
-    projectManagerName, // ✅ NEW
+    projectManagerName,
     projectStartDate,
     projectFinishDate,
 
-    // ? FIX: actually receive this and pass it to ScheduleGanttEditor
     latestWbsJson,
     wbsArtifactId,
 
@@ -223,19 +182,12 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     }
   }, []);
 
-  const artifactVersion = useMemo(
-    () => getArtifactVersion(typedInitialJson),
-    [typedInitialJson]
-  );
+  const artifactVersion = useMemo(() => getArtifactVersion(typedInitialJson), [typedInitialJson]);
   const isCharterV2 = mode === "charter" && artifactVersion >= 2;
 
-  const hideContentExportsRow =
-    mode === "charter" || mode === "closure" || mode === "weekly_report"
-      ? true
-      : !!hideContentExportsRowProp;
+  const hideContentExportsRow = mode === "charter" || mode === "closure" || mode === "weekly_report" ? true : !!hideContentExportsRowProp;
 
-  const effectiveLegacyExports =
-    mode === "charter" ? (isCharterV2 ? undefined : legacyExports) : legacyExports;
+  const effectiveLegacyExports = mode === "charter" ? (isCharterV2 ? undefined : legacyExports) : legacyExports;
 
   const contentHeader = hideContentExportsRow ? null : (
     <div className="flex items-center justify-between">
@@ -243,6 +195,8 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
       {!isEditable ? <div className="text-xs text-gray-500">Read-only</div> : null}
     </div>
   );
+
+  const shouldHidePanels = mode === "charter"; // ✅ Charter V2 has its own per-section AI; avoid duplicate global panel UX.
 
   return (
     <div className="space-y-6">
@@ -254,7 +208,8 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
             </div>
           </div>
 
-          {showAI || showTimeline ? (
+          {/* Panels (kept for CR) */}
+          {!shouldHidePanels && (showAI || showTimeline) ? (
             <section className="mt-6 border rounded-2xl bg-white p-5 space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="font-medium">Panels</div>
@@ -265,9 +220,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                       onClick={() => setOpenAI((v) => !v)}
                       className={cx(
                         "rounded-xl border px-3 py-2 text-sm transition",
-                        openAI
-                          ? "bg-black text-white border-black"
-                          : "border-gray-200 hover:bg-gray-50"
+                        openAI ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50"
                       )}
                     >
                       {openAI ? "Hide AI" : "Show AI"}
@@ -280,9 +233,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                       onClick={() => setOpenTimeline((v) => !v)}
                       className={cx(
                         "rounded-xl border px-3 py-2 text-sm transition",
-                        openTimeline
-                          ? "bg-black text-white border-black"
-                          : "border-gray-200 hover:bg-gray-50"
+                        openTimeline ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50"
                       )}
                     >
                       {openTimeline ? "Hide timeline" : "Show timeline"}
@@ -303,20 +254,13 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 />
               ) : null}
 
-              {showTimeline && openTimeline ? (
-                <ArtifactTimeline artifactId={artifactId} titleMap={{}} limit={60} />
-              ) : null}
+              {showTimeline && openTimeline ? <ArtifactTimeline artifactId={artifactId} titleMap={{}} limit={60} /> : null}
             </section>
           ) : null}
         </section>
       ) : (
         <>
-          <section
-            className={cx(
-              "border rounded-2xl bg-white p-6",
-              hideContentExportsRow ? "space-y-0" : "space-y-4"
-            )}
-          >
+          <section className={cx("border rounded-2xl bg-white p-6", hideContentExportsRow ? "space-y-0" : "space-y-4")}>
             {contentHeader}
 
             {mode === "charter" ? (
@@ -327,7 +271,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 readOnly={!isEditable}
                 lockLayout={lockLayout}
                 artifactVersion={artifactVersion}
-                // ✅ NEW: seed values for meta defaults
+                // ✅ seed values for meta defaults
                 projectTitle={projectTitle}
                 projectManagerName={projectManagerName ?? undefined}
                 legacyExports={effectiveLegacyExports}
@@ -337,19 +281,9 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 submitForApprovalAction={submitForApprovalAction}
               />
             ) : mode === "stakeholder" ? (
-              <StakeholderRegisterEditor
-                projectId={projectId}
-                artifactId={artifactId}
-                initialJson={rawContentJson ?? null}
-                readOnly={!isEditable}
-              />
+              <StakeholderRegisterEditor projectId={projectId} artifactId={artifactId} initialJson={rawContentJson ?? null} readOnly={!isEditable} />
             ) : mode === "wbs" ? (
-              <WBSEditor
-                projectId={projectId}
-                artifactId={artifactId}
-                initialJson={rawContentJson ?? null}
-                readOnly={!isEditable}
-              />
+              <WBSEditor projectId={projectId} artifactId={artifactId} initialJson={rawContentJson ?? null} readOnly={!isEditable} />
             ) : mode === "schedule" ? (
               <ScheduleGanttEditor
                 projectId={projectId}
@@ -359,18 +293,12 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 projectTitle={projectTitle || ""}
                 projectStartDate={projectStartDate ?? null}
                 projectFinishDate={projectFinishDate ?? null}
-                // ? FIX: pass through server-provided WBS JSON so schedule doesn't need to refetch
+                // ✅ pass through server-provided WBS JSON so schedule doesn't need to refetch
                 latestWbsJson={latestWbsJson ?? null}
                 wbsArtifactId={wbsArtifactId ?? null}
               />
             ) : mode === "closure" ? (
-              <ProjectClosureReportEditor
-                projectId={projectId}
-                artifactId={artifactId}
-                initialJson={typedInitialJson ?? null}
-                readOnly={!isEditable}
-                lockLayout={lockLayout}
-              />
+              <ProjectClosureReportEditor projectId={projectId} artifactId={artifactId} initialJson={typedInitialJson ?? null} readOnly={!isEditable} lockLayout={lockLayout} />
             ) : mode === "weekly_report" ? (
               <WeeklyReportEditor
                 projectId={projectId}
@@ -381,9 +309,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
               />
             ) : (
               <div className="grid gap-2">
-                {String(rawContentText ?? "").trim().length === 0 ? (
-                  <div className="text-sm text-gray-600">No content yet.</div>
-                ) : null}
+                {String(rawContentText ?? "").trim().length === 0 ? <div className="text-sm text-gray-600">No content yet.</div> : null}
                 <textarea
                   rows={14}
                   readOnly
@@ -394,7 +320,8 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
             )}
           </section>
 
-          {showAI || showTimeline ? (
+          {/* ✅ Panels: keep for non-charter (avoid duplicate "Improve" UI on charter pages) */}
+          {!shouldHidePanels && (showAI || showTimeline) ? (
             <section className="border rounded-2xl bg-white p-5 space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="font-medium">Panels</div>
@@ -406,9 +333,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                       onClick={() => setOpenAI((v) => !v)}
                       className={cx(
                         "rounded-xl border px-3 py-2 text-sm transition",
-                        openAI
-                          ? "bg-black text-white border-black"
-                          : "border-gray-200 hover:bg-gray-50"
+                        openAI ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50"
                       )}
                     >
                       {openAI ? "Hide AI" : "Show AI"}
@@ -421,9 +346,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                       onClick={() => setOpenTimeline((v) => !v)}
                       className={cx(
                         "rounded-xl border px-3 py-2 text-sm transition",
-                        openTimeline
-                          ? "bg-black text-white border-black"
-                          : "border-gray-200 hover:bg-gray-50"
+                        openTimeline ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50"
                       )}
                     >
                       {openTimeline ? "Hide timeline" : "Show timeline"}
@@ -439,19 +362,15 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                   targetArtifactType={aiTargetType}
                   title={aiTitle || "AI Suggestions"}
                   limit={20}
-                  hideWhenEmpty={mode !== "charter" && mode !== "closure"}
+                  hideWhenEmpty={mode !== "closure"} // only hide by default for non-key documents
                   showTestButton={devHost}
                 />
               ) : null}
 
-              {showTimeline && openTimeline ? (
-                <ArtifactTimeline artifactId={artifactId} titleMap={{}} limit={60} />
-              ) : null}
+              {showTimeline && openTimeline ? <ArtifactTimeline artifactId={artifactId} titleMap={{}} limit={60} /> : null}
 
               {!openAI && !openTimeline ? (
-                <div className="text-xs text-gray-500">
-                  Tip: open panels only when you need them — keeps this page snappy.
-                </div>
+                <div className="text-xs text-gray-500">Tip: open panels only when you need them — keeps this page snappy.</div>
               ) : null}
             </section>
           ) : null}

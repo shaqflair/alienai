@@ -1,3 +1,4 @@
+// src/components/editors/ProjectCharterSectionEditor.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -13,7 +14,6 @@ import {
   Plus,
   Trash2,
   Calendar as CalendarIcon,
-  MessageSquareText,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -59,8 +59,6 @@ type Props = {
 
   aiDisabled?: boolean;
   aiLoadingKey?: string | null;
-
-  includeContextForAI?: boolean;
 };
 
 /* =========================================================
@@ -228,26 +226,16 @@ function normalizeBulletsToList(text: string) {
 }
 
 /* =========================================================
-   Context storage in meta (sections only)
-========================================================= */
-
-function getSectionContext(meta: any, key: string) {
-  const map = meta?.ai_context_sections && typeof meta.ai_context_sections === "object" ? meta.ai_context_sections : {};
-  return safeStr(map?.[key]);
-}
-
-function setSectionContext(meta: any, key: string, next: string) {
-  const cur = meta?.ai_context_sections && typeof meta.ai_context_sections === "object" ? meta.ai_context_sections : {};
-  return { ...(meta || {}), ai_context_sections: { ...cur, [key]: String(next ?? "") } };
-}
-
-/* =========================================================
    Special section rendering rules
 ========================================================= */
 
 function isFreeTextSectionKey(k: string) {
   const key = safeStr(k).toLowerCase();
   return key === "business_case" || key === "objectives";
+}
+
+function cx(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
 }
 
 /* =========================================================
@@ -265,7 +253,6 @@ export default function ProjectCharterSectionEditor({
   onRegenerateSection,
   aiDisabled = false,
   aiLoadingKey = null,
-  includeContextForAI = true,
 }: Props) {
   const safeSections = useMemo(() => (Array.isArray(sections) ? sections : []), [sections]);
 
@@ -278,7 +265,6 @@ export default function ProjectCharterSectionEditor({
     project_manager: "",
     sponsor: "",
     dates: "",
-    ai_context_sections: {},
   }));
 
   // init once (or when meta becomes available the first time)
@@ -291,22 +277,18 @@ export default function ProjectCharterSectionEditor({
       project_manager: safeStr((incoming as any).project_manager),
       sponsor: safeStr((incoming as any).sponsor),
       dates: safeStr((incoming as any).dates),
-      ai_context_sections:
-        (incoming as any).ai_context_sections && typeof (incoming as any).ai_context_sections === "object"
-          ? (incoming as any).ai_context_sections
-          : {},
     });
 
     didInitMetaRef.current = true;
   }, [meta]);
 
-  // If parent meta changes later (e.g. project defaults seeded), we allow sync ONLY if user hasn’t typed recently.
-  // Additionally, we "seed" empty local fields from incoming values to fix project title not autopopulating.
+  // If parent meta changes later, we allow sync ONLY if user hasn’t typed recently.
+  // Additionally, we seed empty local fields from incoming values.
   useEffect(() => {
     if (!didInitMetaRef.current) return;
 
     const sinceEdit = Date.now() - (lastMetaEditAtRef.current || 0);
-    if (sinceEdit < 1200) return; // user typing -> do not clobber
+    if (sinceEdit < 1200) return;
 
     const incoming = meta && typeof meta === "object" ? meta : {};
     const incomingTitle = safeStr((incoming as any).project_title);
@@ -314,29 +296,20 @@ export default function ProjectCharterSectionEditor({
     const incomingSponsor = safeStr((incoming as any).sponsor);
     const incomingDates = safeStr((incoming as any).dates);
 
-    const incomingSections =
-      (incoming as any).ai_context_sections && typeof (incoming as any).ai_context_sections === "object"
-        ? (incoming as any).ai_context_sections
-        : {};
-
     setMetaDraft((cur) => {
       const next = { ...(cur || {}) };
 
-      // ✅ Seed (only if local is empty) — solves autopopulation without overwriting edits
       if (!safeStr(next.project_title).trim() && incomingTitle.trim()) next.project_title = incomingTitle;
       if (!safeStr(next.project_manager).trim() && incomingPm.trim()) next.project_manager = incomingPm;
       if (!safeStr(next.sponsor).trim() && incomingSponsor.trim()) next.sponsor = incomingSponsor;
       if (!safeStr(next.dates).trim() && incomingDates.trim()) next.dates = incomingDates;
-
-      // Merge section context map (keep local edits if present)
-      next.ai_context_sections = { ...(incomingSections || {}), ...(next.ai_context_sections || {}) };
 
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meta]);
 
-  // Debounced push up to parent (prevents autosave thrash on every keystroke)
+  // Debounced push up to parent
   useEffect(() => {
     if (!didInitMetaRef.current) return;
     if (readOnly) return;
@@ -439,7 +412,6 @@ export default function ProjectCharterSectionEditor({
             </div>
             <div>
               <div className="text-sm font-semibold text-slate-900">Charter Details</div>
-              {/* ✅ Removed subtitle: "Project metadata" */}
             </div>
           </div>
 
@@ -496,7 +468,7 @@ export default function ProjectCharterSectionEditor({
 
             <div className="mt-4 text-xs text-slate-400 flex items-center gap-2">
               <Sparkles className="h-3 w-3" />
-              These fields power your exports and help AI context.
+              These fields power your exports.
             </div>
           </div>
         )}
@@ -523,8 +495,6 @@ export default function ProjectCharterSectionEditor({
           );
 
           const freeText = !isTable && isFreeTextSectionKey(key);
-
-          const sectionContext = includeContextForAI ? getSectionContext(metaDraft, key) : "";
 
           return (
             <div
@@ -581,7 +551,7 @@ export default function ProjectCharterSectionEditor({
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
-                  {/* AI buttons */}
+                  {/* ✅ Context removed. Only Improve + Regenerate. */}
                   {onImproveSection ? (
                     <Button
                       type="button"
@@ -621,52 +591,6 @@ export default function ProjectCharterSectionEditor({
                       />
                       {aiLoadingKey === key ? "Working..." : "Regenerate"}
                     </Button>
-                  ) : null}
-
-                  {/* Context */}
-                  {includeContextForAI && key ? (
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={readOnly}
-                          className="rounded-lg border-slate-200 hover:bg-slate-50"
-                          title="Add context that helps AI write this section accurately"
-                        >
-                          <MessageSquareText className="h-4 w-4 mr-2 text-slate-600" />
-                          Context
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent align="end" className="w-[460px] p-4">
-                        <div className="space-y-2">
-                          <div className="text-sm font-semibold text-slate-900">Section context</div>
-                          <div className="text-xs text-slate-600">
-                            Used by AI when generating <span className="font-medium">{title}</span>. Keep it short and
-                            specific.
-                          </div>
-
-                          <textarea
-                            value={sectionContext}
-                            rows={8}
-                            onChange={(e) => {
-                              lastMetaEditAtRef.current = Date.now();
-                              setMetaDraft((md) => setSectionContext(md, key, e.target.value));
-                            }}
-                            placeholder={[
-                              "Act as a senior programme manager and PMO governance expert.",
-                              "Generate a complete, executive-ready Project Charter using best-practice (PRINCE2/PMBOK hybrid).",
-                              "Be concise, structured, and realistic for enterprise delivery.",
-                              "Flag assumptions clearly and avoid generic filler.",
-                              "Ensure objectives are measurable and aligned to business value.",
-                            ].join("\n")}
-                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                          />
-                          {/* ✅ Removed: “Stored in meta…” line */}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
                   ) : null}
                 </div>
               </div>
@@ -783,7 +707,6 @@ function BulletsEditor({
   readOnly: boolean;
   onChange: (v: string) => void;
 }) {
-  // ✅ Keep derived list for internal use if needed later; no preview UI.
   useMemo(() => normalizeBulletsToList(value), [value]);
 
   return (
@@ -1048,8 +971,7 @@ function TableEditor({
           </Button>
 
           <div className="ml-auto text-xs text-slate-400">
-            {dataRows.length} row{dataRows.length !== 1 ? "s" : ""} × {header.length} column
-            {header.length !== 1 ? "s" : ""}
+            {dataRows.length} row{dataRows.length !== 1 ? "s" : ""} × {header.length} column{header.length !== 1 ? "s" : ""}s
           </div>
         </div>
       ) : null}
