@@ -172,20 +172,21 @@ function isDbUuid(x: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(x ?? ""));
 }
 
-// Cell background colors for Impact/Influence
+// Full cell background colors for Impact/Influence - extending to entire cell
 function getImpactInfluenceCellClass(level: any) {
   const s = String(level ?? "").toLowerCase();
-  if (s === "high") return "bg-rose-50/60 border-l-4 border-l-rose-500";
-  if (s === "medium") return "bg-amber-50/60 border-l-4 border-l-amber-500";
-  if (s === "low") return "bg-emerald-50/60 border-l-4 border-l-emerald-500";
+  if (s === "high") return "bg-rose-200 border-l-4 border-l-rose-600";
+  if (s === "medium") return "bg-amber-200 border-l-4 border-l-amber-600";
+  if (s === "low") return "bg-emerald-200 border-l-4 border-l-emerald-600";
   return "bg-white border-l-4 border-l-transparent";
 }
 
+// BRIGHT pill classes with white backgrounds for dropdowns
 function pillClassLevel(v: any) {
   const s = String(v ?? "").toLowerCase();
-  if (s === "high") return "bg-rose-100 text-rose-800 border-rose-300 font-semibold";
-  if (s === "medium") return "bg-amber-100 text-amber-800 border-amber-300 font-semibold";
-  if (s === "low") return "bg-emerald-100 text-emerald-800 border-emerald-300 font-semibold";
+  if (s === "high") return "bg-white text-rose-700 border-rose-300 font-bold shadow-sm";
+  if (s === "medium") return "bg-white text-amber-700 border-amber-300 font-bold shadow-sm";
+  if (s === "low") return "bg-white text-emerald-700 border-emerald-300 font-bold shadow-sm";
   return "bg-gray-100 text-gray-600 border-gray-200";
 }
 
@@ -1593,9 +1594,9 @@ export default function StakeholderRegisterEditor(props: {
                                         />
                                       </td>
 
-                                      {/* Impact */}
+                                      {/* Impact - Full cell background color */}
                                       <td
-                                        className={`px-4 py-3 align-top transition-colors ${getImpactInfluenceCellClass(r.impact_level)}`}
+                                        className={`px-4 py-3 align-top ${getImpactInfluenceCellClass(r.impact_level)}`}
                                         style={{ width: colWidths.impact_level, minWidth: colWidths.impact_level }}
                                       >
                                         <select
@@ -1612,9 +1613,9 @@ export default function StakeholderRegisterEditor(props: {
                                         </select>
                                       </td>
 
-                                      {/* Influence */}
+                                      {/* Influence - Full cell background color */}
                                       <td
-                                        className={`px-4 py-3 align-top transition-colors ${getImpactInfluenceCellClass(r.influence_level)}`}
+                                        className={`px-4 py-3 align-top ${getImpactInfluenceCellClass(r.influence_level)}`}
                                         style={{ width: colWidths.influence_level, minWidth: colWidths.influence_level }}
                                       >
                                         <select
@@ -1697,7 +1698,7 @@ export default function StakeholderRegisterEditor(props: {
                                         </div>
                                       </td>
 
-                                      {/* Channels */}
+                                      {/* Channels - Question marks removed */}
                                       <td
                                         className="px-4 py-3 align-top"
                                         style={{ width: colWidths.channels, minWidth: colWidths.channels }}
@@ -1714,6 +1715,7 @@ export default function StakeholderRegisterEditor(props: {
                                           placeholder="Select channels..."
                                           widthClassName="w-full"
                                           maxChips={isExpanded ? 5 : 2}
+                                          helpText=""
                                         />
                                       </td>
 

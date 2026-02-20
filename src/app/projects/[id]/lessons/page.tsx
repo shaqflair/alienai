@@ -376,22 +376,21 @@ export default function LessonsPage() {
     }
   }
 
-  async function runAi() {
-    try {
-      const r = await fetch("/api/lessons/ai-generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_id: projectId }),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || j?.ok === false) throw new Error(j?.error || "AI generate failed");
-      await refresh();
-      alert(`AI created ${j.created_count ?? 0} lessons`);
-    } catch (e: any) {
-      alert(e?.message || "AI generate failed");
-    }
+async function runAi() {
+  try {
+    const r = await fetch("/api/lessons/ai-generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project_code: projectId }), // ✅ use project code / route param
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j?.ok === false) throw new Error(j?.error || "AI generate failed");
+    await refresh();
+    alert(`AI created ${j.created_count ?? 0} lessons`);
+  } catch (e: any) {
+    alert(e?.message || "AI generate failed");
   }
-
+}
   async function publishToggle(l: Lesson, publish: boolean) {
     const existing = (l.library_tags || []).join(", ");
     const rawInput = prompt(publish ? "Publish to Org Library.\nEnter tags:" : "Unpublish.\nUpdate tags:", existing);
