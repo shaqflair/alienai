@@ -146,14 +146,8 @@ export function renderClosureReportSections(model: any) {
       "Executive Summary",
       `<div>${escapeHtml(safeStr(model?.executiveSummary) || "—")}</div>`
     ) +
-    section(
-      "Health",
-      kvTable([
-        { k: "RAG", v: safeStr(model?.rag || "—").toUpperCase() || "—" },
-        { k: "Overall", v: safeStr(model?.overall) || "—" },
-        { k: "Open Risks / Issues", v: String(openRisksCount) },
-      ])
-    ) +
+  
+  
     section(
       "Key Stakeholders",
       bullets(stakeholders, (s) => {
