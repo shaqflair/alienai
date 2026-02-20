@@ -8,8 +8,12 @@ function norm(x: any) {
   return safeStr(x).trim();
 }
 
+function lower(x: any) {
+  return norm(x).toLowerCase();
+}
+
 function influenceLevel(x: any): string {
-  const s = norm(x).toLowerCase();
+  const s = lower(x);
   if (!s) return "medium";
   if (s === "high") return "high";
   if (s === "medium") return "medium";
@@ -17,17 +21,34 @@ function influenceLevel(x: any): string {
   return s;
 }
 
+function firstNonEmpty(...vals: any[]) {
+  for (const v of vals) {
+    const s = norm(v);
+    if (s) return s;
+  }
+  return "";
+}
+
+function joinChannels(x: any) {
+  if (Array.isArray(x)) return x.map((v) => norm(v)).filter(Boolean).join(", ");
+  return norm(x);
+}
+
 function contactInfoToString(ci: any) {
   if (!ci) return "—";
   if (typeof ci === "string") return norm(ci) || "—";
   if (typeof ci !== "object") return norm(ci) || "—";
 
-  const email = norm(ci?.email);
-  const phone = norm(ci?.phone);
-  const org = norm(ci?.organisation || ci?.organization);
-  const notes = norm(ci?.notes);
+  // ✅ Prefer canonical "point_of_contact" first (your DB uses this)
+  const point = norm((ci as any)?.point_of_contact);
 
-  const parts = [email, phone, org, notes].filter(Boolean);
+  const email = norm((ci as any)?.email);
+  const phone = norm((ci as any)?.phone);
+  const org = norm((ci as any)?.organisation || (ci as any)?.organization);
+  const handle = norm((ci as any)?.handle || (ci as any)?.teams || (ci as any)?.slack);
+  const notes = norm((ci as any)?.notes);
+
+  const parts = [point, email, phone, org, handle, notes].filter(Boolean);
   if (parts.length) return parts.join(" | ");
 
   try {
@@ -41,28 +62,81 @@ function contactInfoToString(ci: any) {
 /**
  * Normalise export rows into the NEW stakeholder DB shape,
  * while preserving legacy alias keys so older renderers don't go blank.
+ *
+ * ✅ Key fix vs previous version:
+ * - Do NOT wipe out impact/mapping/milestone/type/title fields.
+ *   Pull them from contact_info (source of truth) when present.
+ * - Prefer contact_info.point_of_contact for “Contact Details”
+ * - Prefer contact_info.channels array for “Channels”
  */
 export function normalizeStakeholderRows(rows: StakeholderRegisterRow[]): any[] {
   const input = Array.isArray(rows) ? rows : [];
 
   const out = input
     .map((r: any) => {
+      const rawCi =
+        r?.contact_info && typeof r.contact_info === "object"
+          ? r.contact_info
+          : r?.contact_info && typeof r.contact_info === "string"
+          ? // if it was accidentally stringified earlier, leave it alone
+            r.contact_info
+          : null;
+
+      // If contact_info is a string, we can't safely pick fields. Keep {} and use string as contact.
+      const ciObj = rawCi && typeof rawCi === "object" ? rawCi : ({} as any);
+
       // New canonical (DB)
       const name = norm(r?.name ?? r?.stakeholder);
       const role = norm(r?.role);
+
+      // Influence is top-level in DB, but preserve legacy alias too
       const influence_level = influenceLevel(r?.influence_level ?? r?.influence) || "medium";
-      const expectations = norm(r?.expectations ?? r?.impact_notes ?? r?.stakeholder_impact ?? r?.notes);
-      const communication_strategy = norm(r?.communication_strategy ?? r?.communication ?? r?.channels);
 
-      const contact_info =
-        r?.contact_info && typeof r.contact_info === "object"
-          ? r.contact_info
-          : (r?.contact_info ? ({} as any) : ({} as any));
+      // Expectations / impact notes source:
+      // Prefer contact_info.stakeholder_impact then expectations then legacy notes
+      const expectations = firstNonEmpty(
+        (ciObj as any)?.stakeholder_impact,
+        r?.expectations,
+        r?.impact_notes,
+        r?.stakeholder_impact,
+        r?.notes
+      );
 
-      // Legacy-friendly derived string
-      const contactStr =
-        norm(r?.contact ?? r?.point_of_contact ?? r?.contact_details ?? r?.email) ||
-        contactInfoToString(contact_info);
+      // Communication strategy / actions (keep as-is)
+      const communication_strategy = firstNonEmpty(r?.communication_strategy, r?.communication);
+
+      // Pull “register columns” from contact_info (source of truth)
+      const type = firstNonEmpty((ciObj as any)?.internal_external, r?.type, r?.internal_external);
+      const title_role = firstNonEmpty((ciObj as any)?.title_role, r?.title_role, r?.title);
+      const impact_level = firstNonEmpty((ciObj as any)?.impact_level, r?.impact_level, r?.impact);
+      const stakeholder_mapping = firstNonEmpty(
+        (ciObj as any)?.stakeholder_mapping,
+        r?.stakeholder_mapping,
+        r?.mapping
+      );
+      const involvement_milestone = firstNonEmpty(
+        (ciObj as any)?.involvement_milestone,
+        r?.involvement_milestone,
+        r?.milestone
+      );
+      const group = firstNonEmpty((ciObj as any)?.group, r?.group, "Project");
+
+      const channels = firstNonEmpty(
+        joinChannels((ciObj as any)?.channels),
+        joinChannels(r?.channels),
+        joinChannels(r?.communication_strategy), // legacy misuse
+        ""
+      );
+
+      // Contact details: prefer contact_info.point_of_contact, then any explicit contact fields
+      const contactStr = firstNonEmpty(
+        (ciObj as any)?.point_of_contact,
+        r?.contact,
+        r?.point_of_contact,
+        r?.contact_details,
+        r?.email,
+        contactInfoToString(rawCi) // handles string/object
+      );
 
       const canonical = {
         name,
@@ -70,27 +144,32 @@ export function normalizeStakeholderRows(rows: StakeholderRegisterRow[]): any[] 
         influence_level: influence_level || "medium",
         expectations: expectations || "—",
         communication_strategy: communication_strategy || "—",
-        contact_info: contact_info ?? {},
+        contact_info: ciObj ?? {},
       };
 
-      // Legacy aliases (safe)
+      // Legacy aliases (safe + populated)
       const aliases = {
         stakeholder: name,
         contact: contactStr || "—",
         influence: influence_level || "medium",
-        impact: "—",
-        mapping: "—",
-        milestone: "—",
-        impact_notes: expectations || "—",
-        channels: communication_strategy || "—",
-        group: norm(r?.group) || "Project",
 
-        // also keep old “xlsx renderer” keys if any code still expects them
+        // ✅ Populate from contact_info where possible
+        impact: impact_level || "—",
+        mapping: stakeholder_mapping || "—",
+        milestone: involvement_milestone || "—",
+        impact_notes: expectations || "—",
+        channels: channels || "—",
+        group: group || "Project",
+
+        // Extra keys some legacy renderers might expect
         point_of_contact: contactStr || "—",
         stakeholder_impact: expectations || "—",
-        impact_level: "—",
-        stakeholder_mapping: "—",
-        involvement_milestone: "—",
+        impact_level: impact_level || "—",
+        stakeholder_mapping: stakeholder_mapping || "—",
+        involvement_milestone: involvement_milestone || "—",
+        internal_external: type || "—",
+        title_role: title_role || "—",
+        type: type || "—",
       };
 
       return { ...canonical, ...aliases };

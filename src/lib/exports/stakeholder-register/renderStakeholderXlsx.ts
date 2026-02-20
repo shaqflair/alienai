@@ -33,19 +33,37 @@ function influenceLabel(v: any) {
   return safeStr(v) || "Medium";
 }
 
-function contactInfoToString(ci: any) {
+function titleCaseLoose(v: any) {
+  const s = safeStr(v);
+  if (!s) return "—";
+  // If already looks like "Keep Satisfied" / "Monitor" etc, keep it
+  if (/[a-z]/.test(s) && /[A-Z]/.test(s)) return s;
+  // If all-caps like "MEDIUM", normalise nicely
+  const low = s.toLowerCase();
+  return low.charAt(0).toUpperCase() + low.slice(1);
+}
+
+function joinChannels(x: any) {
+  if (Array.isArray(x)) return x.map((v) => safeStr(v)).filter(Boolean).join(", ");
+  return safeStr(x);
+}
+
+/**
+ * Your canonical DB uses:
+ * contact_info.point_of_contact
+ * contact_info.channels (array)
+ */
+function contactDetailsToString(row: any) {
+  const r = typeof row === "object" && row ? row : {};
+  const ci = r?.contact_info && typeof r.contact_info === "object" ? r.contact_info : null;
+
+  const point = safeStr(ci?.point_of_contact);
+  const legacy = safeStr(r?.contact ?? r?.contact_details ?? r?.point_of_contact ?? "");
+  if (point) return point;
+  if (legacy) return legacy;
+
+  // fallback stringification
   if (!ci) return "—";
-  if (typeof ci === "string") return safeStr(ci) || "—";
-  if (typeof ci !== "object") return safeStr(ci) || "—";
-
-  const email = safeStr(ci?.email);
-  const phone = safeStr(ci?.phone);
-  const org = safeStr(ci?.organisation || ci?.organization);
-  const notes = safeStr(ci?.notes);
-
-  const parts = [email, phone, org, notes].filter(Boolean);
-  if (parts.length) return parts.join(" | ");
-
   try {
     const s = JSON.stringify(ci);
     return s.length > 240 ? s.slice(0, 240) + "…" : s;
@@ -55,30 +73,63 @@ function contactInfoToString(ci: any) {
 }
 
 type XlsxRow = {
-  name: string;
+  stakeholder: string;
+  contact_details: string;
   role: string;
-  influence_level: string;
-  expectations: string;
-  communication_strategy: string;
-  contact_info: string;
+  type: string;
+  title_role: string;
+  impact: string;
+  influence: string;
+  mapping: string;
+  milestone: string;
+  impact_notes: string;
+  channels: string;
+  actions: string;
 };
 
 function mapRow(raw: any): XlsxRow {
   const r = typeof raw === "object" && raw ? raw : {};
-  const name = safeStr(r?.name ?? r?.stakeholder);
-  const role = safeStr(r?.role);
-  const influence_level = influenceLabel(r?.influence_level ?? r?.influence);
-  const expectations = safeStr(r?.expectations ?? r?.impact_notes ?? r?.stakeholder_impact ?? r?.notes);
-  const communication_strategy = safeStr(r?.communication_strategy ?? r?.channels ?? r?.communication);
-  const contact_info = contactInfoToString(r?.contact_info) || safeStr(r?.contact) || "—";
+  const ci = r?.contact_info && typeof r.contact_info === "object" ? r.contact_info : {};
+
+  const stakeholder = safeStr(r?.name ?? r?.stakeholder) || "—";
+  const role = safeStr(r?.role) || "—";
+
+  // ✅ Influence is top-level (but may exist as legacy alias too)
+  const influence = influenceLabel(r?.influence_level ?? r?.influence);
+
+  // ✅ Pull all “register columns” from contact_info (source of truth), with legacy fallbacks
+  const type = titleCaseLoose(ci?.internal_external ?? r?.type ?? r?.internal_external);
+  const title_role = safeStr(ci?.title_role ?? r?.title_role ?? r?.title) || "—";
+  const impact = titleCaseLoose(ci?.impact_level ?? r?.impact_level ?? r?.impact);
+  const mapping = safeStr(ci?.stakeholder_mapping ?? r?.stakeholder_mapping ?? r?.mapping) || "—";
+  const milestone = safeStr(ci?.involvement_milestone ?? r?.involvement_milestone ?? r?.milestone) || "—";
+
+  const impact_notes =
+    safeStr(ci?.stakeholder_impact ?? r?.stakeholder_impact ?? r?.impact_notes ?? r?.expectations ?? r?.notes) || "—";
+
+  const channels =
+    joinChannels(ci?.channels) ||
+    joinChannels(r?.channels) ||
+    // Some legacy pipelines stuck channels into communication_strategy
+    joinChannels(r?.communication_strategy) ||
+    "—";
+
+  const actions = safeStr(r?.communication_strategy ?? r?.actions ?? r?.communication) || "—";
+  const contact_details = contactDetailsToString(r) || "—";
 
   return {
-    name: name || "—",
-    role: role || "—",
-    influence_level: influence_level || "Medium",
-    expectations: expectations || "—",
-    communication_strategy: communication_strategy || "—",
-    contact_info: contact_info || "—",
+    stakeholder: stakeholder || "—",
+    contact_details,
+    role,
+    type,
+    title_role,
+    impact,
+    influence: influence || "Medium",
+    mapping,
+    milestone,
+    impact_notes,
+    channels,
+    actions,
   };
 }
 
@@ -112,14 +163,20 @@ export async function renderStakeholderRegisterXlsx(args: {
     views: [{ state: "frozen", ySplit: 1 }],
   });
 
-  // ✅ Correct DB schema columns
+  // ✅ Columns you requested (in order)
   ws.columns = [
-    { header: "Name", key: "name", width: 24 },
-    { header: "Role", key: "role", width: 20 },
-    { header: "Influence Level", key: "influence_level", width: 14 },
-    { header: "Expectations", key: "expectations", width: 40 },
-    { header: "Communication Strategy", key: "communication_strategy", width: 40 },
-    { header: "Contact Info", key: "contact_info", width: 28 },
+    { header: "Stakeholder", key: "stakeholder", width: 26 },
+    { header: "Contact Details", key: "contact_details", width: 28 },
+    { header: "Role", key: "role", width: 22 },
+    { header: "Type", key: "type", width: 12 },
+    { header: "Title/Role", key: "title_role", width: 18 },
+    { header: "Impact", key: "impact", width: 10 },
+    { header: "Influence", key: "influence", width: 10 },
+    { header: "Mapping", key: "mapping", width: 16 },
+    { header: "Milestone", key: "milestone", width: 18 },
+    { header: "Impact Notes", key: "impact_notes", width: 44 },
+    { header: "Channels", key: "channels", width: 16 },
+    { header: "Actions", key: "actions", width: 28 },
   ];
 
   // Header styling
@@ -132,8 +189,11 @@ export async function renderStakeholderRegisterXlsx(args: {
     cell.border = thinBorder("FFCBD5E1");
   });
 
-  // Data
-  const mapped = rows.map(mapRow).filter((r) => safeStr(r.name) !== "" && r.name !== "—");
+  // ✅ Data (do NOT drop rows just because name is "—" unless it is genuinely empty)
+  const mapped = rows
+    .map(mapRow)
+    .filter((r) => safeStr(r.stakeholder) !== "" && safeStr(r.stakeholder) !== "—");
+
   for (const r of mapped) ws.addRow(r);
 
   // Cell formatting
