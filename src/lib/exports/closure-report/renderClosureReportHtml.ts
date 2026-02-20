@@ -1,6 +1,6 @@
 ﻿import "server-only";
 
-// FIX: you already have renderClosureReportSections in ./render.ts
+// ✅ you already have renderClosureReportSections in ./render.ts
 import { renderClosureReportSections } from "./render";
 
 function safeStr(x: any) {
@@ -21,8 +21,7 @@ const COLORS = {
   muted: "#64748B",
   border: "#E2E8F0",
   bg: "#F8FAFC",
-  headerAccent: "#2563EB",
-  headerGradEnd: "#020617",
+  accent: "#2563EB",
 };
 
 export type ClosureRenderModel = any;
@@ -42,6 +41,14 @@ export function renderClosureReportHtml(args: {
   const rag = safeStr(model?.rag || "—").toUpperCase() || "—";
   const overall = safeStr(model?.overall || "—") || "—";
 
+  // Optional PM name if you want it like Charter (falls back to signoff.pm_name)
+  const pmName =
+    safeStr(model?.projectManager) ||
+    safeStr(model?.pm_name) ||
+    safeStr(model?.signoff?.pm_name) ||
+    safeStr(model?.signoff?.pmName) ||
+    "";
+
   return `<!doctype html>
 <html>
 <head>
@@ -55,30 +62,34 @@ export function renderClosureReportHtml(args: {
       color: ${COLORS.ink};
       background: white;
     }
-    .page { padding: 28px 34px; }
+    .page { padding: 26px 34px; }
 
-    .header {
-      background: linear-gradient(135deg, ${COLORS.headerAccent} 0%, ${COLORS.headerGradEnd} 100%);
-      color: white;
-      padding: 18px 22px;
-      border-radius: 14px;
-    }
+    /* --- Charter-style header --- */
+    .topRow { display:flex; align-items:flex-start; justify-content:space-between; gap: 18px; }
+    .brand { display:flex; align-items:center; gap: 14px; }
     .badge {
-      display: inline-block;
-      background: rgba(255,255,255,.14);
-      border: 1px solid rgba(255,255,255,.22);
-      padding: 6px 10px;
-      border-radius: 10px;
-      font-weight: 800;
-      letter-spacing: .06em;
-      margin-right: 10px;
+      width: 44px; height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(180deg, ${COLORS.accent} 0%, #1D4ED8 100%);
       color: #fff;
+      display:flex; align-items:center; justify-content:center;
+      font-weight: 900;
+      letter-spacing: .06em;
     }
-    .h-title { font-size: 22px; font-weight: 800; margin: 0; }
-    .h-sub { margin: 6px 0 0; color: rgba(255,255,255,.82); font-size: 13px; }
+    .titles { display:flex; flex-direction:column; gap: 2px; }
+    .h1 { font-size: 28px; font-weight: 900; margin: 0; line-height: 1.1; }
+    .sub { font-size: 13px; color: ${COLORS.muted}; font-weight: 700; }
+
+    .generatedBox { text-align:right; min-width: 220px; }
+    .genLabel {
+      font-size: 11px; color: ${COLORS.muted};
+      font-weight: 800; text-transform: uppercase; letter-spacing: .06em;
+    }
+    .genValue { margin-top: 6px; font-size: 14px; font-weight: 900; }
+
+    .divider { margin: 16px 0 14px; height: 2px; background: ${COLORS.accent}; opacity: 0.35; border-radius: 2px; }
 
     .meta {
-      margin-top: 14px;
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       gap: 10px;
@@ -90,64 +101,73 @@ export function renderClosureReportHtml(args: {
       padding: 10px 12px;
       min-height: 58px;
     }
-    .metaLabel { font-size: 11px; color: ${COLORS.muted}; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
-    .metaValue { margin-top: 4px; font-size: 14px; font-weight: 800; }
-    .metaCode { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; color: ${COLORS.headerAccent}; }
+    .metaLabel { font-size: 11px; color: ${COLORS.muted}; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+    .metaValue { margin-top: 4px; font-size: 14px; font-weight: 900; }
+    .metaCode { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; color: ${COLORS.accent}; }
 
-    .kpis { margin-top: 14px; }
+    /* KPI row (kept) */
+    .kpis { margin-top: 12px; }
     .kpiRow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
     .kpi {
       border: 1px solid ${COLORS.border};
+      background: white;
       border-radius: 12px;
       padding: 10px 12px;
     }
-    .kpiLabel { font-size: 12px; color: ${COLORS.muted}; font-weight: 700; }
-    .kpiValue { margin-top: 6px; font-size: 18px; font-weight: 900; }
+    .kpiLabel { font-size: 12px; color: ${COLORS.muted}; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+    .kpiValue { margin-top: 6px; font-size: 18px; font-weight: 950; }
 
     /* ---- styles expected by renderClosureReportSections ---- */
-    .section { margin-top: 18px; break-inside: avoid; page-break-inside: avoid; }
+    .section { margin-top: 18px; }
     .sectionHead { display:flex; justify-content:space-between; align-items:flex-end; gap:12px; }
     .sectionHead .t {
       font-size: 14px;
-      font-weight: 900;
-      color: ${COLORS.headerAccent};
-      border-bottom: 2px solid ${COLORS.headerAccent};
+      font-weight: 950;
+      color: ${COLORS.accent};
+      border-bottom: 2px solid ${COLORS.accent};
       padding-bottom: 6px;
       flex: 1;
     }
-    .sectionHead .n { font-size: 11px; color: ${COLORS.muted}; font-weight: 700; white-space: nowrap; }
+    .sectionHead .n { font-size: 11px; color: ${COLORS.muted}; font-weight: 800; white-space: nowrap; }
     .sectionBody { margin-top: 10px; }
     .muted { color: ${COLORS.muted}; font-style: italic; }
 
     ul.bullets { margin: 0; padding-left: 18px; }
     ul.bullets li { margin: 6px 0; }
 
-    table.kvTable { width:100%; border-collapse: collapse; border:1px solid ${COLORS.border}; border-radius:12px; overflow:hidden; font-size:12.5px; }
-    .kvK { width: 30%; background:${COLORS.bg}; color:${COLORS.muted}; font-weight:800; padding:8px 10px; border-bottom:1px solid ${COLORS.border}; }
-    .kvV { padding:8px 10px; border-bottom:1px solid ${COLORS.border}; font-weight:800; }
+    table.kvTable {
+      width:100%;
+      border-collapse: collapse;
+      border:1px solid ${COLORS.border};
+      border-radius:12px;
+      overflow:hidden;
+      font-size:12.5px;
+    }
+    .kvK { width: 30%; background:${COLORS.bg}; color:${COLORS.muted}; font-weight:900; padding:8px 10px; border-bottom:1px solid ${COLORS.border}; }
+    .kvV { padding:8px 10px; border-bottom:1px solid ${COLORS.border}; font-weight:900; }
 
     table { width: 100%; border-collapse: collapse; }
-
-    /* ✅ Use the landscape width: flow sections into 2 columns */
-    .sectionsColumns {
-      margin-top: 14px;
-      column-count: 2;
-      column-gap: 18px;
-      column-fill: balance;
-    }
 
     @page { size: A4 landscape; margin: 10mm; }
   </style>
 </head>
 <body>
   <div class="page">
-    <div class="header">
-      <div>
-        <span class="badge">PC</span>
-        <span class="h-title">Project Closure Report</span>
+    <div class="topRow">
+      <div class="brand">
+        <div class="badge">PC</div>
+        <div class="titles">
+          <h1 class="h1">Project Closure Report</h1>
+          <div class="sub">${escHtml(projectName)}</div>
+        </div>
       </div>
-      <div class="h-sub">${escHtml(projectName)}</div>
+      <div class="generatedBox">
+        <div class="genLabel">Generated</div>
+        <div class="genValue">${escHtml(generatedDateTime)}</div>
+      </div>
     </div>
+
+    <div class="divider"></div>
 
     <div class="meta">
       <div class="metaCard">
@@ -163,8 +183,8 @@ export function renderClosureReportHtml(args: {
         <div class="metaValue metaCode">${escHtml(projectCode || "—")}</div>
       </div>
       <div class="metaCard">
-        <div class="metaLabel">Generated</div>
-        <div class="metaValue">${escHtml(generatedDateTime)}</div>
+        <div class="metaLabel">Project Manager</div>
+        <div class="metaValue">${escHtml(pmName || "—")}</div>
       </div>
     </div>
 
@@ -185,9 +205,7 @@ export function renderClosureReportHtml(args: {
       </div>
     </div>
 
-    <div class="sectionsColumns">
-      ${sectionsHtml}
-    </div>
+    ${sectionsHtml}
   </div>
 </body>
 </html>`;

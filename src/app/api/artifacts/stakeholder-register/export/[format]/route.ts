@@ -91,20 +91,7 @@ function baseNameFromMeta(meta: any, prefix: string) {
   return `${base}_${isoDate()}`;
 }
 
-/* ---------------- body caching (critical) ---------------- */
-
-async function readJsonBodyOnce(req: NextRequest): Promise<any> {
-  if (req.method === "GET") return {};
-  const anyReq = req as any;
-  if (anyReq.__cachedJsonBody !== undefined) return anyReq.__cachedJsonBody;
-  const body = await req.json().catch(() => ({} as any));
-  anyReq.__cachedJsonBody = body;
-  return body;
-}
-
-/* ---------------- tolerant param readers ---------------- */
-
-async function readIds(req: NextRequest, body?: any) {
+async function readIds(req: NextRequest) {
   const url = req.nextUrl;
 
   const qProjectId = cleanId(url.searchParams.get("projectId"));
@@ -114,9 +101,9 @@ async function readIds(req: NextRequest, body?: any) {
     return { projectId: qProjectId, artifactId: qArtifactId };
   }
 
-  const b = body ?? (await readJsonBodyOnce(req));
-  const bProjectId = cleanId(b?.projectId ?? b?.project_id);
-  const bArtifactId = cleanId(b?.artifactId ?? b?.artifact_id);
+  const body = await req.json().catch(() => ({} as any));
+  const bProjectId = cleanId(body?.projectId ?? body?.project_id);
+  const bArtifactId = cleanId(body?.artifactId ?? body?.artifact_id);
 
   return {
     projectId: qProjectId || bProjectId,
@@ -126,18 +113,29 @@ async function readIds(req: NextRequest, body?: any) {
 
 /**
  * ✅ Get format from:
- * 1) route param (ctx.params.format)
- * 2) query string (?format=pdf)
- * 3) POST body ({ format: "pdf" })
+ * 1) route param (works for /export/[format])
+ * 2) pathname fallback (works for /export/pdf, /export/xlsx, /export/docx re-export routes)
+ * 3) query string (?format=pdf)
+ * 4) POST body ({ format: "pdf" })
  */
-async function readFormat(req: NextRequest, body?: any, formatParamRaw?: string) {
+async function readFormat(req: NextRequest, formatParamRaw?: string) {
   const qp = safeStr(req.nextUrl.searchParams.get("format"));
+
+  // 1) route param
   if (formatParamRaw && safeStr(formatParamRaw)) return safeStr(formatParamRaw);
+
+  // 2) pathname fallback
+  const pathLast = safeStr(req.nextUrl.pathname.split("/").filter(Boolean).slice(-1)[0]);
+  // If request is /api/.../export/pdf then last segment is "pdf"
+  if (pathLast && ["pdf", "docx", "xlsx"].includes(pathLast.toLowerCase())) return pathLast;
+
+  // 3) query param
   if (qp) return qp;
 
+  // 4) body
   if (req.method !== "GET") {
-    const b = body ?? (await readJsonBodyOnce(req));
-    const bf = safeStr(b?.format ?? b?.fileType ?? b?.type);
+    const body = await req.json().catch(() => ({} as any));
+    const bf = safeStr(body?.format ?? body?.fileType ?? body?.type);
     if (bf) return bf;
   }
 
@@ -170,20 +168,18 @@ async function requireMember(supabase: any, projectId: string) {
 
 async function handle(req: NextRequest, formatParamRaw?: string) {
   try {
-    const body = await readJsonBodyOnce(req);
-
-    const formatRaw = await readFormat(req, body, formatParamRaw);
+    const formatRaw = await readFormat(req, formatParamRaw);
     const format = normalizeFormat(formatRaw);
 
     if (!["pdf", "xlsx", "docx"].includes(format)) {
       return jsonErr(`Unsupported format: ${formatRaw || "(empty)"}`, 400, {
         formatRaw,
         queryFormat: safeStr(req.nextUrl.searchParams.get("format")),
-        url: req.nextUrl.toString(),
+        pathname: req.nextUrl.pathname,
       });
     }
 
-    const { projectId, artifactId } = await readIds(req, body);
+    const { projectId, artifactId } = await readIds(req);
 
     if (!projectId) return jsonErr("Missing projectId", 400);
     if (!artifactId) return jsonErr("Missing artifactId", 400);
