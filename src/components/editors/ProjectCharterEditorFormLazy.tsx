@@ -191,7 +191,12 @@ function ensureCanonicalCharter(input: any) {
   if (isV2(input)) {
     base = clone(input);
   } else if (input && typeof input === "object" && Array.isArray((input as any)?.content?.sections)) {
-    base = { version: 2, type: "project_charter", meta: (input as any)?.meta ?? {}, sections: (input as any).content.sections };
+    base = {
+      version: 2,
+      type: "project_charter",
+      meta: (input as any)?.meta ?? {},
+      sections: (input as any).content.sections,
+    };
   } else {
     base = isV2(PROJECT_CHARTER_TEMPLATE)
       ? clone(PROJECT_CHARTER_TEMPLATE)
@@ -376,48 +381,24 @@ function mergeAiFullIntoCharter(prevDoc: any, ai: any) {
   return { ...canon, meta: mergedMeta, sections: nextSections };
 }
 
-function extractSectionFromAi(ai: any, sectionKey: string): any | null {
-  const key = String(sectionKey || "").trim().toLowerCase();
-  if (!key) return null;
-
-  const candidate = (ai && typeof ai === "object" && ((ai as any).charterV2 || (ai as any).doc)) || ai;
-  const raw = (candidate as any)?.charterV2 ?? (candidate as any)?.doc ?? candidate;
-
-  if (raw?.section && typeof raw.section === "object") return raw.section;
-
-  if (Array.isArray(raw?.sections)) {
-    const found = raw.sections.find((s: any) => String(s?.key ?? "").toLowerCase().trim() === key);
-    if (found) return found;
-    if (raw.sections.length === 1) return raw.sections[0];
-  }
-
-  const nested =
-    Array.isArray(candidate?.sections)
-      ? candidate.sections
-      : Array.isArray(candidate?.charterV2?.sections)
-      ? candidate.charterV2.sections
-      : Array.isArray(candidate?.doc?.sections)
-      ? candidate.doc.sections
-      : null;
-
-  if (Array.isArray(nested)) {
-    const found = nested.find((s: any) => String(s?.key ?? "").toLowerCase().trim() === key);
-    if (found) return found;
-    if (nested.length === 1) return nested[0];
-  }
-
+/**
+ * ✅ Patch-first extraction (robust to API shapes)
+ */
+function extractPatchFromAny(ai: any): any | null {
+  if (!ai || typeof ai !== "object") return null;
+  if ((ai as any).patch && typeof (ai as any).patch === "object" && (ai as any).patch.kind) return (ai as any).patch;
+  if ((ai as any).kind) return ai;
   return null;
 }
 
-function applyAiSection(prevDoc: any, sectionKey: string, ai: any) {
+function applyReplaceSection(prevDoc: any, sectionKey: string, incomingSection: any) {
   const key = String(sectionKey || "").trim();
   if (!key) return ensureCanonicalCharter(prevDoc);
 
   const prev = ensureCanonicalCharter(prevDoc);
-  const aiSec = extractSectionFromAi(ai, key);
-  if (!aiSec) return prev;
+  const incoming = incomingSection && typeof incomingSection === "object" ? { ...incomingSection } : { key };
+  incoming.key = key;
 
-  const incoming = { ...aiSec, key };
   if (typeof incoming.bullets === "string") incoming.bullets = normalizeBulletsText(incoming.bullets);
 
   const next = {
@@ -426,6 +407,45 @@ function applyAiSection(prevDoc: any, sectionKey: string, ai: any) {
   };
 
   return ensureCanonicalCharter(next);
+}
+
+function applyAiResultToDoc(prevDoc: any, sectionKey: string, data: any) {
+  // 1) Prefer patch wrapper
+  const patch = extractPatchFromAny(data);
+
+  if (patch?.kind === "replace_all") {
+    const rawDoc = patch.doc ?? (data as any)?.charterV2 ?? (data as any)?.doc ?? data;
+    return ensureCanonicalCharter(rawDoc);
+  }
+
+  if (patch?.kind === "replace_section") {
+    const k = String(patch.key || (data as any)?.sectionKey || sectionKey || "").trim();
+    const sec = patch.section ?? (data as any)?.section ?? (data as any)?.sections?.[0] ?? null;
+    if (!k || !sec) return ensureCanonicalCharter(prevDoc);
+    return applyReplaceSection(prevDoc, k, sec);
+  }
+
+  // 2) Fallback to UI-friendly fields (added by API)
+  const k2 = String((data as any)?.sectionKey || sectionKey || "").trim();
+  const sec2 = (data as any)?.section ?? (Array.isArray((data as any)?.sections) ? (data as any).sections[0] : null);
+  if (k2 && sec2) return applyReplaceSection(prevDoc, k2, sec2);
+
+  // 3) Final fallback: legacy extract patterns
+  const candidate = (data && typeof data === "object" && ((data as any).charterV2 || (data as any).doc)) || data;
+  const raw = (candidate as any)?.charterV2 ?? (candidate as any)?.doc ?? candidate;
+
+  if (raw?.section && typeof raw.section === "object") {
+    return applyReplaceSection(prevDoc, k2 || sectionKey, raw.section);
+  }
+
+  if (Array.isArray(raw?.sections)) {
+    const keyLower = String(sectionKey || "").trim().toLowerCase();
+    const found = raw.sections.find((s: any) => String(s?.key ?? "").toLowerCase().trim() === keyLower);
+    if (found) return applyReplaceSection(prevDoc, sectionKey, found);
+    if (raw.sections.length === 1) return applyReplaceSection(prevDoc, sectionKey, raw.sections[0]);
+  }
+
+  return ensureCanonicalCharter(prevDoc);
 }
 
 export default function ProjectCharterEditorFormLazy({
@@ -797,14 +817,34 @@ export default function ProjectCharterEditorFormLazy({
 
   const StatusBadge = ({ state }: { state: typeof autosaveState }) => {
     const configs = {
-      idle: { icon: CheckCircle2, color: "text-emerald-600", bg: "bg-emerald-50", border: "border-emerald-200", label: "Saved" },
-      saving: { icon: Loader2, color: "text-blue-600", bg: "bg-blue-50", border: "border-blue-200", label: "Saving..." },
-      queued: { icon: Clock, color: "text-amber-600", bg: "bg-amber-50", border: "border-amber-200", label: "Pending" },
+      idle: {
+        icon: CheckCircle2,
+        color: "text-emerald-600",
+        bg: "bg-emerald-50",
+        border: "border-emerald-200",
+        label: "Saved",
+      },
+      saving: {
+        icon: Loader2,
+        color: "text-blue-600",
+        bg: "bg-blue-50",
+        border: "border-blue-200",
+        label: "Saving...",
+      },
+      queued: {
+        icon: Clock,
+        color: "text-amber-600",
+        bg: "bg-amber-50",
+        border: "border-amber-200",
+        label: "Pending",
+      },
     };
     const config = (configs as any)[state];
     const Icon = config.icon;
     return (
-      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${config.bg} ${config.border} ${config.color}`}>
+      <span
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${config.bg} ${config.border} ${config.color}`}
+      >
         <Icon className={`h-3.5 w-3.5 ${state === "saving" ? "animate-spin" : ""}`} />
         {config.label}
       </span>
@@ -824,14 +864,14 @@ export default function ProjectCharterEditorFormLazy({
   const submitDisabledReason = !submitWired
     ? "Submit action is not wired."
     : !canSubmitOrResubmit
-    ? "You can’t submit right now (role/status/current revision)."
-    : readOnly
-    ? "View-only mode."
-    : lockLayout
-    ? "Layout is locked."
-    : isPending
-    ? "Please wait…"
-    : "";
+      ? "You can’t submit right now (role/status/current revision)."
+      : readOnly
+        ? "View-only mode."
+        : lockLayout
+          ? "Layout is locked."
+          : isPending
+            ? "Please wait…"
+            : "";
 
   async function generateFullCharter() {
     if (!canEdit) return;
@@ -938,12 +978,14 @@ export default function ProjectCharterEditorFormLazy({
       try {
         data = rawText ? JSON.parse(rawText) : {};
       } catch {
-        if (!res.ok) throw new Error(rawText?.trim() ? rawText.slice(0, 300) : `AI regeneration failed (${res.status})`);
+        if (!res.ok)
+          throw new Error(rawText?.trim() ? rawText.slice(0, 300) : `AI regeneration failed (${res.status})`);
       }
 
       if (!res.ok) throw new Error(String(data?.error ?? "AI regeneration failed"));
 
-      setDoc((prev) => applyAiSection(prev, key, data));
+      // ✅ PATCH-FIRST APPLY (fixes “spinner but no change”)
+      setDoc((prev) => applyAiResultToDoc(prev, key, data));
       lastLocalEditAtRef.current = Date.now();
       setDirty(true);
     } catch (e: any) {
@@ -1002,7 +1044,8 @@ export default function ProjectCharterEditorFormLazy({
 
       if (!res.ok) throw new Error(String(data?.error ?? "AI improve failed"));
 
-      setDoc((prev) => applyAiSection(prev, key, data));
+      // ✅ PATCH-FIRST APPLY (fixes “spinner but no change”)
+      setDoc((prev) => applyAiResultToDoc(prev, key, data));
       lastLocalEditAtRef.current = Date.now();
       setDirty(true);
     } catch (e: any) {
@@ -1036,7 +1079,11 @@ export default function ProjectCharterEditorFormLazy({
             </div>
 
             <p className="text-sm text-slate-500">
-              {readOnly ? "View-only mode" : lockLayout ? "Layout locked after submission" : "Edit and manage your project charter"}
+              {readOnly
+                ? "View-only mode"
+                : lockLayout
+                  ? "Layout locked after submission"
+                  : "Edit and manage your project charter"}
             </p>
 
             <LegacyLinks legacy={legacyExports ?? null} />
@@ -1062,7 +1109,9 @@ export default function ProjectCharterEditorFormLazy({
                 type="button"
                 onClick={() => setViewMode("sections")}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                  viewMode === "sections" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                  viewMode === "sections"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
                 }`}
               >
                 Sections
@@ -1071,7 +1120,9 @@ export default function ProjectCharterEditorFormLazy({
                 type="button"
                 onClick={() => setViewMode("classic")}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                  viewMode === "classic" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                  viewMode === "classic"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
                 }`}
               >
                 Classic Table
@@ -1093,7 +1144,13 @@ export default function ProjectCharterEditorFormLazy({
                   </Button>
                 </form>
               ) : (
-                <Button type="button" variant="outline" className="rounded-lg border-slate-300 text-slate-900" disabled title={submitDisabledReason}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-lg border-slate-300 text-slate-900"
+                  disabled
+                  title={submitDisabledReason}
+                >
                   <Send className="h-4 w-4 mr-2 text-slate-700" />
                   <span className="whitespace-nowrap">{submitLabel}</span>
                 </Button>
@@ -1108,14 +1165,22 @@ export default function ProjectCharterEditorFormLazy({
                     className="rounded-lg border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors"
                     disabled={!!exportBusy}
                   >
-                    {exportBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                    {exportBusy ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4 mr-2" />
+                    )}
                     {exportBusy ? "Exporting..." : "Export"}
                     <ChevronDown className="h-3 w-3 ml-2 opacity-50" />
                   </Button>
                 </DropdownMenuTrigger>
 
                 <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem onClick={() => exportCharter("pdf")} disabled={!!exportBusy} className="cursor-pointer focus:bg-slate-50">
+                  <DropdownMenuItem
+                    onClick={() => exportCharter("pdf")}
+                    disabled={!!exportBusy}
+                    className="cursor-pointer focus:bg-slate-50"
+                  >
                     <FileText className="h-4 w-4 mr-2 text-red-600" />
                     <div className="flex flex-col">
                       <span className="text-sm">Export PDF</span>
@@ -1123,7 +1188,11 @@ export default function ProjectCharterEditorFormLazy({
                     </div>
                   </DropdownMenuItem>
 
-                  <DropdownMenuItem onClick={() => exportCharter("docx")} disabled={!!exportBusy} className="cursor-pointer focus:bg-slate-50">
+                  <DropdownMenuItem
+                    onClick={() => exportCharter("docx")}
+                    disabled={!!exportBusy}
+                    className="cursor-pointer focus:bg-slate-50"
+                  >
                     <File className="h-4 w-4 mr-2 text-blue-600" />
                     <div className="flex flex-col">
                       <span className="text-sm">Export Word</span>
@@ -1133,7 +1202,12 @@ export default function ProjectCharterEditorFormLazy({
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <Button variant="outline" className="rounded-lg border-slate-300" disabled title="Export menu loads after page is ready">
+              <Button
+                variant="outline"
+                className="rounded-lg border-slate-300"
+                disabled
+                title="Export menu loads after page is ready"
+              >
                 <Download className="h-4 w-4 mr-2" />
                 Export
                 <ChevronDown className="h-3 w-3 ml-2 opacity-50" />
@@ -1200,11 +1274,15 @@ export default function ProjectCharterEditorFormLazy({
                     !wireCaps.full
                       ? "Full AI generation is not available."
                       : pmBriefEmpty
-                      ? "Add a brief first (recommended)"
-                      : "Generate the full charter from your brief"
+                        ? "Add a brief first (recommended)"
+                        : "Generate the full charter from your brief"
                   }
                 >
-                  {aiFullBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Wand2 className="h-4 w-4 mr-2 text-indigo-700" />}
+                  {aiFullBusy ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Wand2 className="h-4 w-4 mr-2 text-indigo-700" />
+                  )}
                   <span className="whitespace-nowrap">Generate</span>
                 </Button>
               </div>
@@ -1276,7 +1354,10 @@ export default function ProjectCharterEditorFormLazy({
             onChange={(sections: any) => {
               markDirty();
               setDoc((prev: any) =>
-                applyProjectMetaDefaults(ensureCanonicalCharter({ ...prev, sections }), { projectTitle, projectManagerName })
+                applyProjectMetaDefaults(ensureCanonicalCharter({ ...prev, sections }), {
+                  projectTitle,
+                  projectManagerName,
+                })
               );
             }}
             readOnly={sectionReadOnly}
