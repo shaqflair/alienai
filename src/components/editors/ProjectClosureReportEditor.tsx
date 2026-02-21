@@ -173,7 +173,11 @@ function makeDefaultDoc(): ClosureDocV1 {
     deliverables: {
       delivered: [],
       outstanding: [],
-      acceptance_checklist: { sponsor_signed: false, bau_accepted: false, knowledge_transfer_done: false },
+      acceptance_checklist: {
+        sponsor_signed: false,
+        bau_accepted: false,
+        knowledge_transfer_done: false,
+      },
       sponsor_signoff_name: "",
       sponsor_signoff_date: null,
     },
@@ -252,10 +256,9 @@ function normalizeRisks(rows: any[]): { rows: RiskIssueRow[]; changed: boolean }
       id,
       human_id,
       description: String(rr.description ?? ""),
-      severity: (rr.severity === "high" || rr.severity === "medium" || rr.severity === "low" ? rr.severity : "medium") as
-        | "high"
-        | "medium"
-        | "low",
+      severity: (rr.severity === "high" || rr.severity === "medium" || rr.severity === "low"
+        ? rr.severity
+        : "medium") as "high" | "medium" | "low",
       owner: String(rr.owner ?? ""),
       status: String(rr.status ?? ""),
       next_action: String(rr.next_action ?? ""),
@@ -281,7 +284,9 @@ function normalizeFreeTextNoBullets(raw: string) {
 
   const lines = s
     .split("\n")
-    .map((l) => l.replace(/^\s*(?:[•\-\*\u2022\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/g, "").trimEnd());
+    .map((l) =>
+      l.replace(/^\s*(?:[•\-\*\u2022\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/g, "").trimEnd()
+    );
 
   const compact = lines.join("\n").trim();
   const nonEmpty = lines.filter((l) => l.trim()).length;
@@ -349,14 +354,22 @@ function getClosureSection(doc: any, key: string): AiSection {
     const lines = (doc?.lessons?.didnt_go_well || []).map((l: any) =>
       l?.action ? `${l.text} (Action: ${l.action})` : l?.text ?? l
     );
-    return { key, title: "Lessons Learned: What didn’t go well", bullets: bulletsFromLines(lines) };
+    return {
+      key,
+      title: "Lessons Learned: What didn't go well",
+      bullets: bulletsFromLines(lines),
+    };
   }
 
   if (key === "closure.lessons.surprises_risks") {
     const lines = (doc?.lessons?.surprises_risks || []).map((l: any) =>
       l?.action ? `${l.text} (Action: ${l.action})` : l?.text ?? l
     );
-    return { key, title: "Lessons Learned: Surprises / Risks", bullets: bulletsFromLines(lines) };
+    return {
+      key,
+      title: "Lessons Learned: Surprises / Risks",
+      bullets: bulletsFromLines(lines),
+    };
   }
 
   if (key === "closure.recommendations") {
@@ -366,7 +379,11 @@ function getClosureSection(doc: any, key: string): AiSection {
       const d = String(r?.due || "").trim();
       return [t, o ? `Owner: ${o}` : "", d ? `Due: ${d}` : ""].filter(Boolean).join(" — ");
     });
-    return { key, title: "Recommendations & Follow-up Actions", bullets: bulletsFromLines(lines) };
+    return {
+      key,
+      title: "Recommendations & Follow-up Actions",
+      bullets: bulletsFromLines(lines),
+    };
   }
 
   return { key, title: key, bullets: "" };
@@ -412,7 +429,10 @@ function applyClosureSectionReplace(setDoc: any, key: string, section: AiSection
     const lines = linesFromBullets(raw);
     setDoc((d: any) => ({
       ...d,
-      lessons: { ...d.lessons, surprises_risks: lines.map((t) => ({ text: t, action: "" })) },
+      lessons: {
+        ...d.lessons,
+        surprises_risks: lines.map((t) => ({ text: t, action: "" })),
+      },
     }));
     return;
   }
@@ -427,75 +447,249 @@ function applyClosureSectionReplace(setDoc: any, key: string, section: AiSection
   }
 }
 
-/* ─────────────────────────────────────────────── UI Primitives ────────────────────────────────────────────── */
-function Section({
-  title,
-  right,
-  children,
-}: {
-  title: string;
-  right?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <h2 className="text-base font-semibold text-gray-900">{title}</h2>
-        {right}
-      </div>
-      {children}
-    </section>
-  );
+/* ─────────────────────────────────────────────── Design System ────────────────────────────────────────────── */
+
+const globalCSS = `
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Serif+Display&family=JetBrains+Mono:wght@400;500&display=swap');
+
+.closure-editor {
+  --bg: #F8F7F4;
+  --surface: #FFFFFF;
+  --border: #E8E5DE;
+  --border-strong: #D4D0C8;
+  --text: #1A1915;
+  --text-2: #6B6860;
+  --text-3: #9C9889;
+  --accent: #2C5545;
+  --accent-light: #EDF4F0;
+  --green: #2C6E49;
+  --green-bg: #E8F5ED;
+  --green-border: #B8DCC5;
+  --amber: #B8860B;
+  --amber-bg: #FFF8E1;
+  --amber-border: #F0D78C;
+  --red: #C62828;
+  --red-bg: #FFF0F0;
+  --red-border: #F5C6C6;
+  --shadow-sm: 0 1px 2px rgba(26,25,21,0.04);
+  --shadow-md: 0 2px 8px rgba(26,25,21,0.06), 0 1px 2px rgba(26,25,21,0.04);
+  --radius: 10px;
+  --radius-sm: 6px;
+  --sans: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --display: 'DM Serif Display', Georgia, serif;
+  --mono: 'JetBrains Mono', 'SF Mono', monospace;
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <div className="text-xs font-medium text-gray-600">{label}</div>
-      {children}
-    </div>
-  );
+.closure-editor, .closure-editor *, .closure-editor input,
+.closure-editor select, .closure-editor textarea {
+  font-family: var(--sans);
 }
 
-function RowGrid({ className = "", children }: { className?: string; children: React.ReactNode }) {
-  return <div className={`grid grid-cols-1 gap-4 md:grid-cols-3 ${className}`}>{children}</div>;
+.closure-editor ::-webkit-scrollbar { width: 6px; height: 6px; }
+.closure-editor ::-webkit-scrollbar-track { background: transparent; }
+.closure-editor ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-const inputBase =
-  "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-60 disabled:bg-gray-50 dark:bg-white dark:text-gray-900 dark:border-gray-300";
-const textareaBase =
-  "w-full min-h-[90px] rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-60 disabled:bg-gray-50 dark:bg-white dark:text-gray-900 dark:border-gray-300";
-const selectBase =
-  "w-full min-h-[40px] rounded-lg border border-gray-300 bg-white text-gray-900 px-3 py-2 text-sm leading-5 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-60 disabled:bg-gray-50 [color-scheme:light] [&>option]:bg-white [&>option]:text-gray-900";
-const smallBtn =
-  "inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-800 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none";
-const dangerBtn =
-  "inline-flex items-center justify-center rounded-md border border-red-200 bg-white px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none";
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
+}
+
+.c-section { animation: fadeUp 0.4s ease-out both; }
+.c-section:nth-child(1) { animation-delay: 0s; }
+.c-section:nth-child(2) { animation-delay: 0.04s; }
+.c-section:nth-child(3) { animation-delay: 0.08s; }
+.c-section:nth-child(4) { animation-delay: 0.12s; }
+.c-section:nth-child(5) { animation-delay: 0.16s; }
+.c-section:nth-child(6) { animation-delay: 0.20s; }
+.c-section:nth-child(7) { animation-delay: 0.24s; }
+.c-section:nth-child(8) { animation-delay: 0.28s; }
+.c-section:nth-child(9) { animation-delay: 0.32s; }
+.c-section:nth-child(10) { animation-delay: 0.36s; }
+.c-section:nth-child(11) { animation-delay: 0.40s; }
+.c-section:nth-child(12) { animation-delay: 0.44s; }
+
+.c-header {
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  background: rgba(248, 247, 244, 0.88);
+}
+
+.closure-editor input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border-strong);
+  border-radius: 4px;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  background: var(--surface);
+}
+
+.closure-editor input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.closure-editor input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 6px;
+  height: 10px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.closure-editor input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.closure-editor input[type="checkbox"]:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.c-input:focus, .c-textarea:focus, .c-select:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgba(44, 85, 69, 0.12) !important;
+}
+
+.c-textarea { resize: vertical; min-height: 80px; }
+
+.rag-green { border-left: 3px solid var(--green) !important; }
+.rag-amber { border-left: 3px solid var(--amber) !important; }
+.rag-red { border-left: 3px solid var(--red) !important; }
+
+.c-btn { transition: all 0.15s ease; }
+.c-btn:hover:not(:disabled) { background: var(--accent-light); color: var(--accent); }
+.c-btn:active:not(:disabled) { transform: scale(0.97); }
+.c-btn-danger { transition: all 0.15s ease; }
+.c-btn-danger:hover:not(:disabled) { background: var(--red-bg); border-color: var(--red-border); color: var(--red); }
+.c-saving { animation: pulse 1.5s ease-in-out infinite; }
+.c-pill { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+.c-pill:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.c-att { transition: all 0.2s ease; }
+.c-att:hover { border-color: var(--border-strong); box-shadow: var(--shadow-md); }
+.c-num { font-family: var(--display); font-size: 11px; letter-spacing: 0.04em; color: var(--text-3); text-transform: uppercase; }
+.risk-high { border-left: 3px solid var(--red); }
+.risk-medium { border-left: 3px solid var(--amber); }
+.risk-low { border-left: 3px solid var(--green); }
+`;
+
+/* ── Style objects ─────────────────────────────────────────────────────── */
+
+const inputBase: React.CSSProperties = {
+  width: "100%",
+  borderRadius: "var(--radius-sm)",
+  border: "1px solid var(--border)",
+  background: "var(--surface)",
+  padding: "9px 12px",
+  fontSize: 14,
+  color: "var(--text)",
+  lineHeight: 1.5,
+  outline: "none",
+  transition: "border-color 0.15s ease, box-shadow 0.15s ease",
+};
+
+const textareaBase: React.CSSProperties = {
+  ...inputBase,
+  minHeight: 90,
+  resize: "vertical" as any,
+};
+
+const selectBase: React.CSSProperties = {
+  ...inputBase,
+  minHeight: 40,
+  cursor: "pointer",
+  appearance: "none" as any,
+  backgroundImage: `url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%236B6860' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
+  backgroundRepeat: "no-repeat",
+  backgroundPosition: "right 12px center",
+  paddingRight: 32,
+};
+
+const smallBtn: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "var(--radius-sm)",
+  border: "1px solid var(--border)",
+  background: "var(--surface)",
+  padding: "6px 14px",
+  fontSize: 12,
+  fontWeight: 500,
+  color: "var(--text-2)",
+  cursor: "pointer",
+  whiteSpace: "nowrap" as any,
+  lineHeight: 1.4,
+};
+
+const dangerBtn: React.CSSProperties = {
+  ...smallBtn,
+  color: "var(--red)",
+  borderColor: "var(--red-border)",
+};
+
+const aiBtn: React.CSSProperties = {
+  ...smallBtn,
+  background: "var(--accent-light)",
+  borderColor: "var(--accent)",
+  color: "var(--accent)",
+  fontWeight: 600,
+  fontSize: 11,
+  letterSpacing: "0.03em",
+  textTransform: "uppercase" as any,
+};
+
+/* ── Pill / accent helpers ─────────────────────────────────────────────── */
+
+function pillStyle(color: "green" | "amber" | "red"): React.CSSProperties {
+  const map = {
+    green: { bg: "var(--green-bg)", b: "var(--green-border)", t: "var(--green)" },
+    amber: { bg: "var(--amber-bg)", b: "var(--amber-border)", t: "var(--amber)" },
+    red: { bg: "var(--red-bg)", b: "var(--red-border)", t: "var(--red)" },
+  };
+  const c = map[color];
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    borderRadius: 100,
+    padding: "4px 14px",
+    fontSize: 12,
+    fontWeight: 600,
+    letterSpacing: "0.03em",
+    textTransform: "uppercase",
+    border: `1px solid ${c.b}`,
+    background: c.bg,
+    color: c.t,
+  };
+}
 
 function ragPill(r: Rag) {
-  const base = "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold border";
-  if (r === "green") return `${base} border-emerald-200 bg-emerald-50 text-emerald-800`;
-  if (r === "amber") return `${base} border-amber-200 bg-amber-50 text-amber-800`;
-  return `${base} border-red-200 bg-red-50 text-red-800`;
+  return pillStyle(r);
 }
 
 function overallPill(v: "good" | "watch" | "critical") {
-  const base = "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold border";
-  if (v === "good") return `${base} border-emerald-200 bg-emerald-50 text-emerald-800`;
-  if (v === "watch") return `${base} border-amber-200 bg-amber-50 text-amber-800`;
-  return `${base} border-red-200 bg-red-50 text-red-800`;
+  return pillStyle(v === "good" ? "green" : v === "watch" ? "amber" : "red");
 }
 
 function ragSelectAccent(r: Rag) {
-  if (r === "green") return "border-l-4 border-l-emerald-500";
-  if (r === "amber") return "border-l-4 border-l-amber-500";
-  return "border-l-4 border-l-red-500";
+  return `rag-${r}`;
 }
 
 function overallSelectAccent(v: "good" | "watch" | "critical") {
-  if (v === "good") return "border-l-4 border-l-emerald-500";
-  if (v === "watch") return "border-l-4 border-l-amber-500";
-  return "border-l-4 border-l-red-500";
+  return v === "good" ? "rag-green" : v === "watch" ? "rag-amber" : "rag-red";
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -560,12 +754,17 @@ function parseProjectMetaFromAny(payload: any): ProjectMeta | null {
   const p = Array.isArray(root) ? root?.[0] : root;
   if (!p || typeof p !== "object") return null;
 
-  const project_code = safeStr((p as any).project_code ?? (p as any).code ?? (p as any).projectCode).trim() || null;
+  const project_code =
+    safeStr((p as any).project_code ?? (p as any).code ?? (p as any).projectCode).trim() || null;
   const project_name =
-    safeStr((p as any).title ?? (p as any).project_name ?? (p as any).name ?? (p as any).projectName).trim() || null;
-  const client_name = safeStr((p as any).client_name ?? (p as any).client ?? (p as any).business).trim() || null;
+    safeStr(
+      (p as any).title ?? (p as any).project_name ?? (p as any).name ?? (p as any).projectName
+    ).trim() || null;
+  const client_name =
+    safeStr((p as any).client_name ?? (p as any).client ?? (p as any).business).trim() || null;
 
-  const sponsor = safeStr((p as any).sponsor ?? (p as any).sponsor_name ?? (p as any).sponsorName).trim() || null;
+  const sponsor =
+    safeStr((p as any).sponsor ?? (p as any).sponsor_name ?? (p as any).sponsorName).trim() || null;
 
   const pm =
     safeStr(
@@ -583,13 +782,18 @@ function parseProjectMetaFromAny(payload: any): ProjectMeta | null {
 
 function parseStakeholdersFromAny(payload: any): KeyStakeholder[] {
   if (!payload) return [];
-  const root = payload?.items ?? payload?.data ?? payload?.stakeholders ?? payload?.rows ?? payload;
+  const root =
+    payload?.items ?? payload?.data ?? payload?.stakeholders ?? payload?.rows ?? payload;
   const arr = Array.isArray(root) ? root : [];
   const mapped: KeyStakeholder[] = arr
     .map((s: any) => {
       // ✅ aligns to your DB: stakeholders.name, stakeholders.role
-      const name = safeStr(s?.name ?? s?.stakeholder_name ?? s?.display_name ?? s?.full_name ?? s?.title ?? "").trim();
-      const role = safeStr(s?.role ?? s?.stakeholder_role ?? s?.position ?? s?.job_title ?? "").trim();
+      const name = safeStr(
+        s?.name ?? s?.stakeholder_name ?? s?.display_name ?? s?.full_name ?? s?.title ?? ""
+      ).trim();
+      const role = safeStr(
+        s?.role ?? s?.stakeholder_role ?? s?.position ?? s?.job_title ?? ""
+      ).trim();
       if (!name && !role) return null;
       return { name: name || "", role: role || "" };
     })
@@ -604,6 +808,221 @@ function parseStakeholdersFromAny(payload: any): KeyStakeholder[] {
     out.push(k);
   }
   return out;
+}
+
+/* ─────────────────────────────────────────────── UI Primitives ────────────────────────────────────────────── */
+
+function Section({
+  title,
+  num,
+  right,
+  children,
+}: {
+  title: string;
+  num?: string;
+  right?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      className="c-section"
+      style={{
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius)",
+        boxShadow: "var(--shadow-sm)",
+        padding: "28px 32px",
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 32,
+          right: 32,
+          height: 1,
+          background: "linear-gradient(90deg, var(--accent) 0%, transparent 100%)",
+          opacity: 0.15,
+        }}
+      />
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 16,
+          marginBottom: 24,
+        }}
+      >
+        <div>
+          {num && (
+            <div className="c-num" style={{ marginBottom: 4 }}>
+              {num}
+            </div>
+          )}
+          <h2
+            style={{
+              fontFamily: "var(--display)",
+              fontSize: 20,
+              fontWeight: 400,
+              color: "var(--text)",
+              lineHeight: 1.3,
+              margin: 0,
+            }}
+          >
+            {title}
+          </h2>
+        </div>
+        {right && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexShrink: 0,
+              flexWrap: "wrap",
+            }}
+          >
+            {right}
+          </div>
+        )}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div
+        style={{
+          fontSize: 12,
+          fontWeight: 500,
+          color: "var(--text-2)",
+          letterSpacing: "0.02em",
+          textTransform: "uppercase",
+        }}
+      >
+        {label}
+      </div>
+      {hint && (
+        <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: -2 }}>{hint}</div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+function RowGrid({ className = "", children }: { className?: string; children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+        gap: 20,
+      }}
+      className={className}
+    >
+      {children}
+    </div>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div
+      style={{
+        padding: "24px 16px",
+        textAlign: "center",
+        color: "var(--text-3)",
+        fontSize: 13,
+        fontStyle: "italic",
+        borderRadius: "var(--radius-sm)",
+        border: "1px dashed var(--border)",
+        background: "var(--bg)",
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+function StatusMsg({ msg, isError }: { msg: string | null; isError?: boolean }) {
+  if (!msg) return null;
+  return (
+    <span
+      style={{
+        fontSize: 12,
+        fontWeight: 500,
+        color: isError ? "var(--red)" : "var(--green)",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {msg}
+    </span>
+  );
+}
+
+function SeverityDot({ severity }: { severity: "high" | "medium" | "low" }) {
+  const colors = { high: "var(--red)", medium: "var(--amber)", low: "var(--green)" };
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        width: 8,
+        height: 8,
+        borderRadius: "50%",
+        background: colors[severity],
+        marginRight: 6,
+        flexShrink: 0,
+      }}
+    />
+  );
+}
+
+function AchievedBadge({ achieved }: { achieved: Achieved }) {
+  const map: Record<Achieved, { label: string; bg: string; text: string; border: string }> = {
+    yes: {
+      label: "Achieved",
+      bg: "var(--green-bg)",
+      text: "var(--green)",
+      border: "var(--green-border)",
+    },
+    partial: {
+      label: "Partial",
+      bg: "var(--amber-bg)",
+      text: "var(--amber)",
+      border: "var(--amber-border)",
+    },
+    no: {
+      label: "Not achieved",
+      bg: "var(--red-bg)",
+      text: "var(--red)",
+      border: "var(--red-border)",
+    },
+  };
+  const c = map[achieved];
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "3px 10px",
+        borderRadius: 100,
+        fontSize: 11,
+        fontWeight: 600,
+        background: c.bg,
+        color: c.text,
+        border: `1px solid ${c.border}`,
+        letterSpacing: "0.02em",
+      }}
+    >
+      {c.label}
+    </span>
+  );
 }
 
 /* ─────────────────────────────────────────────── Main Component ────────────────────────────────────────────── */
@@ -738,10 +1157,18 @@ export default function ProjectClosureReportEditor({
 
       setDoc((d) => {
         const next = { ...d };
-        const cur = next.project ?? { project_name: "", project_code: "", client_name: "", sponsor: "", pm: "" };
+        const cur = next.project ?? {
+          project_name: "",
+          project_code: "",
+          client_name: "",
+          sponsor: "",
+          pm: "",
+        };
 
         // ✅ Only fill if empty (so we don't overwrite user edits)
-        const project_code = cur.project_code?.trim() ? cur.project_code : safeStr(meta?.project_code).trim();
+        const project_code = cur.project_code?.trim()
+          ? cur.project_code
+          : safeStr(meta?.project_code).trim();
         const pm = cur.pm?.trim() ? cur.pm : safeStr(meta?.pm).trim();
         const project_name = cur.project_name?.trim()
           ? cur.project_name
@@ -749,7 +1176,9 @@ export default function ProjectClosureReportEditor({
         const client_name = cur.client_name?.trim()
           ? cur.client_name
           : safeStr(meta?.client_name).trim() || cur.client_name;
-        const sponsor = cur.sponsor?.trim() ? cur.sponsor : safeStr(meta?.sponsor).trim() || cur.sponsor;
+        const sponsor = cur.sponsor?.trim()
+          ? cur.sponsor
+          : safeStr(meta?.sponsor).trim() || cur.sponsor;
 
         next.project = { ...cur, project_code, pm, project_name, client_name, sponsor };
         return next;
@@ -769,7 +1198,7 @@ export default function ProjectClosureReportEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, metaApplied]);
 
-  /* ── Auto-generate Key Stakeholders from Stakeholder Register (DB: public.stakeholders) ───────────────── */
+  /* ── Auto-generate Key Stakeholders from Stakeholder Register (DB: public.stakeholders) ── */
   useEffect(() => {
     let cancelled = false;
 
@@ -786,7 +1215,7 @@ export default function ProjectClosureReportEditor({
       setStakeBusy(true);
       setStakeMsg(null);
 
-      // ✅ Prefer endpoints that should map to your `public.stakeholders` table (project_id filter)
+      // ✅ Prefer endpoints that should map to your `public.stakeholders` table
       const candidates = [
         `/api/stakeholders?project_id=${encodeURIComponent(pid)}`,
         `/api/stakeholders?projectId=${encodeURIComponent(pid)}`,
@@ -883,7 +1312,8 @@ export default function ProjectClosureReportEditor({
     doc,
     meta: closureMeta,
     getSectionByKey: (key: string) => getClosureSection(doc, key),
-    applySectionReplace: (key: string, section: AiSection) => applyClosureSectionReplace(setDoc, key, section),
+    applySectionReplace: (key: string, section: AiSection) =>
+      applyClosureSectionReplace(setDoc, key, section),
     onDirty: () => {},
   });
 
@@ -905,14 +1335,18 @@ export default function ProjectClosureReportEditor({
     if (!canEdit) return;
     setDoc((d) => ({
       ...d,
-      achievements: { key_achievements: [...d.achievements.key_achievements, { text: "" }] },
+      achievements: {
+        key_achievements: [...d.achievements.key_achievements, { text: "" }],
+      },
     }));
   };
   const removeAchievement = (idx: number) => {
     if (!canEdit) return;
     setDoc((d) => ({
       ...d,
-      achievements: { key_achievements: removeAt(d.achievements.key_achievements, idx) },
+      achievements: {
+        key_achievements: removeAt(d.achievements.key_achievements, idx),
+      },
     }));
   };
 
@@ -934,7 +1368,10 @@ export default function ProjectClosureReportEditor({
       ...d,
       deliverables: {
         ...d.deliverables,
-        delivered: [...d.deliverables.delivered, { deliverable: "", accepted_by: "", accepted_on: null }],
+        delivered: [
+          ...d.deliverables.delivered,
+          { deliverable: "", accepted_by: "", accepted_on: null },
+        ],
       },
     }));
   };
@@ -942,7 +1379,10 @@ export default function ProjectClosureReportEditor({
     if (!canEdit) return;
     setDoc((d) => ({
       ...d,
-      deliverables: { ...d.deliverables, delivered: removeAt(d.deliverables.delivered, idx) },
+      deliverables: {
+        ...d.deliverables,
+        delivered: removeAt(d.deliverables.delivered, idx),
+      },
     }));
   };
 
@@ -952,7 +1392,10 @@ export default function ProjectClosureReportEditor({
       ...d,
       deliverables: {
         ...d.deliverables,
-        outstanding: [...d.deliverables.outstanding, { item: "", owner: "", status: "", target: "" }],
+        outstanding: [
+          ...d.deliverables.outstanding,
+          { item: "", owner: "", status: "", target: "" },
+        ],
       },
     }));
   };
@@ -960,7 +1403,10 @@ export default function ProjectClosureReportEditor({
     if (!canEdit) return;
     setDoc((d) => ({
       ...d,
-      deliverables: { ...d.deliverables, outstanding: removeAt(d.deliverables.outstanding, idx) },
+      deliverables: {
+        ...d.deliverables,
+        outstanding: removeAt(d.deliverables.outstanding, idx),
+      },
     }));
   };
 
@@ -970,7 +1416,10 @@ export default function ProjectClosureReportEditor({
       ...d,
       financial_closeout: {
         ...d.financial_closeout,
-        budget_rows: [...d.financial_closeout.budget_rows, { category: "", budget: null, actual: null }],
+        budget_rows: [
+          ...d.financial_closeout.budget_rows,
+          { category: "", budget: null, actual: null },
+        ],
       },
     }));
   };
@@ -978,7 +1427,10 @@ export default function ProjectClosureReportEditor({
     if (!canEdit) return;
     setDoc((d) => ({
       ...d,
-      financial_closeout: { ...d.financial_closeout, budget_rows: removeAt(d.financial_closeout.budget_rows, idx) },
+      financial_closeout: {
+        ...d.financial_closeout,
+        budget_rows: removeAt(d.financial_closeout.budget_rows, idx),
+      },
     }));
   };
 
@@ -986,10 +1438,16 @@ export default function ProjectClosureReportEditor({
     if (!canEdit) return;
     setDoc((d) => ({
       ...d,
-      lessons: { ...d.lessons, [key]: [...d.lessons[key], { text: "", action: "" }] as any },
+      lessons: {
+        ...d.lessons,
+        [key]: [...d.lessons[key], { text: "", action: "" }] as any,
+      },
     }));
   };
-  const removeLesson = (key: "went_well" | "didnt_go_well" | "surprises_risks", idx: number) => {
+  const removeLesson = (
+    key: "went_well" | "didnt_go_well" | "surprises_risks",
+    idx: number
+  ) => {
     if (!canEdit) return;
     setDoc((d) => ({
       ...d,
@@ -1011,41 +1469,70 @@ export default function ProjectClosureReportEditor({
         status: "",
         next_action: "",
       };
-      return { ...d, handover: { ...d.handover, risks_issues: [...existing, next] } };
+      return {
+        ...d,
+        handover: { ...d.handover, risks_issues: [...existing, next] },
+      };
     });
   };
   const removeRiskIssue = (idx: number) => {
     if (!canEdit) return;
-    setDoc((d) => ({ ...d, handover: { ...d.handover, risks_issues: removeAt(d.handover.risks_issues, idx) } }));
+    setDoc((d) => ({
+      ...d,
+      handover: {
+        ...d.handover,
+        risks_issues: removeAt(d.handover.risks_issues, idx),
+      },
+    }));
   };
 
   const addTeamMove = () => {
     if (!canEdit) return;
     setDoc((d) => ({
       ...d,
-      handover: { ...d.handover, team_moves: [...d.handover.team_moves, { person: "", change: "", date: null }] },
+      handover: {
+        ...d.handover,
+        team_moves: [
+          ...d.handover.team_moves,
+          { person: "", change: "", date: null },
+        ],
+      },
     }));
   };
   const removeTeamMove = (idx: number) => {
     if (!canEdit) return;
-    setDoc((d) => ({ ...d, handover: { ...d.handover, team_moves: removeAt(d.handover.team_moves, idx) } }));
+    setDoc((d) => ({
+      ...d,
+      handover: {
+        ...d.handover,
+        team_moves: removeAt(d.handover.team_moves, idx),
+      },
+    }));
   };
 
   const addRecommendation = () => {
     if (!canEdit) return;
     setDoc((d) => ({
       ...d,
-      recommendations: { items: [...d.recommendations.items, { text: "", owner: "", due: null }] },
+      recommendations: {
+        items: [...d.recommendations.items, { text: "", owner: "", due: null }],
+      },
     }));
   };
   const removeRecommendation = (idx: number) => {
     if (!canEdit) return;
-    setDoc((d) => ({ ...d, recommendations: { items: removeAt(d.recommendations.items, idx) } }));
+    setDoc((d) => ({
+      ...d,
+      recommendations: { items: removeAt(d.recommendations.items, idx) },
+    }));
   };
 
   const addLink = () => {
     if (!canEdit) return;
-    setDoc((d) => ({ ...d, links: { items: [...d.links.items, { label: "", url: "" }] } }));
+    setDoc((d) => ({
+      ...d,
+      links: { items: [...d.links.items, { label: "", url: "" }] },
+    }));
   };
   const removeLink = (idx: number) => {
     if (!canEdit) return;
@@ -1147,7 +1634,9 @@ export default function ProjectClosureReportEditor({
         const msg =
           typeof payload === "string"
             ? payload.slice(0, 600)
-            : payload?.error || payload?.message || JSON.stringify(payload).slice(0, 600);
+            : payload?.error ||
+              payload?.message ||
+              JSON.stringify(payload).slice(0, 600);
 
         throw new Error(`Export failed: ${res.status} - ${msg}`);
       }
@@ -1155,7 +1644,9 @@ export default function ProjectClosureReportEditor({
       const blob = await res.blob();
 
       const cd = res.headers.get("content-disposition");
-      const serverName = filenameFromContentDisposition(cd) || `Closure-Report.${type === "pdf" ? "pdf" : "docx"}`;
+      const serverName =
+        filenameFromContentDisposition(cd) ||
+        `Closure-Report.${type === "pdf" ? "pdf" : "docx"}`;
 
       downloadBlob(blob, serverName);
 
@@ -1197,7 +1688,10 @@ export default function ProjectClosureReportEditor({
           ? json.attachments
           : [];
       if (items.length) {
-        setDoc((d) => ({ ...d, attachments: { items: [...d.attachments.items, ...items] } }));
+        setDoc((d) => ({
+          ...d,
+          attachments: { items: [...d.attachments.items, ...items] },
+        }));
       }
 
       setUploadMsg("Uploaded.");
@@ -1234,7 +1728,12 @@ export default function ProjectClosureReportEditor({
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Delete failed");
 
-      setDoc((d) => ({ ...d, attachments: { items: d.attachments.items.filter((_, i) => i !== idx) } }));
+      setDoc((d) => ({
+        ...d,
+        attachments: {
+          items: d.attachments.items.filter((_, i) => i !== idx),
+        },
+      }));
       setUploadMsg("Attachment removed.");
     } catch (e: any) {
       setUploadMsg(`Remove failed: ${e?.message || e}`);
@@ -1248,260 +1747,469 @@ export default function ProjectClosureReportEditor({
   const projectFieldsAuto = !!safeStr(projectId).trim();
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
-      {/* Top Fixed Header */}
-      <div className="sticky top-0 z-20 bg-white border-b shadow-sm px-6 py-3">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <input
-            className="text-xl font-bold bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-indigo-500 rounded px-3 py-1.5 w-1/3"
-            value={doc.project.project_name || "Untitled Closure Report"}
-            disabled={isReadOnly}
-            onChange={(e) => setDoc((d) => ({ ...d, project: { ...d.project, project_name: e.target.value } }))}
-            placeholder="Project Title"
-          />
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3">
-              <span className={ragPill(doc.health.rag)}>RAG: {doc.health.rag.toUpperCase()}</span>
-              <span className={overallPill(doc.health.overall_health)}>Overall: {doc.health.overall_health}</span>
-            </div>
+    <>
+      <style dangerouslySetInnerHTML={{ __html: globalCSS }} />
 
-            <Button
-              onClick={handleSave}
-              disabled={isReadOnly || saving || autoSaving}
-              variant="default"
-              size="sm"
-              className="min-w-[140px]"
+      <div
+        className="closure-editor"
+        style={{ minHeight: "100vh", background: "var(--bg)", paddingBottom: 80 }}
+      >
+        {/* Top Fixed Header */}
+        <div
+          className="c-header"
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 20,
+            borderBottom: "1px solid var(--border)",
+            padding: "0 32px",
+          }}
+        >
+          <div
+            style={{
+              maxWidth: 1200,
+              margin: "0 auto",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              height: 64,
+              gap: 16,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                flex: 1,
+                minWidth: 0,
+              }}
             >
-              {saving || autoSaving ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {autoSaving ? "Auto-saving..." : "Saving..."}
-                </>
-              ) : (
-                <>
-                  <Save className="mr-2 h-4 w-4" />
-                  Save Report
-                </>
-              )}
-            </Button>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" disabled={dlBusy !== null}>
-                  {dlBusy ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Exporting...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="mr-2 h-4 w-4" />
-                      Export
-                    </>
-                  )}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => handleDownload("pdf")}>
-                  <FileText className="mr-2 h-4 w-4" />
-                  Export as PDF
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleDownload("docx")}>
-                  <FileIcon className="mr-2 h-4 w-4" />
-                  Export as Word (.docx)
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {(metaBusy || metaMsg) && (
-              <span
-                className={`text-sm font-medium ${metaMsg?.includes("Could not") ? "text-amber-700" : "text-slate-600"}`}
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  background: "var(--accent)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
               >
-                {metaBusy ? "Loading project meta…" : metaMsg}
-              </span>
-            )}
+                <FileText size={16} color="white" />
+              </div>
+              <input
+                style={{
+                  fontFamily: "var(--display)",
+                  fontSize: 18,
+                  fontWeight: 400,
+                  color: "var(--text)",
+                  background: "transparent",
+                  border: "none",
+                  outline: "none",
+                  width: "100%",
+                  minWidth: 0,
+                  padding: "4px 0",
+                }}
+                value={doc.project.project_name || "Untitled Closure Report"}
+                disabled={isReadOnly}
+                onChange={(e) =>
+                  setDoc((d) => ({
+                    ...d,
+                    project: { ...d.project, project_name: e.target.value },
+                  }))
+                }
+                placeholder="Project Title"
+              />
+            </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                flexShrink: 0,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="c-pill" style={ragPill(doc.health.rag)}>
+                  RAG: {doc.health.rag.toUpperCase()}
+                </span>
+                <span className="c-pill" style={overallPill(doc.health.overall_health)}>
+                  Overall: {doc.health.overall_health}
+                </span>
+              </div>
 
-            {saveMsg && (
-              <span className={`text-sm font-medium ${saveMsg.includes("failed") ? "text-red-600" : "text-green-600"}`}>
-                {saveMsg}
-              </span>
-            )}
-            {dlMsg && (
-              <span className={`text-sm font-medium ${dlMsg.includes("failed") ? "text-red-600" : "text-green-600"}`}>
-                {dlMsg}
-              </span>
-            )}
-            {aiError && <span className="text-sm font-medium text-red-600">{aiError}</span>}
+              <div
+                style={{
+                  width: 1,
+                  height: 28,
+                  background: "var(--border)",
+                  flexShrink: 0,
+                }}
+              />
+
+              <Button
+                onClick={handleSave}
+                disabled={isReadOnly || saving || autoSaving}
+                variant="default"
+                size="sm"
+                className={saving || autoSaving ? "c-saving" : ""}
+                style={{
+                  background: "var(--accent)",
+                  borderRadius: "var(--radius-sm)",
+                  fontWeight: 600,
+                  fontSize: 13,
+                  minWidth: 140,
+                  height: 36,
+                }}
+              >
+                {saving || autoSaving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {autoSaving ? "Auto-saving..." : "Saving..."}
+                  </>
+                ) : (
+                  <>
+                    <Save className="mr-2 h-4 w-4" />
+                    Save Report
+                  </>
+                )}
+              </Button>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={dlBusy !== null}
+                    style={{
+                      borderRadius: "var(--radius-sm)",
+                      borderColor: "var(--border)",
+                      fontWeight: 500,
+                      fontSize: 13,
+                      height: 36,
+                      color: "var(--text-2)",
+                    }}
+                  >
+                    {dlBusy ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Exporting...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="mr-2 h-4 w-4" />
+                        Export
+                      </>
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => handleDownload("pdf")}>
+                    <FileText className="mr-2 h-4 w-4" />
+                    Export as PDF
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleDownload("docx")}>
+                    <FileIcon className="mr-2 h-4 w-4" />
+                    Export as Word (.docx)
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {(metaBusy || metaMsg) && (
+                <StatusMsg
+                  msg={metaBusy ? "Loading project meta…" : metaMsg}
+                  isError={!!metaMsg?.includes("Could not")}
+                />
+              )}
+
+              <StatusMsg msg={saveMsg} isError={!!saveMsg?.includes("failed")} />
+              <StatusMsg msg={dlMsg} isError={!!dlMsg?.includes("failed")} />
+              {aiError && <StatusMsg msg={aiError} isError />}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-6 py-8 space-y-10">
-        {/* PROJECT SUMMARY */}
-        <div ref={refProjectSummary}>
-          <Section title="Project Summary">
-            <RowGrid>
-              <Field label="Project Name">
-                <input
-                  className={inputBase}
-                  value={doc.project.project_name}
-                  disabled={isReadOnly}
-                  onChange={(e) => setDoc((d) => ({ ...d, project: { ...d.project, project_name: e.target.value } }))}
-                />
-              </Field>
+        {/* Main Content */}
+        <div
+          style={{
+            maxWidth: 1200,
+            margin: "0 auto",
+            padding: "40px 32px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 32,
+          }}
+        >
+          {/* ═══ 01 PROJECT SUMMARY ═══ */}
+          <div ref={refProjectSummary}>
+            <Section title="Project Summary" num="01 — Overview">
+              <RowGrid>
+                <Field label="Project Name">
+                  <input
+                    className="c-input"
+                    style={inputBase}
+                    value={doc.project.project_name}
+                    disabled={isReadOnly}
+                    onChange={(e) =>
+                      setDoc((d) => ({
+                        ...d,
+                        project: { ...d.project, project_name: e.target.value },
+                      }))
+                    }
+                  />
+                </Field>
 
-              <Field label="Project Code / ID">
-                <input
-                  className={inputBase}
-                  value={doc.project.project_code}
-                  disabled={isReadOnly}
-                  onChange={(e) => setDoc((d) => ({ ...d, project: { ...d.project, project_code: e.target.value } }))}
-                  placeholder={projectFieldsAuto ? "Auto-populated (editable)" : ""}
-                  title={projectFieldsAuto ? "Auto-populated from the project record (you can override)" : undefined}
-                />
-              </Field>
+                <Field label="Project Code / ID">
+                  <input
+                    className="c-input"
+                    style={inputBase}
+                    value={doc.project.project_code}
+                    disabled={isReadOnly}
+                    onChange={(e) =>
+                      setDoc((d) => ({
+                        ...d,
+                        project: { ...d.project, project_code: e.target.value },
+                      }))
+                    }
+                    placeholder={projectFieldsAuto ? "Auto-populated (editable)" : ""}
+                    title={
+                      projectFieldsAuto
+                        ? "Auto-populated from the project record (you can override)"
+                        : undefined
+                    }
+                  />
+                </Field>
 
-              <Field label="Client / Business">
-                <input
-                  className={inputBase}
-                  value={doc.project.client_name}
-                  disabled={isReadOnly}
-                  onChange={(e) => setDoc((d) => ({ ...d, project: { ...d.project, client_name: e.target.value } }))}
-                />
-              </Field>
+                <Field label="Client / Business">
+                  <input
+                    className="c-input"
+                    style={inputBase}
+                    value={doc.project.client_name}
+                    disabled={isReadOnly}
+                    onChange={(e) =>
+                      setDoc((d) => ({
+                        ...d,
+                        project: { ...d.project, client_name: e.target.value },
+                      }))
+                    }
+                  />
+                </Field>
 
-              <Field label="Sponsor">
-                <input
-                  className={inputBase}
-                  value={doc.project.sponsor}
-                  disabled={isReadOnly}
-                  onChange={(e) => setDoc((d) => ({ ...d, project: { ...d.project, sponsor: e.target.value } }))}
-                />
-              </Field>
+                <Field label="Sponsor">
+                  <input
+                    className="c-input"
+                    style={inputBase}
+                    value={doc.project.sponsor}
+                    disabled={isReadOnly}
+                    onChange={(e) =>
+                      setDoc((d) => ({
+                        ...d,
+                        project: { ...d.project, sponsor: e.target.value },
+                      }))
+                    }
+                  />
+                </Field>
 
-              <Field label="Project Manager">
-                <input
-                  className={inputBase}
-                  value={doc.project.pm}
-                  disabled={isReadOnly}
-                  onChange={(e) => setDoc((d) => ({ ...d, project: { ...d.project, pm: e.target.value } }))}
-                  placeholder={projectFieldsAuto ? "Auto-populated (override allowed)" : ""}
-                  title={projectFieldsAuto ? "Auto-populated from the project record (you can override)" : undefined}
-                />
-              </Field>
-            </RowGrid>
+                <Field label="Project Manager">
+                  <input
+                    className="c-input"
+                    style={inputBase}
+                    value={doc.project.pm}
+                    disabled={isReadOnly}
+                    onChange={(e) =>
+                      setDoc((d) => ({
+                        ...d,
+                        project: { ...d.project, pm: e.target.value },
+                      }))
+                    }
+                    placeholder={
+                      projectFieldsAuto ? "Auto-populated (override allowed)" : ""
+                    }
+                    title={
+                      projectFieldsAuto
+                        ? "Auto-populated from the project record (you can override)"
+                        : undefined
+                    }
+                  />
+                </Field>
+              </RowGrid>
 
-            <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Field label="RAG Status">
-                <select
-                  className={`${selectBase} ${ragSelectAccent(doc.health.rag)}`}
-                  value={doc.health.rag}
-                  disabled={isReadOnly}
-                  onChange={(e) => setDoc((d) => ({ ...d, health: { ...d.health, rag: e.target.value as Rag } }))}
-                >
-                  <option value="green">Green</option>
-                  <option value="amber">Amber</option>
-                  <option value="red">Red</option>
-                </select>
-              </Field>
+              <div
+                style={{
+                  marginTop: 28,
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr 2fr",
+                  gap: 20,
+                }}
+              >
+                <Field label="RAG Status">
+                  <select
+                    className={`c-select ${ragSelectAccent(doc.health.rag)}`}
+                    style={selectBase}
+                    value={doc.health.rag}
+                    disabled={isReadOnly}
+                    onChange={(e) =>
+                      setDoc((d) => ({
+                        ...d,
+                        health: { ...d.health, rag: e.target.value as Rag },
+                      }))
+                    }
+                  >
+                    <option value="green">Green</option>
+                    <option value="amber">Amber</option>
+                    <option value="red">Red</option>
+                  </select>
+                </Field>
 
-              <Field label="Overall Health">
-                <select
-                  className={`${selectBase} ${overallSelectAccent(doc.health.overall_health)}`}
-                  value={doc.health.overall_health}
-                  disabled={isReadOnly}
-                  onChange={(e) =>
-                    setDoc((d) => ({ ...d, health: { ...d.health, overall_health: e.target.value as any } }))
-                  }
-                >
-                  <option value="good">Good</option>
-                  <option value="watch">Watch</option>
-                  <option value="critical">Critical</option>
-                </select>
-              </Field>
+                <Field label="Overall Health">
+                  <select
+                    className={`c-select ${overallSelectAccent(doc.health.overall_health)}`}
+                    style={selectBase}
+                    value={doc.health.overall_health}
+                    disabled={isReadOnly}
+                    onChange={(e) =>
+                      setDoc((d) => ({
+                        ...d,
+                        health: {
+                          ...d.health,
+                          overall_health: e.target.value as any,
+                        },
+                      }))
+                    }
+                  >
+                    <option value="good">Good</option>
+                    <option value="watch">Watch</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </Field>
 
-              <Field label="Summary (Free text)">
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <div className="text-xs text-gray-500">Executive summary. Free text only (no bullet points).</div>
-                  <div className="flex gap-2">
+                <Field label="Executive Summary" hint="Free text only — no bullet points">
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "flex-end",
+                      gap: 6,
+                      marginBottom: 6,
+                    }}
+                  >
                     <button
                       type="button"
-                      className={smallBtn}
-                      disabled={isReadOnly || aiLoadingKey === "closure.health.summary"}
+                      className="c-btn"
+                      style={aiBtn}
+                      disabled={
+                        isReadOnly || aiLoadingKey === "closure.health.summary"
+                      }
                       onClick={() => improveSection("closure.health.summary")}
                     >
-                      {aiLoadingKey === "closure.health.summary" ? "Working…" : "Improve"}
+                      {aiLoadingKey === "closure.health.summary"
+                        ? "Working…"
+                        : "✦ Improve"}
                     </button>
                     <button
                       type="button"
-                      className={smallBtn}
-                      disabled={isReadOnly || aiLoadingKey === "closure.health.summary"}
+                      className="c-btn"
+                      style={aiBtn}
+                      disabled={
+                        isReadOnly || aiLoadingKey === "closure.health.summary"
+                      }
                       onClick={() => regenerateSection("closure.health.summary")}
                     >
-                      {aiLoadingKey === "closure.health.summary" ? "Working…" : "Regenerate"}
+                      {aiLoadingKey === "closure.health.summary"
+                        ? "Working…"
+                        : "✦ Regenerate"}
                     </button>
                   </div>
-                </div>
 
-                <textarea
-                  className={textareaBase}
-                  value={doc.health.summary}
-                  disabled={isReadOnly}
-                  onChange={(e) => setDoc((d) => ({ ...d, health: { ...d.health, summary: e.target.value } }))}
-                  onBlur={() =>
-                    setDoc((d) => ({
-                      ...d,
-                      health: { ...d.health, summary: normalizeFreeTextNoBullets(d.health.summary) },
-                    }))
+                  <textarea
+                    className="c-textarea"
+                    style={{ ...textareaBase, minHeight: 120 }}
+                    value={doc.health.summary}
+                    disabled={isReadOnly}
+                    onChange={(e) =>
+                      setDoc((d) => ({
+                        ...d,
+                        health: { ...d.health, summary: e.target.value },
+                      }))
+                    }
+                    onBlur={() =>
+                      setDoc((d) => ({
+                        ...d,
+                        health: {
+                          ...d.health,
+                          summary: normalizeFreeTextNoBullets(d.health.summary),
+                        },
+                      }))
+                    }
+                    placeholder="Write an executive closure summary (paragraph form)."
+                  />
+                </Field>
+              </div>
+            </Section>
+          </div>
+
+          {/* ═══ 02 KEY STAKEHOLDERS ═══ */}
+          <Section
+            title="Key Stakeholders"
+            num="02 — People"
+            right={
+              <>
+                {stakeMsg && (
+                  <StatusMsg
+                    msg={stakeMsg}
+                    isError={!!stakeMsg?.includes("No stakeholders")}
+                  />
+                )}
+                <button
+                  type="button"
+                  className="c-btn"
+                  style={smallBtn}
+                  disabled={
+                    isReadOnly || stakeBusy || !safeStr(projectId).trim()
                   }
-                  placeholder="Write an executive closure summary (paragraph form)."
-                />
-              </Field>
-            </div>
-          </Section>
-        </div>
-
-        {/* KEY STAKEHOLDERS */}
-        <Section
-          title="Key Stakeholders"
-          right={
-            <div className="flex items-center gap-2">
-              {stakeMsg && (
-                <span className={`text-xs ${stakeMsg.includes("No stakeholders") ? "text-amber-700" : "text-slate-600"}`}>
-                  {stakeMsg}
-                </span>
-              )}
-              <button
-                type="button"
-                className={smallBtn}
-                disabled={isReadOnly || stakeBusy || !safeStr(projectId).trim()}
-                onClick={refreshStakeholdersFromRegister}
-                title={!safeStr(projectId).trim() ? "Project id required to load stakeholder register" : undefined}
-              >
-                {stakeBusy ? "Refreshing…" : "Refresh from Stakeholder Register"}
-              </button>
-
-              {canEdit && (
-                <button type="button" className={smallBtn} onClick={addStakeholder}>
-                  + Add Stakeholder
+                  onClick={refreshStakeholdersFromRegister}
+                  title={
+                    !safeStr(projectId).trim()
+                      ? "Project id required to load stakeholder register"
+                      : undefined
+                  }
+                >
+                  {stakeBusy ? "Refreshing…" : "↻ Refresh from Register"}
                 </button>
-              )}
-            </div>
-          }
-        >
-          {doc.stakeholders.key.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              No key stakeholders recorded yet.
-              {safeStr(projectId).trim() ? " (They can be generated from the Stakeholder Register.)" : ""}
-            </p>
-          ) : (
-            <div className="space-y-4">
-              {doc.stakeholders.key.map((stake, i) => (
-                <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-                  <div className="md:col-span-5">
+
+                {canEdit && (
+                  <button
+                    type="button"
+                    className="c-btn"
+                    style={smallBtn}
+                    onClick={addStakeholder}
+                  >
+                    + Add Stakeholder
+                  </button>
+                )}
+              </>
+            }
+          >
+            {doc.stakeholders.key.length === 0 ? (
+              <EmptyState
+                text={`No key stakeholders recorded yet.${safeStr(projectId).trim() ? " (They can be generated from the Stakeholder Register.)" : ""}`}
+              />
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {doc.stakeholders.key.map((stake, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr auto",
+                      gap: 12,
+                      alignItems: "center",
+                    }}
+                  >
                     <input
-                      className={inputBase}
+                      className="c-input"
+                      style={inputBase}
                       placeholder="Name"
                       value={stake.name}
                       disabled={isReadOnly}
@@ -1509,15 +2217,17 @@ export default function ProjectClosureReportEditor({
                         setDoc((d) => ({
                           ...d,
                           stakeholders: {
-                            key: updateArray(d.stakeholders.key, i, (s) => ({ ...s, name: e.target.value })),
+                            key: updateArray(d.stakeholders.key, i, (s) => ({
+                              ...s,
+                              name: e.target.value,
+                            })),
                           },
                         }))
                       }
                     />
-                  </div>
-                  <div className="md:col-span-6">
                     <input
-                      className={inputBase}
+                      className="c-input"
+                      style={inputBase}
                       placeholder="Role / Responsibility"
                       value={stake.role}
                       disabled={isReadOnly}
@@ -1525,64 +2235,89 @@ export default function ProjectClosureReportEditor({
                         setDoc((d) => ({
                           ...d,
                           stakeholders: {
-                            key: updateArray(d.stakeholders.key, i, (s) => ({ ...s, role: e.target.value })),
+                            key: updateArray(d.stakeholders.key, i, (s) => ({
+                              ...s,
+                              role: e.target.value,
+                            })),
                           },
                         }))
                       }
                     />
-                  </div>
-                  <div className="md:col-span-1">
                     {canEdit && (
-                      <button type="button" className={dangerBtn} onClick={() => removeStakeholder(i)}>
+                      <button
+                        type="button"
+                        className="c-btn-danger"
+                        style={dangerBtn}
+                        onClick={() => removeStakeholder(i)}
+                      >
                         Remove
                       </button>
                     )}
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Section>
+                ))}
+              </div>
+            )}
+          </Section>
 
-        {/* KEY ACHIEVEMENTS */}
-        <Section
-          title="Key Achievements"
-          right={
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className={smallBtn}
-                disabled={isReadOnly || aiLoadingKey === "closure.achievements"}
-                onClick={() => improveSection("closure.achievements")}
-              >
-                {aiLoadingKey === "closure.achievements" ? "Working…" : "Improve"}
-              </button>
-              <button
-                type="button"
-                className={smallBtn}
-                disabled={isReadOnly || aiLoadingKey === "closure.achievements"}
-                onClick={() => regenerateSection("closure.achievements")}
-              >
-                {aiLoadingKey === "closure.achievements" ? "Working…" : "Regenerate"}
-              </button>
-
-              {canEdit && (
-                <button type="button" className={smallBtn} onClick={addAchievement}>
-                  + Add Achievement
+          {/* ═══ 03 KEY ACHIEVEMENTS ═══ */}
+          <Section
+            title="Key Achievements"
+            num="03 — Outcomes"
+            right={
+              <>
+                <button
+                  type="button"
+                  className="c-btn"
+                  style={aiBtn}
+                  disabled={isReadOnly || aiLoadingKey === "closure.achievements"}
+                  onClick={() => improveSection("closure.achievements")}
+                >
+                  {aiLoadingKey === "closure.achievements"
+                    ? "Working…"
+                    : "✦ Improve"}
                 </button>
-              )}
-            </div>
-          }
-        >
-          {doc.achievements.key_achievements.length === 0 ? (
-            <p className="text-sm text-gray-500">No key achievements recorded yet.</p>
-          ) : (
-            <div className="space-y-4">
-              {doc.achievements.key_achievements.map((ach, i) => (
-                <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
-                  <div className="md:col-span-11">
+                <button
+                  type="button"
+                  className="c-btn"
+                  style={aiBtn}
+                  disabled={isReadOnly || aiLoadingKey === "closure.achievements"}
+                  onClick={() => regenerateSection("closure.achievements")}
+                >
+                  {aiLoadingKey === "closure.achievements"
+                    ? "Working…"
+                    : "✦ Regenerate"}
+                </button>
+
+                {canEdit && (
+                  <button
+                    type="button"
+                    className="c-btn"
+                    style={smallBtn}
+                    onClick={addAchievement}
+                  >
+                    + Add Achievement
+                  </button>
+                )}
+              </>
+            }
+          >
+            {doc.achievements.key_achievements.length === 0 ? (
+              <EmptyState text="No key achievements recorded yet." />
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {doc.achievements.key_achievements.map((ach, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr auto",
+                      gap: 12,
+                      alignItems: "start",
+                    }}
+                  >
                     <textarea
-                      className={textareaBase}
+                      className="c-textarea"
+                      style={textareaBase}
                       placeholder="Describe the achievement / milestone"
                       value={ach.text}
                       disabled={isReadOnly}
@@ -1590,48 +2325,68 @@ export default function ProjectClosureReportEditor({
                         setDoc((d) => ({
                           ...d,
                           achievements: {
-                            key_achievements: updateArray(d.achievements.key_achievements, i, (a) => ({
-                              ...a,
-                              text: e.target.value,
-                            })),
+                            key_achievements: updateArray(
+                              d.achievements.key_achievements,
+                              i,
+                              (a) => ({
+                                ...a,
+                                text: e.target.value,
+                              })
+                            ),
                           },
                         }))
                       }
                     />
-                  </div>
-                  <div className="md:col-span-1 pt-2">
                     {canEdit && (
-                      <button type="button" className={dangerBtn} onClick={() => removeAchievement(i)}>
+                      <button
+                        type="button"
+                        className="c-btn-danger"
+                        style={{ ...dangerBtn, marginTop: 8 }}
+                        onClick={() => removeAchievement(i)}
+                      >
                         Remove
                       </button>
                     )}
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Section>
+                ))}
+              </div>
+            )}
+          </Section>
 
-        {/* SUCCESS CRITERIA */}
-        <Section
-          title="Success Criteria"
-          right={
-            canEdit && (
-              <button type="button" className={smallBtn} onClick={addCriterion}>
-                + Add
-              </button>
-            )
-          }
-        >
-          {doc.success.criteria.length === 0 ? (
-            <p className="text-sm text-gray-500">No success criteria recorded.</p>
-          ) : (
-            <div className="space-y-4">
-              {doc.success.criteria.map((c, i) => (
-                <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
-                  <div className="md:col-span-8">
+          {/* ═══ 04 SUCCESS CRITERIA ═══ */}
+          <Section
+            title="Success Criteria"
+            num="04 — Evaluation"
+            right={
+              canEdit && (
+                <button
+                  type="button"
+                  className="c-btn"
+                  style={smallBtn}
+                  onClick={addCriterion}
+                >
+                  + Add
+                </button>
+              )
+            }
+          >
+            {doc.success.criteria.length === 0 ? (
+              <EmptyState text="No success criteria recorded." />
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {doc.success.criteria.map((c, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 160px auto",
+                      gap: 12,
+                      alignItems: "start",
+                    }}
+                  >
                     <textarea
-                      className={textareaBase}
+                      className="c-textarea"
+                      style={textareaBase}
                       placeholder="Criterion"
                       value={c.text}
                       disabled={isReadOnly}
@@ -1639,72 +2394,116 @@ export default function ProjectClosureReportEditor({
                         setDoc((d) => ({
                           ...d,
                           success: {
-                            criteria: updateArray(d.success.criteria, i, (x) => ({ ...x, text: e.target.value })),
+                            criteria: updateArray(d.success.criteria, i, (x) => ({
+                              ...x,
+                              text: e.target.value,
+                            })),
                           },
                         }))
                       }
                     />
-                  </div>
-                  <div className="md:col-span-3">
-                    <Field label="Status">
-                      <select
-                        className={`${selectBase} bg-white text-gray-900 border border-gray-300`}
-                        value={c.achieved}
-                        disabled={isReadOnly}
-                        onChange={(e) =>
-                          setDoc((d) => ({
-                            ...d,
-                            success: {
-                              criteria: updateArray(d.success.criteria, i, (x) => ({
-                                ...x,
-                                achieved: e.target.value as Achieved,
-                              })),
-                            },
-                          }))
-                        }
-                      >
-                        <option value="yes">Achieved</option>
-                        <option value="partial">Partially achieved</option>
-                        <option value="no">Not achieved</option>
-                      </select>
-                    </Field>
-                  </div>
-                  <div className="md:col-span-1 pt-1">
+                    <div>
+                      <Field label="Status">
+                        <select
+                          className="c-select"
+                          style={selectBase}
+                          value={c.achieved}
+                          disabled={isReadOnly}
+                          onChange={(e) =>
+                            setDoc((d) => ({
+                              ...d,
+                              success: {
+                                criteria: updateArray(d.success.criteria, i, (x) => ({
+                                  ...x,
+                                  achieved: e.target.value as Achieved,
+                                })),
+                              },
+                            }))
+                          }
+                        >
+                          <option value="yes">Achieved</option>
+                          <option value="partial">Partially achieved</option>
+                          <option value="no">Not achieved</option>
+                        </select>
+                      </Field>
+                      <div style={{ marginTop: 8 }}>
+                        <AchievedBadge achieved={c.achieved} />
+                      </div>
+                    </div>
                     {canEdit && (
-                      <button type="button" className={dangerBtn} onClick={() => removeCriterion(i)}>
+                      <button
+                        type="button"
+                        className="c-btn-danger"
+                        style={{ ...dangerBtn, marginTop: 8 }}
+                        onClick={() => removeCriterion(i)}
+                      >
                         Remove
                       </button>
                     )}
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Section>
+                ))}
+              </div>
+            )}
+          </Section>
 
-        {/* DELIVERABLES & ACCEPTANCE */}
-        <div ref={refOutstanding}>
-          <Section title="Deliverables & Acceptance">
-            <div className="space-y-8">
-              {/* Delivered */}
-              <div>
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-base font-medium">Delivered Items</h3>
-                  {canEdit && (
-                    <button type="button" className={smallBtn} onClick={addDelivered}>
-                      + Add
-                    </button>
-                  )}
-                </div>
-                {doc.deliverables.delivered.length === 0 ? (
-                  <p className="text-sm text-gray-500">No delivered items recorded.</p>
-                ) : (
-                  <div className="space-y-4">
-                    {doc.deliverables.delivered.map((item, i) => (
-                      <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-                        <div className="md:col-span-5">
+          {/* ═══ 05 DELIVERABLES & ACCEPTANCE ═══ */}
+          <div ref={refOutstanding}>
+            <Section title="Deliverables & Acceptance" num="05 — Delivery">
+              <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
+                {/* Delivered */}
+                <div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: 16,
+                    }}
+                  >
+                    <h3
+                      style={{
+                        fontFamily: "var(--display)",
+                        fontSize: 16,
+                        color: "var(--text)",
+                        margin: 0,
+                      }}
+                    >
+                      Delivered Items
+                    </h3>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        className="c-btn"
+                        style={smallBtn}
+                        onClick={addDelivered}
+                      >
+                        + Add
+                      </button>
+                    )}
+                  </div>
+                  {doc.deliverables.delivered.length === 0 ? (
+                    <EmptyState text="No delivered items recorded." />
+                  ) : (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 10,
+                      }}
+                    >
+                      {doc.deliverables.delivered.map((item, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "2fr 1fr 1fr auto",
+                            gap: 12,
+                            alignItems: "center",
+                          }}
+                        >
                           <input
-                            className={inputBase}
+                            className="c-input"
+                            style={inputBase}
                             placeholder="Deliverable"
                             value={item.deliverable}
                             disabled={isReadOnly}
@@ -1713,18 +2512,21 @@ export default function ProjectClosureReportEditor({
                                 ...d,
                                 deliverables: {
                                   ...d.deliverables,
-                                  delivered: updateArray(d.deliverables.delivered, i, (it) => ({
-                                    ...it,
-                                    deliverable: e.target.value,
-                                  })),
+                                  delivered: updateArray(
+                                    d.deliverables.delivered,
+                                    i,
+                                    (it) => ({
+                                      ...it,
+                                      deliverable: e.target.value,
+                                    })
+                                  ),
                                 },
                               }))
                             }
                           />
-                        </div>
-                        <div className="md:col-span-3">
                           <input
-                            className={inputBase}
+                            className="c-input"
+                            style={inputBase}
                             placeholder="Accepted by"
                             value={item.accepted_by}
                             disabled={isReadOnly}
@@ -1733,19 +2535,22 @@ export default function ProjectClosureReportEditor({
                                 ...d,
                                 deliverables: {
                                   ...d.deliverables,
-                                  delivered: updateArray(d.deliverables.delivered, i, (it) => ({
-                                    ...it,
-                                    accepted_by: e.target.value,
-                                  })),
+                                  delivered: updateArray(
+                                    d.deliverables.delivered,
+                                    i,
+                                    (it) => ({
+                                      ...it,
+                                      accepted_by: e.target.value,
+                                    })
+                                  ),
                                 },
                               }))
                             }
                           />
-                        </div>
-                        <div className="md:col-span-3">
                           <input
                             type="date"
-                            className={inputBase}
+                            className="c-input"
+                            style={inputBase}
                             value={item.accepted_on ?? ""}
                             disabled={isReadOnly}
                             onChange={(e) =>
@@ -1753,1217 +2558,500 @@ export default function ProjectClosureReportEditor({
                                 ...d,
                                 deliverables: {
                                   ...d.deliverables,
-                                  delivered: updateArray(d.deliverables.delivered, i, (it) => ({
-                                    ...it,
-                                    accepted_on: e.target.value,
-                                  })),
+                                  delivered: updateArray(
+                                    d.deliverables.delivered,
+                                    i,
+                                    (it) => ({
+                                      ...it,
+                                      accepted_on: e.target.value,
+                                    })
+                                  ),
                                 },
                               }))
                             }
                           />
-                        </div>
-                        <div className="md:col-span-1">
                           {canEdit && (
-                            <button type="button" className={dangerBtn} onClick={() => removeDelivered(i)}>
+                            <button
+                              type="button"
+                              className="c-btn-danger"
+                              style={dangerBtn}
+                              onClick={() => removeDelivered(i)}
+                            >
                               Remove
                             </button>
                           )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Outstanding */}
-              <div className="border-t pt-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-base font-medium">Outstanding Items</h3>
-                  {canEdit && (
-                    <button type="button" className={smallBtn} onClick={addOutstanding}>
-                      + Add
-                    </button>
-                  )}
-                </div>
-                {doc.deliverables.outstanding.length === 0 ? (
-                  <p className="text-sm text-gray-500">No outstanding items recorded.</p>
-                ) : (
-                  <div className="space-y-4">
-                    {doc.deliverables.outstanding.map((item, i) => (
-                      <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-                        <div className="md:col-span-4">
-                          <input
-                            className={inputBase}
-                            placeholder="Item"
-                            value={item.item}
-                            disabled={isReadOnly}
-                            onChange={(e) =>
-                              setDoc((d) => ({
-                                ...d,
-                                deliverables: {
-                                  ...d.deliverables,
-                                  outstanding: updateArray(d.deliverables.outstanding, i, (it) => ({
-                                    ...it,
-                                    item: e.target.value,
-                                  })),
-                                },
-                              }))
-                            }
-                          />
-                        </div>
-                        <div className="md:col-span-3">
-                          <input
-                            className={inputBase}
-                            placeholder="Owner"
-                            value={item.owner}
-                            disabled={isReadOnly}
-                            onChange={(e) =>
-                              setDoc((d) => ({
-                                ...d,
-                                deliverables: {
-                                  ...d.deliverables,
-                                  outstanding: updateArray(d.deliverables.outstanding, i, (it) => ({
-                                    ...it,
-                                    owner: e.target.value,
-                                  })),
-                                },
-                              }))
-                            }
-                          />
-                        </div>
-                        <div className="md:col-span-2">
-                          <input
-                            className={inputBase}
-                            placeholder="Status"
-                            value={item.status}
-                            disabled={isReadOnly}
-                            onChange={(e) =>
-                              setDoc((d) => ({
-                                ...d,
-                                deliverables: {
-                                  ...d.deliverables,
-                                  outstanding: updateArray(d.deliverables.outstanding, i, (it) => ({
-                                    ...it,
-                                    status: e.target.value,
-                                  })),
-                                },
-                              }))
-                            }
-                          />
-                        </div>
-                        <div className="md:col-span-2">
-                          <input
-                            className={inputBase}
-                            placeholder="Target date"
-                            value={item.target}
-                            disabled={isReadOnly}
-                            onChange={(e) =>
-                              setDoc((d) => ({
-                                ...d,
-                                deliverables: {
-                                  ...d.deliverables,
-                                  outstanding: updateArray(d.deliverables.outstanding, i, (it) => ({
-                                    ...it,
-                                    target: e.target.value,
-                                  })),
-                                },
-                              }))
-                            }
-                          />
-                        </div>
-                        <div className="md:col-span-1">
-                          {canEdit && (
-                            <button type="button" className={dangerBtn} onClick={() => removeOutstanding(i)}>
-                              Remove
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Acceptance checklist */}
-              <div className="border-t pt-6">
-                <h3 className="text-base font-medium mb-4">Acceptance Checklist</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={doc.deliverables.acceptance_checklist.sponsor_signed}
-                      disabled={isReadOnly}
-                      onChange={(e) =>
-                        setDoc((d) => ({
-                          ...d,
-                          deliverables: {
-                            ...d.deliverables,
-                            acceptance_checklist: {
-                              ...d.deliverables.acceptance_checklist,
-                              sponsor_signed: e.target.checked,
-                            },
-                          },
-                        }))
-                      }
-                    />
-                    Sponsor signed off
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={doc.deliverables.acceptance_checklist.bau_accepted}
-                      disabled={isReadOnly}
-                      onChange={(e) =>
-                        setDoc((d) => ({
-                          ...d,
-                          deliverables: {
-                            ...d.deliverables,
-                            acceptance_checklist: {
-                              ...d.deliverables.acceptance_checklist,
-                              bau_accepted: e.target.checked,
-                            },
-                          },
-                        }))
-                      }
-                    />
-                    BAU / Operations accepted
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={doc.deliverables.acceptance_checklist.knowledge_transfer_done}
-                      disabled={isReadOnly}
-                      onChange={(e) =>
-                        setDoc((d) => ({
-                          ...d,
-                          deliverables: {
-                            ...d.deliverables,
-                            acceptance_checklist: {
-                              ...d.deliverables.acceptance_checklist,
-                              knowledge_transfer_done: e.target.checked,
-                            },
-                          },
-                        }))
-                      }
-                    />
-                    Knowledge transfer completed
-                  </label>
-                </div>
-              </div>
-
-              {/* Sponsor signoff */}
-              <div className="border-t pt-6 mt-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <Field label="Sponsor Sign-off Name">
-                    <input
-                      className={inputBase}
-                      value={doc.deliverables.sponsor_signoff_name}
-                      disabled={isReadOnly}
-                      onChange={(e) =>
-                        setDoc((d) => ({ ...d, deliverables: { ...d.deliverables, sponsor_signoff_name: e.target.value } }))
-                      }
-                    />
-                  </Field>
-                  <Field label="Sign-off Date">
-                    <input
-                      type="date"
-                      className={inputBase}
-                      value={doc.deliverables.sponsor_signoff_date ?? ""}
-                      disabled={isReadOnly}
-                      onChange={(e) =>
-                        setDoc((d) => ({ ...d, deliverables: { ...d.deliverables, sponsor_signoff_date: e.target.value } }))
-                      }
-                    />
-                  </Field>
-                </div>
-              </div>
-            </div>
-          </Section>
-        </div>
-
-        {/* FINANCIAL CLOSEOUT */}
-        <div ref={refFinancial}>
-          <Section
-            title="Financial Closeout"
-            right={
-              <div className="text-sm text-gray-600">
-                Budget: <strong>{fmtPounds(financialTotals.budget || 0)}</strong> | Actual:{" "}
-                <strong>{fmtPounds(financialTotals.actual || 0)}</strong> | Variance:{" "}
-                <strong>{fmtPounds(financialTotals.variance || 0)}</strong>
-                {financialTotals.pct != null && ` (${financialTotals.pct.toFixed(1)}%)`}
-              </div>
-            }
-          >
-            <div className="space-y-8">
-              <div>
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-base font-medium">Budget Summary</h3>
-                  {canEdit && (
-                    <button type="button" className={smallBtn} onClick={addBudgetRow}>
-                      + Add Row
-                    </button>
-                  )}
-                </div>
-
-                {doc.financial_closeout.budget_rows.length === 0 ? (
-                  <p className="text-sm text-gray-500">No budget rows added.</p>
-                ) : (
-                  <div className="space-y-4">
-                    {doc.financial_closeout.budget_rows.map((row, i) => (
-                      <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-                        <div className="md:col-span-4">
-                          <input
-                            className={inputBase}
-                            placeholder="Category"
-                            value={row.category}
-                            disabled={isReadOnly}
-                            onChange={(e) =>
-                              setDoc((d) => ({
-                                ...d,
-                                financial_closeout: {
-                                  ...d.financial_closeout,
-                                  budget_rows: updateArray(d.financial_closeout.budget_rows, i, (r) => ({
-                                    ...r,
-                                    category: e.target.value,
-                                  })),
-                                },
-                              }))
-                            }
-                          />
-                        </div>
-                        <div className="md:col-span-3">
-                          <input
-                            type="number"
-                            className={inputBase}
-                            placeholder="Budget (£)"
-                            value={row.budget ?? ""}
-                            disabled={isReadOnly}
-                            onChange={(e) =>
-                              setDoc((d) => ({
-                                ...d,
-                                financial_closeout: {
-                                  ...d.financial_closeout,
-                                  budget_rows: updateArray(d.financial_closeout.budget_rows, i, (r) => ({
-                                    ...r,
-                                    budget: asMoney(e.target.value),
-                                  })),
-                                },
-                              }))
-                            }
-                          />
-                        </div>
-                        <div className="md:col-span-3">
-                          <input
-                            type="number"
-                            className={inputBase}
-                            placeholder="Actual (£)"
-                            value={row.actual ?? ""}
-                            disabled={isReadOnly}
-                            onChange={(e) =>
-                              setDoc((d) => ({
-                                ...d,
-                                financial_closeout: {
-                                  ...d.financial_closeout,
-                                  budget_rows: updateArray(d.financial_closeout.budget_rows, i, (r) => ({
-                                    ...r,
-                                    actual: asMoney(e.target.value),
-                                  })),
-                                },
-                              }))
-                            }
-                          />
-                        </div>
-                        <div className="md:col-span-2">
-                          {canEdit && (
-                            <button type="button" className={dangerBtn} onClick={() => removeBudgetRow(i)}>
-                              Remove
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="border-t pt-6">
-                <h3 className="text-base font-medium mb-4">ROI Metrics</h3>
-                <RowGrid>
-                  <Field label="Annual Benefit">
-                    <input
-                      className={inputBase}
-                      value={doc.financial_closeout.roi.annual_benefit}
-                      disabled={isReadOnly}
-                      onChange={(e) =>
-                        setDoc((d) => ({
-                          ...d,
-                          financial_closeout: {
-                            ...d.financial_closeout,
-                            roi: { ...d.financial_closeout.roi, annual_benefit: e.target.value },
-                          },
-                        }))
-                      }
-                    />
-                  </Field>
-                  <Field label="Payback Achieved">
-                    <input
-                      className={inputBase}
-                      value={doc.financial_closeout.roi.payback_achieved}
-                      disabled={isReadOnly}
-                      onChange={(e) =>
-                        setDoc((d) => ({
-                          ...d,
-                          financial_closeout: {
-                            ...d.financial_closeout,
-                            roi: { ...d.financial_closeout.roi, payback_achieved: e.target.value },
-                          },
-                        }))
-                      }
-                    />
-                  </Field>
-                  <Field label="Payback Planned">
-                    <input
-                      className={inputBase}
-                      value={doc.financial_closeout.roi.payback_planned}
-                      disabled={isReadOnly}
-                      onChange={(e) =>
-                        setDoc((d) => ({
-                          ...d,
-                          financial_closeout: {
-                            ...d.financial_closeout,
-                            roi: { ...d.financial_closeout.roi, payback_planned: e.target.value },
-                          },
-                        }))
-                      }
-                    />
-                  </Field>
-                  <Field label="NPV">
-                    <input
-                      className={inputBase}
-                      value={doc.financial_closeout.roi.npv}
-                      disabled={isReadOnly}
-                      onChange={(e) =>
-                        setDoc((d) => ({
-                          ...d,
-                          financial_closeout: {
-                            ...d.financial_closeout,
-                            roi: { ...d.financial_closeout.roi, npv: e.target.value },
-                          },
-                        }))
-                      }
-                    />
-                  </Field>
-                </RowGrid>
-              </div>
-            </div>
-          </Section>
-        </div>
-
-        {/* LESSONS LEARNED */}
-        <div ref={refLessons}>
-          <Section title="Lessons Learned">
-            {(["went_well", "didnt_go_well", "surprises_risks"] as const).map((key) => {
-              const label =
-                key === "went_well"
-                  ? "What went well"
-                  : key === "didnt_go_well"
-                    ? "What didn't go well"
-                    : "Surprises / Risks encountered";
-
-              const aiKey = `closure.lessons.${key}`;
-
-              return (
-                <div key={key} className="mt-8">
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-base font-medium">{label}</h3>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        className={smallBtn}
-                        disabled={isReadOnly || aiLoadingKey === aiKey}
-                        onClick={() => improveSection(aiKey)}
-                      >
-                        {aiLoadingKey === aiKey ? "Working…" : "Improve"}
-                      </button>
-
-                      <button
-                        type="button"
-                        className={smallBtn}
-                        disabled={isReadOnly || aiLoadingKey === aiKey}
-                        onClick={() => regenerateSection(aiKey)}
-                      >
-                        {aiLoadingKey === aiKey ? "Working…" : "Regenerate"}
-                      </button>
-
-                      {canEdit && (
-                        <button type="button" className={smallBtn} onClick={() => addLesson(key)}>
-                          + Add
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {doc.lessons[key].length === 0 ? (
-                    <p className="text-sm text-gray-500">Nothing recorded yet.</p>
-                  ) : (
-                    <div className="space-y-4">
-                      {doc.lessons[key].map((lesson, i) => (
-                        <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
-                          <div className="md:col-span-7">
-                            <textarea
-                              className={textareaBase}
-                              placeholder="Description"
-                              value={lesson.text}
-                              disabled={isReadOnly}
-                              onChange={(e) =>
-                                setDoc((d) => ({
-                                  ...d,
-                                  lessons: {
-                                    ...d.lessons,
-                                    [key]: updateArray(d.lessons[key], i, (l) => ({ ...l, text: e.target.value })),
-                                  },
-                                }))
-                              }
-                            />
-                          </div>
-                          <div className="md:col-span-4">
-                            <textarea
-                              className={textareaBase}
-                              placeholder="Recommended action (optional)"
-                              value={lesson.action ?? ""}
-                              disabled={isReadOnly}
-                              onChange={(e) =>
-                                setDoc((d) => ({
-                                  ...d,
-                                  lessons: {
-                                    ...d.lessons,
-                                    [key]: updateArray(d.lessons[key], i, (l) => ({ ...l, action: e.target.value })),
-                                  },
-                                }))
-                              }
-                            />
-                          </div>
-                          <div className="md:col-span-1 pt-2">
-                            {canEdit && (
-                              <button type="button" className={dangerBtn} onClick={() => removeLesson(key, i)}>
-                                Remove
-                              </button>
-                            )}
-                          </div>
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
-              );
-            })}
-          </Section>
-        </div>
 
-        {/* HANDOVER & SUPPORT */}
-        <Section title="Handover & Support">
-          <div className="space-y-10">
-            {/* Open Risks & Issues */}
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-base font-medium">Open Risks & Issues</h3>
-                {canEdit && (
-                  <button type="button" className={smallBtn} onClick={addRiskIssue}>
-                    + Add Risk/Issue
-                  </button>
-                )}
-              </div>
-
-              {doc.handover.risks_issues.length === 0 ? (
-                <p className="text-sm text-gray-500">No open risks or issues recorded.</p>
-              ) : (
-                <div className="space-y-6">
-                  {doc.handover.risks_issues.map((ri, i) => (
-                    <div key={ri.id} className="border border-gray-200 rounded-lg p-5 bg-white space-y-4">
-                      <div className="flex justify-between items-center">
-                        <div className="text-sm font-medium text-gray-800">
-                          Risk ID:{" "}
-                          <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded">{ri.human_id || ri.id}</span>
-                        </div>
-                        {canEdit && (
-                          <button type="button" className={dangerBtn} onClick={() => removeRiskIssue(i)}>
-                            Remove
-                          </button>
-                        )}
-                      </div>
-
-                      <input
-                        className={inputBase}
-                        placeholder="Description of risk/issue"
-                        value={ri.description}
-                        disabled={isReadOnly}
-                        onChange={(e) =>
-                          setDoc((d) => ({
-                            ...d,
-                            handover: {
-                              ...d.handover,
-                              risks_issues: updateArray(d.handover.risks_issues, i, (r) => ({
-                                ...r,
-                                description: e.target.value,
-                              })),
-                            },
-                          }))
-                        }
-                      />
-
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                        <Field label="Severity">
-                          <select
-                            className={selectBase}
-                            value={ri.severity}
-                            disabled={isReadOnly}
-                            onChange={(e) =>
-                              setDoc((d) => ({
-                                ...d,
-                                handover: {
-                                  ...d.handover,
-                                  risks_issues: updateArray(d.handover.risks_issues, i, (r) => ({
-                                    ...r,
-                                    severity: e.target.value as any,
-                                  })),
-                                },
-                              }))
-                            }
-                          >
-                            <option value="high">High</option>
-                            <option value="medium">Medium</option>
-                            <option value="low">Low</option>
-                          </select>
-                        </Field>
-
-                        <Field label="Owner">
-                          <input
-                            className={inputBase}
-                            value={ri.owner}
-                            disabled={isReadOnly}
-                            onChange={(e) =>
-                              setDoc((d) => ({
-                                ...d,
-                                handover: {
-                                  ...d.handover,
-                                  risks_issues: updateArray(d.handover.risks_issues, i, (r) => ({
-                                    ...r,
-                                    owner: e.target.value,
-                                  })),
-                                },
-                              }))
-                            }
-                          />
-                        </Field>
-
-                        <Field label="Status">
-                          <input
-                            className={inputBase}
-                            value={ri.status}
-                            disabled={isReadOnly}
-                            onChange={(e) =>
-                              setDoc((d) => ({
-                                ...d,
-                                handover: {
-                                  ...d.handover,
-                                  risks_issues: updateArray(d.handover.risks_issues, i, (r) => ({
-                                    ...r,
-                                    status: e.target.value,
-                                  })),
-                                },
-                              }))
-                            }
-                          />
-                        </Field>
-
-                        <Field label="Next Action">
-                          <input
-                            className={inputBase}
-                            value={ri.next_action}
-                            disabled={isReadOnly}
-                            onChange={(e) =>
-                              setDoc((d) => ({
-                                ...d,
-                                handover: {
-                                  ...d.handover,
-                                  risks_issues: updateArray(d.handover.risks_issues, i, (r) => ({
-                                    ...r,
-                                    next_action: e.target.value,
-                                  })),
-                                },
-                              }))
-                            }
-                          />
-                        </Field>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Team Moves / Changes */}
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-base font-medium">Team Moves / Changes</h3>
-                {canEdit && (
-                  <button type="button" className={smallBtn} onClick={addTeamMove}>
-                    + Add Team Move
-                  </button>
-                )}
-              </div>
-
-              {doc.handover.team_moves.length === 0 ? (
-                <p className="text-sm text-gray-500">No team changes recorded.</p>
-              ) : (
-                <div className="space-y-4">
-                  {doc.handover.team_moves.map((tm, i) => (
-                    <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-                      <div className="md:col-span-4">
-                        <input
-                          className={inputBase}
-                          placeholder="Person name"
-                          value={tm.person}
-                          disabled={isReadOnly}
-                          onChange={(e) =>
-                            setDoc((d) => ({
-                              ...d,
-                              handover: {
-                                ...d.handover,
-                                team_moves: updateArray(d.handover.team_moves, i, (t) => ({
-                                  ...t,
-                                  person: e.target.value,
-                                })),
-                              },
-                            }))
-                          }
-                        />
-                      </div>
-                      <div className="md:col-span-5">
-                        <input
-                          className={inputBase}
-                          placeholder="Change / role / departure reason"
-                          value={tm.change}
-                          disabled={isReadOnly}
-                          onChange={(e) =>
-                            setDoc((d) => ({
-                              ...d,
-                              handover: {
-                                ...d.handover,
-                                team_moves: updateArray(d.handover.team_moves, i, (t) => ({
-                                  ...t,
-                                  change: e.target.value,
-                                })),
-                              },
-                            }))
-                          }
-                        />
-                      </div>
-                      <div className="md:col-span-2">
-                        <input
-                          type="date"
-                          className={inputBase}
-                          value={tm.date ?? ""}
-                          disabled={isReadOnly}
-                          onChange={(e) =>
-                            setDoc((d) => ({
-                              ...d,
-                              handover: {
-                                ...d.handover,
-                                team_moves: updateArray(d.handover.team_moves, i, (t) => ({
-                                  ...t,
-                                  date: e.target.value,
-                                })),
-                              },
-                            }))
-                          }
-                        />
-                      </div>
-                      <div className="md:col-span-1">
-                        {canEdit && (
-                          <button type="button" className={dangerBtn} onClick={() => removeTeamMove(i)}>
-                            Remove
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Knowledge Transfer + Support Model */}
-            <div className="border-t pt-8 grid md:grid-cols-2 gap-10">
-              <div className="space-y-6">
-                <h3 className="text-base font-medium">Knowledge Transfer</h3>
-                <div className="space-y-3">
-                  {[
-                    { key: "docs_handed_over", label: "Documentation handed over" },
-                    { key: "final_demo_done", label: "Final demo / walkthrough completed" },
-                    { key: "support_model_doc", label: "Support model documented" },
-                    { key: "runbook_finalised", label: "Runbook / operations guide finalised" },
-                  ].map(({ key, label }) => (
-                    <label key={key} className="flex items-center gap-3 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={doc.handover.knowledge_transfer[key as keyof typeof doc.handover.knowledge_transfer]}
-                        disabled={isReadOnly}
-                        onChange={(e) =>
-                          setDoc((d) => ({
-                            ...d,
-                            handover: {
-                              ...d.handover,
-                              knowledge_transfer: { ...d.handover.knowledge_transfer, [key]: e.target.checked as any },
-                            },
-                          }))
-                        }
-                      />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-                <Field label="Additional notes">
-                  <textarea
-                    className={textareaBase}
-                    value={doc.handover.knowledge_transfer.notes}
-                    disabled={isReadOnly}
-                    onChange={(e) =>
-                      setDoc((d) => ({
-                        ...d,
-                        handover: {
-                          ...d.handover,
-                          knowledge_transfer: { ...d.handover.knowledge_transfer, notes: e.target.value },
-                        },
-                      }))
-                    }
-                  />
-                </Field>
-              </div>
-
-              <div className="space-y-6">
-                <h3 className="text-base font-medium">Target Operating / Support Model</h3>
-                <div className="space-y-4">
-                  <Field label="Primary Support Contact">
-                    <input
-                      className={inputBase}
-                      value={doc.handover.support_model.primary_support}
-                      disabled={isReadOnly}
-                      onChange={(e) =>
-                        setDoc((d) => ({
-                          ...d,
-                          handover: {
-                            ...d.handover,
-                            support_model: { ...d.handover.support_model, primary_support: e.target.value },
-                          },
-                        }))
-                      }
-                    />
-                  </Field>
-
-                  <Field label="Escalation Path">
-                    <input
-                      className={inputBase}
-                      value={doc.handover.support_model.escalation}
-                      disabled={isReadOnly}
-                      onChange={(e) =>
-                        setDoc((d) => ({
-                          ...d,
-                          handover: {
-                            ...d.handover,
-                            support_model: { ...d.handover.support_model, escalation: e.target.value },
-                          },
-                        }))
-                      }
-                    />
-                  </Field>
-
-                  <Field label="Hypercare Ends">
-                    <input
-                      type="date"
-                      className={inputBase}
-                      value={doc.handover.support_model.hypercare_end ?? ""}
-                      disabled={isReadOnly}
-                      onChange={(e) =>
-                        setDoc((d) => ({
-                          ...d,
-                          handover: {
-                            ...d.handover,
-                            support_model: { ...d.handover.support_model, hypercare_end: e.target.value },
-                          },
-                        }))
-                      }
-                    />
-                  </Field>
-                </div>
-              </div>
-            </div>
-          </div>
-        </Section>
-
-        {/* RECOMMENDATIONS */}
-        <Section
-          title="Recommendations & Follow-up Actions"
-          right={
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className={smallBtn}
-                disabled={isReadOnly || aiLoadingKey === "closure.recommendations"}
-                onClick={() => improveSection("closure.recommendations")}
-              >
-                {aiLoadingKey === "closure.recommendations" ? "Working…" : "Improve"}
-              </button>
-              <button
-                type="button"
-                className={smallBtn}
-                disabled={isReadOnly || aiLoadingKey === "closure.recommendations"}
-                onClick={() => regenerateSection("closure.recommendations")}
-              >
-                {aiLoadingKey === "closure.recommendations" ? "Working…" : "Regenerate"}
-              </button>
-
-              {canEdit && (
-                <button type="button" className={smallBtn} onClick={addRecommendation}>
-                  + Add
-                </button>
-              )}
-            </div>
-          }
-        >
-          {doc.recommendations.items.length === 0 ? (
-            <p className="text-sm text-gray-500">No recommendations added.</p>
-          ) : (
-            <div className="space-y-4">
-              {doc.recommendations.items.map((item, i) => (
-                <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-                  <div className="md:col-span-7">
-                    <textarea
-                      className={textareaBase}
-                      placeholder="Text"
-                      value={item.text}
-                      disabled={isReadOnly}
-                      onChange={(e) =>
-                        setDoc((d) => ({
-                          ...d,
-                          recommendations: {
-                            items: updateArray(d.recommendations.items, i, (it) => ({ ...it, text: e.target.value })),
-                          },
-                        }))
-                      }
-                    />
-                  </div>
-                  <div className="md:col-span-3">
-                    <input
-                      className={inputBase}
-                      placeholder="Owner"
-                      value={item.owner ?? ""}
-                      disabled={isReadOnly}
-                      onChange={(e) =>
-                        setDoc((d) => ({
-                          ...d,
-                          recommendations: {
-                            items: updateArray(d.recommendations.items, i, (it) => ({ ...it, owner: e.target.value })),
-                          },
-                        }))
-                      }
-                    />
-                  </div>
-                  <div className="md:col-span-1">
-                    <input
-                      type="date"
-                      className={inputBase}
-                      value={item.due ?? ""}
-                      disabled={isReadOnly}
-                      onChange={(e) =>
-                        setDoc((d) => ({
-                          ...d,
-                          recommendations: {
-                            items: updateArray(d.recommendations.items, i, (it) => ({ ...it, due: e.target.value })),
-                          },
-                        }))
-                      }
-                    />
-                  </div>
-                  <div className="md:col-span-1">
+                {/* Outstanding */}
+                <div style={{ borderTop: "1px solid var(--border)", paddingTop: 24 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: 16,
+                    }}
+                  >
+                    <h3
+                      style={{
+                        fontFamily: "var(--display)",
+                        fontSize: 16,
+                        color: "var(--text)",
+                        margin: 0,
+                      }}
+                    >
+                      Outstanding Items
+                    </h3>
                     {canEdit && (
-                      <button type="button" className={dangerBtn} onClick={() => removeRecommendation(i)}>
-                        Remove
+                      <button type="button" className="c-btn" style={smallBtn} onClick={addOutstanding}>
+                        + Add
                       </button>
                     )}
                   </div>
+                  {doc.deliverables.outstanding.length === 0 ? (
+                    <EmptyState text="No outstanding items recorded." />
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {doc.deliverables.outstanding.map((item, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "2fr 1fr 1fr 1fr auto",
+                            gap: 12,
+                            alignItems: "center",
+                          }}
+                        >
+                          <input className="c-input" style={inputBase} placeholder="Item" value={item.item} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, deliverables: { ...d.deliverables, outstanding: updateArray(d.deliverables.outstanding, i, (it) => ({ ...it, item: e.target.value })) } }))} />
+                          <input className="c-input" style={inputBase} placeholder="Owner" value={item.owner} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, deliverables: { ...d.deliverables, outstanding: updateArray(d.deliverables.outstanding, i, (it) => ({ ...it, owner: e.target.value })) } }))} />
+                          <input className="c-input" style={inputBase} placeholder="Status" value={item.status} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, deliverables: { ...d.deliverables, outstanding: updateArray(d.deliverables.outstanding, i, (it) => ({ ...it, status: e.target.value })) } }))} />
+                          <input className="c-input" style={inputBase} placeholder="Target date" value={item.target} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, deliverables: { ...d.deliverables, outstanding: updateArray(d.deliverables.outstanding, i, (it) => ({ ...it, target: e.target.value })) } }))} />
+                          {canEdit && (
+                            <button type="button" className="c-btn-danger" style={dangerBtn} onClick={() => removeOutstanding(i)}>
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
-          )}
-        </Section>
 
-        {/* USEFUL LINKS */}
-        <Section
-          title="Useful Links & References"
-          right={
-            canEdit && (
-              <button type="button" className={smallBtn} onClick={addLink}>
-                + Add link
-              </button>
-            )
-          }
-        >
-          {doc.links.items.length === 0 ? (
-            <p className="text-sm text-gray-500">No links added yet.</p>
-          ) : (
-            <div className="space-y-4">
-              {doc.links.items.map((item, i) => {
-                const url = safeUrl(item.url);
-                const openable = canOpenUrl(url);
-                const displayText = item.label?.trim() ? item.label.trim() : url || "Open link";
-
-                return (
-                  <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-                    <div className="md:col-span-5">
-                      <input
-                        className={inputBase}
-                        placeholder="Label"
-                        value={item.label}
-                        disabled={isReadOnly}
-                        onChange={(e) =>
-                          setDoc((d) => ({
-                            ...d,
-                            links: { items: updateArray(d.links.items, i, (it) => ({ ...it, label: e.target.value })) },
-                          }))
-                        }
-                      />
-                    </div>
-
-                    <div className="md:col-span-6">
-                      <div className="flex items-center gap-2">
-                        <input
-                          className={inputBase}
-                          placeholder="URL (https://...)"
-                          value={item.url}
-                          disabled={isReadOnly}
-                          onChange={(e) =>
-                            setDoc((d) => ({
-                              ...d,
-                              links: { items: updateArray(d.links.items, i, (it) => ({ ...it, url: e.target.value })) },
-                            }))
-                          }
-                        />
-                        <button
-                          type="button"
-                          className={smallBtn}
-                          disabled={isReadOnly || !openable}
-                          onClick={() => openUrl(url)}
-                          title={openable ? "Open link" : "Enter a valid http(s) URL to open"}
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-
-                      {/* ✅ Clickable preview using label as the visible text */}
-                      {openable && (
-                        <a
-                          href={url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="mt-1 text-xs text-indigo-600 hover:underline truncate block"
-                          title={url}
-                        >
-                          {displayText}
-                        </a>
-                      )}
-                    </div>
-
-                    <div className="md:col-span-1">
-                      {canEdit && (
-                        <button type="button" className={dangerBtn} onClick={() => removeLink(i)}>
-                          Remove
-                        </button>
-                      )}
-                    </div>
+                {/* Acceptance checklist */}
+                <div style={{ borderTop: "1px solid var(--border)", paddingTop: 24 }}>
+                  <h3 style={{ fontFamily: "var(--display)", fontSize: 16, color: "var(--text)", margin: "0 0 16px" }}>
+                    Acceptance Checklist
+                  </h3>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: "var(--text)", cursor: isReadOnly ? "default" : "pointer" }}>
+                      <input type="checkbox" checked={doc.deliverables.acceptance_checklist.sponsor_signed} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, deliverables: { ...d.deliverables, acceptance_checklist: { ...d.deliverables.acceptance_checklist, sponsor_signed: e.target.checked } } }))} />
+                      Sponsor signed off
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: "var(--text)", cursor: isReadOnly ? "default" : "pointer" }}>
+                      <input type="checkbox" checked={doc.deliverables.acceptance_checklist.bau_accepted} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, deliverables: { ...d.deliverables, acceptance_checklist: { ...d.deliverables.acceptance_checklist, bau_accepted: e.target.checked } } }))} />
+                      BAU / Operations accepted
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: "var(--text)", cursor: isReadOnly ? "default" : "pointer" }}>
+                      <input type="checkbox" checked={doc.deliverables.acceptance_checklist.knowledge_transfer_done} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, deliverables: { ...d.deliverables, acceptance_checklist: { ...d.deliverables.acceptance_checklist, knowledge_transfer_done: e.target.checked } } }))} />
+                      Knowledge transfer completed
+                    </label>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </Section>
+                </div>
 
-        {/* ATTACHMENTS */}
-        <Section
-          title="Attachments & Evidence"
-          right={
-            canEdit && (
-              <div className="flex items-center gap-3">
-                {uploadMsg && (
-                  <span className={`text-sm ${uploadMsg.includes("failed") ? "text-red-600" : "text-green-600"}`}>
-                    {uploadMsg}
-                  </span>
-                )}
-                <label className="cursor-pointer text-sm font-medium text-indigo-600 hover:text-indigo-800">
-                  {uploading ? "Uploading…" : "Upload files"}
-                  <input
-                    type="file"
-                    multiple
-                    ref={fileInputRef}
-                    className="hidden"
-                    disabled={uploading}
-                    onChange={(e) => handleUpload(e.target.files)}
-                  />
-                </label>
+                {/* Sponsor signoff */}
+                <div style={{ borderTop: "1px solid var(--border)", paddingTop: 24 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+                    <Field label="Sponsor Sign-off Name">
+                      <input className="c-input" style={inputBase} value={doc.deliverables.sponsor_signoff_name} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, deliverables: { ...d.deliverables, sponsor_signoff_name: e.target.value } }))} />
+                    </Field>
+                    <Field label="Sign-off Date">
+                      <input type="date" className="c-input" style={inputBase} value={doc.deliverables.sponsor_signoff_date ?? ""} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, deliverables: { ...d.deliverables, sponsor_signoff_date: e.target.value } }))} />
+                    </Field>
+                  </div>
+                </div>
               </div>
-            )
-          }
-        >
-          {doc.attachments.items.length === 0 ? (
-            <p className="text-sm text-gray-500">No files attached yet.</p>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {doc.attachments.items.map((att, i) => {
-                const removeKey = String(att.path || att.url || att.filename || i);
-                const busy = attBusy === removeKey;
+            </Section>
+          </div>
 
-                const label = (att.label || att.filename || "Attachment").trim();
-                const href = safeUrl(att.url);
+          {/* ═══ 06 FINANCIAL CLOSEOUT ═══ */}
+          <div ref={refFinancial}>
+            <Section
+              title="Financial Closeout"
+              num="06 — Finance"
+              right={
+                <div style={{ display: "flex", alignItems: "center", gap: 20, fontSize: 13, fontFamily: "var(--mono)", fontWeight: 500 }}>
+                  <span style={{ color: "var(--text-2)" }}>Budget: <strong style={{ color: "var(--text)" }}>{fmtPounds(financialTotals.budget || 0)}</strong></span>
+                  <span style={{ color: "var(--text-2)" }}>Actual: <strong style={{ color: "var(--text)" }}>{fmtPounds(financialTotals.actual || 0)}</strong></span>
+                  <span style={{ color: "var(--text-2)" }}>
+                    Variance:{" "}
+                    <strong style={{ color: financialTotals.variance > 0 ? "var(--red)" : "var(--green)" }}>
+                      {fmtPounds(financialTotals.variance || 0)}
+                    </strong>
+                    {financialTotals.pct != null && (
+                      <span style={{ fontSize: 11, marginLeft: 4, opacity: 0.7 }}>
+                        ({financialTotals.pct.toFixed(1)}%)
+                      </span>
+                    )}
+                  </span>
+                </div>
+              }
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                    <h3 style={{ fontFamily: "var(--display)", fontSize: 16, color: "var(--text)", margin: 0 }}>Budget Summary</h3>
+                    {canEdit && (
+                      <button type="button" className="c-btn" style={smallBtn} onClick={addBudgetRow}>
+                        + Add Row
+                      </button>
+                    )}
+                  </div>
+
+                  {doc.financial_closeout.budget_rows.length === 0 ? (
+                    <EmptyState text="No budget rows added." />
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 12, padding: "0 0 8px", borderBottom: "1px solid var(--border)" }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Category</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Budget (£)</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Actual (£)</span>
+                        <span style={{ width: 70 }} />
+                      </div>
+                      {doc.financial_closeout.budget_rows.map((row, i) => (
+                        <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 12, alignItems: "center" }}>
+                          <input className="c-input" style={inputBase} placeholder="Category" value={row.category} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, financial_closeout: { ...d.financial_closeout, budget_rows: updateArray(d.financial_closeout.budget_rows, i, (r) => ({ ...r, category: e.target.value })) } }))} />
+                          <input type="number" className="c-input" style={{ ...inputBase, fontFamily: "var(--mono)" }} placeholder="0" value={row.budget ?? ""} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, financial_closeout: { ...d.financial_closeout, budget_rows: updateArray(d.financial_closeout.budget_rows, i, (r) => ({ ...r, budget: asMoney(e.target.value) })) } }))} />
+                          <input type="number" className="c-input" style={{ ...inputBase, fontFamily: "var(--mono)" }} placeholder="0" value={row.actual ?? ""} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, financial_closeout: { ...d.financial_closeout, budget_rows: updateArray(d.financial_closeout.budget_rows, i, (r) => ({ ...r, actual: asMoney(e.target.value) })) } }))} />
+                          {canEdit && (
+                            <button type="button" className="c-btn-danger" style={dangerBtn} onClick={() => removeBudgetRow(i)}>Remove</button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ borderTop: "1px solid var(--border)", paddingTop: 24 }}>
+                  <h3 style={{ fontFamily: "var(--display)", fontSize: 16, color: "var(--text)", margin: "0 0 16px" }}>ROI Metrics</h3>
+                  <RowGrid>
+                    <Field label="Annual Benefit">
+                      <input className="c-input" style={inputBase} value={doc.financial_closeout.roi.annual_benefit} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, financial_closeout: { ...d.financial_closeout, roi: { ...d.financial_closeout.roi, annual_benefit: e.target.value } } }))} />
+                    </Field>
+                    <Field label="Payback Achieved">
+                      <input className="c-input" style={inputBase} value={doc.financial_closeout.roi.payback_achieved} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, financial_closeout: { ...d.financial_closeout, roi: { ...d.financial_closeout.roi, payback_achieved: e.target.value } } }))} />
+                    </Field>
+                    <Field label="Payback Planned">
+                      <input className="c-input" style={inputBase} value={doc.financial_closeout.roi.payback_planned} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, financial_closeout: { ...d.financial_closeout, roi: { ...d.financial_closeout.roi, payback_planned: e.target.value } } }))} />
+                    </Field>
+                    <Field label="NPV">
+                      <input className="c-input" style={inputBase} value={doc.financial_closeout.roi.npv} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, financial_closeout: { ...d.financial_closeout, roi: { ...d.financial_closeout.roi, npv: e.target.value } } }))} />
+                    </Field>
+                  </RowGrid>
+                </div>
+              </div>
+            </Section>
+          </div>
+
+          {/* ═══ 07 LESSONS LEARNED ═══ */}
+          <div ref={refLessons}>
+            <Section title="Lessons Learned" num="07 — Reflection">
+              {(["went_well", "didnt_go_well", "surprises_risks"] as const).map((key, sectionIdx) => {
+                const label = key === "went_well" ? "What went well" : key === "didnt_go_well" ? "What didn't go well" : "Surprises / Risks encountered";
+                const icons = { went_well: "✓", didnt_go_well: "✗", surprises_risks: "⚡" };
+                const aiKey = `closure.lessons.${key}`;
 
                 return (
-                  <div key={i} className="border border-gray-200 rounded-lg p-4 flex justify-between items-start gap-3 bg-white">
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium text-sm truncate">{label}</div>
-
-                      {/* ✅ Link text should be the label (not the raw URL) and be clickable */}
-                      {href ? (
-                        <a
-                          href={href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-indigo-600 hover:underline truncate block"
-                          title={href}
-                        >
-                          {label}
-                        </a>
-                      ) : (
-                        <div className="text-xs text-gray-500">No link available</div>
-                      )}
-
-                      <div className="text-xs text-gray-500 mt-1">
-                        {att.filename && `File: ${att.filename}`}
-                        {att.size_bytes && ` • ${(att.size_bytes / 1024).toFixed(1)} KB`}
+                  <div key={key} style={{ marginTop: sectionIdx > 0 ? 28 : 0, paddingTop: sectionIdx > 0 ? 24 : 0, borderTop: sectionIdx > 0 ? "1px solid var(--border)" : "none" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                      <h3 style={{ fontFamily: "var(--display)", fontSize: 16, color: "var(--text)", margin: 0 }}>
+                        <span style={{ marginRight: 8 }}>{icons[key]}</span>{label}
+                      </h3>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <button type="button" className="c-btn" style={aiBtn} disabled={isReadOnly || aiLoadingKey === aiKey} onClick={() => improveSection(aiKey)}>
+                          {aiLoadingKey === aiKey ? "Working…" : "✦ Improve"}
+                        </button>
+                        <button type="button" className="c-btn" style={aiBtn} disabled={isReadOnly || aiLoadingKey === aiKey} onClick={() => regenerateSection(aiKey)}>
+                          {aiLoadingKey === aiKey ? "Working…" : "✦ Regenerate"}
+                        </button>
+                        {canEdit && (
+                          <button type="button" className="c-btn" style={smallBtn} onClick={() => addLesson(key)}>+ Add</button>
+                        )}
                       </div>
                     </div>
 
-                    <div className="flex gap-2 shrink-0">
-                      <button
-                        type="button"
-                        className={smallBtn}
-                        disabled={busy}
-                        onClick={() => {
-                          const newLabel = prompt("Update label:", att.label || "");
-                          if (newLabel != null) {
-                            setDoc((d) => ({
-                              ...d,
-                              attachments: {
-                                items: updateArray(d.attachments.items, i, (a) => ({ ...a, label: newLabel })),
-                              },
-                            }));
-                          }
-                        }}
-                      >
-                        Edit label
-                      </button>
-
-                      {canEdit && (
-                        <button
-                          type="button"
-                          className={dangerBtn}
-                          disabled={busy}
-                          onClick={() => handleDeleteAttachment(att, i)}
-                        >
-                          {busy ? "Removing…" : "Remove"}
-                        </button>
-                      )}
-                    </div>
+                    {doc.lessons[key].length === 0 ? (
+                      <EmptyState text="Nothing recorded yet." />
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {doc.lessons[key].map((lesson, i) => (
+                          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 12, alignItems: "start" }}>
+                            <textarea className="c-textarea" style={textareaBase} placeholder="Description" value={lesson.text} disabled={isReadOnly}
+                              onChange={(e) => setDoc((d) => ({ ...d, lessons: { ...d.lessons, [key]: updateArray(d.lessons[key], i, (l) => ({ ...l, text: e.target.value })) } }))} />
+                            <textarea className="c-textarea" style={textareaBase} placeholder="Recommended action (optional)" value={lesson.action ?? ""} disabled={isReadOnly}
+                              onChange={(e) => setDoc((d) => ({ ...d, lessons: { ...d.lessons, [key]: updateArray(d.lessons[key], i, (l) => ({ ...l, action: e.target.value })) } }))} />
+                            {canEdit && (
+                              <button type="button" className="c-btn-danger" style={{ ...dangerBtn, marginTop: 8 }} onClick={() => removeLesson(key, i)}>Remove</button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
-            </div>
-          )}
-        </Section>
+            </Section>
+          </div>
 
-        {/* FINAL SIGN-OFF */}
-        <div ref={refSignoff}>
-          <Section title="Final Sign-off">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <Field label="Sponsor Name">
-                <input
-                  className={inputBase}
-                  value={doc.signoff.sponsor_name}
-                  disabled={isReadOnly}
-                  onChange={(e) => setDoc((d) => ({ ...d, signoff: { ...d.signoff, sponsor_name: e.target.value } }))}
-                />
-              </Field>
-              <Field label="Sponsor Date">
-                <input
-                  type="date"
-                  className={inputBase}
-                  value={doc.signoff.sponsor_date ?? ""}
-                  disabled={isReadOnly}
-                  onChange={(e) => setDoc((d) => ({ ...d, signoff: { ...d.signoff, sponsor_date: e.target.value } }))}
-                />
-              </Field>
-              <Field label="Sponsor Decision">
-                <select
-                  className={selectBase}
-                  value={doc.signoff.sponsor_decision}
-                  disabled={isReadOnly}
-                  onChange={(e) =>
-                    setDoc((d) => ({ ...d, signoff: { ...d.signoff, sponsor_decision: e.target.value as any } }))
-                  }
-                >
-                  <option value="">— Select —</option>
-                  <option value="approved">Approved</option>
-                  <option value="conditional">Conditional</option>
-                  <option value="rejected">Rejected</option>
-                </select>
-              </Field>
-            </div>
+          {/* ═══ 08 HANDOVER & SUPPORT ═══ */}
+          <Section title="Handover & Support" num="08 — Transition">
+            <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
+              {/* Open Risks & Issues */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <h3 style={{ fontFamily: "var(--display)", fontSize: 16, color: "var(--text)", margin: 0 }}>Open Risks & Issues</h3>
+                  {canEdit && (<button type="button" className="c-btn" style={smallBtn} onClick={addRiskIssue}>+ Add Risk/Issue</button>)}
+                </div>
+                {doc.handover.risks_issues.length === 0 ? (<EmptyState text="No open risks or issues recorded." />) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {doc.handover.risks_issues.map((ri, i) => (
+                      <div key={ri.id} className={`risk-${ri.severity}`} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: 20, background: "var(--surface)", display: "flex", flexDirection: "column", gap: 14 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <SeverityDot severity={ri.severity} />
+                            <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", fontFamily: "var(--mono)" }}>{ri.human_id || ri.id}</span>
+                          </div>
+                          {canEdit && (<button type="button" className="c-btn-danger" style={dangerBtn} onClick={() => removeRiskIssue(i)}>Remove</button>)}
+                        </div>
+                        <input className="c-input" style={inputBase} placeholder="Description of risk/issue" value={ri.description} disabled={isReadOnly}
+                          onChange={(e) => setDoc((d) => ({ ...d, handover: { ...d.handover, risks_issues: updateArray(d.handover.risks_issues, i, (r) => ({ ...r, description: e.target.value })) } }))} />
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+                          <Field label="Severity">
+                            <select className="c-select" style={selectBase} value={ri.severity} disabled={isReadOnly}
+                              onChange={(e) => setDoc((d) => ({ ...d, handover: { ...d.handover, risks_issues: updateArray(d.handover.risks_issues, i, (r) => ({ ...r, severity: e.target.value as any })) } }))}>
+                              <option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option>
+                            </select>
+                          </Field>
+                          <Field label="Owner"><input className="c-input" style={inputBase} value={ri.owner} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, handover: { ...d.handover, risks_issues: updateArray(d.handover.risks_issues, i, (r) => ({ ...r, owner: e.target.value })) } }))} /></Field>
+                          <Field label="Status"><input className="c-input" style={inputBase} value={ri.status} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, handover: { ...d.handover, risks_issues: updateArray(d.handover.risks_issues, i, (r) => ({ ...r, status: e.target.value })) } }))} /></Field>
+                          <Field label="Next Action"><input className="c-input" style={inputBase} value={ri.next_action} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, handover: { ...d.handover, risks_issues: updateArray(d.handover.risks_issues, i, (r) => ({ ...r, next_action: e.target.value })) } }))} /></Field>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-            <div className="border-t pt-6 mt-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <Field label="Project Manager Name">
-                  <input
-                    className={inputBase}
-                    value={doc.signoff.pm_name}
-                    disabled={isReadOnly}
-                    onChange={(e) => setDoc((d) => ({ ...d, signoff: { ...d.signoff, pm_name: e.target.value } }))}
-                  />
-                </Field>
-                <Field label="PM Date">
-                  <input
-                    type="date"
-                    className={inputBase}
-                    value={doc.signoff.pm_date ?? ""}
-                    disabled={isReadOnly}
-                    onChange={(e) => setDoc((d) => ({ ...d, signoff: { ...d.signoff, pm_date: e.target.value } }))}
-                  />
-                </Field>
-                <div className="flex items-end">
-                  <label className="flex items-center gap-2 text-sm font-medium">
-                    <input
-                      type="checkbox"
-                      checked={doc.signoff.pm_approved}
-                      disabled={isReadOnly}
-                      onChange={(e) => setDoc((d) => ({ ...d, signoff: { ...d.signoff, pm_approved: e.target.checked } }))}
-                    />
-                    PM has approved / confirmed
-                  </label>
+              {/* Team Moves */}
+              <div style={{ borderTop: "1px solid var(--border)", paddingTop: 24 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <h3 style={{ fontFamily: "var(--display)", fontSize: 16, color: "var(--text)", margin: 0 }}>Team Moves / Changes</h3>
+                  {canEdit && (<button type="button" className="c-btn" style={smallBtn} onClick={addTeamMove}>+ Add Team Move</button>)}
+                </div>
+                {doc.handover.team_moves.length === 0 ? (<EmptyState text="No team changes recorded." />) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {doc.handover.team_moves.map((tm, i) => (
+                      <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr auto", gap: 12, alignItems: "center" }}>
+                        <input className="c-input" style={inputBase} placeholder="Person name" value={tm.person} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, handover: { ...d.handover, team_moves: updateArray(d.handover.team_moves, i, (t) => ({ ...t, person: e.target.value })) } }))} />
+                        <input className="c-input" style={inputBase} placeholder="Change / role / departure reason" value={tm.change} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, handover: { ...d.handover, team_moves: updateArray(d.handover.team_moves, i, (t) => ({ ...t, change: e.target.value })) } }))} />
+                        <input type="date" className="c-input" style={inputBase} value={tm.date ?? ""} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, handover: { ...d.handover, team_moves: updateArray(d.handover.team_moves, i, (t) => ({ ...t, date: e.target.value })) } }))} />
+                        {canEdit && (<button type="button" className="c-btn-danger" style={dangerBtn} onClick={() => removeTeamMove(i)}>Remove</button>)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Knowledge Transfer + Support Model */}
+              <div style={{ borderTop: "1px solid var(--border)", paddingTop: 28, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 40 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                  <h3 style={{ fontFamily: "var(--display)", fontSize: 16, color: "var(--text)", margin: 0 }}>Knowledge Transfer</h3>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {[
+                      { key: "docs_handed_over", label: "Documentation handed over" },
+                      { key: "final_demo_done", label: "Final demo / walkthrough completed" },
+                      { key: "support_model_doc", label: "Support model documented" },
+                      { key: "runbook_finalised", label: "Runbook / operations guide finalised" },
+                    ].map(({ key, label }) => (
+                      <label key={key} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: "var(--text)", cursor: isReadOnly ? "default" : "pointer" }}>
+                        <input type="checkbox" checked={doc.handover.knowledge_transfer[key as keyof typeof doc.handover.knowledge_transfer]} disabled={isReadOnly}
+                          onChange={(e) => setDoc((d) => ({ ...d, handover: { ...d.handover, knowledge_transfer: { ...d.handover.knowledge_transfer, [key]: e.target.checked as any } } }))} />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  <Field label="Additional notes">
+                    <textarea className="c-textarea" style={textareaBase} value={doc.handover.knowledge_transfer.notes} disabled={isReadOnly}
+                      onChange={(e) => setDoc((d) => ({ ...d, handover: { ...d.handover, knowledge_transfer: { ...d.handover.knowledge_transfer, notes: e.target.value } } }))} />
+                  </Field>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                  <h3 style={{ fontFamily: "var(--display)", fontSize: 16, color: "var(--text)", margin: 0 }}>Target Operating / Support Model</h3>
+                  <Field label="Primary Support Contact"><input className="c-input" style={inputBase} value={doc.handover.support_model.primary_support} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, handover: { ...d.handover, support_model: { ...d.handover.support_model, primary_support: e.target.value } } }))} /></Field>
+                  <Field label="Escalation Path"><input className="c-input" style={inputBase} value={doc.handover.support_model.escalation} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, handover: { ...d.handover, support_model: { ...d.handover.support_model, escalation: e.target.value } } }))} /></Field>
+                  <Field label="Hypercare Ends"><input type="date" className="c-input" style={inputBase} value={doc.handover.support_model.hypercare_end ?? ""} disabled={isReadOnly} onChange={(e) => setDoc((d) => ({ ...d, handover: { ...d.handover, support_model: { ...d.handover.support_model, hypercare_end: e.target.value } } }))} /></Field>
                 </div>
               </div>
             </div>
           </Section>
-        </div>
 
-        <div className="h-20" />
+          {/* ═══ 09 RECOMMENDATIONS ═══ */}
+          <Section title="Recommendations & Follow-up Actions" num="09 — Next Steps" right={<>
+            <button type="button" className="c-btn" style={aiBtn} disabled={isReadOnly || aiLoadingKey === "closure.recommendations"} onClick={() => improveSection("closure.recommendations")}>{aiLoadingKey === "closure.recommendations" ? "Working…" : "✦ Improve"}</button>
+            <button type="button" className="c-btn" style={aiBtn} disabled={isReadOnly || aiLoadingKey === "closure.recommendations"} onClick={() => regenerateSection("closure.recommendations")}>{aiLoadingKey === "closure.recommendations" ? "Working…" : "✦ Regenerate"}</button>
+            {canEdit && (<button type="button" className="c-btn" style={smallBtn} onClick={addRecommendation}>+ Add</button>)}
+          </>}>
+            {doc.recommendations.items.length === 0 ? (<EmptyState text="No recommendations added." />) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {doc.recommendations.items.map((item, i) => (
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 120px auto", gap: 12, alignItems: "start" }}>
+                    <textarea className="c-textarea" style={textareaBase} placeholder="Text" value={item.text} disabled={isReadOnly}
+                      onChange={(e) => setDoc((d) => ({ ...d, recommendations: { items: updateArray(d.recommendations.items, i, (it) => ({ ...it, text: e.target.value })) } }))} />
+                    <input className="c-input" style={inputBase} placeholder="Owner" value={item.owner ?? ""} disabled={isReadOnly}
+                      onChange={(e) => setDoc((d) => ({ ...d, recommendations: { items: updateArray(d.recommendations.items, i, (it) => ({ ...it, owner: e.target.value })) } }))} />
+                    <input type="date" className="c-input" style={inputBase} value={item.due ?? ""} disabled={isReadOnly}
+                      onChange={(e) => setDoc((d) => ({ ...d, recommendations: { items: updateArray(d.recommendations.items, i, (it) => ({ ...it, due: e.target.value })) } }))} />
+                    {canEdit && (<button type="button" className="c-btn-danger" style={{ ...dangerBtn, marginTop: 8 }} onClick={() => removeRecommendation(i)}>Remove</button>)}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Section>
+
+          {/* ═══ 10 USEFUL LINKS ═══ */}
+          <Section title="Useful Links & References" num="10 — Resources" right={canEdit && (<button type="button" className="c-btn" style={smallBtn} onClick={addLink}>+ Add link</button>)}>
+            {doc.links.items.length === 0 ? (<EmptyState text="No links added yet." />) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {doc.links.items.map((item, i) => {
+                  const url = safeUrl(item.url);
+                  const openable = canOpenUrl(url);
+                  const displayText = item.label?.trim() ? item.label.trim() : url || "Open link";
+                  return (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 2fr auto", gap: 12, alignItems: "center" }}>
+                      <input className="c-input" style={inputBase} placeholder="Label" value={item.label} disabled={isReadOnly}
+                        onChange={(e) => setDoc((d) => ({ ...d, links: { items: updateArray(d.links.items, i, (it) => ({ ...it, label: e.target.value })) } }))} />
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <input className="c-input" style={inputBase} placeholder="URL (https://...)" value={item.url} disabled={isReadOnly}
+                            onChange={(e) => setDoc((d) => ({ ...d, links: { items: updateArray(d.links.items, i, (it) => ({ ...it, url: e.target.value })) } }))} />
+                          <button type="button" className="c-btn" style={smallBtn} disabled={isReadOnly || !openable} onClick={() => openUrl(url)} title={openable ? "Open link" : "Enter a valid http(s) URL to open"}>
+                            <ExternalLink style={{ width: 14, height: 14 }} />
+                          </button>
+                        </div>
+                        {openable && (
+                          <a href={url} target="_blank" rel="noopener noreferrer" style={{ marginTop: 4, fontSize: 12, color: "var(--accent)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={url}>
+                            {displayText}
+                          </a>
+                        )}
+                      </div>
+                      {canEdit && (<button type="button" className="c-btn-danger" style={dangerBtn} onClick={() => removeLink(i)}>Remove</button>)}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Section>
+
+          {/* ═══ 11 ATTACHMENTS ═══ */}
+          <Section title="Attachments & Evidence" num="11 — Documents" right={canEdit && (
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              {uploadMsg && (<StatusMsg msg={uploadMsg} isError={!!uploadMsg?.includes("failed")} />)}
+              <label style={{ cursor: "pointer", fontSize: 13, fontWeight: 600, color: "var(--accent)" }}>
+                {uploading ? "Uploading…" : "↑ Upload files"}
+                <input type="file" multiple ref={fileInputRef} style={{ display: "none" }} disabled={uploading} onChange={(e) => handleUpload(e.target.files)} />
+              </label>
+            </div>
+          )}>
+            {doc.attachments.items.length === 0 ? (<EmptyState text="No files attached yet." />) : (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                {doc.attachments.items.map((att, i) => {
+                  const removeKey = String(att.path || att.url || att.filename || i);
+                  const busy = attBusy === removeKey;
+                  const label = (att.label || att.filename || "Attachment").trim();
+                  const href = safeUrl(att.url);
+                  return (
+                    <div key={i} className="c-att" style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: 16, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, background: "var(--surface)", transition: "all 0.2s ease" }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</div>
+                        {href ? (
+                          <a href={href} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "var(--accent)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 4 }} title={href}>{label}</a>
+                        ) : (
+                          <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>No link available</div>
+                        )}
+                        <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 6 }}>
+                          {att.filename && `File: ${att.filename}`}
+                          {att.size_bytes && ` · ${(att.size_bytes / 1024).toFixed(1)} KB`}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                        <button type="button" className="c-btn" style={smallBtn} disabled={busy}
+                          onClick={() => { const newLabel = prompt("Update label:", att.label || ""); if (newLabel != null) { setDoc((d) => ({ ...d, attachments: { items: updateArray(d.attachments.items, i, (a) => ({ ...a, label: newLabel })) } })); } }}>
+                          Edit label
+                        </button>
+                        {canEdit && (
+                          <button type="button" className="c-btn-danger" style={dangerBtn} disabled={busy} onClick={() => handleDeleteAttachment(att, i)}>
+                            {busy ? "Removing…" : "Remove"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Section>
+
+          {/* ═══ 12 FINAL SIGN-OFF ═══ */}
+          <div ref={refSignoff}>
+            <Section title="Final Sign-off" num="12 — Closure">
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20 }}>
+                <Field label="Sponsor Name">
+                  <input className="c-input" style={inputBase} value={doc.signoff.sponsor_name} disabled={isReadOnly}
+                    onChange={(e) => setDoc((d) => ({ ...d, signoff: { ...d.signoff, sponsor_name: e.target.value } }))} />
+                </Field>
+                <Field label="Sponsor Date">
+                  <input type="date" className="c-input" style={inputBase} value={doc.signoff.sponsor_date ?? ""} disabled={isReadOnly}
+                    onChange={(e) => setDoc((d) => ({ ...d, signoff: { ...d.signoff, sponsor_date: e.target.value } }))} />
+                </Field>
+                <Field label="Sponsor Decision">
+                  <select className="c-select" style={selectBase} value={doc.signoff.sponsor_decision} disabled={isReadOnly}
+                    onChange={(e) => setDoc((d) => ({ ...d, signoff: { ...d.signoff, sponsor_decision: e.target.value as any } }))}>
+                    <option value="">— Select —</option>
+                    <option value="approved">Approved</option>
+                    <option value="conditional">Conditional</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </Field>
+              </div>
+
+              <div style={{ borderTop: "1px solid var(--border)", paddingTop: 24, marginTop: 24 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20 }}>
+                  <Field label="Project Manager Name">
+                    <input className="c-input" style={inputBase} value={doc.signoff.pm_name} disabled={isReadOnly}
+                      onChange={(e) => setDoc((d) => ({ ...d, signoff: { ...d.signoff, pm_name: e.target.value } }))} />
+                  </Field>
+                  <Field label="PM Date">
+                    <input type="date" className="c-input" style={inputBase} value={doc.signoff.pm_date ?? ""} disabled={isReadOnly}
+                      onChange={(e) => setDoc((d) => ({ ...d, signoff: { ...d.signoff, pm_date: e.target.value } }))} />
+                  </Field>
+                  <div style={{ display: "flex", alignItems: "flex-end" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontWeight: 500, color: "var(--text)", cursor: isReadOnly ? "default" : "pointer" }}>
+                      <input type="checkbox" checked={doc.signoff.pm_approved} disabled={isReadOnly}
+                        onChange={(e) => setDoc((d) => ({ ...d, signoff: { ...d.signoff, pm_approved: e.target.checked } }))} />
+                      PM has approved / confirmed
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </Section>
+          </div>
+
+          <div style={{ height: 80 }} />
+        </div>
       </div>
-    </div>
+    </>
   );
 }

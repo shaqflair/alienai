@@ -6,7 +6,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Search,
-  ArrowUpRight,
   Loader2,
   List as ListIcon,
   LayoutGrid,
@@ -40,6 +39,12 @@ type ArtifactRow = {
     id?: string;
     title?: string | null;
     project_code?: string | number | null;
+
+    // ✅ make project lifecycle available for filtering active projects
+    status?: string | null;
+    state?: string | null;
+    lifecycle_status?: string | null;
+    lifecycle_state?: string | null;
   } | null;
   effort?: string | null;
   stalled?: boolean | null;
@@ -102,6 +107,40 @@ function isNeedsAttention(a: ArtifactRow) {
   if (a.stalled === true) return true;
   if (isMissingEffort(a)) return true;
   return false;
+}
+
+/**
+ * ✅ Project lifecycle filter
+ * We exclude projects that are closed/cancelled (and a few common synonyms).
+ * This relies on the API including one of:
+ * - project.status
+ * - project.state
+ * - project.lifecycle_status / project.lifecycle_state
+ */
+function isInactiveProjectStatus(x?: string | null) {
+  const s = norm(x);
+  if (!s) return false;
+
+  // keep this permissive (covers "Closed", "CLOSED", "Cancelled", "Canceled", "Archived", etc.)
+  if (s.includes("cancel")) return true; // cancelled / canceled
+  if (s.includes("close")) return true; // closed / closure
+  if (s.includes("archive")) return true; // archived
+  if (s.includes("inactive")) return true;
+  if (s.includes("complete")) return true;
+  if (s.includes("done")) return true;
+
+  return false;
+}
+
+function isInactiveProject(a: ArtifactRow) {
+  const p = a.project;
+  if (!p) return false;
+  return (
+    isInactiveProjectStatus(p.status) ||
+    isInactiveProjectStatus(p.state) ||
+    isInactiveProjectStatus(p.lifecycle_status) ||
+    isInactiveProjectStatus(p.lifecycle_state)
+  );
 }
 
 const fmtDateUk = (x?: string | null) => {
@@ -583,13 +622,16 @@ export default function ArtifactsClientPage() {
 
   /* ---------------- Derived State ---------------- */
 
+  // ✅ Exclude closed/cancelled projects from the page (and from project count)
+  const visibleItems = useMemo(() => (items || []).filter((a) => !isInactiveProject(a)), [items]);
+
   const filteredItems = useMemo(() => {
     const t = norm(typeDebounced);
-    return (items || []).filter((a) => {
+    return (visibleItems || []).filter((a) => {
       if (t && norm(a.type) !== t) return false;
       return true;
     });
-  }, [items, typeDebounced]);
+  }, [visibleItems, typeDebounced]);
 
   const sortedItems = useMemo(() => {
     const isDefaultUpdatedDesc = sortKey === "updated" && sortDir === "desc";
@@ -682,11 +724,12 @@ export default function ArtifactsClientPage() {
   const hasActiveFilters = q || type;
 
   const stats = useMemo(() => {
-    const total = items.length;
-    const thisWeek = items.filter((i) => isWithinLastDays(i, 7)).length;
-    const projects = new Set(items.map((i) => i.project_id)).size;
+    // ✅ stats should reflect only active projects (visibleItems)
+    const total = visibleItems.length;
+    const thisWeek = visibleItems.filter((i) => isWithinLastDays(i, 7)).length;
+    const projects = new Set(visibleItems.map((i) => i.project_id)).size;
 
-    const needsAttentionItems = items.filter(isNeedsAttention);
+    const needsAttentionItems = visibleItems.filter(isNeedsAttention);
     const needsAttention = needsAttentionItems.length;
 
     const urgent = needsAttentionItems.filter((i) => i.stalled === true && !isClosedStatus(i.status)).length;
@@ -698,7 +741,7 @@ export default function ArtifactsClientPage() {
     else if (needsEffortCount > 0) trend = `${needsEffortCount} need effort`;
 
     return { total, thisWeek, projects, needsAttention, needsAttentionTrend: trend };
-  }, [items]);
+  }, [visibleItems]);
 
   /* ============================
       Render
@@ -928,7 +971,10 @@ export default function ArtifactsClientPage() {
                         <span className="text-sm font-medium text-gray-900 line-clamp-1">{projectTitleLabel(a)}</span>
                       </div>
                       <div className="col-span-4 flex items-center gap-3">
-                        <Link href={openHref} className="text-sm font-semibold text-gray-900 hover:text-blue-600 transition-colors line-clamp-1">
+                        <Link
+                          href={openHref}
+                          className="text-sm font-semibold text-gray-900 hover:text-blue-600 transition-colors line-clamp-1"
+                        >
                           {a.title}
                         </Link>
                         <AIHealthBadge artifact={a} />
@@ -941,7 +987,9 @@ export default function ArtifactsClientPage() {
                       </div>
                       <div className="col-span-1 flex items-center justify-end text-right">
                         <div className="flex flex-col items-end">
-                          <span className="text-sm font-medium text-gray-900">{fmtRelativeTime(a.updated_at || a.created_at)}</span>
+                          <span className="text-sm font-medium text-gray-900">
+                            {fmtRelativeTime(a.updated_at || a.created_at)}
+                          </span>
                           <span className="text-[10px] text-gray-400 uppercase tracking-tight">Last update</span>
                         </div>
                       </div>
@@ -956,7 +1004,10 @@ export default function ArtifactsClientPage() {
                 <div key={g.project_id} className="bg-white rounded-xl border border-[#00B8DB] shadow-sm overflow-hidden">
                   <div className="bg-gray-50/80 px-6 py-4 border-b flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <button onClick={() => toggleProjectCollapse(g.project_id)} className="p-1 hover:bg-gray-200 rounded transition-colors">
+                      <button
+                        onClick={() => toggleProjectCollapse(g.project_id)}
+                        className="p-1 hover:bg-gray-200 rounded transition-colors"
+                      >
                         {collapsed[g.project_id] ? <ChevronRight className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                       </button>
                       <div>
@@ -964,26 +1015,48 @@ export default function ArtifactsClientPage() {
                           <span className="text-xs font-bold text-blue-600">{g.project_human}</span>
                           <h2 className="text-lg font-bold text-gray-900">{g.project_title}</h2>
                         </div>
-                        <p className="text-xs text-gray-500 mt-0.5">Updated {fmtRelativeTime(g.last_updated_raw)} • {g.items.length} artifacts</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Updated {fmtRelativeTime(g.last_updated_raw)} • {g.items.length} artifacts
+                        </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Link href={`/projects/${g.project_id}/raid`} className="text-xs font-medium text-gray-600 hover:text-blue-600 bg-white border px-3 py-1.5 rounded-lg shadow-sm">RAID</Link>
-                      <Link href={`/projects/${g.project_id}/change`} className="text-xs font-medium text-gray-600 hover:text-blue-600 bg-white border px-3 py-1.5 rounded-lg shadow-sm">Changes</Link>
+                      <Link
+                        href={projectRaidHref(g.project_id)}
+                        className="text-xs font-medium text-gray-600 hover:text-blue-600 bg-white border px-3 py-1.5 rounded-lg shadow-sm"
+                      >
+                        RAID
+                      </Link>
+                      <Link
+                        href={projectChangeHref(g.project_id)}
+                        className="text-xs font-medium text-gray-600 hover:text-blue-600 bg-white border px-3 py-1.5 rounded-lg shadow-sm"
+                      >
+                        Changes
+                      </Link>
                     </div>
                   </div>
                   {!collapsed[g.project_id] && (
                     <div className="divide-y divide-gray-100">
                       {g.items.map((a) => (
-                        <div key={a.id} className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                        <div
+                          key={a.id}
+                          className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                        >
                           <div className="flex items-center gap-4">
                             <TypeBadge type={a.type} />
-                            <Link href={buildArtifactHref(a)} className="text-sm font-semibold text-gray-900 hover:text-blue-600">{a.title}</Link>
+                            <Link
+                              href={buildArtifactHref(a)}
+                              className="text-sm font-semibold text-gray-900 hover:text-blue-600"
+                            >
+                              {a.title}
+                            </Link>
                             <AIHealthBadge artifact={a} />
                           </div>
                           <div className="flex items-center gap-6">
                             <StatusBadge status={a.status} />
-                            <span className="text-sm text-gray-500 min-w-[100px] text-right">{fmtRelativeTime(a.updated_at || a.created_at)}</span>
+                            <span className="text-sm text-gray-500 min-w-[100px] text-right">
+                              {fmtRelativeTime(a.updated_at || a.created_at)}
+                            </span>
                           </div>
                         </div>
                       ))}

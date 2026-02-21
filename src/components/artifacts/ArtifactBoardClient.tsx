@@ -164,6 +164,54 @@ function booly(v: any) {
   return ["true", "t", "yes", "y", "1"].includes(s);
 }
 
+/** Extract `/projects/<ref>` from a link, if present */
+function extractProjectRefFromHref(href: string): string | null {
+  const h = safeStr(href).trim();
+  const m = h.match(/\/projects\/([^\/?#]+)/i);
+  return m?.[1] ? String(m[1]) : null;
+}
+
+/** Build a safe link for AI due items (prevents routing to invalid artifact detail pages). */
+function aiItemHref(args: {
+  item: any;
+  fallbackProjectRef: string;
+}): string {
+  const { item, fallbackProjectRef } = args;
+
+  const rawLink = safeStr(item?.href || item?.link || "").trim();
+  const normalized = rawLink ? normalizeArtifactLink(rawLink) : "";
+
+  // If API gives a clean internal href, use it
+  if (normalized.startsWith("/projects/")) {
+    // Safety: if it's an artifact detail path but the id isn't a UUID, it's probably wrong (work_item/milestone etc).
+    const m = normalized.match(/\/projects\/[^\/]+\/artifacts\/([^\/?#]+)/i);
+    if (m?.[1] && !looksLikeUuid(String(m[1]))) {
+      // fall back to project page rather than crash server-side route
+      return `/projects/${fallbackProjectRef}`;
+    }
+    return normalized;
+  }
+
+  // Otherwise, try to route by itemType/kind
+  const refFromLink = normalized ? extractProjectRefFromHref(normalized) : null;
+  const projRef = refFromLink || fallbackProjectRef;
+
+  const kind = safeLower(item?.kind || item?.source || item?.type || item?.itemType || "");
+
+  // artifact_id present => safe artifact detail
+  const artifactId = safeStr(item?.artifact_id || item?.artifactId || "").trim();
+  if (artifactId && looksLikeUuid(artifactId)) return `/projects/${projRef}/artifacts/${artifactId}`;
+
+  if (kind.includes("milestone") || kind.includes("schedule")) return `/projects/${projRef}/schedule`;
+  if (kind.includes("wbs") || kind.includes("work_item") || kind.includes("work item")) return `/projects/${projRef}/wbs`;
+  if (kind.includes("raid") || kind.includes("risk") || kind.includes("issue") || kind.includes("dependency"))
+    return `/projects/${projRef}/raid`;
+  if (kind.includes("change")) return `/projects/${projRef}/change`;
+
+  // final fallback
+  return `/projects/${projRef}`;
+}
+
 /* =========================================================
    Type Mapping
 ========================================================= */
@@ -1003,10 +1051,6 @@ function CommandPalette({
 
 /* =========================================================
    AI Panel
-   Fixes:
-   - Always shows errors (previously errors were hidden because `!result` branch rendered first)
-   - Includes credentials for cookie auth
-   - Robust JSON parsing + clearer error messaging
 ========================================================= */
 
 function daysUntil(iso: string) {
@@ -1020,11 +1064,15 @@ function AiPanel({
   onClose,
   projectUuid,
   projectCode,
+  projectName,
+  projectHumanId,
 }: {
   open: boolean;
   onClose: () => void;
   projectUuid: string;
   projectCode: string;
+  projectName: string;
+  projectHumanId: string;
 }) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -1079,7 +1127,6 @@ function AiPanel({
       setResult(data);
     } catch (e: any) {
       setError(e?.message || "AI request failed");
-      // Ensure the UI shows the error state even if result is null
       setResult((prev: any) => prev ?? { ai: { dueSoon: [] } });
     } finally {
       setLoading(false);
@@ -1088,6 +1135,7 @@ function AiPanel({
 
   if (!open) return null;
   const items = result?.ai?.dueSoon || [];
+  const projectRef = projectHumanId || projectCode || projectUuid;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh]">
@@ -1110,9 +1158,18 @@ function AiPanel({
             <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-violet-600 to-purple-600 flex items-center justify-center">
               <Sparkles className="h-3.5 w-3.5 text-white" />
             </div>
-            <span className="text-[13px] font-bold" style={{ color: THEME.text }}>
-              AI Assistant
-            </span>
+            <div className="min-w-0">
+              <span className="block text-[13px] font-bold" style={{ color: THEME.text }}>
+                AI Assistant
+              </span>
+              <div className="text-[11px] truncate" style={{ color: THEME.muted2 }}>
+                <span className="font-mono font-bold" style={{ color: THEME.muted }}>
+                  {projectCode || projectHumanId || "—"}
+                </span>
+                <span className="mx-1">•</span>
+                <span className="truncate">{projectName || "Project"}</span>
+              </div>
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -1187,6 +1244,9 @@ function AiPanel({
               {items.map((item: any, idx: number) => {
                 const days = daysUntil(item.dueDate);
                 const isOverdue = days !== null && days < 0;
+
+                const href = aiItemHref({ item, fallbackProjectRef: projectRef });
+
                 return (
                   <div
                     key={idx}
@@ -1214,27 +1274,29 @@ function AiPanel({
                         </span>
                       )}
                     </div>
+
                     <h4 className="text-[13px] font-semibold mb-1.5" style={{ color: THEME.text }}>
                       {item.title}
                     </h4>
+
                     <div className="flex items-center gap-2 text-[11px] mb-3" style={{ color: THEME.muted2 }}>
                       <Calendar className="h-3 w-3" />
                       {fmtUkDateOnly(item.dueDate)}
                     </div>
+
                     <div className="flex gap-2">
-                      {item.link && (
-                        <Link
-                          href={normalizeArtifactLink(item.link)}
-                          className="flex-1 px-3 py-1.5 rounded-lg text-center text-[11px] font-semibold transition-colors"
-                          style={{
-                            background: "rgba(15,23,42,0.04)",
-                            border: `1px solid ${THEME.border}`,
-                            color: THEME.text2,
-                          }}
-                        >
-                          Open
-                        </Link>
-                      )}
+                      <Link
+                        href={href}
+                        className="flex-1 px-3 py-1.5 rounded-lg text-center text-[11px] font-semibold transition-colors"
+                        style={{
+                          background: "rgba(15,23,42,0.04)",
+                          border: `1px solid ${THEME.border}`,
+                          color: THEME.text2,
+                        }}
+                      >
+                        Open
+                      </Link>
+
                       <button
                         onClick={() =>
                           navigator.clipboard.writeText(
@@ -1802,6 +1864,8 @@ export default function ArtifactBoardClient(props: {
           onClose={() => setAiOpen(false)}
           projectUuid={projectUuid}
           projectCode={projectCode || projectHumanId}
+          projectName={projectName}
+          projectHumanId={projectHumanId}
         />
       </div>
     </>
