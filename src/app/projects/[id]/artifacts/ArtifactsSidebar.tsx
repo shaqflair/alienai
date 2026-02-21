@@ -333,46 +333,50 @@ async function resolveProject(sb: any, projectParam: string) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function resolveRole(sb: any, projectUuid: string, userId: string): Promise<Role> {
-  // Try the most common membership tables; return the first match.
-  const ROLE_SOURCES = [
-    { table: "project_memberships", projectCol: "project_id", userCol: "user_id", roleCol: "role" },
-    { table: "project_members",     projectCol: "id",         userCol: "user_id", roleCol: "role" },
-    { table: "projects_members",    projectCol: "id",         userCol: "user_id", roleCol: "role" },
-    { table: "project_users",       projectCol: "id",         userCol: "user_id", roleCol: "role" },
-  ];
-
-  for (const src of ROLE_SOURCES) {
-    try {
-      const { data, error } = await sb
-        .from(src.table)
-        .select(src.roleCol)
-        .eq(src.projectCol, projectUuid)
-        .eq(src.userCol, userId)
-        .limit(1);
-
-      if (error) continue; // table might not exist, try next
-      if (Array.isArray(data) && data.length > 0) {
-        const raw = safeLower(data[0]?.[src.roleCol]);
-        if (raw === "owner" || raw === "editor" || raw === "viewer") return raw;
-        // Treat admin / manager as owner-equivalent
-        if (raw === "admin" || raw === "manager") return "owner";
-        return "editor"; // default for any recognised membership
-      }
-    } catch {
-      // table doesn't exist — continue
-    }
-  }
-
-  // Fallback: check if user is the project creator
+  // Completely crash-proof — never let role resolution kill the RSC render.
   try {
-    const { data } = await sb
-      .from("projects")
-      .select("created_by")
-      .eq("id", projectUuid)
-      .limit(1);
-    if (Array.isArray(data) && data[0]?.created_by === userId) return "owner";
-  } catch {
-    // column might not exist
+    const ROLE_SOURCES = [
+      { table: "project_memberships", projectCol: "project_id", userCol: "user_id", roleCol: "role" },
+      { table: "project_members",     projectCol: "id",         userCol: "user_id", roleCol: "role" },
+      { table: "projects_members",    projectCol: "id",         userCol: "user_id", roleCol: "role" },
+      { table: "project_users",       projectCol: "id",         userCol: "user_id", roleCol: "role" },
+    ];
+
+    for (const src of ROLE_SOURCES) {
+      try {
+        const { data, error } = await sb
+          .from(src.table)
+          .select(src.roleCol)
+          .eq(src.projectCol, projectUuid)
+          .eq(src.userCol, userId)
+          .limit(1);
+
+        if (error) continue;
+        if (Array.isArray(data) && data.length > 0) {
+          const raw = safeLower(data[0]?.[src.roleCol]);
+          if (raw === "owner" || raw === "editor" || raw === "viewer") return raw;
+          if (raw === "admin" || raw === "manager") return "owner";
+          return "editor";
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    // Fallback: check if user is the project creator
+    try {
+      const { data } = await sb
+        .from("projects")
+        .select("created_by")
+        .eq("id", projectUuid)
+        .limit(1);
+      if (Array.isArray(data) && data[0]?.created_by === userId) return "owner";
+    } catch {
+      // column might not exist
+    }
+  } catch (outerErr) {
+    console.error("[ArtifactsSidebar] resolveRole crashed entirely, defaulting to editor", outerErr);
+    return "editor";
   }
 
   return "unknown";
@@ -384,16 +388,41 @@ async function resolveRole(sb: any, projectUuid: string, userId: string): Promis
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function queryArtifacts(sb: any, projectUuid: string) {
-  const select =
+  // Try with is_locked first; if the column doesn't exist, retry without it.
+  const selectFull =
     "id,title,type,artifact_type,is_current,created_at,approval_status,deleted_at,is_locked";
+  const selectSafe =
+    "id,title,type,artifact_type,is_current,created_at,approval_status,deleted_at";
 
-  const { data, error } = await sb
-    .from("artifacts")
-    .select(select)
-    .eq("project_id", projectUuid)
-    .is("deleted_at", null)
-    .eq("is_current", true)
-    .order("created_at", { ascending: true });
+  let data: unknown[] | null = null;
+  let error: unknown = null;
+
+  try {
+    const res = await sb
+      .from("artifacts")
+      .select(selectFull)
+      .eq("project_id", projectUuid)
+      .is("deleted_at", null)
+      .eq("is_current", true)
+      .order("created_at", { ascending: true });
+
+    if (res.error) {
+      // Column might not exist — retry with safe select
+      const res2 = await sb
+        .from("artifacts")
+        .select(selectSafe)
+        .eq("project_id", projectUuid)
+        .is("deleted_at", null)
+        .eq("is_current", true)
+        .order("created_at", { ascending: true });
+      data = res2.data;
+      error = res2.error;
+    } else {
+      data = res.data;
+    }
+  } catch (e) {
+    error = e;
+  }
 
   const list = Array.isArray(data) ? data : [];
   return { list, error };

@@ -301,7 +301,12 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
       .maybeSingle();
 
     if (curErr) return jsonErr(curErr.message, 400);
-    if (!current) return NextResponse.json({ ok: true }, { status: 204 });
+
+    // If it doesn't exist, treat as already deleted.
+    if (!current) {
+      // ✅ 204 MUST be empty body
+      return new NextResponse(null, { status: 204 });
+    }
 
     const access = await requireProjectMember(supabase, safeStr((current as any).project_id));
     if (!access.ok) return jsonErr(access.error, access.status);
@@ -319,7 +324,8 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     const { error: delErr } = await supabase.from("raid_items").delete().eq("id", raidId);
     if (delErr) return jsonErr(delErr.message, 400);
 
-    return NextResponse.json({ ok: true }, { status: 204 });
+    // ✅ return 200 JSON (easy for client). Alternatively you could do 204 empty.
+    return jsonOk({ deleted: true, id: raidId }, 200);
   } catch (e: any) {
     return jsonErr("Failed to delete RAID item", 500, { message: safeStr(e?.message) });
   }
