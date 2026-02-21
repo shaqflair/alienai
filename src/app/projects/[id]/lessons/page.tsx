@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
@@ -37,17 +37,24 @@ type ExportScope = "lessons" | "library";
 /* ---------------- helpers ---------------- */
 
 function pillForCategory(c: string) {
-  if (c === "what_went_well") return "bg-emerald-100 text-emerald-800 border-emerald-200";
-  if (c === "improvements") return "bg-violet-100 text-violet-800 border-violet-200";
-  if (c === "issues") return "bg-rose-100 text-rose-800 border-rose-200";
-  return "bg-gray-100 text-gray-800 border-gray-200";
+  if (c === "what_went_well") return "pill green";
+  if (c === "improvements") return "pill purple";
+  if (c === "issues") return "pill red";
+  return "pill gray";
 }
 
 function pillForStatus(s: string) {
   const v = String(s || "").trim();
-  if (v === "Closed") return "bg-slate-100 text-slate-600 border-slate-200";
-  if (v === "In Progress") return "bg-blue-100 text-blue-700 border-blue-200";
-  return "bg-amber-100 text-amber-700 border-amber-200";
+  if (v === "Closed") return "pill gray";
+  if (v === "In Progress") return "pill blue";
+  return "pill amber";
+}
+
+function categoryLabel(c: string) {
+  if (c === "what_went_well") return "What Went Well";
+  if (c === "improvements") return "Improvement";
+  if (c === "issues") return "Issue";
+  return String(c || "").replace(/_/g, " ");
 }
 
 function safeStr(x: unknown) {
@@ -91,27 +98,912 @@ function formatUKDate(dateString: string) {
 
 function safeExcelCell(v: any) {
   const s = String(v ?? "");
-  // prevent Excel formula injection
   if (/^[=+\-@]/.test(s)) return "'" + s;
   return s;
 }
+
+/* ---------------- styles ---------------- */
+
+const styles = `
+/* ===== BASE RESET & TOKENS ===== */
+.ll-root {
+  --bg-page: #f8f8f7;
+  --bg-surface: #ffffff;
+  --bg-hover: #f5f5f4;
+  --bg-active: #eeeeec;
+  --border-light: rgba(0,0,0,.06);
+  --border-medium: rgba(0,0,0,.10);
+  --border-heavy: rgba(0,0,0,.14);
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b6b6b;
+  --text-tertiary: #9b9b9b;
+  --accent: #2383e2;
+  --accent-hover: #1b6ec2;
+  --accent-bg: #e8f0fe;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.04);
+  --shadow-md: 0 4px 16px rgba(0,0,0,.08);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,.12);
+  --shadow-modal: 0 20px 60px rgba(0,0,0,.22);
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  background: var(--bg-page);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ===== LAYOUT ===== */
+.ll-wrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px 80px;
+}
+
+/* ===== HEADER ===== */
+.ll-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.ll-header-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ll-back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 120ms;
+  flex-shrink: 0;
+}
+.ll-back-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.ll-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ll-header-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ll-header-sub {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.ll-header-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border-medium);
+  flex-shrink: 0;
+}
+
+.ll-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ===== TABS ===== */
+.ll-tabs {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.ll-tabs-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  gap: 2px;
+}
+
+.ll-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 120ms;
+  white-space: nowrap;
+}
+.ll-tab:hover { color: var(--text-secondary); }
+.ll-tab.active { color: var(--text-primary); border-bottom-color: var(--text-primary); }
+
+.ll-tab-count {
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+.ll-tab.active .ll-tab-count {
+  background: var(--text-primary);
+  color: #fff;
+}
+
+.ll-tab-icon {
+  width: 15px;
+  height: 15px;
+  opacity: .6;
+}
+.ll-tab.active .ll-tab-icon { opacity: 1; }
+
+/* ===== BUTTONS ===== */
+.ll-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-medium);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 120ms;
+  white-space: nowrap;
+  text-decoration: none;
+  font-family: inherit;
+}
+.ll-btn:hover { background: var(--bg-hover); }
+.ll-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.ll-btn-primary {
+  background: #2383e2;
+  color: #fff;
+  border-color: #2383e2;
+}
+.ll-btn-primary:hover { background: #1b6ec2; border-color: #1b6ec2; }
+
+.ll-btn-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-secondary);
+}
+.ll-btn-ghost:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.ll-btn-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* ===== TOOLBAR (filters bar) ===== */
+.ll-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+  flex-wrap: wrap;
+}
+
+.ll-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.ll-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ll-search-wrap {
+  position: relative;
+  width: 220px;
+}
+.ll-search-icon {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.ll-search {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px 0 28px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: inherit;
+  transition: border-color 120ms;
+}
+.ll-search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(35,131,226,.15); }
+.ll-search::placeholder { color: var(--text-tertiary); }
+
+.ll-filter-select {
+  height: 32px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-family: inherit;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%239b9b9b' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition: border-color 120ms;
+}
+.ll-filter-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(35,131,226,.15); }
+
+/* ===== NOTION-STYLE TABLE ===== */
+.ll-table-container {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.ll-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: fixed;
+}
+
+.ll-table thead th {
+  background: #fafafa;
+  text-align: left;
+  padding: 8px 12px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border-light);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+  position: relative;
+}
+
+.ll-table thead th .th-resize {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 120ms;
+}
+.ll-table thead th .th-resize:hover,
+.ll-table thead th .th-resize.active {
+  background: var(--accent);
+}
+
+.ll-table tbody td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-light);
+  vertical-align: middle;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.ll-table tbody td.td-desc {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+}
+
+.ll-table tbody tr {
+  transition: background 80ms;
+}
+.ll-table tbody tr:hover {
+  background: #f8f8f7;
+}
+.ll-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Row click */
+.ll-table tbody tr {
+  cursor: pointer;
+}
+
+/* Column widths */
+.col-status { width: 90px; }
+.col-category { width: 120px; }
+.col-desc { width: auto; }
+.col-owner { width: 120px; }
+.col-stage { width: 100px; }
+.col-severity { width: 80px; }
+.col-impact { width: 80px; }
+.col-date { width: 95px; }
+.col-published { width: 80px; }
+.col-actions { width: 90px; }
+
+/* ===== PILLS ===== */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+.pill.green { background: #dbeddb; color: #1e7e34; }
+.pill.purple { background: #e8deee; color: #6c3d8f; }
+.pill.red { background: #ffe2dd; color: #c4320a; }
+.pill.gray { background: #e8e8e6; color: #6b6b6b; }
+.pill.blue { background: #d3e5ef; color: #1a6fa8; }
+.pill.amber { background: #fdecc8; color: #9a6700; }
+
+.pill-severity-high { color: #c4320a; font-weight: 600; }
+.pill-severity-med { color: #9a6700; font-weight: 500; }
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  margin-right: 3px;
+}
+
+/* ===== ACTION BUTTONS IN TABLE ===== */
+.ll-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.ll-table tbody tr:hover .ll-row-actions { opacity: 1; }
+
+.ll-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 100ms;
+}
+.ll-action-btn:hover { background: var(--bg-active); color: var(--text-primary); }
+.ll-action-btn.danger:hover { background: #ffe2dd; color: #c4320a; }
+.ll-action-btn.publish:hover { background: #d3e5ef; color: #1a6fa8; }
+
+.ll-action-icon { width: 14px; height: 14px; }
+
+/* AI badge */
+.ai-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* Published dot */
+.pub-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.pub-dot.yes { background: #2ecc71; }
+.pub-dot.no { background: #d5d5d3; }
+
+/* ===== EMPTY STATE ===== */
+.ll-empty {
+  text-align: center;
+  padding: 60px 24px;
+  color: var(--text-tertiary);
+}
+.ll-empty-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.ll-empty-sub {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+/* ===== LOADING ===== */
+.ll-spinner {
+  display: flex;
+  justify-content: center;
+  padding: 60px 0;
+}
+.ll-spinner-dot {
+  width: 24px;
+  height: 24px;
+  border: 2.5px solid var(--border-medium);
+  border-top-color: var(--text-primary);
+  border-radius: 50%;
+  animation: ll-spin .6s linear infinite;
+}
+@keyframes ll-spin { to { transform: rotate(360deg); } }
+
+/* ===== INSIGHTS CARDS ===== */
+.ll-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.ll-stat-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+}
+
+.ll-stat-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+}
+
+.ll-stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+.ll-stat-value.amber { color: #9a6700; }
+.ll-stat-value.blue { color: #1a6fa8; }
+.ll-stat-value.green { color: #1e7e34; }
+.ll-stat-value.accent { color: var(--accent); }
+
+.ll-insights-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 768px) {
+  .ll-insights-grid { grid-template-columns: 1fr; }
+}
+
+.ll-insight-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+
+.ll-insight-card h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 16px;
+}
+
+.ll-bar-row {
+  margin-bottom: 12px;
+}
+.ll-bar-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.ll-bar-label span:first-child { color: var(--text-secondary); }
+.ll-bar-label span:last-child { font-weight: 600; color: var(--text-primary); }
+.ll-bar-track {
+  height: 6px;
+  background: var(--bg-hover);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.ll-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 400ms ease;
+}
+.ll-bar-fill.green { background: #2ecc71; }
+.ll-bar-fill.purple { background: #9b59b6; }
+.ll-bar-fill.red { background: #e74c3c; }
+
+.ll-library-hero {
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--accent);
+  text-align: center;
+  padding: 20px 0 4px;
+}
+.ll-library-hero-sub {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+}
+
+/* ===== LIBRARY TAB ===== */
+.ll-library-banner {
+  background: #f0f7ff;
+  border: 1px solid #d3e5ef;
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.ll-library-banner h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1a4971;
+  margin: 0 0 6px;
+}
+.ll-library-banner p {
+  font-size: 13px;
+  color: #2a6496;
+  margin: 0 0 14px;
+}
+.ll-library-banner-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ll-library-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  transition: background 100ms;
+}
+.ll-library-card:hover { background: var(--bg-hover); }
+
+.ll-library-card-left { flex: 1; min-width: 0; }
+
+.ll-library-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ll-library-desc {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+
+.ll-library-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* ===== EXPORT TAB ===== */
+.ll-export-wrap {
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+.ll-export-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.ll-export-header {
+  padding: 20px;
+  border-bottom: 1px solid var(--border-light);
+}
+.ll-export-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 4px;
+}
+.ll-export-header p {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin: 0 0 14px;
+}
+
+.ll-scope-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-hover);
+}
+.ll-scope-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 120ms;
+  font-family: inherit;
+}
+.ll-scope-btn.active {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.ll-export-body { padding: 16px 20px; }
+
+.ll-export-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 120ms;
+  margin-bottom: 10px;
+  text-decoration: none;
+  color: inherit;
+}
+.ll-export-option:hover { border-color: var(--accent); background: #f8fbff; }
+
+.ll-export-option-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ll-export-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.ll-export-icon.excel { background: #e6f4ea; color: #1e7e34; }
+.ll-export-icon.pdf { background: #ffe2dd; color: #c4320a; }
+.ll-export-icon svg { width: 18px; height: 18px; }
+
+.ll-export-option h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 2px;
+}
+.ll-export-option p {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 0;
+}
+
+.ll-export-footer {
+  padding: 12px 20px;
+  background: #fafafa;
+  border-top: 1px solid var(--border-light);
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* ===== MODAL ===== */
+.ll-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15,15,15,.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+  animation: ll-fade-in 150ms ease;
+}
+@keyframes ll-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+.ll-modal {
+  width: min(680px, 100%);
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-modal);
+  animation: ll-slide-up 200ms ease;
+}
+@keyframes ll-slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ll-modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-light);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.ll-modal-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.ll-modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 100ms;
+}
+.ll-modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.ll-modal-body {
+  padding: 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.ll-modal-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 520px) {
+  .ll-modal-row { grid-template-columns: 1fr; }
+}
+
+.ll-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 5px;
+}
+
+.ll-input, .ll-select, .ll-textarea {
+  width: 100%;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  transition: border-color 120ms;
+}
+.ll-input:focus, .ll-select:focus, .ll-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(35,131,226,.15);
+}
+.ll-textarea { min-height: 100px; resize: vertical; }
+.ll-select { cursor: pointer; }
+
+.ll-ai-summary {
+  padding: 12px 14px;
+  background: #f0f7ff;
+  border: 1px solid #d3e5ef;
+  border-radius: var(--radius-md);
+}
+.ll-ai-summary-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1a6fa8;
+  margin-bottom: 6px;
+}
+.ll-ai-summary p {
+  font-size: 13px;
+  color: #2a6496;
+  margin: 0;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.ll-modal-footer {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-light);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 768px) {
+  .ll-toolbar { flex-direction: column; align-items: stretch; }
+  .ll-toolbar-left, .ll-toolbar-right { width: 100%; }
+  .ll-search-wrap { width: 100%; }
+  .ll-stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .col-stage, .col-severity, .col-impact { display: none; }
+}
+
+@media (max-width: 640px) {
+  .col-owner, .col-date { display: none; }
+}
+`;
 
 /* ---------------- component ---------------- */
 
 export default function LessonsPage() {
   const router = useRouter();
   const params = useParams();
-
-  // NOTE: your route param can be project_code (e.g. 100011) OR uuid
   const projectRef = String((params as any)?.id || "").trim();
 
-  // Tabs
   const [activeTab, setActiveTab] = useState<TabType>("lessons");
-
-  // Export scope (remembers where user came from)
   const [exportScope, setExportScope] = useState<ExportScope>("lessons");
 
-  // Data
   const [items, setItems] = useState<Lesson[]>([]);
   const [loading, setLoading] = useState(false);
   const [meta, setMeta] = useState<ProjectMeta>({
@@ -119,13 +1011,11 @@ export default function LessonsPage() {
     project_code: projectRef || "—",
   });
 
-  // Modal state
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [editing, setEditing] = useState<Lesson | null>(null);
 
-  // Form state
   const [category, setCategory] = useState("what_went_well");
   const [description, setDescription] = useState("");
   const [action, setAction] = useState("");
@@ -135,7 +1025,6 @@ export default function LessonsPage() {
   const [stage, setStage] = useState("");
   const [actionOwnerName, setActionOwnerName] = useState("");
 
-  // Filters
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -176,20 +1065,12 @@ export default function LessonsPage() {
   async function refresh() {
     if (!projectRef) return;
     setLoading(true);
-
-    // Keep backward compatibility with your existing API query param.
-    // Server should resolve whether this is UUID or project_code.
     const url = `/api/lessons?projectId=${encodeURIComponent(projectRef)}`;
-
     try {
       const r = await fetch(url, { cache: "no-store" });
       const raw = await r.clone().text();
       let j: any = null;
-      try {
-        j = raw && raw.trim() ? JSON.parse(raw) : null;
-      } catch {
-        j = null;
-      }
+      try { j = raw && raw.trim() ? JSON.parse(raw) : null; } catch { j = null; }
       if (!r.ok || (j && j.ok === false)) {
         const msg = j?.error || `Failed to load lessons (${r.status})`;
         throw new Error(msg);
@@ -205,24 +1086,14 @@ export default function LessonsPage() {
 
   async function fetchMeta() {
     if (!projectRef) return;
-
     try {
-      // ✅ FIX: correct route path
       const r = await fetch(`/api/projects/${encodeURIComponent(projectRef)}/meta`, { cache: "no-store" });
       const raw = await r.clone().text();
       let j: any = null;
-      try {
-        j = raw && raw.trim() ? JSON.parse(raw) : null;
-      } catch {
-        j = null;
-      }
-
+      try { j = raw && raw.trim() ? JSON.parse(raw) : null; } catch { j = null; }
       if (r.ok && j?.ok && j?.project) {
         const code = safeStr(j.project.project_code || j.project.code || projectRef).trim() || projectRef;
-        setMeta({
-          title: safeStr(j.project.title) || "Project",
-          project_code: code,
-        });
+        setMeta({ title: safeStr(j.project.title) || "Project", project_code: code });
       } else {
         setMeta((m) => ({ ...m, project_code: projectRef || m.project_code }));
       }
@@ -238,14 +1109,12 @@ export default function LessonsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectRef]);
 
-  // When user switches between Lessons/Library, remember export scope
   function goTab(t: TabType) {
     setActiveTab(t);
     if (t === "lessons") setExportScope("lessons");
     if (t === "library") setExportScope("library");
   }
 
-  // Filtered rows for Lessons tab
   const filteredRows = useMemo(() => {
     return items.filter((l) => {
       const matchesCategory = filterCategory === "all" || l.category === filterCategory;
@@ -260,10 +1129,8 @@ export default function LessonsPage() {
     });
   }, [items, filterCategory, filterStatus, searchQuery]);
 
-  // Library rows (published only)
   const libraryRows = useMemo(() => items.filter((l) => Boolean(l.is_published)), [items]);
 
-  // Export rows depend on export scope (lessons view vs library view)
   const exportRows = useMemo(() => {
     return exportScope === "library" ? libraryRows : filteredRows;
   }, [exportScope, libraryRows, filteredRows]);
@@ -291,12 +1158,9 @@ export default function LessonsPage() {
       const ws = XLSX.utils.json_to_sheet(data);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, exportScope === "library" ? "Org Library" : "Lessons");
-
       const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
-
       const scopeLabel = exportScope === "library" ? "Org_Library" : "Lessons_Learned";
       const fileBase = `${scopeLabel}_${meta.project_code}_${slugify(meta.title)}`;
-
       saveAs(
         new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
         `${fileBase}.xlsx`
@@ -309,13 +1173,10 @@ export default function LessonsPage() {
   async function createLesson() {
     if (!description.trim()) return;
     setSaving(true);
-
     try {
       const payload = {
-        // ✅ send both; API can resolve either UUID or code
         project_id: projectRef,
         project_code: projectRef,
-
         category,
         description: description.trim(),
         action_for_future: action.trim() || null,
@@ -325,16 +1186,13 @@ export default function LessonsPage() {
         project_stage: stage.trim() || null,
         action_owner_label: actionOwnerName.trim() || null,
       };
-
       const r = await fetch("/api/lessons", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-
       const j = await r.json().catch(() => ({}));
       if (!r.ok || j?.ok === false) throw new Error(j?.error || "Failed to create");
-
       setOpen(false);
       resetForm();
       await refresh();
@@ -348,12 +1206,8 @@ export default function LessonsPage() {
   async function updateLesson() {
     if (!editing) return;
     const id = String(editing.id || "").trim();
-    if (!isUuidClient(id)) {
-      alert("Cannot update: invalid id");
-      return;
-    }
+    if (!isUuidClient(id)) { alert("Cannot update: invalid id"); return; }
     if (!description.trim()) return;
-
     setSaving(true);
     try {
       const r = await fetch(`/api/lessons/${encodeURIComponent(id)}`, {
@@ -370,10 +1224,8 @@ export default function LessonsPage() {
           action_owner_label: actionOwnerName.trim() || null,
         }),
       });
-
       const j = await r.json().catch(() => ({}));
       if (!r.ok || j?.ok === false) throw new Error(j?.error || "Failed to update");
-
       setOpen(false);
       resetForm();
       await refresh();
@@ -387,10 +1239,7 @@ export default function LessonsPage() {
   async function deleteLesson(l: Lesson) {
     if (!confirm("Delete this lesson? This cannot be undone.")) return;
     const id = String(l.id || "").trim();
-    if (!isUuidClient(id)) {
-      alert("Cannot delete: invalid id");
-      return;
-    }
+    if (!isUuidClient(id)) { alert("Cannot delete: invalid id"); return; }
     try {
       const r = await fetch(`/api/lessons/${encodeURIComponent(id)}`, { method: "DELETE" });
       const j = await r.json().catch(() => ({}));
@@ -408,10 +1257,8 @@ export default function LessonsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ project_id: projectRef, project_code: projectRef }),
       });
-
       const j = await r.json().catch(() => ({}));
       if (!r.ok || j?.ok === false) throw new Error(j?.error || "AI generate failed");
-
       await refresh();
       alert(`AI created ${j.created_count ?? 0} lessons`);
     } catch (e: any) {
@@ -423,24 +1270,17 @@ export default function LessonsPage() {
     const existing = (l.library_tags || []).join(", ");
     const rawInput = prompt(publish ? "Publish to Org Library.\nEnter tags:" : "Unpublish.\nUpdate tags:", existing);
     if (rawInput === null) return;
-
     const library_tags = parseTagsCsv(rawInput);
     const id = String(l.id || "").trim();
-    if (!isUuidClient(id)) {
-      alert("Invalid ID");
-      return;
-    }
-
+    if (!isUuidClient(id)) { alert("Invalid ID"); return; }
     try {
       const r = await fetch(`/api/lessons/${encodeURIComponent(id)}/publish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ publish, library_tags }),
       });
-
       const j = await r.json().catch(() => ({}));
       if (!r.ok || j?.ok === false) throw new Error(j?.error || "Toggle failed");
-
       await refresh();
     } catch (e: any) {
       alert(e?.message || "Toggle failed");
@@ -449,7 +1289,6 @@ export default function LessonsPage() {
 
   const submitLabel = mode === "edit" ? (saving ? "Saving…" : "Save changes") : saving ? "Saving…" : "Create Lesson";
 
-  // ✅ PDF route exports based on exportScope
   const scopeLabel = exportScope === "library" ? "Org_Library" : "Lessons_Learned";
   const fileBase = `${scopeLabel}_${meta.project_code}_${slugify(meta.title)}`;
   const pdfHref =
@@ -457,924 +1296,523 @@ export default function LessonsPage() {
       ? `/projects/${projectRef}/lessons/export/pdf?filename=${encodeURIComponent(fileBase)}&publishedOnly=1`
       : `/projects/${projectRef}/lessons/export/pdf?filename=${encodeURIComponent(fileBase)}`;
 
-  // Stats
   const stats = useMemo(() => {
     const total = items.length;
-    const openCount = items.filter((i) => i.status === "Open").length;
-    const closedCount = items.filter((i) => i.status === "Closed").length;
-    const inProgressCount = items.filter((i) => i.status === "In Progress").length;
-    const publishedCount = items.filter((i) => i.is_published).length;
-    const aiGeneratedCount = items.filter((i) => i.ai_generated).length;
-    const issues = items.filter((i) => i.category === "issues").length;
-    const improvements = items.filter((i) => i.category === "improvements").length;
-    const successes = items.filter((i) => i.category === "what_went_well").length;
-
     return {
       total,
-      open: openCount,
-      closed: closedCount,
-      inProgress: inProgressCount,
-      published: publishedCount,
-      aiGenerated: aiGeneratedCount,
-      issues,
-      improvements,
-      successes,
+      open: items.filter((i) => i.status === "Open").length,
+      closed: items.filter((i) => i.status === "Closed").length,
+      inProgress: items.filter((i) => i.status === "In Progress").length,
+      published: items.filter((i) => i.is_published).length,
+      aiGenerated: items.filter((i) => i.ai_generated).length,
+      issues: items.filter((i) => i.category === "issues").length,
+      improvements: items.filter((i) => i.category === "improvements").length,
+      successes: items.filter((i) => i.category === "what_went_well").length,
     };
   }, [items]);
 
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-20">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.back()}
-              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
-              aria-label="Back"
-              title="Back"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-            </button>
+  /* ===== SVG Icons (inline for zero dependencies) ===== */
+  const Icon = {
+    back: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>,
+    plus: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>,
+    search: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>,
+    clipboard: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>,
+    chart: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>,
+    library: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>,
+    download: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>,
+    edit: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>,
+    trash: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg>,
+    globe: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>,
+    ban: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/></svg>,
+    close: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>,
+    sparkle: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8L12 2z"/></svg>,
+    file: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>,
+    chevronRight: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>,
+    externalLink: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>,
+  };
 
-            <div>
-              <h1 className="text-xl font-bold text-slate-800">Lessons Learned</h1>
-              <p className="text-xs text-slate-500 font-medium">
-                {meta.project_code} • {meta.title}
-              </p>
+  return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: styles }} />
+
+      <div className="ll-root">
+        {/* ===== HEADER ===== */}
+        <header className="ll-header">
+          <div className="ll-header-inner">
+            <div className="ll-header-left">
+              <button onClick={() => router.back()} className="ll-back-btn" aria-label="Back" title="Back">
+                {Icon.back}
+              </button>
+              <span className="ll-header-title">Lessons Learned</span>
+              <span className="ll-header-divider" />
+              <span className="ll-header-sub">{meta.project_code} · {meta.title}</span>
+            </div>
+
+            <div className="ll-header-right">
+              {activeTab === "lessons" && (
+                <button onClick={openCreate} className="ll-btn ll-btn-primary">
+                  <span className="ll-btn-icon">{Icon.plus}</span>
+                  New Lesson
+                </button>
+              )}
             </div>
           </div>
+        </header>
 
-          <div className="flex items-center gap-2">
-            {activeTab === "lessons" && (
-              <button
-                onClick={openCreate}
-                className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 font-medium text-sm shadow-sm transition-all hover:shadow-md"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                New Lesson
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
-
-      {/* Tabs */}
-      <div className="bg-white border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <nav className="flex space-x-8" aria-label="Tabs">
-            <button
-              onClick={() => goTab("lessons")}
-              className={`${
-                activeTab === "lessons"
-                  ? "border-indigo-500 text-indigo-600"
-                  : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
-              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                />
-              </svg>
+        {/* ===== TABS ===== */}
+        <nav className="ll-tabs">
+          <div className="ll-tabs-inner">
+            <button onClick={() => goTab("lessons")} className={`ll-tab ${activeTab === "lessons" ? "active" : ""}`}>
+              <span className="ll-tab-icon">{Icon.clipboard}</span>
               All Lessons
-              <span className="bg-slate-100 text-slate-600 py-0.5 px-2 rounded-full text-xs">{stats.total}</span>
+              <span className="ll-tab-count">{stats.total}</span>
             </button>
-
-            <button
-              onClick={() => goTab("insights")}
-              className={`${
-                activeTab === "insights"
-                  ? "border-indigo-500 text-indigo-600"
-                  : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
-              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                />
-              </svg>
+            <button onClick={() => goTab("insights")} className={`ll-tab ${activeTab === "insights" ? "active" : ""}`}>
+              <span className="ll-tab-icon">{Icon.chart}</span>
               Insights
             </button>
-
-            <button
-              onClick={() => goTab("library")}
-              className={`${
-                activeTab === "library"
-                  ? "border-indigo-500 text-indigo-600"
-                  : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
-              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
-                />
-              </svg>
+            <button onClick={() => goTab("library")} className={`ll-tab ${activeTab === "library" ? "active" : ""}`}>
+              <span className="ll-tab-icon">{Icon.library}</span>
               Org Library
-              <span className="bg-slate-100 text-slate-600 py-0.5 px-2 rounded-full text-xs">{stats.published}</span>
+              <span className="ll-tab-count">{stats.published}</span>
             </button>
-
-            <button
-              onClick={() => setActiveTab("export")}
-              className={`${
-                activeTab === "export"
-                  ? "border-indigo-500 text-indigo-600"
-                  : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
-              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
+            <button onClick={() => setActiveTab("export")} className={`ll-tab ${activeTab === "export" ? "active" : ""}`}>
+              <span className="ll-tab-icon">{Icon.download}</span>
               Export
             </button>
-          </nav>
-        </div>
-      </div>
-
-      {/* Main */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* LESSONS TAB */}
-        {activeTab === "lessons" && (
-          <>
-            {/* Filters Bar */}
-            <div className="mb-6 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                <div className="relative">
-                  <svg
-                    className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                  <input
-                    type="text"
-                    placeholder="Search lessons..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 w-full sm:w-64"
-                  />
-                </div>
-
-                <select
-                  value={filterCategory}
-                  onChange={(e) => setFilterCategory(e.target.value)}
-                  className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                >
-                  <option value="all">All Categories</option>
-                  <option value="what_went_well">What Went Well</option>
-                  <option value="improvements">Improvements</option>
-                  <option value="issues">Issues</option>
-                </select>
-
-                <select
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                  className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                >
-                  <option value="all">All Statuses</option>
-                  <option value="Open">Open</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Closed">Closed</option>
-                </select>
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={runAi}
-                  disabled={loading}
-                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors disabled:opacity-60"
-                >
-                  <span>✨</span> AI Generate
-                </button>
-
-                <button
-                  onClick={exportExcel}
-                  disabled={loading || exportRows.length === 0}
-                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  Excel
-                </button>
-
-                <a
-                  href={pdfHref}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  </svg>
-                  PDF
-                </a>
-              </div>
-            </div>
-
-            {/* Content */}
-            {loading && items.length === 0 ? (
-              <div className="flex justify-center py-20">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-900"></div>
-              </div>
-            ) : filteredRows.length === 0 ? (
-              <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-slate-300">
-                <div className="mx-auto h-12 w-12 text-slate-400 mb-4">
-                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-medium text-slate-900">No lessons found</h3>
-                <p className="mt-1 text-slate-500">Try adjusting your filters or create a new lesson.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-4">
-                {filteredRows.map((l, idx) => {
-                  const published = Boolean(l.is_published);
-                  const tags = (l.library_tags || []).filter(Boolean);
-                  const idOk = isUuidClient(l?.id);
-
-                  return (
-                    <div
-                      key={String(l.id || idx)}
-                      className="group bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden flex flex-col sm:flex-row"
-                    >
-                      <div
-                        className={`w-1.5 flex-shrink-0 ${
-                          l.category === "issues" ? "bg-rose-500" : l.category === "improvements" ? "bg-violet-500" : "bg-emerald-500"
-                        }`}
-                      />
-
-                      <div className="flex-1 p-5 sm:p-6">
-                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                          <div className="flex-1 space-y-3">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span
-                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${pillForCategory(
-                                  l.category
-                                )}`}
-                              >
-                                {String(l.category || "").replace(/_/g, " ")}
-                              </span>
-
-                              <span
-                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${pillForStatus(
-                                  l.status || "Open"
-                                )}`}
-                              >
-                                {l.status || "Open"}
-                              </span>
-
-                              {l.ai_generated && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
-                                  🤖 AI
-                                </span>
-                              )}
-
-                              {!idOk && (
-                                <span
-                                  className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 border border-red-200"
-                                  title={`ID: ${String(l.id)}`}
-                                >
-                                  ⚠️ Invalid ID
-                                </span>
-                              )}
-                            </div>
-
-                            <div>
-                              <h3
-                                className="text-lg font-semibold text-slate-900 leading-tight cursor-pointer hover:text-indigo-600 transition-colors"
-                                onClick={() => openEdit(l)}
-                              >
-                                {l.description}
-                              </h3>
-
-                              <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-600">
-                                <div className="flex items-center gap-1.5">
-                                  <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                  </svg>
-                                  <span>{formatUKDate(l.created_at)}</span>
-                                </div>
-
-                                {l.project_stage && (
-                                  <div className="flex items-center gap-1.5">
-                                    <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
-                                      />
-                                    </svg>
-                                    <span>{l.project_stage}</span>
-                                  </div>
-                                )}
-
-                                {l.impact && (
-                                  <div className="flex items-center gap-1.5">
-                                    <span className={`w-2 h-2 rounded-full ${l.impact === "Positive" ? "bg-emerald-500" : "bg-rose-500"}`} />
-                                    <span>{l.impact} Impact</span>
-                                  </div>
-                                )}
-
-                                {l.severity && (
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-slate-400 font-medium">Severity:</span>
-                                    <span className={l.severity === "High" ? "text-rose-600 font-medium" : "text-slate-600"}>{l.severity}</span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            {(l.action_owner_label || l.action_for_future) && (
-                              <div className="mt-4 p-3 bg-slate-50 rounded-lg border border-slate-100 text-sm">
-                                {l.action_owner_label && (
-                                  <div className="flex items-center gap-2 mb-1">
-                                    <span className="text-slate-500 font-medium">Owner:</span>
-                                    <span className="text-slate-900 font-semibold">{l.action_owner_label}</span>
-                                  </div>
-                                )}
-                                {l.action_for_future && (
-                                  <div className="flex items-start gap-2">
-                                    <span className="text-slate-500 font-medium shrink-0">Action:</span>
-                                    <span className="text-slate-700 italic">{l.action_for_future}</span>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-4 min-w-[140px]">
-                            <div className="flex flex-col items-end gap-2">
-                              {published ? (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 text-xs font-semibold border border-emerald-100">
-                                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                    <path
-                                      fillRule="evenodd"
-                                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                                      clipRule="evenodd"
-                                    />
-                                  </svg>
-                                  Published
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-100 text-slate-600 text-xs font-semibold border border-slate-200">
-                                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                    <path
-                                      fillRule="evenodd"
-                                      d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
-                                      clipRule="evenodd"
-                                    />
-                                  </svg>
-                                  Private
-                                </span>
-                              )}
-
-                              <div className="flex flex-wrap justify-end gap-1 max-w-[150px]">
-                                {tags.slice(0, 3).map((t) => (
-                                  <span key={t} className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] rounded-full border border-slate-200">
-                                    {t}
-                                  </span>
-                                ))}
-                                {tags.length > 3 && <span className="text-[10px] text-slate-400 px-1">+{tags.length - 3}</span>}
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2 mt-auto">
-                              <button
-                                onClick={() => publishToggle(l, !published)}
-                                className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                                title={published ? "Unpublish" : "Publish"}
-                              >
-                                {published ? (
-                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                                  </svg>
-                                ) : (
-                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                                    />
-                                  </svg>
-                                )}
-                              </button>
-
-                              <button
-                                onClick={() => openEdit(l)}
-                                className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                title="Edit"
-                              >
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                                  />
-                                </svg>
-                              </button>
-
-                              <button
-                                onClick={() => deleteLesson(l)}
-                                className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                                title="Delete"
-                              >
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                  />
-                                </svg>
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* INSIGHTS TAB */}
-        {activeTab === "insights" && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-600">Total Lessons</p>
-                    <p className="text-3xl font-bold text-slate-900 mt-1">{stats.total}</p>
-                  </div>
-                  <div className="p-3 bg-indigo-50 rounded-lg">
-                    <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                      />
-                    </svg>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-600">Open</p>
-                    <p className="text-3xl font-bold text-amber-600 mt-1">{stats.open}</p>
-                  </div>
-                  <div className="p-3 bg-amber-50 rounded-lg">
-                    <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-600">In Progress</p>
-                    <p className="text-3xl font-bold text-blue-600 mt-1">{stats.inProgress}</p>
-                  </div>
-                  <div className="p-3 bg-blue-50 rounded-lg">
-                    <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-600">Closed</p>
-                    <p className="text-3xl font-bold text-emerald-600 mt-1">{stats.closed}</p>
-                  </div>
-                  <div className="p-3 bg-emerald-50 rounded-lg">
-                    <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                <h3 className="text-lg font-semibold text-slate-900 mb-4">By Category</h3>
-                <div className="space-y-4">
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-slate-600">Successes (What Went Well)</span>
-                      <span className="font-semibold text-slate-900">{stats.successes}</span>
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2">
-                      <div style={{ width: `${stats.total ? (stats.successes / stats.total) * 100 : 0}%` }} className="bg-emerald-500 h-2 rounded-full" />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-slate-600">Improvements</span>
-                      <span className="font-semibold text-slate-900">{stats.improvements}</span>
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2">
-                      <div style={{ width: `${stats.total ? (stats.improvements / stats.total) * 100 : 0}%` }} className="bg-violet-500 h-2 rounded-full" />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-slate-600">Issues</span>
-                      <span className="font-semibold text-slate-900">{stats.issues}</span>
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2">
-                      <div style={{ width: `${stats.total ? (stats.issues / stats.total) * 100 : 0}%` }} className="bg-rose-500 h-2 rounded-full" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                <h3 className="text-lg font-semibold text-slate-900 mb-4">Library Status</h3>
-                <div className="flex items-center justify-center h-48">
-                  <div className="text-center">
-                    <div className="text-5xl font-bold text-indigo-600 mb-2">{stats.published}</div>
-                    <div className="text-slate-500">Published to Org Library</div>
-                    <div className="mt-4 text-sm text-slate-400">{stats.aiGenerated} AI-generated lessons</div>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
-        )}
+        </nav>
 
-        {/* LIBRARY TAB */}
-        {activeTab === "library" && (
-          <div className="space-y-6">
-            <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-6">
-              <h3 className="text-lg font-semibold text-indigo-900 mb-2">Organization Library</h3>
-              <p className="text-indigo-700 mb-4">Published lessons are shared across your organization for knowledge transfer.</p>
+        {/* ===== MAIN ===== */}
+        <div className="ll-wrap" style={{ paddingTop: 20 }}>
 
-              <div className="flex flex-col sm:flex-row gap-3">
-                <button
-                  onClick={() => setActiveTab("export")}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium text-sm transition-colors"
-                  title="Go to Export (will export Org Library only)"
-                >
-                  Export Org Library
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                </button>
-
-                <button
-                  onClick={exportExcel}
-                  disabled={loading || exportRows.length === 0}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-indigo-200 text-indigo-700 rounded-lg hover:bg-indigo-50 font-medium text-sm transition-colors disabled:opacity-50"
-                >
-                  Export Excel
-                </button>
-
-                <a
-                  href={pdfHref}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-indigo-200 text-indigo-700 rounded-lg hover:bg-indigo-50 font-medium text-sm transition-colors"
-                >
-                  Export PDF
-                </a>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4">
-              {libraryRows.length === 0 ? (
-                <div className="text-center py-16 bg-white rounded-xl border border-dashed border-slate-300">
-                  <p className="text-slate-500">No lessons published to the library yet.</p>
-                  <button onClick={() => goTab("lessons")} className="mt-4 text-indigo-600 hover:text-indigo-700 font-medium text-sm">
-                    Go to Lessons to publish →
+          {/* ========== LESSONS TAB ========== */}
+          {activeTab === "lessons" && (
+            <>
+              {/* Toolbar */}
+              <div className="ll-toolbar">
+                <div className="ll-toolbar-left">
+                  <div className="ll-search-wrap">
+                    <span className="ll-search-icon">{Icon.search}</span>
+                    <input
+                      type="text"
+                      placeholder="Search lessons…"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="ll-search"
+                    />
+                  </div>
+                  <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="ll-filter-select">
+                    <option value="all">All Categories</option>
+                    <option value="what_went_well">What Went Well</option>
+                    <option value="improvements">Improvements</option>
+                    <option value="issues">Issues</option>
+                  </select>
+                  <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="ll-filter-select">
+                    <option value="all">All Statuses</option>
+                    <option value="Open">Open</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Closed">Closed</option>
+                  </select>
+                </div>
+                <div className="ll-toolbar-right">
+                  <button onClick={runAi} disabled={loading} className="ll-btn" title="AI Generate Lessons">
+                    <span className="ll-btn-icon">{Icon.sparkle}</span>
+                    AI Generate
                   </button>
+                  <button onClick={exportExcel} disabled={loading || exportRows.length === 0} className="ll-btn" title="Export Excel">
+                    <span className="ll-btn-icon">{Icon.download}</span>
+                    Excel
+                  </button>
+                  <a href={pdfHref} target="_blank" rel="noreferrer" className="ll-btn" title="Export PDF">
+                    <span className="ll-btn-icon">{Icon.file}</span>
+                    PDF
+                  </a>
+                </div>
+              </div>
+
+              {/* Table */}
+              {loading && items.length === 0 ? (
+                <div className="ll-spinner"><div className="ll-spinner-dot" /></div>
+              ) : filteredRows.length === 0 ? (
+                <div className="ll-table-container">
+                  <div className="ll-empty">
+                    <div className="ll-empty-title">No lessons found</div>
+                    <div className="ll-empty-sub">Try adjusting your filters or create a new lesson.</div>
+                  </div>
                 </div>
               ) : (
-                libraryRows.map((l, idx) => (
-                  <div key={String(l.id || idx)} className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${pillForCategory(l.category)}`}>
-                            {String(l.category || "").replace(/_/g, " ")}
-                          </span>
-                          <span className="text-xs text-slate-400">Published {formatUKDate(l.published_at || l.created_at)}</span>
-                        </div>
+                <div className="ll-table-container">
+                  <table className="ll-table">
+                    <thead>
+                      <tr>
+                        <th className="col-status">Status</th>
+                        <th className="col-category">Category</th>
+                        <th className="col-desc">Description</th>
+                        <th className="col-owner">Owner</th>
+                        <th className="col-stage">Stage</th>
+                        <th className="col-severity">Severity</th>
+                        <th className="col-impact">Impact</th>
+                        <th className="col-date">Date</th>
+                        <th className="col-published">Library</th>
+                        <th className="col-actions"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredRows.map((l, idx) => {
+                        const published = Boolean(l.is_published);
+                        const idOk = isUuidClient(l?.id);
 
-                        <h3 className="text-lg font-semibold text-slate-900">{l.description}</h3>
-
-                        {(l.library_tags || []).length > 0 && (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {(l.library_tags || []).map((tag) => (
-                              <span key={tag} className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">
-                                #{tag}
+                        return (
+                          <tr key={String(l.id || idx)} onClick={() => openEdit(l)}>
+                            <td>
+                              <span className={pillForStatus(l.status || "Open")}>
+                                {l.status || "Open"}
                               </span>
+                            </td>
+                            <td>
+                              <span className={pillForCategory(l.category)}>
+                                {categoryLabel(l.category)}
+                              </span>
+                            </td>
+                            <td className="td-desc" style={{ fontWeight: 500 }}>
+                              {l.description}
+                              {l.ai_generated && (
+                                <span className="ai-badge" style={{ marginLeft: 6 }}>✦ AI</span>
+                              )}
+                              {!idOk && (
+                                <span style={{ marginLeft: 6, color: "#c4320a", fontSize: 11, fontWeight: 600 }}>⚠ Invalid ID</span>
+                              )}
+                            </td>
+                            <td>{l.action_owner_label || <span style={{ color: "var(--text-tertiary)" }}>—</span>}</td>
+                            <td>{l.project_stage || <span style={{ color: "var(--text-tertiary)" }}>—</span>}</td>
+                            <td>
+                              {l.severity ? (
+                                <span className={l.severity === "High" ? "pill-severity-high" : l.severity === "Medium" ? "pill-severity-med" : ""}>
+                                  {l.severity}
+                                </span>
+                              ) : <span style={{ color: "var(--text-tertiary)" }}>—</span>}
+                            </td>
+                            <td>
+                              {l.impact ? (
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                  <span style={{
+                                    width: 7, height: 7, borderRadius: "50%",
+                                    background: l.impact === "Positive" ? "#2ecc71" : "#e74c3c",
+                                    flexShrink: 0,
+                                  }} />
+                                  {l.impact}
+                                </span>
+                              ) : <span style={{ color: "var(--text-tertiary)" }}>—</span>}
+                            </td>
+                            <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>{formatUKDate(l.created_at)}</td>
+                            <td>
+                              <span className={`pub-dot ${published ? "yes" : "no"}`} title={published ? "Published" : "Private"} />
+                            </td>
+                            <td onClick={(e) => e.stopPropagation()}>
+                              <div className="ll-row-actions">
+                                <button
+                                  onClick={() => publishToggle(l, !published)}
+                                  className="ll-action-btn publish"
+                                  title={published ? "Unpublish" : "Publish"}
+                                >
+                                  <span className="ll-action-icon">{published ? Icon.ban : Icon.globe}</span>
+                                </button>
+                                <button onClick={() => openEdit(l)} className="ll-action-btn" title="Edit">
+                                  <span className="ll-action-icon">{Icon.edit}</span>
+                                </button>
+                                <button onClick={() => deleteLesson(l)} className="ll-action-btn danger" title="Delete">
+                                  <span className="ll-action-icon">{Icon.trash}</span>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ========== INSIGHTS TAB ========== */}
+          {activeTab === "insights" && (
+            <div>
+              <div className="ll-stats-grid">
+                <div className="ll-stat-card">
+                  <div className="ll-stat-label">Total Lessons</div>
+                  <div className="ll-stat-value">{stats.total}</div>
+                </div>
+                <div className="ll-stat-card">
+                  <div className="ll-stat-label">Open</div>
+                  <div className="ll-stat-value amber">{stats.open}</div>
+                </div>
+                <div className="ll-stat-card">
+                  <div className="ll-stat-label">In Progress</div>
+                  <div className="ll-stat-value blue">{stats.inProgress}</div>
+                </div>
+                <div className="ll-stat-card">
+                  <div className="ll-stat-label">Closed</div>
+                  <div className="ll-stat-value green">{stats.closed}</div>
+                </div>
+              </div>
+
+              <div className="ll-insights-grid">
+                <div className="ll-insight-card">
+                  <h3>By Category</h3>
+                  <div className="ll-bar-row">
+                    <div className="ll-bar-label">
+                      <span>What Went Well</span>
+                      <span>{stats.successes}</span>
+                    </div>
+                    <div className="ll-bar-track">
+                      <div className="ll-bar-fill green" style={{ width: `${stats.total ? (stats.successes / stats.total) * 100 : 0}%` }} />
+                    </div>
+                  </div>
+                  <div className="ll-bar-row">
+                    <div className="ll-bar-label">
+                      <span>Improvements</span>
+                      <span>{stats.improvements}</span>
+                    </div>
+                    <div className="ll-bar-track">
+                      <div className="ll-bar-fill purple" style={{ width: `${stats.total ? (stats.improvements / stats.total) * 100 : 0}%` }} />
+                    </div>
+                  </div>
+                  <div className="ll-bar-row">
+                    <div className="ll-bar-label">
+                      <span>Issues</span>
+                      <span>{stats.issues}</span>
+                    </div>
+                    <div className="ll-bar-track">
+                      <div className="ll-bar-fill red" style={{ width: `${stats.total ? (stats.issues / stats.total) * 100 : 0}%` }} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="ll-insight-card">
+                  <h3>Library Status</h3>
+                  <div className="ll-library-hero">{stats.published}</div>
+                  <div className="ll-library-hero-sub">Published to Org Library</div>
+                  <div className="ll-library-hero-sub" style={{ color: "var(--text-tertiary)" }}>{stats.aiGenerated} AI-generated lessons</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ========== LIBRARY TAB ========== */}
+          {activeTab === "library" && (
+            <div>
+              <div className="ll-library-banner">
+                <h3>Organization Library</h3>
+                <p>Published lessons are shared across your organization for knowledge transfer.</p>
+                <div className="ll-library-banner-actions">
+                  <button onClick={() => setActiveTab("export")} className="ll-btn ll-btn-primary" title="Export Org Library">
+                    <span className="ll-btn-icon">{Icon.download}</span>
+                    Export Org Library
+                  </button>
+                  <button onClick={exportExcel} disabled={loading || exportRows.length === 0} className="ll-btn">
+                    Export Excel
+                  </button>
+                  <a href={pdfHref} target="_blank" rel="noreferrer" className="ll-btn">
+                    Export PDF
+                  </a>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gap: 8 }}>
+                {libraryRows.length === 0 ? (
+                  <div className="ll-table-container">
+                    <div className="ll-empty">
+                      <div className="ll-empty-title">No lessons published to the library yet</div>
+                      <button onClick={() => goTab("lessons")} style={{ marginTop: 8, color: "var(--accent)", background: "none", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500, fontFamily: "inherit" }}>
+                        Go to Lessons to publish →
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  libraryRows.map((l, idx) => (
+                    <div key={String(l.id || idx)} className="ll-library-card">
+                      <div className="ll-library-card-left">
+                        <div className="ll-library-meta">
+                          <span className={pillForCategory(l.category)}>{categoryLabel(l.category)}</span>
+                          <span style={{ fontSize: 12, color: "var(--text-tertiary)" }}>Published {formatUKDate(l.published_at || l.created_at)}</span>
+                        </div>
+                        <div className="ll-library-desc">{l.description}</div>
+                        {(l.library_tags || []).length > 0 && (
+                          <div className="ll-library-tags">
+                            {(l.library_tags || []).map((tag) => (
+                              <span key={tag} className="tag-chip">#{tag}</span>
                             ))}
                           </div>
                         )}
                       </div>
-
-                      <button onClick={() => publishToggle(l, false)} className="text-sm text-rose-600 hover:text-rose-700 font-medium">
+                      <button
+                        onClick={() => publishToggle(l, false)}
+                        className="ll-btn"
+                        style={{ color: "#c4320a", borderColor: "rgba(196,50,10,.2)", flexShrink: 0 }}
+                      >
                         Unpublish
                       </button>
                     </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* EXPORT TAB */}
-        {activeTab === "export" && (
-          <div className="max-w-2xl mx-auto">
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="p-6 border-b border-slate-100">
-                <h3 className="text-lg font-semibold text-slate-900">Export Lessons</h3>
-                <p className="text-sm text-slate-500 mt-1">Download your lessons in various formats</p>
-
-                <div className="mt-4 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
-                  <button
-                    onClick={() => setExportScope("lessons")}
-                    className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                      exportScope === "lessons" ? "bg-white shadow-sm text-slate-900" : "text-slate-600 hover:text-slate-900"
-                    }`}
-                  >
-                    Lessons (current filters)
-                  </button>
-                  <button
-                    onClick={() => setExportScope("library")}
-                    className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                      exportScope === "library" ? "bg-white shadow-sm text-slate-900" : "text-slate-600 hover:text-slate-900"
-                    }`}
-                  >
-                    Org Library (published)
-                  </button>
-                </div>
-              </div>
-
-              <div className="p-6 space-y-4">
-                <div
-                  className="flex items-center justify-between p-4 border border-slate-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-colors cursor-pointer group"
-                  onClick={exportExcel}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-emerald-100 text-emerald-600 rounded-lg group-hover:bg-emerald-200">
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                    </div>
-                    <div>
-                      <h4 className="font-semibold text-slate-900">Excel Spreadsheet</h4>
-                      <p className="text-sm text-slate-500">Download as .xlsx for analysis</p>
-                    </div>
-                  </div>
-                  <svg className="w-5 h-5 text-slate-400 group-hover:text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-
-                <a
-                  href={pdfHref}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-between p-4 border border-slate-200 rounded-lg hover:border-rose-300 hover:bg-rose-50 transition-colors cursor-pointer group"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-rose-100 text-rose-600 rounded-lg group-hover:bg-rose-200">
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                      </svg>
-                    </div>
-                    <div>
-                      <h4 className="font-semibold text-slate-900">PDF Report</h4>
-                      <p className="text-sm text-slate-500">Formatted document for sharing</p>
-                    </div>
-                  </div>
-                  <svg className="w-5 h-5 text-slate-400 group-hover:text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                </a>
-              </div>
-
-              <div className="bg-slate-50 p-4 text-xs text-slate-500 border-t border-slate-100">
-                Export includes {exportRows.length} lessons • Scope: {exportScope === "library" ? "Org Library (Published)" : "Lessons (Filtered)"} • Last updated{" "}
-                {formatUKDate(new Date().toISOString())}
+                  ))
+                )}
               </div>
             </div>
-          </div>
-        )}
-      </main>
+          )}
 
-      {/* Modal */}
-      {open && (
-        <div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
-          <div
-            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm"
-            onClick={() => {
-              setOpen(false);
-              resetForm();
-            }}
-          />
-
-          <div className="fixed inset-0 overflow-y-auto">
-            <div className="min-h-full flex items-end sm:items-center justify-center p-4 sm:p-6">
-              <div className="w-full sm:max-w-2xl bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-                <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex justify-between items-center">
-                  <h3 className="text-lg font-bold text-slate-900">{mode === "edit" ? "Edit Lesson" : "Record New Lesson"}</h3>
-                  <button
-                    onClick={() => {
-                      setOpen(false);
-                      resetForm();
-                    }}
-                    className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-200 transition-colors"
-                    aria-label="Close"
-                    title="Close"
-                  >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
+          {/* ========== EXPORT TAB ========== */}
+          {activeTab === "export" && (
+            <div className="ll-export-wrap">
+              <div className="ll-export-card">
+                <div className="ll-export-header">
+                  <h3>Export Lessons</h3>
+                  <p>Download your lessons in various formats</p>
+                  <div className="ll-scope-toggle">
+                    <button onClick={() => setExportScope("lessons")} className={`ll-scope-btn ${exportScope === "lessons" ? "active" : ""}`}>
+                      Lessons (filtered)
+                    </button>
+                    <button onClick={() => setExportScope("library")} className={`ll-scope-btn ${exportScope === "library" ? "active" : ""}`}>
+                      Org Library (published)
+                    </button>
+                  </div>
                 </div>
 
-                <div className="px-6 py-6 space-y-5">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1.5">Category</label>
-                      <select
-                        className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2.5"
-                        value={category}
-                        onChange={(e) => setCategory(e.target.value)}
-                      >
-                        <option value="what_went_well">✅ What Went Well</option>
-                        <option value="improvements">💡 Improvement</option>
-                        <option value="issues">⚠️ Issue</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1.5">Status</label>
-                      <select
-                        className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2.5"
-                        value={status}
-                        onChange={(e) => setStatus(e.target.value)}
-                      >
-                        <option value="Open">🔴 Open</option>
-                        <option value="In Progress">🔵 In Progress</option>
-                        <option value="Closed">⚫ Closed</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">Description</label>
-                    <textarea
-                      className="block p-3 w-full text-sm text-slate-900 bg-slate-50 rounded-lg border border-slate-300 focus:ring-indigo-500 focus:border-indigo-500 min-h-[100px]"
-                      placeholder="What happened? What did we learn?"
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1.5">Action Owner</label>
-                      <input
-                        type="text"
-                        className="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full p-2.5"
-                        placeholder="e.g. John Smith"
-                        value={actionOwnerName}
-                        onChange={(e) => setActionOwnerName(e.target.value)}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1.5">Project Stage</label>
-                      <input
-                        type="text"
-                        className="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full p-2.5"
-                        placeholder="e.g. Design / Build"
-                        value={stage}
-                        onChange={(e) => setStage(e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1.5">Impact</label>
-                      <select
-                        className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2.5"
-                        value={impact}
-                        onChange={(e) => setImpact(e.target.value)}
-                      >
-                        <option value="">— Select —</option>
-                        <option value="Positive">👍 Positive</option>
-                        <option value="Negative">👎 Negative</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1.5">Severity</label>
-                      <select
-                        className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2.5"
-                        value={severity}
-                        onChange={(e) => setSeverity(e.target.value)}
-                      >
-                        <option value="">— Select —</option>
-                        <option value="Low">Low</option>
-                        <option value="Medium">Medium</option>
-                        <option value="High">High</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">Action for Future</label>
-                    <input
-                      type="text"
-                      className="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full p-2.5"
-                      placeholder="What will we do next time?"
-                      value={action}
-                      onChange={(e) => setAction(e.target.value)}
-                    />
-                  </div>
-
-                  {mode === "edit" && editing?.ai_generated && (
-                    <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-100">
-                      <div className="flex items-center gap-2 mb-2">
-                        <svg className="w-4 h-4 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
-                          <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                          <path
-                            fillRule="evenodd"
-                            d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
-                            clipRule="evenodd"
-                          />
-                        </svg>
-                        <span className="text-sm font-bold text-indigo-900">AI Summary</span>
+                <div className="ll-export-body">
+                  <div className="ll-export-option" onClick={exportExcel}>
+                    <div className="ll-export-option-left">
+                      <div className="ll-export-icon excel">{Icon.download}</div>
+                      <div>
+                        <h4>Excel Spreadsheet</h4>
+                        <p>Download as .xlsx for analysis</p>
                       </div>
-                      <p className="text-sm text-indigo-800 italic">{editing.ai_summary || "No summary available."}</p>
                     </div>
-                  )}
+                    <span className="ll-btn-icon" style={{ color: "var(--text-tertiary)" }}>{Icon.chevronRight}</span>
+                  </div>
+
+                  <a href={pdfHref} target="_blank" rel="noreferrer" className="ll-export-option">
+                    <div className="ll-export-option-left">
+                      <div className="ll-export-icon pdf">{Icon.file}</div>
+                      <div>
+                        <h4>PDF Report</h4>
+                        <p>Formatted document for sharing</p>
+                      </div>
+                    </div>
+                    <span className="ll-btn-icon" style={{ color: "var(--text-tertiary)" }}>{Icon.externalLink}</span>
+                  </a>
                 </div>
 
-                <div className="bg-slate-50 px-6 py-4 border-t border-slate-100 flex flex-row-reverse gap-3">
-                  <button
-                    type="button"
-                    disabled={saving || !description.trim()}
-                    onClick={mode === "edit" ? updateLesson : createLesson}
-                    className="w-full sm:w-auto inline-flex justify-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {submitLabel}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpen(false);
-                      resetForm();
-                    }}
-                    className="w-full sm:w-auto inline-flex justify-center rounded-lg border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:text-sm"
-                  >
-                    Cancel
-                  </button>
+                <div className="ll-export-footer">
+                  {exportRows.length} lessons · Scope: {exportScope === "library" ? "Org Library (Published)" : "Lessons (Filtered)"} · {formatUKDate(new Date().toISOString())}
                 </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
-      )}
-    </div>
+
+        {/* ===== MODAL ===== */}
+        {open && (
+          <div className="ll-modal-overlay" onClick={() => { setOpen(false); resetForm(); }}>
+            <div className="ll-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="ll-modal-header">
+                <h3>{mode === "edit" ? "Edit Lesson" : "Record New Lesson"}</h3>
+                <button onClick={() => { setOpen(false); resetForm(); }} className="ll-modal-close" aria-label="Close" title="Close">
+                  {Icon.close}
+                </button>
+              </div>
+
+              <div className="ll-modal-body">
+                <div className="ll-modal-row">
+                  <div className="ll-field">
+                    <label>Category</label>
+                    <select className="ll-select" value={category} onChange={(e) => setCategory(e.target.value)}>
+                      <option value="what_went_well">✅ What Went Well</option>
+                      <option value="improvements">💡 Improvement</option>
+                      <option value="issues">⚠️ Issue</option>
+                    </select>
+                  </div>
+                  <div className="ll-field">
+                    <label>Status</label>
+                    <select className="ll-select" value={status} onChange={(e) => setStatus(e.target.value)}>
+                      <option value="Open">Open</option>
+                      <option value="In Progress">In Progress</option>
+                      <option value="Closed">Closed</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="ll-field">
+                  <label>Description</label>
+                  <textarea
+                    className="ll-textarea"
+                    placeholder="What happened? What did we learn?"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                  />
+                </div>
+
+                <div className="ll-modal-row">
+                  <div className="ll-field">
+                    <label>Action Owner</label>
+                    <input type="text" className="ll-input" placeholder="e.g. John Smith" value={actionOwnerName} onChange={(e) => setActionOwnerName(e.target.value)} />
+                  </div>
+                  <div className="ll-field">
+                    <label>Project Stage</label>
+                    <input type="text" className="ll-input" placeholder="e.g. Design / Build" value={stage} onChange={(e) => setStage(e.target.value)} />
+                  </div>
+                </div>
+
+                <div className="ll-modal-row">
+                  <div className="ll-field">
+                    <label>Impact</label>
+                    <select className="ll-select" value={impact} onChange={(e) => setImpact(e.target.value)}>
+                      <option value="">— Select —</option>
+                      <option value="Positive">Positive</option>
+                      <option value="Negative">Negative</option>
+                    </select>
+                  </div>
+                  <div className="ll-field">
+                    <label>Severity</label>
+                    <select className="ll-select" value={severity} onChange={(e) => setSeverity(e.target.value)}>
+                      <option value="">— Select —</option>
+                      <option value="Low">Low</option>
+                      <option value="Medium">Medium</option>
+                      <option value="High">High</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="ll-field">
+                  <label>Action for Future</label>
+                  <input type="text" className="ll-input" placeholder="What will we do next time?" value={action} onChange={(e) => setAction(e.target.value)} />
+                </div>
+
+                {mode === "edit" && editing?.ai_generated && (
+                  <div className="ll-ai-summary">
+                    <div className="ll-ai-summary-label">
+                      <span>✦</span> AI Summary
+                    </div>
+                    <p>{editing.ai_summary || "No summary available."}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="ll-modal-footer">
+                <button onClick={() => { setOpen(false); resetForm(); }} className="ll-btn">
+                  Cancel
+                </button>
+                <button
+                  disabled={saving || !description.trim()}
+                  onClick={mode === "edit" ? updateLesson : createLesson}
+                  className="ll-btn ll-btn-primary"
+                >
+                  {submitLabel}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
