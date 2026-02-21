@@ -1,3 +1,4 @@
+// src/components/artifacts/ArtifactBoardClient.tsx
 "use client";
 
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
@@ -13,7 +14,6 @@ import {
   X,
   Search,
   Copy,
-  ChevronRight,
   Zap,
   Shield,
   Clock,
@@ -65,6 +65,34 @@ export type ArtifactBoardRow = {
   currentLabel?: string;
   __idx?: number;
 };
+
+/* =========================================================
+   Theme (Light)
+========================================================= */
+
+const THEME = {
+  bg: "#F8FAFC", // slate-50
+  bg2: "#FFFFFF",
+  headerBg: "rgba(248, 250, 252, 0.85)",
+  panel: "rgba(255, 255, 255, 0.86)",
+  panelSolid: "#FFFFFF",
+  panelAlt: "rgba(15, 23, 42, 0.02)", // slate-900 @ 2%
+  border: "rgba(15, 23, 42, 0.08)",
+  border2: "rgba(15, 23, 42, 0.06)",
+  border3: "rgba(15, 23, 42, 0.05)",
+  text: "#0F172A", // slate-900
+  text2: "#1E293B", // slate-800
+  muted: "#475569", // slate-600
+  muted2: "#64748B", // slate-500
+  faint: "#94A3B8", // slate-400
+  kbd: "#334155", // slate-700
+  shadow:
+    "0 0 0 1px rgba(15,23,42,0.06), 0 24px 80px -12px rgba(15,23,42,0.16)",
+  overlay: "rgba(2, 6, 23, 0.35)",
+};
+
+/** One source of truth so header + rows always align */
+const GRID_COLS = "minmax(320px, 1fr) 240px 56px 130px 160px";
 
 /* =========================================================
    Utilities
@@ -223,14 +251,12 @@ function progressForArtifactLike(a: any): number {
 function applyCurrentFallback(rows: ArtifactBoardRow[]) {
   if (!rows.length) return rows;
   const hasAnyCurrent = rows.some((r) => booly(r.isCurrent));
-  if (hasAnyCurrent)
-    return rows.map((r) => ({ ...r, isCurrent: booly(r.isCurrent) }));
+  if (hasAnyCurrent) return rows.map((r) => ({ ...r, isCurrent: booly(r.isCurrent) }));
 
   const seenType = new Set<string>();
   return rows.map((r) => {
     const tk =
-      safeStr(r.typeKey || canonType(r.artifactType)).trim() ||
-      safeStr(r.artifactType).trim();
+      safeStr(r.typeKey || canonType(r.artifactType)).trim() || safeStr(r.artifactType).trim();
     const key = tk || r.id;
     const mark = !seenType.has(key);
     if (mark) seenType.add(key);
@@ -258,8 +284,8 @@ const PHASE_CONFIG: Record<
     icon: Target,
     gradient: "from-amber-500 to-orange-600",
     accent: "#f59e0b",
-    glow: "shadow-amber-500/20",
-    bg: "rgba(245, 158, 11, 0.06)",
+    glow: "shadow-amber-500/15",
+    bg: "rgba(245, 158, 11, 0.08)",
     label: "Initiate",
     order: 0,
   },
@@ -267,8 +293,8 @@ const PHASE_CONFIG: Record<
     icon: GitBranch,
     gradient: "from-sky-500 to-blue-600",
     accent: "#0ea5e9",
-    glow: "shadow-sky-500/20",
-    bg: "rgba(14, 165, 233, 0.06)",
+    glow: "shadow-sky-500/15",
+    bg: "rgba(14, 165, 233, 0.08)",
     label: "Plan",
     order: 1,
   },
@@ -276,8 +302,8 @@ const PHASE_CONFIG: Record<
     icon: Zap,
     gradient: "from-violet-500 to-purple-600",
     accent: "#8b5cf6",
-    glow: "shadow-violet-500/20",
-    bg: "rgba(139, 92, 246, 0.06)",
+    glow: "shadow-violet-500/15",
+    bg: "rgba(139, 92, 246, 0.08)",
     label: "Execute",
     order: 2,
   },
@@ -285,8 +311,8 @@ const PHASE_CONFIG: Record<
     icon: BarChart3,
     gradient: "from-cyan-500 to-teal-600",
     accent: "#06b6d4",
-    glow: "shadow-cyan-500/20",
-    bg: "rgba(6, 182, 212, 0.06)",
+    glow: "shadow-cyan-500/15",
+    bg: "rgba(6, 182, 212, 0.08)",
     label: "Monitor",
     order: 3,
   },
@@ -294,42 +320,40 @@ const PHASE_CONFIG: Record<
     icon: Flag,
     gradient: "from-emerald-500 to-green-600",
     accent: "#10b981",
-    glow: "shadow-emerald-500/20",
-    bg: "rgba(16, 185, 129, 0.06)",
+    glow: "shadow-emerald-500/15",
+    bg: "rgba(16, 185, 129, 0.08)",
     label: "Close",
     order: 4,
   },
 };
 
-const STATUS_CONFIG: Record<
-  UiStatus,
-  { color: string; bg: string; border: string; dotColor: string }
-> = {
-  Draft: {
-    color: "rgba(148, 163, 184, 1)",
-    bg: "rgba(148, 163, 184, 0.08)",
-    border: "rgba(148, 163, 184, 0.15)",
-    dotColor: "#94a3b8",
-  },
-  "In review": {
-    color: "rgba(96, 165, 250, 1)",
-    bg: "rgba(96, 165, 250, 0.08)",
-    border: "rgba(96, 165, 250, 0.15)",
-    dotColor: "#60a5fa",
-  },
-  Approved: {
-    color: "rgba(52, 211, 153, 1)",
-    bg: "rgba(52, 211, 153, 0.08)",
-    border: "rgba(52, 211, 153, 0.15)",
-    dotColor: "#34d399",
-  },
-  Blocked: {
-    color: "rgba(251, 113, 133, 1)",
-    bg: "rgba(251, 113, 133, 0.08)",
-    border: "rgba(251, 113, 133, 0.15)",
-    dotColor: "#fb7185",
-  },
-};
+const STATUS_CONFIG: Record<UiStatus, { color: string; bg: string; border: string; dotColor: string }> =
+  {
+    Draft: {
+      color: "rgba(100, 116, 139, 1)", // slate-500
+      bg: "rgba(100, 116, 139, 0.10)",
+      border: "rgba(100, 116, 139, 0.18)",
+      dotColor: "#64748B",
+    },
+    "In review": {
+      color: "rgba(37, 99, 235, 1)", // blue-600
+      bg: "rgba(37, 99, 235, 0.10)",
+      border: "rgba(37, 99, 235, 0.18)",
+      dotColor: "#2563EB",
+    },
+    Approved: {
+      color: "rgba(5, 150, 105, 1)", // emerald-600
+      bg: "rgba(5, 150, 105, 0.10)",
+      border: "rgba(5, 150, 105, 0.18)",
+      dotColor: "#059669",
+    },
+    Blocked: {
+      color: "rgba(225, 29, 72, 1)", // rose-600
+      bg: "rgba(225, 29, 72, 0.10)",
+      border: "rgba(225, 29, 72, 0.18)",
+      dotColor: "#E11D48",
+    },
+  };
 
 /* =========================================================
    Styled Components
@@ -359,7 +383,7 @@ function ArcProgress({
           cy={size / 2}
           r={r}
           fill="none"
-          stroke="rgba(255,255,255,0.06)"
+          stroke="rgba(15,23,42,0.08)"
           strokeWidth={strokeWidth}
         />
         <circle
@@ -396,10 +420,7 @@ function StatusPill({ status }: { status: UiStatus }) {
         border: `1px solid ${cfg.border}`,
       }}
     >
-      <span
-        className="w-1.5 h-1.5 rounded-full"
-        style={{ background: cfg.dotColor }}
-      />
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: cfg.dotColor }} />
       {status}
     </span>
   );
@@ -410,24 +431,22 @@ function OwnerChip({ email, name }: { email: string; name?: string }) {
   const displayName = name || email.split("@")[0] || "Unassigned";
 
   const hue = email
-    ? email
-        .split("")
-        .reduce((a, c) => a + c.charCodeAt(0), 0) % 360
+    ? email.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 360
     : 220;
 
   return (
-    <div className="flex items-center gap-2.5">
+    <div className="flex items-center gap-2.5 min-w-0">
       <div
-        className="h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold tracking-wider"
+        className="h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold tracking-wider shrink-0"
         style={{
-          background: `hsla(${hue}, 60%, 55%, 0.15)`,
-          color: `hsla(${hue}, 70%, 70%, 1)`,
-          border: `1px solid hsla(${hue}, 60%, 55%, 0.2)`,
+          background: `hsla(${hue}, 70%, 45%, 0.10)`,
+          color: `hsla(${hue}, 80%, 30%, 1)`,
+          border: `1px solid hsla(${hue}, 70%, 45%, 0.18)`,
         }}
       >
         {initials}
       </div>
-      <span className="text-[13px] text-[#c0c8d8] truncate max-w-[120px]">
+      <span className="text-[13px] text-[#334155] truncate">
         {displayName}
       </span>
     </div>
@@ -439,9 +458,9 @@ function CurrentTag() {
     <span
       className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest"
       style={{
-        background: "rgba(52, 211, 153, 0.1)",
-        color: "#34d399",
-        border: "1px solid rgba(52, 211, 153, 0.2)",
+        background: "rgba(5,150,105,0.10)",
+        color: "#059669",
+        border: "1px solid rgba(5,150,105,0.18)",
       }}
     >
       <CheckCircle2 className="h-3 w-3" />
@@ -455,9 +474,9 @@ function BaselineTag() {
     <span
       className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest"
       style={{
-        background: "rgba(255, 255, 255, 0.06)",
-        color: "#94a3b8",
-        border: "1px solid rgba(255, 255, 255, 0.08)",
+        background: "rgba(15,23,42,0.04)",
+        color: "#64748B",
+        border: "1px solid rgba(15,23,42,0.08)",
       }}
     >
       <Shield className="h-3 w-3" />
@@ -511,40 +530,41 @@ function ArtifactRow({
       onClick={() => onOpen(row.id)}
       className="group relative grid items-center gap-4 px-5 py-4 cursor-pointer transition-all duration-200"
       style={{
-        gridTemplateColumns: "1fr 160px 48px 110px auto",
+        gridTemplateColumns: GRID_COLS,
         animationDelay: `${idx * 40}ms`,
-        borderBottom: "1px solid rgba(255,255,255,0.04)",
-        background: isCurrent ? "rgba(52, 211, 153, 0.03)" : "transparent",
+        borderBottom: `1px solid ${THEME.border3}`,
+        background: isCurrent ? "rgba(5,150,105,0.04)" : "transparent",
       }}
       onMouseEnter={(e) => {
         (e.currentTarget as HTMLElement).style.background = isCurrent
-          ? "rgba(52, 211, 153, 0.06)"
-          : "rgba(255,255,255,0.02)";
+          ? "rgba(5,150,105,0.06)"
+          : "rgba(15,23,42,0.02)";
       }}
       onMouseLeave={(e) => {
         (e.currentTarget as HTMLElement).style.background = isCurrent
-          ? "rgba(52, 211, 153, 0.03)"
+          ? "rgba(5,150,105,0.04)"
           : "transparent";
       }}
     >
-      {/* Left accent line for current */}
       {isCurrent && (
         <div
           className="absolute left-0 top-2 bottom-2 w-[2px] rounded-full"
-          style={{ background: "#34d399" }}
+          style={{ background: "#059669" }}
         />
       )}
 
-      {/* Name + Tags */}
+      {/* Artifact */}
       <div className="min-w-0">
-        <div className="flex items-center gap-2 mb-0.5">
-          <span className="text-[13px] font-semibold text-white truncate">
+        <div className="flex items-center gap-2 mb-0.5 min-w-0">
+          <span className="text-[13px] font-semibold truncate" style={{ color: THEME.text }}>
             {row.artifactType}
           </span>
           {isCurrent && <CurrentTag />}
           {row.isBaseline && <BaselineTag />}
         </div>
-        <p className="text-[12px] text-[#6b7a90] truncate">{row.title}</p>
+        <p className="text-[12px] truncate" style={{ color: THEME.muted2 }}>
+          {row.title}
+        </p>
       </div>
 
       {/* Owner */}
@@ -567,8 +587,9 @@ function ArtifactRow({
             disabled={isMaking || !projectUuid || !looksLikeUuid(projectUuid)}
             className="p-1.5 rounded-md transition-colors disabled:opacity-30"
             style={{
-              color: "#34d399",
-              background: "rgba(52, 211, 153, 0.08)",
+              color: "#059669",
+              background: "rgba(5,150,105,0.10)",
+              border: "1px solid rgba(5,150,105,0.16)",
             }}
             title="Set as current"
           >
@@ -587,14 +608,14 @@ function ArtifactRow({
           }}
           disabled={isCloning || !projectUuid || !looksLikeUuid(projectUuid)}
           className="p-1.5 rounded-md transition-colors disabled:opacity-30"
-          style={{ color: "#60a5fa", background: "rgba(96, 165, 250, 0.08)" }}
+          style={{
+            color: "#2563EB",
+            background: "rgba(37,99,235,0.10)",
+            border: "1px solid rgba(37,99,235,0.16)",
+          }}
           title="Clone"
         >
-          {isCloning ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Copy className="h-3.5 w-3.5" />
-          )}
+          {isCloning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
         </button>
 
         {canDelete && (
@@ -605,7 +626,11 @@ function ArtifactRow({
             }}
             disabled={isDeleting || !projectUuid || !looksLikeUuid(projectUuid)}
             className="p-1.5 rounded-md transition-colors disabled:opacity-30"
-            style={{ color: "#fb7185", background: "rgba(251, 113, 133, 0.08)" }}
+            style={{
+              color: "#E11D48",
+              background: "rgba(225,29,72,0.10)",
+              border: "1px solid rgba(225,29,72,0.16)",
+            }}
             title="Delete draft"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -618,7 +643,12 @@ function ArtifactRow({
             onOpen(row.id);
           }}
           className="p-1.5 rounded-md transition-colors"
-          style={{ color: "#94a3b8", background: "rgba(148, 163, 184, 0.06)" }}
+          style={{
+            color: THEME.muted2,
+            background: "rgba(15,23,42,0.04)",
+            border: "1px solid rgba(15,23,42,0.08)",
+          }}
+          title="Open"
         >
           <ArrowUpRight className="h-3.5 w-3.5" />
         </button>
@@ -674,10 +704,7 @@ function PhaseGroup({
   if (!sortedRows.length) return null;
 
   return (
-    <div
-      className="mb-8 animate-[fadeSlideUp_0.5s_ease-out_both]"
-      style={{ animationDelay: `${animIndex * 80}ms` }}
-    >
+    <div className="mb-8 animate-[fadeSlideUp_0.5s_ease-out_both]" style={{ animationDelay: `${animIndex * 80}ms` }}>
       {/* Phase Header */}
       <div className="flex items-center gap-3 mb-3 px-1">
         <div
@@ -686,10 +713,10 @@ function PhaseGroup({
           <Icon className="h-4 w-4 text-white" />
         </div>
         <div>
-          <h3 className="text-[13px] font-bold text-white tracking-wide">
+          <h3 className="text-[13px] font-bold tracking-wide" style={{ color: THEME.text }}>
             {phase}
           </h3>
-          <p className="text-[11px] text-[#5a6577]">
+          <p className="text-[11px]" style={{ color: THEME.muted2 }}>
             {sortedRows.length} artifact{sortedRows.length !== 1 ? "s" : ""}
           </p>
         </div>
@@ -699,29 +726,43 @@ function PhaseGroup({
       <div
         className="rounded-xl overflow-hidden"
         style={{
-          background: "rgba(255,255,255,0.02)",
-          border: "1px solid rgba(255,255,255,0.06)",
-          backdropFilter: "blur(20px)",
+          background: THEME.panel,
+          border: `1px solid ${THEME.border}`,
+          backdropFilter: "blur(18px)",
+          boxShadow: "0 1px 0 rgba(15,23,42,0.03)",
         }}
       >
         {/* Table Header */}
         <div
           className="grid items-center gap-4 px-5 py-2.5"
           style={{
-            gridTemplateColumns: "1fr 160px 48px 110px auto",
-            borderBottom: "1px solid rgba(255,255,255,0.04)",
+            gridTemplateColumns: GRID_COLS,
+            borderBottom: `1px solid ${THEME.border2}`,
+            background: "linear-gradient(180deg, rgba(15,23,42,0.02), transparent)",
           }}
         >
-          <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#4a5568]">
+          <span
+            className="text-[10px] font-bold uppercase tracking-[0.1em]"
+            style={{ color: THEME.muted2 }}
+          >
             Artifact
           </span>
-          <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#4a5568]">
+          <span
+            className="text-[10px] font-bold uppercase tracking-[0.1em]"
+            style={{ color: THEME.muted2 }}
+          >
             Owner
           </span>
-          <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#4a5568]">
+          <span
+            className="text-[10px] font-bold uppercase tracking-[0.1em]"
+            style={{ color: THEME.muted2 }}
+          >
             %
           </span>
-          <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#4a5568]">
+          <span
+            className="text-[10px] font-bold uppercase tracking-[0.1em]"
+            style={{ color: THEME.muted2 }}
+          >
             Status
           </span>
           <span />
@@ -758,53 +799,27 @@ function StatsBar({ rows }: { rows: ArtifactBoardRow[] }) {
     const approved = rows.filter((r) => r.status === "Approved").length;
     const inReview = rows.filter((r) => r.status === "In review").length;
     const blocked = rows.filter((r) => r.status === "Blocked").length;
-    const avgProgress = total
-      ? Math.round(rows.reduce((s, r) => s + r.progress, 0) / total)
-      : 0;
+    const avgProgress = total ? Math.round(rows.reduce((s, r) => s + r.progress, 0) / total) : 0;
     return { total, approved, inReview, blocked, avgProgress };
   }, [rows]);
 
   const items = [
-    {
-      label: "Total",
-      value: stats.total,
-      color: "#94a3b8",
-    },
-    {
-      label: "Approved",
-      value: stats.approved,
-      color: "#34d399",
-    },
-    {
-      label: "In Review",
-      value: stats.inReview,
-      color: "#60a5fa",
-    },
-    {
-      label: "Blocked",
-      value: stats.blocked,
-      color: "#fb7185",
-    },
-    {
-      label: "Avg Progress",
-      value: `${stats.avgProgress}%`,
-      color: "#a78bfa",
-    },
+    { label: "Total", value: stats.total, color: "#334155" },
+    { label: "Approved", value: stats.approved, color: "#059669" },
+    { label: "In Review", value: stats.inReview, color: "#2563EB" },
+    { label: "Blocked", value: stats.blocked, color: "#E11D48" },
+    { label: "Avg Progress", value: `${stats.avgProgress}%`, color: "#7C3AED" },
   ];
 
   return (
     <div className="flex items-center gap-6">
       {items.map((item) => (
         <div key={item.label} className="flex items-center gap-2">
-          <div
-            className="w-1.5 h-1.5 rounded-full"
-            style={{ background: item.color }}
-          />
-          <span className="text-[11px] text-[#5a6577]">{item.label}</span>
-          <span
-            className="text-[12px] font-bold font-mono"
-            style={{ color: item.color }}
-          >
+          <div className="w-1.5 h-1.5 rounded-full" style={{ background: item.color }} />
+          <span className="text-[11px]" style={{ color: THEME.muted2 }}>
+            {item.label}
+          </span>
+          <span className="text-[12px] font-bold font-mono" style={{ color: item.color }}>
             {item.value}
           </span>
         </div>
@@ -816,6 +831,14 @@ function StatsBar({ rows }: { rows: ArtifactBoardRow[] }) {
 /* =========================================================
    Search + Filters Overlay
 ========================================================= */
+
+function hexToRgb(hex: string): string {
+  const c = hex.replace("#", "");
+  const r = parseInt(c.substring(0, 2), 16);
+  const g = parseInt(c.substring(2, 4), 16);
+  const b = parseInt(c.substring(4, 6), 16);
+  return `${r}, ${g}, ${b}`;
+}
 
 function CommandPalette({
   open,
@@ -843,9 +866,7 @@ function CommandPalette({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (open) {
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
+    if (open) setTimeout(() => inputRef.current?.focus(), 50);
   }, [open]);
 
   useEffect(() => {
@@ -862,37 +883,37 @@ function CommandPalette({
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
       <div
         className="absolute inset-0 animate-[fadeIn_0.15s_ease-out]"
-        style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+        style={{ background: THEME.overlay, backdropFilter: "blur(4px)" }}
         onClick={onClose}
       />
 
       <div
         className="relative w-full max-w-lg rounded-2xl overflow-hidden animate-[fadeSlideUp_0.2s_ease-out]"
         style={{
-          background: "#131821",
-          border: "1px solid rgba(255,255,255,0.08)",
-          boxShadow:
-            "0 0 0 1px rgba(255,255,255,0.05), 0 24px 80px -12px rgba(0,0,0,0.7)",
+          background: THEME.panelSolid,
+          border: `1px solid ${THEME.border}`,
+          boxShadow: THEME.shadow,
         }}
       >
         {/* Search */}
-        <div
-          className="flex items-center gap-3 px-5 py-4"
-          style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
-        >
-          <Search className="h-5 w-5 text-[#4a5568]" />
+        <div className="flex items-center gap-3 px-5 py-4" style={{ borderBottom: `1px solid ${THEME.border2}` }}>
+          <Search className="h-5 w-5" style={{ color: THEME.muted2 }} />
           <input
             ref={inputRef}
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search artifacts, owners, titles..."
-            className="flex-1 bg-transparent text-white text-[14px] outline-none placeholder-[#4a5568]"
+            className="flex-1 bg-transparent text-[14px] outline-none"
             style={{
+              color: THEME.text,
               fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace",
             }}
           />
-          <kbd className="px-2 py-0.5 rounded text-[10px] font-mono text-[#4a5568] border border-[rgba(255,255,255,0.06)]">
+          <kbd
+            className="px-2 py-0.5 rounded text-[10px] font-mono border"
+            style={{ color: THEME.kbd, borderColor: THEME.border2, background: "rgba(15,23,42,0.03)" }}
+          >
             ESC
           </kbd>
         </div>
@@ -900,46 +921,44 @@ function CommandPalette({
         {/* Filters */}
         <div className="px-5 py-4 space-y-4">
           <div>
-            <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#4a5568] mb-2 block">
+            <span
+              className="text-[10px] font-bold uppercase tracking-[0.15em] mb-2 block"
+              style={{ color: THEME.muted2 }}
+            >
               Status
             </span>
             <div className="flex flex-wrap gap-2">
-              {(["Draft", "In review", "Approved", "Blocked"] as UiStatus[]).map(
-                (status) => {
-                  const active = statusSet.has(status);
-                  const cfg = STATUS_CONFIG[status];
-                  return (
-                    <button
-                      key={status}
-                      onClick={() => toggleStatus(status)}
-                      className="px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all duration-150"
-                      style={{
-                        background: active ? cfg.bg : "rgba(255,255,255,0.03)",
-                        color: active ? cfg.color : "#5a6577",
-                        border: `1px solid ${active ? cfg.border : "rgba(255,255,255,0.06)"}`,
-                      }}
-                    >
-                      {status}
-                    </button>
-                  );
-                }
-              )}
+              {(["Draft", "In review", "Approved", "Blocked"] as UiStatus[]).map((status) => {
+                const active = statusSet.has(status);
+                const cfg = STATUS_CONFIG[status];
+                return (
+                  <button
+                    key={status}
+                    onClick={() => toggleStatus(status)}
+                    className="px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all duration-150"
+                    style={{
+                      background: active ? cfg.bg : "rgba(15,23,42,0.03)",
+                      color: active ? cfg.color : THEME.muted,
+                      border: `1px solid ${active ? cfg.border : THEME.border}`,
+                    }}
+                  >
+                    {status}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
           <div>
-            <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#4a5568] mb-2 block">
+            <span
+              className="text-[10px] font-bold uppercase tracking-[0.15em] mb-2 block"
+              style={{ color: THEME.muted2 }}
+            >
               Phase
             </span>
             <div className="flex flex-wrap gap-2">
               {(
-                [
-                  "Initiating",
-                  "Planning",
-                  "Executing",
-                  "Monitoring & Controlling",
-                  "Closing",
-                ] as Phase[]
+                ["Initiating", "Planning", "Executing", "Monitoring & Controlling", "Closing"] as Phase[]
               ).map((phase) => {
                 const active = phaseSet.has(phase);
                 const cfg = PHASE_CONFIG[phase];
@@ -949,11 +968,11 @@ function CommandPalette({
                     onClick={() => togglePhase(phase)}
                     className="px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all duration-150"
                     style={{
-                      background: active
-                        ? `rgba(${hexToRgb(cfg.accent)}, 0.12)`
-                        : "rgba(255,255,255,0.03)",
-                      color: active ? cfg.accent : "#5a6577",
-                      border: `1px solid ${active ? `rgba(${hexToRgb(cfg.accent)}, 0.2)` : "rgba(255,255,255,0.06)"}`,
+                      background: active ? `rgba(${hexToRgb(cfg.accent)}, 0.12)` : "rgba(15,23,42,0.03)",
+                      color: active ? cfg.accent : THEME.muted,
+                      border: `1px solid ${
+                        active ? `rgba(${hexToRgb(cfg.accent)}, 0.22)` : THEME.border
+                      }`,
                     }}
                   >
                     {cfg.label}
@@ -966,10 +985,11 @@ function CommandPalette({
           {activeCount > 0 && (
             <button
               onClick={clearAll}
-              className="w-full py-2 rounded-lg text-[11px] font-semibold text-[#5a6577] transition-colors"
+              className="w-full py-2 rounded-lg text-[11px] font-semibold transition-colors"
               style={{
-                border: "1px solid rgba(255,255,255,0.06)",
-                background: "rgba(255,255,255,0.02)",
+                border: `1px solid ${THEME.border}`,
+                background: "rgba(15,23,42,0.02)",
+                color: THEME.muted,
               }}
             >
               Clear all filters
@@ -981,16 +1001,12 @@ function CommandPalette({
   );
 }
 
-function hexToRgb(hex: string): string {
-  const c = hex.replace("#", "");
-  const r = parseInt(c.substring(0, 2), 16);
-  const g = parseInt(c.substring(2, 4), 16);
-  const b = parseInt(c.substring(4, 6), 16);
-  return `${r}, ${g}, ${b}`;
-}
-
 /* =========================================================
-   AI Panel (redesigned)
+   AI Panel
+   Fixes:
+   - Always shows errors (previously errors were hidden because `!result` branch rendered first)
+   - Includes credentials for cookie auth
+   - Robust JSON parsing + clearer error messaging
 ========================================================= */
 
 function daysUntil(iso: string) {
@@ -1014,6 +1030,15 @@ function AiPanel({
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState("");
 
+  // reset state each time it opens
+  useEffect(() => {
+    if (open) {
+      setLoading(false);
+      setResult(null);
+      setError("");
+    }
+  }, [open]);
+
   async function runCheck() {
     if (!projectUuid || !looksLikeUuid(projectUuid)) {
       setError("Invalid project UUID");
@@ -1021,10 +1046,15 @@ function AiPanel({
     }
     setLoading(true);
     setError("");
+
     try {
       const res = await fetch("/api/ai/events", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        credentials: "include",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+        },
         body: JSON.stringify({
           eventType: "artifact_due",
           windowDays: 14,
@@ -1032,11 +1062,25 @@ function AiPanel({
           project_human_id: projectCode,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Request failed");
+
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        // non-JSON response
+      }
+
+      if (!res.ok) {
+        const msg = data?.error || data?.message || `Request failed (${res.status})`;
+        throw new Error(msg);
+      }
+
       setResult(data);
     } catch (e: any) {
-      setError(e.message);
+      setError(e?.message || "AI request failed");
+      // Ensure the UI shows the error state even if result is null
+      setResult((prev: any) => prev ?? { ai: { dueSoon: [] } });
     } finally {
       setLoading(false);
     }
@@ -1049,47 +1093,71 @@ function AiPanel({
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh]">
       <div
         className="absolute inset-0 animate-[fadeIn_0.15s_ease-out]"
-        style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+        style={{ background: THEME.overlay, backdropFilter: "blur(4px)" }}
         onClick={onClose}
       />
 
       <div
         className="relative w-full max-w-md max-h-[75vh] rounded-2xl overflow-hidden flex flex-col animate-[fadeSlideUp_0.2s_ease-out]"
         style={{
-          background: "#131821",
-          border: "1px solid rgba(255,255,255,0.08)",
-          boxShadow:
-            "0 0 0 1px rgba(255,255,255,0.05), 0 24px 80px -12px rgba(0,0,0,0.7)",
+          background: THEME.panelSolid,
+          border: `1px solid ${THEME.border}`,
+          boxShadow: THEME.shadow,
         }}
       >
-        <div
-          className="flex items-center justify-between px-5 py-4"
-          style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
-        >
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1px solid ${THEME.border2}` }}>
           <div className="flex items-center gap-2.5">
-            <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
+            <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-violet-600 to-purple-600 flex items-center justify-center">
               <Sparkles className="h-3.5 w-3.5 text-white" />
             </div>
-            <span className="text-[13px] font-bold text-white">
+            <span className="text-[13px] font-bold" style={{ color: THEME.text }}>
               AI Assistant
             </span>
           </div>
           <button
             onClick={onClose}
             className="p-1.5 rounded-lg"
-            style={{ color: "#5a6577", background: "rgba(255,255,255,0.04)" }}
+            style={{ color: THEME.muted, background: "rgba(15,23,42,0.04)", border: `1px solid ${THEME.border}` }}
+            aria-label="Close"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <div className="flex-1 overflow-auto p-5">
-          {!result ? (
-            <div className="text-center py-12">
-              <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-gradient-to-br from-violet-500/20 to-purple-600/20 mb-4">
-                <Clock className="h-7 w-7 text-violet-400" />
+          {error ? (
+            <div
+              className="p-4 rounded-xl text-[13px] flex items-start gap-2"
+              style={{
+                background: "rgba(225,29,72,0.08)",
+                color: "#E11D48",
+                border: "1px solid rgba(225,29,72,0.16)",
+              }}
+            >
+              <AlertCircle className="h-4 w-4 mt-[1px]" />
+              <div className="min-w-0">
+                <div className="font-semibold">AI scan failed</div>
+                <div className="text-[12px] opacity-90">{error}</div>
+                <button
+                  onClick={runCheck}
+                  disabled={loading}
+                  className="mt-3 px-3 py-1.5 rounded-lg text-[12px] font-semibold"
+                  style={{
+                    color: "#ffffff",
+                    background: "linear-gradient(135deg, #7C3AED, #9333EA)",
+                    opacity: loading ? 0.6 : 1,
+                  }}
+                >
+                  {loading ? "Retrying..." : "Retry"}
+                </button>
               </div>
-              <p className="text-[13px] text-[#6b7a90] mb-5">
+            </div>
+          ) : !result ? (
+            <div className="text-center py-12">
+              <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl mb-4" style={{ background: "rgba(124,58,237,0.10)", border: `1px solid rgba(124,58,237,0.16)` }}>
+                <Clock className="h-7 w-7" style={{ color: "#7C3AED" }} />
+              </div>
+              <p className="text-[13px] mb-5" style={{ color: THEME.muted2 }}>
                 Check what&apos;s coming up in the next 14 days
               </p>
               <button
@@ -1107,21 +1175,10 @@ function AiPanel({
                 )}
               </button>
             </div>
-          ) : error ? (
-            <div
-              className="p-4 rounded-xl text-[13px]"
-              style={{
-                background: "rgba(251,113,133,0.08)",
-                color: "#fb7185",
-                border: "1px solid rgba(251,113,133,0.15)",
-              }}
-            >
-              {error}
-            </div>
           ) : items.length === 0 ? (
             <div className="text-center py-12">
-              <FileCheck className="h-8 w-8 text-emerald-400 mx-auto mb-3" />
-              <p className="text-[13px] text-[#6b7a90]">
+              <FileCheck className="h-8 w-8 mx-auto mb-3" style={{ color: "#059669" }} />
+              <p className="text-[13px]" style={{ color: THEME.muted2 }}>
                 Nothing due in the next 14 days
               </p>
             </div>
@@ -1135,8 +1192,8 @@ function AiPanel({
                     key={idx}
                     className="p-4 rounded-xl animate-[fadeSlideUp_0.3s_ease-out_both]"
                     style={{
-                      background: "rgba(255,255,255,0.02)",
-                      border: "1px solid rgba(255,255,255,0.06)",
+                      background: "rgba(15,23,42,0.02)",
+                      border: `1px solid ${THEME.border}`,
                       animationDelay: `${idx * 60}ms`,
                     }}
                   >
@@ -1144,29 +1201,23 @@ function AiPanel({
                       <span
                         className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded"
                         style={{
-                          background: "rgba(255,255,255,0.04)",
-                          color: "#5a6577",
+                          background: "rgba(15,23,42,0.04)",
+                          color: THEME.muted,
+                          border: `1px solid ${THEME.border2}`,
                         }}
                       >
                         {item.itemType || "Item"}
                       </span>
                       {days !== null && (
-                        <span
-                          className="text-[11px] font-bold font-mono"
-                          style={{
-                            color: isOverdue ? "#fb7185" : "#f59e0b",
-                          }}
-                        >
-                          {isOverdue
-                            ? `${Math.abs(days)}d overdue`
-                            : `${days}d`}
+                        <span className="text-[11px] font-bold font-mono" style={{ color: isOverdue ? "#E11D48" : "#D97706" }}>
+                          {isOverdue ? `${Math.abs(days)}d overdue` : `${days}d`}
                         </span>
                       )}
                     </div>
-                    <h4 className="text-[13px] font-semibold text-white mb-1.5">
+                    <h4 className="text-[13px] font-semibold mb-1.5" style={{ color: THEME.text }}>
                       {item.title}
                     </h4>
-                    <div className="flex items-center gap-2 text-[11px] text-[#5a6577] mb-3">
+                    <div className="flex items-center gap-2 text-[11px] mb-3" style={{ color: THEME.muted2 }}>
                       <Calendar className="h-3 w-3" />
                       {fmtUkDateOnly(item.dueDate)}
                     </div>
@@ -1174,10 +1225,11 @@ function AiPanel({
                       {item.link && (
                         <Link
                           href={normalizeArtifactLink(item.link)}
-                          className="flex-1 px-3 py-1.5 rounded-lg text-center text-[11px] font-semibold text-white transition-colors"
+                          className="flex-1 px-3 py-1.5 rounded-lg text-center text-[11px] font-semibold transition-colors"
                           style={{
-                            background: "rgba(255,255,255,0.06)",
-                            border: "1px solid rgba(255,255,255,0.08)",
+                            background: "rgba(15,23,42,0.04)",
+                            border: `1px solid ${THEME.border}`,
+                            color: THEME.text2,
                           }}
                         >
                           Open
@@ -1189,7 +1241,8 @@ function AiPanel({
                             `Reminder: ${item.title} due ${fmtUkDateOnly(item.dueDate)}`
                           )
                         }
-                        className="px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-gradient-to-r from-violet-600 to-purple-600"
+                        className="px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white"
+                        style={{ background: "linear-gradient(135deg, #7C3AED, #9333EA)" }}
                       >
                         Copy
                       </button>
@@ -1199,6 +1252,23 @@ function AiPanel({
               })}
             </div>
           )}
+        </div>
+
+        {/* Footer actions */}
+        <div className="px-5 py-3" style={{ borderTop: `1px solid ${THEME.border2}`, background: "rgba(15,23,42,0.01)" }}>
+          <button
+            onClick={runCheck}
+            disabled={loading}
+            className="w-full py-2 rounded-xl text-[12px] font-semibold"
+            style={{
+              color: THEME.text2,
+              background: "rgba(15,23,42,0.03)",
+              border: `1px solid ${THEME.border}`,
+              opacity: loading ? 0.6 : 1,
+            }}
+          >
+            {loading ? "Scanning..." : "Rescan"}
+          </button>
         </div>
       </div>
     </div>
@@ -1218,13 +1288,7 @@ function PhaseTimeline({
   activePhases: Set<Phase>;
   togglePhase: (p: Phase) => void;
 }) {
-  const allPhases: Phase[] = [
-    "Initiating",
-    "Planning",
-    "Executing",
-    "Monitoring & Controlling",
-    "Closing",
-  ];
+  const allPhases: Phase[] = ["Initiating", "Planning", "Executing", "Monitoring & Controlling", "Closing"];
   const countMap = new Map(phases.map((p) => [p.phase, p.count]));
 
   return (
@@ -1242,9 +1306,7 @@ function PhaseTimeline({
               <div
                 className="w-6 h-[1px]"
                 style={{
-                  background: hasItems
-                    ? "rgba(255,255,255,0.1)"
-                    : "rgba(255,255,255,0.04)",
+                  background: hasItems ? "rgba(15,23,42,0.10)" : "rgba(15,23,42,0.05)",
                 }}
               />
             )}
@@ -1253,29 +1315,22 @@ function PhaseTimeline({
               className="flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200"
               style={{
                 background: active
-                  ? `rgba(${hexToRgb(cfg.accent)}, 0.12)`
+                  ? `rgba(${hexToRgb(cfg.accent)}, 0.10)`
                   : hasItems
-                    ? "rgba(255,255,255,0.03)"
+                    ? "rgba(15,23,42,0.03)"
                     : "transparent",
-                border: `1px solid ${active ? `rgba(${hexToRgb(cfg.accent)}, 0.2)` : "rgba(255,255,255,0.04)"}`,
-                opacity: hasItems ? 1 : 0.4,
+                border: `1px solid ${
+                  active ? `rgba(${hexToRgb(cfg.accent)}, 0.20)` : "rgba(15,23,42,0.08)"
+                }`,
+                opacity: hasItems ? 1 : 0.45,
               }}
             >
-              <Icon
-                className="h-3.5 w-3.5"
-                style={{ color: active ? cfg.accent : "#5a6577" }}
-              />
-              <span
-                className="text-[11px] font-semibold hidden lg:inline"
-                style={{ color: active ? cfg.accent : "#5a6577" }}
-              >
+              <Icon className="h-3.5 w-3.5" style={{ color: active ? cfg.accent : THEME.muted2 }} />
+              <span className="text-[11px] font-semibold hidden lg:inline" style={{ color: active ? cfg.accent : THEME.muted2 }}>
                 {cfg.label}
               </span>
               {count > 0 && (
-                <span
-                  className="text-[10px] font-bold font-mono"
-                  style={{ color: active ? cfg.accent : "#4a5568" }}
-                >
+                <span className="text-[10px] font-bold font-mono" style={{ color: active ? cfg.accent : THEME.muted }}>
                   {count}
                 </span>
               )}
@@ -1317,7 +1372,6 @@ export default function ArtifactBoardClient(props: {
     if (incoming.length) {
       return applyCurrentFallback(incoming.map((r, i) => ({ ...r, __idx: i })));
     }
-
     if (!arts.length) return [];
 
     return applyCurrentFallback(
@@ -1326,8 +1380,7 @@ export default function ArtifactBoardClient(props: {
           (a, i) =>
             ({
               id: safeStr(a?.id),
-              artifactType:
-                canonType(a?.type) || safeStr(a?.type) || "Artifact",
+              artifactType: canonType(a?.type) || safeStr(a?.type) || "Artifact",
               title: safeStr(a?.title) || "Untitled",
               ownerEmail: safeStr(a?.ownerEmail ?? a?.owner_email ?? ""),
               ownerName: safeStr(a?.ownerName ?? a?.owner_name ?? ""),
@@ -1350,7 +1403,6 @@ export default function ArtifactBoardClient(props: {
   const [statusSet, setStatusSet] = useState<Set<UiStatus>>(new Set());
   const [phaseSet, setPhaseSet] = useState<Set<Phase>>(new Set());
 
-  // Keyboard shortcut
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -1389,9 +1441,7 @@ export default function ArtifactBoardClient(props: {
       if (statusSet.size && !statusSet.has(r.status)) return false;
       if (phaseSet.size && !phaseSet.has(r.phase)) return false;
       if (q) {
-        const text = [r.artifactType, r.title, r.ownerEmail, r.ownerName]
-          .join(" ")
-          .toLowerCase();
+        const text = [r.artifactType, r.title, r.ownerEmail, r.ownerName].join(" ").toLowerCase();
         if (!text.includes(q)) return false;
       }
       return true;
@@ -1399,37 +1449,21 @@ export default function ArtifactBoardClient(props: {
   }, [baseRows, search, statusSet, phaseSet]);
 
   const grouped = useMemo(() => {
-    const phases: Phase[] = [
-      "Initiating",
-      "Planning",
-      "Executing",
-      "Monitoring & Controlling",
-      "Closing",
-    ];
+    const phases: Phase[] = ["Initiating", "Planning", "Executing", "Monitoring & Controlling", "Closing"];
     return phases
-      .map((phase) => ({
-        phase,
-        rows: filteredRows.filter((r) => r.phase === phase),
-      }))
+      .map((phase) => ({ phase, rows: filteredRows.filter((r) => r.phase === phase) }))
       .filter((g) => g.rows.length > 0);
   }, [filteredRows]);
 
   const phaseCounts = useMemo(() => {
-    const allPhases: Phase[] = [
-      "Initiating",
-      "Planning",
-      "Executing",
-      "Monitoring & Controlling",
-      "Closing",
-    ];
+    const allPhases: Phase[] = ["Initiating", "Planning", "Executing", "Monitoring & Controlling", "Closing"];
     return allPhases.map((phase) => ({
       phase,
       count: baseRows.filter((r) => r.phase === phase).length,
     }));
   }, [baseRows]);
 
-  const activeFiltersCount =
-    (search ? 1 : 0) + statusSet.size + phaseSet.size;
+  const activeFiltersCount = (search ? 1 : 0) + statusSet.size + phaseSet.size;
 
   const [cloningId, setCloningId] = useState("");
   const [deletingId, setDeletingId] = useState("");
@@ -1516,21 +1550,16 @@ export default function ArtifactBoardClient(props: {
           }
         }
         @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes pulseGlow {
-          0%, 100% { opacity: 0.4; }
-          50% { opacity: 0.8; }
-        }
-        @keyframes shimmer {
-          0% { background-position: -200% 0; }
-          100% { background-position: 200% 0; }
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
         }
 
         .artifact-board * {
-          font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont,
-            "Segoe UI", sans-serif;
+          font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
         .artifact-board .font-mono {
           font-family: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
@@ -1538,25 +1567,25 @@ export default function ArtifactBoardClient(props: {
 
         /* Scrollbar */
         .artifact-board ::-webkit-scrollbar {
-          width: 6px;
+          width: 8px;
         }
         .artifact-board ::-webkit-scrollbar-track {
           background: transparent;
         }
         .artifact-board ::-webkit-scrollbar-thumb {
-          background: rgba(255, 255, 255, 0.08);
-          border-radius: 3px;
+          background: rgba(15, 23, 42, 0.10);
+          border-radius: 6px;
         }
         .artifact-board ::-webkit-scrollbar-thumb:hover {
-          background: rgba(255, 255, 255, 0.15);
+          background: rgba(15, 23, 42, 0.18);
         }
       `}</style>
 
       <div
         className="artifact-board min-h-screen"
         style={{
-          background: "#0b0f17",
-          color: "#e2e8f0",
+          background: THEME.bg,
+          color: THEME.text,
           WebkitFontSmoothing: "antialiased",
           MozOsxFontSmoothing: "grayscale",
         }}
@@ -1565,17 +1594,17 @@ export default function ArtifactBoardClient(props: {
         <div
           className="fixed inset-0 pointer-events-none z-0"
           style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.015'/%3E%3C/svg%3E")`,
+            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.02'/%3E%3C/svg%3E")`,
             backgroundRepeat: "repeat",
           }}
         />
 
         {/* Top gradient accent */}
         <div
-          className="fixed top-0 left-0 right-0 h-[200px] pointer-events-none z-0"
+          className="fixed top-0 left-0 right-0 h-[220px] pointer-events-none z-0"
           style={{
             background:
-              "radial-gradient(ellipse 60% 50% at 50% -10%, rgba(99, 102, 241, 0.08) 0%, transparent 70%)",
+              "radial-gradient(ellipse 60% 55% at 50% -10%, rgba(99, 102, 241, 0.12) 0%, transparent 70%)",
           }}
         />
 
@@ -1583,9 +1612,9 @@ export default function ArtifactBoardClient(props: {
         <header
           className="sticky top-0 z-40 relative"
           style={{
-            background: "rgba(11, 15, 23, 0.85)",
-            backdropFilter: "blur(20px) saturate(180%)",
-            borderBottom: "1px solid rgba(255,255,255,0.05)",
+            background: THEME.headerBg,
+            backdropFilter: "blur(18px) saturate(180%)",
+            borderBottom: `1px solid ${THEME.border}`,
           }}
         >
           <div className="max-w-[1280px] mx-auto px-6">
@@ -1596,31 +1625,31 @@ export default function ArtifactBoardClient(props: {
                   <div
                     className="h-9 w-9 rounded-xl flex items-center justify-center"
                     style={{
-                      background:
-                        "linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(168, 85, 247, 0.15))",
-                      border: "1px solid rgba(99, 102, 241, 0.2)",
+                      background: "linear-gradient(135deg, rgba(99, 102, 241, 0.14), rgba(168, 85, 247, 0.14))",
+                      border: "1px solid rgba(99, 102, 241, 0.22)",
                     }}
                   >
-                    <Layers className="h-4.5 w-4.5 text-indigo-400" />
+                    <Layers className="h-4.5 w-4.5 text-indigo-600" />
                   </div>
                   <div>
                     <h1
-                      className="text-[16px] font-bold text-white tracking-tight"
+                      className="text-[16px] font-bold tracking-tight"
                       style={{
-                        fontFamily:
-                          "'JetBrains Mono', 'SF Mono', monospace",
+                        color: THEME.text,
+                        fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
                       }}
                     >
                       Artifacts
                     </h1>
-                    <p className="text-[11px] text-[#4a5568]">
+                    <p className="text-[11px]" style={{ color: THEME.muted2 }}>
                       {projectName || "Project"}
                       {projectCode && (
                         <span
                           className="ml-2 font-mono px-1.5 py-0.5 rounded"
                           style={{
-                            background: "rgba(255,255,255,0.04)",
-                            color: "#5a6577",
+                            background: "rgba(15,23,42,0.03)",
+                            color: THEME.muted,
+                            border: `1px solid ${THEME.border}`,
                           }}
                         >
                           {projectCode}
@@ -1637,17 +1666,17 @@ export default function ArtifactBoardClient(props: {
                   onClick={() => setCommandOpen(true)}
                   className="flex items-center gap-3 px-3.5 py-2 rounded-xl transition-all duration-200"
                   style={{
-                    background: "rgba(255,255,255,0.03)",
-                    border: "1px solid rgba(255,255,255,0.06)",
+                    background: "rgba(15,23,42,0.03)",
+                    border: `1px solid ${THEME.border}`,
                   }}
                 >
-                  <Search className="h-4 w-4 text-[#4a5568]" />
-                  <span className="text-[12px] text-[#4a5568] hidden sm:inline">
+                  <Search className="h-4 w-4" style={{ color: THEME.muted2 }} />
+                  <span className="text-[12px] hidden sm:inline" style={{ color: THEME.muted2 }}>
                     Search & filter...
                   </span>
                   <kbd
-                    className="hidden sm:inline px-1.5 py-0.5 rounded text-[10px] font-mono text-[#3a4558]"
-                    style={{ border: "1px solid rgba(255,255,255,0.06)" }}
+                    className="hidden sm:inline px-1.5 py-0.5 rounded text-[10px] font-mono"
+                    style={{ border: `1px solid ${THEME.border}`, color: THEME.muted, background: "rgba(15,23,42,0.02)" }}
                   >
                     ⌘K
                   </kbd>
@@ -1655,8 +1684,9 @@ export default function ArtifactBoardClient(props: {
                     <span
                       className="px-1.5 py-0.5 rounded-full text-[10px] font-bold"
                       style={{
-                        background: "rgba(99, 102, 241, 0.15)",
-                        color: "#818cf8",
+                        background: "rgba(99, 102, 241, 0.14)",
+                        color: "#4F46E5",
+                        border: "1px solid rgba(99, 102, 241, 0.20)",
                       }}
                     >
                       {activeFiltersCount}
@@ -1670,10 +1700,9 @@ export default function ArtifactBoardClient(props: {
                   disabled={!projectUuid || !looksLikeUuid(projectUuid)}
                   className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-[12px] font-semibold transition-all disabled:opacity-30"
                   style={{
-                    background:
-                      "linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(168, 85, 247, 0.15))",
-                    border: "1px solid rgba(139, 92, 246, 0.2)",
-                    color: "#a78bfa",
+                    background: "linear-gradient(135deg, rgba(124, 58, 237, 0.14), rgba(147, 51, 234, 0.14))",
+                    border: "1px solid rgba(124, 58, 237, 0.22)",
+                    color: "#6D28D9",
                   }}
                 >
                   <Sparkles className="h-3.5 w-3.5" />
@@ -1683,16 +1712,9 @@ export default function ArtifactBoardClient(props: {
             </div>
 
             {/* Phase Timeline */}
-            <div
-              className="pb-3 -mx-1 flex items-center justify-between"
-              style={{ borderTop: "1px solid rgba(255,255,255,0.03)" }}
-            >
+            <div className="pb-3 -mx-1 flex items-center justify-between" style={{ borderTop: `1px solid ${THEME.border3}` }}>
               <div className="pt-3">
-                <PhaseTimeline
-                  phases={phaseCounts}
-                  activePhases={phaseSet}
-                  togglePhase={togglePhase}
-                />
+                <PhaseTimeline phases={phaseCounts} activePhases={phaseSet} togglePhase={togglePhase} />
               </div>
               <div className="pt-3 hidden md:block">
                 <StatsBar rows={filteredRows} />
@@ -1707,17 +1729,14 @@ export default function ArtifactBoardClient(props: {
             <div
               className="flex items-center gap-3 px-4 py-3 rounded-xl text-[13px] animate-[fadeSlideUp_0.2s_ease-out]"
               style={{
-                background: "rgba(251, 113, 133, 0.08)",
-                border: "1px solid rgba(251, 113, 133, 0.15)",
-                color: "#fb7185",
+                background: "rgba(225,29,72,0.08)",
+                border: "1px solid rgba(225,29,72,0.16)",
+                color: "#E11D48",
               }}
             >
               <AlertCircle className="h-4 w-4" />
               {actionError}
-              <button
-                onClick={() => setActionError("")}
-                className="ml-auto p-1"
-              >
+              <button onClick={() => setActionError("")} className="ml-auto p-1" aria-label="Dismiss error">
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -1731,19 +1750,17 @@ export default function ArtifactBoardClient(props: {
               <div
                 className="inline-flex items-center justify-center h-16 w-16 rounded-2xl mb-5"
                 style={{
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.06)",
+                  background: "rgba(15,23,42,0.03)",
+                  border: `1px solid ${THEME.border}`,
                 }}
               >
-                <Layers className="h-7 w-7 text-[#3a4558]" />
+                <Layers className="h-7 w-7" style={{ color: THEME.muted2 }} />
               </div>
-              <p className="text-[14px] text-[#4a5568] mb-1">
+              <p className="text-[14px] mb-1" style={{ color: THEME.muted }}>
                 No artifacts found
               </p>
-              <p className="text-[12px] text-[#3a4558]">
-                {activeFiltersCount > 0
-                  ? "Try adjusting your filters"
-                  : "Create your first artifact to get started"}
+              <p className="text-[12px]" style={{ color: THEME.muted2 }}>
+                {activeFiltersCount > 0 ? "Try adjusting your filters" : "Create your first artifact to get started"}
               </p>
             </div>
           ) : (
