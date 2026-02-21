@@ -14,18 +14,8 @@ import {
  *
  * ✅ Resolves project from route param (UUID or human code like P-00001)
  * ✅ Fetches current artifacts and builds SidebarItem[] for the client
- * ✅ Change Requests → routes to /projects/[id]/change (legacy board)
- * ✅ RAID → routes to /projects/[id]/raid
- * ✅ Lessons Learned → routes to /projects/[id]/lessons
+ * ✅ IMPORTANT: all hrefs are built using the resolved *UUID* to avoid 404s / server crashes
  */
-
-/* ═══════════════════════════════════════════════════════════════
-   ARTIFACT TYPE REGISTRY
-   Matches DB constraint: artifacts_artifact_type_allowed_chk
-   Values: project_charter, change, project_closure_report,
-           stakeholder_register, raid, schedule, wbs,
-           lessons_learned, weekly_report
-═══════════════════════════════════════════════════════════════ */
 
 type ArtifactTypeDef = {
   key: string;
@@ -37,21 +27,21 @@ type ArtifactTypeDef = {
 
 const ARTIFACT_TYPE_REGISTRY: ArtifactTypeDef[] = [
   // Plan
-  { key: "PROJECT_CHARTER",        dbType: "project_charter",        label: "Project Charter",      group: "Plan" },
-  { key: "STAKEHOLDER_REGISTER",   dbType: "stakeholder_register",   label: "Stakeholder Register", group: "Plan" },
-  { key: "WBS",                    dbType: "wbs",                    label: "WBS",                  group: "Plan" },
-  { key: "SCHEDULE",               dbType: "schedule",               label: "Schedule",             group: "Plan" },
-  { key: "WEEKLY_REPORT",          dbType: "weekly_report",          label: "Weekly Report",        group: "Plan" },
+  { key: "PROJECT_CHARTER", dbType: "project_charter", label: "Project Charter", group: "Plan" },
+  { key: "STAKEHOLDER_REGISTER", dbType: "stakeholder_register", label: "Stakeholder Register", group: "Plan" },
+  { key: "WBS", dbType: "wbs", label: "WBS", group: "Plan" },
+  { key: "SCHEDULE", dbType: "schedule", label: "Schedule", group: "Plan" },
+  { key: "WEEKLY_REPORT", dbType: "weekly_report", label: "Weekly Report", group: "Plan" },
   // Control
-  { key: "RAID",                   dbType: "raid",                   label: "RAID Log",             group: "Control", legacyRoute: "raid" },
-  { key: "CHANGE",                 dbType: "change",                 label: "Change Requests",      group: "Control", legacyRoute: "change" },
+  { key: "RAID", dbType: "raid", label: "RAID Log", group: "Control", legacyRoute: "raid" },
+  { key: "CHANGE", dbType: "change", label: "Change Requests", group: "Control", legacyRoute: "change" },
   // Close
-  { key: "LESSONS_LEARNED",        dbType: "lessons_learned",        label: "Lessons Learned",      group: "Close",   legacyRoute: "lessons" },
-  { key: "PROJECT_CLOSURE_REPORT", dbType: "project_closure_report", label: "Closure Report",       group: "Close" },
+  { key: "LESSONS_LEARNED", dbType: "lessons_learned", label: "Lessons Learned", group: "Close", legacyRoute: "lessons" },
+  { key: "PROJECT_CLOSURE_REPORT", dbType: "project_closure_report", label: "Closure Report", group: "Close" },
 ];
 
 /* ═══════════════════════════════════════════════════════════════
-   UTILS — same as original working server file
+   UTILS
 ═══════════════════════════════════════════════════════════════ */
 
 const PROJECT_COLS = "id,title,project_code,organisation_id,client_name,created_at";
@@ -61,18 +51,15 @@ const PROJECT_FALLBACK_SOURCES: Array<{
   filterById?: string;
   filterByCode?: string;
 }> = [
-  { table: "my_projects",          select: "id,title,project_code,organisation_id,client_name,created_at,user_id,removed_at", filterById: "id", filterByCode: "project_code" },
-  { table: "projects_members",     select: "id,title,project_code,organisation_id,client_name,created_at,user_id,removed_at", filterById: "id", filterByCode: "project_code" },
-  { table: "project_members",      select: "id,title,project_code,organisation_id,client_name,created_at,user_id,removed_at", filterById: "id", filterByCode: "project_code" },
-  { table: "project_users",        select: "id,title,project_code,organisation_id,client_name,created_at,user_id,removed_at", filterById: "id", filterByCode: "project_code" },
-  { table: "project_memberships",  select: "project_id,title,project_code,organisation_id,client_name,created_at,user_id,removed_at", filterById: "project_id", filterByCode: "project_code" },
+  { table: "my_projects", select: "id,title,project_code,organisation_id,client_name,created_at,user_id,removed_at", filterById: "id", filterByCode: "project_code" },
+  { table: "projects_members", select: "id,title,project_code,organisation_id,client_name,created_at,user_id,removed_at", filterById: "id", filterByCode: "project_code" },
+  { table: "project_members", select: "id,title,project_code,organisation_id,client_name,created_at,user_id,removed_at", filterById: "id", filterByCode: "project_code" },
+  { table: "project_users", select: "id,title,project_code,organisation_id,client_name,created_at,user_id,removed_at", filterById: "id", filterByCode: "project_code" },
+  { table: "project_memberships", select: "project_id,title,project_code,organisation_id,client_name,created_at,user_id,removed_at", filterById: "project_id", filterByCode: "project_code" },
 ];
 
 function safeStr(x: any) {
   return typeof x === "string" ? x.trim() : x == null ? "" : String(x).trim();
-}
-function safeLower(x: any) {
-  return safeStr(x).toLowerCase();
 }
 function looksLikeUuid(s: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(s || "").trim());
@@ -97,9 +84,16 @@ function projectCodeVariants(raw: string): string[] {
   const up = s.toUpperCase();
   if (up) out.add(up);
   const digits = extractDigits(s);
-  if (digits) { out.add(digits); out.add(`P-${digits}`); out.add(`P-${digits.padStart(5, "0")}`); }
+  if (digits) {
+    out.add(digits);
+    out.add(`P-${digits}`);
+    out.add(`P-${digits.padStart(5, "0")}`);
+  }
   const m = up.match(/^P-(\d{1,10})$/);
-  if (m?.[1]) { out.add(m[1]); out.add(String(Number(m[1]))); }
+  if (m?.[1]) {
+    out.add(m[1]);
+    out.add(String(Number(m[1])));
+  }
   return Array.from(out).filter(Boolean);
 }
 function displayProjectCode(project_code: any) {
@@ -128,7 +122,7 @@ function logSbError(tag: string, err: any, extra?: any) {
   console.error(`${tag} (raw)`, err);
 }
 
-/* ── project resolve — identical to original ── */
+/* ── project resolve ── */
 
 async function selectFirst(sb: any, table: string, select: string, filterCol: string, filterVal: any) {
   const { data, error } = await sb.from(table).select(select).eq(filterCol, filterVal).limit(1);
@@ -145,6 +139,7 @@ async function resolveProject(sb: any, projectParam: string) {
     const r = await selectFirst(sb, "projects", PROJECT_COLS, "id", raw);
     if (r.error) return { data: null as any, error: r.error, debug: { ...debugBase, stage: "projects:id:error" } };
     if (r.row) return { data: r.row, error: null, debug: { ...debugBase, stage: "projects:id:ok" } };
+
     for (const src of PROJECT_FALLBACK_SOURCES) {
       if (!src.filterById) continue;
       const rr = await selectFirst(sb, src.table, src.select, src.filterById, raw);
@@ -171,7 +166,7 @@ async function resolveProject(sb: any, projectParam: string) {
   return { data: null as any, error: new Error("Project not found (or no access via RLS)"), debug: { ...debugBase, stage: "not_found_code_text" } };
 }
 
-/* ── artifacts query — same SELECT as original ── */
+/* ── artifacts query ── */
 
 async function queryArtifacts(sb: any, projectUuid: string) {
   const select = "id,title,type,artifact_type,is_current,created_at,approval_status,deleted_at,is_locked";
@@ -186,11 +181,14 @@ async function queryArtifacts(sb: any, projectUuid: string) {
 }
 
 /* ── build SidebarItem[] ── */
-
-function buildSidebarItems(dbArtifacts: any[], projectParam: string): SidebarItem[] {
+/**
+ * IMPORTANT: use projectUuid for all href routes.
+ * Many pages still assume /projects/[id] is a UUID.
+ */
+function buildSidebarItems(dbArtifacts: any[], projectUuid: string): SidebarItem[] {
   const byDbType = new Map<string, any>();
   for (const a of dbArtifacts) {
-    const t = safeLower(a?.artifact_type || a?.type);
+    const t = safeStr(a?.artifact_type || a?.type).toLowerCase();
     if (t && !byDbType.has(t)) byDbType.set(t, a);
   }
 
@@ -208,12 +206,13 @@ function buildSidebarItems(dbArtifacts: any[], projectParam: string): SidebarIte
       : null;
 
     let href: string;
-    if (artifact && def.legacyRoute) {
-      href = `/projects/${projectParam}/${def.legacyRoute}`;
+    if (def.legacyRoute) {
+      // Always go to legacy board routes using UUID
+      href = `/projects/${projectUuid}/${def.legacyRoute}`;
     } else if (artifact) {
-      href = `/projects/${projectParam}/artifacts/${artifact.id}`;
+      href = `/projects/${projectUuid}/artifacts/${artifact.id}`;
     } else {
-      href = `/projects/${projectParam}/artifacts/new?type=${def.dbType}`;
+      href = `/projects/${projectUuid}/artifacts/new?type=${def.dbType}`;
     }
 
     return {
@@ -250,13 +249,21 @@ export default async function ArtifactsSidebar({
   const projErr = resolved.error;
 
   if (projErr || !project) {
-    logSbError("[ArtifactsSidebar] Project resolve error", projErr || new Error("resolveProject returned no project"), resolved?.debug);
+    logSbError(
+      "[ArtifactsSidebar] Project resolve error",
+      projErr || new Error("resolveProject returned no project"),
+      resolved?.debug
+    );
     notFound();
   }
 
   const projectUuid = safeStr(project.id) || safeStr((project as any).project_id);
-  if (!projectUuid) {
-    logSbError("[ArtifactsSidebar] Project resolved but missing uuid", new Error("Missing uuid"), { projectId, resolvedKeys: Object.keys(project || {}), debug: resolved?.debug });
+  if (!projectUuid || !looksLikeUuid(projectUuid)) {
+    logSbError(
+      "[ArtifactsSidebar] Project resolved but missing/invalid uuid",
+      new Error("Missing/invalid uuid"),
+      { projectId, projectUuid, resolvedKeys: Object.keys(project || {}), debug: resolved?.debug }
+    );
     notFound();
   }
 
@@ -266,15 +273,17 @@ export default async function ArtifactsSidebar({
   const { list, error: artErr } = await queryArtifacts(sb, projectUuid);
   if (artErr) logSbError("[ArtifactsSidebar] Artifacts query error", artErr, { projectUuid, projectId });
 
-  const items = buildSidebarItems(list, projectId);
-  const role: Role = "editor"; // no dedicated role table — safe default
+  // ✅ Build hrefs with UUID so every page works consistently
+  const items = buildSidebarItems(list, projectUuid);
+
+  const role: Role = "editor"; // safe default
 
   return (
     <ArtifactsSidebarClient
       items={items}
       role={role}
-      projectId={projectUuid}
-      projectHumanId={projectId}
+      projectId={projectUuid}         // UUID (routing key)
+      projectHumanId={projectId}      // whatever was in the URL (display/debug)
       projectName={projectTitle}
       projectCode={projectCodeHuman}
     />

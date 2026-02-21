@@ -31,8 +31,8 @@ export type GroupName = "Plan" | "Control" | "Close";
 export type ArtifactsSidebarClientProps = {
   items: SidebarItem[];
   role: Role;
-  projectId: string;
-  projectHumanId?: string | null;
+  projectId: string; // ✅ ALWAYS UUID for routing
+  projectHumanId?: string | null; // display/debug only
   projectName?: string | null;
   projectCode?: string | null;
 };
@@ -44,18 +44,14 @@ export type ArtifactsSidebarClientProps = {
 function safeStr(x: unknown): string {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
-function safeUpper(x: unknown) { return safeStr(x).trim().toUpperCase(); }
-function safeLower(x: unknown) { return safeStr(x).trim().toLowerCase(); }
-function normStatus(s: string | null | undefined) { return safeLower(s); }
-
-function looksLikeUuid(s: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(s || "").trim());
+function safeUpper(x: unknown) {
+  return safeStr(x).trim().toUpperCase();
 }
-
-function pickProjectKey(h?: string | null, id?: string | null) {
-  const human = String(h ?? "").trim();
-  if (human && !looksLikeUuid(human)) return human;
-  return String(id ?? "").trim() || human || "";
+function safeLower(x: unknown) {
+  return safeStr(x).trim().toLowerCase();
+}
+function normStatus(s: string | null | undefined) {
+  return safeLower(s);
 }
 
 function canonicalKeyUpper(it: Pick<SidebarItem, "ui_kind" | "key">) {
@@ -67,13 +63,6 @@ function groupForKey(k: string): GroupName {
   if (["PROJECT_CHARTER", "STAKEHOLDER_REGISTER", "WBS", "SCHEDULE", "WEEKLY_REPORT"].includes(u)) return "Plan";
   if (["RAID", "CHANGE"].includes(u)) return "Control";
   return "Close";
-}
-
-function normalizeHref(href: string, projectId: string, routeId: string) {
-  const raw = safeStr(href).trim();
-  if (!raw || !projectId || !routeId) return raw;
-  const needle = `/projects/${projectId}/`;
-  return raw.includes(needle) ? raw.replace(needle, `/projects/${routeId}/`) : raw;
 }
 
 function artifactIdFromPath(pathname: string | null | undefined) {
@@ -89,12 +78,12 @@ type BadgeCfg = { label: string; cls: string };
 function getBadge(status: string | null | undefined): BadgeCfg {
   const base = "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium border";
   const s = normStatus(status);
-  if (!s || s === "draft")          return { label: "Draft",    cls: `${base} border-neutral-200 text-neutral-600 bg-neutral-50` };
-  if (s === "submitted")            return { label: "Submitted", cls: `${base} border-blue-200 text-blue-700 bg-blue-50` };
-  if (s === "approved")             return { label: "Approved",  cls: `${base} border-green-200 text-green-700 bg-green-50` };
-  if (s === "rejected")             return { label: "Rejected",  cls: `${base} border-red-200 text-red-700 bg-red-50` };
-  if (s === "changes_requested")    return { label: "Revise",    cls: `${base} border-amber-200 text-amber-800 bg-amber-50` };
-  if (s === "on_hold")              return { label: "On Hold",   cls: `${base} border-neutral-300 text-neutral-600 bg-neutral-50` };
+  if (!s || s === "draft") return { label: "Draft", cls: `${base} border-neutral-200 text-neutral-600 bg-neutral-50` };
+  if (s === "submitted") return { label: "Submitted", cls: `${base} border-blue-200 text-blue-700 bg-blue-50` };
+  if (s === "approved") return { label: "Approved", cls: `${base} border-green-200 text-green-700 bg-green-50` };
+  if (s === "rejected") return { label: "Rejected", cls: `${base} border-red-200 text-red-700 bg-red-50` };
+  if (s === "changes_requested") return { label: "Revise", cls: `${base} border-amber-200 text-amber-800 bg-amber-50` };
+  if (s === "on_hold") return { label: "On Hold", cls: `${base} border-neutral-300 text-neutral-600 bg-neutral-50` };
   return { label: s, cls: `${base} border-neutral-200 text-neutral-600 bg-white` };
 }
 
@@ -113,7 +102,7 @@ type EnhancedItem = SidebarItem & {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SUB-COMPONENTS (extracted & memoised)
+   SUB-COMPONENTS
 ═══════════════════════════════════════════════════════════════ */
 
 const ArtifactRow = React.memo(function ArtifactRow({
@@ -122,22 +111,13 @@ const ArtifactRow = React.memo(function ArtifactRow({
   collapsed,
   rowRefs,
   onRowClick,
-  projectRouteId,
 }: {
   it: EnhancedItem;
   idx: number;
   collapsed: boolean;
   rowRefs: React.MutableRefObject<Array<HTMLAnchorElement | null>>;
   onRowClick: (id: string | undefined) => void;
-  projectRouteId: string;
 }) {
-  const openUrl = it.current?.id
-    ? `/projects/${projectRouteId}/artifacts/${it.current.id}`
-    : it.href;
-
-  // For legacy routes (change, raid, lessons), use the href directly
-  const finalUrl = it.href.match(/\/(change|raid|lessons)$/) ? it.href : openUrl;
-
   const rightBadge = it.current ? (
     <span className={it.badge.cls}>{it.badge.label}</span>
   ) : it.canCreate ? (
@@ -151,13 +131,12 @@ const ArtifactRow = React.memo(function ArtifactRow({
   );
 
   return (
-    <div className={[
-      "rounded-lg",
-      it.active ? "bg-neutral-100 ring-1 ring-neutral-200" : "",
-    ].filter(Boolean).join(" ")}>
+    <div className={["rounded-lg", it.active ? "bg-neutral-100 ring-1 ring-neutral-200" : ""].filter(Boolean).join(" ")}>
       <Link
-        ref={(el) => { rowRefs.current[idx] = el; }}
-        href={finalUrl}
+        ref={(el) => {
+          rowRefs.current[idx] = el;
+        }}
+        href={it.openUrl}
         prefetch={false}
         onClick={() => onRowClick(it.current?.id)}
         aria-current={it.active ? "page" : undefined}
@@ -172,19 +151,12 @@ const ArtifactRow = React.memo(function ArtifactRow({
           <div className="min-w-0">
             {!collapsed ? (
               <>
-                <div className={[
-                  "truncate text-sm font-medium",
-                  it.current ? "text-neutral-900" : "text-neutral-500",
-                ].join(" ")}>
+                <div className={["truncate text-sm font-medium", it.current ? "text-neutral-900" : "text-neutral-500"].join(" ")}>
                   {it.label}
                 </div>
                 <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-xs text-neutral-500">
-                    {it.current ? "Current" : it.canCreate ? "Not created" : "—"}
-                  </span>
-                  {it.isLocked && (
-                    <span className="text-[10px] text-neutral-400">🔒 Locked</span>
-                  )}
+                  <span className="text-xs text-neutral-500">{it.current ? "Current" : it.canCreate ? "Not created" : "—"}</span>
+                  {it.isLocked && <span className="text-[10px] text-neutral-400">🔒 Locked</span>}
                 </div>
               </>
             ) : (
@@ -209,7 +181,6 @@ const GroupSection = React.memo(function GroupSection({
   toggleGroup,
   rowRefs,
   onRowClick,
-  projectRouteId,
 }: {
   name: GroupName;
   groupItems: EnhancedItem[];
@@ -219,7 +190,6 @@ const GroupSection = React.memo(function GroupSection({
   toggleGroup: (g: GroupName) => void;
   rowRefs: React.MutableRefObject<Array<HTMLAnchorElement | null>>;
   onRowClick: (id: string | undefined) => void;
-  projectRouteId: string;
 }) {
   const open = groupOpen[name];
   const count = groupItems.filter((x) => x.current?.id).length;
@@ -259,7 +229,6 @@ const GroupSection = React.memo(function GroupSection({
               collapsed={collapsed}
               rowRefs={rowRefs}
               onRowClick={onRowClick}
-              projectRouteId={projectRouteId}
             />
           ))}
         </div>
@@ -271,14 +240,13 @@ const GroupSection = React.memo(function GroupSection({
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   INNER COMPONENT (needs useSearchParams inside Suspense)
+   INNER (useSearchParams inside Suspense)
 ═══════════════════════════════════════════════════════════════ */
 
 function ArtifactsSidebarInner({
   items,
   role,
-  projectId,
-  projectHumanId,
+  projectId, // UUID
   projectName,
   projectCode,
 }: ArtifactsSidebarClientProps) {
@@ -296,22 +264,18 @@ function ArtifactsSidebarInner({
   const rowRefs = useRef<Array<HTMLAnchorElement | null>>([]);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
-  const projectKey = useMemo(() => pickProjectKey(projectHumanId, projectId), [projectHumanId, projectId]);
-
-  const projectRouteId = useMemo(() => {
-    const h = String(projectHumanId ?? "").trim();
-    const c = String(projectCode ?? "").trim();
-    return (h && !looksLikeUuid(h) ? h : "") || (c && !looksLikeUuid(c) ? c : "") || projectKey;
-  }, [projectHumanId, projectCode, projectKey]);
-
-  const SKEY = `alienai:lastArtifact:${projectKey}`;
-  const GKEY = `alienai:artifactGroups:${projectKey}`;
+  // ✅ Storage key should be stable and based on UUID (routing key)
+  const SKEY = `alienai:lastArtifact:${projectId}`;
+  const GKEY = `alienai:artifactGroups:${projectId}`;
 
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     if (!mounted) return;
-    try { const v = localStorage.getItem(SKEY); if (v) setStoredId(v); } catch {}
+    try {
+      const v = localStorage.getItem(SKEY);
+      if (v) setStoredId(v);
+    } catch {}
     try {
       const raw = localStorage.getItem(GKEY);
       if (!raw) return;
@@ -327,12 +291,17 @@ function ArtifactsSidebarInner({
   useEffect(() => {
     const id = artifactIdFromPath(pathname);
     if (!id || !mounted) return;
-    try { localStorage.setItem(SKEY, id); setStoredId(id); } catch {}
+    try {
+      localStorage.setItem(SKEY, id);
+      setStoredId(id);
+    } catch {}
   }, [mounted, pathname, SKEY]);
 
   useEffect(() => {
     if (!mounted) return;
-    try { localStorage.setItem(GKEY, JSON.stringify(groupOpen)); } catch {}
+    try {
+      localStorage.setItem(GKEY, JSON.stringify(groupOpen));
+    } catch {}
   }, [mounted, GKEY, groupOpen]);
 
   const safeItems = useMemo(() => (Array.isArray(items) ? items : []), [items]);
@@ -344,17 +313,19 @@ function ArtifactsSidebarInner({
 
     return safeItems.map((it) => {
       const itKey = canonicalKeyUpper(it);
+
       const active =
         (it.current?.id != null && activeId != null && it.current.id === activeId) ||
         (!it.current && String(pathname ?? "").includes("/artifacts/new") && newType === itKey);
 
       const status = normStatus(it.current?.approval_status);
-      const href = normalizeHref(it.href, projectId, projectRouteId);
+
+      // ✅ IMPORTANT: openUrl uses the href produced by server (which is already UUID-based)
+      const openUrl = it.current?.id ? `/projects/${projectId}/artifacts/${it.current.id}` : it.href;
 
       return {
         ...it,
-        href,
-        openUrl: it.current?.id ? `/projects/${projectRouteId}/artifacts/${it.current.id}` : href,
+        openUrl,
         active,
         status,
         badge: getBadge(status),
@@ -363,18 +334,16 @@ function ArtifactsSidebarInner({
         isDeleted: Boolean(it.current?.deleted_at),
       };
     });
-  }, [safeItems, pathname, newTypeRaw, storedId, mounted, projectId, projectRouteId]);
+  }, [safeItems, pathname, newTypeRaw, storedId, mounted, projectId]);
 
   const counts = useMemo(() => {
-    let draft = 0, submitted = 0, creatable = 0;
+    let submitted = 0;
     for (const it of enhanced) {
-      if (it.canCreate) creatable++;
       if (!it.current?.id) continue;
       const s = normStatus(it.current.approval_status);
-      if (!s || s === "draft") draft++;
-      else submitted++;
+      if (s && s !== "draft") submitted++;
     }
-    return { draft, submitted, creatable };
+    return { submitted };
   }, [enhanced]);
 
   const visible = useMemo(() => {
@@ -390,14 +359,19 @@ function ArtifactsSidebarInner({
 
   const flat = useMemo(() => {
     const arr: EnhancedItem[] = [];
-    (["Plan", "Control", "Close"] as const).forEach((g) => { if (groupOpen[g]) arr.push(...grouped[g]); });
+    (["Plan", "Control", "Close"] as const).forEach((g) => {
+      if (groupOpen[g]) arr.push(...grouped[g]);
+    });
     return arr;
   }, [grouped, groupOpen]);
 
   const groupStarts = useMemo(() => {
     let i = 0;
     const s: Record<GroupName, number> = { Plan: 0, Control: 0, Close: 0 };
-    (["Plan", "Control", "Close"] as const).forEach((g) => { s[g] = i; if (groupOpen[g]) i += grouped[g].length; });
+    (["Plan", "Control", "Close"] as const).forEach((g) => {
+      s[g] = i;
+      if (groupOpen[g]) i += grouped[g].length;
+    });
     return s;
   }, [grouped, groupOpen]);
 
@@ -406,23 +380,61 @@ function ArtifactsSidebarInner({
     if (idx >= 0) setFocusIdx(idx);
   }, [flat]);
 
-  useEffect(() => { rowRefs.current[focusIdx]?.focus?.(); }, [focusIdx]);
+  useEffect(() => {
+    rowRefs.current[focusIdx]?.focus?.();
+  }, [focusIdx]);
 
   // Keyboard
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
       const typing = tag === "input" || tag === "textarea" || (e.target as HTMLElement | null)?.isContentEditable;
-      if (e.key === "Escape" && document.activeElement === searchRef.current) { e.preventDefault(); setQuery(""); searchRef.current?.blur(); return; }
-      if (!typing && e.key === "/" && !collapsed) { e.preventDefault(); searchRef.current?.focus(); return; }
+
+      if (e.key === "Escape" && document.activeElement === searchRef.current) {
+        e.preventDefault();
+        setQuery("");
+        searchRef.current?.blur();
+        return;
+      }
+      if (!typing && e.key === "/" && !collapsed) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
       if (typing) return;
-      if (e.key === "[") { setCollapsed(true); return; }
-      if (e.key === "]") { setCollapsed(false); return; }
-      if (e.key === "ArrowDown") { e.preventDefault(); setFocusIdx((i) => Math.min(i + 1, flat.length - 1)); return; }
-      if (e.key === "ArrowUp") { e.preventDefault(); setFocusIdx((i) => Math.max(i - 1, 0)); return; }
-      if (e.key === "Home") { e.preventDefault(); setFocusIdx(0); return; }
-      if (e.key === "End") { e.preventDefault(); setFocusIdx(flat.length - 1); return; }
-      if (e.key === "Enter") { rowRefs.current[focusIdx]?.click?.(); return; }
+
+      if (e.key === "[") {
+        setCollapsed(true);
+        return;
+      }
+      if (e.key === "]") {
+        setCollapsed(false);
+        return;
+      }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setFocusIdx((i) => Math.min(i + 1, flat.length - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setFocusIdx((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === "Home") {
+        e.preventDefault();
+        setFocusIdx(0);
+        return;
+      }
+      if (e.key === "End") {
+        e.preventDefault();
+        setFocusIdx(flat.length - 1);
+        return;
+      }
+      if (e.key === "Enter") {
+        rowRefs.current[focusIdx]?.click?.();
+        return;
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -430,10 +442,16 @@ function ArtifactsSidebarInner({
 
   const toggleGroup = useCallback((g: GroupName) => setGroupOpen((p) => ({ ...p, [g]: !p[g] })), []);
 
-  const handleRowClick = useCallback((id: string | undefined) => {
-    if (!id || !mounted) return;
-    try { localStorage.setItem(SKEY, id); setStoredId(id); } catch {}
-  }, [mounted, SKEY]);
+  const handleRowClick = useCallback(
+    (id: string | undefined) => {
+      if (!id || !mounted) return;
+      try {
+        localStorage.setItem(SKEY, id);
+        setStoredId(id);
+      } catch {}
+    },
+    [mounted, SKEY]
+  );
 
   const initial = (safeStr(projectName).trim() || "P").charAt(0).toUpperCase();
 
@@ -449,30 +467,31 @@ function ArtifactsSidebarInner({
       style={{ width: collapsed ? 64 : 304 }}
     >
       <div className="flex flex-col h-full">
-
         {/* ── HEADER ── */}
-        <div className={[
-          "shrink-0 border-b border-neutral-200 transition-all duration-300",
-          collapsed ? "px-2 py-3" : "px-4 pt-5 pb-4",
-        ].join(" ")}>
+        <div
+          className={[
+            "shrink-0 border-b border-neutral-200 transition-all duration-300",
+            collapsed ? "px-2 py-3" : "px-4 pt-5 pb-4",
+          ].join(" ")}
+        >
           {collapsed ? (
             <div className="flex flex-col items-center gap-2">
               <Link
-                href={`/projects/${projectRouteId}`}
+                href={`/projects/${projectId}`}
                 title={projectName ?? "Project"}
                 className="w-10 h-10 rounded-xl bg-neutral-100 border border-neutral-200 flex items-center justify-center text-neutral-900 font-bold text-sm hover:bg-neutral-200 transition-all"
               >
                 {initial}
               </Link>
               <Link
-                href={`/projects/${projectRouteId}/artifacts`}
+                href={`/projects/${projectId}/artifacts`}
                 title="Artifact Board"
                 className="w-9 h-9 rounded-lg flex items-center justify-center text-neutral-500 hover:text-neutral-700 hover:bg-neutral-100 transition-all text-xs font-bold"
               >
                 ☰
               </Link>
               <Link
-                href={`/projects/${projectRouteId}/artifacts/new`}
+                href={`/projects/${projectId}/artifacts/new`}
                 title="New Artifact"
                 className="w-9 h-9 rounded-lg bg-neutral-900 text-white flex items-center justify-center hover:bg-neutral-800 transition-all text-sm font-bold"
               >
@@ -481,17 +500,16 @@ function ArtifactsSidebarInner({
             </div>
           ) : (
             <>
-              {/* Project identity */}
               <div className="flex items-center gap-3 mb-4">
                 <Link
-                  href={`/projects/${projectRouteId}`}
+                  href={`/projects/${projectId}`}
                   className="w-10 h-10 rounded-xl bg-neutral-100 border border-neutral-200 flex items-center justify-center text-neutral-900 font-bold text-sm hover:bg-neutral-200 transition-all shrink-0"
                 >
                   {initial}
                 </Link>
                 <div className="flex-1 min-w-0">
                   <Link
-                    href={`/projects/${projectRouteId}`}
+                    href={`/projects/${projectId}`}
                     prefetch={false}
                     title={projectName ?? ""}
                     className="block text-sm font-semibold text-neutral-900 truncate hover:text-blue-600 transition-colors"
@@ -504,27 +522,28 @@ function ArtifactsSidebarInner({
                         {projectCode}
                       </code>
                     )}
-                    <span className={[
-                      "text-[10px] font-semibold capitalize",
-                      role === "owner" ? "text-amber-600" : role === "editor" ? "text-blue-600" : "text-neutral-500",
-                    ].join(" ")}>
+                    <span
+                      className={[
+                        "text-[10px] font-semibold capitalize",
+                        role === "owner" ? "text-amber-600" : role === "editor" ? "text-blue-600" : "text-neutral-500",
+                      ].join(" ")}
+                    >
                       {role}
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Action strip */}
               <div className="flex flex-wrap items-center gap-1.5 mb-2">
                 <Link
-                  href={`/projects/${projectRouteId}/artifacts`}
+                  href={`/projects/${projectId}/artifacts`}
                   prefetch={false}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-neutral-200 bg-white text-xs font-medium text-neutral-700 hover:bg-neutral-50 transition-all"
                 >
                   Board
                 </Link>
                 <Link
-                  href={`/projects/${projectRouteId}/artifacts/new`}
+                  href={`/projects/${projectId}/artifacts/new`}
                   prefetch={false}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-neutral-900 text-white text-xs font-medium hover:bg-neutral-800 transition-all"
                 >
@@ -532,7 +551,6 @@ function ArtifactsSidebarInner({
                 </Link>
               </div>
 
-              {/* Submitted count */}
               {counts.submitted > 0 && (
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-xs font-medium text-blue-700">
                   <span>Submitted for review</span>
@@ -540,10 +558,9 @@ function ArtifactsSidebarInner({
                 </div>
               )}
 
-              {/* Change requests board link */}
               <div className="mt-2">
                 <Link
-                  href={`/projects/${projectRouteId}/change`}
+                  href={`/projects/${projectId}/change`}
                   className="inline-flex items-center px-2.5 py-1.5 rounded-lg border border-neutral-200 bg-white text-xs font-medium text-neutral-600 hover:bg-neutral-50 transition-all"
                 >
                   Change Requests board
@@ -574,6 +591,7 @@ function ArtifactsSidebarInner({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search artifacts…  (/)"
+
                 aria-label="Search artifacts"
                 className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-sm text-neutral-900 placeholder-neutral-400 outline-none focus:ring-2 focus:ring-neutral-300 focus:border-neutral-300 transition-all"
               />
@@ -608,16 +626,47 @@ function ArtifactsSidebarInner({
             !collapsed && (
               <div className="px-2 py-8 text-center">
                 <p className="text-sm text-neutral-500">No match</p>
-                <button type="button" onClick={() => setQuery("")} className="mt-1 text-xs text-blue-600 hover:text-blue-500 font-medium transition-colors">
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="mt-1 text-xs text-blue-600 hover:text-blue-500 font-medium transition-colors"
+                >
                   Clear search
                 </button>
               </div>
             )
           ) : (
             <>
-              <GroupSection name="Plan" groupItems={grouped.Plan} start={groupStarts.Plan} collapsed={collapsed} groupOpen={groupOpen} toggleGroup={toggleGroup} rowRefs={rowRefs} onRowClick={handleRowClick} projectRouteId={projectRouteId} />
-              <GroupSection name="Control" groupItems={grouped.Control} start={groupStarts.Control} collapsed={collapsed} groupOpen={groupOpen} toggleGroup={toggleGroup} rowRefs={rowRefs} onRowClick={handleRowClick} projectRouteId={projectRouteId} />
-              <GroupSection name="Close" groupItems={grouped.Close} start={groupStarts.Close} collapsed={collapsed} groupOpen={groupOpen} toggleGroup={toggleGroup} rowRefs={rowRefs} onRowClick={handleRowClick} projectRouteId={projectRouteId} />
+              <GroupSection
+                name="Plan"
+                groupItems={grouped.Plan}
+                start={groupStarts.Plan}
+                collapsed={collapsed}
+                groupOpen={groupOpen}
+                toggleGroup={toggleGroup}
+                rowRefs={rowRefs}
+                onRowClick={handleRowClick}
+              />
+              <GroupSection
+                name="Control"
+                groupItems={grouped.Control}
+                start={groupStarts.Control}
+                collapsed={collapsed}
+                groupOpen={groupOpen}
+                toggleGroup={toggleGroup}
+                rowRefs={rowRefs}
+                onRowClick={handleRowClick}
+              />
+              <GroupSection
+                name="Close"
+                groupItems={grouped.Close}
+                start={groupStarts.Close}
+                collapsed={collapsed}
+                groupOpen={groupOpen}
+                toggleGroup={toggleGroup}
+                rowRefs={rowRefs}
+                onRowClick={handleRowClick}
+              />
             </>
           )}
         </nav>
