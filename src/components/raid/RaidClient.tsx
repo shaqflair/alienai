@@ -290,68 +290,75 @@ const TYPE_CONFIG: Record<
 };
 
 /* ✅ Bright glossy status pills */
-const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string; ring: string }> = {
+const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string; ring: string; glow: string }> = {
   open: {
-    bg: "bg-gradient-to-r from-sky-500 to-blue-600",
-    text: "text-white",
-    dot: "bg-white/90",
-    ring: "ring-1 ring-white/25",
+    bg: "bg-sky-50",
+    text: "text-sky-700",
+    dot: "bg-sky-500",
+    ring: "ring-1 ring-sky-200/80",
+    glow: "",
   },
   inprogress: {
-    bg: "bg-gradient-to-r from-indigo-500 to-violet-600",
-    text: "text-white",
-    dot: "bg-white/90",
-    ring: "ring-1 ring-white/25",
+    bg: "bg-violet-50",
+    text: "text-violet-700",
+    dot: "bg-violet-500",
+    ring: "ring-1 ring-violet-200/80",
+    glow: "shadow-[0_0_0_1px_rgba(139,92,246,0.06)]",
   },
   mitigated: {
-    bg: "bg-gradient-to-r from-emerald-500 to-green-600",
-    text: "text-white",
-    dot: "bg-white/90",
-    ring: "ring-1 ring-white/25",
+    bg: "bg-emerald-50",
+    text: "text-emerald-700",
+    dot: "bg-emerald-500",
+    ring: "ring-1 ring-emerald-200/80",
+    glow: "",
   },
   closed: {
-    bg: "bg-gradient-to-r from-slate-500 to-slate-700",
-    text: "text-white",
-    dot: "bg-white/75",
-    ring: "ring-1 ring-white/20",
+    bg: "bg-gray-50",
+    text: "text-gray-500",
+    dot: "bg-gray-400",
+    ring: "ring-1 ring-gray-200/80",
+    glow: "",
   },
   invalid: {
-    bg: "bg-gradient-to-r from-rose-500 to-red-600",
-    text: "text-white",
-    dot: "bg-white/90",
-    ring: "ring-1 ring-white/25",
+    bg: "bg-rose-50",
+    text: "text-rose-700",
+    dot: "bg-rose-500",
+    ring: "ring-1 ring-rose-200/80",
+    glow: "",
   },
 };
-
 /* ✅ Bright glossy priority tags */
-const PRIORITY_STYLES: Record<string, { bg: string; text: string; label: string; ring: string }> = {
-  "": { bg: "bg-transparent", text: "text-gray-400", label: "—", ring: "" },
+const PRIORITY_STYLES: Record<string, { bg: string; text: string; label: string; ring: string; icon: string }> = {
+  "": { bg: "bg-transparent", text: "text-gray-400", label: "—", ring: "", icon: "" },
   low: {
-    bg: "bg-gradient-to-r from-cyan-500 to-sky-600",
-    text: "text-white",
+    bg: "bg-sky-50",
+    text: "text-sky-700",
     label: "Low",
-    ring: "ring-1 ring-white/25",
+    ring: "ring-1 ring-sky-200/80",
+    icon: "↓",
   },
   medium: {
-    bg: "bg-gradient-to-r from-amber-400 to-orange-500",
-    text: "text-white",
+    bg: "bg-amber-50",
+    text: "text-amber-700",
     label: "Medium",
-    ring: "ring-1 ring-white/25",
+    ring: "ring-1 ring-amber-200/80",
+    icon: "→",
   },
   high: {
-    bg: "bg-gradient-to-r from-orange-500 to-rose-500",
-    text: "text-white",
+    bg: "bg-orange-50",
+    text: "text-orange-700",
     label: "High",
-    ring: "ring-1 ring-white/25",
+    ring: "ring-1 ring-orange-200/80",
+    icon: "↑",
   },
   critical: {
-    bg: "bg-gradient-to-r from-red-600 to-fuchsia-600",
-    text: "text-white",
+    bg: "bg-red-50",
+    text: "text-red-700",
     label: "Critical",
-    ring: "ring-1 ring-white/25",
+    ring: "ring-1 ring-red-200/80",
+    icon: "⬆",
   },
 };
-
 /* ---------------- digest helpers ---------------- */
 
 function digestId(x: any) {
@@ -587,6 +594,7 @@ function CellDisplay({
 }
 
 /* ------------ Glossy status/priority tags ------------ */
+
 function StatusTag({
   label,
   onActivate,
@@ -615,21 +623,26 @@ function StatusTag({
         onActivate();
       }}
       className={cx(
-        "relative inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold",
-        "shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_8px_18px_rgba(0,0,0,0.08)]",
-        "transition-transform duration-150 active:scale-[0.98]",
+        "inline-flex items-center gap-1.5 px-2.5 py-[5px] rounded-md text-[11px] font-semibold leading-none",
+        "transition-all duration-150 active:scale-[0.97]",
+        "shadow-sm hover:shadow",
         style.bg,
         style.text,
         style.ring,
+        style.glow,
         disabled && "opacity-60 cursor-not-allowed"
       )}
     >
-      <span className="pointer-events-none absolute inset-0 rounded-full bg-gradient-to-b from-white/35 via-white/10 to-transparent" />
-      <span className={cx("relative w-1.5 h-1.5 rounded-full shrink-0", style.dot)} />
-      <span className="relative">{displayLabel}</span>
+      <span className={cx("w-[6px] h-[6px] rounded-full shrink-0", style.dot)} />
+      <span>{displayLabel}</span>
     </button>
   );
 }
+
+// ============================================================
+// REPLACEMENT 4: PriorityTag component (replace the entire function)
+// Search for: "function PriorityTag"
+// ============================================================
 
 function PriorityTag({
   label,
@@ -658,23 +671,20 @@ function PriorityTag({
         onActivate();
       }}
       className={cx(
-        "relative inline-flex items-center px-3 py-1 rounded-full text-[12px] font-semibold",
-        key ? "shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_8px_18px_rgba(0,0,0,0.08)]" : "",
-        "transition-transform duration-150 active:scale-[0.98]",
+        "inline-flex items-center gap-1 px-2.5 py-[5px] rounded-md text-[11px] font-semibold leading-none",
+        "transition-all duration-150 active:scale-[0.97]",
+        key ? "shadow-sm hover:shadow" : "",
         style.bg,
         style.text,
         style.ring,
         disabled && "opacity-60 cursor-not-allowed"
       )}
     >
-      {key ? (
-        <span className="pointer-events-none absolute inset-0 rounded-full bg-gradient-to-b from-white/35 via-white/10 to-transparent" />
-      ) : null}
-      <span className="relative">{style.label}</span>
+      {style.icon ? <span className="text-[10px]">{style.icon}</span> : null}
+      <span>{style.label}</span>
     </button>
   );
 }
-
 /* ---------------- Active-cell overlay editor ---------------- */
 
 type ActiveCell = { type: RaidType; rowId: string; col: CellKey } | null;
@@ -1933,7 +1943,7 @@ export default function RaidClient({
 
                     {/* New item button */}
                     <button
-                      onClick={() => onCreate(type)}
+                      onClick={(e) => { e.stopPropagation(); onCreate(type); }}
                       disabled={busyId === `new:${type}`}
                       className={cx(
                         "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium border transition-colors",
@@ -1993,7 +2003,7 @@ export default function RaidClient({
                                     <span className="text-2xl opacity-40">{cfg.emoji}</span>
                                     <span>No {type.toLowerCase()}s yet</span>
                                     <button
-                                      onClick={() => onCreate(type)}
+                                      onClick={(e) => { e.stopPropagation(); onCreate(type); }}
                                       className={cx("mt-1 px-3 py-1.5 rounded-md text-[12px] font-medium border", cfg.lightBg, cfg.textColor, cfg.border)}
                                     >
                                       + Add first {type.toLowerCase()}
@@ -2466,7 +2476,7 @@ export default function RaidClient({
                         {/* Add row footer */}
                         {groupItems.length > 0 && (
                           <button
-                            onClick={() => onCreate(type)}
+                            onClick={(e) => { e.stopPropagation(); onCreate(type); }}
                             disabled={busyId === `new:${type}`}
                             className="w-full px-4 py-2.5 flex items-center gap-2 text-[13px] text-gray-400 hover:text-gray-600 hover:bg-gray-50/80 border-t border-gray-200 transition-colors"
                           >
