@@ -3,7 +3,14 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -47,6 +54,19 @@ export type Role = "owner" | "editor" | "viewer" | "unknown";
 export type GroupName = "Plan" | "Control" | "Close";
 
 /* ═══════════════════════════════════════════════════════════════
+   PROPS — This is the contract the server component must match
+═══════════════════════════════════════════════════════════════ */
+
+export type ArtifactsSidebarClientProps = {
+  items: SidebarItem[];
+  role: Role;
+  projectId: string;
+  projectHumanId?: string | null;
+  projectName?: string | null;
+  projectCode?: string | null;
+};
+
+/* ═══════════════════════════════════════════════════════════════
    UTILS
 ═══════════════════════════════════════════════════════════════ */
 
@@ -65,7 +85,7 @@ function normStatus(s: string | null | undefined) {
 
 function looksLikeUuid(s: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    String(s || "").trim()
+    String(s || "").trim(),
   );
 }
 
@@ -101,11 +121,15 @@ function normalizeHref(href: string, projectId: string, routeId: string) {
   const raw = safeStr(href).trim();
   if (!raw || !projectId || !routeId) return raw;
   const needle = `/projects/${projectId}/`;
-  return raw.includes(needle) ? raw.replace(needle, `/projects/${routeId}/`) : raw;
+  return raw.includes(needle)
+    ? raw.replace(needle, `/projects/${routeId}/`)
+    : raw;
 }
 
 function artifactIdFromPath(pathname: string | null | undefined) {
-  return String(pathname ?? "").match(/\/artifacts\/([^\/\?#]+)/)?.[1] ?? null;
+  return (
+    String(pathname ?? "").match(/\/artifacts\/([^\/\?#]+)/)?.[1] ?? null
+  );
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -121,7 +145,11 @@ function getStatusCfg(status: string | null | undefined): StatusCfg {
   if (s === "submitted")
     return { label: "Submitted", dot: "bg-sky-400", text: "text-sky-400" };
   if (s === "approved")
-    return { label: "Approved", dot: "bg-emerald-400", text: "text-emerald-400" };
+    return {
+      label: "Approved",
+      dot: "bg-emerald-400",
+      text: "text-emerald-400",
+    };
   if (s === "rejected")
     return { label: "Rejected", dot: "bg-red-400", text: "text-red-400" };
   if (s === "changes_requested")
@@ -135,31 +163,268 @@ function getStatusCfg(status: string | null | undefined): StatusCfg {
    GROUP CONFIG
 ═══════════════════════════════════════════════════════════════ */
 
-const GROUP_CFG: Record<GroupName, { Icon: React.ElementType; accent: string }> = {
+const GROUP_CFG: Record<
+  GroupName,
+  { Icon: React.ElementType; accent: string }
+> = {
   Plan: { Icon: Layers, accent: "text-blue-500" },
   Control: { Icon: Shield, accent: "text-amber-500" },
   Close: { Icon: BookMarked, accent: "text-rose-500" },
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   COMPONENT
+   ENHANCED ITEM TYPE  (derived from SidebarItem at runtime)
 ═══════════════════════════════════════════════════════════════ */
 
-function ArtifactsSidebarClientImpl({
+type EnhancedItem = SidebarItem & {
+  openUrl: string;
+  active: boolean;
+  status: string;
+  statusCfg: StatusCfg;
+  keyUpper: string;
+  isLocked: boolean;
+  isDeleted: boolean;
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   EXTRACTED SUB-COMPONENTS  (stable references — no re-mount)
+═══════════════════════════════════════════════════════════════ */
+
+const ArtifactRow = React.memo(function ArtifactRow({
+  it,
+  idx,
+  collapsed,
+  rowRefs,
+  onRowClick,
+}: {
+  it: EnhancedItem;
+  idx: number;
+  collapsed: boolean;
+  rowRefs: React.MutableRefObject<Array<HTMLAnchorElement | null>>;
+  onRowClick: (id: string | undefined) => void;
+}) {
+  const router = useRouter();
+  const cfg = it.statusCfg;
+
+  const RowIcon = it.isLocked
+    ? Lock
+    : it.isDeleted
+      ? AlertTriangle
+      : it.active
+        ? Sparkles
+        : it.current
+          ? FileText
+          : Plus;
+
+  const goCurrent = useCallback(() => {
+    if (!it.current?.id) return;
+    router.push(it.openUrl);
+  }, [it.current?.id, it.openUrl, router]);
+
+  return (
+    <div className="relative group/row">
+      {it.active && (
+        <div
+          className={[
+            "absolute left-0 top-1/2 -translate-y-1/2 rounded-r-full",
+            "bg-gradient-to-b from-amber-300 to-amber-500",
+            collapsed ? "w-[2px] h-5" : "w-[3px] h-8",
+          ].join(" ")}
+        />
+      )}
+
+      <Link
+        ref={(el) => {
+          rowRefs.current[idx] = el;
+        }}
+        href={it.openUrl}
+        prefetch={false}
+        onClick={() => onRowClick(it.current?.id)}
+        aria-current={it.active ? "page" : undefined}
+        aria-label={`${it.label}${it.current ? ` — ${cfg.label}` : " — not created"}`}
+        title={collapsed ? it.label : undefined}
+        className={[
+          "relative flex items-center gap-3 rounded-xl",
+          "outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-900",
+          "transition-all duration-150",
+          collapsed
+            ? "justify-center w-10 h-10 mx-auto p-0"
+            : "px-3 py-2.5 pl-4",
+          it.active
+            ? "bg-white/[0.07] hover:bg-white/[0.09]"
+            : "hover:bg-white/[0.04] active:bg-white/[0.06]",
+        ].join(" ")}
+      >
+        {/* Icon */}
+        <div
+          className={[
+            "shrink-0 rounded-lg flex items-center justify-center transition-all duration-200 w-8 h-8",
+            it.active
+              ? "bg-amber-400/15 text-amber-300 ring-1 ring-amber-400/25"
+              : it.current
+                ? "bg-white/[0.08] text-zinc-400 group-hover/row:bg-white/[0.12] group-hover/row:text-zinc-300"
+                : "bg-transparent text-zinc-700 border border-dashed border-zinc-800 group-hover/row:border-zinc-700 group-hover/row:text-zinc-600",
+          ].join(" ")}
+        >
+          <RowIcon className="w-3.5 h-3.5" />
+        </div>
+
+        {/* Content (expanded only) */}
+        {!collapsed && (
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span
+                className={[
+                  "text-[13px] font-medium truncate leading-tight",
+                  it.active
+                    ? "text-zinc-100"
+                    : it.current
+                      ? "text-zinc-300"
+                      : "text-zinc-600",
+                ].join(" ")}
+              >
+                {it.label}
+              </span>
+
+              {it.active && it.current?.id && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    goCurrent();
+                  }}
+                  title={`Open ${it.current.title ?? it.label}`}
+                  className={[
+                    "shrink-0 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full",
+                    "bg-amber-400 hover:bg-amber-300",
+                    "text-[9px] font-black text-zinc-900 uppercase tracking-[0.14em]",
+                    "shadow-[0_0_10px_rgba(251,191,36,0.35)] hover:shadow-[0_0_14px_rgba(251,191,36,0.5)]",
+                    "transition-all duration-150",
+                  ].join(" ")}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-900/30 animate-pulse" />
+                  Current
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5 mt-0.5">
+              {it.current ? (
+                <>
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${cfg.dot}`}
+                  />
+                  <span
+                    className={`text-[11px] font-medium ${cfg.text}`}
+                  >
+                    {cfg.label}
+                  </span>
+                  {it.isLocked && (
+                    <span className="inline-flex items-center gap-0.5 text-[10px] text-zinc-600">
+                      <Lock className="w-2.5 h-2.5" /> Locked
+                    </span>
+                  )}
+                  {it.isDeleted && (
+                    <span className="inline-flex items-center gap-0.5 text-[10px] text-red-500">
+                      <AlertTriangle className="w-2.5 h-2.5" /> Deleted
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="text-[11px] text-zinc-700">
+                  {it.canCreate ? "Not created yet" : "View only"}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {collapsed && it.active && (
+          <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-400 rounded-full border-2 border-zinc-900 shadow-[0_0_8px_rgba(251,191,36,0.5)]" />
+        )}
+      </Link>
+    </div>
+  );
+});
+
+const GroupSection = React.memo(function GroupSection({
+  name,
+  groupItems,
+  start,
+  collapsed,
+  groupOpen,
+  toggleGroup,
+  rowRefs,
+  onRowClick,
+}: {
+  name: GroupName;
+  groupItems: EnhancedItem[];
+  start: number;
+  collapsed: boolean;
+  groupOpen: Record<GroupName, boolean>;
+  toggleGroup: (g: GroupName) => void;
+  rowRefs: React.MutableRefObject<Array<HTMLAnchorElement | null>>;
+  onRowClick: (id: string | undefined) => void;
+}) {
+  const { Icon, accent } = GROUP_CFG[name];
+  const open = groupOpen[name];
+  const exist = groupItems.filter((x) => x.current?.id).length;
+  if (groupItems.length === 0 && !collapsed) return null;
+
+  return (
+    <div className="mb-1">
+      {!collapsed && (
+        <button
+          type="button"
+          onClick={() => toggleGroup(name)}
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg group/gh hover:bg-white/[0.04] transition-colors mb-0.5"
+        >
+          <Icon className={`w-3 h-3 shrink-0 ${accent} opacity-70`} />
+          <span className="flex-1 text-left text-[10px] font-black tracking-[0.14em] uppercase text-zinc-700 group-hover/gh:text-zinc-500 transition-colors">
+            {name}
+          </span>
+          <span className="text-[10px] font-medium text-zinc-800 tabular-nums">
+            {exist}/{groupItems.length}
+          </span>
+          <span className="text-[11px] text-zinc-800 group-hover/gh:text-zinc-600 w-3 text-center font-mono transition-colors">
+            {open ? "−" : "+"}
+          </span>
+        </button>
+      )}
+
+      {open && (
+        <div className="space-y-0.5">
+          {groupItems.map((it, i) => (
+            <ArtifactRow
+              key={it.key}
+              it={it}
+              idx={start + i}
+              collapsed={collapsed}
+              rowRefs={rowRefs}
+              onRowClick={onRowClick}
+            />
+          ))}
+        </div>
+      )}
+
+      {collapsed && <div className="h-px bg-zinc-800/80 my-1.5 mx-3" />}
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   INNER COMPONENT (needs useSearchParams inside Suspense)
+═══════════════════════════════════════════════════════════════ */
+
+function ArtifactsSidebarInner({
   items,
   role,
   projectId,
   projectHumanId,
   projectName,
   projectCode,
-}: {
-  items: SidebarItem[];
-  role: Role;
-  projectId: string;
-  projectHumanId?: string | null;
-  projectName?: string | null;
-  projectCode?: string | null;
-}) {
+}: ArtifactsSidebarClientProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -182,13 +447,17 @@ function ArtifactsSidebarClientImpl({
 
   const projectKey = useMemo(
     () => pickProjectKey(projectHumanId, projectId),
-    [projectHumanId, projectId]
+    [projectHumanId, projectId],
   );
 
   const projectRoute = useMemo(() => {
     const h = String(projectHumanId ?? "").trim();
     const c = String(projectCode ?? "").trim();
-    return (h && !looksLikeUuid(h) ? h : "") || (c && !looksLikeUuid(c) ? c : "") || projectKey;
+    return (
+      (h && !looksLikeUuid(h) ? h : "") ||
+      (c && !looksLikeUuid(c) ? c : "") ||
+      projectKey
+    );
   }, [projectHumanId, projectCode, projectKey]);
 
   const SKEY = `alienai:lastArtifact:${projectKey}`;
@@ -202,7 +471,9 @@ function ArtifactsSidebarClientImpl({
     try {
       const v = localStorage.getItem(SKEY);
       if (v) setStoredId(v);
-    } catch {}
+    } catch {
+      // localStorage unavailable (SSR / privacy mode)
+    }
     try {
       const raw = localStorage.getItem(GKEY);
       if (!raw) return;
@@ -212,7 +483,9 @@ function ArtifactsSidebarClientImpl({
         Control: typeof p?.Control === "boolean" ? p.Control : prev.Control,
         Close: typeof p?.Close === "boolean" ? p.Close : prev.Close,
       }));
-    } catch {}
+    } catch {
+      // localStorage unavailable
+    }
   }, [mounted, SKEY, GKEY]);
 
   // Persist active artifact
@@ -222,7 +495,9 @@ function ArtifactsSidebarClientImpl({
     try {
       localStorage.setItem(SKEY, id);
       setStoredId(id);
-    } catch {}
+    } catch {
+      // localStorage unavailable
+    }
   }, [mounted, pathname, SKEY]);
 
   // Persist group state
@@ -230,19 +505,27 @@ function ArtifactsSidebarClientImpl({
     if (!mounted) return;
     try {
       localStorage.setItem(GKEY, JSON.stringify(groupOpen));
-    } catch {}
+    } catch {
+      // localStorage unavailable
+    }
   }, [mounted, GKEY, groupOpen]);
 
-  const enhanced = useMemo(() => {
+  const safeItems = useMemo(() => (Array.isArray(items) ? items : []), [items]);
+
+  const enhanced: EnhancedItem[] = useMemo(() => {
     const urlId = artifactIdFromPath(pathname);
     const activeId = urlId ?? (mounted ? storedId : null);
     const newType = safeUpper(newTypeRaw);
 
-    return (items ?? []).map((it) => {
+    return safeItems.map((it) => {
       const itKey = canonicalKeyUpper(it);
       const active =
-        (it.current?.id && activeId && it.current.id === activeId) ||
-        (!it.current && String(pathname ?? "").includes("/artifacts/new") && newType === itKey);
+        (it.current?.id != null &&
+          activeId != null &&
+          it.current.id === activeId) ||
+        (!it.current &&
+          String(pathname ?? "").includes("/artifacts/new") &&
+          newType === itKey);
 
       const status = normStatus(it.current?.approval_status);
       const href = normalizeHref(it.href, projectId, projectRoute);
@@ -262,7 +545,7 @@ function ArtifactsSidebarClientImpl({
         isDeleted: Boolean(it.current?.deleted_at),
       };
     });
-  }, [items, pathname, newTypeRaw, storedId, mounted, projectId, projectRoute]);
+  }, [safeItems, pathname, newTypeRaw, storedId, mounted, projectId, projectRoute]);
 
   const counts = useMemo(() => {
     let draft = 0,
@@ -280,17 +563,23 @@ function ArtifactsSidebarClientImpl({
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? enhanced.filter((it) => it.label.toLowerCase().includes(q)) : enhanced;
+    return q
+      ? enhanced.filter((it) => it.label.toLowerCase().includes(q))
+      : enhanced;
   }, [enhanced, query]);
 
   const grouped = useMemo(() => {
-    const out: Record<GroupName, typeof enhanced> = { Plan: [], Control: [], Close: [] };
+    const out: Record<GroupName, EnhancedItem[]> = {
+      Plan: [],
+      Control: [],
+      Close: [],
+    };
     for (const it of visible) out[groupForKey(it.keyUpper)].push(it);
     return out;
   }, [visible]);
 
   const flat = useMemo(() => {
-    const arr: typeof enhanced = [];
+    const arr: EnhancedItem[] = [];
     (["Plan", "Control", "Close"] as const).forEach((g) => {
       if (groupOpen[g]) arr.push(...grouped[g]);
     });
@@ -319,13 +608,18 @@ function ArtifactsSidebarClientImpl({
   // Keyboard handler
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+      const tag = (
+        e.target as HTMLElement | null
+      )?.tagName?.toLowerCase();
       const typing =
         tag === "input" ||
         tag === "textarea" ||
         (e.target as HTMLElement | null)?.isContentEditable;
 
-      if (e.key === "Escape" && document.activeElement === searchRef.current) {
+      if (
+        e.key === "Escape" &&
+        document.activeElement === searchRef.current
+      ) {
         e.preventDefault();
         setQuery("");
         searchRef.current?.blur();
@@ -378,7 +672,7 @@ function ArtifactsSidebarClientImpl({
 
   const toggleGroup = useCallback(
     (g: GroupName) => setGroupOpen((p) => ({ ...p, [g]: !p[g] })),
-    []
+    [],
   );
 
   const handleRowClick = useCallback(
@@ -387,200 +681,19 @@ function ArtifactsSidebarClientImpl({
       try {
         localStorage.setItem(SKEY, id);
         setStoredId(id);
-      } catch {}
+      } catch {
+        // localStorage unavailable
+      }
     },
-    [mounted, SKEY]
+    [mounted, SKEY],
   );
 
-  const boardHref = (view: string) => `/projects/${projectRoute}/board?view=${view}`;
+  const boardHref = useCallback(
+    (view: string) => `/projects/${projectRoute}/board?view=${view}`,
+    [projectRoute],
+  );
+
   const initial = (safeStr(projectName).trim() || "P").charAt(0).toUpperCase();
-
-  function ArtifactRow({ it, idx }: { it: (typeof enhanced)[0]; idx: number }) {
-    const cfg = it.statusCfg;
-
-    const RowIcon = it.isLocked
-      ? Lock
-      : it.isDeleted
-      ? AlertTriangle
-      : it.active
-      ? Sparkles
-      : it.current
-      ? FileText
-      : Plus;
-
-    const goCurrent = () => {
-      if (!it.current?.id) return;
-      router.push(it.openUrl);
-    };
-
-    return (
-      <div className="relative group/row">
-        {/* Amber accent rail for active item */}
-        {it.active && (
-          <div
-            className={[
-              "absolute left-0 top-1/2 -translate-y-1/2 rounded-r-full",
-              "bg-gradient-to-b from-amber-300 to-amber-500",
-              collapsed ? "w-[2px] h-5" : "w-[3px] h-8",
-            ].join(" ")}
-          />
-        )}
-
-        <Link
-          ref={(el) => {
-            rowRefs.current[idx] = el;
-          }}
-          href={it.openUrl}
-          prefetch={false}
-          onClick={() => handleRowClick(it.current?.id)}
-          aria-current={it.active ? "page" : undefined}
-          aria-label={`${it.label}${it.current ? ` — ${cfg.label}` : " — not created"}`}
-          title={collapsed ? it.label : undefined}
-          className={[
-            "relative flex items-center gap-3 rounded-xl",
-            "outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-900",
-            "transition-all duration-150",
-            collapsed ? "justify-center w-10 h-10 mx-auto p-0" : "px-3 py-2.5 pl-4",
-            it.active
-              ? "bg-white/[0.07] hover:bg-white/[0.09]"
-              : "hover:bg-white/[0.04] active:bg-white/[0.06]",
-          ].join(" ")}
-        >
-          {/* Icon */}
-          <div
-            className={[
-              "shrink-0 rounded-lg flex items-center justify-center transition-all duration-200 w-8 h-8",
-              it.active
-                ? "bg-amber-400/15 text-amber-300 ring-1 ring-amber-400/25"
-                : it.current
-                ? "bg-white/[0.08] text-zinc-400 group-hover/row:bg-white/[0.12] group-hover/row:text-zinc-300"
-                : "bg-transparent text-zinc-700 border border-dashed border-zinc-800 group-hover/row:border-zinc-700 group-hover/row:text-zinc-600",
-            ].join(" ")}
-          >
-            <RowIcon className="w-3.5 h-3.5" />
-          </div>
-
-          {/* Content (expanded only) */}
-          {!collapsed && (
-            <div className="flex-1 min-w-0">
-              {/* Label + CURRENT badge */}
-              <div className="flex items-center gap-2">
-                <span
-                  className={[
-                    "text-[13px] font-medium truncate leading-tight",
-                    it.active ? "text-zinc-100" : it.current ? "text-zinc-300" : "text-zinc-600",
-                  ].join(" ")}
-                >
-                  {it.label}
-                </span>
-
-                {/* ✅ Current badge (NO nested Link) */}
-                {it.active && it.current?.id && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      goCurrent();
-                    }}
-                    title={`Open ${it.current.title ?? it.label}`}
-                    className={[
-                      "shrink-0 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full",
-                      "bg-amber-400 hover:bg-amber-300",
-                      "text-[9px] font-black text-zinc-900 uppercase tracking-[0.14em]",
-                      "shadow-[0_0_10px_rgba(251,191,36,0.35)] hover:shadow-[0_0_14px_rgba(251,191,36,0.5)]",
-                      "transition-all duration-150",
-                    ].join(" ")}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-900/30 animate-pulse" />
-                    Current
-                  </button>
-                )}
-              </div>
-
-              {/* Status row */}
-              <div className="flex items-center gap-1.5 mt-0.5">
-                {it.current ? (
-                  <>
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cfg.dot}`} />
-                    <span className={`text-[11px] font-medium ${cfg.text}`}>{cfg.label}</span>
-
-                    {it.isLocked && (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] text-zinc-600">
-                        <Lock className="w-2.5 h-2.5" /> Locked
-                      </span>
-                    )}
-                    {it.isDeleted && (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] text-red-500">
-                        <AlertTriangle className="w-2.5 h-2.5" /> Deleted
-                      </span>
-                    )}
-                  </>
-                ) : (
-                  <span className="text-[11px] text-zinc-700">
-                    {it.canCreate ? "Not created yet" : "View only"}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Collapsed: amber dot for active */}
-          {collapsed && it.active && (
-            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-400 rounded-full border-2 border-zinc-900 shadow-[0_0_8px_rgba(251,191,36,0.5)]" />
-          )}
-        </Link>
-      </div>
-    );
-  }
-
-  function GroupSection({
-    name,
-    groupItems,
-    start,
-  }: {
-    name: GroupName;
-    groupItems: typeof enhanced;
-    start: number;
-  }) {
-    const { Icon, accent } = GROUP_CFG[name];
-    const open = groupOpen[name];
-    const exist = groupItems.filter((x) => x.current?.id).length;
-    if (groupItems.length === 0 && !collapsed) return null;
-
-    return (
-      <div className="mb-1">
-        {!collapsed && (
-          <button
-            type="button"
-            onClick={() => toggleGroup(name)}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg group/gh hover:bg-white/[0.04] transition-colors mb-0.5"
-          >
-            <Icon className={`w-3 h-3 shrink-0 ${accent} opacity-70`} />
-            <span className="flex-1 text-left text-[10px] font-black tracking-[0.14em] uppercase text-zinc-700 group-hover/gh:text-zinc-500 transition-colors">
-              {name}
-            </span>
-            <span className="text-[10px] font-medium text-zinc-800 tabular-nums">
-              {exist}/{groupItems.length}
-            </span>
-            <span className="text-[11px] text-zinc-800 group-hover/gh:text-zinc-600 w-3 text-center font-mono transition-colors">
-              {open ? "−" : "+"}
-            </span>
-          </button>
-        )}
-
-        {open && (
-          <div className="space-y-0.5">
-            {groupItems.map((it, i) => (
-              <ArtifactRow key={it.key} it={it} idx={start + i} />
-            ))}
-          </div>
-        )}
-
-        {collapsed && <div className="h-px bg-zinc-800/80 my-1.5 mx-3" />}
-      </div>
-    );
-  }
 
   return (
     <aside
@@ -617,7 +730,9 @@ function ArtifactsSidebarClientImpl({
             "flex items-center justify-center",
             "text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 hover:border-zinc-600",
             "shadow-xl transition-all duration-200",
-            hovered || collapsed ? "opacity-100 scale-100" : "opacity-0 scale-75 pointer-events-none",
+            hovered || collapsed
+              ? "opacity-100 scale-100"
+              : "opacity-0 scale-75 pointer-events-none",
           ].join(" ")}
         >
           {collapsed ? (
@@ -693,8 +808,8 @@ function ArtifactsSidebarClientImpl({
                         role === "owner"
                           ? "text-amber-400"
                           : role === "editor"
-                          ? "text-sky-400"
-                          : "text-zinc-600",
+                            ? "text-sky-400"
+                            : "text-zinc-600",
                       ].join(" ")}
                     >
                       {role}
@@ -748,7 +863,9 @@ function ArtifactsSidebarClientImpl({
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   Submitted for review
-                  <span className="ml-auto font-black tabular-nums">{counts.submitted}</span>
+                  <span className="ml-auto font-black tabular-nums">
+                    {counts.submitted}
+                  </span>
                 </Link>
               )}
             </>
@@ -796,7 +913,10 @@ function ArtifactsSidebarClientImpl({
             "flex-1 overflow-y-auto min-h-0",
             collapsed ? "px-1.5 py-2" : "px-3 py-3",
           ].join(" ")}
-          style={{ scrollbarWidth: "thin", scrollbarColor: "#27272a transparent" }}
+          style={{
+            scrollbarWidth: "thin",
+            scrollbarColor: "#27272a transparent",
+          }}
         >
           {!collapsed && (
             <div className="flex items-center justify-between px-2 mb-2.5">
@@ -824,9 +944,36 @@ function ArtifactsSidebarClientImpl({
             )
           ) : (
             <>
-              <GroupSection name="Plan" groupItems={grouped.Plan} start={groupStarts.Plan} />
-              <GroupSection name="Control" groupItems={grouped.Control} start={groupStarts.Control} />
-              <GroupSection name="Close" groupItems={grouped.Close} start={groupStarts.Close} />
+              <GroupSection
+                name="Plan"
+                groupItems={grouped.Plan}
+                start={groupStarts.Plan}
+                collapsed={collapsed}
+                groupOpen={groupOpen}
+                toggleGroup={toggleGroup}
+                rowRefs={rowRefs}
+                onRowClick={handleRowClick}
+              />
+              <GroupSection
+                name="Control"
+                groupItems={grouped.Control}
+                start={groupStarts.Control}
+                collapsed={collapsed}
+                groupOpen={groupOpen}
+                toggleGroup={toggleGroup}
+                rowRefs={rowRefs}
+                onRowClick={handleRowClick}
+              />
+              <GroupSection
+                name="Close"
+                groupItems={grouped.Close}
+                start={groupStarts.Close}
+                collapsed={collapsed}
+                groupOpen={groupOpen}
+                toggleGroup={toggleGroup}
+                rowRefs={rowRefs}
+                onRowClick={handleRowClick}
+              />
             </>
           )}
         </nav>
@@ -837,7 +984,9 @@ function ArtifactsSidebarClientImpl({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <Zap className="w-3 h-3 text-amber-500/70" />
-                <span className="text-[10px] font-bold text-zinc-800">AlienAI</span>
+                <span className="text-[10px] font-bold text-zinc-800">
+                  AlienAI
+                </span>
               </div>
               <p className="hidden lg:block text-[9px] font-mono text-zinc-800">
                 ↑↓ · / · [ ]
@@ -855,10 +1004,51 @@ function ArtifactsSidebarClientImpl({
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   PUBLIC COMPONENT — wraps inner in Suspense for useSearchParams
+═══════════════════════════════════════════════════════════════ */
+
+function ArtifactsSidebarClientImpl(props: ArtifactsSidebarClientProps) {
+  return (
+    <Suspense fallback={<SidebarSkeleton />}>
+      <ArtifactsSidebarInner {...props} />
+    </Suspense>
+  );
+}
+
+/** Minimal skeleton shown while useSearchParams resolves on first render */
+function SidebarSkeleton() {
+  return (
+    <aside
+      aria-label="Artifact navigation loading"
+      className="relative shrink-0 flex flex-col bg-zinc-950 border-r border-zinc-800/80 h-screen sticky top-0 overflow-hidden"
+      style={{ width: 272 }}
+    >
+      <div className="px-4 pt-5 pb-4 border-b border-zinc-800/80">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-zinc-800 animate-pulse" />
+          <div className="flex-1 space-y-2">
+            <div className="h-3 w-24 bg-zinc-800 rounded animate-pulse" />
+            <div className="h-2 w-16 bg-zinc-800/60 rounded animate-pulse" />
+          </div>
+        </div>
+      </div>
+      <div className="flex-1 px-3 py-3 space-y-2">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div
+            key={i}
+            className="h-10 bg-zinc-900/50 rounded-xl animate-pulse"
+          />
+        ))}
+      </div>
+    </aside>
+  );
+}
+
 /**
  * ✅ Export BOTH:
  * - default export (for any existing default imports)
- * - named export (so your server file can do: import { ArtifactsSidebarClient } from "./ArtifactsSidebarClient";
+ * - named export
  */
 export default ArtifactsSidebarClientImpl;
 export const ArtifactsSidebarClient = ArtifactsSidebarClientImpl;

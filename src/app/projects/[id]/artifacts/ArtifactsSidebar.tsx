@@ -1,321 +1,533 @@
-// src/app/projects/[id]/artifacts/ArtifactsSidebarClient.tsx
-"use client";
+// src/app/projects/[id]/artifacts/ArtifactsSidebar.tsx
+import "server-only";
 
-import Link from "next/link";
-import { useState, useCallback } from "react";
-import { 
-  ChevronLeft, 
-  ChevronRight, 
-  LayoutGrid, 
-  Plus, 
-  GitPullRequest,
-  FileText,
-  MoreHorizontal
-} from "lucide-react";
+import { redirect, notFound } from "next/navigation";
+import { createClient } from "@/utils/supabase/server";
+import {
+  ArtifactsSidebarClient,
+  type SidebarItem,
+  type Role,
+} from "./ArtifactsSidebarClient";
 
-interface Artifact {
-  id: string;
-  title: string;
-  effectiveType: string;
-  rawType: string;
-  submitted: boolean;
-  href: string;
-  isChangeRequest: boolean;
+/**
+ * ArtifactsSidebar (Server Component)
+ * - Resolves project from route param (UUID or human code like P-00001 or "00001")
+ * - Fetches artifacts list for sidebar navigation
+ * - Resolves the user's role on the project
+ * - Builds the SidebarItem[] shape the client component expects
+ *
+ * ✅ Change Requests legacy mapping:
+ * - Any Change-like artifact types display as "Change Requests"
+ * - And route to legacy: /projects/[id]/change
+ */
+
+/* ═══════════════════════════════════════════════════════════════
+   ARTIFACT TYPE REGISTRY
+   Defines every known artifact type, its display label, group,
+   and create/edit permissions by role.
+═══════════════════════════════════════════════════════════════ */
+
+type ArtifactTypeDef = {
+  key: string;        // canonical uppercase key e.g. "PROJECT_CHARTER"
+  label: string;      // human-readable label
+  ui_kind: string;    // same as key unless overridden
+  ownerCanCreate: boolean;
+  editorCanCreate: boolean;
+  ownerCanEdit: boolean;
+  editorCanEdit: boolean;
+};
+
+const ARTIFACT_TYPE_REGISTRY: ArtifactTypeDef[] = [
+  // Plan group
+  { key: "PROJECT_CHARTER",      label: "Project Charter",      ui_kind: "PROJECT_CHARTER",      ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
+  { key: "STAKEHOLDER_REGISTER", label: "Stakeholder Register", ui_kind: "STAKEHOLDER_REGISTER", ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
+  { key: "WBS",                  label: "WBS",                  ui_kind: "WBS",                  ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
+  { key: "SCHEDULE",             label: "Schedule",             ui_kind: "SCHEDULE",             ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
+  { key: "DESIGN",               label: "Design",               ui_kind: "DESIGN",               ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
+  { key: "REQUIREMENTS",         label: "Requirements",         ui_kind: "REQUIREMENTS",         ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
+  { key: "WEEKLY_REPORT",        label: "Weekly Report",        ui_kind: "WEEKLY_REPORT",        ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
+  // Control group
+  { key: "RAID",                 label: "RAID Log",             ui_kind: "RAID",                 ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
+  { key: "CHANGE_REQUESTS",      label: "Change Requests",      ui_kind: "CHANGE_REQUESTS",      ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
+  // Close group
+  { key: "LESSONS_LEARNED",      label: "Lessons Learned",      ui_kind: "LESSONS_LEARNED",      ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
+  { key: "CLOSURE_REPORT",       label: "Closure Report",       ui_kind: "CLOSURE_REPORT",       ownerCanCreate: true,  editorCanCreate: false, ownerCanEdit: true,  editorCanEdit: false },
+];
+
+const REGISTRY_BY_KEY = new Map(ARTIFACT_TYPE_REGISTRY.map((d) => [d.key, d]));
+
+/* ═══════════════════════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════════════════════ */
+
+const PROJECT_COLS =
+  "id,title,project_code,organisation_id,client_name,created_at";
+
+const PROJECT_FALLBACK_SOURCES: Array<{
+  table: string;
+  select: string;
+  filterById?: string;
+  filterByCode?: string;
+}> = [
+  {
+    table: "my_projects",
+    select:
+      "id,title,project_code,organisation_id,client_name,created_at,user_id,removed_at",
+    filterById: "id",
+    filterByCode: "project_code",
+  },
+  {
+    table: "projects_members",
+    select:
+      "id,title,project_code,organisation_id,client_name,created_at,user_id,removed_at",
+    filterById: "id",
+    filterByCode: "project_code",
+  },
+  {
+    table: "project_members",
+    select:
+      "id,title,project_code,organisation_id,client_name,created_at,user_id,removed_at",
+    filterById: "id",
+    filterByCode: "project_code",
+  },
+  {
+    table: "project_users",
+    select:
+      "id,title,project_code,organisation_id,client_name,created_at,user_id,removed_at",
+    filterById: "id",
+    filterByCode: "project_code",
+  },
+  {
+    table: "project_memberships",
+    select:
+      "project_id,title,project_code,organisation_id,client_name,created_at,user_id,removed_at",
+    filterById: "project_id",
+    filterByCode: "project_code",
+  },
+];
+
+/* ═══════════════════════════════════════════════════════════════
+   UTILS
+═══════════════════════════════════════════════════════════════ */
+
+function safeStr(x: unknown): string {
+  return typeof x === "string" ? x.trim() : x == null ? "" : String(x).trim();
+}
+function safeLower(x: unknown) {
+  return safeStr(x).toLowerCase();
+}
+function looksLikeUuid(s: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(s || "").trim(),
+  );
 }
 
-interface ArtifactsSidebarClientProps {
-  projectId: string;
-  projectTitle: string;
-  projectCode: string;
-  artifacts: Artifact[];
-  currentArtifactId?: string;
+function normalizeProjectRef(projectParam: string) {
+  const raw = safeStr(projectParam);
+  if (!raw || raw === "undefined" || raw === "null") return "";
+  return raw;
 }
 
-export function ArtifactsSidebarClient({
-  projectId,
-  projectTitle,
-  projectCode,
-  artifacts,
-  currentArtifactId,
-}: ArtifactsSidebarClientProps) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isHovered, setIsHovered] = useState(false);
+function extractDigits(raw: string): string | null {
+  const s = safeStr(raw).toUpperCase();
+  const m = s.match(/(\d{1,10})/);
+  if (!m?.[1]) return null;
+  const digits = m[1];
+  const norm = String(Number(digits));
+  return norm && norm !== "NaN" ? norm : digits.replace(/^0+/, "") || "0";
+}
 
-  const toggleCollapse = useCallback(() => {
-    setIsCollapsed(prev => !prev);
-  }, []);
+function projectCodeVariants(raw: string): string[] {
+  const out = new Set<string>();
+  const s = safeStr(raw);
+  if (s) out.add(s);
+  const up = s.toUpperCase();
+  if (up) out.add(up);
 
-  const isCurrentArtifact = (artifactId: string) => {
-    return currentArtifactId === artifactId;
+  const digits = extractDigits(s);
+  if (digits) {
+    out.add(digits);
+    out.add(`P-${digits}`);
+    out.add(`P-${digits.padStart(5, "0")}`);
+  }
+
+  const m = up.match(/^P-(\d{1,10})$/);
+  if (m?.[1]) {
+    out.add(m[1]);
+    out.add(String(Number(m[1])));
+  }
+
+  return Array.from(out).filter(Boolean);
+}
+
+function displayProjectCode(project_code: unknown) {
+  const s = safeStr(project_code);
+  if (!s) return null;
+  if (/^P-\d+$/i.test(s)) return s.toUpperCase();
+  const digits = extractDigits(s);
+  if (digits) return `P-${digits.padStart(5, "0")}`;
+  return s;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CHANGE REQUESTS (legacy mapping)
+═══════════════════════════════════════════════════════════════ */
+
+function isChangeRequestsType(t: unknown) {
+  const s = safeLower(t);
+  return (
+    s === "change_requests" ||
+    s === "change_request" ||
+    s === "change requests" ||
+    s === "change request" ||
+    s === "change_log" ||
+    s === "change log" ||
+    s === "kanban" ||
+    s === "change_register" ||
+    s === "change register" ||
+    s === "change"
+  );
+}
+
+function normalizeArtifactTypeKey(t: unknown): string {
+  const s = safeStr(t).toUpperCase();
+  if (!s) return "";
+  if (isChangeRequestsType(t)) return "CHANGE_REQUESTS";
+  return s;
+}
+
+function artifactHref(
+  projectParam: string,
+  artifactId: string,
+  rawType: unknown,
+) {
+  if (isChangeRequestsType(rawType))
+    return `/projects/${projectParam}/change`;
+  return `/projects/${projectParam}/artifacts/${artifactId}`;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LOGGING
+═══════════════════════════════════════════════════════════════ */
+
+function shapeErr(err: unknown): Record<string, unknown> {
+  if (!err) return {};
+  if (typeof err === "string") return { message: err };
+  const e = err as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  if (typeof e?.message === "string") out.message = e.message;
+  if (typeof e?.code === "string") out.code = e.code;
+  if (typeof e?.details === "string") out.details = e.details;
+  if (typeof e?.hint === "string") out.hint = e.hint;
+  if (typeof e?.status === "number") out.status = e.status;
+  return out;
+}
+
+function logSbError(tag: string, err: unknown, extra?: Record<string, unknown>) {
+  console.error(tag, { ...shapeErr(err), ...(extra || {}) });
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PROJECT RESOLUTION
+═══════════════════════════════════════════════════════════════ */
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function selectFirst(
+  sb: any,
+  table: string,
+  select: string,
+  filterCol: string,
+  filterVal: unknown,
+) {
+  const { data, error } = await sb
+    .from(table)
+    .select(select)
+    .eq(filterCol, filterVal)
+    .limit(1);
+  const row = Array.isArray(data) && data.length ? data[0] : null;
+  return { row, error, count: Array.isArray(data) ? data.length : 0 };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function resolveProject(sb: any, projectParam: string) {
+  const raw = normalizeProjectRef(projectParam);
+  const debugBase = {
+    projectParam,
+    raw,
+    looksUuid: looksLikeUuid(raw),
+    codeVariants: projectCodeVariants(raw),
   };
 
+  if (!raw) {
+    return {
+      data: null,
+      error: new Error("Missing project id"),
+      debug: debugBase,
+    };
+  }
+
+  if (looksLikeUuid(raw)) {
+    const r = await selectFirst(sb, "projects", PROJECT_COLS, "id", raw);
+    if (r.error)
+      return { data: null, error: r.error, debug: { ...debugBase, stage: "projects:id:error" } };
+    if (r.row)
+      return { data: r.row, error: null, debug: { ...debugBase, stage: "projects:id:ok" } };
+
+    for (const src of PROJECT_FALLBACK_SOURCES) {
+      if (!src.filterById) continue;
+      const rr = await selectFirst(sb, src.table, src.select, src.filterById, raw);
+      if (rr.error) continue;
+      if (rr.row)
+        return {
+          data: rr.row,
+          error: null,
+          debug: { ...debugBase, stage: `${src.table}:${src.filterById}:ok` },
+        };
+    }
+
+    return {
+      data: null,
+      error: new Error("Project not found (or no access via RLS)"),
+      debug: { ...debugBase, stage: "not_found_uuid" },
+    };
+  }
+
+  const variants = projectCodeVariants(raw);
+
+  for (const v of variants) {
+    const r = await selectFirst(sb, "projects", PROJECT_COLS, "project_code", v);
+    if (r.error)
+      return {
+        data: null,
+        error: r.error,
+        debug: { ...debugBase, stage: "projects:code:error", v },
+      };
+    if (r.row)
+      return { data: r.row, error: null, debug: { ...debugBase, stage: "projects:code:ok", v } };
+  }
+
+  for (const src of PROJECT_FALLBACK_SOURCES) {
+    if (!src.filterByCode) continue;
+    for (const v of variants) {
+      const rr = await selectFirst(sb, src.table, src.select, src.filterByCode, v);
+      if (rr.error) continue;
+      if (rr.row)
+        return {
+          data: rr.row,
+          error: null,
+          debug: { ...debugBase, stage: `${src.table}:${src.filterByCode}:ok`, v },
+        };
+    }
+  }
+
+  return {
+    data: null,
+    error: new Error("Project not found (or no access via RLS)"),
+    debug: { ...debugBase, stage: "not_found_code_text" },
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ROLE RESOLUTION
+═══════════════════════════════════════════════════════════════ */
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function resolveRole(sb: any, projectUuid: string, userId: string): Promise<Role> {
+  // Try the most common membership tables; return the first match.
+  const ROLE_SOURCES = [
+    { table: "project_memberships", projectCol: "project_id", userCol: "user_id", roleCol: "role" },
+    { table: "project_members",     projectCol: "id",         userCol: "user_id", roleCol: "role" },
+    { table: "projects_members",    projectCol: "id",         userCol: "user_id", roleCol: "role" },
+    { table: "project_users",       projectCol: "id",         userCol: "user_id", roleCol: "role" },
+  ];
+
+  for (const src of ROLE_SOURCES) {
+    try {
+      const { data, error } = await sb
+        .from(src.table)
+        .select(src.roleCol)
+        .eq(src.projectCol, projectUuid)
+        .eq(src.userCol, userId)
+        .limit(1);
+
+      if (error) continue; // table might not exist, try next
+      if (Array.isArray(data) && data.length > 0) {
+        const raw = safeLower(data[0]?.[src.roleCol]);
+        if (raw === "owner" || raw === "editor" || raw === "viewer") return raw;
+        // Treat admin / manager as owner-equivalent
+        if (raw === "admin" || raw === "manager") return "owner";
+        return "editor"; // default for any recognised membership
+      }
+    } catch {
+      // table doesn't exist — continue
+    }
+  }
+
+  // Fallback: check if user is the project creator
+  try {
+    const { data } = await sb
+      .from("projects")
+      .select("created_by")
+      .eq("id", projectUuid)
+      .limit(1);
+    if (Array.isArray(data) && data[0]?.created_by === userId) return "owner";
+  } catch {
+    // column might not exist
+  }
+
+  return "unknown";
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ARTIFACTS QUERY
+═══════════════════════════════════════════════════════════════ */
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function queryArtifacts(sb: any, projectUuid: string) {
+  const select =
+    "id,title,type,artifact_type,is_current,created_at,approval_status,deleted_at,is_locked";
+
+  const { data, error } = await sb
+    .from("artifacts")
+    .select(select)
+    .eq("project_id", projectUuid)
+    .is("deleted_at", null)
+    .eq("is_current", true)
+    .order("created_at", { ascending: true });
+
+  const list = Array.isArray(data) ? data : [];
+  return { list, error };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BUILD SidebarItem[] FROM REGISTRY + DB ARTIFACTS
+═══════════════════════════════════════════════════════════════ */
+
+function buildSidebarItems(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  dbArtifacts: any[],
+  role: Role,
+  projectParam: string,
+): SidebarItem[] {
+  // Index DB artifacts by their canonical type key.
+  // If multiple artifacts share a type, keep the first (is_current=true already filtered).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const byType = new Map<string, any>();
+  for (const a of dbArtifacts) {
+    const rawType = safeStr(a?.artifact_type || a?.type);
+    const key = normalizeArtifactTypeKey(rawType);
+    if (key && !byType.has(key)) byType.set(key, a);
+  }
+
+  const isOwner = role === "owner";
+  const isEditor = role === "editor";
+
+  return ARTIFACT_TYPE_REGISTRY.map((def) => {
+    const artifact = byType.get(def.key) ?? null;
+
+    const canCreate = isOwner
+      ? def.ownerCanCreate
+      : isEditor
+        ? def.editorCanCreate
+        : false;
+
+    const canEdit = isOwner
+      ? def.ownerCanEdit
+      : isEditor
+        ? def.editorCanEdit
+        : false;
+
+    const current = artifact
+      ? {
+          id: String(artifact.id),
+          title: safeStr(artifact.title) || null,
+          approval_status: safeStr(artifact.approval_status) || "draft",
+          is_locked: Boolean(artifact.is_locked),
+          deleted_at: safeStr(artifact.deleted_at) || null,
+        }
+      : null;
+
+    const href = artifact
+      ? artifactHref(projectParam, String(artifact.id), safeStr(artifact.artifact_type || artifact.type))
+      : `/projects/${projectParam}/artifacts/new?type=${def.key.toLowerCase()}`;
+
+    return {
+      key: def.key,
+      label: def.label,
+      ui_kind: def.ui_kind,
+      current,
+      href,
+      canCreate,
+      canEdit,
+    };
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   EXPORTED SERVER COMPONENT
+═══════════════════════════════════════════════════════════════ */
+
+export default async function ArtifactsSidebar({
+  projectId,
+  currentArtifactId,
+}: {
+  projectId: string;
+  currentArtifactId?: string;
+}) {
+  const sb = await createClient();
+
+  // ── Auth ──
+  const { data: auth, error: authErr } = await sb.auth.getUser();
+  if (authErr || !auth?.user) redirect("/login");
+
+  const userId = auth.user.id;
+
+  // ── Project ──
+  const resolved = await resolveProject(sb, projectId);
+  const project = resolved.data;
+
+  if (resolved.error || !project) {
+    logSbError(
+      "[ArtifactsSidebar] Project resolve error",
+      resolved.error || new Error("resolveProject returned no project"),
+      resolved.debug as Record<string, unknown>,
+    );
+    notFound();
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const projectUuid = safeStr((project as any).id) || safeStr((project as any).project_id);
+  if (!projectUuid) {
+    logSbError("[ArtifactsSidebar] Project resolved but missing uuid", new Error("Missing uuid"), {
+      projectId,
+      resolvedKeys: Object.keys(project || {}),
+    });
+    notFound();
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const projectTitle = safeStr((project as any).title) || "Project";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const projectCodeHuman = displayProjectCode((project as any).project_code);
+
+  // ── Role ──
+  const role = await resolveRole(sb, projectUuid, userId);
+
+  // ── Artifacts ──
+  const { list, error: artErr } = await queryArtifacts(sb, projectUuid);
+  if (artErr) logSbError("[ArtifactsSidebar] Artifacts query error", artErr, { projectUuid });
+
+  // ── Build the sidebar items ──
+  const items = buildSidebarItems(list, role, projectId);
+
   return (
-    <>
-      {/* Sidebar Container */}
-      <aside
-        className={`
-          relative shrink-0 bg-white border-r border-gray-200/80 
-          transition-all duration-300 ease-in-out h-screen sticky top-0
-          ${isCollapsed ? "w-[60px]" : "w-[320px]"}
-        `}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-      >
-        {/* Collapse Toggle Button */}
-        <button
-          onClick={toggleCollapse}
-          className={`
-            absolute -right-3 top-6 z-50
-            w-6 h-6 rounded-full bg-white border border-gray-200 
-            shadow-sm hover:shadow-md hover:border-gray-300
-            flex items-center justify-center
-            transition-all duration-200
-            ${isHovered || isCollapsed ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-2"}
-          `}
-          title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {isCollapsed ? (
-            <ChevronRight className="w-3 h-3 text-gray-600" />
-          ) : (
-            <ChevronLeft className="w-3 h-3 text-gray-600" />
-          )}
-        </button>
-
-        {/* Header Section */}
-        <div className={`
-          border-b border-gray-200/80 transition-all duration-300
-          ${isCollapsed ? "p-3" : "p-5"}
-        `}>
-          {/* Project Info */}
-          <div className={`
-            transition-all duration-300 overflow-hidden
-            ${isCollapsed ? "opacity-0 h-0" : "opacity-100"}
-          `}>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                Project
-              </span>
-            </div>
-            <h2 className="text-sm font-bold text-gray-900 leading-tight mb-1 line-clamp-2">
-              {projectTitle}
-            </h2>
-            <code className="text-[11px] text-gray-500 font-mono bg-gray-100 px-1.5 py-0.5 rounded">
-              {projectCode}
-            </code>
-          </div>
-
-          {/* Collapsed State - Just Icon */}
-          <div className={`
-            transition-all duration-300 flex justify-center
-            ${isCollapsed ? "opacity-100" : "opacity-0 h-0 overflow-hidden"}
-          `}>
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-xs">
-              {projectTitle.charAt(0).toUpperCase()}
-            </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className={`
-            flex gap-2 mt-4 transition-all duration-300
-            ${isCollapsed ? "flex-col mt-3 opacity-0 h-0 overflow-hidden" : "flex-row opacity-100"}
-          `}>
-            <Link
-              href={`/projects/${projectId}/artifacts`}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 
-                rounded-lg bg-gray-50 hover:bg-gray-100 border border-gray-200 
-                text-xs font-medium text-gray-700 transition-colors"
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-              <span>Board</span>
-            </Link>
-            <Link
-              href={`/projects/${projectId}/artifacts/new`}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 
-                rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 
-                text-xs font-medium text-indigo-700 transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>New</span>
-            </Link>
-          </div>
-
-          {/* Collapsed Action Icons */}
-          <div className={`
-            flex flex-col gap-2 mt-2 transition-all duration-300
-            ${isCollapsed ? "opacity-100" : "opacity-0 h-0 overflow-hidden"}
-          `}>
-            <Link
-              href={`/projects/${projectId}/artifacts`}
-              className="w-10 h-10 mx-auto rounded-lg bg-gray-50 hover:bg-gray-100 
-                border border-gray-200 flex items-center justify-center text-gray-600 
-                transition-colors"
-              title="Artifact Board"
-            >
-              <LayoutGrid className="w-4 h-4" />
-            </Link>
-            <Link
-              href={`/projects/${projectId}/artifacts/new`}
-              className="w-10 h-10 mx-auto rounded-lg bg-indigo-50 hover:bg-indigo-100 
-                border border-indigo-200 flex items-center justify-center text-indigo-600 
-                transition-colors"
-              title="New Artifact"
-            >
-              <Plus className="w-4 h-4" />
-            </Link>
-          </div>
-
-          {/* Change Requests Quick Access */}
-          <div className={`
-            transition-all duration-300
-            ${isCollapsed ? "mt-3 opacity-100" : "mt-3 opacity-100"}
-          `}>
-            <Link
-              href={`/projects/${projectId}/change`}
-              className={`
-                group flex items-center gap-2 rounded-lg border border-amber-200 
-                bg-amber-50/50 hover:bg-amber-50 transition-all duration-200
-                ${isCollapsed ? "justify-center p-2 mx-auto w-10 h-10" : "px-3 py-2"}
-              `}
-              title="Change Requests board (legacy)"
-            >
-              <GitPullRequest className={`
-                text-amber-600 transition-transform group-hover:scale-110
-                ${isCollapsed ? "w-4 h-4" : "w-3.5 h-3.5"}
-              `} />
-              {!isCollapsed && (
-                <span className="text-xs font-medium text-amber-800">
-                  Change Requests
-                </span>
-              )}
-            </Link>
-          </div>
-        </div>
-
-        {/* Artifacts List */}
-        <div className={`
-          overflow-y-auto transition-all duration-300
-          ${isCollapsed ? "p-2" : "p-4"}
-          ${isCollapsed ? "h-[calc(100vh-140px)]" : "h-[calc(100vh-220px)]"}
-        `}>
-          {/* Section Header */}
-          <div className={`
-            flex items-center justify-between mb-3 transition-all duration-300
-            ${isCollapsed ? "opacity-0 h-0 overflow-hidden" : "opacity-100"}
-          `}>
-            <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-              Artifacts
-            </h3>
-            <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">
-              {artifacts.length}
-            </span>
-          </div>
-
-          {/* Artifacts Navigation */}
-          {artifacts.length > 0 ? (
-            <nav className="space-y-1">
-              {artifacts.map((artifact) => {
-                const isCurrent = isCurrentArtifact(artifact.id);
-                
-                return (
-                  <Link
-                    key={artifact.id}
-                    href={artifact.href}
-                    className={`
-                      group relative flex items-center gap-3 rounded-xl border 
-                      transition-all duration-200
-                      ${isCollapsed 
-                        ? "justify-center p-2 w-10 h-10 mx-auto" 
-                        : "px-3 py-2.5"
-                      }
-                      ${isCurrent 
-                        ? "bg-indigo-50 border-indigo-200 shadow-sm" 
-                        : "bg-white border-gray-100 hover:border-gray-200 hover:bg-gray-50/80"
-                      }
-                    `}
-                    title={artifact.isChangeRequest ? "Change Requests board" : artifact.title}
-                  >
-                    {/* Current Indicator Badge */}
-                    {isCurrent && !isCollapsed && (
-                      <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-1.5 h-8 
-                        bg-indigo-500 rounded-r-full" />
-                    )}
-
-                    {/* Icon */}
-                    <div className={`
-                      shrink-0 rounded-lg flex items-center justify-center
-                      transition-colors duration-200
-                      ${isCurrent 
-                        ? "bg-indigo-100 text-indigo-600" 
-                        : "bg-gray-100 text-gray-500 group-hover:bg-gray-200"
-                      }
-                      ${isCollapsed ? "w-6 h-6" : "w-8 h-8"}
-                    `}>
-                      {artifact.isChangeRequest ? (
-                        <GitPullRequest className={isCollapsed ? "w-3 h-3" : "w-4 h-4"} />
-                      ) : (
-                        <FileText className={isCollapsed ? "w-3 h-3" : "w-4 h-4"} />
-                      )}
-                    </div>
-
-                    {/* Content - Hidden when collapsed */}
-                    {!isCollapsed && (
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className={`
-                            text-sm font-medium truncate
-                            ${isCurrent ? "text-indigo-900" : "text-gray-900"}
-                          `}>
-                            {artifact.title}
-                          </span>
-                          {isCurrent && (
-                            <span className="shrink-0 px-1.5 py-0.5 rounded-full bg-indigo-100 
-                              text-[9px] font-bold text-indigo-700 uppercase tracking-wider">
-                              Current
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-[11px] text-gray-500 font-mono">
-                            {artifact.effectiveType}
-                          </span>
-                          <span className={`
-                            text-[10px] px-1.5 py-0.5 rounded-full border
-                            ${artifact.submitted 
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
-                              : "bg-gray-50 text-gray-600 border-gray-200"
-                            }
-                          `}>
-                            {artifact.submitted ? "Submitted" : "Draft"}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Collapsed Current Indicator */}
-                    {isCollapsed && isCurrent && (
-                      <div className="absolute -right-0.5 -top-0.5 w-2.5 h-2.5 
-                        bg-indigo-500 rounded-full border-2 border-white" />
-                    )}
-                  </Link>
-                );
-              })}
-            </nav>
-          ) : (
-            <div className={`
-              text-center transition-all duration-300
-              ${isCollapsed ? "opacity-0" : "opacity-100"}
-            `}>
-              <div className="p-4 rounded-xl bg-gray-50 border border-dashed border-gray-200">
-                <p className="text-sm text-gray-500">No artifacts yet</p>
-                <p className="text-xs text-gray-400 mt-1">or no access</p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Bottom Gradient Fade */}
-        <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent pointer-events-none" />
-      </aside>
-    </>
+    <ArtifactsSidebarClient
+      items={items}
+      role={role}
+      projectId={projectUuid}
+      projectHumanId={projectId}
+      projectName={projectTitle}
+      projectCode={projectCodeHuman}
+    />
   );
 }
