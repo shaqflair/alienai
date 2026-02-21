@@ -2,9 +2,11 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
+// Ensure Next never tries to treat this as static during build analysis
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function jsonOk(data: any, status = 200) {
   return NextResponse.json({ ok: true, ...data }, { status });
@@ -20,6 +22,12 @@ function safeNum(x: unknown): number | null {
   if (x == null || x === "") return null;
   const n = Number(x);
   return Number.isFinite(n) ? n : null;
+}
+
+async function getSupabase() {
+  // ✅ Lazy import to avoid build-time request-storage/cookies issues
+  const mod = await import("@/utils/supabase/server");
+  return mod.createClient();
 }
 
 async function requireAuth(supabase: any) {
@@ -87,32 +95,21 @@ async function ensureNoOverlap(
 
 /**
  * POST /api/doa/rules
- * Body:
- * {
- *   projectId,
- *   minAmount,
- *   maxAmount?, // null or missing = infinity
- *   currency?,
- *   approverUserId,
- *   approverName?,
- *   approverEmail?,
- *   approverRole?
- * }
  */
 export async function POST(req: Request) {
   try {
-    const supabase = await createClient();
+    const supabase = await getSupabase();
     const user = await requireAuth(supabase);
 
     const body = await req.json().catch(() => ({}));
-    const projectId = safeStr(body?.projectId).trim();
+    const projectId = safeStr((body as any)?.projectId).trim();
     if (!projectId) return jsonErr("Missing projectId", 400);
 
     await requireProjectAdmin(supabase, projectId, user.id);
 
-    const minAmount = safeNum(body?.minAmount);
-    const maxAmount = body?.maxAmount === "" ? null : safeNum(body?.maxAmount);
-    const currency = safeStr(body?.currency).trim() || "GBP";
+    const minAmount = safeNum((body as any)?.minAmount);
+    const maxAmount = (body as any)?.maxAmount === "" ? null : safeNum((body as any)?.maxAmount);
+    const currency = safeStr((body as any)?.currency).trim() || "GBP";
 
     if (minAmount == null) return jsonErr("minAmount must be a number", 400);
     if (minAmount < 0) return jsonErr("minAmount must be >= 0", 400);
@@ -122,10 +119,9 @@ export async function POST(req: Request) {
       if (maxAmount < minAmount) return jsonErr("maxAmount must be >= minAmount", 400);
     }
 
-    const approverUserId = safeStr(body?.approverUserId).trim();
+    const approverUserId = safeStr((body as any)?.approverUserId).trim();
     if (!approverUserId) return jsonErr("Missing approverUserId", 400);
 
-    // ✅ prevent overlapping bands
     await ensureNoOverlap(supabase, {
       projectId,
       minAmount,
@@ -138,11 +134,10 @@ export async function POST(req: Request) {
       max_amount: maxAmount == null ? null : maxAmount,
       currency,
       approver_user_id: approverUserId,
-      approver_name: safeStr(body?.approverName).trim() || null,
-      approver_email: safeStr(body?.approverEmail).trim() || null,
-      approver_role: safeStr(body?.approverRole).trim() || null,
+      approver_name: safeStr((body as any)?.approverName).trim() || null,
+      approver_email: safeStr((body as any)?.approverEmail).trim() || null,
+      approver_role: safeStr((body as any)?.approverRole).trim() || null,
       created_by: user.id,
-      // updated_at is handled by trigger on update; on insert default now()
     };
 
     const { data, error } = await supabase.from("doa_rules").insert(insertRow).select("*").single();
@@ -159,18 +154,16 @@ export async function POST(req: Request) {
 
 /**
  * GET /api/doa/rules?projectId=...
- * Returns active rules only (removed_at IS NULL)
  */
 export async function GET(req: Request) {
   try {
-    const supabase = await createClient();
+    const supabase = await getSupabase();
     const user = await requireAuth(supabase);
 
     const url = new URL(req.url);
     const projectId = safeStr(url.searchParams.get("projectId")).trim();
     if (!projectId) return jsonErr("Missing projectId", 400);
 
-    // any active project member can view
     const { data: mem, error: memErr } = await supabase
       .from("project_members")
       .select("id")
@@ -202,35 +195,23 @@ export async function GET(req: Request) {
 
 /**
  * PATCH /api/doa/rules
- * Body:
- * {
- *   id,
- *   projectId,
- *   minAmount,
- *   maxAmount?,
- *   currency?,
- *   approverUserId,
- *   approverName?,
- *   approverEmail?,
- *   approverRole?
- * }
  */
 export async function PATCH(req: Request) {
   try {
-    const supabase = await createClient();
+    const supabase = await getSupabase();
     const user = await requireAuth(supabase);
 
     const body = await req.json().catch(() => ({}));
-    const id = safeStr(body?.id).trim();
-    const projectId = safeStr(body?.projectId).trim();
+    const id = safeStr((body as any)?.id).trim();
+    const projectId = safeStr((body as any)?.projectId).trim();
     if (!id) return jsonErr("Missing id", 400);
     if (!projectId) return jsonErr("Missing projectId", 400);
 
     await requireProjectAdmin(supabase, projectId, user.id);
 
-    const minAmount = safeNum(body?.minAmount);
-    const maxAmount = body?.maxAmount === "" ? null : safeNum(body?.maxAmount);
-    const currency = safeStr(body?.currency).trim() || "GBP";
+    const minAmount = safeNum((body as any)?.minAmount);
+    const maxAmount = (body as any)?.maxAmount === "" ? null : safeNum((body as any)?.maxAmount);
+    const currency = safeStr((body as any)?.currency).trim() || "GBP";
 
     if (minAmount == null) return jsonErr("minAmount must be a number", 400);
     if (minAmount < 0) return jsonErr("minAmount must be >= 0", 400);
@@ -240,10 +221,9 @@ export async function PATCH(req: Request) {
       if (maxAmount < minAmount) return jsonErr("maxAmount must be >= minAmount", 400);
     }
 
-    const approverUserId = safeStr(body?.approverUserId).trim();
+    const approverUserId = safeStr((body as any)?.approverUserId).trim();
     if (!approverUserId) return jsonErr("Missing approverUserId", 400);
 
-    // Ensure rule exists and belongs to this project and is active
     const { data: existing, error: exErr } = await supabase
       .from("doa_rules")
       .select("id, project_id, removed_at")
@@ -255,7 +235,6 @@ export async function PATCH(req: Request) {
     if (existing.removed_at) return jsonErr("Rule is removed", 400);
     if (String(existing.project_id) !== projectId) return jsonErr("projectId mismatch", 400);
 
-    // ✅ prevent overlap (exclude this rule)
     await ensureNoOverlap(supabase, {
       projectId,
       minAmount,
@@ -268,10 +247,9 @@ export async function PATCH(req: Request) {
       max_amount: maxAmount == null ? null : maxAmount,
       currency,
       approver_user_id: approverUserId,
-      approver_name: safeStr(body?.approverName).trim() || null,
-      approver_email: safeStr(body?.approverEmail).trim() || null,
-      approver_role: safeStr(body?.approverRole).trim() || null,
-      // updated_at handled by trigger
+      approver_name: safeStr((body as any)?.approverName).trim() || null,
+      approver_email: safeStr((body as any)?.approverEmail).trim() || null,
+      approver_role: safeStr((body as any)?.approverRole).trim() || null,
     };
 
     const { data, error } = await supabase.from("doa_rules").update(patch).eq("id", id).select("*").single();
@@ -288,11 +266,10 @@ export async function PATCH(req: Request) {
 
 /**
  * DELETE /api/doa/rules?id=...&projectId=...
- * Soft delete: sets removed_at + removed_by (matches your schema)
  */
 export async function DELETE(req: Request) {
   try {
-    const supabase = await createClient();
+    const supabase = await getSupabase();
     const user = await requireAuth(supabase);
 
     const url = new URL(req.url);
@@ -303,7 +280,6 @@ export async function DELETE(req: Request) {
 
     await requireProjectAdmin(supabase, projectId, user.id);
 
-    // Ensure exists and belongs to project
     const { data: existing, error: exErr } = await supabase
       .from("doa_rules")
       .select("id, project_id, removed_at")
@@ -334,4 +310,3 @@ export async function DELETE(req: Request) {
     return jsonErr(msg, status);
   }
 }
-ok
