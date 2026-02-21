@@ -178,9 +178,9 @@ function normalizeArtifactLink(href: string | null | undefined) {
     .replace(/\/RAID(\/|$)/g, "/raid$1")
     .replace(/\/WBS(\/|$)/g, "/wbs$1")
     .replace(/\/SCHEDULE(\/|$)/g, "/schedule$1")
-    .replace(/\/CHANGE(\/|$)/g, "/change$1")
-    .replace(/\/CHANGES(\/|$)/g, "/changes$1")
-    .replace(/\/CHANGE_REQUESTS(\/|$)/g, "/changes$1")
+        .replace(/\/CHANGE(\/|$)/g, "/change$1")
+    .replace(/\/CHANGES(\/|$)/g, "/change$1")
+    .replace(/\/CHANGE_REQUESTS(\/|$)/g, "/change$1")
     .replace(/\/ARTIFACTS(\/|$)/g, "/artifacts$1");
 
   return `${fixedPath}${tail}`;
@@ -766,7 +766,7 @@ function linkForRaid(projectHumanId: string, focusPublicId?: string) {
   return normalizeArtifactLink(url);
 }
 function linkForChanges(projectHumanId: string, focusChangeId?: string) {
-  const base = `/projects/${projectHumanId}/changes`;
+  const base = `/projects/${projectHumanId}/change`;
   const url = focusChangeId ? `${base}?id=${encodeURIComponent(focusChangeId)}` : base;
   return normalizeArtifactLink(url);
 }
