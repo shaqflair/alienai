@@ -34,6 +34,9 @@ import {
   Save,
   Send,
   Wand2,
+  Zap,
+  Shield,
+  Sparkles,
 } from "lucide-react";
 
 const DEV = process.env.NODE_ENV === "development";
@@ -178,7 +181,6 @@ function buildEmptyTable(headers: string[]): { columns: number; rows: RowObj[] }
     columns: cols,
     rows: [
       { type: "header", cells: headers.map((h) => safeString(h)) },
-      // ✅ keep at least 2 data rows (export/AI/validators expect this)
       { type: "data", cells: Array.from({ length: cols }, () => "") },
       { type: "data", cells: Array.from({ length: cols }, () => "") },
     ],
@@ -262,7 +264,6 @@ function ensureCanonicalCharter(input: any) {
       const t = buildEmptyTable(req.headers ?? ["", "", "", ""]);
       if (req.key === "financials") {
         const currencyIdx = 2;
-        // Ensure currency defaults for all data rows
         for (const r of t.rows) {
           if (r.type !== "data") continue;
           while (r.cells.length < t.columns) r.cells.push("");
@@ -300,20 +301,20 @@ function LegacyLinks({ legacy }: { legacy?: LegacyExports | null }) {
   if (!hasAny) return null;
 
   return (
-    <div className="flex items-center gap-2 text-xs text-slate-500">
-      <span className="font-medium text-slate-600">Legacy:</span>
+    <div className="flex items-center gap-3 text-xs text-slate-400">
+      <span className="font-medium text-slate-500 uppercase tracking-wider text-[10px]">Legacy:</span>
       {legacy?.pdf ? (
-        <a className="underline hover:text-slate-700" href={legacy.pdf} target="_blank" rel="noreferrer">
+        <a className="text-indigo-500 hover:text-indigo-700 transition-colors font-medium" href={legacy.pdf} target="_blank" rel="noreferrer">
           PDF
         </a>
       ) : null}
       {legacy?.docx ? (
-        <a className="underline hover:text-slate-700" href={legacy.docx} target="_blank" rel="noreferrer">
+        <a className="text-indigo-500 hover:text-indigo-700 transition-colors font-medium" href={legacy.docx} target="_blank" rel="noreferrer">
           DOCX
         </a>
       ) : null}
       {legacy?.xlsx ? (
-        <a className="underline hover:text-slate-700" href={legacy.xlsx} target="_blank" rel="noreferrer">
+        <a className="text-indigo-500 hover:text-indigo-700 transition-colors font-medium" href={legacy.xlsx} target="_blank" rel="noreferrer">
           XLSX
         </a>
       ) : null}
@@ -321,10 +322,6 @@ function LegacyLinks({ legacy }: { legacy?: LegacyExports | null }) {
   );
 }
 
-/**
- * ✅ Always seed defaults if missing (even if props arrive late).
- * - Only fills when blank (never overwrites user-entered meta).
- */
 function applyProjectMetaDefaults(doc: any, defaults: { projectTitle?: string; projectManagerName?: string }) {
   const d = ensureCanonicalCharter(doc);
   const meta = d.meta && typeof d.meta === "object" ? d.meta : {};
@@ -386,9 +383,6 @@ function mergeAiFullIntoCharter(prevDoc: any, ai: any) {
   return { ...canon, meta: mergedMeta, sections: nextSections };
 }
 
-/**
- * ✅ Patch-first extraction (robust to API shapes)
- */
 function extractPatchFromAny(ai: any): any | null {
   if (!ai || typeof ai !== "object") return null;
   if ((ai as any).patch && typeof (ai as any).patch === "object" && (ai as any).patch.kind) return (ai as any).patch;
@@ -415,7 +409,6 @@ function applyReplaceSection(prevDoc: any, sectionKey: string, incomingSection: 
 }
 
 function applyAiResultToDoc(prevDoc: any, sectionKey: string, data: any) {
-  // 1) Prefer patch wrapper
   const patch = extractPatchFromAny(data);
 
   if (patch?.kind === "replace_all") {
@@ -430,12 +423,10 @@ function applyAiResultToDoc(prevDoc: any, sectionKey: string, data: any) {
     return applyReplaceSection(prevDoc, k, sec);
   }
 
-  // 2) Fallback to UI-friendly fields (added by API)
   const k2 = String((data as any)?.sectionKey || sectionKey || "").trim();
   const sec2 = (data as any)?.section ?? (Array.isArray((data as any)?.sections) ? (data as any).sections[0] : null);
   if (k2 && sec2) return applyReplaceSection(prevDoc, k2, sec2);
 
-  // 3) Final fallback: legacy extract patterns
   const candidate = (data && typeof data === "object" && ((data as any).charterV2 || (data as any).doc)) || data;
   const raw = (candidate as any)?.charterV2 ?? (candidate as any)?.doc ?? candidate;
 
@@ -501,8 +492,6 @@ export default function ProjectCharterEditorFormLazy({
   const [dirty, setDirty] = useState(false);
 
   const [autosaveState, setAutosaveState] = useState<"idle" | "saving" | "queued">("idle");
-
-  // ✅ NEW: autosave error + stop retrying same signature endlessly
   const [autosaveError, setAutosaveError] = useState<string>("");
   const failedSigRef = useRef<string | null>(null);
 
@@ -530,18 +519,12 @@ export default function ProjectCharterEditorFormLazy({
   function markDirty() {
     lastLocalEditAtRef.current = Date.now();
     setDirty(true);
-    // user changed something => allow autosave again
     setAutosaveError("");
     failedSigRef.current = null;
   }
 
   useEffect(() => setMounted(true), []);
 
-  /**
-   * ✅ Fix: keep trying to seed project_title + project_manager whenever props arrive
-   * - Only seeds when meta fields are blank.
-   * - Marks dirty only if it actually changed doc.meta.
-   */
   useEffect(() => {
     const title = String(projectTitle ?? "").trim();
     const pm = String(projectManagerName ?? "").trim();
@@ -603,10 +586,6 @@ export default function ProjectCharterEditorFormLazy({
 
   const localSig = useMemo(() => stableSig(v2ForSave), [v2ForSave]);
 
-  /**
-   * If server pushes new initialJson and user is not dirty, adopt it safely.
-   * (And re-apply meta defaults as a second safety net.)
-   */
   useEffect(() => {
     if (dirty) return;
     const sinceEdit = Date.now() - (lastLocalEditAtRef.current || 0);
@@ -673,8 +652,6 @@ export default function ProjectCharterEditorFormLazy({
             }
           } catch (e: any) {
             autosaveInFlightRef.current = false;
-
-            // ✅ STOP infinite pending: mark this signature as failed and go idle + show error
             failedSigRef.current = sigAtStart;
             setAutosaveError(String(e?.message ?? "Autosave failed"));
             setAutosaveState("idle");
@@ -717,7 +694,6 @@ export default function ProjectCharterEditorFormLazy({
     if (!canEdit) return;
     if (!dirty) return;
 
-    // ✅ If autosave already failed for *this* signature, do not keep retrying automatically
     if (autosaveError && failedSigRef.current && failedSigRef.current === localSig) {
       return;
     }
@@ -820,38 +796,26 @@ export default function ProjectCharterEditorFormLazy({
     }
   }
 
-  const StatusBadge = ({ state }: { state: typeof autosaveState }) => {
+  /* ── Status indicator ── */
+  const StatusDot = ({ state }: { state: typeof autosaveState }) => {
     const configs = {
-      idle: {
-        icon: CheckCircle2,
-        color: "text-emerald-600",
-        bg: "bg-emerald-50",
-        border: "border-emerald-200",
-        label: "Saved",
-      },
-      saving: {
-        icon: Loader2,
-        color: "text-blue-600",
-        bg: "bg-blue-50",
-        border: "border-blue-200",
-        label: "Saving...",
-      },
-      queued: {
-        icon: Clock,
-        color: "text-amber-600",
-        bg: "bg-amber-50",
-        border: "border-amber-200",
-        label: "Pending",
-      },
+      idle: { color: "#059669", bg: "#d1fae5", label: "Saved", pulse: false },
+      saving: { color: "#6366f1", bg: "#e0e7ff", label: "Saving…", pulse: true },
+      queued: { color: "#d97706", bg: "#fef3c7", label: "Pending", pulse: true },
     };
-    const config = (configs as any)[state];
-    const Icon = config.icon;
+    const c = (configs as any)[state];
     return (
-      <span
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${config.bg} ${config.border} ${config.color}`}
-      >
-        <Icon className={`h-3.5 w-3.5 ${state === "saving" ? "animate-spin" : ""}`} />
-        {config.label}
+      <span className="inline-flex items-center gap-2 text-xs font-medium" style={{ color: c.color }}>
+        <span className="relative flex h-2 w-2">
+          {c.pulse && (
+            <span
+              className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+              style={{ backgroundColor: c.color }}
+            />
+          )}
+          <span className="relative inline-flex rounded-full h-2 w-2" style={{ backgroundColor: c.color }} />
+        </span>
+        {c.label}
       </span>
     );
   };
@@ -868,7 +832,7 @@ export default function ProjectCharterEditorFormLazy({
   const submitDisabledReason = !submitWired
     ? "Submit action is not wired."
     : !canSubmitOrResubmit
-      ? "You can’t submit right now (role/status/current revision)."
+      ? "You can't submit right now (role/status/current revision)."
       : readOnly
         ? "View-only mode."
         : lockLayout
@@ -888,9 +852,11 @@ export default function ProjectCharterEditorFormLazy({
 
     try {
       const brief = String(pmBrief ?? "");
-setDoc((prev) => setPmBriefInMeta(prev, brief));
-markDirty();
-const docForRequest = setPmBriefInMeta(v2ForSave, brief);      const systemPrompt = [
+      setDoc((prev: any) => setPmBriefInMeta(prev, brief));
+      markDirty();
+      const docForRequest = setPmBriefInMeta(v2ForSave, brief);
+
+      const systemPrompt = [
         "Act as a senior programme manager and PMO governance expert.",
         "Generate a complete, executive-ready Project Charter using best-practice (PRINCE2/PMBOK hybrid).",
         "Be concise, structured, and realistic for enterprise delivery.",
@@ -929,7 +895,7 @@ const docForRequest = setPmBriefInMeta(v2ForSave, brief);      const systemPromp
 
       if (!res.ok) throw new Error(String(data?.error ?? "AI full generation failed"));
 
-      setDoc((prev) => mergeAiFullIntoCharter(prev, data));
+      setDoc((prev: any) => mergeAiFullIntoCharter(prev, data));
       lastLocalEditAtRef.current = Date.now();
       setDirty(true);
     } catch (e: any) {
@@ -984,8 +950,7 @@ const docForRequest = setPmBriefInMeta(v2ForSave, brief);      const systemPromp
 
       if (!res.ok) throw new Error(String(data?.error ?? "AI regeneration failed"));
 
-      // ✅ PATCH-FIRST APPLY (fixes “spinner but no change”)
-      setDoc((prev) => applyAiResultToDoc(prev, key, data));
+      setDoc((prev: any) => applyAiResultToDoc(prev, key, data));
       lastLocalEditAtRef.current = Date.now();
       setDirty(true);
     } catch (e: any) {
@@ -997,7 +962,6 @@ const docForRequest = setPmBriefInMeta(v2ForSave, brief);      const systemPromp
     }
   }
 
-  // ✅ FIX: Improve should directly improve the clicked section (no notes UI / no top box)
   async function improveSection(payload: ImproveSectionPayload) {
     if (!canEdit) return;
     if (!wireCaps.suggest && !wireCaps.section) {
@@ -1044,8 +1008,7 @@ const docForRequest = setPmBriefInMeta(v2ForSave, brief);      const systemPromp
 
       if (!res.ok) throw new Error(String(data?.error ?? "AI improve failed"));
 
-      // ✅ PATCH-FIRST APPLY (fixes “spinner but no change”)
-      setDoc((prev) => applyAiResultToDoc(prev, key, data));
+      setDoc((prev: any) => applyAiResultToDoc(prev, key, data));
       lastLocalEditAtRef.current = Date.now();
       setDirty(true);
     } catch (e: any) {
@@ -1060,327 +1023,428 @@ const docForRequest = setPmBriefInMeta(v2ForSave, brief);      const systemPromp
   const pmBriefEmpty = !isNonEmptyString(pmBrief);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Project Charter</h1>
-              <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs font-semibold border border-slate-200">
-                v{badgeVersion}
-              </span>
+    <div
+      className="space-y-6 max-w-7xl mx-auto px-4 py-6"
+      style={{ fontFamily: "'DM Sans', system-ui, -apple-system, sans-serif" }}
+    >
+      {/* Inject fonts */}
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&display=swap');
 
-              {approvalEnabled ? (
-                <span className="px-2.5 py-0.5 rounded-full bg-slate-900 text-white text-xs font-semibold border border-slate-900">
-                  {String(approvalStatus || "draft").replace(/_/g, " ")}
+        .charter-form * {
+          font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+        }
+        .charter-form .font-display {
+          font-family: 'Fraunces', Georgia, serif;
+        }
+        .charter-form .font-mono {
+          font-family: 'DM Mono', 'SF Mono', monospace;
+        }
+
+        .glass-card {
+          background: rgba(255, 255, 255, 0.82);
+          backdrop-filter: blur(24px);
+          -webkit-backdrop-filter: blur(24px);
+          border: 1px solid rgba(255, 255, 255, 0.6);
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 8px 40px rgba(0, 0, 0, 0.03);
+        }
+
+        .btn-primary-gradient {
+          background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%);
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .btn-primary-gradient:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 20px rgba(67, 56, 202, 0.3);
+        }
+
+        .btn-ai-generate {
+          background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a78bfa 100%);
+          background-size: 200% 200%;
+          animation: shimmer 3s ease infinite;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .btn-ai-generate:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 6px 24px rgba(99, 102, 241, 0.35);
+        }
+        .btn-ai-generate:disabled {
+          opacity: 0.5;
+          background: #94a3b8;
+          animation: none;
+        }
+
+        @keyframes shimmer {
+          0%, 100% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+        }
+
+        .view-toggle {
+          background: rgba(241, 245, 249, 0.8);
+          backdrop-filter: blur(8px);
+        }
+
+        .brief-card {
+          background: linear-gradient(135deg, rgba(238, 242, 255, 0.5) 0%, rgba(224, 231, 255, 0.3) 100%);
+          border: 1px solid rgba(199, 210, 254, 0.5);
+        }
+
+        .error-card {
+          background: linear-gradient(135deg, rgba(255, 241, 242, 0.8) 0%, rgba(254, 226, 226, 0.5) 100%);
+          border: 1px solid rgba(252, 165, 165, 0.4);
+        }
+
+        .fade-in {
+          animation: fadeIn 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        .charter-brief-textarea {
+          transition: all 0.2s ease;
+        }
+        .charter-brief-textarea:focus {
+          box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.08), 0 2px 8px rgba(99, 102, 241, 0.04);
+        }
+      `}</style>
+
+      <div className="charter-form">
+        {/* ── Header Card ── */}
+        <div className="glass-card rounded-2xl p-6 space-y-5">
+          {/* Top bar */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+            <div className="space-y-2">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="font-display text-[28px] font-medium text-slate-900 tracking-[-0.02em] leading-tight">
+                  Project Charter
+                </h1>
+
+                <span className="font-mono px-2 py-0.5 rounded-md bg-slate-100/80 text-slate-500 text-[11px] font-medium border border-slate-200/60 tracking-wider">
+                  v{badgeVersion}
                 </span>
-              ) : null}
-            </div>
 
-            <p className="text-sm text-slate-500">
-              {readOnly
-                ? "View-only mode"
-                : lockLayout
-                  ? "Layout locked after submission"
-                  : "Edit and manage your project charter"}
-            </p>
-
-            <LegacyLinks legacy={legacyExports ?? null} />
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <StatusBadge state={autosaveState} />
-
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-lg border-slate-300 hover:bg-slate-50 text-slate-900"
-              disabled={!canEdit || isPending || autosaveState === "saving"}
-              onClick={() => saveNow("manual")}
-              title={!canEdit ? "Read-only / locked" : dirty ? "Save changes" : "No unsaved changes"}
-            >
-              <Save className="h-4 w-4 mr-2 text-slate-700" />
-              <span className="whitespace-nowrap">Save</span>
-            </Button>
-
-            <div className="flex items-center bg-slate-100 rounded-lg p-1 border border-slate-200">
-              <button
-                type="button"
-                onClick={() => setViewMode("sections")}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                  viewMode === "sections"
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                Sections
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("classic")}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                  viewMode === "classic"
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                Classic Table
-              </button>
-            </div>
-
-            {approvalEnabled ? (
-              submitWired ? (
-                <form action={submitForApprovalAction as any}>
-                  <Button
-                    type="submit"
-                    variant="outline"
-                    className="rounded-lg border-slate-300 hover:bg-slate-50 text-slate-900"
-                    disabled={submitDisabled}
-                    title={submitDisabled ? submitDisabledReason : "Submit this charter for approval"}
+                {approvalEnabled ? (
+                  <span
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide uppercase"
+                    style={{
+                      background: "linear-gradient(135deg, #1e1b4b, #312e81)",
+                      color: "white",
+                    }}
                   >
-                    <Send className="h-4 w-4 mr-2 text-slate-700" />
-                    <span className="whitespace-nowrap">{submitLabel}</span>
-                  </Button>
-                </form>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-lg border-slate-300 text-slate-900"
-                  disabled
-                  title={submitDisabledReason}
-                >
-                  <Send className="h-4 w-4 mr-2 text-slate-700" />
-                  <span className="whitespace-nowrap">{submitLabel}</span>
-                </Button>
-              )
-            ) : null}
-
-            {mounted ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="rounded-lg border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors"
-                    disabled={!!exportBusy}
-                  >
-                    {exportBusy ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Download className="h-4 w-4 mr-2" />
-                    )}
-                    {exportBusy ? "Exporting..." : "Export"}
-                    <ChevronDown className="h-3 w-3 ml-2 opacity-50" />
-                  </Button>
-                </DropdownMenuTrigger>
-
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem
-                    onClick={() => exportCharter("pdf")}
-                    disabled={!!exportBusy}
-                    className="cursor-pointer focus:bg-slate-50"
-                  >
-                    <FileText className="h-4 w-4 mr-2 text-red-600" />
-                    <div className="flex flex-col">
-                      <span className="text-sm">Export PDF</span>
-                      <span className="text-xs text-slate-500">Professional document</span>
-                    </div>
-                  </DropdownMenuItem>
-
-                  <DropdownMenuItem
-                    onClick={() => exportCharter("docx")}
-                    disabled={!!exportBusy}
-                    className="cursor-pointer focus:bg-slate-50"
-                  >
-                    <File className="h-4 w-4 mr-2 text-blue-600" />
-                    <div className="flex flex-col">
-                      <span className="text-sm">Export Word</span>
-                      <span className="text-xs text-slate-500">Editable document</span>
-                    </div>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <Button
-                variant="outline"
-                className="rounded-lg border-slate-300"
-                disabled
-                title="Export menu loads after page is ready"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Export
-                <ChevronDown className="h-3 w-3 ml-2 opacity-50" />
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* ✅ Autosave failure (prevents “stuck pending”) */}
-        {autosaveError ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-4 py-3">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-4 w-4" />
-              <span className="font-medium">Autosave failed:</span>
-              <span className="text-rose-800/90">{autosaveError}</span>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-lg border-rose-200 hover:bg-rose-100 text-rose-800"
-              disabled={!canEdit || isPending}
-              onClick={() => {
-                setAutosaveError("");
-                failedSigRef.current = null;
-                saveNow("autosave");
-              }}
-            >
-              Retry autosave
-            </Button>
-          </div>
-        ) : null}
-
-        {/* PM Brief (kept) */}
-        {canEdit ? (
-          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <div className="text-sm font-semibold text-slate-900">PM Brief</div>
-                <div className="text-xs text-slate-600">Provide context for AI generation. Keep it crisp and specific.</div>
+                    <Shield className="h-3 w-3" />
+                    {String(approvalStatus || "draft").replace(/_/g, " ")}
+                  </span>
+                ) : null}
               </div>
 
-              <div className="flex items-center gap-2">
-                <div className="text-xs text-slate-500">
+              <p className="text-sm text-slate-500 leading-relaxed">
+                {readOnly
+                  ? "View-only mode"
+                  : lockLayout
+                    ? "Layout locked after submission"
+                    : "Edit and manage your project charter"}
+              </p>
+
+              <LegacyLinks legacy={legacyExports ?? null} />
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-wrap items-center gap-3">
+              <StatusDot state={autosaveState} />
+
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border border-slate-200/80 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                disabled={!canEdit || isPending || autosaveState === "saving"}
+                onClick={() => saveNow("manual")}
+                title={!canEdit ? "Read-only / locked" : dirty ? "Save changes" : "No unsaved changes"}
+              >
+                <Save className="h-4 w-4 text-slate-500" />
+                Save
+              </button>
+
+              {/* View mode toggle */}
+              <div className="view-toggle flex items-center rounded-xl p-1 border border-slate-200/60">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("sections")}
+                  className={`px-3.5 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                    viewMode === "sections"
+                      ? "bg-white text-slate-900 shadow-sm border border-slate-200/60"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Sections
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("classic")}
+                  className={`px-3.5 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                    viewMode === "classic"
+                      ? "bg-white text-slate-900 shadow-sm border border-slate-200/60"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Classic
+                </button>
+              </div>
+
+              {/* Submit approval */}
+              {approvalEnabled ? (
+                submitWired ? (
+                  <form action={submitForApprovalAction as any}>
+                    <button
+                      type="submit"
+                      className="btn-primary-gradient inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                      disabled={submitDisabled}
+                      title={submitDisabled ? submitDisabledReason : "Submit this charter for approval"}
+                    >
+                      <Send className="h-4 w-4" />
+                      {submitLabel}
+                    </button>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn-primary-gradient inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                    disabled
+                    title={submitDisabledReason}
+                  >
+                    <Send className="h-4 w-4" />
+                    {submitLabel}
+                  </button>
+                )
+              ) : null}
+
+              {/* Export dropdown */}
+              {mounted ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border border-slate-200/80 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 transition-all"
+                      disabled={!!exportBusy}
+                    >
+                      {exportBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Download className="h-4 w-4 text-slate-500" />
+                      )}
+                      {exportBusy ? "Exporting…" : "Export"}
+                      <ChevronDown className="h-3 w-3 opacity-40" />
+                    </button>
+                  </DropdownMenuTrigger>
+
+                  <DropdownMenuContent align="end" className="w-52 rounded-xl p-1.5">
+                    <DropdownMenuItem
+                      onClick={() => exportCharter("pdf")}
+                      disabled={!!exportBusy}
+                      className="cursor-pointer rounded-lg px-3 py-2.5 focus:bg-slate-50"
+                    >
+                      <FileText className="h-4 w-4 mr-3 text-rose-500" />
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium">Export PDF</span>
+                        <span className="text-[11px] text-slate-400">Professional document</span>
+                      </div>
+                    </DropdownMenuItem>
+
+                    <DropdownMenuItem
+                      onClick={() => exportCharter("docx")}
+                      disabled={!!exportBusy}
+                      className="cursor-pointer rounded-lg px-3 py-2.5 focus:bg-slate-50"
+                    >
+                      <File className="h-4 w-4 mr-3 text-blue-500" />
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium">Export Word</span>
+                        <span className="text-[11px] text-slate-400">Editable document</span>
+                      </div>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <button
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border border-slate-200/80 bg-white text-slate-500"
+                  disabled
+                >
+                  <Download className="h-4 w-4" />
+                  Export
+                  <ChevronDown className="h-3 w-3 opacity-40" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Autosave error */}
+          {autosaveError ? (
+            <div className="error-card rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 fade-in">
+              <div className="flex items-center gap-2.5 text-sm text-rose-700">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span className="font-medium">Autosave failed:</span>
+                <span className="text-rose-600/80">{autosaveError}</span>
+              </div>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-rose-200 bg-white text-rose-700 hover:bg-rose-50 disabled:opacity-40 transition-all"
+                disabled={!canEdit || isPending}
+                onClick={() => {
+                  setAutosaveError("");
+                  failedSigRef.current = null;
+                  saveNow("autosave");
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          ) : null}
+
+          {/* PM Brief */}
+          {canEdit ? (
+            <div className="brief-card rounded-2xl p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-indigo-500" />
+                    <span className="text-sm font-semibold text-slate-900">PM Brief</span>
+                  </div>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Provide context for AI generation — be specific about scope, constraints, and goals.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3 shrink-0">
                   {pmBriefEmpty ? (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-800">
-                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200/60 bg-amber-50/80 px-2.5 py-1 text-[11px] font-medium text-amber-700">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
                       Recommended
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-800">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/60 bg-emerald-50/80 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
                       Ready
                     </span>
                   )}
+
+                  <button
+                    type="button"
+                    className="btn-ai-generate inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white disabled:cursor-not-allowed"
+                    disabled={!canEdit || isPending || aiState === "generating" || aiFullBusy || !wireCaps.full}
+                    onClick={() => generateFullCharter()}
+                    title={
+                      !wireCaps.full
+                        ? "Full AI generation is not available."
+                        : pmBriefEmpty
+                          ? "Add a brief first (recommended)"
+                          : "Generate the full charter from your brief"
+                    }
+                  >
+                    {aiFullBusy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Wand2 className="h-4 w-4" />
+                    )}
+                    Generate
+                  </button>
                 </div>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-8 rounded-lg border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-900"
-                  disabled={!canEdit || isPending || aiState === "generating" || aiFullBusy || !wireCaps.full}
-                  onClick={() => generateFullCharter()}
-                  title={
-                    !wireCaps.full
-                      ? "Full AI generation is not available."
-                      : pmBriefEmpty
-                        ? "Add a brief first (recommended)"
-                        : "Generate the full charter from your brief"
-                  }
-                >
-                  {aiFullBusy ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Wand2 className="h-4 w-4 mr-2 text-indigo-700" />
-                  )}
-                  <span className="whitespace-nowrap">Generate</span>
-                </Button>
               </div>
-            </div>
 
-            <textarea
-              value={pmBrief}
-              onChange={(e) => {
-                const v = e.target.value;
-                setPmBrief(v);
-                lastLocalEditAtRef.current = Date.now();
-                setDoc((prev) => setPmBriefInMeta(prev, v));
-                setDirty(true);
-              }}
-              rows={7}
-              placeholder={[
-                "Act as a senior programme manager and PMO governance expert.",
-                "Generate a complete, executive-ready Project Charter using best-practice (PRINCE2/PMBOK hybrid).",
-                "Be concise, structured, and realistic for enterprise delivery.",
-                "Flag assumptions clearly and avoid generic filler.",
-                "Ensure objectives are measurable and aligned to business value.",
-              ].join("\n")}
-              className="mt-3 w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-            />
-          </div>
-        ) : null}
-
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-xs text-slate-500">
-            {lastSavedIso ? (
-              <>
-                Last saved: <span className="font-mono">{fmtWhenLocal(lastSavedIso)}</span>
-              </>
-            ) : (
-              "—"
-            )}
-          </div>
-
-          {aiState === "error" && aiError ? (
-            <div className="flex items-center gap-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
-              <AlertCircle className="h-4 w-4" />
-              {aiError}
+              <textarea
+                value={pmBrief}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setPmBrief(v);
+                  lastLocalEditAtRef.current = Date.now();
+                  setDoc((prev: any) => setPmBriefInMeta(prev, v));
+                  setDirty(true);
+                }}
+                rows={6}
+                placeholder={[
+                  "Act as a senior programme manager and PMO governance expert.",
+                  "Generate a complete, executive-ready Project Charter using best-practice (PRINCE2/PMBOK hybrid).",
+                  "Be concise, structured, and realistic for enterprise delivery.",
+                  "Flag assumptions clearly and avoid generic filler.",
+                  "Ensure objectives are measurable and aligned to business value.",
+                ].join("\n")}
+                className="charter-brief-textarea mt-4 w-full rounded-xl border border-indigo-200/60 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400/70 focus:outline-none focus:border-indigo-300 resize-y leading-relaxed"
+              />
             </div>
           ) : null}
+
+          {/* Footer info */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="font-mono text-[11px] text-slate-400 tracking-wide">
+              {lastSavedIso ? (
+                <>Last saved {fmtWhenLocal(lastSavedIso)}</>
+              ) : (
+                "—"
+              )}
+            </div>
+
+            {aiState === "error" && aiError ? (
+              <div className="flex items-center gap-2 text-xs text-rose-600 bg-rose-50/80 border border-rose-200/60 rounded-xl px-3 py-2">
+                <AlertCircle className="h-3.5 w-3.5" />
+                {aiError}
+              </div>
+            ) : null}
+          </div>
+
+          {exportErr && (
+            <div className="error-card rounded-xl px-4 py-3 flex items-center gap-2.5 text-sm text-rose-700 fade-in">
+              <AlertCircle className="h-4 w-4" />
+              {exportErr}
+            </div>
+          )}
         </div>
 
-        {exportErr && (
-          <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
-            <AlertCircle className="h-4 w-4" />
-            {exportErr}
-          </div>
-        )}
-      </div>
+        {/* ── Editor Body ── */}
+        <div
+          className="mt-6 glass-card rounded-2xl min-h-[600px] overflow-hidden"
+          style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.03), 0 12px 48px rgba(0,0,0,0.04)" }}
+        >
+          {viewMode === "classic" ? (
+            <ProjectCharterClassicView doc={doc} projectTitleFromProject={projectTitle} />
+          ) : isCanonicalV2 ? (
+            <ProjectCharterSectionEditor
+              meta={doc?.meta ?? {}}
+              onMetaChange={(meta: any) => {
+                markDirty();
+                setDoc((prev: any) => {
+                  const cur = ensureCanonicalCharter(prev);
+                  return applyProjectMetaDefaults({ ...cur, meta }, { projectTitle, projectManagerName });
+                });
+              }}
+              sections={sectionsForEditor}
+              onChange={(sections: any) => {
+                markDirty();
+                setDoc((prev: any) =>
+                  applyProjectMetaDefaults(ensureCanonicalCharter({ ...prev, sections }), {
+                    projectTitle,
+                    projectManagerName,
+                  })
+                );
+              }}
+              readOnly={sectionReadOnly}
+              onImproveSection={(payload: ImproveSectionPayload) => improveSection(payload)}
+              onRegenerateSection={(sectionKey: string) => regenerateSection(sectionKey)}
+              aiDisabled={!canEdit || isPending || aiState === "generating"}
+              aiLoadingKey={aiLoadingKey}
+            />
+          ) : (
+            <ProjectCharterEditor
+              initialJson={doc}
+              onChange={(next: any) => {
+                markDirty();
+                setDoc(applyProjectMetaDefaults(next, { projectTitle, projectManagerName }));
+              }}
+              readOnly={readOnly}
+              lockLayout={lockLayout}
+            />
+          )}
+        </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm min-h-[600px]">
-        {viewMode === "classic" ? (
-          <ProjectCharterClassicView doc={doc} projectTitleFromProject={projectTitle} />
-        ) : isCanonicalV2 ? (
-          <ProjectCharterSectionEditor
-            meta={doc?.meta ?? {}}
-            onMetaChange={(meta: any) => {
-              markDirty();
-              setDoc((prev: any) => {
-                const cur = ensureCanonicalCharter(prev);
-                return applyProjectMetaDefaults({ ...cur, meta }, { projectTitle, projectManagerName });
-              });
-            }}
-            sections={sectionsForEditor}
-            onChange={(sections: any) => {
-              markDirty();
-              setDoc((prev: any) =>
-                applyProjectMetaDefaults(ensureCanonicalCharter({ ...prev, sections }), {
-                  projectTitle,
-                  projectManagerName,
-                })
-              );
-            }}
-            readOnly={sectionReadOnly}
-            onImproveSection={(payload: ImproveSectionPayload) => improveSection(payload)}
-            onRegenerateSection={(sectionKey: string) => regenerateSection(sectionKey)}
-            aiDisabled={!canEdit || isPending || aiState === "generating"}
-            aiLoadingKey={aiLoadingKey}
-          />
-        ) : (
-          <ProjectCharterEditor
-            initialJson={doc}
-            onChange={(next: any) => {
-              markDirty();
-              setDoc(applyProjectMetaDefaults(next, { projectTitle, projectManagerName }));
-            }}
-            readOnly={readOnly}
-            lockLayout={lockLayout}
-          />
-        )}
+        {/* ✅ Dev-only panel */}
+        {DEV ? <CharterV2DebugPanel value={v2ForSave} /> : null}
       </div>
-
-      {/* ✅ Dev-only panel (never rendered/imported in prod) */}
-      {DEV ? <CharterV2DebugPanel value={v2ForSave} /> : null}
     </div>
   );
 }
