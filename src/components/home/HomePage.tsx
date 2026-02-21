@@ -5,8 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
-// ✅ Perf: LazyMotion reduces framer-motion feature bundle
-import { LazyMotion, domAnimation, m, AnimatePresence } from "framer-motion";
+import { LazyMotion, domAnimation, m, AnimatePresence, useSpring, useMotionValue, useTransform } from "framer-motion";
 
 import {
   Bell,
@@ -32,52 +31,44 @@ import {
 } from "lucide-react";
 
 /* ─────────────────────────────────────────────────────────────
-   ☁️ LIGHT THEME SYSTEM
-   - Palette: Cloud White & Slate
-   - Elevation: Clean shadows, subtle borders
-   - Accent: Indigo (Professional)
+   🖤 OBSIDIAN NOIR THEME
+   - Dark as deep space, accented with electric cyan
+   - Premium glass morphism
+   - Surgical precision typography
 ───────────────────────────────────────────────────────────── */
 
 const THEME = {
-  // Background (Clean Light)
-  pageBg: "bg-gray-50 text-gray-900",
-  pageGrad: "from-white via-gray-50 to-gray-100",
+  pageBg: "bg-[#080B12] text-gray-100",
+  pageGrad: "from-[#080B12] via-[#0D1220] to-[#080B12]",
 
-  // Accent (Indigo)
-  accent: "#4f46e5", // Indigo 600
-  accentLight: "#e0e7ff", // Indigo 100
+  accent: "#00D8FF",
+  accentDim: "rgba(0,216,255,0.15)",
+  gold: "#F5C842",
+  goldDim: "rgba(245,200,66,0.12)",
 
-  // ✅ Neon (requested)
-  neon: "#00B8DB",
-
-  // Text Hierarchy
-  textPrimary: "text-gray-900",
-  textSecondary: "text-gray-600",
-  textTertiary: "text-gray-400",
+  textPrimary: "text-white",
+  textSecondary: "text-gray-400",
+  textTertiary: "text-gray-600",
   textMuted: "text-gray-500",
 
-  // Surfaces (Clean Cards)
-  cardBg: "bg-white",
-  cardBorder: "border-gray-200",
-  cardBorderHover: "hover:border-indigo-300",
-  cardShadow: "shadow-sm shadow-gray-200/50",
-  cardShadowHover: "hover:shadow-md hover:shadow-gray-200/50",
+  cardBg: "bg-[rgba(255,255,255,0.03)]",
+  cardBorder: "border-[rgba(255,255,255,0.07)]",
+  cardBorderHover: "hover:border-[rgba(0,216,255,0.3)]",
+  cardShadow: "shadow-[0_1px_0_rgba(255,255,255,0.05)]",
 
-  // Status Colors (Refined for Light)
-  success: "text-emerald-700 bg-emerald-50 border-emerald-200",
-  warning: "text-amber-700 bg-amber-50 border-amber-200",
-  danger: "text-rose-700 bg-rose-50 border-rose-200",
-  info: "text-indigo-700 bg-indigo-50 border-indigo-200",
+  success: "text-emerald-400 bg-emerald-950/50 border-emerald-800/50",
+  warning: "text-amber-400 bg-amber-950/50 border-amber-800/50",
+  danger: "text-rose-400 bg-rose-950/50 border-rose-800/50",
+  info: "text-cyan-400 bg-cyan-950/50 border-cyan-800/50",
 
-  // Interactive
-  buttonGhost: "hover:bg-gray-100 text-gray-600 hover:text-gray-900",
-  buttonPrimary: "bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-200",
+  buttonGhost: "hover:bg-white/5 text-gray-400 hover:text-white",
+  buttonPrimary: "bg-cyan-500 hover:bg-cyan-400 text-black font-semibold shadow-lg shadow-cyan-500/20",
 } as const;
 
 type WindowDays = 7 | 14 | 30 | 60 | "all";
 
 /* ─────────────────────────────────────────────────────────────
-   Types & Interfaces
+   Types & Interfaces (unchanged)
 ───────────────────────────────────────────────────────────── */
 type NotifRow = {
   id: string;
@@ -99,7 +90,6 @@ type NotifApiResp =
   | { ok: true; unreadCount?: number; items: NotifRow[] };
 
 type BellTab = "all" | "action" | "ai" | "approvals";
-
 type DueItemType = "artifact" | "milestone" | "work_item" | "raid" | "change";
 
 type DueDigestItem = {
@@ -144,7 +134,7 @@ type ArtifactDueResp =
     };
 
 /* ─────────────────────────────────────────────────────────────
-   Utility Functions
+   Utility Functions (unchanged)
 ───────────────────────────────────────────────────────────── */
 function safeStr(x: any) {
   return typeof x === "string" ? x : "";
@@ -171,9 +161,7 @@ function timeAgo(iso: string) {
   const t = new Date(iso).getTime();
   const now = Date.now();
   const diffMs = now - t;
-
   if (!Number.isFinite(t) || diffMs < 0) return `just now`;
-
   const s = Math.floor(diffMs / 1000);
   if (s < 60) return `${s}s ago`;
   const m2 = Math.floor(s / 60);
@@ -221,14 +209,7 @@ function severityFromNotif(n: NotifRow): "high" | "medium" | "info" | "success" 
   const t = safeStr(n.type).toLowerCase();
   if (t.includes("success") || t.includes("completed") || t.includes("delivered")) return "success";
   if (t.includes("high") || t.includes("critical") || t.includes("breach")) return "high";
-  if (
-    t.includes("warning") ||
-    t.includes("overdue") ||
-    t.includes("at_risk") ||
-    t.includes("risk") ||
-    t.includes("issue")
-  )
-    return "medium";
+  if (t.includes("warning") || t.includes("overdue") || t.includes("at_risk") || t.includes("risk") || t.includes("issue")) return "medium";
   return "info";
 }
 
@@ -244,12 +225,11 @@ function notifIcon(n: NotifRow) {
 }
 
 function severityChip(sev: "high" | "medium" | "info" | "success") {
-  const base =
-    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide";
-  if (sev === "high") return `${base} ${THEME.danger}`;
-  if (sev === "medium") return `${base} ${THEME.warning}`;
-  if (sev === "success") return `${base} ${THEME.success}`;
-  return `${base} ${THEME.info}`;
+  const base = "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide";
+  if (sev === "high") return `${base} text-rose-400 bg-rose-950/50 border-rose-800/50`;
+  if (sev === "medium") return `${base} text-amber-400 bg-amber-950/50 border-amber-800/50`;
+  if (sev === "success") return `${base} text-emerald-400 bg-emerald-950/50 border-emerald-800/50`;
+  return `${base} text-cyan-400 bg-cyan-950/50 border-cyan-800/50`;
 }
 
 function tabMatch(tab: BellTab, n: NotifRow) {
@@ -281,7 +261,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> 
 }
 
 /* ─────────────────────────────────────────────────────────────
-   RAG helpers
+   RAG helpers (unchanged)
 ───────────────────────────────────────────────────────────── */
 type RagLetter = "G" | "A" | "R";
 
@@ -297,19 +277,56 @@ function ragLabel(r: RagLetter) {
 }
 
 function ragBadgeClasses(r: RagLetter) {
-  if (r === "G") return "border-emerald-300 bg-emerald-50 text-emerald-700";
-  if (r === "A") return "border-amber-300 bg-amber-50 text-amber-700";
-  return "border-rose-300 bg-rose-50 text-rose-700";
+  if (r === "G") return "border-emerald-700/50 bg-emerald-950/50 text-emerald-400";
+  if (r === "A") return "border-amber-700/50 bg-amber-950/50 text-amber-400";
+  return "border-rose-700/50 bg-rose-950/50 text-rose-400";
 }
 
 function ragStrokeColor(r: RagLetter) {
-  if (r === "G") return "#10b981"; // emerald-500
-  if (r === "A") return "#f59e0b"; // amber-500
-  return "#f43f5e"; // rose-500
+  if (r === "G") return "#10b981";
+  if (r === "A") return "#f59e0b";
+  return "#f43f5e";
 }
 
 /* ─────────────────────────────────────────────────────────────
-   🔔 Notification Bell (Light Mode)
+   ✨ Animated Counter Component
+───────────────────────────────────────────────────────────── */
+function AnimatedNumber({ value, duration = 1.2 }: { value: number; duration?: number }) {
+  const [display, setDisplay] = useState(0);
+  const startRef = useRef(0);
+  const startTimeRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const start = display;
+    const end = value;
+    const diff = end - start;
+    if (diff === 0) return;
+
+    startTimeRef.current = null;
+
+    const animate = (ts: number) => {
+      if (!startTimeRef.current) startTimeRef.current = ts;
+      const elapsed = (ts - startTimeRef.current) / (duration * 1000);
+      const progress = Math.min(elapsed, 1);
+      // Ease out expo
+      const eased = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+      setDisplay(Math.round(start + diff * eased));
+      if (progress < 1) {
+        rafRef.current = requestAnimationFrame(animate);
+      }
+    };
+
+    rafRef.current = requestAnimationFrame(animate);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  return <>{display}</>;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   🔔 Notification Bell (Dark Mode)
 ───────────────────────────────────────────────────────────── */
 function NotificationBell() {
   const router = useRouter();
@@ -318,7 +335,6 @@ function NotificationBell() {
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<NotifRow[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function refresh() {
@@ -326,11 +342,10 @@ function NotificationBell() {
     try {
       const r = await fetch(`/api/notifications?limit=30`, { cache: "no-store" });
       const j: NotifApiResp = await r.json().catch(() => ({ ok: false, error: "Bad JSON" }));
-      if (!j || !j.ok) throw new Error((j as any)?.error || "Failed to load notifications");
+      if (!j || !j.ok) throw new Error((j as any)?.error || "Failed");
       const list = Array.isArray(j.items) ? j.items : [];
       setItems(list);
-      const unread =
-        typeof j.unreadCount === "number" ? j.unreadCount : list.filter((x) => x.is_read !== true).length;
+      const unread = typeof j.unreadCount === "number" ? j.unreadCount : list.filter((x) => x.is_read !== true).length;
       setUnreadCount(Math.max(0, unread));
     } catch (err) {
       console.error("Notifications refresh failed:", err);
@@ -355,15 +370,11 @@ function NotificationBell() {
     if (!open) return;
     refresh();
     pollRef.current = setInterval(refresh, 15000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      pollRef.current = null;
-    };
+    return () => { if (pollRef.current) clearInterval(pollRef.current); pollRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const filtered = useMemo(() => items.filter((n) => tabMatch(tab, n)), [items, tab]);
-
   const grouped = useMemo(() => {
     const map = new Map<string, NotifRow[]>();
     for (const n of filtered) {
@@ -379,16 +390,13 @@ function NotificationBell() {
     const wasUnread = items.some((n) => n.id === id && n.is_read !== true);
     setItems((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
     if (wasUnread) setUnreadCount((c) => Math.max(0, c - 1));
-
     try {
       await fetch("/api/notifications/read", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
       });
-    } catch {
-      refresh();
-    }
+    } catch { refresh(); }
   }
 
   async function markAllRead() {
@@ -398,9 +406,7 @@ function NotificationBell() {
     setUnreadCount(0);
     try {
       await fetch("/api/notifications/read-all", { method: "POST" });
-    } catch {
-      refresh();
-    }
+    } catch { refresh(); }
   }
 
   function onClickItem(n: NotifRow) {
@@ -415,14 +421,18 @@ function NotificationBell() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="relative rounded-lg border border-gray-200 bg-white p-2.5 transition hover:bg-gray-50 hover:border-gray-300 active:scale-95 shadow-sm"
+        className="relative group rounded-xl border border-white/10 bg-white/5 p-2.5 transition-all duration-200 hover:bg-white/10 hover:border-cyan-500/40 active:scale-95 backdrop-blur-sm"
         aria-label="Notifications"
       >
-        <Bell className="h-5 w-5 text-gray-600" />
+        <Bell className="h-5 w-5 text-gray-400 group-hover:text-cyan-400 transition-colors" />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white shadow-sm ring-2 ring-white">
+          <m.span
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-cyan-500 text-[10px] font-bold text-black shadow-lg shadow-cyan-500/40 ring-2 ring-[#080B12]"
+          >
             {unreadCount > 99 ? "99+" : unreadCount}
-          </span>
+          </m.span>
         )}
       </button>
 
@@ -431,23 +441,29 @@ function NotificationBell() {
           <>
             <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
             <m.div
-              initial={{ opacity: 0, y: -8, scale: 0.96 }}
+              initial={{ opacity: 0, y: -12, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -8, scale: 0.96 }}
+              exit={{ opacity: 0, y: -12, scale: 0.95 }}
               transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              className="absolute right-0 top-full z-50 mt-2 w-[400px] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl shadow-gray-200/50"
+              className="absolute right-0 top-full z-50 mt-3 w-[420px] overflow-hidden rounded-2xl border border-white/10 bg-[#0D1220]/95 shadow-2xl shadow-black/60 backdrop-blur-xl"
+              style={{ boxShadow: "0 0 0 1px rgba(0,216,255,0.1), 0 25px 60px rgba(0,0,0,0.6)" }}
             >
               {/* Header */}
-              <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 bg-gray-50/50">
+              <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
                 <div className="flex items-center gap-3">
-                  <div className="text-sm font-semibold text-gray-900">Notifications</div>
-                  <span className="text-xs text-gray-500">{loading ? "Updating…" : `${unreadCount} unread`}</span>
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+                    <Bell className="h-4 w-4 text-cyan-400" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-white">Notifications</div>
+                    <div className="text-xs text-gray-500">{loading ? "Syncing…" : `${unreadCount} unread`}</div>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={markAllRead}
-                    className="h-8 rounded-md border border-gray-200 bg-white px-3 text-xs text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors shadow-sm"
+                    className="h-8 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 text-xs text-gray-400 hover:text-white hover:bg-white/[0.08] transition-all"
                   >
                     <CheckCheck className="mr-1.5 inline h-3.5 w-3.5" />
                     Mark all read
@@ -455,19 +471,17 @@ function NotificationBell() {
                   <button
                     type="button"
                     onClick={() => setOpen(false)}
-                    className="h-8 w-8 rounded-md border border-gray-200 bg-white p-0 hover:bg-gray-50 transition-colors shadow-sm inline-flex items-center justify-center"
-                    aria-label="Close"
+                    className="h-8 w-8 rounded-lg border border-white/[0.08] bg-white/[0.04] hover:bg-white/[0.08] transition-all inline-flex items-center justify-center"
                   >
-                    <X className="h-4 w-4 text-gray-500" />
+                    <X className="h-4 w-4 text-gray-400 hover:text-white" />
                   </button>
                 </div>
               </div>
 
               {/* Tabs */}
-              <div className="flex items-center gap-1 border-b border-gray-100 px-2 py-2 bg-gray-50/30">
+              <div className="flex items-center gap-1 border-b border-white/[0.06] px-3 py-2.5">
                 {(["all", "action", "ai", "approvals"] as BellTab[]).map((k) => {
-                  const label =
-                    k === "all" ? "All" : k === "action" ? "Action" : k === "ai" ? "AI" : "Approvals";
+                  const label = k === "all" ? "All" : k === "action" ? "Action" : k === "ai" ? "AI" : "Approvals";
                   const active = tab === k;
                   return (
                     <button
@@ -475,10 +489,10 @@ function NotificationBell() {
                       type="button"
                       onClick={() => setTab(k)}
                       className={[
-                        "rounded-md px-3 py-1.5 text-xs font-medium transition-all",
+                        "rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-150",
                         active
-                          ? "bg-indigo-600 text-white shadow-sm"
-                          : "bg-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100",
+                          ? "bg-cyan-500/15 text-cyan-400 border border-cyan-500/25"
+                          : "text-gray-500 hover:text-gray-300 hover:bg-white/[0.05]",
                       ].join(" ")}
                     >
                       {label}
@@ -488,22 +502,22 @@ function NotificationBell() {
               </div>
 
               {/* Content */}
-              <div className="max-h-[480px] overflow-auto">
+              <div className="max-h-[480px] overflow-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
                 {grouped.length === 0 ? (
-                  <div className="px-4 py-12 text-center">
-                    <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
-                      <CheckCheck className="h-5 w-5 text-gray-400" />
+                  <div className="px-4 py-14 text-center">
+                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/[0.04] border border-white/[0.06]">
+                      <CheckCheck className="h-6 w-6 text-gray-600" />
                     </div>
-                    <div className="text-sm font-medium text-gray-700">All caught up</div>
-                    <div className="mt-1 text-xs text-gray-500">No new notifications to display.</div>
+                    <div className="text-sm font-medium text-gray-300">All caught up</div>
+                    <div className="mt-1.5 text-xs text-gray-600">No new notifications.</div>
                   </div>
                 ) : (
                   grouped.map(([label, rows]) => (
                     <div key={label}>
-                      <div className="px-4 pt-4 pb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                      <div className="px-5 pt-4 pb-2 text-[10px] font-bold uppercase tracking-widest text-gray-600">
                         {label}
                       </div>
-                      <div className="px-2 pb-2">
+                      <div className="px-3 pb-2 space-y-1">
                         {rows.map((n) => {
                           const unread = n.is_read !== true;
                           const sev = severityFromNotif(n);
@@ -513,40 +527,35 @@ function NotificationBell() {
                               type="button"
                               onClick={() => onClickItem(n)}
                               className={[
-                                "mt-1 w-full rounded-lg border px-3 py-3 text-left transition-all group",
+                                "w-full rounded-xl px-3 py-3 text-left transition-all group",
                                 unread
-                                  ? "border-gray-200 bg-white shadow-sm hover:border-gray-300"
-                                  : "border-transparent bg-transparent hover:bg-gray-50",
+                                  ? "bg-white/[0.04] border border-white/[0.08] hover:border-cyan-500/20 hover:bg-white/[0.06]"
+                                  : "hover:bg-white/[0.03] border border-transparent",
                               ].join(" ")}
                             >
                               <div className="flex items-start gap-3">
                                 <div
                                   className={[
-                                    "mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border",
-                                    sev === "high"
-                                      ? "border-rose-200 bg-rose-50 text-rose-600"
-                                      : sev === "medium"
-                                      ? "border-amber-200 bg-amber-50 text-amber-600"
-                                      : sev === "success"
-                                      ? "border-emerald-200 bg-emerald-50 text-emerald-600"
-                                      : "border-indigo-200 bg-indigo-50 text-indigo-600",
+                                    "mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border",
+                                    sev === "high" ? "border-rose-800/50 bg-rose-950/50 text-rose-400"
+                                      : sev === "medium" ? "border-amber-800/50 bg-amber-950/50 text-amber-400"
+                                      : sev === "success" ? "border-emerald-800/50 bg-emerald-950/50 text-emerald-400"
+                                      : "border-cyan-800/50 bg-cyan-950/50 text-cyan-400",
                                   ].join(" ")}
                                 >
                                   {notifIcon(n)}
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center justify-between gap-2">
-                                    <div className="truncate text-sm font-medium text-gray-900">{n.title}</div>
-                                    <div className="shrink-0 text-[11px] text-gray-400">{timeAgo(n.created_at)}</div>
+                                    <div className="truncate text-sm font-medium text-gray-200">{n.title}</div>
+                                    <div className="shrink-0 text-[11px] text-gray-600">{timeAgo(n.created_at)}</div>
                                   </div>
                                   {n.body && (
-                                    <div className="mt-1 line-clamp-2 text-xs text-gray-500 leading-relaxed">
-                                      {n.body}
-                                    </div>
+                                    <div className="mt-1 line-clamp-2 text-xs text-gray-500 leading-relaxed">{n.body}</div>
                                   )}
-                                  <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+                                  <div className="mt-2 flex items-center gap-2">
                                     <span className={severityChip(sev)}>{sev}</span>
-                                    {unread && <span className="inline-flex h-1.5 w-1.5 rounded-full bg-indigo-600" />}
+                                    {unread && <span className="inline-flex h-1.5 w-1.5 rounded-full bg-cyan-400" />}
                                   </div>
                                 </div>
                               </div>
@@ -559,14 +568,11 @@ function NotificationBell() {
                 )}
               </div>
 
-              <div className="border-t border-gray-100 px-4 py-3 bg-gray-50/50">
+              <div className="border-t border-white/[0.06] px-5 py-3.5">
                 <button
                   type="button"
-                  onClick={() => {
-                    setOpen(false);
-                    router.push("/notifications");
-                  }}
-                  className="text-xs text-gray-500 hover:text-indigo-600 transition-colors flex items-center gap-1"
+                  onClick={() => { setOpen(false); router.push("/notifications"); }}
+                  className="text-xs text-gray-500 hover:text-cyan-400 transition-colors flex items-center gap-1.5"
                 >
                   View all notifications
                   <ChevronRight className="h-3 w-3" />
@@ -581,7 +587,7 @@ function NotificationBell() {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Existing Home types & helpers
+   Existing Home types (unchanged)
 ───────────────────────────────────────────────────────────── */
 type Insight = {
   id: string;
@@ -652,26 +658,16 @@ type MilestonesPanel = {
 
 type RaidPanel = {
   days: number;
-
-  // ✅ "Due (in window)" counts (NOT high-score counts)
   due_total: number;
-
-  // ✅ Overdue counts (separate)
   overdue_total: number;
-
-  // ✅ Optional: due-by-type
   risk_due?: number;
   issue_due?: number;
   dependency_due?: number;
   assumption_due?: number;
-
-  // ✅ Optional: overdue-by-type (only used if API provides)
   risk_overdue?: number;
   issue_overdue?: number;
   dependency_overdue?: number;
   assumption_overdue?: number;
-
-  // (Legacy / API may still send these — keep for safety)
   risk_hi?: number;
   issue_hi?: number;
   dependency_hi?: number;
@@ -730,6 +726,9 @@ type PortfolioHealthApi =
       meta?: any;
     };
 
+/* ─────────────────────────────────────────────────────────────
+   Helpers (unchanged logic)
+───────────────────────────────────────────────────────────── */
 function trendIcon(delta: number | null | undefined) {
   const d = Number(delta);
   if (!Number.isFinite(d) || d === 0) return <Minus className="h-4 w-4" />;
@@ -797,11 +796,7 @@ function calcRagAgg(
     if (!pid || !["G", "A", "R"].includes(letter)) continue;
     byPid.set(pid, { rag: letter, health: Number(it?.health) });
   }
-
-  let g = 0,
-    a = 0,
-    r = 0,
-    scored = 0;
+  let g = 0, a = 0, r = 0, scored = 0;
   const vals: number[] = [];
   for (const p of proj) {
     const pid = String((p as any)?.id || "").trim();
@@ -815,20 +810,10 @@ function calcRagAgg(
     const h = Number(hit.health);
     vals.push(Number.isFinite(h) ? clamp01to100(h) : hit.rag === "G" ? 90 : hit.rag === "A" ? 65 : 35);
   }
-
   const projectsTotal = proj.length;
   const unscored = Math.max(0, projectsTotal - scored);
   const avg = vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : 0;
-
-  return {
-    avgHealth: clamp01to100(avg),
-    g,
-    a,
-    r,
-    scored,
-    unscored,
-    projectsTotal,
-  };
+  return { avgHealth: clamp01to100(avg), g, a, r, scored, unscored, projectsTotal };
 }
 
 function healthNarrative(score: number) {
@@ -875,7 +860,7 @@ function projectCodeLabel(project_code: any): string {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Due soon helpers (client)
+   Due soon helpers (unchanged)
 ───────────────────────────────────────────────────────────── */
 function dueDateLabel(iso: string | null | undefined) {
   const s = safeStr(iso).trim();
@@ -886,11 +871,11 @@ function dueDateLabel(iso: string | null | undefined) {
 }
 
 function dueChipTone(itemType: DueItemType) {
-  if (itemType === "milestone") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (itemType === "work_item") return "border-indigo-200 bg-indigo-50 text-indigo-700";
-  if (itemType === "raid") return "border-rose-200 bg-rose-50 text-rose-700";
-  if (itemType === "change") return "border-violet-200 bg-violet-50 text-violet-700";
-  return "border-gray-200 bg-gray-50 text-gray-600";
+  if (itemType === "milestone") return "border-emerald-800/60 bg-emerald-950/60 text-emerald-400";
+  if (itemType === "work_item") return "border-cyan-800/60 bg-cyan-950/60 text-cyan-400";
+  if (itemType === "raid") return "border-rose-800/60 bg-rose-950/60 text-rose-400";
+  if (itemType === "change") return "border-violet-800/60 bg-violet-950/60 text-violet-400";
+  return "border-white/10 bg-white/5 text-gray-400";
 }
 
 function dueTypeLabel(itemType: DueItemType) {
@@ -910,7 +895,7 @@ function isOverdue(iso: string | null | undefined) {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   🏠 Home Page (Light Mode)
+   🏠 Home Page (Dark Noir Mode)
 ───────────────────────────────────────────────────────────── */
 export default function HomePage({ data }: { data: HomeData }) {
   const router = useRouter();
@@ -918,16 +903,7 @@ export default function HomePage({ data }: { data: HomeData }) {
   const ok = data?.ok === true;
   const isExec = ok ? data.isExec : false;
   const projects = ok ? data.projects : [];
-  const kpis = ok
-    ? data.kpis
-    : {
-        portfolioHealth: 0,
-        openRisks: 0,
-        highRisks: 0,
-        forecastVariance: 0,
-        milestonesDue: 0,
-        openLessons: 0,
-      };
+  const kpis = ok ? data.kpis : { portfolioHealth: 0, openRisks: 0, highRisks: 0, forecastVariance: 0, milestonesDue: 0, openLessons: 0 };
   const approvals = ok ? data.approvals : { count: 0, items: [] };
   const rag = ok ? data.rag || [] : [];
 
@@ -977,34 +953,14 @@ export default function HomePage({ data }: { data: HomeData }) {
     raid: number;
     artifact: number;
     change: number;
-  }>({
-    total: 0,
-    milestone: 0,
-    work_item: 0,
-    raid: 0,
-    artifact: 0,
-    change: 0,
-  });
+  }>({ total: 0, milestone: 0, work_item: 0, raid: 0, artifact: 0, change: 0 });
   const [dueUpdatedAt, setDueUpdatedAt] = useState<string>("");
 
+  useEffect(() => { setApprovalItems(Array.isArray(approvals.items) ? approvals.items : []); }, [ok, approvals.items]);
   useEffect(() => {
-    setApprovalItems(Array.isArray(approvals.items) ? approvals.items : []);
-  }, [ok, approvals.items]);
-
-  useEffect(() => {
-    setToday(
-      new Date().toLocaleDateString(undefined, {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      })
-    );
+    setToday(new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" }));
   }, []);
-
-  useEffect(() => {
-    setShowPhDetails(false);
-  }, [windowDays]);
+  useEffect(() => { setShowPhDetails(false); }, [windowDays]);
 
   // Portfolio health (exec)
   useEffect(() => {
@@ -1013,112 +969,76 @@ export default function HomePage({ data }: { data: HomeData }) {
     runIdle(() => {
       (async () => {
         try {
-          setPhLoading(true);
-          setPhErr("");
+          setPhLoading(true); setPhErr("");
           const j = await fetchJson<PortfolioHealthApi>(`/api/portfolio/health?days=${windowDays}`, { cache: "no-store" });
-          if (!j || !j.ok) throw new Error((j as any)?.error || "Failed to load portfolio health");
+          if (!j || !j.ok) throw new Error((j as any)?.error || "Failed");
           if (!cancelled) setPhData(j);
         } catch (e: any) {
-          if (!cancelled) {
-            setPhErr(e?.message || "Failed to load portfolio health");
-            setPhData(null);
-          }
-        } finally {
-          if (!cancelled) setPhLoading(false);
-        }
+          if (!cancelled) { setPhErr(e?.message || "Failed"); setPhData(null); }
+        } finally { if (!cancelled) setPhLoading(false); }
       })();
     });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [ok, isExec, windowDays]);
 
-  // previous-window trend (exec)
+  // Previous window trend
   useEffect(() => {
     if (!ok || !isExec) return;
     const cur: 7 | 14 | 30 | 60 = numericWindowDays;
     const prev = prevWindowDays(cur);
     let cancelled = false;
-
     runIdle(() => {
       (async () => {
         try {
-          setPhPrevLoading(true);
-          setPhPrevErr("");
+          setPhPrevLoading(true); setPhPrevErr("");
           const j = await fetchJson<PortfolioHealthApi>(`/api/portfolio/health?days=${prev}`, { cache: "no-store" });
-          if (!j || !j.ok) throw new Error((j as any)?.error || "Failed to load previous-window health");
+          if (!j || !j.ok) throw new Error((j as any)?.error || "Failed");
           const sc = clamp01to100((j as any).portfolio_health);
           if (!cancelled) setPhPrevScore(sc);
         } catch (e: any) {
-          if (!cancelled) {
-            setPhPrevErr(e?.message || "Prev health unavailable");
-            setPhPrevScore(null);
-          }
-        } finally {
-          if (!cancelled) setPhPrevLoading(false);
-        }
+          if (!cancelled) { setPhPrevErr(e?.message || "Prev unavailable"); setPhPrevScore(null); }
+        } finally { if (!cancelled) setPhPrevLoading(false); }
       })();
     });
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [ok, isExec, numericWindowDays]);
 
-  // AI briefing (non-blocking)
+  // AI briefing
   useEffect(() => {
     let cancelled = false;
     runIdle(() => {
       (async () => {
         try {
-          setInsightsLoading(true);
-          setInsightsErr("");
+          setInsightsLoading(true); setInsightsErr("");
           const j: any = await fetchJson(`/api/ai/briefing?days=${numericWindowDays}`, { cache: "no-store" });
-          if (!j?.ok) throw new Error(j?.error || "Failed to load briefing");
+          if (!j?.ok) throw new Error(j?.error || "Failed");
           const list = Array.isArray(j?.insights) ? (j.insights as Insight[]) : [];
           if (!cancelled) setInsights(orderBriefingInsights(list));
         } catch (e: any) {
-          if (!cancelled) {
-            setInsightsErr(e?.message || "Failed to load briefing");
-            setInsights([]);
-          }
-        } finally {
-          if (!cancelled) setInsightsLoading(false);
-        }
+          if (!cancelled) { setInsightsErr(e?.message || "Failed"); setInsights([]); }
+        } finally { if (!cancelled) setInsightsLoading(false); }
       })();
     });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [numericWindowDays]);
 
-  // Success Stories (exec, non-blocking)
+  // Success Stories
   useEffect(() => {
     if (!ok || !isExec) return;
     let cancelled = false;
     runIdle(() => {
       (async () => {
         try {
-          setSsLoading(true);
-          setSsErr("");
-          const j = await fetchJson<SuccessStoriesSummary>(`/api/success-stories/summary?days=${numericWindowDays}`, {
-            cache: "no-store",
-          });
-          if (!j || !j.ok) throw new Error((j as any)?.error || "Failed to load Success Stories");
+          setSsLoading(true); setSsErr("");
+          const j = await fetchJson<SuccessStoriesSummary>(`/api/success-stories/summary?days=${numericWindowDays}`, { cache: "no-store" });
+          if (!j || !j.ok) throw new Error((j as any)?.error || "Failed");
           if (!cancelled) setSsSummary(j);
         } catch (e: any) {
-          if (!cancelled) {
-            setSsErr(e?.message || "Failed to load Success Stories");
-            setSsSummary(null);
-          }
-        } finally {
-          if (!cancelled) setSsLoading(false);
-        }
+          if (!cancelled) { setSsErr(e?.message || "Failed"); setSsSummary(null); }
+        } finally { if (!cancelled) setSsLoading(false); }
       })();
     });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [ok, isExec, numericWindowDays]);
 
   useEffect(() => setSsIdx(0), [numericWindowDays]);
@@ -1132,7 +1052,6 @@ export default function HomePage({ data }: { data: HomeData }) {
   }, [ok, isExec, ssSummary]);
 
   const approvalCount = approvalItems.length;
-
   const byId = useMemo(() => {
     const m2 = new Map<string, any>();
     for (const it of approvalItems) m2.set(String(it?.id || ""), it);
@@ -1161,22 +1080,15 @@ export default function HomePage({ data }: { data: HomeData }) {
       });
       alert(e?.message || "Decision failed");
     } finally {
-      setPendingIds((p) => {
-        const next = { ...p };
-        delete next[taskId];
-        return next;
-      });
+      setPendingIds((p) => { const next = { ...p }; delete next[taskId]; return next; });
     }
   }
 
   function viewHref(item: any) {
     const projectRef =
-      safeStr(item?.project_code) ||
-      safeStr(item?.project_human_id) ||
-      safeStr(item?.project?.project_code) ||
-      safeStr(item?.project?.project_human_id) ||
+      safeStr(item?.project_code) || safeStr(item?.project_human_id) ||
+      safeStr(item?.project?.project_code) || safeStr(item?.project?.project_human_id) ||
       safeStr(item?.project_id || item?.change?.project_id);
-
     const changeId = safeStr(item?.change_id || item?.change?.id);
     if (projectRef && changeId)
       return `/projects/${encodeURIComponent(projectRef)}/change/${encodeURIComponent(changeId)}`;
@@ -1184,10 +1096,7 @@ export default function HomePage({ data }: { data: HomeData }) {
   }
 
   const projectIdsKey = useMemo(() => {
-    const ids = (projects || [])
-      .map((p) => String(p?.id || ""))
-      .filter(Boolean)
-      .sort();
+    const ids = (projects || []).map((p) => String(p?.id || "")).filter(Boolean).sort();
     return ids.join("|");
   }, [projects]);
 
@@ -1198,275 +1107,122 @@ export default function HomePage({ data }: { data: HomeData }) {
   }
 
   useEffect(() => {
-    if (!ok || !isExec) return;
-    if (!projectIdsKey) return;
-
+    if (!ok || !isExec || !projectIdsKey) return;
     let cancelled = false;
-
     runIdle(() => {
       (async () => {
         try {
           setMilestonesDueLoading(true);
-
-          const pj: any = await fetchJson(`/api/portfolio/milestones-due?days=${numericWindowDays}`, {
-            cache: "no-store",
-          });
-
-          if (pj?.ok && typeof pj?.count === "number") {
-            if (!cancelled) setMilestonesDueLive(Math.max(0, Number(pj.count)));
-            return;
-          }
-
+          const pj: any = await fetchJson(`/api/portfolio/milestones-due?days=${numericWindowDays}`, { cache: "no-store" });
+          if (pj?.ok && typeof pj?.count === "number") { if (!cancelled) setMilestonesDueLive(Math.max(0, Number(pj.count))); return; }
           const ids = projectIdsKey.split("|").filter(Boolean);
-
-          const results = await Promise.allSettled(
-            ids.map(async (projectId) => {
-              const j: any = await fetchJson(`/api/projects/${projectId}/milestones/due?days=${numericWindowDays}`, {
-                cache: "no-store",
-              });
-              if (!j?.ok) return 0;
-              const n2 = Number(j?.count ?? 0);
-              return Number.isFinite(n2) ? n2 : 0;
-            })
-          );
-
+          const results = await Promise.allSettled(ids.map(async (projectId) => {
+            const j: any = await fetchJson(`/api/projects/${projectId}/milestones/due?days=${numericWindowDays}`, { cache: "no-store" });
+            if (!j?.ok) return 0;
+            const n2 = Number(j?.count ?? 0);
+            return Number.isFinite(n2) ? n2 : 0;
+          }));
           let sum = 0;
           for (const res of results) if (res.status === "fulfilled") sum += res.value;
-
           if (!cancelled) setMilestonesDueLive(sum);
-        } catch {
-          // keep last known
-        } finally {
-          if (!cancelled) setMilestonesDueLoading(false);
-        }
+        } catch {} finally { if (!cancelled) setMilestonesDueLoading(false); }
       })();
     });
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [ok, isExec, projectIdsKey, numericWindowDays]);
 
   useEffect(() => {
-    if (!ok || !isExec) return;
-    if (!projectIdsKey) return;
-
+    if (!ok || !isExec || !projectIdsKey) return;
     let cancelled = false;
-
     runIdle(() => {
       (async () => {
         try {
           setMilestonesPanelLoading(true);
-
-          const pj: any = await fetchJson(`/api/portfolio/milestones/panel?days=${numericWindowDays}`, {
-            cache: "no-store",
-          });
-
-          if (pj?.ok && pj?.panel) {
-            if (!cancelled) setMilestonesPanel(pj.panel as MilestonesPanel);
-            return;
-          }
-
+          const pj: any = await fetchJson(`/api/portfolio/milestones/panel?days=${numericWindowDays}`, { cache: "no-store" });
+          if (pj?.ok && pj?.panel) { if (!cancelled) setMilestonesPanel(pj.panel as MilestonesPanel); return; }
           const ids = projectIdsKey.split("|").filter(Boolean);
-
-          const results = await Promise.allSettled(
-            ids.map(async (projectId) => {
-              const j: any = await fetchJson(`/api/projects/${projectId}/milestones/panel?days=${numericWindowDays}`, {
-                cache: "no-store",
-              });
-              if (!j?.ok) return null;
-              return (j.panel ?? null) as MilestonesPanel | null;
-            })
-          );
-
-          let due = 0,
-            overdue = 0,
-            onTrack = 0,
-            aiHigh = 0;
-
-          let planned = 0,
-            inProg = 0,
-            atRisk = 0,
-            completed = 0;
-
-          let slipSum = 0,
-            slipCount = 0,
-            maxSlip = 0;
-
+          const results = await Promise.allSettled(ids.map(async (projectId) => {
+            const j: any = await fetchJson(`/api/projects/${projectId}/milestones/panel?days=${numericWindowDays}`, { cache: "no-store" });
+            if (!j?.ok) return null;
+            return (j.panel ?? null) as MilestonesPanel | null;
+          }));
+          let due = 0, overdue = 0, onTrack = 0, aiHigh = 0;
+          let planned = 0, inProg = 0, atRisk = 0, completed = 0;
+          let slipSum = 0, slipCount = 0, maxSlip = 0;
           for (const res of results) {
             if (res.status !== "fulfilled" || !res.value) continue;
             const p = res.value;
-
-            due += num(p.due_count);
-            overdue += num(p.overdue_count);
-            onTrack += num(p.on_track_count);
-            aiHigh += num(p.ai_high_risk_count);
-
-            planned += num(p.status_breakdown?.planned);
-            inProg += num(p.status_breakdown?.in_progress);
-            atRisk += num(p.status_breakdown?.at_risk);
-            completed += num(p.status_breakdown?.completed);
-
-            const avg = p.slippage?.avg_slip_days;
-            const mx = p.slippage?.max_slip_days;
-
-            if (Number.isFinite(Number(avg))) {
-              slipSum += Number(avg);
-              slipCount += 1;
-            }
+            due += num(p.due_count); overdue += num(p.overdue_count); onTrack += num(p.on_track_count); aiHigh += num(p.ai_high_risk_count);
+            planned += num(p.status_breakdown?.planned); inProg += num(p.status_breakdown?.in_progress);
+            atRisk += num(p.status_breakdown?.at_risk); completed += num(p.status_breakdown?.completed);
+            const avg = p.slippage?.avg_slip_days; const mx = p.slippage?.max_slip_days;
+            if (Number.isFinite(Number(avg))) { slipSum += Number(avg); slipCount += 1; }
             if (Number.isFinite(Number(mx))) maxSlip = Math.max(maxSlip, Number(mx));
           }
-
           const panelAgg: MilestonesPanel = {
-            days: numericWindowDays,
-            due_count: due,
-            overdue_count: overdue,
-            on_track_count: onTrack,
-            ai_high_risk_count: aiHigh,
-            status_breakdown: {
-              planned,
-              in_progress: inProg,
-              at_risk: atRisk,
-              completed,
-              overdue,
-            },
-            slippage: {
-              avg_slip_days: slipCount ? Math.round((slipSum / slipCount) * 10) / 10 : 0,
-              max_slip_days: maxSlip,
-            },
+            days: numericWindowDays, due_count: due, overdue_count: overdue, on_track_count: onTrack, ai_high_risk_count: aiHigh,
+            status_breakdown: { planned, in_progress: inProg, at_risk: atRisk, completed, overdue },
+            slippage: { avg_slip_days: slipCount ? Math.round((slipSum / slipCount) * 10) / 10 : 0, max_slip_days: maxSlip },
           };
-
           if (!cancelled) setMilestonesPanel(panelAgg);
-        } catch {
-          if (!cancelled) setMilestonesPanel(null);
-        } finally {
-          if (!cancelled) setMilestonesPanelLoading(false);
-        }
+        } catch { if (!cancelled) setMilestonesPanel(null); }
+        finally { if (!cancelled) setMilestonesPanelLoading(false); }
       })();
     });
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [ok, isExec, projectIdsKey, numericWindowDays]);
 
-  /* ─────────────────────────────────────────────────────────────
-     ✅ RAID panel
-     - Primary: API due-by-type keys if present
-     - Fallback: derive from returned items list (if API includes items[])
-     - Last resort: due_total
-  ────────────────────────────────────────────────────────────── */
   useEffect(() => {
     if (!ok || !isExec) return;
-
     let cancelled = false;
-
     const pickFirstFinite = (obj: any, keys: string[]) => {
-      for (const k of keys) {
-        const v = obj?.[k];
-        if (Number.isFinite(Number(v))) return num(v);
-      }
+      for (const k of keys) { const v = obj?.[k]; if (Number.isFinite(Number(v))) return num(v); }
       return undefined;
     };
-
     const parseType = (t: any) => String(t || "").toLowerCase().trim();
-
     const parseDueIso = (row: any) =>
-      safeStr(row?.due) ||
-      safeStr(row?.due_date) ||
-      safeStr(row?.dueDate) ||
-      safeStr(row?.due_at) ||
-      safeStr(row?.dueAt) ||
-      safeStr(row?.target_date) ||
-      safeStr(row?.targetDate) ||
-      "";
-
+      safeStr(row?.due) || safeStr(row?.due_date) || safeStr(row?.dueDate) ||
+      safeStr(row?.due_at) || safeStr(row?.dueAt) || safeStr(row?.target_date) ||
+      safeStr(row?.targetDate) || "";
     const isRowClosed = (row: any) => {
       const s = String(row?.status || row?.state || "").toLowerCase();
       return s.includes("closed") || s.includes("resolved") || s.includes("done") || s.includes("complete");
     };
-
     runIdle(() => {
       (async () => {
         try {
           setRaidLoading(true);
-
           const j: any = await fetchJson(`/api/portfolio/raid-panel?days=${numericWindowDays}`, { cache: "no-store" });
           if (!j?.ok) return;
-
           const p = j?.panel ?? null;
           if (cancelled) return;
-
-          if (!p) {
-            setRaidPanel(null);
-            return;
-          }
-
-          // 1) Try to read due-by-type from API (support many possible key names)
-          const risk_due =
-            pickFirstFinite(p, ["risk_due", "risks_due", "due_risk", "due_risks", "riskDue", "risk_due_count"]) ??
-            undefined;
-          const issue_due =
-            pickFirstFinite(p, ["issue_due", "issues_due", "due_issue", "due_issues", "issueDue", "issue_due_count"]) ??
-            undefined;
-          const dependency_due =
-            pickFirstFinite(p, [
-              "dependency_due",
-              "dependencies_due",
-              "dep_due",
-              "deps_due",
-              "due_dependency",
-              "due_deps",
-              "dependencyDue",
-            ]) ?? undefined;
-          const assumption_due =
-            pickFirstFinite(p, ["assumption_due", "assumptions_due", "due_assumption", "due_assumptions"]) ??
-            undefined;
-
+          if (!p) { setRaidPanel(null); return; }
+          const risk_due = pickFirstFinite(p, ["risk_due", "risks_due", "due_risk", "due_risks", "riskDue", "risk_due_count"]) ?? undefined;
+          const issue_due = pickFirstFinite(p, ["issue_due", "issues_due", "due_issue", "due_issues", "issueDue", "issue_due_count"]) ?? undefined;
+          const dependency_due = pickFirstFinite(p, ["dependency_due", "dependencies_due", "dep_due", "deps_due", "due_dependency", "due_deps", "dependencyDue"]) ?? undefined;
+          const assumption_due = pickFirstFinite(p, ["assumption_due", "assumptions_due", "due_assumption", "due_assumptions"]) ?? undefined;
           const overdue_total_api = num(p?.overdue_total);
           const due_total_api = num(p?.due_total);
-
-          // 2) If API did NOT give due-by-type, try to derive from returned items (if present)
-          let dRisk = 0,
-            dIssue = 0,
-            dDep = 0,
-            dAss = 0,
-            ovRisk = 0,
-            ovIssue = 0,
-            ovDep = 0,
-            ovAss = 0;
-
+          let dRisk = 0, dIssue = 0, dDep = 0, dAss = 0, ovRisk = 0, ovIssue = 0, ovDep = 0, ovAss = 0;
           const items = Array.isArray(p?.items) ? p.items : Array.isArray(j?.items) ? j.items : null;
-
-          const missingTyped =
-            !Number.isFinite(Number(risk_due)) ||
-            !Number.isFinite(Number(issue_due)) ||
-            !Number.isFinite(Number(dependency_due)) ||
-            !Number.isFinite(Number(assumption_due));
-
+          const missingTyped = !Number.isFinite(Number(risk_due)) || !Number.isFinite(Number(issue_due)) || !Number.isFinite(Number(dependency_due)) || !Number.isFinite(Number(assumption_due));
           if (missingTyped && Array.isArray(items) && items.length) {
             const now = Date.now();
             const windowEnd = now + numericWindowDays * 86400_000;
-
             for (const row of items) {
               if (isRowClosed(row)) continue;
               const type = parseType(row?.type || row?.item_type || row?.raid_type);
               const dueIso = parseDueIso(row);
               const dueT = dueIso ? new Date(dueIso).getTime() : NaN;
               if (!Number.isFinite(dueT)) continue;
-
-              const isOv = dueT < now - 30_000;
+              const isOv = dueT < Date.now() - 30_000;
               const inWindow = dueT <= windowEnd;
-
-              // due in window (excluding overdue)
               if (inWindow && !isOv) {
                 if (type.includes("risk")) dRisk++;
                 else if (type.includes("issue")) dIssue++;
                 else if (type.includes("depend")) dDep++;
                 else if (type.includes("assump")) dAss++;
               }
-
-              // overdue
               if (isOv) {
                 if (type.includes("risk")) ovRisk++;
                 else if (type.includes("issue")) ovIssue++;
@@ -1475,66 +1231,32 @@ export default function HomePage({ data }: { data: HomeData }) {
               }
             }
           }
-
-          // Final due-by-type values (API > derived > 0)
           const finalRiskDue = Number.isFinite(Number(risk_due)) ? num(risk_due) : dRisk;
           const finalIssueDue = Number.isFinite(Number(issue_due)) ? num(issue_due) : dIssue;
           const finalDepDue = Number.isFinite(Number(dependency_due)) ? num(dependency_due) : dDep;
           const finalAssDue = Number.isFinite(Number(assumption_due)) ? num(assumption_due) : dAss;
-
           const due_total_from_types = finalRiskDue + finalIssueDue + finalDepDue + finalAssDue;
           const due_total = due_total_from_types > 0 ? due_total_from_types : due_total_api;
-
-          // Overdue: prefer API; else derived sum
           const overdue_total = overdue_total_api > 0 ? overdue_total_api : ovRisk + ovIssue + ovDep + ovAss;
-
           setRaidPanel({
-            days: num(p.days, numericWindowDays),
-            due_total,
-            overdue_total,
-
-            risk_due: finalRiskDue,
-            issue_due: finalIssueDue,
-            dependency_due: finalDepDue,
-            assumption_due: finalAssDue,
-
-            // optional overdue-by-type (derived only)
-            risk_overdue: ovRisk || undefined,
-            issue_overdue: ovIssue || undefined,
-            dependency_overdue: ovDep || undefined,
-            assumption_overdue: ovAss || undefined,
-
-            // legacy (keep if present)
-            risk_hi: num(p?.risk_hi),
-            issue_hi: num(p?.issue_hi),
-            dependency_hi: num(p?.dependency_hi),
-            assumption_hi: num(p?.assumption_hi),
-            overdue_hi: num(p?.overdue_hi),
+            days: num(p.days, numericWindowDays), due_total, overdue_total,
+            risk_due: finalRiskDue, issue_due: finalIssueDue, dependency_due: finalDepDue, assumption_due: finalAssDue,
+            risk_overdue: ovRisk || undefined, issue_overdue: ovIssue || undefined, dependency_overdue: ovDep || undefined, assumption_overdue: ovAss || undefined,
+            risk_hi: num(p?.risk_hi), issue_hi: num(p?.issue_hi), dependency_hi: num(p?.dependency_hi), assumption_hi: num(p?.assumption_hi), overdue_hi: num(p?.overdue_hi),
           });
-        } catch {
-          // keep last
-        } finally {
-          if (!cancelled) setRaidLoading(false);
-        }
+        } catch {} finally { if (!cancelled) setRaidLoading(false); }
       })();
     });
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [ok, isExec, numericWindowDays]);
 
-  // ✅ Total shown on the card is ALWAYS the same sum used by the breakdown
   const raidDueTotal = useMemo(() => {
     const r = num(raidPanel?.risk_due);
     const i = num(raidPanel?.issue_due);
     const d = num(raidPanel?.dependency_due);
     const a = num(raidPanel?.assumption_due);
     const sum = r + i + d + a;
-
-    // ✅ Only trust breakdown sum if we actually have a breakdown
-    const hasBreakdown = sum > 0;
-    return hasBreakdown ? sum : num(raidPanel?.due_total);
+    return sum > 0 ? sum : num(raidPanel?.due_total);
   }, [raidPanel]);
 
   function openRaidDrilldown() {
@@ -1558,48 +1280,16 @@ export default function HomePage({ data }: { data: HomeData }) {
   const ssTone = pickCategoryTone(active?.category ?? null);
   const ssScore = ssSummary && ssSummary.ok ? clamp01to100(ssSummary.score) : 0;
   const ssDelta = ssSummary && ssSummary.ok && Number.isFinite(Number(ssSummary.delta)) ? Number(ssSummary.delta) : null;
-
-  // ✅ SINGLE source-of-truth count for UI
   const ssBreakdown = ssSummary && ssSummary.ok ? ssSummary.breakdown : undefined;
   const ssCountFromBreakdown = ssBreakdown
-    ? num(ssBreakdown.milestones_done) +
-      num(ssBreakdown.wbs_done) +
-      num(ssBreakdown.raid_resolved) +
-      num(ssBreakdown.changes_delivered) +
-      num(ssBreakdown.lessons_positive)
+    ? num(ssBreakdown.milestones_done) + num(ssBreakdown.wbs_done) + num(ssBreakdown.raid_resolved) + num(ssBreakdown.changes_delivered) + num(ssBreakdown.lessons_positive)
     : 0;
-
   const ssDisplayCount = ssCountFromBreakdown > 0 ? ssCountFromBreakdown : ssSummary && ssSummary.ok ? num(ssSummary.count, 0) : 0;
-
   const ssValue = ssLoading ? "…" : ssErr ? "—" : `${ssDisplayCount}`;
-  const ssSub = ssLoading
-    ? "Loading stories…"
-    : ssErr
-    ? "Success stories unavailable"
-    : active
-    ? active.title
-    : ssDisplayCount > 0
-    ? `${ssDisplayCount} success stor${ssDisplayCount === 1 ? "y" : "ies"} in ${windowNarr}`
-    : `No success stories in ${windowNarr}`;
-
-  const ssMetaLine = ssLoading
-    ? `Window: ${windowLabel}`
-    : ssErr
-    ? "Check /api/success-stories/summary"
-    : ssDisplayCount > 0
-    ? `— ${ssScore}% confidence • ${active?.project_title ? active.project_title : "Portfolio"}`
-    : `Window: ${windowLabel}`;
-
-  const ssAiLine = ssLoading
-    ? "Analysing delivery artifacts (milestones, RAID, WBS, changes, lessons)…"
-    : ssErr
-    ? ssErr
-    : active
-    ? active.summary
-    : "As milestones complete and risks close, Success Stories will appear automatically.";
-
-  const ssTooltip =
-    "Success Story is generated from delivery artifacts (Milestones, RAID, WBS, Change Requests, Lessons). Click to view all.";
+  const ssSub = ssLoading ? "Loading stories…" : ssErr ? "Success stories unavailable" : active ? active.title : ssDisplayCount > 0 ? `${ssDisplayCount} success stor${ssDisplayCount === 1 ? "y" : "ies"} in ${windowNarr}` : `No success stories in ${windowNarr}`;
+  const ssMetaLine = ssLoading ? `Window: ${windowLabel}` : ssErr ? "Check /api/success-stories/summary" : ssDisplayCount > 0 ? `— ${ssScore}% confidence • ${active?.project_title ? active.project_title : "Portfolio"}` : `Window: ${windowLabel}`;
+  const ssAiLine = ssLoading ? "Analysing delivery artifacts…" : ssErr ? ssErr : active ? active.summary : "As milestones complete and risks close, Success Stories will appear automatically.";
+  const ssTooltip = "Success Story is generated from delivery artifacts. Click to view all.";
 
   function openSuccessStories() {
     const sp = new URLSearchParams();
@@ -1607,16 +1297,47 @@ export default function HomePage({ data }: { data: HomeData }) {
     router.push(`/success-stories?${sp.toString()}`);
   }
 
-  function openSuccessStoryItem() {
-    openSuccessStories();
+  // Due soon
+  useEffect(() => {
+    if (!ok || !isExec) return;
+    let cancelled = false;
+    runIdle(() => {
+      (async () => {
+        try {
+          setDueLoading(true); setDueErr("");
+          const j = await fetchJson<ArtifactDueResp>(`/api/ai/events`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
+            body: JSON.stringify({ eventType: "artifact_due", windowDays: dueWindowDays }),
+          });
+          if (!j || !j.ok) throw new Error((j as any)?.error || "Failed");
+          const ai = (j as any).ai as ArtifactDueAi;
+          const list = Array.isArray(ai?.dueSoon) ? ai.dueSoon : [];
+          const c = ai?.counts || ({} as any);
+          const counts = { milestone: num(c.milestone), work_item: num(c.work_item), raid: num(c.raid), artifact: num(c.artifact), change: num(c.change), total: num(c.milestone) + num(c.work_item) + num(c.raid) + num(c.artifact) + num(c.change) };
+          const merged = list.slice().sort((a, b) => {
+            const at = a?.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+            const bt = b?.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+            if (at !== bt) return at - bt;
+            return safeStr(a?.title).localeCompare(safeStr(b?.title));
+          }).slice(0, 30).map((x) => ({ ...x, title: safeStr(x?.title).trim() || "Untitled", link: safeStr(x?.link).trim() || null }));
+          if (!cancelled) { setDueItems(merged); setDueCounts(counts); setDueUpdatedAt(new Date().toISOString()); }
+        } catch (e: any) {
+          if (!cancelled) { setDueErr(e?.message || "Failed"); setDueItems([]); setDueCounts({ total: 0, milestone: 0, work_item: 0, raid: 0, artifact: 0, change: 0 }); }
+        } finally { if (!cancelled) setDueLoading(false); }
+      })();
+    });
+    return () => { cancelled = true; };
+  }, [ok, isExec, dueWindowDays]);
+
+  function openDueItem(it: DueDigestItem) {
+    const href = safeStr(it?.link).trim();
+    if (href) router.push(href);
   }
 
   const activeProjects = useMemo(() => {
     const arr = Array.isArray(projects) ? [...projects] : [];
-
     const norm = (v: any) => String(v ?? "").toLowerCase().trim();
     const truthy = (v: any) => v === true || v === "true" || v === 1 || v === "1";
-
     const isInactive = (p: any) => {
       if (p?.deleted_at || p?.deletedAt) return true;
       if (truthy(p?.is_deleted) || truthy(p?.deleted)) return true;
@@ -1624,21 +1345,10 @@ export default function HomePage({ data }: { data: HomeData }) {
       if (p?.archived_at) return true;
       if (p?.is_active === false) return true;
       if (p?.active === false) return true;
-
       const st = [p?.status, p?.lifecycle_state, p?.state, p?.phase].map(norm).find(Boolean) || "";
       if (!st) return false;
-
-      return (
-        st.includes("closed") ||
-        st.includes("cancel") ||
-        st.includes("cancell") ||
-        st.includes("deleted") ||
-        st.includes("archive") ||
-        st.includes("inactive") ||
-        st.includes("complete")
-      );
+      return st.includes("closed") || st.includes("cancel") || st.includes("cancell") || st.includes("deleted") || st.includes("archive") || st.includes("inactive") || st.includes("complete");
     };
-
     return arr.filter((p: any) => !isInactive(p));
   }, [projects]);
 
@@ -1647,21 +1357,17 @@ export default function HomePage({ data }: { data: HomeData }) {
     arr.sort((a: any, b: any) => {
       const ac = projectCodeLabel(a?.project_code);
       const bc = projectCodeLabel(b?.project_code);
-      const an = Number(ac);
-      const bn = Number(bc);
+      const an = Number(ac); const bn = Number(bc);
       const aIsNum = Number.isFinite(an) && ac !== "";
       const bIsNum = Number.isFinite(bn) && bc !== "";
       if (aIsNum && bIsNum && an !== bn) return an - bn;
       if (ac && bc && ac !== bc) return ac.localeCompare(bc);
-      const at = safeStr(a?.title).toLowerCase();
-      const bt = safeStr(b?.title).toLowerCase();
-      return at.localeCompare(bt);
+      return safeStr(a?.title).toLowerCase().localeCompare(safeStr(b?.title).toLowerCase());
     });
     return arr;
   }, [activeProjects]);
 
   const ragAgg = useMemo(() => calcRagAgg(rag, activeProjects), [rag, activeProjects]);
-
   const uiActiveCount = activeProjects?.length || 0;
   const ragScoredCount = ragAgg.scored;
 
@@ -1669,349 +1375,331 @@ export default function HomePage({ data }: { data: HomeData }) {
   const fallbackScore = ragScoredCount ? ragAgg.avgHealth : clamp01to100(kpis.portfolioHealth);
   const portfolioScore = phLoading ? null : apiScore ?? fallbackScore;
 
-  const phDelta =
-    portfolioScore != null &&
-    phPrevScore != null &&
-    Number.isFinite(Number(portfolioScore)) &&
-    Number.isFinite(Number(phPrevScore))
-      ? Number(portfolioScore) - Number(phPrevScore)
-      : null;
+  const phDelta = portfolioScore != null && phPrevScore != null && Number.isFinite(Number(portfolioScore)) && Number.isFinite(Number(phPrevScore))
+    ? Number(portfolioScore) - Number(phPrevScore) : null;
 
-  const phMetaLine =
-    phPrevLoading ? `Trend: loading…` : phPrevErr ? `Trend: —` : phDelta == null ? `Trend: —` : `Trend: ${fmtDelta(phDelta)}`;
-
+  const phMetaLine = phPrevLoading ? `Trend: loading…` : phPrevErr ? `Trend: —` : phDelta == null ? `Trend: —` : `Trend: ${fmtDelta(phDelta)}`;
   const phTooltip = portfolioThresholdsTooltip() + "\n\nTrend arrow compares current window vs the next longer window.";
-
   const phScoreForUi = clamp01to100(portfolioScore ?? fallbackScore);
   const phRag = scoreToRag(phScoreForUi);
-
-  // Due soon (AI events)
-  useEffect(() => {
-    if (!ok || !isExec) return;
-
-    let cancelled = false;
-
-    runIdle(() => {
-      (async () => {
-        try {
-          setDueLoading(true);
-          setDueErr("");
-
-          const j = await fetchJson<ArtifactDueResp>(`/api/ai/events`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            cache: "no-store",
-            body: JSON.stringify({
-              eventType: "artifact_due",
-              windowDays: dueWindowDays,
-            }),
-          });
-
-          if (!j || !j.ok) throw new Error((j as any)?.error || "Failed to load due items");
-
-          const ai = (j as any).ai as ArtifactDueAi;
-          const list = Array.isArray(ai?.dueSoon) ? ai.dueSoon : [];
-
-          const c = ai?.counts || ({} as any);
-          const counts = {
-            milestone: num(c.milestone),
-            work_item: num(c.work_item),
-            raid: num(c.raid),
-            artifact: num(c.artifact),
-            change: num(c.change),
-            total: num(c.milestone) + num(c.work_item) + num(c.raid) + num(c.artifact) + num(c.change),
-          };
-
-          const merged = list
-            .slice()
-            .sort((a, b) => {
-              const at = a?.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-              const bt = b?.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-              if (at !== bt) return at - bt;
-
-              const ap = safeStr(a?.meta?.project_name);
-              const bp = safeStr(b?.meta?.project_name);
-              if (ap !== bp) return ap.localeCompare(bp);
-
-              const ta = safeStr(a?.itemType);
-              const tb = safeStr(b?.itemType);
-              if (ta !== tb) return ta.localeCompare(tb);
-
-              return safeStr(a?.title).localeCompare(safeStr(b?.title));
-            })
-            .slice(0, 30)
-            .map((x) => ({
-              ...x,
-              title: safeStr(x?.title).trim() || "Untitled",
-              link: safeStr(x?.link).trim() || null,
-            }));
-
-          if (!cancelled) {
-            setDueItems(merged);
-            setDueCounts(counts);
-            setDueUpdatedAt(new Date().toISOString());
-          }
-        } catch (e: any) {
-          if (!cancelled) {
-            setDueErr(e?.message || "Failed to load due items");
-            setDueItems([]);
-            setDueCounts({ total: 0, milestone: 0, work_item: 0, raid: 0, artifact: 0, change: 0 });
-          }
-        } finally {
-          if (!cancelled) setDueLoading(false);
-        }
-      })();
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [ok, isExec, dueWindowDays]);
-
-  function openDueItem(it: DueDigestItem) {
-    const href = safeStr(it?.link).trim();
-    if (href) router.push(href);
-  }
 
   if (!ok) {
     return (
       <div className={`min-h-screen ${THEME.pageBg} grid place-items-center p-10`}>
-        <div className="max-w-lg rounded-xl border border-gray-200 bg-white p-8 shadow-lg">
-          <div className="text-2xl font-bold text-gray-900">Dashboard Error</div>
-          <div className={`mt-3 text-gray-500`}>{(data as any).error}</div>
+        <div className="max-w-lg rounded-2xl border border-white/10 bg-white/5 p-10 backdrop-blur-xl shadow-2xl">
+          <div className="text-2xl font-bold text-white">Dashboard Error</div>
+          <div className="mt-3 text-gray-400">{(data as any).error}</div>
         </div>
       </div>
     );
   }
 
-  const phBand =
-    portfolioScore != null
-      ? phScoreForUi >= 85
-        ? "Strong"
-        : phScoreForUi >= 70
-        ? "Healthy"
-        : phScoreForUi >= 55
-        ? "Mixed"
-        : "At Risk"
-      : "Loading";
+  const phBand = portfolioScore != null
+    ? phScoreForUi >= 85 ? "Strong" : phScoreForUi >= 70 ? "Healthy" : phScoreForUi >= 55 ? "Mixed" : "At Risk"
+    : "Loading";
 
-  // ✅ Fixed, equal height for all KPI cards so Success Stories always aligns
   const KPI_CARD_CLASS = "h-[420px] flex flex-col";
 
   return (
     <LazyMotion features={domAnimation}>
-      <div className={`relative min-h-screen overflow-hidden ${THEME.pageBg} selection:bg-indigo-100 selection:text-indigo-900`}>
-        {/* ☁️ Light Background */}
-        <div className="absolute inset-0 pointer-events-none">
-          <div className={`absolute inset-0 bg-gradient-to-b ${THEME.pageGrad}`} />
-          <div className="absolute top-0 left-1/4 w-96 h-96 bg-indigo-100/50 rounded-full blur-3xl opacity-30" />
-          <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-violet-100/50 rounded-full blur-3xl opacity-30" />
+      {/* Global font injection */}
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap');
+        :root { --font-body: 'Outfit', sans-serif; --font-mono: 'Space Mono', monospace; --cyan: #00D8FF; --gold: #F5C842; }
+        body { font-family: var(--font-body) !important; }
+        .font-mono { font-family: var(--font-mono) !important; }
+        .scanline-overlay::after {
+          content: '';
+          position: absolute; inset: 0;
+          background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+          pointer-events: none; border-radius: inherit;
+        }
+        .glow-cyan { text-shadow: 0 0 20px rgba(0,216,255,0.6); }
+        .glow-gold { text-shadow: 0 0 20px rgba(245,200,66,0.6); }
+        @keyframes pulse-ring { 0%,100% { opacity:0.4; transform: scale(1); } 50% { opacity:0.8; transform: scale(1.05); } }
+        .pulse-ring { animation: pulse-ring 3s ease-in-out infinite; }
+        @keyframes data-stream { 0% { background-position: 0% 50%; } 100% { background-position: 100% 50%; } }
+        .data-stream {
+          background: linear-gradient(90deg, transparent 0%, rgba(0,216,255,0.08) 50%, transparent 100%);
+          background-size: 200% 100%;
+          animation: data-stream 2s linear infinite;
+        }
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(0,216,255,0.3); }
+      `}</style>
+
+      <div className={`relative min-h-screen overflow-hidden ${THEME.pageBg} selection:bg-cyan-500/20 selection:text-cyan-300`} style={{ fontFamily: "'Outfit', sans-serif" }}>
+
+        {/* 🌌 Background Atmosphere */}
+        <div className="fixed inset-0 pointer-events-none z-0">
+          {/* Base gradient */}
+          <div className="absolute inset-0 bg-[#080B12]" />
+
+          {/* Radial glows */}
+          <div className="absolute top-0 left-1/3 w-[800px] h-[500px] rounded-full opacity-[0.07]"
+            style={{ background: "radial-gradient(ellipse, #00D8FF 0%, transparent 70%)", filter: "blur(60px)" }} />
+          <div className="absolute bottom-1/4 right-1/4 w-[600px] h-[400px] rounded-full opacity-[0.05]"
+            style={{ background: "radial-gradient(ellipse, #7C3AED 0%, transparent 70%)", filter: "blur(80px)" }} />
+          <div className="absolute top-1/2 left-0 w-[400px] h-[400px] rounded-full opacity-[0.04]"
+            style={{ background: "radial-gradient(ellipse, #F5C842 0%, transparent 70%)", filter: "blur(100px)" }} />
+
+          {/* Subtle grid */}
+          <div className="absolute inset-0 opacity-[0.015]"
+            style={{ backgroundImage: "linear-gradient(rgba(0,216,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(0,216,255,0.5) 1px, transparent 1px)", backgroundSize: "80px 80px" }} />
+
+          {/* Corner accent lines */}
+          <div className="absolute top-0 left-0 w-64 h-px bg-gradient-to-r from-cyan-500/40 to-transparent" />
+          <div className="absolute top-0 left-0 w-px h-64 bg-gradient-to-b from-cyan-500/40 to-transparent" />
+          <div className="absolute top-0 right-0 w-64 h-px bg-gradient-to-l from-cyan-500/20 to-transparent" />
         </div>
 
         <div className="relative mx-auto max-w-7xl px-6 py-8 z-10">
+
           {/* 🧭 Header */}
-          <header className="mb-12 flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-3 mb-1">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 shadow-lg shadow-indigo-200">
-                  <Layers className="h-5 w-5 text-white" />
+          <header className="mb-12">
+            <div className="flex items-center justify-between">
+              <m.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <div className="flex items-center gap-4 mb-2">
+                  {/* Logo mark */}
+                  <div className="relative">
+                    <div className="absolute inset-0 rounded-xl bg-cyan-500/20 blur-md pulse-ring" />
+                    <div className="relative flex h-11 w-11 items-center justify-center rounded-xl border border-cyan-500/30 bg-[#080B12]">
+                      <Layers className="h-5 w-5 text-cyan-400" />
+                    </div>
+                  </div>
+                  <div>
+                    <h1 className="text-2xl font-bold tracking-[0.15em] text-white uppercase" style={{ fontFamily: "'Space Mono', monospace" }}>
+                      <span className="text-cyan-400 glow-cyan">ΛLIΞNΛ</span>
+                      <span className="text-gray-600 text-base font-normal ml-3 tracking-normal" style={{ fontFamily: "'Outfit', sans-serif" }}>PM Suite</span>
+                    </h1>
+                  </div>
                 </div>
-                <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-                   Λ L I Ξ N Λ <span className="text-gray-400 font-normal">PM Suite</span>
-                </h1>
-              </div>
-              <p className="text-sm text-gray-500">{today}</p>
+                <div className="flex items-center gap-3 ml-[60px]">
+                  <div className="h-px w-4 bg-cyan-500/40" />
+                  <p className="text-xs text-gray-600 tracking-widest uppercase">{today}</p>
+                </div>
+              </m.div>
+
+              <m.div
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                className="flex items-center gap-3"
+              >
+                {/* System status */}
+                <div className="hidden md:flex items-center gap-2.5 px-4 py-2 rounded-full border border-emerald-500/20 bg-emerald-950/30">
+                  <div className="relative flex items-center">
+                    <div className="h-2 w-2 rounded-full bg-emerald-400" />
+                    <div className="absolute h-2 w-2 rounded-full bg-emerald-400 animate-ping opacity-60" />
+                  </div>
+                  <span className="text-xs text-emerald-400 font-medium tracking-wide">All Systems Operational</span>
+                </div>
+                <NotificationBell />
+              </m.div>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200">
-                <div className="h-2 w-2 rounded-full bg-emerald-500" />
-                <span className="text-xs text-emerald-700 font-medium">System Operational</span>
-              </div>
-              <NotificationBell />
-            </div>
+
+            {/* Thin separator */}
+            <m.div
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: 1 }}
+              transition={{ duration: 1, delay: 0.3, ease: [0.16, 1, 0.3, 1] }}
+              className="mt-8 h-px origin-left"
+              style={{ background: "linear-gradient(90deg, rgba(0,216,255,0.4) 0%, rgba(0,216,255,0.1) 40%, transparent 100%)" }}
+            />
           </header>
 
           {/* EXEC COCKPIT */}
           {isExec ? (
             <>
               {/* 🎯 Control Bar */}
-              <div className="mb-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+              <m.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.1 }}
+                className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6"
+              >
                 <div>
-                  <h2 className="text-3xl font-bold tracking-tight text-gray-900">Executive Cockpit</h2>
-                  <p className="text-gray-500 mt-1">Real-time portfolio intelligence</p>
+                  <div className="flex items-center gap-3 mb-1">
+                    <div className="h-px w-6 bg-cyan-500/60" />
+                    <span className="text-[10px] text-cyan-500 uppercase tracking-[0.2em] font-semibold">Executive Command Centre</span>
+                  </div>
+                  <h2 className="text-4xl font-bold tracking-tight text-white">Portfolio Overview</h2>
+                  <p className="text-gray-500 mt-1.5 text-sm">Real-time intelligence • Live data</p>
                 </div>
 
-                <div className="flex items-center gap-1 p-1 rounded-xl bg-white border border-gray-200 shadow-sm">
+                {/* Window selector */}
+                <div className="flex items-center gap-1 p-1 rounded-xl border border-white/[0.07] bg-white/[0.02] backdrop-blur-sm">
                   {[7, 14, 30, 60].map((d) => (
                     <button
                       key={d}
                       type="button"
                       onClick={() => setWindowDays(d as WindowDays)}
                       className={[
-                        "px-4 py-2 rounded-lg text-sm font-medium transition-all",
-                        windowDays === d ? "bg-indigo-600 text-white shadow-md" : "text-gray-600 hover:text-gray-900 hover:bg-gray-50",
+                        "px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200",
+                        windowDays === d
+                          ? "bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 shadow-[0_0_12px_rgba(0,216,255,0.15)]"
+                          : "text-gray-500 hover:text-gray-300 hover:bg-white/[0.04]",
                       ].join(" ")}
                     >
                       {d}d
                     </button>
                   ))}
-                  <div className="w-px h-6 bg-gray-200 mx-1" />
+                  <div className="w-px h-5 bg-white/10 mx-1" />
                   <button
                     type="button"
                     onClick={() => setWindowDays("all")}
                     className={[
-                      "px-4 py-2 rounded-lg text-sm font-medium transition-all",
+                      "px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200",
                       windowDays === "all"
-                        ? "bg-indigo-600 text-white shadow-md"
-                        : "text-gray-600 hover:text-gray-900 hover:bg-gray-50",
+                        ? "bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 shadow-[0_0_12px_rgba(0,216,255,0.15)]"
+                        : "text-gray-500 hover:text-gray-300 hover:bg-white/[0.04]",
                     ].join(" ")}
                   >
                     All Time
                   </button>
                 </div>
-              </div>
+              </m.div>
 
               {/* 📊 KPI Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-                <KpiCard
-                  cardClassName={KPI_CARD_CLASS}
-                  label="Portfolio Health"
-                  value={phBand}
-                  sub={`${ragAgg.g} Green • ${ragAgg.a} Amber • ${ragAgg.r} Red`}
-                  icon={<Activity className="h-5 w-5" />}
-                  tone="indigo"
-                  tooltip={phTooltip}
-                  metaLine={phMetaLine}
-                  metaIcon={trendIcon(phDelta)}
-                  aiLine={portfolioScore != null ? healthNarrative(portfolioScore) : "Loading..."}
-                  rightVisual={<PortfolioHealthRing score={phScoreForUi} rag={phRag} />}
-                  badge={
-                    <span
-                      className={[
-                        "ml-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
-                        ragBadgeClasses(phRag),
-                      ].join(" ")}
-                    >
-                      {ragLabel(phRag)}
-                    </span>
-                  }
-                  extra={
-                    <div className="space-y-3">
-                      {phErr && (
-                        <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{phErr}</div>
-                      )}
-                      {phData?.ok && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowPhDetails((v) => !v);
-                          }}
-                          className="w-full h-9 rounded-lg border border-gray-200 bg-gray-50 text-xs text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition flex items-center justify-center gap-2"
-                        >
-                          {showPhDetails ? "Hide Details" : "View Drivers"}
-                          <ChevronRight className={`h-3 w-3 transition-transform ${showPhDetails ? "rotate-90" : ""}`} />
-                        </button>
-                      )}
-                      {showPhDetails && phData?.ok && <PortfolioHealthDrivers parts={phData.parts} drivers={phData.drivers} />}
-                    </div>
-                  }
-                />
-
-                <KpiCard
-                  cardClassName={KPI_CARD_CLASS}
-                  label="Success Stories"
-                  value={ssValue}
-                  sub={ssSub}
-                  icon={<Trophy className="h-5 w-5" />}
-                  tone={ssTone}
-                  tooltip={ssTooltip}
-                  metaLine={ssMetaLine}
-                  metaIcon={trendIcon(ssDelta)}
-                  aiLine={ssAiLine}
-                  onClick={openSuccessStoryItem}
-                  extra={
-                    <div className="mt-auto pt-4">
-                      {ssSummary && ssSummary.ok ? (
-                        <SuccessStoryMeta
-                          loading={ssLoading}
-                          displayTotal={ssDisplayCount}
-                          meta={{
-                            milestones_completed: num(ssSummary.breakdown?.milestones_done),
-                            raid_closed: num(ssSummary.breakdown?.raid_resolved),
-                            changes_implemented: num(ssSummary.breakdown?.changes_delivered),
-                            wbs_done: num(ssSummary.breakdown?.wbs_done),
-                            lessons_published: num(ssSummary.breakdown?.lessons_positive),
-                          }}
-                        />
-                      ) : null}
-
-                      <div className="mt-4">
-                        <Button
-                          variant="outline"
-                          className="w-full border-gray-200 bg-white text-gray-700 hover:bg-gray-50 hover:text-gray-900"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openSuccessStories();
-                          }}
-                        >
-                          View Summary <ArrowUpRight className="ml-2 h-4 w-4" />
-                        </Button>
-
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openSuccessStories();
-                          }}
-                          className="mt-3 w-full text-center text-sm text-gray-500 hover:text-indigo-600 transition-colors"
-                        >
-                          View all success stories <ChevronRight className="inline h-4 w-4 -mt-0.5" />
-                        </button>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
+                {[
+                  // Portfolio Health
+                  <KpiCard
+                    key="ph"
+                    cardClassName={KPI_CARD_CLASS}
+                    label="Portfolio Health"
+                    value={phBand}
+                    sub={`${ragAgg.g} Green • ${ragAgg.a} Amber • ${ragAgg.r} Red`}
+                    icon={<Activity className="h-5 w-5" />}
+                    tone="cyan"
+                    tooltip={phTooltip}
+                    metaLine={phMetaLine}
+                    metaIcon={trendIcon(phDelta)}
+                    aiLine={portfolioScore != null ? healthNarrative(portfolioScore) : "Loading..."}
+                    rightVisual={<PortfolioHealthRing score={phScoreForUi} rag={phRag} />}
+                    badge={
+                      <span className={["ml-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest", ragBadgeClasses(phRag)].join(" ")}>
+                        {ragLabel(phRag)}
+                      </span>
+                    }
+                    extra={
+                      <div className="space-y-3">
+                        {phErr && <div className="text-xs text-rose-400 bg-rose-950/40 border border-rose-800/40 rounded-lg px-3 py-2">{phErr}</div>}
+                        {phData?.ok && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setShowPhDetails((v) => !v); }}
+                            className="w-full h-9 rounded-lg border border-white/[0.07] bg-white/[0.03] text-xs text-gray-400 hover:bg-white/[0.06] hover:text-gray-200 hover:border-cyan-500/20 transition-all flex items-center justify-center gap-2"
+                          >
+                            {showPhDetails ? "Hide Details" : "View Drivers"}
+                            <ChevronRight className={`h-3 w-3 transition-transform ${showPhDetails ? "rotate-90" : ""}`} />
+                          </button>
+                        )}
+                        {showPhDetails && phData?.ok && <PortfolioHealthDrivers parts={phData.parts} drivers={phData.drivers} />}
                       </div>
-                    </div>
-                  }
-                />
-
-                <KpiCard
-                  cardClassName={KPI_CARD_CLASS}
-                  label="Milestones Due"
-                  value={milestonesDueLoading ? "…" : `${milestonesDueLive}`}
-                  sub={windowDays === "all" ? "Using last 60 days" : `Next ${windowDays} days`}
-                  icon={<Clock3 className="h-5 w-5" />}
-                  tone="indigo"
-                  onClick={openMilestonesDrilldown}
-                  extra={<MilestonesMeta loading={milestonesPanelLoading} panel={milestonesPanel} />}
-                />
-
-                <KpiCard
-                  cardClassName={KPI_CARD_CLASS}
-                  label="RAID (Due)"
-                  value={raidLoading ? "…" : `${raidDueTotal}`}
-                  sub={windowDays === "all" ? "Using last 60 days" : `Window ${windowDays}d`}
-                  icon={<AlertTriangle className="h-5 w-5" />}
-                  tone="rose"
-                  onClick={openRaidDrilldown}
-                  extra={<RaidMeta loading={raidLoading} panel={raidPanel} onClickType={openRaid} />}
-                />
+                    }
+                    delay={0}
+                  />,
+                  // Success Stories
+                  <KpiCard
+                    key="ss"
+                    cardClassName={KPI_CARD_CLASS}
+                    label="Success Stories"
+                    value={ssValue}
+                    sub={ssSub}
+                    icon={<Trophy className="h-5 w-5" />}
+                    tone="gold"
+                    tooltip={ssTooltip}
+                    metaLine={ssMetaLine}
+                    metaIcon={trendIcon(ssDelta)}
+                    aiLine={ssAiLine}
+                    onClick={() => openSuccessStories()}
+                    extra={
+                      <div className="mt-auto pt-4">
+                        {ssSummary && ssSummary.ok ? (
+                          <SuccessStoryMeta
+                            loading={ssLoading}
+                            displayTotal={ssDisplayCount}
+                            meta={{
+                              milestones_completed: num(ssSummary.breakdown?.milestones_done),
+                              raid_closed: num(ssSummary.breakdown?.raid_resolved),
+                              changes_implemented: num(ssSummary.breakdown?.changes_delivered),
+                              wbs_done: num(ssSummary.breakdown?.wbs_done),
+                              lessons_published: num(ssSummary.breakdown?.lessons_positive),
+                            }}
+                          />
+                        ) : null}
+                        <div className="mt-4">
+                          <Button
+                            variant="outline"
+                            className="w-full border-white/[0.08] bg-white/[0.03] text-gray-300 hover:bg-white/[0.07] hover:text-white hover:border-white/[0.12] transition-all"
+                            onClick={(e) => { e.stopPropagation(); openSuccessStories(); }}
+                          >
+                            View Summary <ArrowUpRight className="ml-2 h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    }
+                    delay={0.05}
+                  />,
+                  // Milestones
+                  <KpiCard
+                    key="ms"
+                    cardClassName={KPI_CARD_CLASS}
+                    label="Milestones Due"
+                    value={milestonesDueLoading ? "…" : `${milestonesDueLive}`}
+                    sub={windowDays === "all" ? "Using last 60 days" : `Next ${windowDays} days`}
+                    icon={<Clock3 className="h-5 w-5" />}
+                    tone="cyan"
+                    onClick={openMilestonesDrilldown}
+                    extra={<MilestonesMeta loading={milestonesPanelLoading} panel={milestonesPanel} />}
+                    delay={0.1}
+                  />,
+                  // RAID
+                  <KpiCard
+                    key="raid"
+                    cardClassName={KPI_CARD_CLASS}
+                    label="RAID — Due"
+                    value={raidLoading ? "…" : `${raidDueTotal}`}
+                    sub={windowDays === "all" ? "Using last 60 days" : `Window ${windowDays}d`}
+                    icon={<AlertTriangle className="h-5 w-5" />}
+                    tone="rose"
+                    onClick={openRaidDrilldown}
+                    extra={<RaidMeta loading={raidLoading} panel={raidPanel} onClickType={openRaid} />}
+                    delay={0.15}
+                  />,
+                ]}
               </div>
 
               {/* 📋 Main Content Grid */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* AI Briefing - Takes up 2 cols */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                {/* AI Briefing */}
                 <div className="lg:col-span-2 space-y-6">
-                  <GlassCard>
+                  <GlassCard delay={0.2}>
                     <div className="flex items-start justify-between mb-6">
-                      <div className="flex items-center gap-3">
-                        <div className="h-12 w-12 rounded-xl bg-indigo-600 shadow-lg shadow-indigo-200 flex items-center justify-center">
-                          <Sparkles className="h-6 w-6 text-white" />
+                      <div className="flex items-center gap-4">
+                        <div className="relative">
+                          <div className="absolute inset-0 rounded-xl bg-cyan-500/20 blur-sm" />
+                          <div className="relative flex h-12 w-12 items-center justify-center rounded-xl border border-cyan-500/25 bg-[#080B12]">
+                            <Sparkles className="h-5 w-5 text-cyan-400" />
+                          </div>
                         </div>
                         <div>
-                          <h3 className="text-xl font-bold text-gray-900">AI Daily Briefing</h3>
-                          <p className="text-sm text-gray-500">Live governance signals</p>
+                          <h3 className="text-lg font-bold text-white">AI Daily Briefing</h3>
+                          <p className="text-sm text-gray-600">Live governance signals</p>
                         </div>
                       </div>
-                      <Button className={THEME.buttonPrimary} onClick={() => router.push("/insights")}>
+                      <Button
+                        className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 hover:border-cyan-500/30 transition-all"
+                        onClick={() => router.push("/insights")}
+                      >
                         View All
                       </Button>
                     </div>
@@ -2019,41 +1707,43 @@ export default function HomePage({ data }: { data: HomeData }) {
                     <div className="space-y-3">
                       {insightsLoading ? (
                         <>
-                          <AiAlert severity="info" title="Loading briefing…" body="Pulling signals from RAID, approvals and lessons." />
-                          <AiAlert severity="info" title="Analysing trends…" body="Calculating risk deltas and SLA breaches." />
+                          <SkeletonAlert />
+                          <SkeletonAlert />
+                          <SkeletonAlert />
                         </>
                       ) : insightsErr ? (
                         <AiAlert severity="medium" title="Briefing unavailable" body={insightsErr} />
                       ) : (
-                        insights
-                          .slice(0, 4)
-                          .map((x) => (
-                            <AiAlert
-                              key={`${x.id}-${x.title}`}
-                              severity={x.severity}
-                              title={x.title}
-                              body={x.body}
-                              href={fixInsightHref(x, windowDays)}
-                            />
-                          ))
+                        insights.slice(0, 4).map((x, i) => (
+                          <m.div
+                            key={`${x.id}-${x.title}`}
+                            initial={{ opacity: 0, x: -16 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ duration: 0.4, delay: i * 0.08 }}
+                          >
+                            <AiAlert severity={x.severity} title={x.title} body={x.body} href={fixInsightHref(x, windowDays)} />
+                          </m.div>
+                        ))
                       )}
                     </div>
                   </GlassCard>
 
-                  {/* Due Soon Section */}
-                  <GlassCard>
+                  {/* Due Soon */}
+                  <GlassCard delay={0.25}>
                     <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
-                      <div className="flex items-center gap-3">
-                        <div className="h-12 w-12 rounded-xl bg-amber-500 shadow-lg shadow-amber-200 flex items-center justify-center">
-                          <Clock3 className="h-6 w-6 text-white" />
+                      <div className="flex items-center gap-4">
+                        <div className="relative">
+                          <div className="absolute inset-0 rounded-xl bg-amber-500/20 blur-sm" />
+                          <div className="relative flex h-12 w-12 items-center justify-center rounded-xl border border-amber-500/25 bg-[#080B12]">
+                            <Clock3 className="h-5 w-5 text-amber-400" />
+                          </div>
                         </div>
                         <div>
-                          <h3 className="text-xl font-bold text-gray-900">Due Soon</h3>
-                          <p className="text-sm text-gray-500">Next {dueWindowDays} days</p>
+                          <h3 className="text-lg font-bold text-white">Due Soon</h3>
+                          <p className="text-sm text-gray-600">Next {dueWindowDays} days</p>
                         </div>
                       </div>
-
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         {[7, 14, 30].map((d) => (
                           <button
                             key={d}
@@ -2062,8 +1752,8 @@ export default function HomePage({ data }: { data: HomeData }) {
                             className={[
                               "px-3 py-1.5 rounded-lg text-xs font-medium transition-all border",
                               dueWindowDays === d
-                                ? "bg-amber-50 border-amber-200 text-amber-700"
-                                : "bg-white border-gray-200 text-gray-600 hover:border-gray-300",
+                                ? "bg-amber-500/10 border-amber-500/25 text-amber-400"
+                                : "border-white/[0.07] bg-white/[0.02] text-gray-500 hover:text-gray-300 hover:border-white/[0.12]",
                             ].join(" ")}
                           >
                             {d}d
@@ -2073,82 +1763,92 @@ export default function HomePage({ data }: { data: HomeData }) {
                     </div>
 
                     {dueCounts.total > 0 ? (
-                      <div className="rounded-xl border border-gray-200 bg-gray-50/50 overflow-hidden">
-                        <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between text-xs text-gray-500 bg-white">
+                      <div className="rounded-xl border border-white/[0.06] overflow-hidden">
+                        <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center justify-between text-[10px] text-gray-600 uppercase tracking-widest bg-white/[0.01]">
                           <span>Item</span>
                           <span>Due Date</span>
                         </div>
-                        <div className="max-h-[320px] overflow-auto divide-y divide-gray-200">
+                        <div className="max-h-[320px] overflow-auto divide-y divide-white/[0.04]">
                           {dueItems.slice(0, 8).map((it, idx) => {
                             const overdue = isOverdue(it?.dueDate);
                             const clickable = Boolean(safeStr(it?.link).trim());
                             return (
-                              <button
+                              <m.button
                                 key={idx}
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                transition={{ delay: idx * 0.05 }}
                                 type="button"
                                 onClick={() => clickable && openDueItem(it)}
                                 className={[
-                                  "w-full text-left px-4 py-3 flex items-center justify-between transition-colors bg-white",
-                                  clickable ? "hover:bg-gray-50 cursor-pointer" : "cursor-default",
-                                  overdue ? "bg-rose-50/50" : "",
+                                  "w-full text-left px-4 py-3 flex items-center justify-between transition-all group",
+                                  clickable ? "hover:bg-white/[0.03] cursor-pointer" : "cursor-default",
+                                  overdue ? "bg-rose-950/20" : "",
                                 ].join(" ")}
                               >
                                 <div className="flex items-center gap-3 min-w-0">
-                                  <span
-                                    className={[
-                                      "shrink-0 inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wider font-medium",
-                                      dueChipTone(it.itemType),
-                                    ].join(" ")}
-                                  >
+                                  <span className={["shrink-0 inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wider font-medium", dueChipTone(it.itemType)].join(" ")}>
                                     {dueTypeLabel(it.itemType)}
                                   </span>
-                                  <span className="text-sm text-gray-700 truncate">{it.title}</span>
+                                  <span className="text-sm text-gray-300 truncate group-hover:text-white transition-colors">{it.title}</span>
                                   {overdue && (
-                                    <span className="shrink-0 text-[10px] font-medium text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded">
+                                    <span className="shrink-0 text-[10px] font-bold text-rose-400 bg-rose-950/60 border border-rose-800/40 px-1.5 py-0.5 rounded uppercase tracking-wide">
                                       Overdue
                                     </span>
                                   )}
                                 </div>
-                                <span className="text-xs text-gray-500 shrink-0 ml-4">{dueDateLabel(it.dueDate)}</span>
-                              </button>
+                                <span className="text-xs text-gray-600 shrink-0 ml-4 group-hover:text-gray-400 transition-colors font-mono">{dueDateLabel(it.dueDate)}</span>
+                              </m.button>
                             );
                           })}
                         </div>
                         {dueItems.length > 8 && (
-                          <div className="px-4 py-2 text-center border-t border-gray-200 bg-gray-50">
+                          <div className="px-4 py-2.5 text-center border-t border-white/[0.06] bg-white/[0.01]">
                             <button
                               onClick={() => router.push(`/milestones?days=${dueWindowDays}`)}
-                              className="text-xs text-indigo-600 hover:text-indigo-700 font-medium transition-colors"
+                              className="text-xs text-cyan-500 hover:text-cyan-400 font-medium transition-colors"
                             >
-                              View {dueItems.length - 8} more items
+                              View {dueItems.length - 8} more items →
                             </button>
                           </div>
                         )}
                       </div>
+                    ) : dueLoading ? (
+                      <div className="data-stream rounded-xl border border-white/[0.06] px-4 py-12 text-center">
+                        <div className="text-sm text-gray-600">Scanning artifacts…</div>
+                      </div>
                     ) : (
-                      <div className="text-center py-12 border border-dashed border-gray-200 rounded-xl bg-gray-50/50">
-                        <CheckCircle2 className="h-8 w-8 text-gray-300 mx-auto mb-3" />
-                        <p className="text-gray-600 font-medium">All caught up</p>
-                        <p className="text-sm text-gray-400 mt-1">Nothing due in the next {dueWindowDays} days</p>
+                      <div className="text-center py-12 border border-dashed border-white/[0.06] rounded-xl">
+                        <CheckCircle2 className="h-8 w-8 text-gray-700 mx-auto mb-3" />
+                        <p className="text-gray-400 font-medium">All caught up</p>
+                        <p className="text-sm text-gray-700 mt-1">Nothing due in the next {dueWindowDays} days</p>
                       </div>
                     )}
                   </GlassCard>
                 </div>
 
-                {/* Sidebar - Takes up 1 col */}
+                {/* Sidebar */}
                 <div className="space-y-6">
-                  {/* Approval Inbox */}
-                  <GlassCard>
-                    <div className="flex items-center justify-between mb-6">
+                  {/* Approvals */}
+                  <GlassCard delay={0.3}>
+                    <div className="flex items-center justify-between mb-5">
                       <div className="flex items-center gap-3">
-                        <div className="h-12 w-12 rounded-xl bg-emerald-500 shadow-lg shadow-emerald-200 flex items-center justify-center">
-                          <CheckCircle2 className="h-6 w-6 text-white" />
+                        <div className="relative">
+                          <div className="absolute inset-0 rounded-xl bg-emerald-500/15 blur-sm" />
+                          <div className="relative flex h-11 w-11 items-center justify-center rounded-xl border border-emerald-500/20 bg-[#080B12]">
+                            <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+                          </div>
                         </div>
                         <div>
-                          <h3 className="text-xl font-bold text-gray-900">Approvals</h3>
-                          <p className="text-sm text-gray-500">{approvalCount} pending</p>
+                          <h3 className="text-base font-bold text-white">Approvals</h3>
+                          <p className="text-xs text-gray-600">{approvalCount} pending</p>
                         </div>
                       </div>
+                      {approvalCount > 0 && (
+                        <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-emerald-500/15 border border-emerald-500/20 text-xs font-bold text-emerald-400">
+                          {approvalCount}
+                        </span>
+                      )}
                     </div>
 
                     <div className="space-y-3">
@@ -2159,21 +1859,23 @@ export default function HomePage({ data }: { data: HomeData }) {
                           const title = t?.change?.title || "Change request";
                           const createdAt = t?.change?.created_at || t?.created_at;
                           const href = viewHref(t);
-
                           return (
-                            <div
+                            <m.div
                               key={taskId}
-                              className="group rounded-xl border border-gray-200 bg-gray-50/50 p-4 hover:border-gray-300 hover:shadow-sm transition-all"
+                              initial={{ opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, x: -20, transition: { duration: 0.2 } }}
+                              className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4 hover:border-white/[0.12] hover:bg-white/[0.04] transition-all"
                             >
                               <div className="flex items-start justify-between gap-3 mb-3">
                                 <div className="min-w-0">
-                                  <div className="font-medium text-sm text-gray-900 truncate">{title}</div>
-                                  <div className="text-xs text-gray-500 mt-1">
+                                  <div className="font-medium text-sm text-gray-200 truncate">{title}</div>
+                                  <div className="text-xs text-gray-600 mt-1 font-mono">
                                     {createdAt ? new Date(createdAt).toISOString().slice(0, 10) : "—"}
                                   </div>
                                 </div>
                                 {href && (
-                                  <a href={href} className="shrink-0 text-gray-400 hover:text-indigo-600 transition-colors">
+                                  <a href={href} className="shrink-0 text-gray-600 hover:text-cyan-400 transition-colors">
                                     <ArrowUpRight className="h-4 w-4" />
                                   </a>
                                 )}
@@ -2181,7 +1883,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                               <div className="flex gap-2">
                                 <Button
                                   size="sm"
-                                  className="flex-1 h-8 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs"
+                                  className="flex-1 h-8 bg-emerald-950/50 hover:bg-emerald-950/80 text-emerald-400 border border-emerald-800/50 hover:border-emerald-600/50 text-xs transition-all"
                                   disabled={isBusy}
                                   onClick={() => decide(taskId, "approve")}
                                 >
@@ -2189,98 +1891,129 @@ export default function HomePage({ data }: { data: HomeData }) {
                                 </Button>
                                 <Button
                                   size="sm"
-                                  className="flex-1 h-8 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs"
+                                  className="flex-1 h-8 bg-rose-950/50 hover:bg-rose-950/80 text-rose-400 border border-rose-800/50 hover:border-rose-600/50 text-xs transition-all"
                                   disabled={isBusy}
                                   onClick={() => decide(taskId, "reject")}
                                 >
                                   {isBusy ? "…" : "Reject"}
                                 </Button>
                               </div>
-                            </div>
+                            </m.div>
                           );
                         })
                       ) : (
-                        <div className="text-center py-8 border border-dashed border-gray-200 rounded-xl bg-gray-50/50">
-                          <p className="text-sm text-gray-500">No approvals waiting</p>
+                        <div className="text-center py-8 border border-dashed border-white/[0.06] rounded-xl">
+                          <CheckCheck className="h-6 w-6 text-gray-700 mx-auto mb-2" />
+                          <p className="text-sm text-gray-600">No approvals waiting</p>
                         </div>
                       )}
                     </div>
                   </GlassCard>
 
                   {/* Quick Stats */}
-                  <GlassCard className="bg-gradient-to-br from-indigo-50/50 to-violet-50/50 border-indigo-100">
-                    <h3 className="text-sm font-medium text-gray-500 mb-4 uppercase tracking-wider">Quick Stats</h3>
+                  <GlassCard delay={0.35} className="border-cyan-500/10">
+                    <div className="flex items-center gap-2 mb-5">
+                      <div className="h-px flex-1 bg-white/[0.06]" />
+                      <span className="text-[10px] text-gray-600 uppercase tracking-widest font-semibold">Quick Stats</span>
+                      <div className="h-px flex-1 bg-white/[0.06]" />
+                    </div>
                     <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-700">Active Projects</span>
-                        <span className="text-lg font-semibold text-gray-900">{uiActiveCount}</span>
-                      </div>
-                      <div className="h-px bg-indigo-100" />
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-700">Portfolio Score</span>
-                        <span className={["text-sm font-semibold px-2.5 py-1 rounded-lg border-2 bg-white", ragBadgeClasses(phRag)].join(" ")}>
-                          {phScoreForUi}%
-                        </span>
-                      </div>
-                      <div className="h-px bg-indigo-100" />
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-700">Open Risks</span>
-                        <span className="text-lg font-semibold text-gray-900">{kpis.openRisks}</span>
-                      </div>
+                      {[
+                        { label: "Active Projects", value: uiActiveCount, format: "number" },
+                        { label: "Portfolio Score", value: phScoreForUi, format: "percent", rag: phRag },
+                        { label: "Open Risks", value: kpis.openRisks, format: "number" },
+                      ].map((stat, i) => (
+                        <m.div
+                          key={stat.label}
+                          initial={{ opacity: 0, x: 20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: 0.4 + i * 0.05 }}
+                          className="flex items-center justify-between"
+                        >
+                          <span className="text-sm text-gray-500">{stat.label}</span>
+                          {stat.format === "percent" ? (
+                            <span className={["text-sm font-bold px-2.5 py-1 rounded-lg border", ragBadgeClasses((stat as any).rag)].join(" ")}>
+                              {stat.value}%
+                            </span>
+                          ) : (
+                            <span className="text-xl font-bold text-white" style={{ fontFamily: "'Space Mono', monospace" }}>
+                              {stat.value}
+                            </span>
+                          )}
+                        </m.div>
+                      ))}
                     </div>
                   </GlassCard>
                 </div>
               </div>
 
               {/* 🗂️ Projects Grid */}
-              <div className="mt-12">
+              <m.div
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.4 }}
+                className="mt-12"
+              >
                 <div className="flex items-center justify-between mb-6">
                   <div>
-                    <h2 className="text-2xl font-bold tracking-tight text-gray-900">Project Overview</h2>
-                    <p className="text-gray-500 mt-1">Active delivery areas</p>
+                    <div className="flex items-center gap-3 mb-1">
+                      <div className="h-px w-5 bg-cyan-500/40" />
+                      <span className="text-[10px] text-cyan-500 uppercase tracking-[0.2em] font-semibold">Active Engagements</span>
+                    </div>
+                    <h2 className="text-2xl font-bold text-white">Project Overview</h2>
                   </div>
-                  <Button variant="outline" className="border-gray-200 bg-white text-gray-700 hover:bg-gray-50 hover:text-gray-900">
+                  <Button
+                    variant="outline"
+                    className="border-white/[0.08] bg-white/[0.03] text-gray-400 hover:bg-white/[0.06] hover:text-white hover:border-white/[0.15] transition-all"
+                  >
                     View All Projects
                   </Button>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {sortedProjects.slice(0, 9).map((p: any) => {
+                  {sortedProjects.slice(0, 9).map((p: any, i) => {
                     const code = projectCodeLabel(p.project_code);
                     const id = String(p?.id || "").trim();
-                    const projectRef = looksLikeUuid(id) ? id : id;
-
                     return (
-                      <ProjectTile
-                        key={String(p.id || projectRef)}
-                        projectRef={projectRef}
-                        title={p.title || "Project"}
-                        projectCode={code}
-                        clientName={safeStr(p.client_name)}
-                      />
+                      <m.div
+                        key={String(p.id || id)}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.4, delay: 0.5 + i * 0.04 }}
+                      >
+                        <ProjectTile
+                          projectRef={id}
+                          title={p.title || "Project"}
+                          projectCode={code}
+                          clientName={safeStr(p.client_name)}
+                        />
+                      </m.div>
                     );
                   })}
                 </div>
 
                 {projects.length !== activeProjects.length && (
-                  <div className="mt-4 text-xs text-gray-400 text-center">
-                    Hidden {Math.max(0, projects.length - activeProjects.length)} closed/cancelled project
-                    {projects.length - activeProjects.length === 1 ? "" : "s"} from overview.
+                  <div className="mt-5 text-xs text-gray-700 text-center">
+                    {Math.max(0, projects.length - activeProjects.length)} closed/cancelled project{projects.length - activeProjects.length === 1 ? "" : "s"} hidden from view
                   </div>
                 )}
-              </div>
+              </m.div>
             </>
           ) : (
             /* Non-Exec View */
             <>
-              <div className="mb-8">
-                <h2 className="text-3xl font-bold tracking-tight text-gray-900">My Day</h2>
-                <p className="text-gray-500 mt-1">Focus and flow</p>
-              </div>
+              <m.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="h-px w-5 bg-cyan-500/40" />
+                  <span className="text-[10px] text-cyan-500 uppercase tracking-[0.2em] font-semibold">Personal Command</span>
+                </div>
+                <h2 className="text-3xl font-bold text-white">My Day</h2>
+                <p className="text-gray-600 mt-1">Focus and flow</p>
+              </m.div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <KpiCard label="My Approvals" value={`${approvalCount}`} icon={<CheckCircle2 className="h-5 w-5" />} tone="emerald" />
-                <KpiCard label="Open Lessons" value={`${kpis.openLessons}`} icon={<Sparkles className="h-5 w-5" />} tone="indigo" />
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                <KpiCard label="My Approvals" value={`${approvalCount}`} icon={<CheckCircle2 className="h-5 w-5" />} tone="emerald" delay={0} />
+                <KpiCard label="Open Lessons" value={`${kpis.openLessons}`} icon={<Sparkles className="h-5 w-5" />} tone="cyan" delay={0.05} />
                 <KpiCard
                   label="RAID (Due)"
                   value={raidLoading ? "…" : `${raidDueTotal || Number(kpis.openRisks || 0)}`}
@@ -2289,6 +2022,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                   tone="rose"
                   onClick={openRaidDrilldown}
                   extra={<RaidMeta loading={raidLoading} panel={raidPanel} onClickType={openRaid} />}
+                  delay={0.1}
                 />
               </div>
             </>
@@ -2302,76 +2036,88 @@ export default function HomePage({ data }: { data: HomeData }) {
 }
 
 /* ──────────────────────────────────────────────────────────────────────────────
-   🧩 Reusable Components (Light Mode)
+   🧩 Components
 ───────────────────────────────────────────────────────────────────────────── */
-function GlassCard({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  const neonShadow =
-    "shadow-[0_0_0_3px_rgba(0,184,219,0.75),0_12px_30px_rgba(15,23,42,0.10),0_0_60px_rgba(0,184,219,0.28)]";
-  const neonShadowHover =
-    "hover:shadow-[0_0_0_3px_rgba(0,184,219,0.95),0_18px_44px_rgba(15,23,42,0.12),0_0_90px_rgba(0,184,219,0.40)]";
 
+function SkeletonAlert() {
+  return (
+    <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-4 animate-pulse">
+      <div className="flex items-start gap-3">
+        <div className="h-8 w-8 rounded-lg bg-white/[0.04] shrink-0" />
+        <div className="flex-1 space-y-2">
+          <div className="h-3.5 bg-white/[0.04] rounded w-2/5" />
+          <div className="h-3 bg-white/[0.03] rounded w-full" />
+          <div className="h-3 bg-white/[0.03] rounded w-3/4" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GlassCard({
+  children,
+  className = "",
+  delay = 0,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  delay?: number;
+}) {
   return (
     <m.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.5, delay, ease: [0.16, 1, 0.3, 1] }}
       className={`
-        relative overflow-hidden
-        ${THEME.cardBg}
-        border-2 border-[rgba(0,184,219,0.90)]
+        relative overflow-hidden scanline-overlay
+        bg-[rgba(255,255,255,0.02)]
+        border border-white/[0.07]
+        hover:border-cyan-500/20
         rounded-2xl p-6
-        ${neonShadow}
-        ${neonShadowHover}
         transition-all duration-300
         ${className}
       `}
+      style={{
+        boxShadow: "0 1px 0 rgba(255,255,255,0.04) inset, 0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(0,0,0,0.5)",
+        backdropFilter: "blur(12px)",
+      }}
     >
-      <div className="pointer-events-none absolute inset-0 opacity-[0.28]">
-        <div
-          className="absolute -inset-24 blur-3xl"
-          style={{
-            background: `radial-gradient(circle at 25% 20%, rgba(0,184,219,0.32), transparent 55%),
-                         radial-gradient(circle at 80% 75%, rgba(0,184,219,0.18), transparent 55%)`,
-          }}
-        />
-      </div>
-
-      <div className="relative">{children}</div>
+      {/* Top edge highlight */}
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+      <div className="relative z-10">{children}</div>
     </m.div>
   );
 }
 
 function PortfolioHealthRing({ score, rag }: { score: number; rag: RagLetter }) {
   const s = clamp01to100(score);
-  const r = 24;
+  const r = 22;
   const c = 2 * Math.PI * r;
   const dash = (s / 100) * c;
-
   const color = ragStrokeColor(rag);
+  const glowColor = rag === "G" ? "rgba(16,185,129,0.4)" : rag === "A" ? "rgba(245,158,11,0.4)" : "rgba(244,63,94,0.4)";
 
   return (
     <div className="shrink-0 relative">
       <div className="h-16 w-16">
-        <svg viewBox="0 0 60 60" className="h-full w-full -rotate-90">
-          <circle cx="30" cy="30" r={r} className="stroke-gray-200" strokeWidth="6" fill="none" />
+        <svg viewBox="0 0 56 56" className="h-full w-full -rotate-90">
+          {/* Track */}
+          <circle cx="28" cy="28" r={r} stroke="rgba(255,255,255,0.06)" strokeWidth="5" fill="none" />
+          {/* Progress */}
           <m.circle
-            cx="30"
-            cy="30"
-            r={r}
+            cx="28" cy="28" r={r}
             stroke={color}
-            strokeWidth="6"
+            strokeWidth="5"
             fill="none"
             strokeLinecap="round"
             initial={{ strokeDasharray: `0 ${c}` }}
             animate={{ strokeDasharray: `${dash} ${c}` }}
-            transition={{ duration: 1, ease: "easeOut" }}
-            style={{
-              filter: "drop-shadow(0 0 10px rgba(0,0,0,0.06)) drop-shadow(0 0 10px rgba(0,184,219,0.20))",
-            }}
+            transition={{ duration: 1.2, ease: "easeOut" }}
+            style={{ filter: `drop-shadow(0 0 6px ${glowColor})` }}
           />
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-base font-bold text-gray-900">{s}%</span>
+          <span className="text-sm font-bold text-white" style={{ fontFamily: "'Space Mono', monospace" }}>{s}%</span>
         </div>
       </div>
     </div>
@@ -2387,26 +2133,21 @@ function PortfolioHealthDrivers({
 }) {
   const partPill = (label: string, v: number) => {
     const score = clamp01to100(v);
-    const color =
-      score >= 85
-        ? "text-emerald-700 bg-emerald-50 border-emerald-200"
-        : score >= 70
-        ? "text-indigo-700 bg-indigo-50 border-indigo-200"
-        : score >= 55
-        ? "text-amber-700 bg-amber-50 border-amber-200"
-        : "text-rose-700 bg-rose-50 border-rose-200";
-
+    const color = score >= 85
+      ? "text-emerald-400 bg-emerald-950/40 border-emerald-800/40"
+      : score >= 70 ? "text-cyan-400 bg-cyan-950/40 border-cyan-800/40"
+      : score >= 55 ? "text-amber-400 bg-amber-950/40 border-amber-800/40"
+      : "text-rose-400 bg-rose-950/40 border-rose-800/40";
     return (
       <div className={`flex items-center justify-between rounded-lg border px-3 py-2 text-xs ${color}`}>
-        <span className="font-medium">{label}</span>
-        <span className="font-bold">{score}</span>
+        <span className="font-medium text-gray-400">{label}</span>
+        <span className="font-bold" style={{ fontFamily: "'Space Mono', monospace" }}>{score}</span>
       </div>
     );
   };
-
   return (
-    <div className="space-y-2 mt-4 pt-4 border-t border-gray-200">
-      <div className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wider">Health Drivers</div>
+    <div className="space-y-2 mt-4 pt-4 border-t border-white/[0.06]">
+      <div className="text-[10px] font-semibold text-gray-600 mb-3 uppercase tracking-widest">Health Drivers</div>
       <div className="grid grid-cols-2 gap-2">
         {partPill("Schedule", num(parts?.schedule))}
         {partPill("RAID", num(parts?.raid))}
@@ -2418,17 +2159,9 @@ function PortfolioHealthDrivers({
 }
 
 function SuccessStoryMeta({
-  meta,
-  loading,
-  displayTotal,
+  meta, loading, displayTotal,
 }: {
-  meta: {
-    milestones_completed?: number;
-    raid_closed?: number;
-    changes_implemented?: number;
-    wbs_done?: number;
-    lessons_published?: number;
-  };
+  meta: { milestones_completed?: number; raid_closed?: number; changes_implemented?: number; wbs_done?: number; lessons_published?: number; };
   loading: boolean;
   displayTotal: number;
 }) {
@@ -2437,26 +2170,25 @@ function SuccessStoryMeta({
   const changes = num(meta.changes_implemented);
   const wbs = num(meta.wbs_done);
   const lessons = num(meta.lessons_published);
-
   const knownSum = milestones + raid + changes + wbs + lessons;
   const other = Math.max(0, num(displayTotal) - knownSum);
-
   const stats = [
-    { label: "Milestones", value: milestones, color: "text-gray-900" },
-    { label: "RAID", value: raid, color: "text-gray-900" },
-    { label: "Changes", value: changes, color: "text-gray-900" },
-    { label: "WBS", value: wbs, color: "text-gray-900" },
-    { label: "Lessons", value: lessons, color: "text-gray-900" },
-    { label: "Other", value: other, color: "text-gray-900" },
+    { label: "Milestones", value: milestones },
+    { label: "RAID", value: raid },
+    { label: "Changes", value: changes },
+    { label: "WBS", value: wbs },
+    { label: "Lessons", value: lessons },
+    { label: "Other", value: other },
   ];
-
   return (
-    <div className="border-t border-gray-200 pt-4">
+    <div className="border-t border-white/[0.06] pt-4">
       <div className="grid grid-cols-3 gap-2">
         {stats.map((stat) => (
-          <div key={stat.label} className="text-center p-2 rounded-lg bg-gray-50 border border-gray-100">
-            <div className={`text-lg font-bold ${stat.color}`}>{loading ? "…" : stat.value}</div>
-            <div className="text-[10px] uppercase tracking-wider text-gray-500 mt-0.5">{stat.label}</div>
+          <div key={stat.label} className="text-center p-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
+            <div className="text-lg font-bold text-white" style={{ fontFamily: "'Space Mono', monospace" }}>
+              {loading ? "…" : stat.value}
+            </div>
+            <div className="text-[9px] uppercase tracking-widest text-gray-600 mt-0.5">{stat.label}</div>
           </div>
         ))}
       </div>
@@ -2465,95 +2197,66 @@ function SuccessStoryMeta({
 }
 
 function KpiCard({
-  label,
-  value,
-  sub,
-  icon,
-  tone,
-  onClick,
-  extra,
-  tooltip,
-  metaLine,
-  metaIcon,
-  aiLine,
-  rightVisual,
-  badge,
-  cardClassName,
+  label, value, sub, icon, tone, onClick, extra, tooltip, metaLine, metaIcon, aiLine, rightVisual, badge, cardClassName, delay = 0,
 }: {
-  label: string;
-  value: string;
-  sub?: string;
-  icon: React.ReactNode;
-  tone: "emerald" | "indigo" | "amber" | "rose" | (string & {});
-  onClick?: () => void;
-  extra?: React.ReactNode;
-  tooltip?: string;
-  metaLine?: string;
-  metaIcon?: React.ReactNode;
-  aiLine?: string;
-  rightVisual?: React.ReactNode;
-  badge?: React.ReactNode;
-  cardClassName?: string;
+  label: string; value: string; sub?: string; icon: React.ReactNode; tone: string;
+  onClick?: () => void; extra?: React.ReactNode; tooltip?: string; metaLine?: string;
+  metaIcon?: React.ReactNode; aiLine?: string; rightVisual?: React.ReactNode; badge?: React.ReactNode;
+  cardClassName?: string; delay?: number;
 }) {
   const clickable = typeof onClick === "function";
 
-  const toneColors = {
-    emerald: "from-emerald-500 to-emerald-600 text-white",
-    indigo: "from-indigo-500 to-indigo-600 text-white",
-    amber: "from-amber-500 to-amber-600 text-white",
-    rose: "from-rose-500 to-rose-600 text-white",
+  const toneConfig: Record<string, { iconBg: string; iconBorder: string; iconColor: string; glow: string }> = {
+    cyan:    { iconBg: "bg-cyan-950/50", iconBorder: "border-cyan-800/50", iconColor: "text-cyan-400", glow: "rgba(0,216,255,0.15)" },
+    gold:    { iconBg: "bg-amber-950/50", iconBorder: "border-amber-800/50", iconColor: "text-amber-400", glow: "rgba(245,200,66,0.15)" },
+    emerald: { iconBg: "bg-emerald-950/50", iconBorder: "border-emerald-800/50", iconColor: "text-emerald-400", glow: "rgba(16,185,129,0.15)" },
+    rose:    { iconBg: "bg-rose-950/50", iconBorder: "border-rose-800/50", iconColor: "text-rose-400", glow: "rgba(244,63,94,0.15)" },
+    indigo:  { iconBg: "bg-violet-950/50", iconBorder: "border-violet-800/50", iconColor: "text-violet-400", glow: "rgba(124,58,237,0.15)" },
   };
 
-  const colorClass = toneColors[tone as keyof typeof toneColors] || toneColors.indigo;
+  const tc = toneConfig[tone] || toneConfig.cyan;
 
   return (
-    <GlassCard className={[clickable ? "cursor-pointer group" : "", cardClassName || ""].join(" ")}>
+    <GlassCard delay={delay} className={[clickable ? "cursor-pointer group" : "", cardClassName || ""].join(" ")}>
       <div
         role={clickable ? "button" : undefined}
         tabIndex={clickable ? 0 : undefined}
         onClick={onClick}
-        onKeyDown={(e) => {
-          if (!clickable) return;
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onClick?.();
-          }
-        }}
+        onKeyDown={(e) => { if (!clickable) return; if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick?.(); } }}
         className={["outline-none", cardClassName?.includes("flex") ? "flex flex-col h-full" : ""].join(" ")}
         title={tooltip || (clickable ? "Click to view details" : undefined)}
       >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 mb-1">
-              <p className="text-sm font-medium text-gray-500">{label}</p>
+            <div className="flex items-center gap-2 mb-2">
+              <p className="text-xs text-gray-600 uppercase tracking-widest font-semibold">{label}</p>
               {badge}
               {tooltip && (
-                <span
-                  className="text-[10px] text-gray-400 border border-gray-200 bg-gray-50 px-1.5 py-0.5 rounded"
-                  title={tooltip}
-                >
-                  i
-                </span>
+                <span className="text-[9px] text-gray-700 border border-white/[0.06] px-1.5 py-0.5 rounded font-mono cursor-help" title={tooltip}>i</span>
               )}
             </div>
 
-            <p className="text-3xl font-bold text-gray-900 tracking-tight">{value}</p>
-            {sub && <p className="text-sm text-gray-500 mt-1 line-clamp-2">{sub}</p>}
+            <p className="text-4xl font-bold text-white tracking-tight" style={{ fontFamily: "'Space Mono', monospace" }}>
+              {value}
+            </p>
+            {sub && <p className="text-xs text-gray-600 mt-2 line-clamp-2">{sub}</p>}
 
             {metaLine && (
-              <div className="mt-3 inline-flex items-center gap-2 text-xs text-gray-600 bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-lg">
-                {metaIcon && <span>{metaIcon}</span>}
+              <div className="mt-3 inline-flex items-center gap-2 text-xs text-gray-500 bg-white/[0.03] border border-white/[0.06] px-2.5 py-1.5 rounded-lg">
+                {metaIcon && <span className="text-gray-600">{metaIcon}</span>}
                 <span className="truncate">{metaLine}</span>
               </div>
             )}
 
-            {aiLine && <p className="mt-3 text-sm text-gray-600 line-clamp-2 leading-relaxed">{aiLine}</p>}
+            {aiLine && <p className="mt-3 text-xs text-gray-600 line-clamp-2 leading-relaxed">{aiLine}</p>}
           </div>
 
           {rightVisual ? (
             <div className="shrink-0">{rightVisual}</div>
           ) : (
-            <div className={`shrink-0 flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br ${colorClass} shadow-lg`}>
+            <div className={`shrink-0 flex items-center justify-center w-11 h-11 rounded-xl border ${tc.iconBg} ${tc.iconBorder} ${tc.iconColor} transition-all group-hover:scale-110 group-hover:shadow-lg`}
+              style={{ boxShadow: `0 0 0 0 ${tc.glow}`, transition: "box-shadow 0.3s ease" }}
+            >
               {icon}
             </div>
           )}
@@ -2566,49 +2269,60 @@ function KpiCard({
 }
 
 function AiAlert({
-  severity,
-  title,
-  body,
-  href,
+  severity, title, body, href,
 }: {
-  severity: "high" | "medium" | "info";
-  title: string;
-  body: string;
-  href?: string;
+  severity: "high" | "medium" | "info"; title: string; body: string; href?: string;
 }) {
-  const colors = {
-    high: "border-rose-200 bg-rose-50 hover:border-rose-300",
-    medium: "border-amber-200 bg-amber-50 hover:border-amber-300",
-    info: "border-indigo-200 bg-indigo-50 hover:border-indigo-300",
-  } as const;
-
-  const iconColors = {
-    high: "text-rose-600",
-    medium: "text-amber-600",
-    info: "text-indigo-600",
-  };
+  const config = {
+    high: {
+      border: "border-rose-800/40",
+      bg: "bg-rose-950/20 hover:bg-rose-950/30",
+      iconBg: "bg-rose-950/40 border-rose-800/40",
+      iconColor: "text-rose-400",
+      pill: "bg-rose-950/50 border-rose-800/40 text-rose-400",
+      label: "Critical",
+    },
+    medium: {
+      border: "border-amber-800/30",
+      bg: "bg-amber-950/15 hover:bg-amber-950/25",
+      iconBg: "bg-amber-950/40 border-amber-800/40",
+      iconColor: "text-amber-400",
+      pill: "bg-amber-950/50 border-amber-800/40 text-amber-400",
+      label: "Warning",
+    },
+    info: {
+      border: "border-cyan-800/20",
+      bg: "bg-cyan-950/10 hover:bg-cyan-950/20",
+      iconBg: "bg-cyan-950/40 border-cyan-800/40",
+      iconColor: "text-cyan-500",
+      pill: "bg-cyan-950/50 border-cyan-800/40 text-cyan-400",
+      label: "Info",
+    },
+  }[severity];
 
   const Icon = severity === "high" ? AlertTriangle : severity === "medium" ? AlertTriangle : Sparkles;
 
   return (
-    <div className={`group rounded-xl border p-4 transition-all ${colors[severity]}`}>
+    <div className={`group rounded-xl border p-4 transition-all duration-200 ${config.border} ${config.bg}`}>
       <div className="flex items-start gap-3">
-        <div className={`shrink-0 mt-0.5 ${iconColors[severity]}`}>
-          <Icon className="h-5 w-5" />
+        <div className={`shrink-0 flex h-8 w-8 items-center justify-center rounded-lg border ${config.iconBg} ${config.iconColor}`}>
+          <Icon className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-3">
-            <h4 className="font-semibold text-gray-900">{title}</h4>
+          <div className="flex items-start justify-between gap-3 mb-1">
+            <div className="flex items-center gap-2">
+              <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest ${config.pill}`}>
+                {config.label}
+              </span>
+              <h4 className="font-semibold text-sm text-gray-200">{title}</h4>
+            </div>
             {href && (
-              <a
-                href={href}
-                className="shrink-0 text-xs text-indigo-600 hover:text-indigo-700 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity font-medium"
-              >
+              <a href={href} className="shrink-0 text-[11px] text-gray-600 hover:text-cyan-400 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all font-medium">
                 View <ArrowUpRight className="h-3 w-3" />
               </a>
             )}
           </div>
-          <p className="mt-1 text-sm text-gray-600 leading-relaxed">{body}</p>
+          <p className="text-xs text-gray-500 leading-relaxed">{body}</p>
         </div>
       </div>
     </div>
@@ -2617,18 +2331,19 @@ function AiAlert({
 
 function MilestonesMeta({ loading, panel }: { loading: boolean; panel: MilestonesPanel | null }) {
   const stats = [
-    { label: "Planned", value: num(panel?.status_breakdown?.planned), color: "text-gray-600" },
-    { label: "At Risk", value: num(panel?.status_breakdown?.at_risk), color: "text-amber-600" },
-    { label: "Overdue", value: num(panel?.overdue_count), color: "text-rose-600" },
+    { label: "Planned", value: num(panel?.status_breakdown?.planned), color: "text-gray-400" },
+    { label: "At Risk", value: num(panel?.status_breakdown?.at_risk), color: "text-amber-400" },
+    { label: "Overdue", value: num(panel?.overdue_count), color: "text-rose-400" },
   ];
-
   return (
-    <div className="mt-4 pt-4 border-t border-gray-200">
+    <div className="mt-4 pt-4 border-t border-white/[0.06]">
       <div className="flex items-center justify-between gap-2">
         {stats.map((stat) => (
-          <div key={stat.label} className="text-center flex-1">
-            <div className={`text-lg font-bold ${stat.color}`}>{loading ? "…" : stat.value}</div>
-            <div className="text-[10px] uppercase tracking-wider text-gray-500 mt-0.5">{stat.label}</div>
+          <div key={stat.label} className="text-center flex-1 py-2 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+            <div className={`text-xl font-bold ${stat.color}`} style={{ fontFamily: "'Space Mono', monospace" }}>
+              {loading ? "…" : stat.value}
+            </div>
+            <div className="text-[9px] uppercase tracking-widest text-gray-700 mt-0.5">{stat.label}</div>
           </div>
         ))}
       </div>
@@ -2636,15 +2351,8 @@ function MilestonesMeta({ loading, panel }: { loading: boolean; panel: Milestone
   );
 }
 
-/* ─────────────────────────────────────────────────────────────
-   ✅ RAID meta (CLEANED)
-   - Shows DUE-BY-TYPE (not “hi-score”)
-   - Overdue uses SAME mini-stat style as Milestones tile
-───────────────────────────────────────────────────────────── */
 function RaidMeta({
-  loading,
-  panel,
-  onClickType,
+  loading, panel, onClickType,
 }: {
   loading: boolean;
   panel: RaidPanel | null;
@@ -2654,94 +2362,74 @@ function RaidMeta({
   const issueVal = num(panel?.issue_due);
   const depVal = num(panel?.dependency_due);
   const assVal = num(panel?.assumption_due);
-
   const dueTotal = num(panel?.due_total);
   const overdueVal = num(panel?.overdue_total);
-
   const typedSum = riskVal + issueVal + depVal + assVal;
   const hasTypedBreakdown = typedSum > 0;
 
   return (
-    <div className="mt-4 pt-4 border-t border-gray-200">
+    <div className="mt-4 pt-4 border-t border-white/[0.06]">
       {!hasTypedBreakdown ? (
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onClickType(undefined, { hi: false });
-          }}
-          className="w-full rounded-lg border border-gray-200 bg-white/60 hover:bg-gray-50 transition-colors px-3 py-3 flex items-center justify-between"
-          title="Click to view RAID items due in this window"
+          onClick={(e) => { e.stopPropagation(); onClickType(undefined, { hi: false }); }}
+          className="w-full rounded-xl border border-white/[0.07] bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/[0.12] transition-all px-3 py-3 flex items-center justify-between"
         >
           <div className="flex items-center gap-2">
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-white border border-gray-200">
-              <AlertTriangle className="h-4 w-4 text-rose-600" />
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-rose-950/40 border border-rose-800/40">
+              <AlertTriangle className="h-4 w-4 text-rose-400" />
             </span>
-            <div>
-              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Due in window</div>
-              <div className="text-xs text-gray-600">Type breakdown unavailable</div>
+            <div className="text-left">
+              <div className="text-[9px] font-bold text-gray-600 uppercase tracking-widest">Due in window</div>
+              <div className="text-xs text-gray-500">Type breakdown unavailable</div>
             </div>
           </div>
-          <div className="text-lg font-bold text-gray-900">{loading ? "…" : dueTotal}</div>
+          <div className="text-xl font-bold text-white" style={{ fontFamily: "'Space Mono', monospace" }}>{loading ? "…" : dueTotal}</div>
         </button>
       ) : (
         <div className="grid grid-cols-4 gap-2">
           {[
-            { label: "Risks", value: riskVal, type: "Risk" as const, color: "text-rose-600" },
-            { label: "Issues", value: issueVal, type: "Issue" as const, color: "text-amber-600" },
-            { label: "Deps", value: depVal, type: "Dependency" as const, color: "text-indigo-600" },
-            { label: "Assump.", value: assVal, type: "Assumption" as const, color: "text-gray-700" },
+            { label: "Risk", value: riskVal, type: "Risk" as const, color: "text-rose-400" },
+            { label: "Issue", value: issueVal, type: "Issue" as const, color: "text-amber-400" },
+            { label: "Dep", value: depVal, type: "Dependency" as const, color: "text-cyan-400" },
+            { label: "Assum", value: assVal, type: "Assumption" as const, color: "text-gray-400" },
           ].map((item) => (
             <button
               key={item.label}
-              onClick={(e) => {
-                e.stopPropagation();
-                onClickType(item.type, { hi: false });
-              }}
-              className="text-center p-2 rounded-lg bg-white/60 border border-gray-200 hover:bg-gray-50 transition-colors"
-              title={`Click to view ${item.label.toLowerCase()} due items`}
+              onClick={(e) => { e.stopPropagation(); onClickType(item.type, { hi: false }); }}
+              className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/[0.06] hover:bg-white/[0.05] hover:border-white/[0.12] transition-all"
             >
-              <div className={`text-lg font-bold ${item.color}`}>{loading ? "…" : item.value}</div>
-              <div className="text-[10px] uppercase tracking-wider text-gray-500 mt-0.5">{item.label}</div>
+              <div className={`text-lg font-bold ${item.color}`} style={{ fontFamily: "'Space Mono', monospace" }}>
+                {loading ? "…" : item.value}
+              </div>
+              <div className="text-[9px] uppercase tracking-widest text-gray-600 mt-0.5">{item.label}</div>
             </button>
           ))}
         </div>
       )}
 
-      {/* ✅ Overdue: same milestone-style row */}
       <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onClickType(undefined, { overdue: true });
-        }}
-        className="mt-3 w-full rounded-lg border border-gray-200 bg-white/60 hover:bg-gray-50 transition-colors px-3 py-2 flex items-center justify-between"
-        title="Click to view overdue RAID items"
+        onClick={(e) => { e.stopPropagation(); onClickType(undefined, { overdue: true }); }}
+        className="mt-2 w-full rounded-xl border border-rose-900/20 bg-rose-950/10 hover:bg-rose-950/20 hover:border-rose-800/30 transition-all px-3 py-2.5 flex items-center justify-between"
       >
         <div className="flex items-center gap-2">
-          <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-white border border-gray-200">
-            <Clock3 className="h-4 w-4 text-rose-600" />
-          </span>
-          <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Overdue</div>
+          <Clock3 className="h-3.5 w-3.5 text-rose-500" />
+          <div className="text-[9px] font-bold text-rose-700 uppercase tracking-widest">Overdue Items</div>
         </div>
-        <div className="text-sm font-bold text-rose-700">{loading ? "…" : overdueVal}</div>
+        <div className="text-sm font-bold text-rose-400" style={{ fontFamily: "'Space Mono', monospace" }}>
+          {loading ? "…" : overdueVal}
+        </div>
       </button>
     </div>
   );
 }
 
 function ProjectTile({
-  projectRef,
-  title,
-  subtitle = "Open RAID • Changes • Lessons • Reporting",
-  projectCode,
-  clientName,
+  projectRef, title, subtitle = "RAID • Changes • Lessons • Reporting", projectCode, clientName,
 }: {
-  projectRef: string;
-  title: string;
-  subtitle?: string;
-  projectCode?: string;
-  clientName?: string;
+  projectRef: string; title: string; subtitle?: string; projectCode?: string; clientName?: string;
 }) {
   const router = useRouter();
+  const [hovered, setHovered] = useState(false);
 
   function go() {
     if (!projectRef) return;
@@ -2752,42 +2440,59 @@ function ProjectTile({
   const client = safeStr(clientName).trim();
 
   return (
-    <div
+    <m.div
       role="link"
       tabIndex={0}
       onClick={go}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          go();
-        }
-      }}
-      className="group cursor-pointer rounded-xl border border-gray-200 bg-white p-5 hover:border-indigo-300 hover:shadow-md transition-all"
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } }}
+      onHoverStart={() => setHovered(true)}
+      onHoverEnd={() => setHovered(false)}
+      whileHover={{ y: -2 }}
+      transition={{ duration: 0.2 }}
+      className="cursor-pointer rounded-xl border border-white/[0.07] bg-white/[0.02] p-5 hover:border-cyan-500/20 hover:bg-white/[0.04] transition-colors relative overflow-hidden group"
+      style={{ boxShadow: "0 1px 0 rgba(255,255,255,0.03) inset" }}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-2">
-            {code && (
-              <span className="inline-flex items-center rounded-md bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-[10px] font-medium text-indigo-700">
-                {code}
-              </span>
-            )}
-            {client && (
-              <span className="inline-flex items-center rounded-md bg-gray-100 border border-gray-200 px-2 py-0.5 text-[10px] text-gray-600">
-                {client}
-              </span>
-            )}
-          </div>
+      {/* Hover glow */}
+      <AnimatePresence>
+        {hovered && (
+          <m.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 rounded-xl pointer-events-none"
+            style={{ background: "radial-gradient(ellipse at 50% 0%, rgba(0,216,255,0.05) 0%, transparent 70%)" }}
+          />
+        )}
+      </AnimatePresence>
 
-          <h3 className="text-base font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors truncate">{title}</h3>
-          <p className="text-xs text-gray-500 mt-1">{subtitle}</p>
-        </div>
-        <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-          <div className="h-8 w-8 rounded-lg bg-indigo-50 flex items-center justify-center">
-            <ArrowUpRight className="h-4 w-4 text-indigo-600" />
+      <div className="relative z-10">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 mb-2.5 flex-wrap">
+              {code && (
+                <span className="inline-flex items-center rounded-md bg-cyan-950/50 border border-cyan-800/40 px-2 py-0.5 text-[10px] font-bold text-cyan-400 uppercase tracking-wider" style={{ fontFamily: "'Space Mono', monospace" }}>
+                  {code}
+                </span>
+              )}
+              {client && (
+                <span className="inline-flex items-center rounded-md bg-white/[0.03] border border-white/[0.07] px-2 py-0.5 text-[10px] text-gray-500">
+                  {client}
+                </span>
+              )}
+            </div>
+            <h3 className="text-sm font-semibold text-gray-200 group-hover:text-white transition-colors truncate leading-snug">{title}</h3>
+            <p className="text-[11px] text-gray-700 mt-1.5">{subtitle}</p>
+          </div>
+          <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-all duration-200">
+            <div className="h-7 w-7 rounded-lg bg-cyan-950/50 border border-cyan-800/40 flex items-center justify-center">
+              <ArrowUpRight className="h-3.5 w-3.5 text-cyan-400" />
+            </div>
           </div>
         </div>
+
+        {/* Bottom line accent */}
+        <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-500/0 to-transparent group-hover:via-cyan-500/20 transition-all duration-300" />
       </div>
-    </div>
+    </m.div>
   );
 }
