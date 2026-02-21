@@ -1,4 +1,3 @@
-// src/app/api/approvals/groups/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { sb, requireAuth, requireOrgAdmin, requireOrgMember, safeStr } from "@/lib/approvals/admin-helpers";
@@ -12,6 +11,21 @@ function err(msg: string, status = 400) {
   return NextResponse.json({ ok: false, error: msg }, { status });
 }
 
+const ALLOWED_ARTIFACT_TYPES = new Set(["project_charter", "change", "project_closure_report"]);
+
+function normArtifactType(x: any) {
+  const v = safeStr(x).trim().toLowerCase();
+  if (!v) return "";
+  // allow legacy aliases (optional, but helps reduce drift)
+  if (v === "change_request" || v === "change_requests") return "change";
+  return v;
+}
+
+function validateArtifactTypeOrEmpty(v: string) {
+  if (!v) return true;
+  return ALLOWED_ARTIFACT_TYPES.has(v);
+}
+
 export async function GET(req: Request) {
   try {
     const supabase = await sb();
@@ -19,11 +33,16 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
     const organisationId = safeStr(url.searchParams.get("orgId")).trim();
-    const artifactType = safeStr(url.searchParams.get("artifactType")).trim();
+    const artifactTypeRaw = url.searchParams.get("artifactType");
+    const artifactType = normArtifactType(artifactTypeRaw);
 
     if (!organisationId) return err("Missing orgId", 400);
-
     await requireOrgMember(supabase, organisationId, user.id);
+
+    // ✅ only allow current supported types (or empty = all)
+    if (!validateArtifactTypeOrEmpty(artifactType)) {
+      return err(`Unsupported artifactType. Allowed: project_charter, change, project_closure_report`, 400);
+    }
 
     let q = supabase.from("approval_groups").select("*").eq("organisation_id", organisationId);
     if (artifactType) q = q.eq("artifact_type", artifactType);
@@ -32,13 +51,15 @@ export async function GET(req: Request) {
     const { data, error } = await q;
     if (error) throw new Error(error.message);
 
-    // show only active by default if column exists
     const groups = (data ?? []).filter((g: any) => ("is_active" in g ? g.is_active !== false : true));
-
     return ok({ groups });
   } catch (e: any) {
     const msg = String(e?.message || e || "Error");
-    const s = msg.toLowerCase().includes("unauthorized") ? 401 : msg.toLowerCase().includes("forbidden") ? 403 : 400;
+    const s = msg.toLowerCase().includes("unauthorized")
+      ? 401
+      : msg.toLowerCase().includes("forbidden")
+      ? 403
+      : 400;
     return err(msg, s);
   }
 }
@@ -50,11 +71,14 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const organisationId = safeStr(body?.orgId).trim();
-    const artifactType = safeStr(body?.artifactType).trim();
+    const artifactType = normArtifactType(body?.artifactType);
     const name = safeStr(body?.name).trim();
 
     if (!organisationId) return err("Missing orgId", 400);
     if (!artifactType) return err("Missing artifactType", 400);
+    if (!ALLOWED_ARTIFACT_TYPES.has(artifactType)) {
+      return err(`Unsupported artifactType. Allowed: project_charter, change, project_closure_report`, 400);
+    }
     if (!name) return err("Missing name", 400);
 
     await requireOrgAdmin(supabase, organisationId, user.id);
@@ -75,7 +99,11 @@ export async function POST(req: Request) {
     return ok({ group: data }, 201);
   } catch (e: any) {
     const msg = String(e?.message || e || "Error");
-    const s = msg.toLowerCase().includes("unauthorized") ? 401 : msg.toLowerCase().includes("forbidden") ? 403 : 400;
+    const s = msg.toLowerCase().includes("unauthorized")
+      ? 401
+      : msg.toLowerCase().includes("forbidden")
+      ? 403
+      : 400;
     return err(msg, s);
   }
 }
@@ -112,7 +140,11 @@ export async function PATCH(req: Request) {
     return ok({ group: data });
   } catch (e: any) {
     const msg = String(e?.message || e || "Error");
-    const s = msg.toLowerCase().includes("unauthorized") ? 401 : msg.toLowerCase().includes("forbidden") ? 403 : 400;
+    const s = msg.toLowerCase().includes("unauthorized")
+      ? 401
+      : msg.toLowerCase().includes("forbidden")
+      ? 403
+      : 400;
     return err(msg, s);
   }
 }
@@ -131,7 +163,6 @@ export async function DELETE(req: Request) {
 
     await requireOrgAdmin(supabase, organisationId, user.id);
 
-    // soft disable
     const { error } = await supabase
       .from("approval_groups")
       .update({ is_active: false })
@@ -139,11 +170,14 @@ export async function DELETE(req: Request) {
       .eq("organisation_id", organisationId);
 
     if (error) throw new Error(error.message);
-
     return ok({ removed: true });
   } catch (e: any) {
     const msg = String(e?.message || e || "Error");
-    const s = msg.toLowerCase().includes("unauthorized") ? 401 : msg.toLowerCase().includes("forbidden") ? 403 : 400;
+    const s = msg.toLowerCase().includes("unauthorized")
+      ? 401
+      : msg.toLowerCase().includes("forbidden")
+      ? 403
+      : 400;
     return err(msg, s);
   }
 }

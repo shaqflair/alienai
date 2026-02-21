@@ -191,12 +191,7 @@ function ensureCanonicalCharter(input: any) {
   if (isV2(input)) {
     base = clone(input);
   } else if (input && typeof input === "object" && Array.isArray((input as any)?.content?.sections)) {
-    base = {
-      version: 2,
-      type: "project_charter",
-      meta: (input as any)?.meta ?? {},
-      sections: (input as any).content.sections,
-    };
+    base = { version: 2, type: "project_charter", meta: (input as any)?.meta ?? {}, sections: (input as any).content.sections };
   } else {
     base = isV2(PROJECT_CHARTER_TEMPLATE)
       ? clone(PROJECT_CHARTER_TEMPLATE)
@@ -223,7 +218,11 @@ function ensureCanonicalCharter(input: any) {
       s.title = req.title;
 
       if (req.kind === "table") {
-        const hasTable = (s.table && Array.isArray(s.table.rows)) || Array.isArray(s.columns) || Array.isArray(s.rows);
+        const hasTable =
+          (s.table && Array.isArray((s as any)?.table?.rows)) ||
+          Array.isArray((s as any).columns) ||
+          Array.isArray((s as any).rows);
+
         if (!hasTable) {
           s.table = buildEmptyTable(req.headers ?? ["", "", "", ""]);
           s.bullets = undefined;
@@ -235,20 +234,20 @@ function ensureCanonicalCharter(input: any) {
           const t = s.table;
           const currencyIdx = 2;
           for (const r of t.rows ?? []) {
-            if (r.type !== "data") continue;
-            const cells = Array.isArray(r.cells) ? r.cells : [];
+            if ((r as any).type !== "data") continue;
+            const cells = Array.isArray((r as any).cells) ? (r as any).cells : [];
             while (cells.length < (t.columns || 4)) cells.push("");
             if (!safeString(cells[currencyIdx] ?? "").trim()) cells[currencyIdx] = "GBP";
-            r.cells = cells;
+            (r as any).cells = cells;
           }
         }
       }
 
       if (req.kind === "bullets") {
-        const hasBullets = typeof s.bullets === "string";
-        const hasAnyTable = !!(s.table || s.columns || s.rows);
-        if (!hasBullets && !hasAnyTable) s.bullets = "";
-        if (typeof s.bullets === "string") s.bullets = normalizeBulletsText(s.bullets);
+        const hasBullets = typeof (s as any).bullets === "string";
+        const hasAnyTable = !!((s as any).table || (s as any).columns || (s as any).rows);
+        if (!hasBullets && !hasAnyTable) (s as any).bullets = "";
+        if (typeof (s as any).bullets === "string") (s as any).bullets = normalizeBulletsText((s as any).bullets);
       }
 
       return s;
@@ -357,8 +356,33 @@ function isNonEmptyString(x: any) {
   return typeof x === "string" && x.trim().length > 0;
 }
 
+/**
+ * ✅ Robustly unwrap common API envelopes:
+ * - { ok, data: ... }
+ * - { ok, result: ... }
+ * - { ok, payload: ... }
+ * - { ok, response: ... }
+ */
+function unwrapAiEnvelope(ai: any) {
+  if (!ai || typeof ai !== "object") return ai;
+
+  const v =
+    (ai as any).data ??
+    (ai as any).result ??
+    (ai as any).payload ??
+    (ai as any).response ??
+    null;
+
+  return v && typeof v === "object" ? v : ai;
+}
+
 function mergeAiFullIntoCharter(prevDoc: any, ai: any) {
-  const candidate = (ai && typeof ai === "object" && ((ai as any).charterV2 || (ai as any).doc)) || ai;
+  const unwrapped = unwrapAiEnvelope(ai);
+
+  const candidate =
+    (unwrapped && typeof unwrapped === "object" && (((unwrapped as any).charterV2 || (unwrapped as any).doc) as any)) ||
+    unwrapped;
+
   const raw = (candidate as any)?.charterV2 ?? (candidate as any)?.doc ?? candidate;
 
   const canon = ensureCanonicalCharter(raw);
@@ -381,25 +405,68 @@ function mergeAiFullIntoCharter(prevDoc: any, ai: any) {
   return { ...canon, meta: mergedMeta, sections: nextSections };
 }
 
-/**
- * ✅ Patch-first extraction (robust to API shapes)
- */
-function extractPatchFromAny(ai: any): any | null {
-  if (!ai || typeof ai !== "object") return null;
-  if ((ai as any).patch && typeof (ai as any).patch === "object" && (ai as any).patch.kind) return (ai as any).patch;
-  if ((ai as any).kind) return ai;
+function extractSectionFromAi(ai: any, sectionKey: string): any | null {
+  const key = String(sectionKey || "").trim().toLowerCase();
+  if (!key) return null;
+
+  const unwrapped = unwrapAiEnvelope(ai);
+
+  const candidate =
+    (unwrapped && typeof unwrapped === "object" && (((unwrapped as any).charterV2 || (unwrapped as any).doc) as any)) ||
+    unwrapped;
+
+  const raw = (candidate as any)?.charterV2 ?? (candidate as any)?.doc ?? candidate;
+
+  // Common patterns:
+  // 1) { section: {...} }
+  if (raw?.section && typeof raw.section === "object") return raw.section;
+
+  // 2) { sections: [...] }
+  if (Array.isArray(raw?.sections)) {
+    const found = raw.sections.find((s: any) => String(s?.key ?? "").toLowerCase().trim() === key);
+    if (found) return found;
+    if (raw.sections.length === 1) return raw.sections[0];
+  }
+
+  // 3) nested in candidate (legacy)
+  const nested =
+    Array.isArray((candidate as any)?.sections)
+      ? (candidate as any).sections
+      : Array.isArray((candidate as any)?.charterV2?.sections)
+      ? (candidate as any).charterV2.sections
+      : Array.isArray((candidate as any)?.doc?.sections)
+      ? (candidate as any).doc.sections
+      : null;
+
+  if (Array.isArray(nested)) {
+    const found = nested.find((s: any) => String(s?.key ?? "").toLowerCase().trim() === key);
+    if (found) return found;
+    if (nested.length === 1) return nested[0];
+  }
+
+  // 4) Sometimes the section is under unwrapped.data.section / result.section, etc.
+  // (unwrapAiEnvelope already handled that, but keep this as extra safety)
+  const deep =
+    (unwrapped as any)?.section ??
+    (unwrapped as any)?.data?.section ??
+    (unwrapped as any)?.result?.section ??
+    null;
+
+  if (deep && typeof deep === "object") return deep;
+
   return null;
 }
 
-function applyReplaceSection(prevDoc: any, sectionKey: string, incomingSection: any) {
+function applyAiSection(prevDoc: any, sectionKey: string, ai: any) {
   const key = String(sectionKey || "").trim();
   if (!key) return ensureCanonicalCharter(prevDoc);
 
   const prev = ensureCanonicalCharter(prevDoc);
-  const incoming = incomingSection && typeof incomingSection === "object" ? { ...incomingSection } : { key };
-  incoming.key = key;
+  const aiSec = extractSectionFromAi(ai, key);
+  if (!aiSec) return prev;
 
-  if (typeof incoming.bullets === "string") incoming.bullets = normalizeBulletsText(incoming.bullets);
+  const incoming = { ...aiSec, key };
+  if (typeof (incoming as any).bullets === "string") (incoming as any).bullets = normalizeBulletsText((incoming as any).bullets);
 
   const next = {
     ...prev,
@@ -407,45 +474,6 @@ function applyReplaceSection(prevDoc: any, sectionKey: string, incomingSection: 
   };
 
   return ensureCanonicalCharter(next);
-}
-
-function applyAiResultToDoc(prevDoc: any, sectionKey: string, data: any) {
-  // 1) Prefer patch wrapper
-  const patch = extractPatchFromAny(data);
-
-  if (patch?.kind === "replace_all") {
-    const rawDoc = patch.doc ?? (data as any)?.charterV2 ?? (data as any)?.doc ?? data;
-    return ensureCanonicalCharter(rawDoc);
-  }
-
-  if (patch?.kind === "replace_section") {
-    const k = String(patch.key || (data as any)?.sectionKey || sectionKey || "").trim();
-    const sec = patch.section ?? (data as any)?.section ?? (data as any)?.sections?.[0] ?? null;
-    if (!k || !sec) return ensureCanonicalCharter(prevDoc);
-    return applyReplaceSection(prevDoc, k, sec);
-  }
-
-  // 2) Fallback to UI-friendly fields (added by API)
-  const k2 = String((data as any)?.sectionKey || sectionKey || "").trim();
-  const sec2 = (data as any)?.section ?? (Array.isArray((data as any)?.sections) ? (data as any).sections[0] : null);
-  if (k2 && sec2) return applyReplaceSection(prevDoc, k2, sec2);
-
-  // 3) Final fallback: legacy extract patterns
-  const candidate = (data && typeof data === "object" && ((data as any).charterV2 || (data as any).doc)) || data;
-  const raw = (candidate as any)?.charterV2 ?? (candidate as any)?.doc ?? candidate;
-
-  if (raw?.section && typeof raw.section === "object") {
-    return applyReplaceSection(prevDoc, k2 || sectionKey, raw.section);
-  }
-
-  if (Array.isArray(raw?.sections)) {
-    const keyLower = String(sectionKey || "").trim().toLowerCase();
-    const found = raw.sections.find((s: any) => String(s?.key ?? "").toLowerCase().trim() === keyLower);
-    if (found) return applyReplaceSection(prevDoc, sectionKey, found);
-    if (raw.sections.length === 1) return applyReplaceSection(prevDoc, sectionKey, raw.sections[0]);
-  }
-
-  return ensureCanonicalCharter(prevDoc);
 }
 
 export default function ProjectCharterEditorFormLazy({
@@ -817,34 +845,14 @@ export default function ProjectCharterEditorFormLazy({
 
   const StatusBadge = ({ state }: { state: typeof autosaveState }) => {
     const configs = {
-      idle: {
-        icon: CheckCircle2,
-        color: "text-emerald-600",
-        bg: "bg-emerald-50",
-        border: "border-emerald-200",
-        label: "Saved",
-      },
-      saving: {
-        icon: Loader2,
-        color: "text-blue-600",
-        bg: "bg-blue-50",
-        border: "border-blue-200",
-        label: "Saving...",
-      },
-      queued: {
-        icon: Clock,
-        color: "text-amber-600",
-        bg: "bg-amber-50",
-        border: "border-amber-200",
-        label: "Pending",
-      },
+      idle: { icon: CheckCircle2, color: "text-emerald-600", bg: "bg-emerald-50", border: "border-emerald-200", label: "Saved" },
+      saving: { icon: Loader2, color: "text-blue-600", bg: "bg-blue-50", border: "border-blue-200", label: "Saving..." },
+      queued: { icon: Clock, color: "text-amber-600", bg: "bg-amber-50", border: "border-amber-200", label: "Pending" },
     };
     const config = (configs as any)[state];
     const Icon = config.icon;
     return (
-      <span
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${config.bg} ${config.border} ${config.color}`}
-      >
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${config.bg} ${config.border} ${config.color}`}>
         <Icon className={`h-3.5 w-3.5 ${state === "saving" ? "animate-spin" : ""}`} />
         {config.label}
       </span>
@@ -864,14 +872,14 @@ export default function ProjectCharterEditorFormLazy({
   const submitDisabledReason = !submitWired
     ? "Submit action is not wired."
     : !canSubmitOrResubmit
-      ? "You can’t submit right now (role/status/current revision)."
-      : readOnly
-        ? "View-only mode."
-        : lockLayout
-          ? "Layout is locked."
-          : isPending
-            ? "Please wait…"
-            : "";
+    ? "You can’t submit right now (role/status/current revision)."
+    : readOnly
+    ? "View-only mode."
+    : lockLayout
+    ? "Layout is locked."
+    : isPending
+    ? "Please wait…"
+    : "";
 
   async function generateFullCharter() {
     if (!canEdit) return;
@@ -885,501 +893,4 @@ export default function ProjectCharterEditorFormLazy({
     try {
       const brief = String(pmBrief ?? "");
 
-      setDoc((prev) => setPmBriefInMeta(prev, brief));
-      markDirty();
-
-      const docForRequest = setPmBriefInMeta(v2ForSave, brief);
-
-      const systemPrompt = [
-        "Act as a senior programme manager and PMO governance expert.",
-        "Generate a complete, executive-ready Project Charter using best-practice (PRINCE2/PMBOK hybrid).",
-        "Be concise, structured, and realistic for enterprise delivery.",
-        "Flag assumptions clearly and avoid generic filler.",
-        "Ensure objectives are measurable and aligned to business value.",
-        "Write Business Case and Objectives as clear prose (short paragraphs), not a table.",
-        "Write Risks, Issues, Assumptions, Dependencies as bullet points (one per line).",
-      ].join("\n");
-
-      const res = await fetch("/api/wireai/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          mode: "full",
-          doc: docForRequest,
-          meta: { ...((docForRequest as any).meta ?? {}), pm_brief: brief },
-          template: "pmi",
-          instructions: [
-            systemPrompt,
-            "Populate ALL sections of the Project Charter.",
-            "For any uncertain item, prefix with [ASSUMPTION] or [TBC].",
-            "Use concise, executive-friendly bullets.",
-            "Keep tables structured and complete where possible.",
-          ],
-        }),
-      });
-
-      const text = await res.text().catch(() => "");
-      let data: any = {};
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        if (!res.ok) throw new Error(text?.trim() ? text.slice(0, 300) : `AI failed (${res.status})`);
-      }
-
-      if (!res.ok) throw new Error(String(data?.error ?? "AI full generation failed"));
-
-      setDoc((prev) => mergeAiFullIntoCharter(prev, data));
-      lastLocalEditAtRef.current = Date.now();
-      setDirty(true);
-    } catch (e: any) {
-      setAiState("error");
-      setAiError(String(e?.message ?? "AI full generation failed"));
-    } finally {
-      setAiLoadingKey(null);
-      setAiState("idle");
-      setAiFullBusy(false);
-    }
-  }
-
-  async function regenerateSection(sectionKey: string) {
-    if (!canEdit) return;
-    const key = String(sectionKey || "").trim();
-    if (!key) return;
-
-    if (!wireCaps.section) {
-      setAiState("error");
-      setAiError("Section regeneration is not available (capability off).");
-      return;
-    }
-
-    setAiError("");
-    setAiState("generating");
-    setAiLoadingKey(key);
-
-    try {
-      const docForRequest = setPmBriefInMeta(v2ForSave, String(pmBrief ?? ""));
-
-      const res = await fetch("/api/wireai/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          mode: "section",
-          sectionKey: key,
-          doc: docForRequest,
-          meta: { ...(docForRequest.meta ?? {}), pm_brief: String(pmBrief ?? "") },
-          template: "pmi",
-        }),
-      });
-
-      const rawText = await res.text().catch(() => "");
-      let data: any = {};
-      try {
-        data = rawText ? JSON.parse(rawText) : {};
-      } catch {
-        if (!res.ok)
-          throw new Error(rawText?.trim() ? rawText.slice(0, 300) : `AI regeneration failed (${res.status})`);
-      }
-
-      if (!res.ok) throw new Error(String(data?.error ?? "AI regeneration failed"));
-
-      // ✅ PATCH-FIRST APPLY (fixes “spinner but no change”)
-      setDoc((prev) => applyAiResultToDoc(prev, key, data));
-      lastLocalEditAtRef.current = Date.now();
-      setDirty(true);
-    } catch (e: any) {
-      setAiState("error");
-      setAiError(String(e?.message ?? "AI regeneration failed"));
-    } finally {
-      setAiLoadingKey(null);
-      setAiState("idle");
-    }
-  }
-
-  // ✅ FIX: Improve should directly improve the clicked section (no notes UI / no top box)
-  async function improveSection(payload: ImproveSectionPayload) {
-    if (!canEdit) return;
-    if (!wireCaps.suggest && !wireCaps.section) {
-      setAiState("error");
-      setAiError("Improve is not available (capability off).");
-      return;
-    }
-
-    const key = String(payload?.sectionKey ?? "").trim();
-    if (!key) return;
-
-    setAiError("");
-    setAiState("generating");
-    setAiLoadingKey(key);
-
-    try {
-      const docForRequest = setPmBriefInMeta(v2ForSave, String(pmBrief ?? ""));
-
-      const res = await fetch("/api/wireai/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          mode: "section",
-          sectionKey: key,
-          doc: docForRequest,
-          meta: { ...(docForRequest.meta ?? {}), pm_brief: String(pmBrief ?? "") },
-          template: "pmi",
-          instructions: [
-            "Improve the section content while keeping it realistic and executive-ready.",
-            "Do not invent facts. If uncertain, mark [TBC] or [ASSUMPTION].",
-            "Keep format consistent with the section type (table vs bullets/prose).",
-          ],
-        }),
-      });
-
-      const rawText = await res.text().catch(() => "");
-      let data: any = {};
-      try {
-        data = rawText ? JSON.parse(rawText) : {};
-      } catch {
-        if (!res.ok) throw new Error(rawText?.trim() ? rawText.slice(0, 300) : `AI improve failed (${res.status})`);
-      }
-
-      if (!res.ok) throw new Error(String(data?.error ?? "AI improve failed"));
-
-      // ✅ PATCH-FIRST APPLY (fixes “spinner but no change”)
-      setDoc((prev) => applyAiResultToDoc(prev, key, data));
-      lastLocalEditAtRef.current = Date.now();
-      setDirty(true);
-    } catch (e: any) {
-      setAiState("error");
-      setAiError(String(e?.message ?? "AI improve failed"));
-    } finally {
-      setAiLoadingKey(null);
-      setAiState("idle");
-    }
-  }
-
-  const pmBriefEmpty = !isNonEmptyString(pmBrief);
-
-  return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Project Charter</h1>
-              <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs font-semibold border border-slate-200">
-                v{badgeVersion}
-              </span>
-
-              {approvalEnabled ? (
-                <span className="px-2.5 py-0.5 rounded-full bg-slate-900 text-white text-xs font-semibold border border-slate-900">
-                  {String(approvalStatus || "draft").replace(/_/g, " ")}
-                </span>
-              ) : null}
-            </div>
-
-            <p className="text-sm text-slate-500">
-              {readOnly
-                ? "View-only mode"
-                : lockLayout
-                  ? "Layout locked after submission"
-                  : "Edit and manage your project charter"}
-            </p>
-
-            <LegacyLinks legacy={legacyExports ?? null} />
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <StatusBadge state={autosaveState} />
-
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-lg border-slate-300 hover:bg-slate-50 text-slate-900"
-              disabled={!canEdit || isPending || autosaveState === "saving"}
-              onClick={() => saveNow("manual")}
-              title={!canEdit ? "Read-only / locked" : dirty ? "Save changes" : "No unsaved changes"}
-            >
-              <Save className="h-4 w-4 mr-2 text-slate-700" />
-              <span className="whitespace-nowrap">Save</span>
-            </Button>
-
-            <div className="flex items-center bg-slate-100 rounded-lg p-1 border border-slate-200">
-              <button
-                type="button"
-                onClick={() => setViewMode("sections")}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                  viewMode === "sections"
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                Sections
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("classic")}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                  viewMode === "classic"
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                Classic Table
-              </button>
-            </div>
-
-            {approvalEnabled ? (
-              submitWired ? (
-                <form action={submitForApprovalAction as any}>
-                  <Button
-                    type="submit"
-                    variant="outline"
-                    className="rounded-lg border-slate-300 hover:bg-slate-50 text-slate-900"
-                    disabled={submitDisabled}
-                    title={submitDisabled ? submitDisabledReason : "Submit this charter for approval"}
-                  >
-                    <Send className="h-4 w-4 mr-2 text-slate-700" />
-                    <span className="whitespace-nowrap">{submitLabel}</span>
-                  </Button>
-                </form>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-lg border-slate-300 text-slate-900"
-                  disabled
-                  title={submitDisabledReason}
-                >
-                  <Send className="h-4 w-4 mr-2 text-slate-700" />
-                  <span className="whitespace-nowrap">{submitLabel}</span>
-                </Button>
-              )
-            ) : null}
-
-            {mounted ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="rounded-lg border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors"
-                    disabled={!!exportBusy}
-                  >
-                    {exportBusy ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Download className="h-4 w-4 mr-2" />
-                    )}
-                    {exportBusy ? "Exporting..." : "Export"}
-                    <ChevronDown className="h-3 w-3 ml-2 opacity-50" />
-                  </Button>
-                </DropdownMenuTrigger>
-
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem
-                    onClick={() => exportCharter("pdf")}
-                    disabled={!!exportBusy}
-                    className="cursor-pointer focus:bg-slate-50"
-                  >
-                    <FileText className="h-4 w-4 mr-2 text-red-600" />
-                    <div className="flex flex-col">
-                      <span className="text-sm">Export PDF</span>
-                      <span className="text-xs text-slate-500">Professional document</span>
-                    </div>
-                  </DropdownMenuItem>
-
-                  <DropdownMenuItem
-                    onClick={() => exportCharter("docx")}
-                    disabled={!!exportBusy}
-                    className="cursor-pointer focus:bg-slate-50"
-                  >
-                    <File className="h-4 w-4 mr-2 text-blue-600" />
-                    <div className="flex flex-col">
-                      <span className="text-sm">Export Word</span>
-                      <span className="text-xs text-slate-500">Editable document</span>
-                    </div>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <Button
-                variant="outline"
-                className="rounded-lg border-slate-300"
-                disabled
-                title="Export menu loads after page is ready"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Export
-                <ChevronDown className="h-3 w-3 ml-2 opacity-50" />
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* ✅ Autosave failure (prevents “stuck pending”) */}
-        {autosaveError ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-4 py-3">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-4 w-4" />
-              <span className="font-medium">Autosave failed:</span>
-              <span className="text-rose-800/90">{autosaveError}</span>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-lg border-rose-200 hover:bg-rose-100 text-rose-800"
-              disabled={!canEdit || isPending}
-              onClick={() => {
-                setAutosaveError("");
-                failedSigRef.current = null;
-                saveNow("autosave");
-              }}
-            >
-              Retry autosave
-            </Button>
-          </div>
-        ) : null}
-
-        {/* PM Brief (kept) */}
-        {canEdit ? (
-          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <div className="text-sm font-semibold text-slate-900">PM Brief</div>
-                <div className="text-xs text-slate-600">Provide context for AI generation. Keep it crisp and specific.</div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div className="text-xs text-slate-500">
-                  {pmBriefEmpty ? (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-800">
-                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                      Recommended
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-800">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                      Ready
-                    </span>
-                  )}
-                </div>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-8 rounded-lg border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-900"
-                  disabled={!canEdit || isPending || aiState === "generating" || aiFullBusy || !wireCaps.full}
-                  onClick={() => generateFullCharter()}
-                  title={
-                    !wireCaps.full
-                      ? "Full AI generation is not available."
-                      : pmBriefEmpty
-                        ? "Add a brief first (recommended)"
-                        : "Generate the full charter from your brief"
-                  }
-                >
-                  {aiFullBusy ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Wand2 className="h-4 w-4 mr-2 text-indigo-700" />
-                  )}
-                  <span className="whitespace-nowrap">Generate</span>
-                </Button>
-              </div>
-            </div>
-
-            <textarea
-              value={pmBrief}
-              onChange={(e) => {
-                const v = e.target.value;
-                setPmBrief(v);
-                lastLocalEditAtRef.current = Date.now();
-                setDoc((prev) => setPmBriefInMeta(prev, v));
-                setDirty(true);
-              }}
-              rows={7}
-              placeholder={[
-                "Act as a senior programme manager and PMO governance expert.",
-                "Generate a complete, executive-ready Project Charter using best-practice (PRINCE2/PMBOK hybrid).",
-                "Be concise, structured, and realistic for enterprise delivery.",
-                "Flag assumptions clearly and avoid generic filler.",
-                "Ensure objectives are measurable and aligned to business value.",
-              ].join("\n")}
-              className="mt-3 w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-            />
-          </div>
-        ) : null}
-
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-xs text-slate-500">
-            {lastSavedIso ? (
-              <>
-                Last saved: <span className="font-mono">{fmtWhenLocal(lastSavedIso)}</span>
-              </>
-            ) : (
-              "—"
-            )}
-          </div>
-
-          {aiState === "error" && aiError ? (
-            <div className="flex items-center gap-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
-              <AlertCircle className="h-4 w-4" />
-              {aiError}
-            </div>
-          ) : null}
-        </div>
-
-        {exportErr && (
-          <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
-            <AlertCircle className="h-4 w-4" />
-            {exportErr}
-          </div>
-        )}
-      </div>
-
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm min-h-[600px]">
-        {viewMode === "classic" ? (
-          <ProjectCharterClassicView doc={doc} projectTitleFromProject={projectTitle} />
-        ) : isCanonicalV2 ? (
-          <ProjectCharterSectionEditor
-            meta={doc?.meta ?? {}}
-            onMetaChange={(meta: any) => {
-              markDirty();
-              setDoc((prev: any) => {
-                const cur = ensureCanonicalCharter(prev);
-                return applyProjectMetaDefaults({ ...cur, meta }, { projectTitle, projectManagerName });
-              });
-            }}
-            sections={sectionsForEditor}
-            onChange={(sections: any) => {
-              markDirty();
-              setDoc((prev: any) =>
-                applyProjectMetaDefaults(ensureCanonicalCharter({ ...prev, sections }), {
-                  projectTitle,
-                  projectManagerName,
-                })
-              );
-            }}
-            readOnly={sectionReadOnly}
-            onImproveSection={(payload: ImproveSectionPayload) => improveSection(payload)}
-            onRegenerateSection={(sectionKey: string) => regenerateSection(sectionKey)}
-            aiDisabled={!canEdit || isPending || aiState === "generating"}
-            aiLoadingKey={aiLoadingKey}
-          />
-        ) : (
-          <ProjectCharterEditor
-            initialJson={doc}
-            onChange={(next: any) => {
-              markDirty();
-              setDoc(applyProjectMetaDefaults(next, { projectTitle, projectManagerName }));
-            }}
-            readOnly={readOnly}
-            lockLayout={lockLayout}
-          />
-        )}
-      </div>
-
-      <CharterV2DebugPanel value={v2ForSave} />
-    </div>
-  );
-}
+      setDoc((

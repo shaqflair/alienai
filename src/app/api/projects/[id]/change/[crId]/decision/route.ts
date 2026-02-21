@@ -19,8 +19,6 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
     const user = await requireUser(supabase);
 
     const { id, crId } = await ctx.params;
-
-    // folder is [id] so param key is id; map to your existing naming
     const projectId = safeStr(id).trim();
     const changeId = safeStr(crId).trim();
 

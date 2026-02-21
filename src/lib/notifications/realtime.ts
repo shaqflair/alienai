@@ -1,4 +1,3 @@
-// lib/notifications/realtime.ts
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export function subscribeToNotifications(
@@ -14,7 +13,7 @@ export function subscribeToNotifications(
         event: "INSERT",
         schema: "public",
         table: "notifications",
-        filter: `user_id=eq.${userId}`,
+        filter: `recipient_user_id=eq.${userId}`, // ✅ FIXED
       },
       (payload) => onEvent({ type: "INSERT", id: (payload.new as any).id })
     )
@@ -24,7 +23,7 @@ export function subscribeToNotifications(
         event: "UPDATE",
         schema: "public",
         table: "notifications",
-        filter: `user_id=eq.${userId}`,
+        filter: `recipient_user_id=eq.${userId}`, // ✅ FIXED
       },
       (payload) => onEvent({ type: "UPDATE", id: (payload.new as any).id })
     )

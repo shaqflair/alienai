@@ -1,5 +1,9 @@
-export type Rag = "green" | "amber" | "red";
+﻿// src/lib/exports/charter/renderProjectCharterHtml.ts
+import "server-only";
 
+import type { CharterExportMeta } from "./charterShared";
+
+type Rag = "green" | "amber" | "red";
 type RowObj = { type: "header" | "data"; cells: string[] };
 
 function escapeHtml(str: string) {
@@ -48,7 +52,7 @@ function tableFromSection(sec: any): { columns: number; rows: RowObj[] } | null 
   return null;
 }
 
-/* ------------------------------------------------ UK date helpers ------------------------------------------------ */
+/* ──────────────────────────────────────────────── UK date helpers ──────────────────────────────────────────────── */
 
 function isIsoDateOnly(v: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(v);
@@ -68,24 +72,23 @@ function toUkDate(value: string) {
   }
 }
 
-/* ------------------------------------------------ currency helpers (NO � prefix) ------------------------------------------------ */
+/* ──────────────────────────────────────────────── currency helpers (NO £ prefix) ──────────────────────────────────────────────── */
 
 function normalizeCurrencyLabel(v: string) {
   const s = String(v || "").trim();
   if (!s) return "Pounds sterling";
   const lower = s.toLowerCase();
-  if (lower === "gbp" || lower.includes("pound") || lower.includes("sterling") || lower === "�") return "Pounds sterling";
+  if (lower === "gbp" || lower.includes("pound") || lower.includes("sterling") || lower === "£") return "Pounds sterling";
   if (lower === "usd" || lower.includes("dollar")) return "USD";
   if (lower === "eur" || lower.includes("euro")) return "EUR";
   return s;
 }
 
-/* ------------------------------------------------ bullets: NO bullets, render lines from forms ------------------------------------------------ */
+/* ──────────────────────────────────────────────── bullets: NO bullets, render lines from forms ──────────────────────────────────────────────── */
 
 function normalizeBulletLine(line: string) {
   let s = String(line ?? "");
-  // strip repeated bullet-ish prefixes
-  const re = /^\s*(?:[�\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/;
+  const re = /^\s*(?:[•\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/;
   for (let i = 0; i < 6; i++) {
     const next = s.replace(re, "");
     if (next === s) break;
@@ -103,7 +106,6 @@ function renderLinesFromFormsHtml(text: string) {
 
   if (!lines.length) return `<div class="muted">No content recorded</div>`;
 
-  // No bullets. Just clean lines.
   return `
     <div class="lines">
       ${lines.map((ln) => `<div class="line">${escapeHtml(ln)}</div>`).join("")}
@@ -111,7 +113,7 @@ function renderLinesFromFormsHtml(text: string) {
   `;
 }
 
-/* ------------------------------------------------ table renderer (UK date, keep amount as entered, keep currency column as-is) ------------------------------------------------ */
+/* ──────────────────────────────────────────────── table renderer (UK date, keep amount as entered, keep currency column as-is) ──────────────────────────────────────────────── */
 
 function renderTableHtml(
   t: { columns: number; rows: RowObj[] },
@@ -136,19 +138,15 @@ function renderTableHtml(
     const v = String(raw ?? "");
     const trimmed = v.trim();
 
-    // Currency column: normalize GBP -> "Pounds sterling" but DO NOT force GBP if USD is provided
     if (currencyCol != null && colIdx === currencyCol) {
-      // if blank, default to pounds sterling; otherwise keep user's choice (USD/EUR/etc)
       return escapeHtml(trimmed ? normalizeCurrencyLabel(trimmed) : currencyLabel);
     }
 
-    // Date columns OR ISO-ish dates: UK date
     if (dateCols.has(colIdx) || isIsoDateOnly(trimmed) || isIsoDateTime(trimmed)) {
       const uk = toUkDate(trimmed);
       return escapeHtml(uk || trimmed);
     }
 
-    // Amount column: keep value exactly as entered (NO � prefix)
     return escapeHtml(trimmed);
   }
 
@@ -167,7 +165,9 @@ function renderTableHtml(
           data.length
             ? data
                 .map((r) => {
-                  const cells = Array.from({ length: colCount }, (_, i) => renderCell(String((r.cells ?? [])[i] ?? ""), i));
+                  const cells = Array.from({ length: colCount }, (_, i) =>
+                    renderCell(String((r.cells ?? [])[i] ?? ""), i)
+                  );
                   return `<tr>${cells.map((c) => `<td>${c || "&nbsp;"}</td>`).join("")}</tr>`;
                 })
                 .join("")
@@ -180,38 +180,23 @@ function renderTableHtml(
 
 /**
  * Project Charter HTML renderer (Closure-report-like layout)
- * - Logo top-right
- * - Meta �pills�
- * - Watermark
- * - Clean table styling (accent outer border)
- *
- * Changes requested:
- * ? UK date format (tables + meta already provided)
- * ? Remove � sign (keep amount as entered)
- * ? Remove header PM + Currency pills
- * ? Remove bullet points: render plain lines from forms (no <ul>/<li>)
  */
 export function renderProjectCharterHtml({
   doc,
   meta,
 }: {
   doc: any;
-  meta: {
-    projectName: string;
-    projectCode: string;
-    organisationName?: string;
-    generated: string; // UK formatted timestamp
+  meta: CharterExportMeta & {
     logoUrl?: string;
-    watermarkText?: string; // DRAFT / FINAL
-    pmName?: string; // derived from owner name in route (not shown in header anymore)
-    bulletsMode?: "forms" | "ul"; // optional (default forms)
-    currencyLabel?: string; // default Pounds sterling (used when currency cell blank)
-    locale?: string; // default en-GB
+    watermarkText?: string;
+    bulletsMode?: "forms" | "ul";
+    currencyLabel?: string;
+    locale?: string;
   };
 }) {
   const sections = Array.isArray(doc?.sections) ? doc.sections : [];
 
-  const orgName = safeString(meta.organisationName || "�");
+  const orgName = safeString(meta.organisationName || "—");
   const watermarkText = safeString(meta.watermarkText || "DRAFT");
 
   const bulletsMode = (meta as any)?.bulletsMode === "ul" ? "ul" : "forms";
@@ -229,7 +214,7 @@ export function renderProjectCharterHtml({
       --text:#0F172A;
       --muted:#6b7280;
       --border:#E5E7EB;
-      --accent:#c7d2fe; /* matches closure-report docx outer border tone */
+      --accent:#c7d2fe;
     }
     *{ box-sizing:border-box; }
     body{
@@ -240,7 +225,6 @@ export function renderProjectCharterHtml({
     }
     .wrap{ padding: 18mm 15mm 18mm 15mm; }
 
-    /* Watermark */
     .wm{
       position: fixed;
       inset: 0;
@@ -257,7 +241,6 @@ export function renderProjectCharterHtml({
       z-index:0;
     }
 
-    /* Header */
     .header{
       position:relative;
       z-index:1;
@@ -309,7 +292,6 @@ export function renderProjectCharterHtml({
       font-weight:800;
     }
 
-    /* Sections */
     .grid{
       position:relative;
       z-index:1;
@@ -339,7 +321,6 @@ export function renderProjectCharterHtml({
 
     .muted{ color: var(--muted); font-size:12px; }
 
-    /* No bullets: lines from forms */
     .lines{
       display:flex;
       flex-direction:column;
@@ -352,7 +333,6 @@ export function renderProjectCharterHtml({
       white-space:pre-wrap;
     }
 
-    /* (Optional legacy bullets style if you ever enable bulletsMode="ul") */
     .bullets{
       margin:0;
       padding-left:18px;
@@ -361,7 +341,6 @@ export function renderProjectCharterHtml({
       gap:6px;
     }
 
-    /* Table styling */
     .tbl{
       width:100%;
       border-collapse:separate;
@@ -401,7 +380,7 @@ export function renderProjectCharterHtml({
         <div class="meta">
           <span class="pill"><b>Document</b> Project Charter</span>
           <span class="pill"><b>Organisation</b> ${escapeHtml(orgName)}</span>
-          <span class="pill"><b>Project ID</b> ${escapeHtml(meta.projectCode || "�")}</span>
+          <span class="pill"><b>Project ID</b> ${escapeHtml(meta.projectCode || "—")}</span>
           <span class="pill"><b>Generated</b> ${escapeHtml(meta.generated)}</span>
         </div>
       </div>
@@ -428,16 +407,16 @@ export function renderProjectCharterHtml({
                       dateLocale: locale,
                     })
                   : bulletsMode === "ul"
-                    ? (() => {
-                        const items = String(sec?.bullets || "")
-                          .split("\n")
-                          .map((x) => normalizeBulletLine(x))
-                          .map((x) => x.trim())
-                          .filter(Boolean);
-                        if (!items.length) return `<div class="muted">No content recorded</div>`;
-                        return `<ul class="bullets">${items.map((it) => `<li>${escapeHtml(it)}</li>`).join("")}</ul>`;
-                      })()
-                    : renderLinesFromFormsHtml(String(sec?.bullets || ""));
+                  ? (() => {
+                      const items = String(sec?.bullets || "")
+                        .split("\n")
+                        .map((x) => normalizeBulletLine(x))
+                        .map((x) => x.trim())
+                        .filter(Boolean);
+                      if (!items.length) return `<div class="muted">No content recorded</div>`;
+                      return `<ul class="bullets">${items.map((it) => `<li>${escapeHtml(it)}</li>`).join("")}</ul>`;
+                    })()
+                  : renderLinesFromFormsHtml(String(sec?.bullets || ""));
 
                 return `
                   <div class="sec">

@@ -1,5 +1,4 @@
-// src/app/actions/active-org.ts
-"use server";
+﻿"use server";
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -8,19 +7,16 @@ import { createClient } from "@/utils/supabase/server";
 const COOKIE_NAME = "active_org_id";
 
 export async function setActiveOrg(formData: FormData) {
-  const orgId = String(formData.get("orgId") ?? "").trim();
-  const nextPath = String(formData.get("nextPath") ?? "/projects").trim() || "/projects";
+  const orgId = String(formData.get("orgId") ?? "");
+  const nextPath = String(formData.get("nextPath") ?? "/projects");
 
   if (!orgId) redirect(nextPath);
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // ? validate membership via organisation_members
+  // ✅ FIX: use organisation_members
   const { data: membership } = await supabase
     .from("organisation_members")
     .select("organisation_id")
@@ -30,7 +26,6 @@ export async function setActiveOrg(formData: FormData) {
 
   if (!membership) redirect(nextPath);
 
-  // ? Next.js 16: cookies() is async-typed -> await it
   const cookieStore = await cookies();
   cookieStore.set(COOKIE_NAME, orgId, {
     httpOnly: true,

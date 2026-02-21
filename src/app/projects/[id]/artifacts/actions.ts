@@ -62,11 +62,15 @@ async function requireOrgRoleForProject(
   if (!orgId) throw new Error("Project missing organisation_id");
 
   // 2) membership in org
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth?.user?.id;
+  if (!uid) redirect("/login");
+
   const { data: mem, error: mErr } = await supabase
     .from("organisation_members")
     .select("role, removed_at")
     .eq("organisation_id", orgId)
-    .eq("user_id", (await supabase.auth.getUser()).data.user?.id)
+    .eq("user_id", uid)
     .is("removed_at", null)
     .maybeSingle();
 
@@ -76,7 +80,6 @@ async function requireOrgRoleForProject(
   const role = safeLower(mem.role || "member") as any;
 
   // Map org roles -> effective permissions.
-  // If you later add project-specific roles again, you can extend this.
   const effective =
     role === "admin" ? "owner" : role === "member" ? "editor" : (role as "owner" | "editor" | "viewer");
 
@@ -166,13 +169,59 @@ async function nextVersionForRoot(supabase: any, rootId: string, fallback = 1): 
   return (Number.isFinite(maxV) ? maxV : fallback) + 1;
 }
 
+function isWeeklyReportTypeServer(type: string) {
+  return safeLower(type) === "weekly_report";
+}
+
+function isoDate(d: Date) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function defaultWeeklyReportModel() {
+  const to = new Date();
+  const from = new Date(to.getTime() - 6 * 24 * 60 * 60 * 1000);
+  return {
+    version: 1,
+    period: { from: isoDate(from), to: isoDate(to) },
+    summary: {
+      rag: "green",
+      headline: "Weekly delivery update",
+      narrative: "Summary of progress, risks, and next steps.",
+    },
+    delivered: [],
+    milestones: [],
+    changes: [],
+    raid: [],
+    planNextWeek: [],
+    resourceSummary: [],
+    keyDecisions: [],
+    blockers: [],
+    metrics: {},
+    meta: { generated_at: new Date().toISOString() },
+  };
+}
+
 function canEditArtifactRow(a: any) {
-  const st = String(a?.approval_status ?? "draft").toLowerCase();
+  const type = safeLower(a?.type);
+  const isWeekly = type === "weekly_report";
+
   if (Boolean(a?.deleted_at)) return { ok: false, reason: "Artifact is deleted." };
   if (Boolean(a?.is_locked)) return { ok: false, reason: "Artifact is locked." };
+
+  // ✅ Treat NULL as "current" (only explicit false blocks)
+  const isCurrent = a?.is_current !== false;
+  if (!isCurrent) return { ok: false, reason: "Only current version can be edited." };
+
+  // ✅ Weekly Report is a living doc (ignore approval status gating)
+  if (isWeekly) return { ok: true as const, status: "living" as const };
+
+  const st = String(a?.approval_status ?? "draft").toLowerCase();
   if (!(st === "draft" || st === "changes_requested"))
     return { ok: false, reason: "Only Draft / Changes Requested can be edited." };
-  if (!Boolean(a?.is_current)) return { ok: false, reason: "Only current version can be edited." };
+
   return { ok: true as const, status: st };
 }
 
@@ -192,6 +241,9 @@ export async function createArtifact(formData: FormData) {
 
   const { supabase, user } = await requireUser();
   await requireOrgRoleForProject(supabase, projectId, ["owner", "editor", "admin"]);
+
+  const now = new Date().toISOString();
+  const isWeekly = isWeeklyReportTypeServer(rawType);
 
   // Is there already a current artifact for this project + type?
   const { data: existing, error: exErr } = await supabase
@@ -213,6 +265,11 @@ export async function createArtifact(formData: FormData) {
 
     await demoteCurrentForProjectType(supabase, projectId, rawType);
 
+    const seededWeeklyJson =
+      existing.content_json && typeof existing.content_json === "object"
+        ? existing.content_json
+        : defaultWeeklyReportModel();
+
     const { data: inserted, error: insErr } = await supabase
       .from("artifacts")
       .insert({
@@ -220,8 +277,11 @@ export async function createArtifact(formData: FormData) {
         user_id: user.id,
         type: rawType,
         title: title || existing.title || rawType,
-        content: content || (existing.content ?? ""),
-        content_json: existing.content_json ?? null,
+
+        // ✅ Weekly Report lives in content_json (keep content empty by default)
+        content: isWeekly ? "" : content || (existing.content ?? ""),
+        content_json: isWeekly ? seededWeeklyJson : (existing.content_json ?? null),
+
         approval_status: "draft",
         is_locked: false,
         version: nextV,
@@ -231,7 +291,7 @@ export async function createArtifact(formData: FormData) {
         parent_artifact_id: existing.id,
         revision_type: "revise",
         revision_reason: "New draft created",
-        updated_at: new Date().toISOString(),
+        updated_at: now,
       })
       .select("id")
       .single();
@@ -248,7 +308,13 @@ export async function createArtifact(formData: FormData) {
       to_status: "draft",
       from_is_current: true,
       to_is_current: true,
-      meta: { type: rawType, from_artifact_id: existing.id, to_artifact_id: inserted.id, version: nextV },
+      meta: {
+        type: rawType,
+        from_artifact_id: existing.id,
+        to_artifact_id: inserted.id,
+        version: nextV,
+        seeded_weekly_json: isWeekly ? true : false,
+      },
     });
 
     revalidatePath(`/projects/${projectId}/artifacts`);
@@ -258,6 +324,8 @@ export async function createArtifact(formData: FormData) {
   // Brand new root v1
   await demoteCurrentForProjectType(supabase, projectId, rawType);
 
+  const weeklyJson = isWeekly ? defaultWeeklyReportModel() : null;
+
   const { data: inserted, error } = await supabase
     .from("artifacts")
     .insert({
@@ -265,8 +333,11 @@ export async function createArtifact(formData: FormData) {
       user_id: user.id,
       type: rawType,
       title: title || rawType,
-      content,
-      content_json: null,
+
+      // ✅ Weekly Report lives in content_json
+      content: isWeekly ? "" : content,
+      content_json: weeklyJson,
+
       approval_status: "draft",
       is_locked: false,
       version: 1,
@@ -274,7 +345,7 @@ export async function createArtifact(formData: FormData) {
       is_baseline: false,
       root_artifact_id: null,
       parent_artifact_id: null,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     })
     .select("id")
     .single();
@@ -295,7 +366,7 @@ export async function createArtifact(formData: FormData) {
     to_status: "draft",
     from_is_current: null,
     to_is_current: true,
-    meta: { type: rawType, version: 1 },
+    meta: { type: rawType, version: 1, seeded_weekly_json: isWeekly ? true : false },
   });
 
   revalidatePath(`/projects/${projectId}/artifacts`);
@@ -337,10 +408,10 @@ export async function updateArtifact(formData: FormData) {
     actor_user_id: user.id,
     actor_email: user.email,
     action: "update_content",
-    from_status: edit.status,
-    to_status: edit.status,
-    from_is_current: Boolean(a.is_current),
-    to_is_current: Boolean(a.is_current),
+    from_status: edit.status as any,
+    to_status: edit.status as any,
+    from_is_current: a?.is_current !== false,
+    to_is_current: a?.is_current !== false,
     meta: { before_len: String(a.content ?? "").length, after_len: content.length },
   });
 
@@ -392,10 +463,10 @@ export async function updateArtifactJson(formData: FormData) {
     actor_user_id: user.id,
     actor_email: user.email,
     action: "update_content_json",
-    from_status: edit.status,
-    to_status: edit.status,
-    from_is_current: Boolean(a.is_current),
-    to_is_current: Boolean(a.is_current),
+    from_status: edit.status as any,
+    to_status: edit.status as any,
+    from_is_current: a?.is_current !== false,
+    to_is_current: a?.is_current !== false,
     meta: { json_bytes: jsonStr.length },
   });
 
@@ -424,6 +495,10 @@ export async function reviseArtifact(formData: FormData) {
 
   await demoteCurrentForProjectType(supabase, projectId, String(src.type ?? ""));
 
+  const isWeekly = isWeeklyReportTypeServer(String(src.type ?? ""));
+  const seededWeeklyJson =
+    src.content_json && typeof src.content_json === "object" ? src.content_json : defaultWeeklyReportModel();
+
   const { data: inserted, error: insErr } = await supabase
     .from("artifacts")
     .insert({
@@ -431,8 +506,11 @@ export async function reviseArtifact(formData: FormData) {
       user_id: user.id,
       type: src.type,
       title: src.title ?? src.type,
-      content: src.content ?? "",
-      content_json: src.content_json ?? null,
+
+      // ✅ Weekly Report lives in content_json
+      content: isWeekly ? "" : (src.content ?? ""),
+      content_json: isWeekly ? seededWeeklyJson : (src.content_json ?? null),
+
       approval_status: "draft",
       is_locked: false,
       root_artifact_id: rootId,
@@ -457,9 +535,9 @@ export async function reviseArtifact(formData: FormData) {
     action: "create_revision",
     from_status: String(src.approval_status ?? "draft"),
     to_status: "draft",
-    from_is_current: Boolean(src.is_current),
+    from_is_current: src?.is_current !== false,
     to_is_current: true,
-    meta: { from: src.id, to: inserted.id, version: nextV, revision_type, revision_reason },
+    meta: { from: src.id, to: inserted.id, version: nextV, revision_type, revision_reason, seeded_weekly_json: isWeekly },
   });
 
   revalidatePath(`/projects/${projectId}/artifacts`);
@@ -486,6 +564,10 @@ export async function restoreArtifactVersion(formData: FormData) {
 
   await demoteCurrentForProjectType(supabase, projectId, type);
 
+  const isWeekly = isWeeklyReportTypeServer(type);
+  const seededWeeklyJson =
+    target.content_json && typeof target.content_json === "object" ? target.content_json : defaultWeeklyReportModel();
+
   const { data: inserted, error: insErr } = await supabase
     .from("artifacts")
     .insert({
@@ -493,8 +575,11 @@ export async function restoreArtifactVersion(formData: FormData) {
       user_id: user.id,
       type,
       title: target.title ?? type,
-      content: target.content ?? "",
-      content_json: target.content_json ?? null,
+
+      // ✅ Weekly Report lives in content_json
+      content: isWeekly ? "" : (target.content ?? ""),
+      content_json: isWeekly ? seededWeeklyJson : (target.content_json ?? null),
+
       approval_status: "draft",
       is_locked: false,
       version: nextV,
@@ -519,9 +604,9 @@ export async function restoreArtifactVersion(formData: FormData) {
     action: "restore_version",
     from_status: String(target.approval_status ?? "draft"),
     to_status: "draft",
-    from_is_current: Boolean(target.is_current),
+    from_is_current: target?.is_current !== false,
     to_is_current: true,
-    meta: { restored_from: target.id, to: inserted.id, version: nextV, reason },
+    meta: { restored_from: target.id, to: inserted.id, version: nextV, reason, seeded_weekly_json: isWeekly },
   });
 
   revalidatePath(`/projects/${projectId}/artifacts`);
@@ -560,7 +645,7 @@ export async function setArtifactCurrent(args: { projectId: string; artifactId: 
     action: "set_current",
     from_status: String(a.approval_status ?? "draft"),
     to_status: String(a.approval_status ?? "draft"),
-    from_is_current: Boolean(a.is_current),
+    from_is_current: a?.is_current !== false,
     to_is_current: true,
     meta: { type },
   });
@@ -613,7 +698,9 @@ export async function updateArtifactJsonArgs(args: {
    BOARD ACTIONS (used by ArtifactBoardClient)
 ========================= */
 
-export async function cloneArtifact(formData: FormData): Promise<{ ok: boolean; newArtifactId?: string; error?: string }> {
+export async function cloneArtifact(
+  formData: FormData
+): Promise<{ ok: boolean; newArtifactId?: string; error?: string }> {
   try {
     const projectId = normStr(formData.get("projectId"));
     const artifactId = normStr(formData.get("artifactId"));
@@ -632,6 +719,10 @@ export async function cloneArtifact(formData: FormData): Promise<{ ok: boolean; 
 
     await demoteCurrentForProjectType(supabase, projectId, String(src.type ?? ""));
 
+    const isWeekly = isWeeklyReportTypeServer(String(src.type ?? ""));
+    const seededWeeklyJson =
+      src.content_json && typeof src.content_json === "object" ? src.content_json : defaultWeeklyReportModel();
+
     const { data: inserted, error } = await supabase
       .from("artifacts")
       .insert({
@@ -639,8 +730,11 @@ export async function cloneArtifact(formData: FormData): Promise<{ ok: boolean; 
         user_id: user.id,
         type: src.type,
         title: src.title ?? src.type,
-        content: src.content ?? "",
-        content_json: src.content_json ?? null,
+
+        // ✅ Weekly Report lives in content_json
+        content: isWeekly ? "" : (src.content ?? ""),
+        content_json: isWeekly ? seededWeeklyJson : (src.content_json ?? null),
+
         approval_status: "draft",
         is_locked: false,
         root_artifact_id: rootId,

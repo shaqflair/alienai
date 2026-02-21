@@ -43,10 +43,20 @@ export async function launchBrowser() {
   const chromium = (await import("@sparticuz/chromium")).default;
   const executablePath = await chromium.executablePath();
 
-  return puppeteer.launch({
-    headless: chromium.headless,
+  // FIX: Removed deprecated headless, defaultViewport from launch options
+  // Use boolean true for headless instead of chromium.headless (string)
+  // Set viewport via page.setViewport() after launch instead
+  const browser = await puppeteer.launch({
+    headless: true,
     executablePath,
     args: chromium.args,
-    defaultViewport: chromium.defaultViewport,
   });
+
+  // Set default viewport on first page if available
+  const pages = await browser.pages();
+  if (pages.length > 0 && chromium.defaultViewport) {
+    await pages[0].setViewport(chromium.defaultViewport);
+  }
+
+  return browser;
 }

@@ -334,3 +334,4 @@ export async function DELETE(req: Request) {
     return jsonErr(msg, status);
   }
 }
+ok

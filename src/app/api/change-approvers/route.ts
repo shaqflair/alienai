@@ -192,14 +192,19 @@ export async function GET(req: Request) {
       };
     });
 
-    const decision = {
-      decision_status: decisionStatus,
-      decision_by: decisionBy,
-      decision_at: decisionAt,
-      decision_role: decisionRole,
-      decision_rationale: decisionRationale,
-      delivery_lane: deliveryLane,
-    };
+   const decision = {
+  decision_status: decisionStatus,
+  decision_by: decisionBy,
+  decision_at: decisionAt,
+  decision_role: decisionRole,
+  decision_rationale: decisionRationale,
+  delivery_lane: deliveryLane,
+
+  // ✅ default governance for this project: unanimous approval
+  quorum_rule: "unanimous" as const,
+  quorum_required: null,
+};
+
 
     return jsonOk({
       projectDisplayId, // ✅ should now become PRJ-100011

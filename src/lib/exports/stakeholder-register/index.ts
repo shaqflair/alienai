@@ -1,17 +1,21 @@
-// src/lib/exports/stakeholder-register/index.ts
-import "server-only";
+﻿/* ============================
+   Stakeholder Register exports (CLIENT-SAFE)
+   - Do NOT export server-only renderers/buffer exporters here.
+   - Client UI may import this barrel.
+============================ */
 
-// PDF (? canonical)
-export { exportStakeholderRegisterPdf } from "./pdf";
-
-// Shared / data
 export { loadStakeholderExportData } from "./loadStakeholderExportData";
-export type { StakeholderExportRow } from "./loadStakeholderExportData";
-export { renderStakeholderRegisterHtml } from "./renderStakeholderRegisterHtml";
+export { normalizeStakeholderRows } from "./normalize";
+
+/* ============================
+   Shared contracts
+============================ */
+
+export * from "./types";
+export * from "./utils";
 export * from "./stakeholderShared";
 
-// DOCX (? points to existing file)
-export { exportStakeholderRegisterDocx } from "./docx";
-
-// XLSX (? points to existing file)
-export { exportStakeholderRegisterXlsx } from "./xlsx";
+/**
+ * ✅ Server-only exports live in:
+ *   src/lib/exports/stakeholder-register/server.ts
+ */

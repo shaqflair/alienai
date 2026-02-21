@@ -11,16 +11,18 @@ function jsonOk(data: any, status = 200) {
 function jsonErr(error: string, status = 400) {
   return NextResponse.json({ ok: false, error }, { status });
 }
+
 function safeStr(x: any) {
-  return typeof x === "string" ? x : "";
+  return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
 function isUuid(x: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test((x || "").trim());
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    (x || "").trim()
+  );
 }
 
 function fmtDateOnly(x: any) {
-  // prefer yyyy-mm-dd for UI consistency
   if (!x) return null;
   try {
     const d = new Date(x);
@@ -61,29 +63,26 @@ function pickTitle(row: any) {
   return "Untitled";
 }
 
-export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const projectId = safeStr(url.searchParams.get("projectId")).trim();
-  if (!projectId) return jsonErr("Missing projectId", 400);
-  if (!isUuid(projectId)) return jsonErr("Invalid projectId", 400);
-
+async function buildDigest(projectId: string) {
   const supabase = await createClient();
 
-  // ✅ fetch a real project display header (falls back safely)
+  // Project header
   const { data: projectRow } = await supabase
     .from("projects")
     .select("id,title,project_code,client_name")
     .eq("id", projectId)
     .maybeSingle();
 
-  // ✅ fetch RAID items (INCLUDES public_id so UI can show human id)
+  // RAID items
   const { data, error } = await supabase
     .from("raid_items")
-    .select("id,public_id,type,title,description,priority,probability,severity,status,updated_at,due_date,owner_label,owner_id")
+    .select(
+      "id,public_id,type,title,description,priority,probability,severity,status,updated_at,due_date,owner_label,owner_id"
+    )
     .eq("project_id", projectId)
     .order("updated_at", { ascending: false });
 
-  if (error) return jsonErr(error.message, 400);
+  if (error) throw new Error(error.message);
 
   const rows = (data ?? []).map((r: any) => {
     const probability = clamp01to100(r?.probability);
@@ -91,8 +90,8 @@ export async function GET(req: Request) {
 
     return {
       id: safeStr(r?.id),
-      public_id: safeStr(r?.public_id) || null, // ✅ human id for UI
-      type: normType(r?.type),
+      public_id: safeStr(r?.public_id) || null,
+      type: normType(r?.type), // risk/issue/dependency/assumption
       title: pickTitle(r),
       description: safeStr(r?.description) || null,
 
@@ -111,7 +110,7 @@ export async function GET(req: Request) {
     };
   });
 
-  // helpers to slice + sort “top” items
+  // helpers
   const byScoreDesc = (a: any, b: any) => (b?.score ?? -1) - (a?.score ?? -1);
   const byDueAsc = (a: any, b: any) => String(a?.due_date || "").localeCompare(String(b?.due_date || ""));
 
@@ -119,7 +118,7 @@ export async function GET(req: Request) {
   const issues = rows.filter((x) => x.type === "issue").sort(byScoreDesc);
   const deps = rows.filter((x) => x.type === "dependency").sort(byScoreDesc);
 
-  // next 7 days: due_date within 7 days (UTC-ish; good enough for digest)
+  // next 7 days
   const now = new Date();
   const in7 = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
   const next7 = rows
@@ -130,9 +129,8 @@ export async function GET(req: Request) {
     })
     .sort(byDueAsc);
 
-  const digest = {
+  return {
     generated_at: new Date().toISOString(),
-
     header: {
       title: "Weekly RAID Digest",
       digest_date: fmtDateOnly(new Date().toISOString()),
@@ -142,14 +140,46 @@ export async function GET(req: Request) {
       client_name: projectRow?.client_name ?? null,
       total_items: rows.length,
     },
-
     sections: [
       { key: "top_risks", title: "Top risks", count: risks.slice(0, 5).length, items: risks.slice(0, 5) },
       { key: "top_issues", title: "Top issues", count: issues.slice(0, 5).length, items: issues.slice(0, 5) },
-      { key: "dependencies_watch", title: "Dependencies to watch", count: deps.slice(0, 5).length, items: deps.slice(0, 5) },
+      {
+        key: "dependencies_watch",
+        title: "Dependencies to watch",
+        count: deps.slice(0, 5).length,
+        items: deps.slice(0, 5),
+      },
       { key: "next_7_days", title: "Next 7 days", count: next7.slice(0, 10).length, items: next7.slice(0, 10) },
     ],
   };
+}
 
-  return jsonOk({ digest });
+// ✅ GET /api/raid/digest?projectId=...
+export async function GET(req: Request) {
+  try {
+    const url = new URL(req.url);
+    const projectId = safeStr(url.searchParams.get("projectId")).trim();
+    if (!projectId) return jsonErr("Missing projectId", 400);
+    if (!isUuid(projectId)) return jsonErr("Invalid projectId", 400);
+
+    const digest = await buildDigest(projectId);
+    return jsonOk({ digest });
+  } catch (e: any) {
+    return jsonErr(e?.message || "Digest failed", 400);
+  }
+}
+
+// ✅ POST /api/raid/digest  { projectId }
+export async function POST(req: Request) {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const projectId = safeStr(body?.projectId).trim();
+    if (!projectId) return jsonErr("Missing projectId", 400);
+    if (!isUuid(projectId)) return jsonErr("Invalid projectId", 400);
+
+    const digest = await buildDigest(projectId);
+    return jsonOk({ digest });
+  } catch (e: any) {
+    return jsonErr(e?.message || "Digest failed", 400);
+  }
 }
