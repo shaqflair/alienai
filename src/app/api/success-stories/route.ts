@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
@@ -182,7 +182,7 @@ function hrefFor(kind: "milestones" | "raid" | "change" | "lessons" | "wbs", pro
   if (kind === "wbs") return `/projects/${projectRouteId}/wbs?days=${days}`;
   if (kind === "milestones") return `/projects/${projectRouteId}/schedule?days=${days}`;
   if (kind === "raid") return `/projects/${projectRouteId}/raid?days=${days}`;
-  if (kind === "change") return `/projects/${projectRouteId}/changes?days=${days}`;
+  if (kind === "change") return `/projects/${projectRouteId}/change?days=${days}`;
   if (kind === "lessons") return `/projects/${projectRouteId}/lessons?days=${days}`;
 
   return `/projects/${projectRouteId}`;
@@ -471,3 +471,4 @@ export async function GET(req: Request) {
     return jsonErr(e?.message || "Unknown error", 500);
   }
 }
+

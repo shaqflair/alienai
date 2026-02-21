@@ -1,4 +1,4 @@
-// src/app/api/ai/briefing/route.ts
+﻿// src/app/api/ai/briefing/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -1125,7 +1125,7 @@ export async function GET(req: Request) {
         severity: "medium",
         title: "High/Critical change requests require attention",
         body: `${crHi} high/critical change request(s) are open (out of ${crOpen} open). Prioritise decisioning and impact mitigation.`,
-        href: href("/changes", { priority: "High,Critical" }),
+        href: href("/change", { priority: "High,Critical" }),
         meta: { crHi, crOpen },
       });
     } else if (crOpen > 0) {
@@ -1134,7 +1134,7 @@ export async function GET(req: Request) {
         severity: "info",
         title: "Change workload in progress",
         body: `${crOpen} open change request(s). Keep flow moving with clear owners and decision dates.`,
-        href: href("/changes"),
+        href: href("/change"),
         meta: { crOpen },
       });
     }
@@ -1145,7 +1145,7 @@ export async function GET(req: Request) {
         severity: "medium",
         title: "Stale change requests detected",
         body: `${crStale} change request(s) haven't been updated recently. Recommend nudges, decision deadlines, or close-out.`,
-        href: href("/changes", { stale: 1 }),
+        href: href("/change", { stale: 1 }),
         meta: { crStale },
       });
     }
@@ -1275,3 +1275,6 @@ export async function GET(req: Request) {
     return res;
   }
 }
+
+
+
