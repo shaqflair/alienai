@@ -1,4 +1,4 @@
-// src/lib/exports/stakeholder-register/exportStakeholderRegisterPdfBuffer.ts
+﻿// src/lib/exports/stakeholder-register/exportStakeholderRegisterPdfBuffer.ts
 import "server-only";
 
 import { loadStakeholderExportData } from "./loadStakeholderExportData";
@@ -20,7 +20,7 @@ export interface ExportStakeholderRegisterPdfBufferResult {
 }
 
 /**
- * ? Canonical PDF buffer exporter (named export)
+ * ✅ Canonical PDF buffer exporter (named export)
  * Pipeline: load -> normalize -> html -> pdf
  */
 export async function exportStakeholderRegisterPdfBuffer(
@@ -48,12 +48,12 @@ export async function exportStakeholderRegisterPdfBuffer(
 }
 
 /**
- * ? Backwards-compatible aliases
+ * ✅ Backwards-compatible aliases
  */
 export const exportStakeholderRegisterPdfbuff = exportStakeholderRegisterPdfBuffer;
 export const exportStakeholderRegisterPdf = exportStakeholderRegisterPdfBuffer;
 
 /**
- * ? Default export for maximum compatibility
+ * ✅ Default export for maximum compatibility
  */
 export default exportStakeholderRegisterPdfBuffer;

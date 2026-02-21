@@ -1,4 +1,4 @@
-// src/lib/exports/weekly-report/exportWeeklyReportPdfBuffer.ts
+﻿// src/lib/exports/weekly-report/exportWeeklyReportPdfBuffer.ts
 import "server-only";
 
 import { htmlToPdfBuffer } from "@/lib/exports/_shared/puppeteer";

@@ -269,7 +269,7 @@ export async function GET(req: Request) {
     const curForSlip = endISO || startISO || null;
     const baseForSlip = baseEndISO || baseStartISO || null;
 
-    const slip_days =
+    const slipComputed =
       curForSlip && baseForSlip
         ? Math.round(
             (new Date(curForSlip + "T00:00:00Z").getTime() -
@@ -277,6 +277,11 @@ export async function GET(req: Request) {
               86400000
           )
         : null;
+
+    // ✅ IMPORTANT: never return slip_days=null (prevents "nulld" in UI)
+    const slip_known = slipComputed !== null && Number.isFinite(Number(slipComputed));
+    const slip_days = slip_known ? Number(slipComputed) : 0;
+    const slip_label = slip_known ? `${slip_days}d` : "—";
 
     const project_id = safeStr(m.project_id);
     const milestone_id = safeStr(m.id);
@@ -309,7 +314,11 @@ export async function GET(req: Request) {
       ai_delay_prob: num(m.ai_delay_prob, 0),
       last_risk_reason: safeStr(m.last_risk_reason),
 
-      slip_days,
+      // ✅ slip fields (UI-safe)
+      slip_days, // always number (0 if unknown)
+      slip_known,
+      slip_label,
+
       is_done: isDoneStatus(m.status),
 
       source_artifact_id,

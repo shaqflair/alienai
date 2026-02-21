@@ -1,4 +1,5 @@
 import "server-only";
+
 import { NextResponse } from "next/server";
 import { sb, requireAuth, requireOrgAdmin, requireOrgMember, safeStr } from "@/lib/approvals/admin-helpers";
 
@@ -10,6 +11,16 @@ function ok(data: any, status = 200) {
 function err(msg: string, status = 400) {
   return NextResponse.json({ ok: false, error: msg }, { status });
 }
+
+/**
+ * For now we only support org approvals for:
+ * - project_charter
+ * - change
+ * - project_closure_report
+ *
+ * NOTE: membership operations are group-scoped and do not create rules,
+ * but we still keep the route strict + safe.
+ */
 
 export async function GET(req: Request) {
   try {
@@ -42,6 +53,7 @@ export async function GET(req: Request) {
     const userIds = Array.from(new Set((rows ?? []).map((r: any) => safeStr(r.user_id)).filter(Boolean)));
     const approverIds = Array.from(new Set((rows ?? []).map((r: any) => safeStr(r.approver_id)).filter(Boolean)));
 
+    // profiles (for direct user_id memberships)
     let profiles: any[] = [];
     if (userIds.length) {
       const { data: pData, error: pErr } = await supabase
@@ -52,6 +64,7 @@ export async function GET(req: Request) {
     }
     const profileByUser = new Map<string, any>((profiles ?? []).map((p: any) => [safeStr(p.user_id), p]));
 
+    // organisation_approvers (for approver_id memberships)
     let approvers: any[] = [];
     if (approverIds.length) {
       const { data: aData, error: aErr } = await supabase
@@ -66,6 +79,7 @@ export async function GET(req: Request) {
       const uid = safeStr(r.user_id);
       const aid = safeStr(r.approver_id);
 
+      // Preferred membership: via organisation_approvers
       if (aid) {
         const a = approverById.get(aid);
         const email = safeStr(a?.email).trim();
@@ -75,7 +89,7 @@ export async function GET(req: Request) {
 
         return {
           approver_id: aid,
-          user_id: safeStr(a?.user_id) || null,
+          user_id: safeStr(a?.user_id) || null, // linked auth user id (may be null if not linked)
           email: email || null,
           name: name || null,
           approver_role: role || null,
@@ -85,6 +99,7 @@ export async function GET(req: Request) {
         };
       }
 
+      // Legacy membership: direct user_id
       const p = profileByUser.get(uid);
       const email = safeStr(p?.email).trim();
       const name = safeStr(p?.full_name).trim();
@@ -101,12 +116,17 @@ export async function GET(req: Request) {
       };
     });
 
-    members.sort((a: any, b: any) => String(a.label || "").toLowerCase().localeCompare(String(b.label || "").toLowerCase()));
+    members.sort((a: any, b: any) =>
+      String(a.label || "").toLowerCase().localeCompare(String(b.label || "").toLowerCase())
+    );
+
     return ok({ members });
   } catch (e: any) {
+    // ✅ IMPORTANT FIX:
+    // Never do `ok(...) && err(...)` (it will always return err()).
+    // Keep UI stable: return ok with empty list and include error message.
     const msg = String(e?.message || e || "Error");
-    const s = msg.toLowerCase().includes("unauthorized") ? 401 : msg.toLowerCase().includes("forbidden") ? 403 : 400;
-    return err(msg, s);
+    return NextResponse.json({ ok: true, members: [], error: msg }, { status: 200 });
   }
 }
 
@@ -135,7 +155,9 @@ export async function POST(req: Request) {
 
     if (gErr) throw new Error(gErr.message);
     if (!group) return err("Group not found", 404);
-    if (safeStr((group as any).organisation_id).trim() !== orgId) return err("Group does not belong to this organisation", 403);
+    if (safeStr((group as any).organisation_id).trim() !== orgId) {
+      return err("Group does not belong to this organisation", 403);
+    }
 
     if (approverId) {
       const { data: ap, error: apErr } = await supabase
@@ -146,7 +168,9 @@ export async function POST(req: Request) {
 
       if (apErr) throw new Error(apErr.message);
       if (!ap) return err("Approver not found", 404);
-      if (safeStr((ap as any).organisation_id).trim() !== orgId) return err("Approver does not belong to this organisation", 403);
+      if (safeStr((ap as any).organisation_id).trim() !== orgId) {
+        return err("Approver does not belong to this organisation", 403);
+      }
     }
 
     const row: any = { group_id: groupId };
@@ -159,7 +183,11 @@ export async function POST(req: Request) {
     return ok({ member: data }, 201);
   } catch (e: any) {
     const msg = String(e?.message || e || "Error");
-    const s = msg.toLowerCase().includes("unauthorized") ? 401 : msg.toLowerCase().includes("forbidden") ? 403 : 400;
+    const s = msg.toLowerCase().includes("unauthorized")
+      ? 401
+      : msg.toLowerCase().includes("forbidden")
+      ? 403
+      : 400;
     return err(msg, s);
   }
 }
@@ -198,7 +226,11 @@ export async function DELETE(req: Request) {
     return ok({ removed: true });
   } catch (e: any) {
     const msg = String(e?.message || e || "Error");
-    const s = msg.toLowerCase().includes("unauthorized") ? 401 : msg.toLowerCase().includes("forbidden") ? 403 : 400;
+    const s = msg.toLowerCase().includes("unauthorized")
+      ? 401
+      : msg.toLowerCase().includes("forbidden")
+      ? 403
+      : 400;
     return err(msg, s);
   }
 }

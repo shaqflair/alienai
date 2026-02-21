@@ -1,22 +1,28 @@
-import { WbsRow } from "@/types/wbs";
+// src/lib/exports/csv.ts
 
 /**
- * Export WBS rows to CSV
- * Safe for browser download
+ * Minimal row shape needed for CSV export.
+ * (Avoids coupling to missing/unstable type paths during migration.)
  */
-export function exportToCSV(rows: WbsRow[], filename = "wbs-export.csv") {
-  const headers = [
-    "Code",
-    "Level",
-    "Deliverable",
-    "Status",
-    "Effort",
-    "Owner",
-    "Due Date",
-  ];
+export type WbsRowCsv = {
+  code?: string | number | null;
+  level?: number | string | null;
+  name?: string | null;
+  deliverable?: string | null;
+  status?: string | null;
+  effort?: string | number | null;
+  owner?: string | null;
+  due_date?: string | null;
+};
 
-  // Escape CSV safely (handles commas + quotes)
-  function esc(v: any) {
+/**
+ * Export WBS rows to CSV (browser download)
+ */
+export function exportToCSV(rows: WbsRowCsv[], filename = "wbs-export.csv") {
+  const headers = ["Code", "Level", "Deliverable", "Status", "Effort", "Owner", "Due Date"];
+
+  // Escape CSV safely (handles commas + quotes + newlines)
+  function esc(v: unknown) {
     if (v === null || v === undefined) return "";
     const s = String(v);
     if (s.includes('"')) return `"${s.replace(/"/g, '""')}"`;
@@ -28,7 +34,7 @@ export function exportToCSV(rows: WbsRow[], filename = "wbs-export.csv") {
     [
       esc(r.code),
       esc(r.level),
-      esc(r.name || r.deliverable || ""), // ← deliverable/title
+      esc(r.name || r.deliverable || ""),
       esc(r.status),
       esc(r.effort),
       esc(r.owner),
@@ -38,11 +44,9 @@ export function exportToCSV(rows: WbsRow[], filename = "wbs-export.csv") {
 
   const csvContent = [headers.join(","), ...csvRows].join("\n");
 
-  const blob = new Blob([csvContent], {
-    type: "text/csv;charset=utf-8;",
-  });
-
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
   const link = document.createElement("a");
+
   link.href = URL.createObjectURL(blob);
   link.setAttribute("download", filename);
 

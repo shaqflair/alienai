@@ -14,16 +14,77 @@ function safeStr(x: any) {
   return typeof x === "string" ? x : "";
 }
 
-async function requireAdmin(sb: any, userId: string, organisationId: string) {
+function isUuid(x: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    (x || "").trim()
+  );
+}
+
+/* =========================
+   Support / permission helpers
+========================= */
+
+async function isPlatformAdmin(sb: any, userId: string) {
   const { data, error } = await sb
-    .from("organisation_members")
-    .select("role")
-    .eq("organisation_id", organisationId)
+    .from("platform_admins")
+    .select("user_id")
     .eq("user_id", userId)
     .maybeSingle();
+
   if (error) throw new Error(error.message);
-  if (!data || String(data.role) !== "admin") throw new Error("Admin permission required");
+  return !!data?.user_id;
 }
+
+async function hasOrgSupportSession(sb: any, userId: string, organisationId: string, requireWrite: boolean) {
+  const { data, error } = await sb
+    .from("support_sessions")
+    .select("id, mode, expires_at, revoked_at")
+    .eq("platform_admin_user_id", userId)
+    .eq("organisation_id", organisationId)
+    .is("revoked_at", null)
+    .gt("expires_at", new Date().toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!data?.id) return false;
+
+  if (requireWrite) return String(data.mode || "").toLowerCase() === "write";
+  return true;
+}
+
+async function requireOrgOwnerOrAdminOrSupport(
+  sb: any,
+  userId: string,
+  organisationId: string,
+  requireWrite: boolean
+) {
+  // 1) Normal org membership check (owner/admin)
+  const { data: mem, error: memErr } = await sb
+    .from("organisation_members")
+    .select("role, removed_at")
+    .eq("organisation_id", organisationId)
+    .eq("user_id", userId)
+    .is("removed_at", null)
+    .maybeSingle();
+
+  if (memErr) throw new Error(memErr.message);
+
+  const role = String(mem?.role || "").toLowerCase();
+  if (role === "owner" || role === "admin") return;
+
+  // 2) Support-mode fallback (platform admin + active support session)
+  const pa = await isPlatformAdmin(sb, userId);
+  if (!pa) throw new Error("Forbidden");
+
+  const allowed = await hasOrgSupportSession(sb, userId, organisationId, requireWrite);
+  if (!allowed) throw new Error(requireWrite ? "Support write session required" : "Support session required");
+}
+
+/* =========================
+   Handlers
+========================= */
 
 export async function GET(req: Request) {
   const sb = await createClient();
@@ -33,18 +94,18 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const organisationId = safeStr(url.searchParams.get("organisationId")).trim();
   if (!organisationId) return err("Missing organisationId", 400);
+  if (!isUuid(organisationId)) return err("Invalid organisationId", 400);
 
-  // Admin can see all members; non-admin can still see themselves if you want.
-  // We’ll require admin for list to keep it simple:
   try {
-    await requireAdmin(sb, auth.user.id, organisationId);
+    // list members = “manage” action => allow org owner/admin OR support session (read ok)
+    await requireOrgOwnerOrAdminOrSupport(sb, auth.user.id, organisationId, false);
   } catch (e: any) {
     return err(e?.message || "Forbidden", 403);
   }
 
   const { data, error } = await sb
     .from("organisation_members")
-    .select("id, organisation_id, user_id, role, created_at")
+    .select("id, organisation_id, user_id, role, created_at, removed_at")
     .eq("organisation_id", organisationId)
     .order("created_at", { ascending: true });
 
@@ -60,34 +121,42 @@ export async function PATCH(req: Request) {
   const body = await req.json().catch(() => ({}));
   const organisationId = safeStr(body?.organisation_id).trim();
   const userId = safeStr(body?.user_id).trim();
-  const role = safeStr(body?.role).trim() as "admin" | "member";
+  const role = safeStr(body?.role).trim().toLowerCase() as "admin" | "member";
 
   if (!organisationId || !userId) return err("Missing organisation_id or user_id", 400);
+  if (!isUuid(organisationId) || !isUuid(userId)) return err("Invalid organisation_id or user_id", 400);
   if (!(role === "admin" || role === "member")) return err("Invalid role", 400);
 
   try {
-    await requireAdmin(sb, auth.user.id, organisationId);
+    // role change = write
+    await requireOrgOwnerOrAdminOrSupport(sb, auth.user.id, organisationId, true);
   } catch (e: any) {
     return err(e?.message || "Forbidden", 403);
   }
 
-  // Prevent removing last admin by demoting the last admin
+  // Prevent demoting the last org owner/admin (stronger than “admin only”)
   if (role === "member") {
-    const { count } = await sb
+    const { data: target, error: tErr } = await sb
       .from("organisation_members")
-      .select("*", { count: "exact", head: true })
+      .select("role, removed_at")
       .eq("organisation_id", organisationId)
-      .eq("role", "admin");
+      .eq("user_id", userId)
+      .is("removed_at", null)
+      .maybeSingle();
 
-    if ((count ?? 0) <= 1) {
-      // ensure the target is an admin
-      const { data: target } = await sb
+    if (tErr) return err(tErr.message, 400);
+
+    const targetRole = String(target?.role || "").toLowerCase();
+    if (targetRole === "owner" || targetRole === "admin") {
+      const { count, error: cErr } = await sb
         .from("organisation_members")
-        .select("role")
+        .select("*", { count: "exact", head: true })
         .eq("organisation_id", organisationId)
-        .eq("user_id", userId)
-        .maybeSingle();
-      if (target?.role === "admin") return err("Cannot demote the last admin", 400);
+        .is("removed_at", null)
+        .in("role", ["owner", "admin"]);
+
+      if (cErr) return err(cErr.message, 400);
+      if ((count ?? 0) <= 1) return err("Cannot demote the last owner/admin", 400);
     }
   }
 
@@ -96,7 +165,7 @@ export async function PATCH(req: Request) {
     .update({ role })
     .eq("organisation_id", organisationId)
     .eq("user_id", userId)
-    .select("id, organisation_id, user_id, role")
+    .select("id, organisation_id, user_id, role, removed_at")
     .single();
 
   if (error) return err(error.message, 400);
@@ -112,29 +181,37 @@ export async function DELETE(req: Request) {
   const organisationId = safeStr(url.searchParams.get("organisationId")).trim();
   const userId = safeStr(url.searchParams.get("userId")).trim();
   if (!organisationId || !userId) return err("Missing organisationId or userId", 400);
+  if (!isUuid(organisationId) || !isUuid(userId)) return err("Invalid organisationId or userId", 400);
 
   try {
-    await requireAdmin(sb, auth.user.id, organisationId);
+    // removal = write
+    await requireOrgOwnerOrAdminOrSupport(sb, auth.user.id, organisationId, true);
   } catch (e: any) {
     return err(e?.message || "Forbidden", 403);
   }
 
-  // prevent removing last admin
-  const { data: target } = await sb
+  // Prevent removing the last owner/admin
+  const { data: target, error: tErr } = await sb
     .from("organisation_members")
-    .select("role")
+    .select("role, removed_at")
     .eq("organisation_id", organisationId)
     .eq("user_id", userId)
+    .is("removed_at", null)
     .maybeSingle();
 
-  if (target?.role === "admin") {
-    const { count } = await sb
+  if (tErr) return err(tErr.message, 400);
+
+  const targetRole = String(target?.role || "").toLowerCase();
+  if (targetRole === "owner" || targetRole === "admin") {
+    const { count, error: cErr } = await sb
       .from("organisation_members")
       .select("*", { count: "exact", head: true })
       .eq("organisation_id", organisationId)
-      .eq("role", "admin");
+      .is("removed_at", null)
+      .in("role", ["owner", "admin"]);
 
-    if ((count ?? 0) <= 1) return err("Cannot remove the last admin", 400);
+    if (cErr) return err(cErr.message, 400);
+    if ((count ?? 0) <= 1) return err("Cannot remove the last owner/admin", 400);
   }
 
   const { error } = await sb

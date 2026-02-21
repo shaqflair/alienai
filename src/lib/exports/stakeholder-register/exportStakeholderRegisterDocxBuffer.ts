@@ -1,4 +1,4 @@
-// src/lib/exports/stakeholder-register/exportStakeholderRegisterDocxBuffer.ts
+﻿// src/lib/exports/stakeholder-register/exportStakeholderRegisterDocxBuffer.ts
 import "server-only";
 
 import { loadStakeholderExportData } from "./loadStakeholderExportData";
@@ -19,7 +19,7 @@ export type ExportStakeholderRegisterDocxBufferResult = {
 };
 
 function safeMeta(x: any) {
-  // ? never allow undefined meta to reach renderer
+  // ✅ never allow undefined meta to reach renderer
   if (x && typeof x === "object") return x;
   return {
     projectName: "Project",
@@ -33,7 +33,7 @@ function safeMeta(x: any) {
 }
 
 /**
- * ? Canonical DOCX buffer exporter
+ * ✅ Canonical DOCX buffer exporter
  * Pipeline: load -> normalize -> render(docx)
  */
 export async function exportStakeholderRegisterDocxBuffer(
@@ -54,7 +54,7 @@ export async function exportStakeholderRegisterDocxBuffer(
 
   const cleanRows = normalizeStakeholderRows(rows);
 
-  // ? renderer is allowed to receive meta safely now
+  // ✅ renderer is allowed to receive meta safely now
   const out = await renderStakeholderRegisterDocx({ meta, rows: cleanRows });
 
   return {

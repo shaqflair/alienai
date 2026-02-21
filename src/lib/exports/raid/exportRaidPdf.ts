@@ -1,11 +1,10 @@
+﻿// src/lib/exports/raid/exportPdf.ts
 import "server-only";
 
-import puppeteer from "puppeteer";
-import puppeteerCore from "puppeteer-core";
-import chromium from "@sparticuz/chromium";
+import { htmlToPdfBuffer } from "@/lib/exports/_shared/puppeteer";
 
 /**
- * Minimal, reliable RAID PDF export to unblock build.
+ * Minimal, reliable RAID PDF export.
  * Features a tolerant data parser and a professional HTML template.
  */
 
@@ -54,13 +53,6 @@ function renderRaidHtml(args: { title: string; contentJson: any }) {
   const title = safeStr(args.title || "RAID Log");
   const { risks, issues, assumptions, dependencies, all } = pickRaidLists(args.contentJson);
 
-  const section = (name: string, rows: any[]) => {
-    return `
-      <h2>${escapeHtml(name)} <span class="count">(${rows.length})</span></h2>
-      ${rows.length ? table(rows) : `<div class="empty">No items</div>`}
-    `;
-  };
-
   const table = (rows: any[]) => {
     return `
       <table>
@@ -75,9 +67,10 @@ function renderRaidHtml(args: { title: string; contentJson: any }) {
           </tr>
         </thead>
         <tbody>
-          ${rows.map((r) => {
+          ${rows
+            .map((r) => {
               const ref = r?.ref ?? r?.public_id ?? r?.human_id ?? r?.code ?? r?.id ?? "";
-              const title = r?.title ?? r?.name ?? r?.summary ?? "Untitled";
+              const t = r?.title ?? r?.name ?? r?.summary ?? "Untitled";
               const status = r?.status ?? r?.state ?? r?.delivery_status ?? "";
               const owner = r?.owner_label ?? r?.owner ?? r?.assignee_label ?? "";
               const due = r?.due_date ?? r?.due ?? r?.target_date ?? "";
@@ -85,16 +78,24 @@ function renderRaidHtml(args: { title: string; contentJson: any }) {
               return `
                 <tr>
                   <td class="mono">${escapeHtml(ref)}</td>
-                  <td>${escapeHtml(title)}</td>
+                  <td>${escapeHtml(t)}</td>
                   <td>${escapeHtml(status)}</td>
                   <td>${escapeHtml(owner)}</td>
                   <td>${escapeHtml(due)}</td>
                   <td>${escapeHtml(notes)}</td>
                 </tr>
               `;
-            }).join("")}
+            })
+            .join("")}
         </tbody>
       </table>
+    `;
+  };
+
+  const section = (name: string, rows: any[]) => {
+    return `
+      <h2>${escapeHtml(name)} <span class="count">(${rows.length})</span></h2>
+      ${rows.length ? table(rows) : `<div class="empty">No items</div>`}
     `;
   };
 
@@ -114,7 +115,7 @@ function renderRaidHtml(args: { title: string; contentJson: any }) {
         table{ width:100%; border-collapse:collapse; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
         thead th{ background:var(--surface); text-align:left; font-size:11px; padding:10px; border-bottom:1px solid var(--border); color:var(--muted); }
         tbody td{ font-size:11px; padding:9px 10px; border-bottom:1px solid #f1f5f9; vertical-align:top; }
-        .mono{ font-family: monospace; }
+        .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
         .empty{ padding:10px; border:1px dashed var(--border); border-radius:8px; color:var(--muted); font-size:11px; }
       </style>
     </head>
@@ -122,8 +123,12 @@ function renderRaidHtml(args: { title: string; contentJson: any }) {
       <div class="page">
         <h1>${escapeHtml(title)}</h1>
         <div class="sub">Generated (UTC): ${new Date().toISOString()}</div>
-        ${(risks.length || issues.length || assumptions.length || dependencies.length)
-            ? section("Risks", risks) + section("Issues", issues) + section("Assumptions", assumptions) + section("Dependencies", dependencies)
+        ${
+          risks.length || issues.length || assumptions.length || dependencies.length
+            ? section("Risks", risks) +
+              section("Issues", issues) +
+              section("Assumptions", assumptions) +
+              section("Dependencies", dependencies)
             : section("Items", all)
         }
       </div>
@@ -142,27 +147,14 @@ export async function exportRaidPdf(args: ExportRaidPdfArgs): Promise<Buffer> {
   const title = safeStr(args.title || "RAID Log");
   const html = renderRaidHtml({ title, contentJson: args.contentJson });
 
-  const isServerless = !!process.env.VERCEL || !!process.env.AWS_REGION;
-  const browser = isServerless
-    ? await puppeteerCore.launch({
-        args: chromium.args,
-        executablePath: await chromium.executablePath(),
-        headless: chromium.headless,
-      })
-    : await puppeteer.launch({ headless: true });
-
-  try {
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle2" });
-    const pdf = await page.pdf({
-      format: "A4",
-      printBackground: true,
+  return htmlToPdfBuffer({
+    html,
+    waitUntil: "networkidle2",
+    pdf: {
       landscape: !!args.landscape,
       margin: { top: "12mm", right: "12mm", bottom: "12mm", left: "12mm" },
-    });
-    return Buffer.from(pdf);
-  } finally {
-    await browser.close();
-  }
+      printBackground: true,
+      format: "A4",
+    },
+  });
 }
-
