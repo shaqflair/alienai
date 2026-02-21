@@ -3,20 +3,35 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { 
-  ChevronLeft, 
-  ChevronRight, 
-  LayoutGrid, 
-  Plus, 
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  LayoutGrid,
+  Plus,
   FileText,
   FolderOpen,
-  CheckCircle2
+  CheckCircle2,
+  Lock,
+  AlertTriangle,
+  Sparkles,
+  Search,
+  X,
+  Layers,
+  Shield,
+  BookMarked,
+  Zap,
 } from "lucide-react";
 
-/* =======================
-   Types
-======================= */
+/* ═══════════════════════════════════════════════════════════════
+   TYPES
+═══════════════════════════════════════════════════════════════ */
 
 type SidebarItem = {
   key: string;
@@ -35,51 +50,18 @@ type SidebarItem = {
 };
 
 type Role = "owner" | "editor" | "viewer" | "unknown";
+type GroupName = "Plan" | "Control" | "Close";
 
-/* =======================
-   Utils
-======================= */
+/* ═══════════════════════════════════════════════════════════════
+   UTILS
+═══════════════════════════════════════════════════════════════ */
 
-function safeStr(x: unknown) {
+function safeStr(x: unknown): string {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
-
-function safeUpper(x: unknown) {
-  return safeStr(x).trim().toUpperCase();
-}
-
-function safeLower(x: unknown) {
-  return safeStr(x).trim().toLowerCase();
-}
-
-function normStatus(s: string | null | undefined) {
-  return safeLower(s);
-}
-
-function badge(status: string | null | undefined) {
-  const s = normStatus(status);
-  const base = "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium border";
-
-  if (!s || s === "draft")
-    return { text: "Draft", cls: `${base} border-neutral-200 text-neutral-700 bg-white` };
-  if (s === "submitted")
-    return { text: "Submitted", cls: `${base} border-blue-200 text-blue-700 bg-blue-50` };
-  if (s === "approved")
-    return { text: "Approved", cls: `${base} border-green-200 text-green-700 bg-green-50` };
-  if (s === "rejected")
-    return { text: "Rejected", cls: `${base} border-red-200 text-red-700 bg-red-50` };
-  if (s === "changes_requested")
-    return { text: "Changes", cls: `${base} border-amber-200 text-amber-800 bg-amber-50` };
-  if (s === "on_hold")
-    return { text: "On hold", cls: `${base} border-neutral-300 text-neutral-700 bg-neutral-50` };
-
-  return { text: s, cls: `${base} border-neutral-200 text-neutral-700 bg-white` };
-}
-
-function safeArtifactIdFromPath(pathname: string | null | undefined) {
-  const m = String(pathname ?? "").match(/\/artifacts\/([^\/\?#]+)/);
-  return m?.[1] ?? null;
-}
+function safeUpper(x: unknown) { return safeStr(x).trim().toUpperCase(); }
+function safeLower(x: unknown) { return safeStr(x).trim().toLowerCase(); }
+function normStatus(s: string | null | undefined) { return safeLower(s); }
 
 function looksLikeUuid(s: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -87,70 +69,67 @@ function looksLikeUuid(s: string) {
   );
 }
 
-function pickProjectKey(projectHumanId?: string | null, projectId?: string | null) {
-  const human = String(projectHumanId ?? "").trim();
+function pickProjectKey(h?: string | null, id?: string | null) {
+  const human = String(h ?? "").trim();
   if (human && !looksLikeUuid(human)) return human;
-
-  const pid = String(projectId ?? "").trim();
-  return pid || human || "";
+  return String(id ?? "").trim() || human || "";
 }
 
-/**
- * Canonical key for comparisons/grouping.
- * Prefer ui_kind (usually canonical system type), fallback to key.
- */
 function canonicalKeyUpper(it: Pick<SidebarItem, "ui_kind" | "key">) {
   return safeUpper(it.ui_kind || it.key);
 }
 
-/**
- * ✅ Align sidebar grouping with your Board's sections:
- * - Initiating + Planning => Plan
- * - Monitoring & Controlling => Control
- * - Closing => Close
- */
-function groupForKey(keyUpper: string) {
-  const k = String(keyUpper || "").toUpperCase().trim();
-
+function groupForKey(k: string): GroupName {
+  const u = k.toUpperCase().trim();
   if (
-    [
-      "PROJECT_CHARTER",
-      "STAKEHOLDER_REGISTER",
-      "WBS",
-      "SCHEDULE",
-      "DESIGN",
-      "REQUIREMENTS",
-      "WEEKLY_REPORT",
-    ].includes(k)
-  )
-    return "Plan";
-
-  if (["RAID", "CHANGE", "CHANGE_REQUESTS"].includes(k)) return "Control";
-
-  if (["LESSONS_LEARNED", "PROJECT_CLOSURE_REPORT"].includes(k)) return "Close";
-
+    ["PROJECT_CHARTER","STAKEHOLDER_REGISTER","WBS","SCHEDULE",
+     "DESIGN","REQUIREMENTS","WEEKLY_REPORT"].includes(u)
+  ) return "Plan";
+  if (["RAID","CHANGE","CHANGE_REQUESTS"].includes(u)) return "Control";
   return "Close";
 }
 
-/**
- * ✅ Ensure all links use the human route id, even if server accidentally
- * sends UUID-based links.
- */
-function normalizeProjectHref(href: string, projectId: string, projectRouteId: string) {
+function normalizeHref(href: string, projectId: string, routeId: string) {
   const raw = safeStr(href).trim();
-  if (!raw) return raw;
-  if (!projectId || !projectRouteId) return raw;
-
+  if (!raw || !projectId || !routeId) return raw;
   const needle = `/projects/${projectId}/`;
-  const repl = `/projects/${projectRouteId}/`;
-  if (raw.includes(needle)) return raw.replace(needle, repl);
-
-  return raw;
+  return raw.includes(needle) ? raw.replace(needle, `/projects/${routeId}/`) : raw;
 }
 
-/* =======================
-   Component
-======================= */
+function artifactIdFromPath(pathname: string | null | undefined) {
+  return String(pathname ?? "").match(/\/artifacts\/([^\/\?#]+)/)?.[1] ?? null;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   STATUS CONFIG
+═══════════════════════════════════════════════════════════════ */
+
+type StatusCfg = { label: string; dot: string; text: string };
+
+function getStatusCfg(status: string | null | undefined): StatusCfg {
+  const s = normStatus(status);
+  if (!s || s === "draft")         return { label: "Draft",     dot: "bg-zinc-500",    text: "text-zinc-500"    };
+  if (s === "submitted")           return { label: "Submitted", dot: "bg-sky-400",     text: "text-sky-400"     };
+  if (s === "approved")            return { label: "Approved",  dot: "bg-emerald-400", text: "text-emerald-400" };
+  if (s === "rejected")            return { label: "Rejected",  dot: "bg-red-400",     text: "text-red-400"     };
+  if (s === "changes_requested")   return { label: "Revise",    dot: "bg-amber-400",   text: "text-amber-400"   };
+  if (s === "on_hold")             return { label: "On Hold",   dot: "bg-zinc-500",    text: "text-zinc-500"    };
+  return                                  { label: s,           dot: "bg-zinc-600",    text: "text-zinc-500"    };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   GROUP CONFIG
+═══════════════════════════════════════════════════════════════ */
+
+const GROUP_CFG: Record<GroupName, { Icon: React.ElementType; accent: string }> = {
+  Plan:    { Icon: Layers,     accent: "text-blue-500"   },
+  Control: { Icon: Shield,     accent: "text-amber-500"  },
+  Close:   { Icon: BookMarked, accent: "text-rose-500"   },
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPONENT
+═══════════════════════════════════════════════════════════════ */
 
 export default function ArtifactsSidebarClient({
   items,
@@ -167,601 +146,624 @@ export default function ArtifactsSidebarClient({
   projectName?: string | null;
   projectCode?: string | null;
 }) {
-  const pathname = usePathname();
-  const search = useSearchParams();
-  const newTypeRaw = search.get("type");
+  const pathname     = usePathname();
+  const searchParams = useSearchParams();
+  const newTypeRaw   = searchParams.get("type");
 
   const [collapsed, setCollapsed] = useState(false);
-  const [isHovered, setIsHovered] = useState(false);
+  const [hovered,   setHovered]   = useState(false);
+  const [mounted,   setMounted]   = useState(false);
+  const [query,     setQuery]     = useState("");
+  const [focusIdx,  setFocusIdx]  = useState(0);
+  const [storedId,  setStoredId]  = useState<string | null>(null);
+  const [groupOpen, setGroupOpen] = useState<Record<GroupName, boolean>>({
+    Plan: true, Control: true, Close: true,
+  });
 
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-
-  const projectKey = useMemo(() => pickProjectKey(projectHumanId, projectId), [projectHumanId, projectId]);
-  const projectRouteId = useMemo(() => {
-    const h = String(projectHumanId ?? "").trim();
-    const c = String(projectCode ?? "").trim();
-    return (h && !looksLikeUuid(h) ? h : "") || (c && !looksLikeUuid(c) ? c : "") || projectKey;
-  }, [projectHumanId, projectCode, projectKey]);
-
-  const storageKey = `alienai:lastArtifact:${projectKey}`;
-  const [storedArtifactId, setStoredArtifactId] = useState<string | null>(null);
-
-  const [focusedIndex, setFocusedIndex] = useState<number>(0);
-  const refs = useRef<Array<HTMLAnchorElement | null>>([]);
-
-  const [query, setQuery] = useState("");
+  const rowRefs   = useRef<Array<HTMLAnchorElement | null>>([]);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
+  /* Derived IDs */
+  const projectKey = useMemo(
+    () => pickProjectKey(projectHumanId, projectId),
+    [projectHumanId, projectId]
+  );
+  const projectRoute = useMemo(() => {
+    const h = String(projectHumanId ?? "").trim();
+    const c = String(projectCode    ?? "").trim();
+    return (h && !looksLikeUuid(h) ? h : "")
+      || (c && !looksLikeUuid(c) ? c : "")
+      || projectKey;
+  }, [projectHumanId, projectCode, projectKey]);
+
+  const SKEY  = `alienai:lastArtifact:${projectKey}`;
+  const GKEY  = `alienai:artifactGroups:${projectKey}`;
+
+  /* Mount */
+  useEffect(() => setMounted(true), []);
+
+  /* Restore localStorage */
   useEffect(() => {
     if (!mounted) return;
+    try { const v = localStorage.getItem(SKEY); if (v) setStoredId(v); } catch {}
     try {
-      const v = localStorage.getItem(storageKey);
-      if (v) setStoredArtifactId(v);
+      const raw = localStorage.getItem(GKEY);
+      if (!raw) return;
+      const p = JSON.parse(raw);
+      setGroupOpen(prev => ({
+        Plan:    typeof p?.Plan    === "boolean" ? p.Plan    : prev.Plan,
+        Control: typeof p?.Control === "boolean" ? p.Control : prev.Control,
+        Close:   typeof p?.Close   === "boolean" ? p.Close   : prev.Close,
+      }));
     } catch {}
-  }, [mounted, storageKey]);
+  }, [mounted, SKEY, GKEY]);
 
+  /* Persist active artifact */
   useEffect(() => {
-    const id = safeArtifactIdFromPath(pathname);
+    const id = artifactIdFromPath(pathname);
     if (!id || !mounted) return;
-    try {
-      localStorage.setItem(storageKey, id);
-      setStoredArtifactId(id);
-    } catch {}
-  }, [mounted, pathname, storageKey]);
+    try { localStorage.setItem(SKEY, id); setStoredId(id); } catch {}
+  }, [mounted, pathname, SKEY]);
 
-  function boardHref(view: "create" | "draft" | "submitted") {
-    return `/projects/${projectRouteId}/board?view=${view}`;
-  }
+  /* Persist group state */
+  useEffect(() => {
+    if (!mounted) return;
+    try { localStorage.setItem(GKEY, JSON.stringify(groupOpen)); } catch {}
+  }, [mounted, GKEY, groupOpen]);
 
+  /* Enhanced items */
   const enhanced = useMemo(() => {
-    const urlArtifactId = safeArtifactIdFromPath(pathname);
-    const activeId = urlArtifactId ?? (mounted ? storedArtifactId : null);
-    const newType = safeUpper(newTypeRaw);
+    const urlId    = artifactIdFromPath(pathname);
+    const activeId = urlId ?? (mounted ? storedId : null);
+    const newType  = safeUpper(newTypeRaw);
 
-    return items.map((it) => {
-      const itKey = canonicalKeyUpper(it);
+    return items.map(it => {
+      const itKey  = canonicalKeyUpper(it);
       const active =
         (it.current?.id && activeId && it.current.id === activeId) ||
         (!it.current && String(pathname ?? "").includes("/artifacts/new") && newType === itKey);
-
       const status = normStatus(it.current?.approval_status);
-      const b = badge(status);
-      const hrefFixed = normalizeProjectHref(it.href, projectId, projectRouteId);
+      const href   = normalizeHref(it.href, projectId, projectRoute);
+      const openUrl = it.current?.id
+        ? `/projects/${projectRoute}/artifacts/${it.current.id}`
+        : href;
 
       return {
         ...it,
-        href: hrefFixed,
+        href,
+        openUrl,
         active,
         status,
-        badge: b,
-        keyUpper: itKey,
+        statusCfg:  getStatusCfg(status),
+        keyUpper:   itKey,
+        isLocked:   Boolean(it.current?.is_locked),
+        isDeleted:  Boolean(it.current?.deleted_at),
       };
     });
-  }, [items, pathname, newTypeRaw, storedArtifactId, mounted, projectId, projectRouteId]);
+  }, [items, pathname, newTypeRaw, storedId, mounted, projectId, projectRoute]);
 
-  const boardCounts = useMemo(() => {
-    let create = 0;
-    let draft = 0;
-    let submitted = 0;
-
+  /* Board counts */
+  const counts = useMemo(() => {
+    let draft = 0, submitted = 0, creatable = 0;
     for (const it of enhanced) {
-      if (it.canCreate) create++;
-
-      const s = normStatus(it.current?.approval_status);
-      if (it.current?.id) {
-        if (!s || s === "draft") draft++;
-        else if (s === "submitted" || s === "in_review" || s === "review" || s === "pending") submitted++;
-        else if (s === "approved" || s === "rejected" || s === "changes_requested") submitted++;
-      }
+      if (it.canCreate) creatable++;
+      if (!it.current?.id) continue;
+      const s = normStatus(it.current.approval_status);
+      if (!s || s === "draft") draft++; else submitted++;
     }
-
-    return { create, draft, submitted };
+    return { draft, submitted, creatable };
   }, [enhanced]);
 
+  /* Filtered */
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return enhanced;
-    return enhanced.filter((it) => {
-      const a = String(it.label ?? "").toLowerCase();
-      return a.includes(q);
-    });
+    return q ? enhanced.filter(it => it.label.toLowerCase().includes(q)) : enhanced;
   }, [enhanced, query]);
 
+  /* Grouped */
   const grouped = useMemo(() => {
-    const out: Record<"Plan" | "Control" | "Close", any[]> = {
-      Plan: [],
-      Control: [],
-      Close: [],
-    };
-    for (const it of visible) {
-      const g = groupForKey(String((it as any).keyUpper ?? it.key).toUpperCase().trim()) as
-        | "Plan"
-        | "Control"
-        | "Close";
-      out[g].push(it);
-    }
+    const out: Record<GroupName, typeof enhanced> = { Plan: [], Control: [], Close: [] };
+    for (const it of visible) out[groupForKey(it.keyUpper)].push(it);
     return out;
   }, [visible]);
 
-  const groupStorageKey = `alienai:artifactGroups:${projectKey}`;
-  const [groupOpen, setGroupOpen] = useState<{ Plan: boolean; Control: boolean; Close: boolean }>({
-    Plan: true,
-    Control: true,
-    Close: true,
-  });
-
-  useEffect(() => {
-    if (!mounted) return;
-    try {
-      const raw = localStorage.getItem(groupStorageKey);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      setGroupOpen((prev) => ({
-        Plan: typeof parsed?.Plan === "boolean" ? parsed.Plan : prev.Plan,
-        Control: typeof parsed?.Control === "boolean" ? parsed.Control : prev.Control,
-        Close: typeof parsed?.Close === "boolean" ? parsed.Close : prev.Close,
-      }));
-    } catch {}
-  }, [mounted, groupStorageKey]);
-
-  useEffect(() => {
-    if (!mounted) return;
-    try {
-      localStorage.setItem(groupStorageKey, JSON.stringify(groupOpen));
-    } catch {}
-  }, [mounted, groupStorageKey, groupOpen]);
-
-  const flatForKeys = useMemo(() => {
-    const arr: any[] = [];
-    (["Plan", "Control", "Close"] as const).forEach((g) => {
-      if (!groupOpen[g]) return;
-      arr.push(...grouped[g]);
+  /* Flat for keyboard */
+  const flat = useMemo(() => {
+    const arr: typeof enhanced = [];
+    (["Plan","Control","Close"] as const).forEach(g => {
+      if (groupOpen[g]) arr.push(...grouped[g]);
     });
     return arr;
   }, [grouped, groupOpen]);
 
+  /* Group start indices */
+  const groupStarts = useMemo(() => {
+    let i = 0;
+    const s: Record<GroupName, number> = { Plan: 0, Control: 0, Close: 0 };
+    (["Plan","Control","Close"] as const).forEach(g => {
+      s[g] = i;
+      if (groupOpen[g]) i += grouped[g].length;
+    });
+    return s;
+  }, [grouped, groupOpen]);
+
+  /* Auto-focus active row */
   useEffect(() => {
-    const idx = flatForKeys.findIndex((x) => x.active);
-    if (idx >= 0) setFocusedIndex(idx);
-  }, [flatForKeys]);
+    const idx = flat.findIndex(x => x.active);
+    if (idx >= 0) setFocusIdx(idx);
+  }, [flat]);
 
+  useEffect(() => { rowRefs.current[focusIdx]?.focus(); }, [focusIdx]);
+
+  /* Keyboard handler */
   useEffect(() => {
-    const el = refs.current[focusedIndex];
-    if (el) el.focus();
-  }, [focusedIndex]);
+    const onKey = (e: KeyboardEvent) => {
+      const tag    = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+      const typing = tag === "input" || tag === "textarea" ||
+                     (e.target as HTMLElement | null)?.isContentEditable;
 
-  function toggleGroup(g: "Plan" | "Control" | "Close") {
-    setGroupOpen((prev) => ({ ...prev, [g]: !prev[g] }));
-  }
-
-  // Keyboard controls
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
-      const isTyping =
-        tag === "input" || tag === "textarea" || (e.target as HTMLElement | null)?.isContentEditable === true;
-
-      if (e.key === "Escape") {
-        if (document.activeElement === searchRef.current) {
-          e.preventDefault();
-          setQuery("");
-          searchRef.current?.blur();
-          return;
-        }
+      if (e.key === "Escape" && document.activeElement === searchRef.current) {
+        e.preventDefault(); setQuery(""); searchRef.current?.blur(); return;
       }
+      if (!typing && e.key === "/" && !collapsed) {
+        e.preventDefault(); searchRef.current?.focus(); return;
+      }
+      if (typing) return;
+      if (e.key === "[") { setCollapsed(true);  return; }
+      if (e.key === "]") { setCollapsed(false); return; }
+      if (e.key === "ArrowDown") { e.preventDefault(); setFocusIdx(i => Math.min(i+1, flat.length-1)); return; }
+      if (e.key === "ArrowUp")   { e.preventDefault(); setFocusIdx(i => Math.max(i-1, 0)); return; }
+      if (e.key === "Home")      { e.preventDefault(); setFocusIdx(0); return; }
+      if (e.key === "End")       { e.preventDefault(); setFocusIdx(flat.length-1); return; }
+      if (e.key === "Enter")     { rowRefs.current[focusIdx]?.click(); return; }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [collapsed, flat.length, focusIdx]);
 
-      if (!isTyping && e.key === "/") {
-        if (!collapsed) {
-          e.preventDefault();
-          searchRef.current?.focus();
-        }
-        return;
-      }
+  const toggleGroup  = useCallback((g: GroupName) =>
+    setGroupOpen(p => ({ ...p, [g]: !p[g] })), []);
 
-      if (isTyping) return;
+  const handleRowClick = useCallback((id: string | undefined) => {
+    if (!id || !mounted) return;
+    try { localStorage.setItem(SKEY, id); setStoredId(id); } catch {}
+  }, [mounted, SKEY]);
 
-      if (e.key === "[") {
-        setCollapsed(true);
-        return;
-      }
-      if (e.key === "]") {
-        setCollapsed(false);
-        return;
-      }
+  const boardHref = (view: string) => `/projects/${projectRoute}/board?view=${view}`;
+  const initial   = (projectName ?? "P").charAt(0).toUpperCase();
 
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setFocusedIndex((i) => Math.min(i + 1, flatForKeys.length - 1));
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setFocusedIndex((i) => Math.max(i - 1, 0));
-        return;
-      }
-      if (e.key === "Home") {
-        e.preventDefault();
-        setFocusedIndex(0);
-        return;
-      }
-      if (e.key === "End") {
-        e.preventDefault();
-        setFocusedIndex(flatForKeys.length - 1);
-        return;
-      }
+  /* ═══════════════════════════════════════════════════════════════
+     SUB-COMPONENTS
+  ═══════════════════════════════════════════════════════════════ */
 
-      if (e.key === "Enter") {
-        const el = refs.current[focusedIndex];
-        if (el) el.click();
-        return;
-      }
-    }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [collapsed, flatForKeys.length, focusedIndex]);
-
-  function Group({
-    name,
-    itemsInGroup,
-    startIndex,
-  }: {
-    name: "Plan" | "Control" | "Close";
-    itemsInGroup: any[];
-    startIndex: number;
-  }) {
-    const open = groupOpen[name];
-    const count = itemsInGroup.filter((x) => Boolean(x.current?.id)).length;
+  function ArtifactRow({ it, idx }: { it: (typeof enhanced)[0]; idx: number }) {
+    const cfg = it.statusCfg;
+    const RowIcon = it.isLocked  ? Lock
+                  : it.isDeleted ? AlertTriangle
+                  : it.active    ? Sparkles
+                  : it.current   ? FileText
+                  : Plus;
 
     return (
-      <div className="mb-2">
-        {!collapsed && (
-          <button
-            type="button"
-            onClick={() => toggleGroup(name)}
-            className="mb-1 flex w-full items-center justify-between rounded-md px-2 py-1 text-left text-xs font-semibold text-neutral-600 hover:bg-neutral-100"
-            title={open ? "Collapse group" : "Expand group"}
-          >
-            <span className="flex items-center gap-2">
-              <span className="uppercase tracking-wide">{name}</span>
-              <span className="rounded-full border border-neutral-200 bg-white px-2 py-0.5 text-[11px] font-medium text-neutral-600">
-                {count}
-              </span>
-            </span>
-            <span className="text-neutral-400">{open ? "–" : "+"}</span>
-          </button>
-        )}
-
-        {open && (
-          <div className="space-y-1">
-            {itemsInGroup.map((it, i) => (
-              <Row key={it.key} it={it} idx={startIndex + i} />
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  function Row({ it, idx }: { it: any; idx: number }) {
-    const openUrl = it.current?.id ? `/projects/${projectRouteId}/artifacts/${it.current!.id}` : it.href;
-
-    return (
-      <div className={[
-        "relative rounded-xl transition-all duration-200",
-        it.active 
-          ? "bg-indigo-50 border border-indigo-200 shadow-sm" 
-          : "bg-white border border-transparent hover:border-neutral-200 hover:bg-neutral-50/80"
-      ].join(" ")}>
-        {/* Current Indicator - Left Border */}
-        {it.active && !collapsed && (
-          <div className="absolute -left-px top-1/2 -translate-y-1/2 w-1 h-8 bg-indigo-500 rounded-r-full" />
+      <div className="relative group/row">
+        {/* Amber accent rail for active item */}
+        {it.active && (
+          <div className={[
+            "absolute left-0 top-1/2 -translate-y-1/2 rounded-r-full",
+            "bg-gradient-to-b from-amber-300 to-amber-500",
+            collapsed ? "w-[2px] h-5" : "w-[3px] h-8",
+          ].join(" ")} />
         )}
 
         <Link
-          ref={(el) => {
-            refs.current[idx] = el;
-          }}
-          href={openUrl}
-          onClick={() => {
-            if (!mounted) return;
-            if (it.current?.id) {
-              try {
-                localStorage.setItem(storageKey, it.current.id);
-                setStoredArtifactId(it.current.id);
-              } catch {}
-            }
-          }}
-          className={[
-            "block rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-300",
-            collapsed ? "p-2" : "px-3 py-2.5"
-          ].join(" ")}
-          aria-current={it.active ? "page" : undefined}
-          title={collapsed ? it.label : undefined}
+          ref={el => { rowRefs.current[idx] = el; }}
+          href={it.openUrl}
           prefetch={false}
+          onClick={() => handleRowClick(it.current?.id)}
+          aria-current={it.active ? "page" : undefined}
+          aria-label={`${it.label}${it.current ? ` — ${cfg.label}` : " — not created"}`}
+          title={collapsed ? it.label : undefined}
+          className={[
+            "relative flex items-center gap-3 rounded-xl",
+            "outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-900",
+            "transition-all duration-150",
+            collapsed ? "justify-center w-10 h-10 mx-auto p-0" : "px-3 py-2.5 pl-4",
+            it.active
+              ? "bg-white/[0.07] hover:bg-white/[0.09]"
+              : "hover:bg-white/[0.04] active:bg-white/[0.06]",
+          ].join(" ")}
         >
-          <div className="flex items-center gap-3">
-            {/* Icon */}
-            <div className={[
-              "shrink-0 rounded-lg flex items-center justify-center transition-colors",
-              it.active 
-                ? "bg-indigo-100 text-indigo-600" 
-                : "bg-neutral-100 text-neutral-500",
-              collapsed ? "w-8 h-8" : "w-9 h-9"
-            ].join(" ")}>
-              {it.active ? (
-                <CheckCircle2 className={collapsed ? "w-4 h-4" : "w-5 h-5"} />
-              ) : it.current ? (
-                <FileText className={collapsed ? "w-4 h-4" : "w-5 h-5"} />
-              ) : (
-                <Plus className={collapsed ? "w-4 h-4" : "w-5 h-5"} />
-              )}
-            </div>
-
-            {/* Content */}
-            {!collapsed && (
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className={[
-                    "text-sm font-medium truncate",
-                    it.active ? "text-indigo-900" : "text-neutral-900"
-                  ].join(" ")}>
-                    {it.label}
-                  </span>
-                  
-                  {/* Current Badge */}
-                  {it.active && (
-                    <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">
-                      <CheckCircle2 className="w-3 h-3" />
-                      Current
-                    </span>
-                  )}
-                </div>
-                
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-[11px] text-neutral-500 font-mono">
-                    {it.current ? "Current" : it.canCreate ? "Not created" : "View only"}
-                  </span>
-                  
-                  {/* Status Badge */}
-                  {it.current && (
-                    <span className={it.badge.cls}>
-                      {it.badge.text}
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Collapsed Current Indicator Dot */}
-            {collapsed && it.active && (
-              <div className="absolute -top-1 -right-1 w-3 h-3 bg-indigo-500 rounded-full border-2 border-white" />
-            )}
+          {/* Icon */}
+          <div className={[
+            "shrink-0 rounded-lg flex items-center justify-center transition-all duration-200 w-8 h-8",
+            it.active
+              ? "bg-amber-400/15 text-amber-300 ring-1 ring-amber-400/25"
+              : it.current
+              ? "bg-white/[0.08] text-zinc-400 group-hover/row:bg-white/[0.12] group-hover/row:text-zinc-300"
+              : "bg-transparent text-zinc-700 border border-dashed border-zinc-800 group-hover/row:border-zinc-700 group-hover/row:text-zinc-600",
+          ].join(" ")}>
+            <RowIcon className="w-3.5 h-3.5" />
           </div>
+
+          {/* Content (expanded only) */}
+          {!collapsed && (
+            <div className="flex-1 min-w-0">
+              {/* Label + CURRENT badge */}
+              <div className="flex items-center gap-2">
+                <span className={[
+                  "text-[13px] font-medium truncate leading-tight",
+                  it.active  ? "text-zinc-100" :
+                  it.current ? "text-zinc-300" : "text-zinc-600",
+                ].join(" ")}>
+                  {it.label}
+                </span>
+
+                {/* ── CURRENT BADGE — clickable link to the artifact ── */}
+                {it.active && it.current?.id && (
+                  <Link
+                    href={it.openUrl}
+                    onClick={e => e.stopPropagation()}
+                    tabIndex={-1}
+                    title={`Open ${it.current.title ?? it.label}`}
+                    className={[
+                      "shrink-0 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full",
+                      "bg-amber-400 hover:bg-amber-300",
+                      "text-[9px] font-black text-zinc-900 uppercase tracking-[0.14em]",
+                      "shadow-[0_0_10px_rgba(251,191,36,0.35)] hover:shadow-[0_0_14px_rgba(251,191,36,0.5)]",
+                      "transition-all duration-150",
+                    ].join(" ")}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-900/30 animate-pulse" />
+                    Current
+                  </Link>
+                )}
+              </div>
+
+              {/* Status row */}
+              <div className="flex items-center gap-1.5 mt-0.5">
+                {it.current ? (
+                  <>
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cfg.dot}`} />
+                    <span className={`text-[11px] font-medium ${cfg.text}`}>{cfg.label}</span>
+                    {it.isLocked && (
+                      <span className="inline-flex items-center gap-0.5 text-[10px] text-zinc-600">
+                        <Lock className="w-2.5 h-2.5" /> Locked
+                      </span>
+                    )}
+                    {it.isDeleted && (
+                      <span className="inline-flex items-center gap-0.5 text-[10px] text-red-500">
+                        <AlertTriangle className="w-2.5 h-2.5" /> Deleted
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-[11px] text-zinc-700">
+                    {it.canCreate ? "Not created yet" : "View only"}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Collapsed: amber dot for active */}
+          {collapsed && it.active && (
+            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-400 rounded-full border-2 border-zinc-900 shadow-[0_0_8px_rgba(251,191,36,0.5)]" />
+          )}
         </Link>
       </div>
     );
   }
 
-  const groupStarts = useMemo(() => {
-    let idx = 0;
-    const starts: Record<"Plan" | "Control" | "Close", number> = {
-      Plan: 0,
-      Control: 0,
-      Close: 0,
-    };
-    (["Plan", "Control", "Close"] as const).forEach((g) => {
-      starts[g] = idx;
-      if (groupOpen[g]) idx += grouped[g].length;
-    });
-    return starts;
-  }, [grouped, groupOpen]);
+  function GroupSection({ name, groupItems, start }: {
+    name: GroupName; groupItems: typeof enhanced; start: number;
+  }) {
+    const { Icon, accent } = GROUP_CFG[name];
+    const open  = groupOpen[name];
+    const exist = groupItems.filter(x => x.current?.id).length;
+    if (groupItems.length === 0 && !collapsed) return null;
 
-  return (
-    <aside 
-      className={[
-        "relative shrink-0 bg-white border-r border-neutral-200/80 transition-all duration-300 ease-in-out h-screen sticky top-0",
-        collapsed ? "w-[60px]" : "w-80"
-      ].join(" ")} 
-      aria-label="Artifacts sidebar"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
-      {/* Collapse Toggle Button - Floating Arrow */}
-      <button
-        type="button"
-        onClick={() => setCollapsed(v => !v)}
-        className={[
-          "absolute -right-3 top-6 z-50",
-          "w-6 h-6 rounded-full bg-white border border-neutral-200",
-          "shadow-sm hover:shadow-md hover:border-neutral-300",
-          "flex items-center justify-center",
-          "transition-all duration-200",
-          (isHovered || collapsed) ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-2"
-        ].join(" ")}
-        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        title={collapsed ? "Expand (])" : "Collapse ([)"}
-      >
-        {collapsed ? (
-          <ChevronRight className="w-3 h-3 text-neutral-600" />
-        ) : (
-          <ChevronLeft className="w-3 h-3 text-neutral-600" />
+    return (
+      <div className="mb-1">
+        {!collapsed && (
+          <button
+            type="button"
+            onClick={() => toggleGroup(name)}
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg group/gh hover:bg-white/[0.04] transition-colors mb-0.5"
+          >
+            <Icon className={`w-3 h-3 shrink-0 ${accent} opacity-70`} />
+            <span className="flex-1 text-left text-[10px] font-black tracking-[0.14em] uppercase text-zinc-700 group-hover/gh:text-zinc-500 transition-colors">
+              {name}
+            </span>
+            <span className="text-[10px] font-medium text-zinc-800 tabular-nums">
+              {exist}/{groupItems.length}
+            </span>
+            <span className="text-[11px] text-zinc-800 group-hover/gh:text-zinc-600 w-3 text-center font-mono transition-colors">
+              {open ? "−" : "+"}
+            </span>
+          </button>
         )}
-      </button>
 
-      {/* Project header */}
-      <div className={[
-        "border-b border-neutral-200/80 transition-all duration-300",
-        collapsed ? "p-3" : "p-4"
-      ].join(" ")}>
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            {/* Collapsed: Just Project Initial */}
-            <div className={[
-              "transition-all duration-300 flex justify-center",
-              collapsed ? "opacity-100" : "opacity-0 h-0 overflow-hidden"
-            ].join(" ")}>
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-sm">
-                {projectName?.charAt(0).toUpperCase() || "P"}
-              </div>
-            </div>
+        {open && (
+          <div className="space-y-0.5">
+            {groupItems.map((it, i) => (
+              <ArtifactRow key={it.key} it={it} idx={start + i} />
+            ))}
+          </div>
+        )}
 
-            {/* Expanded: Full Project Info */}
-            <div className={[
-              "transition-all duration-300",
-              collapsed ? "opacity-0 h-0 overflow-hidden" : "opacity-100"
-            ].join(" ")}>
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">
-                Project
-              </div>
-              
+        {collapsed && <div className="h-px bg-zinc-800/80 my-1.5 mx-3" />}
+      </div>
+    );
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     RENDER
+  ═══════════════════════════════════════════════════════════════ */
+  return (
+    <aside
+      aria-label="Artifact navigation"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className={[
+        "relative shrink-0 flex flex-col",
+        "bg-zinc-950 border-r border-zinc-800/80",
+        "transition-[width] duration-300 ease-in-out",
+        "h-screen sticky top-0 overflow-hidden",
+      ].join(" ")}
+      style={{ width: collapsed ? 60 : 272 }}
+    >
+      {/* Subtle noise texture */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 z-0 opacity-[0.03]"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E")`,
+        }}
+      />
+
+      <div className="relative z-10 flex flex-col h-full">
+
+        {/* ── Collapse toggle ── */}
+        <button
+          type="button"
+          onClick={() => setCollapsed(v => !v)}
+          aria-label={collapsed ? "Expand sidebar (])" : "Collapse sidebar ([)"}
+          title={collapsed ? "Expand ]" : "Collapse ["}
+          className={[
+            "absolute -right-3.5 top-5 z-50 w-7 h-7 rounded-full",
+            "bg-zinc-800 border border-zinc-700",
+            "flex items-center justify-center",
+            "text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 hover:border-zinc-600",
+            "shadow-xl transition-all duration-200",
+            hovered || collapsed ? "opacity-100 scale-100" : "opacity-0 scale-75 pointer-events-none",
+          ].join(" ")}
+        >
+          {collapsed
+            ? <ChevronRight className="w-3.5 h-3.5" />
+            : <ChevronLeft  className="w-3.5 h-3.5" />}
+        </button>
+
+        {/* ══════════════════════════════════════════════════════════
+            PROJECT HEADER
+        ══════════════════════════════════════════════════════════ */}
+        <div className={[
+          "shrink-0 border-b border-zinc-800/80 transition-all duration-300",
+          collapsed ? "px-2.5 py-3" : "px-4 pt-5 pb-4",
+        ].join(" ")}>
+
+          {collapsed ? (
+            <div className="flex flex-col items-center gap-2.5">
               <Link
-                href={`/projects/${projectRouteId}`}
-                className="block truncate text-sm font-bold text-neutral-900 hover:text-indigo-600 transition-colors"
-                title={projectName ?? ""}
-                prefetch={false}
+                href={`/projects/${projectRoute}`}
+                title={projectName ?? "Project"}
+                className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700/80 flex items-center justify-center text-zinc-100 font-black text-[15px] hover:bg-zinc-700 hover:border-zinc-600 transition-all shadow-sm"
               >
-                {projectName?.trim() || "Untitled project"}
+                {initial}
               </Link>
-
-              {projectCode && (
-                <code className="mt-1 block truncate font-mono text-[11px] text-neutral-500 bg-neutral-100 px-1.5 py-0.5 rounded w-fit">
-                  {projectCode}
-                </code>
-              )}
-
-              <div className="mt-2 text-xs text-neutral-500 capitalize flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                {role}
+              <Link
+                href={`/projects/${projectRoute}/board`}
+                title="Board"
+                className="w-9 h-9 rounded-lg flex items-center justify-center text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800/80 transition-all"
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </Link>
+              <Link
+                href={boardHref("create")}
+                title="Create artifact"
+                className="w-9 h-9 rounded-lg bg-amber-400/10 border border-amber-400/20 flex items-center justify-center text-amber-400 hover:bg-amber-400/20 hover:border-amber-400/40 transition-all"
+              >
+                <Plus className="w-4 h-4" />
+              </Link>
+            </div>
+          ) : (
+            <>
+              {/* Project identity */}
+              <div className="flex items-center gap-3 mb-4">
+                <Link
+                  href={`/projects/${projectRoute}`}
+                  className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700/80 flex items-center justify-center text-zinc-100 font-black text-[15px] hover:bg-zinc-700 hover:border-zinc-600 transition-all shrink-0"
+                >
+                  {initial}
+                </Link>
+                <div className="flex-1 min-w-0">
+                  <Link
+                    href={`/projects/${projectRoute}`}
+                    prefetch={false}
+                    title={projectName ?? ""}
+                    className="block text-[13px] font-bold text-zinc-100 truncate hover:text-amber-300 transition-colors leading-tight"
+                  >
+                    {projectName?.trim() || "Untitled Project"}
+                  </Link>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    {projectCode && (
+                      <code className="font-mono text-[10px] text-zinc-600 bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 rounded">
+                        {projectCode}
+                      </code>
+                    )}
+                    <span className={[
+                      "text-[10px] font-bold capitalize",
+                      role === "owner"  ? "text-amber-400" :
+                      role === "editor" ? "text-sky-400"   : "text-zinc-600",
+                    ].join(" ")}>
+                      {role}
+                    </span>
+                  </div>
+                </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="mt-3 flex flex-wrap items-center gap-2">
+              {/* Action strip */}
+              <div className="flex items-center gap-1.5 mb-2">
                 <Link
-                  href={`/projects/${projectRouteId}/board`}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 hover:border-neutral-300 transition-all"
-                  title="Open Board"
+                  href={`/projects/${projectRoute}/board`}
                   prefetch={false}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-[11px] font-semibold text-zinc-500 hover:text-zinc-200 hover:border-zinc-700 hover:bg-zinc-800/60 transition-all"
                 >
                   <LayoutGrid className="w-3.5 h-3.5" />
                   Board
                 </Link>
-
-                <Link
-                  href={boardHref("create")}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 transition-all"
-                  prefetch={false}
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Create
-                  <span className="ml-1 rounded-full bg-neutral-100 px-1.5 py-0 text-[10px]">
-                    {boardCounts.create}
-                  </span>
-                </Link>
-              </div>
-
-              <div className="mt-2 flex flex-wrap items-center gap-2">
                 <Link
                   href={boardHref("draft")}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 transition-all"
                   prefetch={false}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-[11px] font-semibold text-zinc-500 hover:text-zinc-200 hover:border-zinc-700 hover:bg-zinc-800/60 transition-all"
                 >
                   <FolderOpen className="w-3.5 h-3.5" />
-                  Draft
-                  <span className="ml-1 rounded-full bg-neutral-100 px-1.5 py-0 text-[10px]">
-                    {boardCounts.draft}
-                  </span>
+                  Drafts
+                  {counts.draft > 0 && (
+                    <span className="text-[9px] font-black text-zinc-700 tabular-nums ml-0.5">
+                      {counts.draft}
+                    </span>
+                  )}
                 </Link>
-
                 <Link
-                  href={boardHref("submitted")}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 transition-all"
+                  href={boardHref("create")}
                   prefetch={false}
+                  aria-label="Create new artifact"
+                  title="Create new artifact"
+                  className="w-9 h-9 shrink-0 inline-flex items-center justify-center rounded-lg bg-amber-400 hover:bg-amber-300 text-zinc-900 transition-all shadow-[0_0_14px_rgba(251,191,36,0.2)] hover:shadow-[0_0_18px_rgba(251,191,36,0.4)]"
                 >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  Submitted
-                  <span className="ml-1 rounded-full bg-neutral-100 px-1.5 py-0 text-[10px]">
-                    {boardCounts.submitted}
-                  </span>
+                  <Plus className="w-4 h-4" />
                 </Link>
               </div>
-            </div>
-          </div>
+
+              {/* Submitted strip */}
+              {counts.submitted > 0 && (
+                <Link
+                  href={boardHref("submitted")}
+                  prefetch={false}
+                  className="w-full inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-950/30 border border-emerald-900/50 text-[11px] font-semibold text-emerald-500 hover:bg-emerald-950/50 hover:border-emerald-800/60 transition-all"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Submitted for review
+                  <span className="ml-auto font-black tabular-nums">{counts.submitted}</span>
+                </Link>
+              )}
+            </>
+          )}
         </div>
 
-        {/* Collapsed Action Icons */}
-        <div className={[
-          "flex flex-col gap-2 mt-2 transition-all duration-300",
-          collapsed ? "opacity-100" : "opacity-0 h-0 overflow-hidden"
-        ].join(" ")}>
-          <Link
-            href={`/projects/${projectRouteId}/board`}
-            className="w-10 h-10 mx-auto rounded-lg bg-white border border-neutral-200 flex items-center justify-center text-neutral-600 hover:bg-neutral-50 hover:border-neutral-300 transition-all"
-            title="Board"
-          >
-            <LayoutGrid className="w-4 h-4" />
-          </Link>
-          <Link
-            href={boardHref("create")}
-            className="w-10 h-10 mx-auto rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 hover:bg-indigo-100 transition-all"
-            title="Create"
-          >
-            <Plus className="w-4 h-4" />
-          </Link>
-        </div>
-      </div>
-
-      {/* Search */}
-      {!collapsed && (
-        <div className="p-4 border-b border-neutral-200/80">
-          <div className="relative">
-            <input
-              ref={searchRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search artifacts…  (/)"
-              className="w-full rounded-lg border border-neutral-200 bg-white pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 transition-all"
-            />
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-          </div>
-        </div>
-      )}
-
-      {/* Navigation */}
-      <div className={[
-        "overflow-y-auto transition-all duration-300",
-        collapsed ? "p-2 h-[calc(100vh-120px)]" : "p-4 h-[calc(100vh-280px)]"
-      ].join(" ")}>
+        {/* ══════════════════════════════════════════════════════════
+            SEARCH
+        ══════════════════════════════════════════════════════════ */}
         {!collapsed && (
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-[11px] font-bold uppercase tracking-wider text-neutral-400">
-              Artifacts
-            </h3>
-            <span className="text-[10px] text-neutral-400 bg-neutral-100 px-2 py-0.5 rounded-full">
-              {visible.length}
-            </span>
+          <div className="shrink-0 px-3 py-2.5 border-b border-zinc-800/80">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-700 pointer-events-none" />
+              <input
+                ref={searchRef}
+                type="text"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Search…"
+                aria-label="Search artifacts"
+                className={[
+                  "w-full pl-8 pr-8 py-2 rounded-lg",
+                  "bg-zinc-900 border border-zinc-800",
+                  "text-[12px] text-zinc-300 placeholder-zinc-700",
+                  "focus:outline-none focus:ring-2 focus:ring-amber-400/25 focus:border-zinc-700 focus:bg-zinc-900/80",
+                  "transition-all",
+                ].join(" ")}
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  aria-label="Clear search"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-zinc-700 hover:text-zinc-300 transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           </div>
         )}
 
-        <nav aria-label="Artifact navigation">
-          <Group name="Plan" itemsInGroup={grouped.Plan} startIndex={groupStarts.Plan} />
-          <Group name="Control" itemsInGroup={grouped.Control} startIndex={groupStarts.Control} />
-          <Group name="Close" itemsInGroup={grouped.Close} startIndex={groupStarts.Close} />
+        {/* ══════════════════════════════════════════════════════════
+            NAVIGATION
+        ══════════════════════════════════════════════════════════ */}
+        <nav
+          aria-label="Artifact list"
+          className={[
+            "flex-1 overflow-y-auto min-h-0",
+            collapsed ? "px-1.5 py-2" : "px-3 py-3",
+          ].join(" ")}
+          style={{ scrollbarWidth: "thin", scrollbarColor: "#27272a transparent" }}
+        >
+          {!collapsed && (
+            <div className="flex items-center justify-between px-2 mb-2.5">
+              <span className="text-[10px] font-black uppercase tracking-[0.14em] text-zinc-800">
+                Artifacts
+              </span>
+              <span className="text-[10px] font-bold text-zinc-800 tabular-nums">
+                {visible.length}
+              </span>
+            </div>
+          )}
+
+          {visible.length === 0 ? (
+            !collapsed && (
+              <div className="px-2 py-8 text-center">
+                <p className="text-[12px] text-zinc-600">No match</p>
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="mt-1 text-[11px] text-amber-500 hover:text-amber-300 font-semibold transition-colors"
+                >
+                  Clear search
+                </button>
+              </div>
+            )
+          ) : (
+            <>
+              <GroupSection name="Plan"    groupItems={grouped.Plan}    start={groupStarts.Plan}    />
+              <GroupSection name="Control" groupItems={grouped.Control} start={groupStarts.Control} />
+              <GroupSection name="Close"   groupItems={grouped.Close}   start={groupStarts.Close}   />
+            </>
+          )}
         </nav>
+
+        {/* ══════════════════════════════════════════════════════════
+            FOOTER
+        ══════════════════════════════════════════════════════════ */}
+        {!collapsed && (
+          <div className="shrink-0 border-t border-zinc-800/80 px-4 py-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Zap className="w-3 h-3 text-amber-500/70" />
+                <span className="text-[10px] font-bold text-zinc-800">AlienAI</span>
+              </div>
+              <p className="hidden lg:block text-[9px] font-mono text-zinc-800">
+                ↑↓ · / · [ ]
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Bottom gradient fade */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-zinc-950 to-transparent"
+        />
       </div>
-
-      {/* Bottom Gradient */}
-      <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent pointer-events-none" />
-
-      {/* Keyboard Help */}
-      {!collapsed && (
-        <div className="absolute bottom-2 left-4 right-4 text-[10px] text-neutral-400 text-center">
-          <span className="hidden lg:inline">↑↓ navigate · Enter open · / search · [ ] collapse</span>
-        </div>
-      )}
     </aside>
   );
 }
