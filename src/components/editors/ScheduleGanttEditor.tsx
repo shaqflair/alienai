@@ -50,6 +50,7 @@ type DragState = {
   itemId: string;
   pointerId: number;
   startClientX: number;
+  startClientY: number;
   moved: boolean;
   origStartDay: number;
   origEndDay: number;
@@ -124,6 +125,14 @@ function fmtWeekHeader(weekStart: Date): string {
   const s = weekStart.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
   const e = addDays(weekStart, 6).toLocaleDateString(undefined, { day: "2-digit", month: "short" });
   return `${s} – ${e}`;
+}
+
+function debounce<T extends (...args: any[]) => any>(fn: T, ms: number): T {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return ((...args: any[]) => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  }) as T;
 }
 
 function normalizeInitial(initialJson: any): ScheduleDocV1 {
@@ -231,34 +240,46 @@ function statusColor(status: ItemStatus) {
     case "done":
       return {
         bg: "bg-blue-500",
-        border: "border-blue-500",
+        fill: "bg-blue-500/15",
+        border: "border-blue-300",
+        accent: "bg-blue-500",
         text: "text-blue-700",
         light: "bg-blue-50",
-        ring: "ring-blue-200",
+        ring: "ring-blue-300",
+        label: "Done",
       };
     case "delayed":
       return {
         bg: "bg-red-500",
-        border: "border-red-500",
+        fill: "bg-red-500/15",
+        border: "border-red-300",
+        accent: "bg-red-500",
         text: "text-red-700",
         light: "bg-red-50",
-        ring: "ring-red-200",
+        ring: "ring-red-300",
+        label: "Delayed",
       };
     case "at_risk":
       return {
         bg: "bg-amber-500",
-        border: "border-amber-500",
+        fill: "bg-amber-500/15",
+        border: "border-amber-300",
+        accent: "bg-amber-500",
         text: "text-amber-700",
         light: "bg-amber-50",
-        ring: "ring-amber-200",
+        ring: "ring-amber-300",
+        label: "At Risk",
       };
     default:
       return {
         bg: "bg-emerald-500",
-        border: "border-emerald-500",
+        fill: "bg-emerald-500/15",
+        border: "border-emerald-300",
+        accent: "bg-emerald-500",
         text: "text-emerald-700",
         light: "bg-emerald-50",
-        ring: "ring-emerald-200",
+        ring: "ring-emerald-300",
+        label: "On Track",
       };
   }
 }
@@ -423,7 +444,20 @@ function buildScheduleFromWbs(args: {
 }
 
 /* ------------------------------------------------
-   Main Component (OLD STYLE, with lazy WBS fetch on click)
+   Layout constants (outside component — stable refs)
+------------------------------------------------ */
+const PHASE_COL_W = 260;
+const WEEK_COL_W = 160;
+const CELL_H = 36;
+const BAR_H = 32;
+const LANE_GAP = 8;
+const TOP_PAD = 60;
+const DAY_W = WEEK_COL_W / 7;
+const MAX_DAY = 51 * 7 + 6;
+const DRAG_PIXEL_THRESHOLD = 5; // px before a drag is "real"
+
+/* ------------------------------------------------
+   Main Component
 ------------------------------------------------ */
 
 export default function ScheduleGanttEditor({
@@ -450,9 +484,9 @@ export default function ScheduleGanttEditor({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState("");
+  const [msgPersist, setMsgPersist] = useState(false);
   const [dirty, setDirty] = useState(false);
 
-  // ? store server updated_at here for If-Match
   const etagRef = useRef<string | null>(null);
   const hydratedOnceRef = useRef(false);
   const lastHydratedFingerprintRef = useRef<string>("");
@@ -461,13 +495,22 @@ export default function ScheduleGanttEditor({
   const [panelMode, setPanelMode] = useState<PanelMode>("closed");
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
-  // ? WBS state (do NOT fetch on mount)
+  // WBS state
   const [wbsJson, setWbsJson] = useState<any | null>(latestWbsJson ?? null);
   const [wbsLoading, setWbsLoading] = useState(false);
+
+  // End-date validation error
+  const [endDateError, setEndDateError] = useState<string>("");
 
   useEffect(() => {
     setWbsJson(latestWbsJson ?? null);
   }, [latestWbsJson]);
+
+  function showMsg(text: string, persist = false) {
+    setMsg(text);
+    setMsgPersist(persist);
+    if (!persist) setTimeout(() => setMsg(""), text.startsWith("✓") ? 1200 : 2500);
+  }
 
   async function fetchLatestWbsJson(): Promise<any | null> {
     try {
@@ -489,7 +532,7 @@ export default function ScheduleGanttEditor({
       if (!res.ok || j?.ok === false) throw new Error(j?.error || `WBS fetch failed (${res.status})`);
       return j?.content_json ?? null;
     } catch (e: any) {
-      setMsg(`? ${e?.message ?? "Could not load WBS"}`);
+      showMsg(`⚠ ${e?.message ?? "Could not load WBS"}`, true);
       return null;
     } finally {
       setWbsLoading(false);
@@ -522,7 +565,7 @@ export default function ScheduleGanttEditor({
       return;
     }
     if (nextFp && nextFp === lastHydratedFingerprintRef.current) return;
-    setMsg("?? A newer server version is available. Save your changes or reload.");
+    showMsg("⚠ A newer server version is available. Save your changes or reload.", true);
   }, [initialJson, dirty]);
 
   useEffect(() => {
@@ -534,6 +577,54 @@ export default function ScheduleGanttEditor({
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      const isEditing = tag === "input" || tag === "textarea" || tag === "select";
+
+      // Cmd/Ctrl+S → save
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        save(true);
+        return;
+      }
+
+      if (isEditing) return;
+
+      // Escape → close panel
+      if (e.key === "Escape") {
+        setPanelMode("closed");
+        setSelectedItemId(null);
+        return;
+      }
+
+      if (!selectedItemId || readOnly) return;
+
+      // Delete/Backspace → delete selected
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        deleteItem(selectedItemId);
+        return;
+      }
+
+      // Arrow keys → shift by 1 week
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        shiftItemByWeeks(selectedItemId, -1);
+        return;
+      }
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        shiftItemByWeeks(selectedItemId, 1);
+        return;
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedItemId, readOnly, dirty]);
 
   // View state
   const [view, setView] = useState<ViewMode>(12);
@@ -640,7 +731,10 @@ export default function ScheduleGanttEditor({
     if (next.type !== "milestone") {
       const s = parseISODate(next.start);
       const e = parseISODate(safeStr(next.end) || next.start);
-      if (s && e && e.getTime() < s.getTime()) next.end = next.start;
+      if (s && e && e.getTime() < s.getTime()) {
+        // Don't silently fix — leave invalid for UI to show error
+        return next;
+      }
     }
 
     return next;
@@ -648,6 +742,42 @@ export default function ScheduleGanttEditor({
 
   function updateItem(itemId: string, patch: Partial<ScheduleItem>) {
     if (readOnly) return;
+
+    // Validate end date before applying
+    if (patch.end !== undefined && patch.start === undefined) {
+      const item = doc.items.find((x) => x.id === itemId);
+      if (item && item.type !== "milestone") {
+        const s = parseISODate(item.start);
+        const e = parseISODate(patch.end || "");
+        if (s && e && e.getTime() < s.getTime()) {
+          setEndDateError("End date must be on or after start date");
+          // Still update so user sees their input, but mark error
+          updateDoc((p) => ({
+            ...p,
+            items: (p.items ?? []).map((it) => (it.id === itemId ? { ...it, ...patch } : it)),
+          }));
+          return;
+        }
+      }
+    }
+
+    if (patch.start !== undefined && patch.end === undefined) {
+      const item = doc.items.find((x) => x.id === itemId);
+      if (item && item.type !== "milestone") {
+        const s = parseISODate(patch.start || "");
+        const e = parseISODate(item.end || "");
+        if (s && e && e.getTime() < s.getTime()) {
+          setEndDateError("End date must be on or after start date");
+          updateDoc((p) => ({
+            ...p,
+            items: (p.items ?? []).map((it) => (it.id === itemId ? { ...it, ...patch } : it)),
+          }));
+          return;
+        }
+      }
+    }
+
+    setEndDateError("");
     updateDoc((p) => ({
       ...p,
       items: (p.items ?? []).map((it) => (it.id === itemId ? normalizeItemPatch(it, patch) : it)),
@@ -754,8 +884,7 @@ export default function ScheduleGanttEditor({
 
     if (!dirty) {
       if (showToast) {
-        setMsg("Nothing to save");
-        setTimeout(() => setMsg(""), 900);
+        showMsg("Nothing to save");
       }
       return;
     }
@@ -772,11 +901,12 @@ export default function ScheduleGanttEditor({
           parseISODate(it.type === "milestone" ? it.start : safeStr(it.end) || it.start) ?? s;
 
         if (s && s.getTime() < projStart.getTime()) {
-          setMsg(`? "${it.name}" starts before project start date.`);
+          // Persistent error — user must fix before saving
+          showMsg(`⚠ "${it.name}" starts before project start date.`, true);
           return;
         }
         if (e && e.getTime() > projFinish.getTime()) {
-          setMsg(`? "${it.name}" ends after project finish date.`);
+          showMsg(`⚠ "${it.name}" ends after project finish date.`, true);
           return;
         }
       }
@@ -797,7 +927,6 @@ export default function ScheduleGanttEditor({
           Accept: "application/json",
         };
 
-        // ? Optimistic concurrency (your API checks If-Match against artifacts.updated_at)
         const ifMatch = safeStr(etagRef.current).trim();
         if (ifMatch) headers["If-Match"] = ifMatch;
 
@@ -805,14 +934,12 @@ export default function ScheduleGanttEditor({
           method: "POST",
           headers,
           body: JSON.stringify(payload),
-          // ? Same-origin normally includes cookies automatically; this makes it explicit
           credentials: "include",
         });
 
         const j = await res.json().catch(() => ({}));
 
         if (!res.ok) {
-          // ? Your route returns 409 for conflict
           if (res.status === 409) {
             throw new Error(
               j?.error ||
@@ -822,7 +949,6 @@ export default function ScheduleGanttEditor({
           throw new Error(j?.error || `Save failed (${res.status})`);
         }
 
-        // ? Prefer updated_at from returned artifact for the next If-Match
         const nextUpdatedAt =
           safeStr(j?.artifact?.updated_at) ||
           safeStr(j?.artifact?.updatedAt) ||
@@ -837,10 +963,9 @@ export default function ScheduleGanttEditor({
         setDirty(false);
         router.refresh();
 
-        setMsg(showToast ? "? Saved" : "Saved");
-        setTimeout(() => setMsg(""), showToast ? 1200 : 800);
+        showMsg("✓ Saved");
       } catch (e: any) {
-        if (showToast) setMsg(`? ${e?.message ?? "Save failed"}`);
+        if (showToast) showMsg(`⚠ ${e?.message ?? "Save failed"}`, true);
       } finally {
         savingRef.current = false;
       }
@@ -927,35 +1052,70 @@ export default function ScheduleGanttEditor({
     return { laneOf, laneCountByPhase };
   }, [doc.phases, itemsByPhase]);
 
-  /* ---------------- Layout constants ---------------- */
+  /* ---- Bar geometry (memoised map keyed by item id) ---- */
+  const barGeometryMap = useMemo(() => {
+    const m = new Map<string, { left: number; width: number; startIn: number; endIn: number } | null>();
+    const pageStart = pageWeeks[0]?.idx ?? 0;
+    const pageEnd = pageWeeks[pageWeeks.length - 1]?.idx ?? pageStart;
+    const pageStartDay = pageStart * 7;
+    const pageEndDay = pageEnd * 7 + 6;
 
-  const PHASE_COL_W = 260;
-  const WEEK_COL_W = 160;
-  const CELL_H = 36;
-  const BAR_H = 32;
-  const LANE_GAP = 6;
-  const TOP_PAD = 64; // header clearance inside row
-  const DAY_W = WEEK_COL_W / 7;
-  const MAX_DAY = 51 * 7 + 6;
+    for (const ph of doc.phases ?? []) {
+      for (const it of itemsByPhase.get(ph.id) ?? []) {
+        const startDay = dayIndex(anchorMonday, it.start);
+        if (startDay === null) { m.set(it.id, null); continue; }
+
+        const endISO = it.type === "milestone" ? it.start : safeStr(it.end) || it.start;
+        const endDay = dayIndex(anchorMonday, endISO) ?? startDay;
+
+        const sDay = clamp(Math.min(startDay, endDay), 0, MAX_DAY);
+        const eDay = clamp(Math.max(startDay, endDay), 0, MAX_DAY);
+
+        if (eDay < pageStartDay || sDay > pageEndDay) { m.set(it.id, null); continue; }
+
+        const startIn = Math.max(sDay, pageStartDay);
+        const endIn = Math.min(eDay, pageEndDay);
+
+        const left = (startIn - pageStartDay) * DAY_W + 8;
+        let width: number;
+        if (it.type === "milestone") {
+          width = Math.min(36, Math.max(24, DAY_W * 1.4));
+        } else {
+          width = Math.max(16, (endIn - startIn + 1) * DAY_W - 16);
+        }
+
+        m.set(it.id, { left, width, startIn, endIn });
+      }
+    }
+    return m;
+  }, [doc.phases, itemsByPhase, pageWeeks, anchorMonday]);
+
+  const todayLineX = useMemo(() => {
+    const t = iso(new Date());
+    const d = dayIndex(anchorMonday, t);
+    if (d === null) return null;
+    const pageStart = pageWeeks[0]?.idx ?? 0;
+    const pageEnd = pageWeeks[pageWeeks.length - 1]?.idx ?? pageStart;
+    const pageStartDay = pageStart * 7;
+    const pageEndDay = pageEnd * 7 + 6;
+    if (d < pageStartDay || d > pageEndDay) return null;
+    return (d - pageStartDay) * DAY_W;
+  }, [anchorMonday, pageWeeks]);
+
+  function togglePhaseCollapse(phaseId: string) {
+    setCollapsed((p) => ({ ...p, [phaseId]: !p[phaseId] }));
+  }
 
   function canPrev() {
-    if (useCustomRange) return false;
-    if (view === 52) return false;
+    if (useCustomRange || view === 52) return false;
     return pageStartWeek > 0;
   }
   function canNext() {
-    if (useCustomRange) return false;
-    if (view === 52) return false;
+    if (useCustomRange || view === 52) return false;
     return pageStartWeek + view < 52;
   }
-  function prevPage() {
-    if (!canPrev()) return;
-    setPageStartWeek((p) => clamp(p - view, 0, 52));
-  }
-  function nextPage() {
-    if (!canNext()) return;
-    setPageStartWeek((p) => clamp(p + view, 0, 52));
-  }
+  function prevPage() { if (canPrev()) setPageStartWeek((p) => clamp(p - view, 0, 52)); }
+  function nextPage() { if (canNext()) setPageStartWeek((p) => clamp(p + view, 0, 52)); }
 
   const selectedItem = useMemo(() => {
     if (!selectedItemId) return null;
@@ -968,55 +1128,7 @@ export default function ScheduleGanttEditor({
     return m;
   }, [doc.items]);
 
-  function computeBarGeometry(it: ScheduleItem) {
-    const startDay = dayIndex(anchorMonday, it.start);
-    if (startDay === null) return null;
-
-    const endISO = it.type === "milestone" ? it.start : safeStr(it.end) || it.start;
-    const endDay = dayIndex(anchorMonday, endISO) ?? startDay;
-
-    const sDay = clamp(Math.min(startDay, endDay), 0, MAX_DAY);
-    const eDay = clamp(Math.max(startDay, endDay), 0, MAX_DAY);
-
-    const pageStart = pageWeeks[0]?.idx ?? 0;
-    const pageEnd = pageWeeks[pageWeeks.length - 1]?.idx ?? pageStart;
-    const pageStartDay = pageStart * 7;
-    const pageEndDay = pageEnd * 7 + 6;
-
-    if (eDay < pageStartDay || sDay > pageEndDay) return null;
-
-    const startIn = Math.max(sDay, pageStartDay);
-    const endIn = Math.min(eDay, pageEndDay);
-
-    const left = (startIn - pageStartDay) * DAY_W + 8;
-
-    let width: number;
-    if (it.type === "milestone") {
-      width = Math.min(36, Math.max(24, DAY_W * 1.4));
-    } else {
-      width = Math.max(16, (endIn - startIn + 1) * DAY_W - 16);
-    }
-
-    return { left, width, startIn, endIn };
-  }
-
-  const todayLineX = useMemo(() => {
-    const t = iso(new Date());
-    const day = dayIndex(anchorMonday, t);
-    if (day === null) return null;
-    const pageStart = pageWeeks[0]?.idx ?? 0;
-    const pageEnd = pageWeeks[pageWeeks.length - 1]?.idx ?? pageStart;
-    const pageStartDay = pageStart * 7;
-    const pageEndDay = pageEnd * 7 + 6;
-    if (day < pageStartDay || day > pageEndDay) return null;
-    return (day - pageStartDay) * DAY_W;
-  }, [anchorMonday, pageWeeks, DAY_W]);
-
-  function togglePhaseCollapse(phaseId: string) {
-    setCollapsed((p) => ({ ...p, [phaseId]: !p[phaseId] }));
-  }
-
-  /* ---------------- Drag handling ---------------- */
+  /* ---------------- Drag handling (improved threshold) ---------------- */
 
   const dragRef = useRef<DragState | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -1049,6 +1161,7 @@ export default function ScheduleGanttEditor({
       itemId,
       pointerId: e.pointerId,
       startClientX: e.clientX,
+      startClientY: e.clientY,
       moved: false,
       origStartDay,
       origEndDay,
@@ -1100,9 +1213,13 @@ export default function ScheduleGanttEditor({
       if (ev.pointerId !== st.pointerId) return;
 
       const dx = ev.clientX - st.startClientX;
-      const deltaDays = Math.round(dx / DAY_W);
+      const dy = ev.clientY - st.startClientY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
 
-      if (Math.abs(deltaDays) >= 1) st.moved = true;
+      // Use pixel threshold rather than day threshold for better accuracy on high-DPI
+      if (dist >= DRAG_PIXEL_THRESHOLD) st.moved = true;
+
+      const deltaDays = Math.round(dx / DAY_W);
 
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(() => applyDragDelta(deltaDays));
@@ -1132,11 +1249,10 @@ export default function ScheduleGanttEditor({
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-  }, [DAY_W, updateDoc]);
+  }, [updateDoc]);
 
   /* ---------------- Dependencies overlay ---------------- */
 
-  const scrollRef = useRef<HTMLDivElement | null>(null);
   const bodyScrollRef = useRef<HTMLDivElement | null>(null);
   const timelineContentRef = useRef<HTMLDivElement | null>(null);
   const depsCanvasRef = useRef<HTMLDivElement | null>(null);
@@ -1151,12 +1267,12 @@ export default function ScheduleGanttEditor({
     barNodeRef.current.set(id, el);
   }, []);
 
-  const getPhaseHeight = (ph: SchedulePhase) => {
+  const getPhaseHeight = useCallback((ph: SchedulePhase) => {
     const isCollapsed = !!collapsed[ph.id];
     if (isCollapsed) return 72;
     const lanes = packed.laneCountByPhase.get(ph.id) ?? 1;
-    return Math.max(120, 64 + lanes * (BAR_H + LANE_GAP) + 24);
-  };
+    return Math.max(120, 64 + lanes * (BAR_H + LANE_GAP) + 28);
+  }, [collapsed, packed.laneCountByPhase]);
 
   const phaseMetrics = useMemo(() => {
     const metrics = new Map<string, { height: number; offset: number }>();
@@ -1169,7 +1285,7 @@ export default function ScheduleGanttEditor({
     }
 
     return { metrics, totalHeight: currentOffset };
-  }, [doc.phases, collapsed, packed.laneCountByPhase]);
+  }, [doc.phases, getPhaseHeight]);
 
   const depsForVisible = useMemo(() => {
     const visibleIds = new Set<string>();
@@ -1192,7 +1308,7 @@ export default function ScheduleGanttEditor({
     return pairs.slice(0, 2500);
   }, [doc.items, doc.phases, itemsByPhase, collapsed]);
 
-  function recomputeDependencyPaths() {
+  const recomputeDependencyPathsRaw = useCallback(function recomputeDependencyPaths() {
     const canvas = depsCanvasRef.current;
     const content = timelineContentRef.current;
     if (!canvas || !content) {
@@ -1226,30 +1342,30 @@ export default function ScheduleGanttEditor({
     }
 
     setDepPaths(next.slice(0, 2500));
-  }
+  }, [depsForVisible]);
+
+  // Debounced version for scroll/resize events
+  const recomputeDependencyPaths = useMemo(
+    () => debounce(recomputeDependencyPathsRaw, 16),
+    [recomputeDependencyPathsRaw]
+  );
 
   useEffect(() => {
     if (!timelineContentRef.current) return;
-
     const observer = new ResizeObserver(() => {
-      recomputeDependencyPaths();
+      // Use rAF to ensure stable layout before computing
+      requestAnimationFrame(() => recomputeDependencyPaths());
     });
 
     observer.observe(timelineContentRef.current);
-
-    barNodeRef.current.forEach((el) => {
-      observer.observe(el);
-    });
-
+    barNodeRef.current.forEach((el) => observer.observe(el));
     return () => observer.disconnect();
-  }, [depsForVisible]);
+  }, [depsForVisible, recomputeDependencyPaths]);
 
   useLayoutEffect(() => {
-    const timer = setTimeout(() => {
-      recomputeDependencyPaths();
-    }, 0);
+    const timer = setTimeout(() => recomputeDependencyPaths(), 0);
     return () => clearTimeout(timer);
-  }, [depsForVisible, pageWeeks, view, pageStartWeek, collapsed, packed.laneOf]);
+  }, [depsForVisible, pageWeeks, view, pageStartWeek, collapsed, packed.laneOf, recomputeDependencyPaths]);
 
   useEffect(() => {
     const onAny = () => recomputeDependencyPaths();
@@ -1260,7 +1376,7 @@ export default function ScheduleGanttEditor({
       window.removeEventListener("resize", onAny);
       if (el) el.removeEventListener("scroll", onAny);
     };
-  }, []);
+  }, [recomputeDependencyPaths]);
 
   function depPathD(a: Anchor) {
     const stub = 16;
@@ -1277,7 +1393,7 @@ export default function ScheduleGanttEditor({
     return `M ${x0} ${ay - 3} L ${ax} ${ay} L ${x0} ${ay + 3}`;
   }
 
-  /* ---------------- WBS Import (lazy fetch) ---------------- */
+  /* ---------------- WBS Import ---------------- */
 
   async function appendFromWbs() {
     if (readOnly) return;
@@ -1287,7 +1403,7 @@ export default function ScheduleGanttEditor({
 
     const rows = normalizeWbs(loaded).rows;
     if (!rows.length) {
-      setMsg("? No WBS found for this project.");
+      showMsg("⚠ No WBS found for this project.", true);
       return;
     }
 
@@ -1298,7 +1414,7 @@ export default function ScheduleGanttEditor({
     });
 
     if (!imported) {
-      setMsg("? WBS format not recognised (no rows).");
+      showMsg("⚠ WBS format not recognised (no rows).", true);
       return;
     }
 
@@ -1307,7 +1423,6 @@ export default function ScheduleGanttEditor({
 
     updateDoc((prev) => {
       const existingIds = new Set((prev.items ?? []).map((x) => x.id));
-
       const phaseIdByName = new Map<string, string>();
       for (const p of prev.phases ?? []) phaseIdByName.set(safeStr(p.name).trim().toLowerCase(), p.id);
 
@@ -1340,12 +1455,7 @@ export default function ScheduleGanttEditor({
         const deps = (it.dependencies ?? []).map((d) => idMap.get(d) ?? "").filter(Boolean);
 
         return normalizeItemPatch(
-          {
-            ...it,
-            id: newId,
-            phaseId: mappedPhaseId,
-            dependencies: deps,
-          },
+          { ...it, id: newId, phaseId: mappedPhaseId, dependencies: deps },
           {}
         );
       });
@@ -1362,8 +1472,7 @@ export default function ScheduleGanttEditor({
 
     setSelectedItemId(null);
     setPanelMode("closed");
-    setMsg("? Appended from WBS (remember to Save schedule)");
-    setTimeout(() => setMsg(""), 1400);
+    showMsg("✓ Appended from WBS (remember to Save schedule)");
     setTimeout(() => recomputeDependencyPaths(), 0);
   }
 
@@ -1392,16 +1501,29 @@ export default function ScheduleGanttEditor({
     setTimeout(() => recomputeDependencyPaths(), 0);
   }
 
-  /* ---------------- Exports ---------------- */
+  /* ---------------- Exports (use hidden anchor) ---------------- */
+
+  const downloadLinkRef = useRef<HTMLAnchorElement | null>(null);
+
+  function triggerDownload(url: string) {
+    if (!downloadLinkRef.current) {
+      const a = document.createElement("a");
+      a.style.display = "none";
+      document.body.appendChild(a);
+      downloadLinkRef.current = a;
+    }
+    downloadLinkRef.current.href = url;
+    downloadLinkRef.current.click();
+  }
 
   function triggerExcelDownload() {
     const safeTitle = titleText.replace(/[^a-z0-9]/gi, "_") || "schedule";
-    window.location.href = `/api/export/excel?artifactId=${artifactId}&title=${encodeURIComponent(safeTitle)}`;
+    triggerDownload(`/api/export/excel?artifactId=${artifactId}&title=${encodeURIComponent(safeTitle)}`);
   }
 
   function triggerPptxDownload() {
     const safeTitle = titleText.replace(/[^a-z0-9]/gi, "_") || "roadmap";
-    window.location.href = `/api/export/pptx?artifactId=${artifactId}&title=${encodeURIComponent(safeTitle)}`;
+    triggerDownload(`/api/export/pptx?artifactId=${artifactId}&title=${encodeURIComponent(safeTitle)}`);
   }
 
   /* ---------------- UI helpers ---------------- */
@@ -1409,23 +1531,45 @@ export default function ScheduleGanttEditor({
   const StatusDot = ({ status, size = "sm" }: { status: ItemStatus; size?: "sm" | "md" }) => {
     const colors = statusColor(status);
     const sizeClass = size === "md" ? "w-2.5 h-2.5" : "w-2 h-2";
-    return <div className={`${sizeClass} rounded-full ${colors.bg}`} />;
+    return (
+      <div
+        className={`${sizeClass} rounded-full ${colors.bg} flex-shrink-0`}
+        role="img"
+        aria-label={colors.label}
+      />
+    );
   };
 
+  // Type icon with accessible label
   const TypeIcon = ({ type }: { type: ItemType }) => {
-    if (type === "milestone") return <div className="w-3 h-3 rotate-45 bg-orange-500 rounded-[2px]" />;
-    if (type === "deliverable") return <div className="w-2.5 h-2.5 rounded-sm bg-purple-500" />;
-    return <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />;
+    if (type === "milestone")
+      return (
+        <div
+          className="w-3 h-3 rotate-45 bg-orange-500 rounded-[2px] flex-shrink-0"
+          role="img"
+          aria-label="Milestone"
+        />
+      );
+    if (type === "deliverable")
+      return (
+        <div
+          className="w-2.5 h-2.5 rounded-sm bg-purple-500 flex-shrink-0"
+          role="img"
+          aria-label="Deliverable"
+        />
+      );
+    return (
+      <div
+        className="w-2.5 h-2.5 rounded-full bg-blue-500 flex-shrink-0"
+        role="img"
+        aria-label="Task"
+      />
+    );
   };
 
   const PlusIcon = ({ className = "" }: { className?: string }) => (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M12 5v14M5 12h14"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinecap="round"
-      />
+      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
     </svg>
   );
 
@@ -1449,15 +1593,13 @@ export default function ScheduleGanttEditor({
       tone === "orange"
         ? "text-orange-700 bg-white border-orange-200 hover:bg-orange-50 focus:ring-orange-200"
         : tone === "purple"
-          ? "text-purple-700 bg-white border-purple-200 hover:bg-purple-50 focus:ring-purple-200"
-          : "text-blue-700 bg-white border-blue-200 hover:bg-blue-50 focus:ring-blue-200";
+        ? "text-purple-700 bg-white border-purple-200 hover:bg-purple-50 focus:ring-purple-200"
+        : "text-blue-700 bg-white border-blue-200 hover:bg-blue-50 focus:ring-blue-200";
 
     return (
-      <button onClick={onClick} className={`${base} ${toneCls}`} title={title}>
+      <button onClick={onClick} className={`${base} ${toneCls}`} title={title} type="button">
         <span className="flex items-center gap-1.5">
-          <span className="inline-flex items-center justify-center w-4 h-4 rounded-md bg-slate-900/0">
-            {icon}
-          </span>
+          <span className="inline-flex items-center justify-center w-4 h-4">{icon}</span>
           <span className="inline-flex items-center gap-1">
             <PlusIcon className="w-3.5 h-3.5" />
             {label}
@@ -1467,36 +1609,46 @@ export default function ScheduleGanttEditor({
     );
   };
 
+  // Message bg logic
+  const msgBg = msg.startsWith("✓")
+    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+    : msg.startsWith("⚠")
+    ? "bg-amber-50 text-amber-700 border border-amber-200"
+    : msg.includes("failed") || msg.includes("Error") || msg.includes("error")
+    ? "bg-red-50 text-red-700 border border-red-200"
+    : "bg-slate-100 text-slate-600";
+
   /* ------------------------------------------------
      Render
-  ------------------------------------------------- */
+  ------------------------------------------------ */
 
   return (
-    <div className="h-screen flex flex-col bg-slate-50 text-slate-900">
+    <div className="h-screen flex flex-col bg-slate-50 text-slate-900 select-none">
       {/* Header */}
-      <header className="flex-none bg-white border-b border-slate-200 px-6 py-4">
+      <header className="flex-none bg-white border-b border-slate-200 px-6 py-4 z-30">
         <div className="flex items-center justify-between gap-4 mb-4">
           <div className="min-w-0 flex-1">
             <h1 className="text-xl font-semibold text-slate-900 truncate">{titleText}</h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              {projectStartDate && projectFinishDate ? `${projectStartDate} ? ${projectFinishDate}` : "Schedule / Roadmap"}
+              {projectStartDate && projectFinishDate
+                ? `${projectStartDate} → ${projectFinishDate}`
+                : "Schedule / Roadmap"}
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             {msg && (
-              <span
-                className={`text-sm px-3 py-1.5 rounded-lg ${
-                  msg.includes("?")
-                    ? "bg-emerald-50 text-emerald-700"
-                    : msg.includes("?")
-                      ? "bg-red-50 text-red-700"
-                      : msg.includes("??")
-                        ? "bg-amber-50 text-amber-700"
-                        : "bg-slate-100 text-slate-600"
-                }`}
-              >
+              <span className={`text-sm px-3 py-1.5 rounded-lg flex items-center gap-2 ${msgBg}`}>
                 {msg}
+                {msgPersist && (
+                  <button
+                    onClick={() => { setMsg(""); setMsgPersist(false); }}
+                    className="ml-1 hover:opacity-70 transition-opacity"
+                    aria-label="Dismiss"
+                  >
+                    ×
+                  </button>
+                )}
               </span>
             )}
 
@@ -1506,6 +1658,7 @@ export default function ScheduleGanttEditor({
                 disabled={wbsLoading}
                 className="px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 title={wbsJson ? "Append tasks from WBS" : "Load WBS and append tasks"}
+                type="button"
               >
                 {wbsLoading ? "Loading WBS…" : "Import WBS"}
               </button>
@@ -1516,6 +1669,7 @@ export default function ScheduleGanttEditor({
                 onClick={triggerExcelDownload}
                 disabled={isPending || !doc.items?.length}
                 className="px-3 py-1.5 text-sm font-medium text-slate-700 bg-white rounded-md shadow-sm hover:bg-slate-50 disabled:opacity-50 transition-colors"
+                type="button"
               >
                 Excel
               </button>
@@ -1523,6 +1677,7 @@ export default function ScheduleGanttEditor({
                 onClick={triggerPptxDownload}
                 disabled={isPending || !doc.items?.length}
                 className="px-3 py-1.5 text-sm font-medium text-slate-700 bg-white rounded-md shadow-sm hover:bg-slate-50 disabled:opacity-50 transition-colors"
+                type="button"
               >
                 PPT
               </button>
@@ -1533,12 +1688,14 @@ export default function ScheduleGanttEditor({
                 onClick={() => save(true)}
                 disabled={isPending || !dirty}
                 className="px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                title="Save (⌘S)"
+                type="button"
               >
                 {isPending ? (
                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 ) : null}
                 Save
-                {dirty && <span className="w-2 h-2 bg-amber-400 rounded-full" />}
+                {dirty && <span className="w-2 h-2 bg-amber-400 rounded-full" title="Unsaved changes" />}
               </button>
             )}
           </div>
@@ -1548,18 +1705,16 @@ export default function ScheduleGanttEditor({
         <div className="flex flex-wrap items-center gap-4">
           {/* View Controls */}
           <div className="flex items-center gap-2 bg-slate-100 rounded-lg p-1">
-            {[1, 4, 12, 36, 52].map((v) => (
+            {([1, 4, 12, 36, 52] as ViewMode[]).map((v) => (
               <button
                 key={v}
-                onClick={() => {
-                  setView(v as ViewMode);
-                  setPageStartWeek(0);
-                }}
+                type="button"
+                onClick={() => { setView(v); setPageStartWeek(0); }}
                 className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                   view === v ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
                 }`}
               >
-                {viewLabel(v as ViewMode)}
+                {viewLabel(v)}
               </button>
             ))}
           </div>
@@ -1568,53 +1723,56 @@ export default function ScheduleGanttEditor({
           {!useCustomRange && view !== 52 && (
             <div className="flex items-center gap-1">
               <button
+                type="button"
                 onClick={prevPage}
                 disabled={!canPrev()}
                 className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg disabled:opacity-40 transition-colors"
+                aria-label="Previous page"
               >
-                ?
+                ←
               </button>
-              <span className="text-sm text-slate-600 min-w-[80px] text-center">
-                Week {pageStartWeek + 1}-{Math.min(pageStartWeek + view, 52)}
+              <span className="text-sm text-slate-600 min-w-[80px] text-center tabular-nums">
+                Week {pageStartWeek + 1}–{Math.min(pageStartWeek + view, 52)}
               </span>
               <button
+                type="button"
                 onClick={nextPage}
                 disabled={!canNext()}
                 className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg disabled:opacity-40 transition-colors"
+                aria-label="Next page"
               >
-                ?
+                →
               </button>
             </div>
           )}
 
           <div className="h-6 w-px bg-slate-200" />
 
-          {/* Filters */}
+          {/* Search + Filters */}
           <div className="flex items-center gap-3">
             <div className="relative">
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search items..."
-                className="w-48 pl-9 pr-3 py-1.5 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400"
+                placeholder="Search items…"
+                aria-label="Search schedule items"
+                className="w-48 pl-9 pr-8 py-1.5 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400"
               />
               <svg
-                className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"
+                className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
+                aria-hidden="true"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               {search && (
                 <button
+                  type="button"
                   onClick={() => setSearch("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 w-5 h-5 flex items-center justify-center"
+                  aria-label="Clear search"
                 >
                   ×
                 </button>
@@ -1623,18 +1781,20 @@ export default function ScheduleGanttEditor({
 
             <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-1">
               {[
-                { key: "milestone", label: "M", state: showMilestones, set: setShowMilestones, color: "text-orange-600" },
-                { key: "task", label: "T", state: showTasks, set: setShowTasks, color: "text-blue-600" },
-                { key: "deliverable", label: "D", state: showDeliverables, set: setShowDeliverables, color: "text-purple-600" },
-              ].map(({ key, label, state, set, color }) => (
+                { key: "milestone", label: "M", state: showMilestones, set: setShowMilestones, color: "text-orange-600", title: "Toggle milestones" },
+                { key: "task",      label: "T", state: showTasks,      set: setShowTasks,      color: "text-blue-600",   title: "Toggle tasks" },
+                { key: "deliverable", label: "D", state: showDeliverables, set: setShowDeliverables, color: "text-purple-600", title: "Toggle deliverables" },
+              ].map(({ key, label, state, set, color, title }) => (
                 <button
                   key={key}
+                  type="button"
                   onClick={() => set(!state)}
                   disabled={readOnly}
+                  aria-pressed={state}
+                  title={title}
                   className={`px-2.5 py-1 text-sm font-medium rounded transition-colors ${
                     state ? `bg-slate-100 ${color}` : "text-slate-400 hover:text-slate-600"
                   } disabled:opacity-50`}
-                  title={`Toggle ${key}s`}
                 >
                   {label}
                 </button>
@@ -1646,7 +1806,7 @@ export default function ScheduleGanttEditor({
 
           {/* Date Controls */}
           <div className="flex items-center gap-2">
-            <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+            <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={useCustomRange}
@@ -1662,16 +1822,18 @@ export default function ScheduleGanttEditor({
                   type="date"
                   value={rangeFrom}
                   onChange={(e) => setRangeFrom(e.target.value)}
+                  aria-label="Range start date"
                   className="px-2 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400"
                 />
-                <span className="text-slate-400">?</span>
+                <span className="text-slate-400" aria-hidden="true">→</span>
                 <input
                   type="date"
                   value={rangeTo}
                   onChange={(e) => setRangeTo(e.target.value)}
+                  aria-label="Range end date"
                   className="px-2 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400"
                 />
-                {rangeError && <span className="text-xs text-red-600">{rangeError}</span>}
+                {rangeError && <span className="text-xs text-red-600" role="alert">{rangeError}</span>}
               </div>
             ) : (
               <div className="flex items-center gap-2">
@@ -1680,9 +1842,11 @@ export default function ScheduleGanttEditor({
                   value={safeStr(doc.anchor_date) || ""}
                   onChange={(e) => setAnchorDate(e.target.value)}
                   disabled={readOnly}
+                  aria-label="Anchor date (start of week)"
                   className="px-2 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:opacity-50"
                 />
                 <button
+                  type="button"
                   onClick={() => setAnchorDate(projectStartDate || todayISO())}
                   disabled={readOnly}
                   className="text-sm text-slate-600 hover:text-slate-900 disabled:opacity-50"
@@ -1697,6 +1861,7 @@ export default function ScheduleGanttEditor({
 
           {!readOnly && (
             <button
+              type="button"
               onClick={addPhase}
               className="px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
             >
@@ -1705,68 +1870,68 @@ export default function ScheduleGanttEditor({
           )}
         </div>
 
-        {/* Legend */}
-        <div className="flex items-center gap-4 mt-3 text-xs text-slate-500">
-          <div className="flex items-center gap-1.5">
-            <StatusDot status="on_track" />
-            <span>On Track</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <StatusDot status="at_risk" />
-            <span>At Risk</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <StatusDot status="delayed" />
-            <span>Delayed</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <StatusDot status="done" />
-            <span>Done</span>
-          </div>
+        {/* Legend + keyboard hint */}
+        <div className="flex items-center gap-4 mt-3 text-xs text-slate-500 flex-wrap">
+          {(["on_track", "at_risk", "delayed", "done"] as ItemStatus[]).map((s) => (
+            <div key={s} className="flex items-center gap-1.5">
+              <StatusDot status={s} />
+              <span>{statusColor(s).label}</span>
+            </div>
+          ))}
           <div className="h-3 w-px bg-slate-300 mx-1" />
-          <span>Drag to move • Drag right edge to resize</span>
+          <span>Drag to move · Drag right edge to resize · ←→ keys shift selected · ⌘S save · Del to delete</span>
         </div>
       </header>
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Gantt Area */}
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Timeline Header */}
-          <div className="flex-none bg-white border-b border-slate-200 overflow-hidden">
-            <div className="flex">
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+
+          {/* Single unified scroll container — header row + body share scroll */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Sticky week-header row */}
+            <div className="flex-none flex bg-white border-b border-slate-200 z-20 overflow-hidden">
+              {/* Phase column header */}
               <div
-                className="flex-none px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider border-r border-slate-200 bg-white z-20"
-                style={{ width: PHASE_COL_W }}
+                className="flex-none px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider border-r border-slate-200 bg-white"
+                style={{ width: PHASE_COL_W, minWidth: PHASE_COL_W }}
               >
                 Phase
               </div>
 
-              <div ref={scrollRef} className="flex-1 overflow-x-auto scrollbar-hide">
-                <div style={{ width: pageWeeks.length * WEEK_COL_W, minWidth: "100%" }}>
-                  <div className="flex relative">
+              {/* Week labels — scrolls together with body via bodyScrollRef sync below */}
+              <div className="flex-1 overflow-hidden relative" aria-hidden="true">
+                <div
+                  id="gantt-header-scroll"
+                  className="overflow-x-hidden"
+                  style={{ pointerEvents: "none" }}
+                >
+                  <div
+                    id="gantt-header-inner"
+                    className="flex"
+                    style={{ width: pageWeeks.length * WEEK_COL_W, minWidth: "100%" }}
+                  >
                     {todayLineX !== null && (
                       <div
-                        className="absolute top-0 bottom-0 z-0 pointer-events-none"
+                        className="absolute top-0 bottom-0 z-10 pointer-events-none"
                         style={{
                           left: todayLineX,
                           borderLeft: "2px dashed rgba(34, 197, 94, 0.8)",
-                          filter: "drop-shadow(0 0 6px rgba(34, 197, 94, 0.8))",
                         }}
                       >
-                        <div className="absolute -top-1 -translate-x-1/2 px-1.5 py-0.5 bg-emerald-500 text-white text-[10px] font-medium rounded whitespace-nowrap z-10">
+                        <div className="absolute -top-0.5 -translate-x-1/2 px-1.5 py-0.5 bg-emerald-500 text-white text-[10px] font-medium rounded whitespace-nowrap">
                           Today
                         </div>
                       </div>
                     )}
-
                     {pageWeeks.map((w) => (
                       <div
                         key={w.idx}
                         className="flex-none px-3 py-3 border-r border-slate-200 text-center"
                         style={{ width: WEEK_COL_W }}
                       >
-                        <div className="text-xs font-semibold text-slate-700">W{w.idx + 1}</div>
+                        <div className="text-xs font-semibold text-slate-700 tabular-nums">W{w.idx + 1}</div>
                         <div className="text-[10px] text-slate-400 mt-0.5">{w.label}</div>
                       </div>
                     ))}
@@ -1774,314 +1939,358 @@ export default function ScheduleGanttEditor({
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Timeline Body */}
-          <div className="flex-1 overflow-hidden flex">
-            {/* Sticky Phase Column */}
-            <div
-              className="flex-none overflow-y-auto bg-white border-r border-slate-200 z-10 scrollbar-hide"
-              style={{ width: PHASE_COL_W }}
-            >
-              <div className="divide-y divide-slate-200">
-                {(doc.phases ?? []).map((ph) => {
-                  const isCollapsed = !!collapsed[ph.id];
-                  const items = isCollapsed ? [] : itemsByPhase.get(ph.id) ?? [];
-                  const pct = compactPct(items.filter((x) => x.type !== "milestone"));
-                  const rowH = getPhaseHeight(ph);
+            {/* Body: phase column (sticky) + scrollable timeline */}
+            <div className="flex-1 flex overflow-hidden">
+              {/* Sticky Phase Column */}
+              <div
+                className="flex-none overflow-y-auto bg-white border-r border-slate-200 z-10 scrollbar-hide"
+                style={{ width: PHASE_COL_W, minWidth: PHASE_COL_W }}
+                id="phase-col-scroll"
+              >
+                <div className="divide-y divide-slate-200">
+                  {(doc.phases ?? []).map((ph) => {
+                    const isCollapsed = !!collapsed[ph.id];
+                    const items = isCollapsed ? [] : itemsByPhase.get(ph.id) ?? [];
+                    const pct = compactPct(items.filter((x) => x.type !== "milestone"));
+                    const rowH = getPhaseHeight(ph);
 
-                  return (
-                    <div
-                      key={ph.id}
-                      className="p-4 hover:bg-slate-50/50 transition-colors group box-border overflow-hidden"
-                      style={{ height: rowH, minHeight: rowH }}
-                    >
-                      <div className="flex items-start gap-2">
-                        <button
-                          onClick={() => togglePhaseCollapse(ph.id)}
-                          className="mt-1 p-1 hover:bg-slate-100 rounded transition-colors text-slate-400 hover:text-slate-600 flex-shrink-0"
-                        >
-                          {isCollapsed ? (
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                            </svg>
-                          ) : (
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          )}
-                        </button>
+                    return (
+                      <div
+                        key={ph.id}
+                        className="p-4 hover:bg-slate-50/50 transition-colors group box-border overflow-hidden"
+                        style={{ height: rowH, minHeight: rowH }}
+                      >
+                        <div className="flex items-start gap-2">
+                          <button
+                            type="button"
+                            onClick={() => togglePhaseCollapse(ph.id)}
+                            aria-expanded={!isCollapsed}
+                            aria-label={`${isCollapsed ? "Expand" : "Collapse"} phase: ${ph.name}`}
+                            className="mt-1 p-1 hover:bg-slate-100 rounded transition-colors text-slate-400 hover:text-slate-600 flex-shrink-0"
+                          >
+                            {isCollapsed ? (
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                              </svg>
+                            ) : (
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            )}
+                          </button>
 
-                        <div className="flex-1 min-w-0 overflow-hidden">
-                          <input
-                            value={ph.name}
-                            onChange={(e) => updatePhase(ph.id, { name: e.target.value })}
-                            disabled={readOnly}
-                            className="w-full font-semibold text-slate-900 bg-transparent border-0 p-0 focus:ring-0 placeholder:text-slate-400 disabled:opacity-60 truncate"
-                            placeholder="Phase name"
-                            style={{ textOverflow: "ellipsis" }}
-                          />
+                          <div className="flex-1 min-w-0 overflow-hidden">
+                            <input
+                              value={ph.name}
+                              onChange={(e) => updatePhase(ph.id, { name: e.target.value })}
+                              disabled={readOnly}
+                              aria-label={`Phase name: ${ph.name}`}
+                              className="w-full font-semibold text-slate-900 bg-transparent border-0 p-0 focus:ring-0 placeholder:text-slate-400 disabled:opacity-60 truncate"
+                              placeholder="Phase name"
+                              style={{ textOverflow: "ellipsis" }}
+                            />
 
-                          {/* Meta (kept) */}
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs text-slate-500">{items.length} items</span>
-                            {!isCollapsed && <span className="text-xs font-medium text-emerald-600">{pct}%</span>}
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-xs text-slate-500">{items.length} items</span>
+                              {!isCollapsed && (
+                                <span className="text-xs font-medium text-emerald-600">{pct}%</span>
+                              )}
+                            </div>
                           </div>
+
+                          {!readOnly && (
+                            <button
+                              type="button"
+                              onClick={() => deletePhase(ph.id)}
+                              className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-lg transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
+                              title={`Delete phase: ${ph.name}`}
+                              aria-label={`Delete phase: ${ph.name}`}
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          )}
                         </div>
 
-                        {!readOnly && (
-                          <button
-                            onClick={() => deletePhase(ph.id)}
-                            className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-lg transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
-                            title="Delete phase"
-                          >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                        {!isCollapsed && !readOnly && (
+                          <div className="mt-3">
+                            <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                              Add to phase
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <AddPillButton
+                                tone="orange"
+                                label="Milestone"
+                                icon={<div className="w-2.5 h-2.5 rotate-45 bg-orange-500 rounded-[2px]" />}
+                                onClick={() => addItem(ph.id, "milestone")}
+                                title="Add a milestone in this phase"
                               />
-                            </svg>
-                          </button>
+                              <AddPillButton
+                                tone="blue"
+                                label="Task"
+                                icon={<div className="w-2.5 h-2.5 rounded-full bg-blue-500" />}
+                                onClick={() => addItem(ph.id, "task")}
+                                title="Add a task in this phase"
+                              />
+                              <AddPillButton
+                                tone="purple"
+                                label="Deliverable"
+                                icon={<div className="w-2.5 h-2.5 rounded-sm bg-purple-500" />}
+                                onClick={() => addItem(ph.id, "deliverable")}
+                                title="Add a deliverable in this phase"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {!isCollapsed && items.length === 0 && (
+                          <p className="text-[11px] text-slate-400 mt-2 italic">No items yet</p>
+                        )}
+
+                        {!isCollapsed && (
+                          <div className="mt-3">
+                            <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                                style={{ width: `${pct}%` }}
+                                role="progressbar"
+                                aria-valuenow={pct}
+                                aria-valuemin={0}
+                                aria-valuemax={100}
+                                aria-label={`${ph.name} completion: ${pct}%`}
+                              />
+                            </div>
+                          </div>
                         )}
                       </div>
-
-                      {/* ? ACTION-FIRST: make creation obvious */}
-                      {!isCollapsed && !readOnly && (
-                        <div className="mt-3">
-                          <div className="flex items-center justify-between">
-                            <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                              Create in this phase
-                            </div>
-                            {items.length === 0 && (
-                              <div className="text-[11px] text-slate-400">
-                                No items yet
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                            <AddPillButton
-                              tone="orange"
-                              label="Milestone"
-                              icon={<div className="w-2.5 h-2.5 rotate-45 bg-orange-500 rounded-[2px]" />}
-                              onClick={() => addItem(ph.id, "milestone")}
-                              title="Add a milestone (key checkpoint) in this phase"
-                            />
-                            <AddPillButton
-                              tone="blue"
-                              label="Task"
-                              icon={<div className="w-2.5 h-2.5 rounded-full bg-blue-500" />}
-                              onClick={() => addItem(ph.id, "task")}
-                              title="Add a task (work activity) in this phase"
-                            />
-                            <AddPillButton
-                              tone="purple"
-                              label="Deliverable"
-                              icon={<div className="w-2.5 h-2.5 rounded-sm bg-purple-500" />}
-                              onClick={() => addItem(ph.id, "deliverable")}
-                              title="Add a deliverable (output) in this phase"
-                            />
-                          </div>
-
-                          <div className="mt-2 text-[11px] text-slate-400">
-                            Tip: click a bar to edit • drag to move • resize end for duration
-                          </div>
-                        </div>
-                      )}
-
-                      {!isCollapsed && (
-                        <div className="mt-3">
-                          <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-emerald-500 rounded-full transition-all"
-                              style={{ width: `${pct}%` }}
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Overall Progress */}
-              <div className="p-4 border-t border-slate-200 bg-slate-50 sticky bottom-0">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-slate-700">Overall</span>
-                  <span className="text-sm font-semibold text-slate-900">{overallProgress}%</span>
+                    );
+                  })}
                 </div>
-                <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 rounded-full transition-all"
-                    style={{ width: `${overallProgress}%` }}
-                  />
+
+                {/* Overall Progress */}
+                <div className="p-4 border-t border-slate-200 bg-slate-50 sticky bottom-0">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-slate-700">Overall</span>
+                    <span className="text-sm font-semibold text-slate-900 tabular-nums">{overallProgress}%</span>
+                  </div>
+                  <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 rounded-full transition-all duration-300"
+                      style={{ width: `${overallProgress}%` }}
+                      role="progressbar"
+                      aria-valuenow={overallProgress}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label={`Overall completion: ${overallProgress}%`}
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Scrollable Timeline Area */}
-            <div
-              ref={bodyScrollRef}
-              className="flex-1 overflow-auto relative"
-              onScroll={(e) => {
-                if (scrollRef.current) scrollRef.current.scrollLeft = e.currentTarget.scrollLeft;
-              }}
-            >
-              {todayLineX !== null && (
-                <div
-                  className="absolute top-0 z-0 pointer-events-none"
-                  style={{
-                    left: todayLineX,
-                    height: phaseMetrics.totalHeight,
-                    borderLeft: "2px dashed rgba(34, 197, 94, 0.6)",
-                    filter: "drop-shadow(0 0 8px rgba(34, 197, 94, 0.6))",
-                  }}
-                />
-              )}
-
-              {/* Dependencies canvas */}
+              {/* Scrollable Timeline Area */}
               <div
-                ref={depsCanvasRef}
-                className="absolute pointer-events-none z-20"
-                style={{
-                  left: 0,
-                  top: 0,
-                  width: pageWeeks.length * WEEK_COL_W,
-                  height: phaseMetrics.totalHeight,
-                  minWidth: "100%",
-                  minHeight: "100%",
-                  overflow: "visible",
+                ref={bodyScrollRef}
+                className="flex-1 overflow-auto relative"
+                onScroll={(e) => {
+                  // Sync phase column scroll
+                  const phaseCol = document.getElementById("phase-col-scroll");
+                  if (phaseCol) phaseCol.scrollTop = e.currentTarget.scrollTop;
+                  // Sync header
+                  const headerInner = document.getElementById("gantt-header-inner");
+                  if (headerInner) headerInner.style.transform = `translateX(-${e.currentTarget.scrollLeft}px)`;
                 }}
               >
-                {depPaths.length > 0 && (
-                  <svg
-                    className="absolute inset-0"
-                    width={pageWeeks.length * WEEK_COL_W}
-                    height={phaseMetrics.totalHeight}
+                {todayLineX !== null && (
+                  <div
+                    className="absolute top-0 z-0 pointer-events-none"
+                    style={{
+                      left: todayLineX,
+                      height: phaseMetrics.totalHeight,
+                      borderLeft: "2px dashed rgba(34, 197, 94, 0.5)",
+                    }}
                     aria-hidden="true"
-                  >
-                    {depPaths.map((p, i) => {
-                      const stroke = "rgba(100, 116, 139, 0.4)";
-                      return (
-                        <g key={`${p.predId}_${p.succId}_${i}`}>
-                          <path
-                            d={depPathD(p.a)}
-                            fill="none"
-                            stroke={stroke}
-                            strokeWidth={1.5}
-                            strokeLinejoin="round"
-                            strokeLinecap="round"
-                            strokeDasharray="4 2"
-                          />
-                          <path
-                            d={arrowForEnd(p.a)}
-                            fill="none"
-                            stroke={stroke}
-                            strokeWidth={1.5}
-                            strokeLinejoin="round"
-                            strokeLinecap="round"
-                          />
-                        </g>
-                      );
-                    })}
-                  </svg>
+                  />
                 )}
-              </div>
 
-              {/* Timeline content */}
-              <div
-                ref={timelineContentRef}
-                className="relative divide-y divide-slate-200"
-                style={{ width: pageWeeks.length * WEEK_COL_W, minWidth: "100%" }}
-              >
-                {(doc.phases ?? []).map((ph) => {
-                  const isCollapsed = !!collapsed[ph.id];
-                  const items = isCollapsed ? [] : itemsByPhase.get(ph.id) ?? [];
-                  const rowH = getPhaseHeight(ph);
-
-                  return (
-                    <div
-                      key={ph.id}
-                      className="relative bg-white hover:bg-slate-50/30 transition-colors overflow-hidden"
-                      style={{ height: rowH, minHeight: rowH }}
+                {/* Dependencies canvas */}
+                <div
+                  ref={depsCanvasRef}
+                  className="absolute pointer-events-none z-20"
+                  style={{
+                    left: 0,
+                    top: 0,
+                    width: pageWeeks.length * WEEK_COL_W,
+                    height: phaseMetrics.totalHeight,
+                    minWidth: "100%",
+                    minHeight: "100%",
+                    overflow: "visible",
+                  }}
+                  aria-hidden="true"
+                >
+                  {depPaths.length > 0 && (
+                    <svg
+                      className="absolute inset-0"
+                      width={pageWeeks.length * WEEK_COL_W}
+                      height={phaseMetrics.totalHeight}
                     >
-                      {/* Week grid */}
-                      <div className="absolute inset-0 flex">
-                        {pageWeeks.map((w, idx) => (
-                          <div
-                            key={w.idx}
-                            className="flex-none border-r border-slate-200/60 h-full"
-                            style={{
-                              width: WEEK_COL_W,
-                              backgroundColor: idx % 2 === 0 ? "transparent" : "rgba(248, 250, 252, 0.5)",
-                            }}
-                          />
-                        ))}
-                      </div>
+                      {depPaths.map((p, i) => {
+                        const stroke = "rgba(100, 116, 139, 0.45)";
+                        return (
+                          <g key={`${p.predId}_${p.succId}_${i}`}>
+                            <path
+                              d={depPathD(p.a)}
+                              fill="none"
+                              stroke={stroke}
+                              strokeWidth={1.5}
+                              strokeLinejoin="round"
+                              strokeLinecap="round"
+                              strokeDasharray="4 2"
+                            />
+                            <path
+                              d={arrowForEnd(p.a)}
+                              fill="none"
+                              stroke={stroke}
+                              strokeWidth={1.5}
+                              strokeLinejoin="round"
+                              strokeLinecap="round"
+                            />
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  )}
+                </div>
 
-                      {/* Bars */}
-                      {!isCollapsed &&
-                        items.map((it) => {
-                          const geom = computeBarGeometry(it);
-                          if (!geom || geom.width <= 0) return null;
+                {/* Timeline content */}
+                <div
+                  ref={timelineContentRef}
+                  className="relative divide-y divide-slate-200"
+                  style={{ width: pageWeeks.length * WEEK_COL_W, minWidth: "100%" }}
+                >
+                  {(doc.phases ?? []).map((ph) => {
+                    const isCollapsed = !!collapsed[ph.id];
+                    const items = isCollapsed ? [] : itemsByPhase.get(ph.id) ?? [];
+                    const rowH = getPhaseHeight(ph);
 
-                          const lane = packed.laneOf.get(it.id) ?? 0;
-                          const top = TOP_PAD + lane * (BAR_H + LANE_GAP);
-                          const colors = statusColor(it.status);
-                          const isMilestone = it.type === "milestone";
-                          const isSelected = selectedItemId === it.id;
-
-                          return (
+                    return (
+                      <div
+                        key={ph.id}
+                        className="relative bg-white hover:bg-slate-50/20 transition-colors overflow-hidden"
+                        style={{ height: rowH, minHeight: rowH }}
+                      >
+                        {/* Week grid */}
+                        <div className="absolute inset-0 flex" aria-hidden="true">
+                          {pageWeeks.map((w, idx) => (
                             <div
-                              key={it.id}
-                              ref={(el) => registerBarNode(it.id, el)}
-                              className={`
-                                absolute rounded-lg border-2 shadow-sm transition-all
-                                ${isSelected ? `ring-2 ${colors.ring} ring-offset-2` : ""}
-                                ${colors.border} bg-white hover:shadow-md
-                              `}
+                              key={w.idx}
+                              className="flex-none border-r border-slate-200/60 h-full"
                               style={{
-                                left: geom.left,
-                                width: geom.width,
-                                top,
-                                height: BAR_H,
-                                cursor: readOnly ? "pointer" : "grab",
-                                zIndex: isSelected ? 15 : 5,
+                                width: WEEK_COL_W,
+                                backgroundColor: idx % 2 === 0 ? "transparent" : "rgba(248,250,252,0.4)",
                               }}
-                              onPointerDown={(e) => beginDrag(e, it.id, "move")}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (dragRef.current?.moved) return;
-                                setSelectedItemId(it.id);
-                                setPanelMode("edit");
-                              }}
-                            >
-                              <div className="h-full flex items-center px-2 gap-2 overflow-hidden">
-                                <TypeIcon type={it.type} />
-                                <span className="text-xs font-medium truncate text-slate-500">
-                                  {it.name || "(untitled)"}
-                                </span>
+                            />
+                          ))}
+                        </div>
 
-                                {!readOnly && !isMilestone && (
-                                  <div
-                                    className="ml-auto w-3 h-full cursor-ew-resize hover:bg-slate-100 rounded-r flex items-center justify-center"
-                                    onPointerDown={(e) => {
-                                      e.stopPropagation();
-                                      beginDrag(e, it.id, "resize_end");
-                                    }}
-                                  >
-                                    <div className="w-0.5 h-3 bg-slate-300 rounded-full" />
-                                  </div>
-                                )}
+                        {/* Empty phase prompt */}
+                        {!isCollapsed && items.length === 0 && (
+                          <div
+                            className="absolute inset-x-4 rounded-lg border-2 border-dashed border-slate-200 flex items-center justify-center pointer-events-none"
+                            style={{ top: TOP_PAD - 8, height: BAR_H + 16 }}
+                            aria-hidden="true"
+                          >
+                            <span className="text-xs text-slate-400">Add items using the buttons on the left</span>
+                          </div>
+                        )}
+
+                        {/* Bars */}
+                        {!isCollapsed &&
+                          items.map((it) => {
+                            const geom = barGeometryMap.get(it.id);
+                            if (!geom || geom.width <= 0) return null;
+
+                            const lane = packed.laneOf.get(it.id) ?? 0;
+                            const top = TOP_PAD + lane * (BAR_H + LANE_GAP);
+                            const colors = statusColor(it.status);
+                            const isMilestone = it.type === "milestone";
+                            const isSelected = selectedItemId === it.id;
+
+                            return (
+                              <div
+                                key={it.id}
+                                ref={(el) => registerBarNode(it.id, el)}
+                                role="button"
+                                tabIndex={0}
+                                aria-label={`${it.name}, ${it.type}, ${colors.label}, ${it.start}${it.end && it.type !== "milestone" ? ` to ${it.end}` : ""}`}
+                                aria-selected={isSelected}
+                                className={`
+                                  absolute rounded-md border shadow-sm transition-shadow
+                                  hover:shadow-md focus:outline-none focus:ring-2 focus:ring-offset-1
+                                  ${colors.fill} ${colors.border}
+                                  ${isSelected ? `ring-2 ${colors.ring} ring-offset-1` : ""}
+                                  focus:${colors.ring}
+                                `}
+                                style={{
+                                  left: geom.left,
+                                  width: geom.width,
+                                  top,
+                                  height: BAR_H,
+                                  cursor: readOnly ? "pointer" : "grab",
+                                  zIndex: isSelected ? 15 : 5,
+                                }}
+                                onPointerDown={(e) => beginDrag(e, it.id, "move")}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (dragRef.current?.moved) return;
+                                  setSelectedItemId(it.id);
+                                  setPanelMode("edit");
+                                  setEndDateError("");
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    setSelectedItemId(it.id);
+                                    setPanelMode("edit");
+                                  }
+                                  if (e.key === "Delete" || e.key === "Backspace") {
+                                    e.preventDefault();
+                                    deleteItem(it.id);
+                                  }
+                                  if (e.key === "ArrowLeft") { e.preventDefault(); shiftItemByWeeks(it.id, -1); }
+                                  if (e.key === "ArrowRight") { e.preventDefault(); shiftItemByWeeks(it.id, 1); }
+                                }}
+                              >
+                                {/* Left accent stripe */}
+                                <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-md ${colors.accent}`} />
+
+                                <div className="h-full flex items-center pl-3 pr-2 gap-2 overflow-hidden">
+                                  <TypeIcon type={it.type} />
+                                  <span className="text-xs font-medium truncate text-slate-700 leading-none">
+                                    {it.name || "(untitled)"}
+                                  </span>
+
+                                  {!readOnly && !isMilestone && (
+                                    <div
+                                      className="ml-auto w-3 h-full cursor-ew-resize hover:bg-black/5 rounded-r flex items-center justify-center flex-shrink-0"
+                                      aria-label="Resize end date"
+                                      onPointerDown={(e) => {
+                                        e.stopPropagation();
+                                        beginDrag(e, it.id, "resize_end");
+                                      }}
+                                    >
+                                      <div className="w-0.5 h-3 bg-slate-400/60 rounded-full" />
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
-                    </div>
-                  );
-                })}
+                            );
+                          })}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
@@ -2089,20 +2298,23 @@ export default function ScheduleGanttEditor({
 
         {/* Side Panel */}
         {panelMode !== "closed" && selectedItem && (
-          <div className="w-96 bg-white border-l border-slate-200 flex flex-col shadow-xl flex-shrink-0">
+          <div className="w-96 bg-white border-l border-slate-200 flex flex-col shadow-xl flex-shrink-0 z-30">
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
               <div className="flex items-center gap-2">
                 <TypeIcon type={selectedItem.type} />
                 <span className="font-semibold text-slate-900">Edit Item</span>
               </div>
               <button
+                type="button"
                 onClick={() => {
                   setPanelMode("closed");
                   setSelectedItemId(null);
+                  setEndDateError("");
                 }}
+                aria-label="Close edit panel"
                 className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
               >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
@@ -2112,24 +2324,30 @@ export default function ScheduleGanttEditor({
               {!readOnly && (
                 <div className="flex flex-wrap gap-2">
                   <button
+                    type="button"
                     onClick={() => updateItem(selectedItem.id, { status: "done" })}
                     className="px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
                   >
                     Mark Done
                   </button>
                   <button
+                    type="button"
                     onClick={() => shiftItemByWeeks(selectedItem.id, -1)}
                     className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                    title="Shift 1 week earlier (←)"
                   >
-                    ? 1 Week
+                    ← 1 Week
                   </button>
                   <button
+                    type="button"
                     onClick={() => shiftItemByWeeks(selectedItem.id, 1)}
                     className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                    title="Shift 1 week later (→)"
                   >
-                    1 Week ?
+                    1 Week →
                   </button>
                   <button
+                    type="button"
                     onClick={() => duplicateItem(selectedItem.id)}
                     className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
                   >
@@ -2140,10 +2358,11 @@ export default function ScheduleGanttEditor({
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="item-name" className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
                     Name
                   </label>
                   <input
+                    id="item-name"
                     value={selectedItem.name}
                     onChange={(e) => updateItem(selectedItem.id, { name: e.target.value })}
                     disabled={readOnly}
@@ -2153,37 +2372,54 @@ export default function ScheduleGanttEditor({
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
+                    <label htmlFor="item-start" className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
                       Start
                     </label>
                     <input
+                      id="item-start"
                       type="date"
                       value={selectedItem.start || ""}
-                      onChange={(e) => updateItem(selectedItem.id, { start: e.target.value })}
+                      onChange={(e) => {
+                        setEndDateError("");
+                        updateItem(selectedItem.id, { start: e.target.value });
+                      }}
                       disabled={readOnly}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:opacity-60"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
+                    <label htmlFor="item-end" className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
                       End
                     </label>
                     <input
+                      id="item-end"
                       type="date"
                       value={selectedItem.type === "milestone" ? "" : selectedItem.end || ""}
                       onChange={(e) => updateItem(selectedItem.id, { end: e.target.value })}
                       disabled={readOnly || selectedItem.type === "milestone"}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:opacity-60"
+                      aria-invalid={!!endDateError}
+                      aria-describedby={endDateError ? "end-date-error" : undefined}
+                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 disabled:opacity-60 ${
+                        endDateError
+                          ? "border-red-400 focus:ring-red-400 bg-red-50"
+                          : "border-slate-200 focus:ring-slate-400"
+                      }`}
                     />
+                    {endDateError && (
+                      <p id="end-date-error" className="mt-1 text-xs text-red-600" role="alert">
+                        {endDateError}
+                      </p>
+                    )}
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
+                    <label htmlFor="item-type" className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
                       Type
                     </label>
                     <select
+                      id="item-type"
                       value={selectedItem.type}
                       onChange={(e) => updateItem(selectedItem.id, { type: e.target.value as ItemType })}
                       disabled={readOnly}
@@ -2195,10 +2431,11 @@ export default function ScheduleGanttEditor({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
+                    <label htmlFor="item-status" className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
                       Status
                     </label>
                     <select
+                      id="item-status"
                       value={selectedItem.status}
                       onChange={(e) => updateItem(selectedItem.id, { status: e.target.value as ItemStatus })}
                       disabled={readOnly}
@@ -2212,6 +2449,14 @@ export default function ScheduleGanttEditor({
                   </div>
                 </div>
 
+                {/* Status badge preview */}
+                <div className="flex items-center gap-2">
+                  <StatusDot status={selectedItem.status} size="md" />
+                  <span className={`text-sm font-medium ${statusColor(selectedItem.status).text}`}>
+                    {statusColor(selectedItem.status).label}
+                  </span>
+                </div>
+
                 {/* Dependencies */}
                 <div>
                   <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
@@ -2223,24 +2468,32 @@ export default function ScheduleGanttEditor({
                       value={depQuery}
                       onChange={(e) => setDepQuery(e.target.value)}
                       disabled={readOnly}
-                      placeholder="Search to add..."
+                      placeholder="Search to add…"
+                      aria-label="Search for dependency"
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:opacity-60"
                     />
                     {depQuery && !readOnly && (
-                      <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                      <div
+                        className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto"
+                        role="listbox"
+                        aria-label="Dependency candidates"
+                      >
                         {depCandidates.length === 0 ? (
                           <div className="px-3 py-2 text-sm text-slate-500">No matches</div>
                         ) : (
                           depCandidates.map((it) => (
                             <button
                               key={it.id}
+                              type="button"
+                              role="option"
+                              aria-selected={false}
                               onClick={() => addDependencyById(it.id)}
                               className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-0"
                             >
                               <div className="font-medium text-slate-900">{it.name || "(untitled)"}</div>
                               <div className="text-xs text-slate-500">
-                                {it.type} • {it.start}
-                                {it.type !== "milestone" && it.end ? ` ? ${it.end}` : ""}
+                                {it.type} · {it.start}
+                                {it.type !== "milestone" && it.end ? ` → ${it.end}` : ""}
                               </div>
                             </button>
                           ))
@@ -2249,10 +2502,10 @@ export default function ScheduleGanttEditor({
                     )}
                   </div>
 
-                  <div className="flex flex-wrap gap-2 mt-2">
+                  <div className="flex flex-wrap gap-2 mt-2" aria-label="Current dependencies">
                     {(selectedItem.dependencies ?? []).map((id) => {
                       const it = itemById.get(id);
-                      const label = it ? it.name || "(untitled)" : `Unknown (${id.slice(0, 6)}...)`;
+                      const label = it ? it.name || "(untitled)" : `Unknown (${id.slice(0, 6)}…)`;
                       return (
                         <div
                           key={id}
@@ -2261,12 +2514,14 @@ export default function ScheduleGanttEditor({
                           <span className="truncate max-w-[120px]">{label}</span>
                           {!readOnly && (
                             <button
+                              type="button"
                               onClick={() => {
                                 const next = (selectedItem.dependencies ?? []).filter((x) => x !== id);
                                 updateItem(selectedItem.id, { dependencies: next });
                                 setTimeout(() => recomputeDependencyPaths(), 0);
                               }}
-                              className="hover:text-red-600"
+                              aria-label={`Remove dependency: ${label}`}
+                              className="hover:text-red-600 transition-colors"
                             >
                               ×
                             </button>
@@ -2279,10 +2534,11 @@ export default function ScheduleGanttEditor({
 
                 {/* Notes */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="item-notes" className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
                     Notes
                   </label>
                   <textarea
+                    id="item-notes"
                     value={selectedItem.notes || ""}
                     onChange={(e) => updateItem(selectedItem.id, { notes: e.target.value })}
                     disabled={readOnly}
@@ -2296,16 +2552,13 @@ export default function ScheduleGanttEditor({
             {!readOnly && (
               <div className="p-4 border-t border-slate-200 bg-slate-50">
                 <button
+                  type="button"
                   onClick={() => deleteItem(selectedItem.id)}
                   className="w-full px-4 py-2 text-sm font-medium text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition-colors flex items-center justify-center gap-2"
+                  aria-label={`Delete item: ${selectedItem.name}`}
                 >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                    />
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                   </svg>
                   Delete Item
                 </button>
