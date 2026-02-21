@@ -1,17 +1,24 @@
+// src/app/api/raid/[id]/route.ts
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/* ---------------- response helpers ---------------- */
+
+function jsonOk(data: any, status = 200, headers?: HeadersInit) {
+  return NextResponse.json({ ok: true, ...data }, { status, headers });
+}
+function jsonErr(error: string, status = 400, meta?: any) {
+  return NextResponse.json({ ok: false, error, meta }, { status });
+}
 
 /* ---------------- utils ---------------- */
 
-function safeParam(x: unknown): string {
-  return typeof x === "string" ? x : "";
-}
-
-function safeStr(x: unknown) {
+function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
@@ -21,191 +28,299 @@ function looksLikeUuid(s: string) {
   );
 }
 
-/**
- * Normalize incoming project identifier:
- * - decodeURIComponent
- * - trim
- * - allow "P-100011" -> "100011"
- */
-function normalizeProjectIdentifier(input: string) {
-  let v = safeStr(input).trim();
-  try {
-    v = decodeURIComponent(v);
-  } catch {
-    // ignore
-  }
-  v = v.trim();
-  if (/^p-\s*/i.test(v)) v = v.replace(/^p-\s*/i, "").trim();
-  return v;
+function isIsoDateOnly(s: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
-/**
- * Resolve a project identifier (UUID or project_code/code) -> UUID
- * Tries:
- *  - UUID
- *  - projects.project_code
- *  - projects.code (fallback)
- */
-async function resolveProjectUuid(supabase: any, identifier: string): Promise<string | null> {
-  const id = normalizeProjectIdentifier(identifier);
-  if (!id) return null;
-
-  if (looksLikeUuid(id)) return id;
-
-  // Try project_code first
-  {
-    const { data, error } = await supabase
-      .from("projects")
-      .select("id")
-      .eq("project_code", id)
-      .maybeSingle();
-
-    if (error) {
-      // don't throw yet; could be missing column or RLS shape; try fallback below
-    } else {
-      const uuid = safeStr(data?.id).trim();
-      if (uuid) return uuid;
-    }
-  }
-
-  // Fallback: some schemas use "code"
-  {
-    const { data, error } = await supabase
-      .from("projects")
-      .select("id")
-      .eq("code", id)
-      .maybeSingle();
-
-    if (error) {
-      // final attempt failed
-      return null;
-    }
-    const uuid = safeStr(data?.id).trim();
-    return uuid || null;
-  }
+function clampInt0to100(v: any): number | null {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(100, Math.round(n)));
 }
 
-async function requireAuthAndMembership(supabase: any, projectUuid: string) {
+function titleCaseLikeDbEnum(s: string) {
+  return s.trim();
+}
+
+/* ---------------- domain enums (match DB constraints) ---------------- */
+
+const RAID_TYPES = new Set(["Risk", "Assumption", "Issue", "Dependency"]);
+const RAID_STATUSES = new Set(["Open", "In Progress", "Mitigated", "Closed", "Invalid"]);
+const RAID_PRIORITIES = new Set(["Low", "Medium", "High", "Critical"]);
+
+function normalizeRaidType(raw: any): string {
+  const s = safeStr(raw).trim();
+  if (!s) return "";
+  const lc = s.toLowerCase();
+  if (lc === "risk") return "Risk";
+  if (lc === "assumption") return "Assumption";
+  if (lc === "issue") return "Issue";
+  if (lc === "dependency" || lc === "dep") return "Dependency";
+  return titleCaseLikeDbEnum(s);
+}
+
+function normalizeRaidStatus(raw: any): string {
+  const s = safeStr(raw).trim();
+  if (!s) return "Open";
+  const lc = s.toLowerCase().replace(/_/g, " ");
+  if (lc === "open") return "Open";
+  if (lc === "in progress" || lc === "inprogress") return "In Progress";
+  if (lc === "mitigated") return "Mitigated";
+  if (lc === "closed") return "Closed";
+  if (lc === "invalid") return "Invalid";
+  return titleCaseLikeDbEnum(s);
+}
+
+function normalizeRaidPriority(raw: any): string | null {
+  const s = safeStr(raw).trim();
+  if (!s) return null;
+  const lc = s.toLowerCase();
+  if (lc === "low") return "Low";
+  if (lc === "medium" || lc === "med") return "Medium";
+  if (lc === "high") return "High";
+  if (lc === "critical" || lc === "crit") return "Critical";
+  return titleCaseLikeDbEnum(s);
+}
+
+function normalizeRelatedRefs(raw: any): any[] {
+  if (Array.isArray(raw)) return raw;
+  if (raw == null) return [];
+  if (typeof raw === "object") return [raw];
+  return [];
+}
+
+function expectedUpdatedAtFrom(req: NextRequest, body: any) {
+  const hdr = safeStr(req.headers.get("if-match-updated-at")).trim();
+  const b = safeStr(body?.expected_updated_at).trim();
+  return hdr || b || "";
+}
+
+/* ---------------- access guard ---------------- */
+
+async function requireProjectMember(supabase: any, projectId: string) {
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr) throw new Error(authErr.message);
-  if (!auth?.user) throw new Error("Unauthorized");
+  if (!auth?.user) return { ok: false as const, status: 401, error: "Unauthorized" };
 
   const { data: mem, error: memErr } = await supabase
     .from("project_members")
-    .select("role, is_active, removed_at")
-    .eq("project_id", projectUuid)
+    .select("role,is_active")
+    .eq("project_id", projectId)
     .eq("user_id", auth.user.id)
     .maybeSingle();
 
-  if (memErr) throw new Error(memErr.message);
-  if (!mem || mem.is_active === false || (mem as any).removed_at != null) throw new Error("Forbidden");
+  if (memErr) return { ok: false as const, status: 400, error: memErr.message };
+  if (!mem?.is_active) return { ok: false as const, status: 403, error: "Forbidden" };
 
-  return { userId: auth.user.id, role: String((mem as any).role ?? "viewer") };
+  return { ok: true as const, userId: auth.user.id, role: safeStr(mem.role) };
 }
 
-function parseBool(v: string | null): boolean | null {
-  if (v == null) return null;
-  const s = v.trim().toLowerCase();
-  if (["1", "true", "yes", "y", "on"].includes(s)) return true;
-  if (["0", "false", "no", "n", "off"].includes(s)) return false;
-  return null;
+function canWrite(role: string) {
+  const r = safeStr(role).toLowerCase();
+  return r === "owner" || r === "editor";
 }
 
-/**
- * Map common incoming types to your canon artifact types.
- */
-function canonArtifactType(typeParam: string) {
-  const t = safeStr(typeParam).trim().toLowerCase();
-  if (!t) return "";
+/* ---------------- shared select ---------------- */
 
-  if (t === "wbs" || t === "work_breakdown_structure" || t === "work breakdown structure") return "WBS";
-  if (t === "schedule" || t === "roadmap" || t === "gantt" || t === "schedule_roadmap") return "SCHEDULE";
-  if (t === "raid" || t === "raid_log" || t === "raid log" || t === "raid_register") return "RAID";
+const RAID_SELECT =
+  "id,project_id,item_no,public_id,type,title,description,owner_label,priority,probability,severity,impact,ai_rollup,owner_id,status,response_plan,next_steps,notes,related_refs,created_at,updated_at,due_date,ai_dirty";
 
-  if (t === "project_charter" || t === "project charter" || t === "charter" || t === "pid") return "PROJECT_CHARTER";
-  if (t === "stakeholder_register" || t === "stakeholder register" || t === "stakeholders") return "STAKEHOLDER_REGISTER";
-  if (t === "change_requests" || t === "change requests" || t === "change_request" || t === "change request") return "CHANGE_REQUESTS";
-  if (t === "lessons_learned" || t === "lessons learned" || t === "lessons") return "LESSONS_LEARNED";
-  if (t === "project_closure_report" || t === "project closure report" || t === "closure report") return "PROJECT_CLOSURE_REPORT";
+/* ========================================================================== */
+/* GET /api/raid/[id]                                                         */
+/* ========================================================================== */
 
-  return t.toUpperCase().replace(/\s+/g, "_");
-}
-
-/* ---------------- handler ---------------- */
-
-export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
+    const raidId = safeStr(id).trim();
 
-    const projectIdentifier = normalizeProjectIdentifier(safeParam(id));
-    if (!projectIdentifier || projectIdentifier === "undefined") {
-      return NextResponse.json({ ok: false, error: "Missing project id" }, { status: 400 });
-    }
+    if (!looksLikeUuid(raidId)) return jsonErr("Invalid or missing id", 400);
 
     const supabase = await createClient();
 
-    // ✅ Resolve UUID from UUID OR project_code OR P-XXXX
-    const projectUuid = await resolveProjectUuid(supabase, projectIdentifier);
-    if (!projectUuid) {
-      return NextResponse.json(
-        { ok: false, error: "Project not found", meta: { projectIdentifier } },
-        { status: 404 }
-      );
-    }
+    const { data: item, error } = await supabase
+      .from("raid_items")
+      .select(RAID_SELECT)
+      .eq("id", raidId)
+      .maybeSingle();
 
-    await requireAuthAndMembership(supabase, projectUuid);
+    if (error) return jsonErr(error.message, 400);
+    if (!item) return jsonErr("Not found", 404);
 
-    // Query params (defaults: type=wbs, is_current=true)
-    const url = new URL(req.url);
-    const typeParamRaw = safeParam(url.searchParams.get("type"));
-    const currentParam = parseBool(url.searchParams.get("is_current"));
+    const access = await requireProjectMember(supabase, safeStr(item.project_id));
+    if (!access.ok) return jsonErr(access.error, access.status);
 
-    const typeCanon = canonArtifactType(typeParamRaw || "wbs");
-    const isCurrent = currentParam ?? true;
-
-    // ✅ Type matching: try canon + raw variants so casing doesn't break results
-    const raw = safeStr(typeParamRaw).trim();
-    const typeCandidates = Array.from(
-      new Set(
-        [
-          typeCanon,
-          raw,
-          raw.toUpperCase(),
-          raw.toLowerCase(),
-        ]
-          .map((x) => safeStr(x).trim())
-          .filter(Boolean)
-      )
-    );
-
-    // ✅ IMPORTANT: Do not select columns that may not exist (status was breaking you)
-    // Use approval_status / is_locked if you have them.
-    let q = supabase
-      .from("artifacts")
-      .select("id, project_id, title, type, is_current, approval_status, is_locked, created_at, updated_at")
-      .eq("project_id", projectUuid)
-      .eq("is_current", isCurrent)
-      .order("updated_at", { ascending: false });
-
-    if (typeCandidates.length === 1) {
-      q = q.eq("type", typeCandidates[0]);
-    } else {
-      q = q.in("type", typeCandidates);
-    }
-
-    const { data, error } = await q;
-    if (error) throw new Error(error.message);
-
-    return NextResponse.json({
-      ok: true,
-      projectIdentifier, // could be human id
-      projectId: projectUuid, // UUID (DB truth)
-      filters: { type: typeCanon, is_current: isCurrent, typeCandidates },
-      artifacts: data ?? [],
-    });
+    return jsonOk({ item });
   } catch (e: any) {
-    const msg = String(e?.message ?? "Unknown error");
-    const status = msg === "Unauthorized" ? 401 : msg === "Forbidden" ? 403 : 500;
-    return NextResponse.json({ ok: false, error: msg }, { status });
+    return jsonErr("Failed to load RAID item", 500, { message: safeStr(e?.message) });
+  }
+}
+
+/* ========================================================================== */
+/* PATCH /api/raid/[id]   body: { ...fields..., expected_updated_at? }         */
+/* ========================================================================== */
+
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await ctx.params;
+    const raidId = safeStr(id).trim();
+
+    if (!looksLikeUuid(raidId)) return jsonErr("Invalid or missing id", 400);
+
+    const supabase = await createClient();
+
+    const body = await req.json().catch(() => null);
+    if (!body) return jsonErr("Invalid JSON", 400);
+
+    // Load current row (for membership + stale check)
+    const { data: current, error: curErr } = await supabase
+      .from("raid_items")
+      .select(RAID_SELECT)
+      .eq("id", raidId)
+      .maybeSingle();
+
+    if (curErr) return jsonErr(curErr.message, 400);
+    if (!current) return jsonErr("Not found", 404);
+
+    const access = await requireProjectMember(supabase, safeStr(current.project_id));
+    if (!access.ok) return jsonErr(access.error, access.status);
+    if (!canWrite(access.role)) return jsonErr("Forbidden", 403);
+
+    // Concurrency
+    const expected = expectedUpdatedAtFrom(req, body);
+    const currentUpdatedAt = safeStr((current as any).updated_at).trim();
+    if (expected && currentUpdatedAt && expected !== currentUpdatedAt) {
+      return jsonErr("Conflict", 409, {
+        stale: true,
+        expected_updated_at: expected,
+        current_updated_at: currentUpdatedAt,
+      });
+    }
+
+    // Build a strict patch (only allowed fields)
+    const patch: any = {};
+
+    if ("type" in body) {
+      const t = normalizeRaidType(body.type);
+      if (!t) return jsonErr("type required", 400);
+      if (!RAID_TYPES.has(t)) return jsonErr(`Invalid type: ${t}`, 400, { allowed: Array.from(RAID_TYPES) });
+      patch.type = t;
+    }
+
+    if ("title" in body) patch.title = safeStr(body.title).trim() || null;
+
+    if ("description" in body) {
+      const d = safeStr(body.description).trim();
+      if (!d) return jsonErr("description required", 400);
+      patch.description = d;
+    }
+
+    if ("owner_label" in body) {
+      const o = safeStr(body.owner_label).trim();
+      if (!o) return jsonErr("owner_label required (Owner)", 400);
+      patch.owner_label = o;
+    }
+
+    if ("status" in body) {
+      const st = normalizeRaidStatus(body.status);
+      if (!RAID_STATUSES.has(st))
+        return jsonErr(`Invalid status: ${st}`, 400, { allowed: Array.from(RAID_STATUSES) });
+      patch.status = st;
+    }
+
+    if ("priority" in body) {
+      const pr = normalizeRaidPriority(body.priority);
+      if (pr && !RAID_PRIORITIES.has(pr))
+        return jsonErr(`Invalid priority: ${pr}`, 400, { allowed: Array.from(RAID_PRIORITIES) });
+      patch.priority = pr || null;
+    }
+
+    if ("probability" in body) patch.probability = clampInt0to100(body.probability);
+    if ("severity" in body) patch.severity = clampInt0to100(body.severity);
+
+    if ("impact" in body) patch.impact = safeStr(body.impact).trim() || null;
+
+    if ("owner_id" in body) {
+      const oid = safeStr(body.owner_id).trim();
+      patch.owner_id = looksLikeUuid(oid) ? oid : null;
+    }
+
+    if ("response_plan" in body) patch.response_plan = safeStr(body.response_plan).trim() || null;
+    if ("next_steps" in body) patch.next_steps = safeStr(body.next_steps).trim() || null;
+    if ("notes" in body) patch.notes = safeStr(body.notes).trim() || null;
+    if ("ai_rollup" in body) patch.ai_rollup = safeStr(body.ai_rollup).trim() || null;
+
+    if ("related_refs" in body) patch.related_refs = normalizeRelatedRefs(body.related_refs);
+
+    if ("due_date" in body) {
+      const dueRaw = safeStr(body.due_date).trim();
+      const due_date = dueRaw ? (isIsoDateOnly(dueRaw) ? dueRaw : null) : null;
+      if (dueRaw && !due_date) return jsonErr("due_date must be YYYY-MM-DD", 400);
+      patch.due_date = due_date;
+    }
+
+    // Nothing to update
+    if (!Object.keys(patch).length) return jsonOk({ item: current });
+
+    const { data: updated, error: upErr } = await supabase
+      .from("raid_items")
+      .update(patch)
+      .eq("id", raidId)
+      .select(RAID_SELECT)
+      .single();
+
+    if (upErr) return jsonErr(upErr.message, 400);
+
+    return jsonOk({ item: updated });
+  } catch (e: any) {
+    return jsonErr("Failed to update RAID item", 500, { message: safeStr(e?.message) });
+  }
+}
+
+/* ========================================================================== */
+/* DELETE /api/raid/[id]   (uses header/body expected_updated_at)              */
+/* ========================================================================== */
+
+export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await ctx.params;
+    const raidId = safeStr(id).trim();
+
+    if (!looksLikeUuid(raidId)) return jsonErr("Invalid or missing id", 400);
+
+    const supabase = await createClient();
+
+    // Some clients send JSON body on DELETE, some don’t.
+    const body = await req.json().catch(() => ({}));
+    const expected = expectedUpdatedAtFrom(req, body);
+
+    const { data: current, error: curErr } = await supabase
+      .from("raid_items")
+      .select("id,project_id,updated_at")
+      .eq("id", raidId)
+      .maybeSingle();
+
+    if (curErr) return jsonErr(curErr.message, 400);
+    if (!current) return NextResponse.json({ ok: true }, { status: 204 });
+
+    const access = await requireProjectMember(supabase, safeStr((current as any).project_id));
+    if (!access.ok) return jsonErr(access.error, access.status);
+    if (!canWrite(access.role)) return jsonErr("Forbidden", 403);
+
+    const currentUpdatedAt = safeStr((current as any).updated_at).trim();
+    if (expected && currentUpdatedAt && expected !== currentUpdatedAt) {
+      return jsonErr("Conflict", 409, {
+        stale: true,
+        expected_updated_at: expected,
+        current_updated_at: currentUpdatedAt,
+      });
+    }
+
+    const { error: delErr } = await supabase.from("raid_items").delete().eq("id", raidId);
+    if (delErr) return jsonErr(delErr.message, 400);
+
+    return NextResponse.json({ ok: true }, { status: 204 });
+  } catch (e: any) {
+    return jsonErr("Failed to delete RAID item", 500, { message: safeStr(e?.message) });
   }
 }

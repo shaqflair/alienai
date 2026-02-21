@@ -4,6 +4,15 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { 
+  ChevronLeft, 
+  ChevronRight, 
+  LayoutGrid, 
+  Plus, 
+  FileText,
+  FolderOpen,
+  CheckCircle2
+} from "lucide-react";
 
 /* =======================
    Types
@@ -95,7 +104,7 @@ function canonicalKeyUpper(it: Pick<SidebarItem, "ui_kind" | "key">) {
 }
 
 /**
- * ✅ Align sidebar grouping with your Board’s sections:
+ * ✅ Align sidebar grouping with your Board's sections:
  * - Initiating + Planning => Plan
  * - Monitoring & Controlling => Control
  * - Closing => Close
@@ -111,12 +120,11 @@ function groupForKey(keyUpper: string) {
       "SCHEDULE",
       "DESIGN",
       "REQUIREMENTS",
-      "WEEKLY_REPORT", // treat as planning/PM cadence
+      "WEEKLY_REPORT",
     ].includes(k)
   )
     return "Plan";
 
-  // ✅ Fix: canonical is CHANGE (legacy may be CHANGE_REQUESTS)
   if (["RAID", "CHANGE", "CHANGE_REQUESTS"].includes(k)) return "Control";
 
   if (["LESSONS_LEARNED", "PROJECT_CLOSURE_REPORT"].includes(k)) return "Close";
@@ -147,7 +155,7 @@ function normalizeProjectHref(href: string, projectId: string, projectRouteId: s
 export default function ArtifactsSidebarClient({
   items,
   role,
-  projectId, // UUID
+  projectId,
   projectHumanId,
   projectName,
   projectCode,
@@ -164,14 +172,12 @@ export default function ArtifactsSidebarClient({
   const newTypeRaw = search.get("type");
 
   const [collapsed, setCollapsed] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  // Storage key can be human or uuid – used only for localStorage
   const projectKey = useMemo(() => pickProjectKey(projectHumanId, projectId), [projectHumanId, projectId]);
-
-  // ✅ Route id MUST be human id (or code) for URLs
   const projectRouteId = useMemo(() => {
     const h = String(projectHumanId ?? "").trim();
     const c = String(projectCode ?? "").trim();
@@ -204,7 +210,6 @@ export default function ArtifactsSidebarClient({
     } catch {}
   }, [mounted, pathname, storageKey]);
 
-  // ✅ Board links (Create / Draft / Submitted)
   function boardHref(view: "create" | "draft" | "submitted") {
     return `/projects/${projectRouteId}/board?view=${view}`;
   }
@@ -212,21 +217,16 @@ export default function ArtifactsSidebarClient({
   const enhanced = useMemo(() => {
     const urlArtifactId = safeArtifactIdFromPath(pathname);
     const activeId = urlArtifactId ?? (mounted ? storedArtifactId : null);
-
     const newType = safeUpper(newTypeRaw);
 
     return items.map((it) => {
-      // ✅ Canonical key to compare against URL param + grouping
       const itKey = canonicalKeyUpper(it);
-
       const active =
         (it.current?.id && activeId && it.current.id === activeId) ||
         (!it.current && String(pathname ?? "").includes("/artifacts/new") && newType === itKey);
 
       const status = normStatus(it.current?.approval_status);
       const b = badge(status);
-
-      // ✅ ensure href uses human route id even if server sends UUID route
       const hrefFixed = normalizeProjectHref(it.href, projectId, projectRouteId);
 
       return {
@@ -240,7 +240,6 @@ export default function ArtifactsSidebarClient({
     });
   }, [items, pathname, newTypeRaw, storedArtifactId, mounted, projectId, projectRouteId]);
 
-  // ✅ Counts for the Board quick filters
   const boardCounts = useMemo(() => {
     let create = 0;
     let draft = 0;
@@ -263,7 +262,6 @@ export default function ArtifactsSidebarClient({
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return enhanced;
-
     return enhanced.filter((it) => {
       const a = String(it.label ?? "").toLowerCase();
       return a.includes(q);
@@ -449,24 +447,18 @@ export default function ArtifactsSidebarClient({
   function Row({ it, idx }: { it: any; idx: number }) {
     const openUrl = it.current?.id ? `/projects/${projectRouteId}/artifacts/${it.current!.id}` : it.href;
 
-    const rightStatus = it.current ? (
-      <span className={it.badge.cls}>{it.badge.text}</span>
-    ) : it.canCreate ? (
-      <span className="inline-flex items-center rounded-full border border-neutral-200 bg-white px-2 py-0.5 text-[11px] font-medium text-neutral-700">
-        Create
-      </span>
-    ) : (
-      <span className="inline-flex items-center rounded-full border border-neutral-200 bg-white px-2 py-0.5 text-[11px] font-medium text-neutral-400">
-        View
-      </span>
-    );
-
-    const wrapClass = ["rounded-md group", it.active ? "bg-neutral-100 ring-1 ring-neutral-200" : ""]
-      .filter(Boolean)
-      .join(" ");
-
     return (
-      <div className={wrapClass}>
+      <div className={[
+        "relative rounded-xl transition-all duration-200",
+        it.active 
+          ? "bg-indigo-50 border border-indigo-200 shadow-sm" 
+          : "bg-white border border-transparent hover:border-neutral-200 hover:bg-neutral-50/80"
+      ].join(" ")}>
+        {/* Current Indicator - Left Border */}
+        {it.active && !collapsed && (
+          <div className="absolute -left-px top-1/2 -translate-y-1/2 w-1 h-8 bg-indigo-500 rounded-r-full" />
+        )}
+
         <Link
           ref={(el) => {
             refs.current[idx] = el;
@@ -482,28 +474,70 @@ export default function ArtifactsSidebarClient({
             }
           }}
           className={[
-            "block rounded-md px-2 py-2 hover:bg-neutral-100 focus:outline-none focus:ring-2 focus:ring-neutral-300",
-            collapsed ? "px-2 py-3" : "",
+            "block rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-300",
+            collapsed ? "p-2" : "px-3 py-2.5"
           ].join(" ")}
           aria-current={it.active ? "page" : undefined}
           title={collapsed ? it.label : undefined}
           prefetch={false}
         >
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              {!collapsed ? (
-                <>
-                  <div className="truncate text-sm font-medium text-neutral-900">{it.label}</div>
-                  <div className="truncate text-xs text-neutral-500">
-                    {it.current ? "Current" : it.canCreate ? "Not created" : "—"}
-                  </div>
-                </>
+          <div className="flex items-center gap-3">
+            {/* Icon */}
+            <div className={[
+              "shrink-0 rounded-lg flex items-center justify-center transition-colors",
+              it.active 
+                ? "bg-indigo-100 text-indigo-600" 
+                : "bg-neutral-100 text-neutral-500",
+              collapsed ? "w-8 h-8" : "w-9 h-9"
+            ].join(" ")}>
+              {it.active ? (
+                <CheckCircle2 className={collapsed ? "w-4 h-4" : "w-5 h-5"} />
+              ) : it.current ? (
+                <FileText className={collapsed ? "w-4 h-4" : "w-5 h-5"} />
               ) : (
-                <div className="h-6 w-6 rounded-md border border-neutral-200 bg-white" />
+                <Plus className={collapsed ? "w-4 h-4" : "w-5 h-5"} />
               )}
             </div>
 
-            {!collapsed && <div className="shrink-0">{rightStatus}</div>}
+            {/* Content */}
+            {!collapsed && (
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className={[
+                    "text-sm font-medium truncate",
+                    it.active ? "text-indigo-900" : "text-neutral-900"
+                  ].join(" ")}>
+                    {it.label}
+                  </span>
+                  
+                  {/* Current Badge */}
+                  {it.active && (
+                    <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Current
+                    </span>
+                  )}
+                </div>
+                
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-[11px] text-neutral-500 font-mono">
+                    {it.current ? "Current" : it.canCreate ? "Not created" : "View only"}
+                  </span>
+                  
+                  {/* Status Badge */}
+                  {it.current && (
+                    <span className={it.badge.cls}>
+                      {it.badge.text}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Collapsed Current Indicator Dot */}
+            {collapsed && it.active && (
+              <div className="absolute -top-1 -right-1 w-3 h-3 bg-indigo-500 rounded-full border-2 border-white" />
+            )}
           </div>
         </Link>
       </div>
@@ -525,112 +559,207 @@ export default function ArtifactsSidebarClient({
   }, [grouped, groupOpen]);
 
   return (
-    <aside className={["border-r border-neutral-200 p-3", collapsed ? "w-16" : "w-80"].join(" ")} aria-label="Artifacts sidebar">
-      {/* Project header */}
-      <div className="mb-3 rounded-xl border border-neutral-200 bg-white p-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="text-[11px] uppercase tracking-wide text-neutral-500">{collapsed ? "P" : "Project"}</div>
+    <aside 
+      className={[
+        "relative shrink-0 bg-white border-r border-neutral-200/80 transition-all duration-300 ease-in-out h-screen sticky top-0",
+        collapsed ? "w-[60px]" : "w-80"
+      ].join(" ")} 
+      aria-label="Artifacts sidebar"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      {/* Collapse Toggle Button - Floating Arrow */}
+      <button
+        type="button"
+        onClick={() => setCollapsed(v => !v)}
+        className={[
+          "absolute -right-3 top-6 z-50",
+          "w-6 h-6 rounded-full bg-white border border-neutral-200",
+          "shadow-sm hover:shadow-md hover:border-neutral-300",
+          "flex items-center justify-center",
+          "transition-all duration-200",
+          (isHovered || collapsed) ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-2"
+        ].join(" ")}
+        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        title={collapsed ? "Expand (])" : "Collapse ([)"}
+      >
+        {collapsed ? (
+          <ChevronRight className="w-3 h-3 text-neutral-600" />
+        ) : (
+          <ChevronLeft className="w-3 h-3 text-neutral-600" />
+        )}
+      </button>
 
-            {!collapsed && (
-              <>
+      {/* Project header */}
+      <div className={[
+        "border-b border-neutral-200/80 transition-all duration-300",
+        collapsed ? "p-3" : "p-4"
+      ].join(" ")}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            {/* Collapsed: Just Project Initial */}
+            <div className={[
+              "transition-all duration-300 flex justify-center",
+              collapsed ? "opacity-100" : "opacity-0 h-0 overflow-hidden"
+            ].join(" ")}>
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-sm">
+                {projectName?.charAt(0).toUpperCase() || "P"}
+              </div>
+            </div>
+
+            {/* Expanded: Full Project Info */}
+            <div className={[
+              "transition-all duration-300",
+              collapsed ? "opacity-0 h-0 overflow-hidden" : "opacity-100"
+            ].join(" ")}>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">
+                Project
+              </div>
+              
+              <Link
+                href={`/projects/${projectRouteId}`}
+                className="block truncate text-sm font-bold text-neutral-900 hover:text-indigo-600 transition-colors"
+                title={projectName ?? ""}
+                prefetch={false}
+              >
+                {projectName?.trim() || "Untitled project"}
+              </Link>
+
+              {projectCode && (
+                <code className="mt-1 block truncate font-mono text-[11px] text-neutral-500 bg-neutral-100 px-1.5 py-0.5 rounded w-fit">
+                  {projectCode}
+                </code>
+              )}
+
+              <div className="mt-2 text-xs text-neutral-500 capitalize flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                {role}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Link
-                  href={`/projects/${projectRouteId}`}
-                  className="block truncate text-sm font-semibold text-neutral-900 hover:underline"
-                  title={projectName ?? ""}
+                  href={`/projects/${projectRouteId}/board`}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 hover:border-neutral-300 transition-all"
+                  title="Open Board"
                   prefetch={false}
                 >
-                  {projectName?.trim() || "Untitled project"}
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  Board
                 </Link>
 
-                {projectCode ? (
-                  <div className="mt-0.5 truncate font-mono text-[11px] text-neutral-500">ID: {projectCode}</div>
-                ) : null}
+                <Link
+                  href={boardHref("create")}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 transition-all"
+                  prefetch={false}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Create
+                  <span className="ml-1 rounded-full bg-neutral-100 px-1.5 py-0 text-[10px]">
+                    {boardCounts.create}
+                  </span>
+                </Link>
+              </div>
 
-                <div className="mt-1 text-xs text-neutral-500 capitalize">Role: {role}</div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Link
+                  href={boardHref("draft")}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 transition-all"
+                  prefetch={false}
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  Draft
+                  <span className="ml-1 rounded-full bg-neutral-100 px-1.5 py-0 text-[10px]">
+                    {boardCounts.draft}
+                  </span>
+                </Link>
 
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <Link
-                    href={`/projects/${projectRouteId}/board`}
-                    className="inline-flex items-center rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-100"
-                    title="Open Board"
-                    prefetch={false}
-                  >
-                    Board
-                  </Link>
-
-                  <Link
-                    href={boardHref("create")}
-                    className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-100"
-                    prefetch={false}
-                  >
-                    Create
-                    <span className="rounded-full border border-neutral-200 bg-white px-2 py-0.5 text-[11px] font-medium text-neutral-600">
-                      {boardCounts.create}
-                    </span>
-                  </Link>
-
-                  <Link
-                    href={boardHref("draft")}
-                    className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-100"
-                    prefetch={false}
-                  >
-                    Draft
-                    <span className="rounded-full border border-neutral-200 bg-white px-2 py-0.5 text-[11px] font-medium text-neutral-600">
-                      {boardCounts.draft}
-                    </span>
-                  </Link>
-
-                  <Link
-                    href={boardHref("submitted")}
-                    className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-100"
-                    prefetch={false}
-                  >
-                    Submitted
-                    <span className="rounded-full border border-neutral-200 bg-white px-2 py-0.5 text-[11px] font-medium text-neutral-600">
-                      {boardCounts.submitted}
-                    </span>
-                  </Link>
-                </div>
-              </>
-            )}
+                <Link
+                  href={boardHref("submitted")}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 transition-all"
+                  prefetch={false}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Submitted
+                  <span className="ml-1 rounded-full bg-neutral-100 px-1.5 py-0 text-[10px]">
+                    {boardCounts.submitted}
+                  </span>
+                </Link>
+              </div>
+            </div>
           </div>
+        </div>
 
-          <button
-            type="button"
-            onClick={() => setCollapsed((v) => !v)}
-            className="shrink-0 rounded-md border border-neutral-200 px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-100"
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            title={collapsed ? "Expand (])" : "Collapse ([)"}
+        {/* Collapsed Action Icons */}
+        <div className={[
+          "flex flex-col gap-2 mt-2 transition-all duration-300",
+          collapsed ? "opacity-100" : "opacity-0 h-0 overflow-hidden"
+        ].join(" ")}>
+          <Link
+            href={`/projects/${projectRouteId}/board`}
+            className="w-10 h-10 mx-auto rounded-lg bg-white border border-neutral-200 flex items-center justify-center text-neutral-600 hover:bg-neutral-50 hover:border-neutral-300 transition-all"
+            title="Board"
           >
-            {collapsed ? "›" : "‹"}
-          </button>
+            <LayoutGrid className="w-4 h-4" />
+          </Link>
+          <Link
+            href={boardHref("create")}
+            className="w-10 h-10 mx-auto rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 hover:bg-indigo-100 transition-all"
+            title="Create"
+          >
+            <Plus className="w-4 h-4" />
+          </Link>
         </div>
       </div>
 
+      {/* Search */}
       {!collapsed && (
-        <div className="mb-3 space-y-2">
-          <div className="flex items-center gap-2">
+        <div className="p-4 border-b border-neutral-200/80">
+          <div className="relative">
             <input
               ref={searchRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search artifacts…  (/)"
-              className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-300"
+              className="w-full rounded-lg border border-neutral-200 bg-white pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 transition-all"
             />
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
           </div>
         </div>
       )}
 
-      <nav aria-label="Artifact navigation">
-        <Group name="Plan" itemsInGroup={grouped.Plan} startIndex={groupStarts.Plan} />
-        <Group name="Control" itemsInGroup={grouped.Control} startIndex={groupStarts.Control} />
-        <Group name="Close" itemsInGroup={grouped.Close} startIndex={groupStarts.Close} />
-      </nav>
+      {/* Navigation */}
+      <div className={[
+        "overflow-y-auto transition-all duration-300",
+        collapsed ? "p-2 h-[calc(100vh-120px)]" : "p-4 h-[calc(100vh-280px)]"
+      ].join(" ")}>
+        {!collapsed && (
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-[11px] font-bold uppercase tracking-wider text-neutral-400">
+              Artifacts
+            </h3>
+            <span className="text-[10px] text-neutral-400 bg-neutral-100 px-2 py-0.5 rounded-full">
+              {visible.length}
+            </span>
+          </div>
+        )}
 
+        <nav aria-label="Artifact navigation">
+          <Group name="Plan" itemsInGroup={grouped.Plan} startIndex={groupStarts.Plan} />
+          <Group name="Control" itemsInGroup={grouped.Control} startIndex={groupStarts.Control} />
+          <Group name="Close" itemsInGroup={grouped.Close} startIndex={groupStarts.Close} />
+        </nav>
+      </div>
+
+      {/* Bottom Gradient */}
+      <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent pointer-events-none" />
+
+      {/* Keyboard Help */}
       {!collapsed && (
-        <div className="mt-3 text-[11px] text-neutral-500">
-          Keyboard: ↑/↓ move, Enter open, / search, Esc close/clear, [ collapse, ] expand
+        <div className="absolute bottom-2 left-4 right-4 text-[10px] text-neutral-400 text-center">
+          <span className="hidden lg:inline">↑↓ navigate · Enter open · / search · [ ] collapse</span>
         </div>
       )}
     </aside>
