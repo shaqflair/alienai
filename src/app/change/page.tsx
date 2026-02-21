@@ -1,23 +1,11 @@
 // src/app/change/page.tsx
-"use client";
+import "server-only";
+import { redirect } from "next/navigation";
 
-import React from "react";
-import dynamic from "next/dynamic";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-// Directly load the real board component from components/
-// (no route-group relative imports)
-const ChangeManagementBoard = dynamic(
-  () => import("@/components/change/ChangeManagementBoard"),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="p-6 text-sm text-gray-500">
-        Loading change workspace…
-      </div>
-    ),
-  }
-);
-
-export default function ChangePage() {
-  return <ChangeManagementBoard />;
+export default function ChangeRootPage() {
+  redirect("/projects");
 }
