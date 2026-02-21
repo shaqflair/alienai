@@ -6,7 +6,7 @@ import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 
 /**
- * ? Heavy UI (DnD + drawers + modals) is loaded dynamically
+ * Heavy UI (DnD + drawers + modals) is loaded dynamically
  * so the initial bundle stays small and first paint is instant.
  */
 const ChangeBoardDnd = dynamic(() => import("./ChangeBoardDnd"), {
@@ -63,20 +63,30 @@ export default function ChangeBoard() {
   const [projectUuid, setProjectUuid] = useState<string>("");
   const [projectLabel, setProjectLabel] = useState<string>("");
   const [err, setErr] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(true);
 
-  // ? Resolve project_code -> UUID (or accept UUID directly)
+  // Resolve project_code -> UUID (or accept UUID directly)
   useEffect(() => {
     let cancelled = false;
 
     async function resolveProject() {
       setErr("");
-      if (!routeProjectParam) return;
+      setLoading(true);
 
+      if (!routeProjectParam) {
+        if (!cancelled) setLoading(false);
+        return;
+      }
+
+      // ✅ If it's already a UUID, DO NOT call the API.
       if (looksLikeUuid(routeProjectParam)) {
         if (!cancelled) {
           setProjectUuid(routeProjectParam);
           setProjectHumanId(routeProjectParam);
+          setProjectLabel(""); // optional
+          setLoading(false);
         }
+        return;
       }
 
       try {
@@ -127,21 +137,18 @@ export default function ChangeBoard() {
 
           if (id && looksLikeUuid(String(id))) {
             setProjectUuid(String(id));
-          } else if (looksLikeUuid(routeProjectParam)) {
-            setProjectUuid(routeProjectParam);
+            setErr("");
           } else {
             setProjectUuid("");
             setErr("Project could not be resolved to a UUID. Check /api/projects/[id] supports project_code.");
           }
+          setLoading(false);
         }
       } catch {
         if (!cancelled) {
-          if (looksLikeUuid(routeProjectParam)) {
-            setProjectUuid(routeProjectParam);
-          } else {
-            setProjectUuid("");
-            setErr("Failed to resolve project. Check /api/projects/[id] route.");
-          }
+          setProjectUuid("");
+          setErr("Failed to resolve project. Check /api/projects/[id] route.");
+          setLoading(false);
         }
       }
     }
@@ -155,6 +162,14 @@ export default function ChangeBoard() {
 
   if (err) {
     return <div className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm">{err}</div>;
+  }
+
+  if (loading || !projectUuid) {
+    return (
+      <div className="p-3 rounded-lg border border-gray-200 bg-gray-50 text-gray-700 text-sm">
+        Resolving project…
+      </div>
+    );
   }
 
   return (
