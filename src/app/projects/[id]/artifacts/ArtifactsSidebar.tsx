@@ -38,20 +38,18 @@ type ArtifactTypeDef = {
 };
 
 const ARTIFACT_TYPE_REGISTRY: ArtifactTypeDef[] = [
-  // Plan group
+  // Plan group — keys match artifact_type constraint values (lowercase in DB, uppercase here)
   { key: "PROJECT_CHARTER",      label: "Project Charter",      ui_kind: "PROJECT_CHARTER",      ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
   { key: "STAKEHOLDER_REGISTER", label: "Stakeholder Register", ui_kind: "STAKEHOLDER_REGISTER", ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
   { key: "WBS",                  label: "WBS",                  ui_kind: "WBS",                  ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
   { key: "SCHEDULE",             label: "Schedule",             ui_kind: "SCHEDULE",             ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
-  { key: "DESIGN",               label: "Design",               ui_kind: "DESIGN",               ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
-  { key: "REQUIREMENTS",         label: "Requirements",         ui_kind: "REQUIREMENTS",         ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
   { key: "WEEKLY_REPORT",        label: "Weekly Report",        ui_kind: "WEEKLY_REPORT",        ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
   // Control group
   { key: "RAID",                 label: "RAID Log",             ui_kind: "RAID",                 ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
-  { key: "CHANGE_REQUESTS",      label: "Change Requests",      ui_kind: "CHANGE_REQUESTS",      ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
+  { key: "CHANGE",               label: "Change Requests",      ui_kind: "CHANGE",               ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
   // Close group
   { key: "LESSONS_LEARNED",      label: "Lessons Learned",      ui_kind: "LESSONS_LEARNED",      ownerCanCreate: true,  editorCanCreate: true,  ownerCanEdit: true,  editorCanEdit: true  },
-  { key: "CLOSURE_REPORT",       label: "Closure Report",       ui_kind: "CLOSURE_REPORT",       ownerCanCreate: true,  editorCanCreate: false, ownerCanEdit: true,  editorCanEdit: false },
+  { key: "PROJECT_CLOSURE_REPORT", label: "Closure Report",     ui_kind: "PROJECT_CLOSURE_REPORT", ownerCanCreate: true, editorCanCreate: false, ownerCanEdit: true, editorCanEdit: false },
 ];
 
 const REGISTRY_BY_KEY = new Map(ARTIFACT_TYPE_REGISTRY.map((d) => [d.key, d]));
@@ -192,7 +190,8 @@ function isChangeRequestsType(t: unknown) {
 function normalizeArtifactTypeKey(t: unknown): string {
   const s = safeStr(t).toUpperCase();
   if (!s) return "";
-  if (isChangeRequestsType(t)) return "CHANGE_REQUESTS";
+  // DB stores "change" — registry key is "CHANGE"
+  if (isChangeRequestsType(t)) return "CHANGE";
   return s;
 }
 

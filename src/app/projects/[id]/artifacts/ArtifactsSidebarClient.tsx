@@ -107,13 +107,12 @@ function groupForKey(k: string): GroupName {
       "STAKEHOLDER_REGISTER",
       "WBS",
       "SCHEDULE",
-      "DESIGN",
-      "REQUIREMENTS",
       "WEEKLY_REPORT",
     ].includes(u)
   )
     return "Plan";
-  if (["RAID", "CHANGE", "CHANGE_REQUESTS"].includes(u)) return "Control";
+  if (["RAID", "CHANGE"].includes(u)) return "Control";
+  // Close: LESSONS_LEARNED, PROJECT_CLOSURE_REPORT, and anything else
   return "Close";
 }
 
