@@ -1,4 +1,4 @@
-// src/app/projects/[id]/artifacts/_components/ArtifactBoardServer.tsx
+// src/components/artifacts/ArtifactBoardServer.tsx
 import "server-only";
 
 import { createClient } from "@/utils/supabase/server";
