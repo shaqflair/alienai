@@ -236,32 +236,67 @@ const DEFAULT_VIEW_STATE: ViewState = { q: "", ownerFilter: "", statusFilter: ""
 type SaveMode = "idle" | "dirty" | "saving" | "saved" | "error";
 
 // ─── STATUS CONFIG ────────────────────────────────────────────────────────────
-const STATUS_CONFIG: Record<WbsStatus, { label: string; dot: string; badge: string; ring: string; selectCls: string }> = {
-  not_started: { label: "Not started", dot: "bg-slate-400", badge: "bg-slate-100 text-slate-600 ring-slate-200", ring: "ring-slate-200", selectCls: "bg-slate-50 border-slate-200 text-slate-700" },
-  in_progress:  { label: "In progress", dot: "bg-amber-400 animate-pulse", badge: "bg-amber-50 text-amber-700 ring-amber-200", ring: "ring-amber-200", selectCls: "bg-amber-50 border-amber-200 text-amber-800" },
-  done:         { label: "Done", dot: "bg-emerald-500", badge: "bg-emerald-50 text-emerald-700 ring-emerald-200", ring: "ring-emerald-200", selectCls: "bg-emerald-50 border-emerald-200 text-emerald-800" },
-  blocked:      { label: "Blocked", dot: "bg-rose-500", badge: "bg-rose-50 text-rose-700 ring-rose-200", ring: "ring-rose-200", selectCls: "bg-rose-50 border-rose-200 text-rose-800" },
+const STATUS_CONFIG: Record<WbsStatus, {
+  label: string;
+  dot: string;
+  badge: string;
+  ring: string;
+  selectCls: string;
+  trackCls: string;
+}> = {
+  not_started: {
+    label: "Not started",
+    dot: "bg-stone-400",
+    badge: "bg-stone-100 text-stone-600 ring-stone-200",
+    ring: "ring-stone-200",
+    selectCls: "bg-stone-50 border-stone-200 text-stone-700",
+    trackCls: "bg-stone-200",
+  },
+  in_progress: {
+    label: "In progress",
+    dot: "bg-amber-400",
+    badge: "bg-amber-50 text-amber-800 ring-amber-200",
+    ring: "ring-amber-200",
+    selectCls: "bg-amber-50 border-amber-300 text-amber-900",
+    trackCls: "bg-amber-400",
+  },
+  done: {
+    label: "Done",
+    dot: "bg-teal-500",
+    badge: "bg-teal-50 text-teal-800 ring-teal-200",
+    ring: "ring-teal-200",
+    selectCls: "bg-teal-50 border-teal-200 text-teal-900",
+    trackCls: "bg-teal-500",
+  },
+  blocked: {
+    label: "Blocked",
+    dot: "bg-rose-500",
+    badge: "bg-rose-50 text-rose-700 ring-rose-200",
+    ring: "ring-rose-200",
+    selectCls: "bg-rose-50 border-rose-200 text-rose-800",
+    trackCls: "bg-rose-500",
+  },
 };
 
-function StatusBadge({ s }: { s: WbsStatus }) {
-  const cfg = STATUS_CONFIG[s];
-  return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ring-1 ${cfg.badge}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-      {cfg.label}
-    </span>
-  );
-}
+// ─── LEVEL ACCENT PALETTE — left border stripe per depth ──────────────────────
+// Deeper = softer. Level 0 is the boldest.
+const LEVEL_STRIPE = [
+  "border-l-slate-800",   // 0 — near-black, strong authority
+  "border-l-indigo-400",  // 1 — indigo
+  "border-l-sky-400",     // 2 — sky
+  "border-l-teal-400",    // 3 — teal
+  "border-l-amber-400",   // 4 — amber
+  "border-l-rose-300",    // 5 — rose
+];
 
-function EffortPip({ effort }: { effort: Effort }) {
-  if (!effort) return <span className="text-xs text-rose-500 font-semibold tracking-wide uppercase">Missing</span>;
-  const map: Record<string, string> = { S: "bg-sky-100 text-sky-700 border border-sky-200", M: "bg-violet-100 text-violet-700 border border-violet-200", L: "bg-orange-100 text-orange-700 border border-orange-200" };
-  const label: Record<string, string> = { S: "S – Small", M: "M – Med", L: "L – Large" };
-  return <span className={`text-xs font-semibold px-2.5 py-1 rounded-md ${map[effort]}`}>{label[effort]}</span>;
-}
-
-// ─── LEVEL INDENT PALETTE ─────────────────────────────────────────────────────
-const LEVEL_ACCENT = ["border-l-violet-500", "border-l-sky-400", "border-l-teal-400", "border-l-amber-400", "border-l-rose-400", "border-l-pink-400"];
+const LEVEL_BG = [
+  "bg-slate-50",   // level-0 parent has a very subtle tint
+  "bg-white",
+  "bg-white",
+  "bg-white",
+  "bg-white",
+  "bg-white",
+];
 
 export default function WBSEditor({
   projectId,
@@ -307,6 +342,7 @@ export default function WBSEditor({
   const [onlyBlocked, setOnlyBlocked] = useState(false);
   const [leavesOnly, setLeavesOnly] = useState(false);
   const [onlyMissingEffort, setOnlyMissingEffort] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const [savedViews, setSavedViews] = useState<SavedView[]>([]);
   const [activeViewId, setActiveViewId] = useState<string>("__all");
@@ -673,6 +709,7 @@ export default function WBSEditor({
     return { idToIndex, idToHasChildren };
   }, [coded]);
 
+  // ─── ROW ACTIONS MENU ─────────────────────────────────────────────────────
   function RowActions({ rowId }: { rowId: string }) {
     const btnRef = useRef<HTMLButtonElement | null>(null);
     const menuRef = useRef<HTMLDivElement | null>(null);
@@ -704,24 +741,36 @@ export default function WBSEditor({
     }, [open, rowId, idx, coded.length]);
 
     const menu = open ? (
-      <div ref={menuRef} data-wbs-rowmenu className="fixed w-56 rounded-2xl border border-gray-100 bg-white/95 backdrop-blur-xl shadow-2xl overflow-hidden z-[9999] py-1" style={{ top: pos.top, left: pos.left }} onClick={e => e.stopPropagation()}>
+      <div
+        ref={menuRef}
+        data-wbs-rowmenu
+        className="fixed w-52 rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden z-[9999] py-1.5"
+        style={{ top: pos.top, left: pos.left }}
+        onClick={e => e.stopPropagation()}
+      >
         {[
-          { label: "+ Add sibling", action: () => addSibling(rowId), disabled: !!readOnly },
-          { label: "+ Add child", action: () => addChild(rowId), disabled: !!readOnly },
+          { label: "+ Add sibling", action: () => addSibling(rowId), disabled: !!readOnly, icon: "↕" },
+          { label: "+ Add child", action: () => addChild(rowId), disabled: !!readOnly, icon: "↳" },
           null,
-          { label: "Indent →", action: () => indent(rowId), disabled: !canIndent, title: !canIndent ? "Cannot indent the first row" : undefined },
-          { label: "← Outdent", action: () => outdent(rowId), disabled: !canOutdent, title: !canOutdent ? "Already at level 0" : undefined },
+          { label: "Indent →", action: () => indent(rowId), disabled: !canIndent, icon: "→", title: !canIndent ? "Cannot indent the first row" : undefined },
+          { label: "← Outdent", action: () => outdent(rowId), disabled: !canOutdent, icon: "←", title: !canOutdent ? "Already at level 0" : undefined },
           null,
-          { label: "✨ AI Expand", action: async () => { await requestCreateArtifactIfNeeded("focus"); aiExpand(rowId); }, disabled: !!readOnly },
-          { label: "🤖 AI Assistant", action: () => { setSelectedRowId(rowId); setAssistantOpen(true); }, disabled: !!readOnly },
+          { label: "AI Expand", action: async () => { await requestCreateArtifactIfNeeded("focus"); aiExpand(rowId); }, disabled: !!readOnly, icon: "✦" },
+          { label: "AI Assistant", action: () => { setSelectedRowId(rowId); setAssistantOpen(true); }, disabled: !!readOnly, icon: "◈" },
           null,
-          { label: "Delete", action: () => removeRow(rowId), disabled: !canDelete, danger: true, title: !canDelete ? "Remove children first" : undefined },
+          { label: "Delete row", action: () => removeRow(rowId), disabled: !canDelete, danger: true, icon: "✕", title: !canDelete ? "Remove children first" : undefined },
         ].map((item, i) => item === null ? (
-          <div key={`sep-${i}`} className="my-1 h-px bg-gray-100 mx-3" />
+          <div key={`sep-${i}`} className="my-1 h-px bg-slate-100 mx-3" />
         ) : (
-          <button key={item.label} type="button" disabled={item.disabled} title={item.title}
-            className={`w-full text-left px-4 py-2 text-sm transition-colors disabled:opacity-40 ${item.danger ? "text-rose-600 hover:bg-rose-50" : "text-gray-700 hover:bg-gray-50"}`}
-            onClick={() => { setOpenRowId(null); item.action(); }}>
+          <button
+            key={item.label}
+            type="button"
+            disabled={item.disabled}
+            title={(item as any).title}
+            className={`w-full text-left px-3.5 py-2 text-sm flex items-center gap-2.5 transition-colors disabled:opacity-35 ${(item as any).danger ? "text-rose-600 hover:bg-rose-50" : "text-slate-700 hover:bg-slate-50"}`}
+            onClick={() => { setOpenRowId(null); item.action(); }}
+          >
+            <span className="w-4 text-center text-xs opacity-60">{(item as any).icon}</span>
             {item.label}
           </button>
         ))}
@@ -730,10 +779,15 @@ export default function WBSEditor({
 
     return (
       <div data-wbs-rowmenu className="inline-flex" onClick={e => e.stopPropagation()}>
-        <button ref={btnRef} type="button" disabled={!!readOnly} title="Row actions"
+        <button
+          ref={btnRef}
+          type="button"
+          disabled={!!readOnly}
+          title="Row actions"
           onClick={async () => { await requestCreateArtifactIfNeeded("focus"); setOpenRowId(open ? null : rowId); }}
-          className="w-8 h-8 rounded-xl flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all text-base font-bold">
-          ⋯
+          className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all text-sm tracking-wider leading-none"
+        >
+          ···
         </button>
         {open && typeof document !== "undefined" ? createPortal(menu, document.body) : null}
       </div>
@@ -755,11 +809,32 @@ export default function WBSEditor({
   // ─── SAVE INDICATOR ───────────────────────────────────────────────────────
   function SaveIndicator() {
     const missingId = !readOnly && !safeStr(artifactIdLocal).trim();
-    if (missingId) return <span className="text-xs px-3 py-1.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 font-medium">Missing ID</span>;
-    if (saveMode === "saving") return <span className="text-xs px-3 py-1.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 font-medium animate-pulse">Saving…</span>;
-    if (saveMode === "dirty") return <span className="text-xs px-3 py-1.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 font-medium">Unsaved</span>;
-    if (saveMode === "saved") return <span className="text-xs px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">Saved {lastSavedAt ? new Date(lastSavedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span>;
-    if (saveMode === "error") return <span className="text-xs px-3 py-1.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 font-medium">Save error</span>;
+    if (missingId) return (
+      <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-rose-50 text-rose-600 border border-rose-200 font-medium">
+        <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />Missing ID
+      </span>
+    );
+    if (saveMode === "saving") return (
+      <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-slate-100 text-slate-600 border border-slate-200 font-medium animate-pulse">
+        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />Saving…
+      </span>
+    );
+    if (saveMode === "dirty") return (
+      <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-amber-50 text-amber-700 border border-amber-200 font-medium">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />Unsaved
+      </span>
+    );
+    if (saveMode === "saved") return (
+      <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-teal-50 text-teal-700 border border-teal-200 font-medium">
+        <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
+        Saved {lastSavedAt ? new Date(lastSavedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+      </span>
+    );
+    if (saveMode === "error") return (
+      <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-rose-50 text-rose-600 border border-rose-200 font-medium">
+        <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />Save error
+      </span>
+    );
     return null;
   }
 
@@ -776,209 +851,307 @@ export default function WBSEditor({
   const doneCount = (rolled as any[]).filter(r => !r._isParent && ((r.status ?? "not_started") as WbsStatus) === "done").length;
   const blockedCount = (rolled as any[]).filter(r => statusShownForRow(r, doc.auto_rollup !== false) === "blocked").length;
 
+  const hasActiveFilters = !!(q || ownerFilter || statusFilter || tagFilter || dueFrom || dueTo || onlyOverdue || onlyBlocked || leavesOnly || onlyMissingEffort);
+
   // ─── RENDER ───────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#f4f3f0] font-[system-ui]">
-      {/* ── TOP BAR ── */}
-      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-gray-200/80 shadow-sm">
-        <div className="max-w-[1800px] mx-auto px-6 py-0">
-          <div className="flex items-center gap-4 h-16">
-            {/* Title */}
-            <div className="flex-1 min-w-0 flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shrink-0 shadow-sm">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="4" height="4" rx="1" fill="white" fillOpacity="0.9"/><rect x="7" y="1" width="8" height="2" rx="1" fill="white" fillOpacity="0.6"/><rect x="1" y="6" width="4" height="4" rx="1" fill="white" fillOpacity="0.7"/><rect x="7" y="6" width="8" height="2" rx="1" fill="white" fillOpacity="0.6"/><rect x="1" y="11" width="4" height="4" rx="1" fill="white" fillOpacity="0.5"/><rect x="7" y="11" width="6" height="2" rx="1" fill="white" fillOpacity="0.6"/></svg>
-              </div>
-              <input
-                value={title}
-                onFocus={() => void requestCreateArtifactIfNeeded("focus")}
-                onChange={e => { setTitle(e.target.value); markDirty(); setDoc(prev => ({ ...prev, title: e.target.value })); }}
-                disabled={!!readOnly}
-                className="text-lg font-semibold text-gray-900 bg-transparent outline-none w-full placeholder:text-gray-400 min-w-0 truncate"
-                placeholder="Work Breakdown Structure"
-              />
+    <div className="min-h-screen bg-[#f0ede8] font-[system-ui]">
+
+      {/* ── TOP BAR ─────────────────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+        <div className="max-w-[1800px] mx-auto px-5 h-14 flex items-center gap-3">
+
+          {/* Icon + Title */}
+          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+            {/* WBS grid icon */}
+            <div className="w-7 h-7 rounded-lg bg-slate-900 flex items-center justify-center shrink-0">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <rect x="1" y="1" width="3.5" height="3.5" rx="0.75" fill="white" fillOpacity="0.9"/>
+                <rect x="6" y="1" width="7" height="1.5" rx="0.5" fill="white" fillOpacity="0.5"/>
+                <rect x="1" y="5.75" width="3.5" height="3.5" rx="0.75" fill="white" fillOpacity="0.7"/>
+                <rect x="6" y="5.75" width="7" height="1.5" rx="0.5" fill="white" fillOpacity="0.5"/>
+                <rect x="1" y="10.5" width="3.5" height="2.5" rx="0.75" fill="white" fillOpacity="0.5"/>
+                <rect x="6" y="10.5" width="5" height="1.5" rx="0.5" fill="white" fillOpacity="0.5"/>
+              </svg>
             </div>
 
-            {/* Stats pills */}
-            <div className="hidden lg:flex items-center gap-2 text-xs">
-              <span className="px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 font-medium">{totalRows} items</span>
-              <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">{doneCount} done</span>
-              {blockedCount > 0 && <span className="px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 font-medium">{blockedCount} blocked</span>}
-              {missingEffortCount > 0 && <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 font-medium">{missingEffortCount} no effort</span>}
-            </div>
+            <input
+              value={title}
+              onFocus={() => void requestCreateArtifactIfNeeded("focus")}
+              onChange={e => { setTitle(e.target.value); markDirty(); setDoc(prev => ({ ...prev, title: e.target.value })); }}
+              disabled={!!readOnly}
+              className="text-base font-semibold text-slate-900 bg-transparent outline-none w-full placeholder:text-slate-400 min-w-0 truncate"
+              placeholder="Work Breakdown Structure"
+            />
+          </div>
 
-            <div className="h-5 w-px bg-gray-200" />
+          {/* Centre stats */}
+          <div className="hidden lg:flex items-center gap-1.5">
+            <span className="text-xs px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 font-medium tabular-nums">{totalRows} items</span>
+            <span className="text-xs px-2.5 py-1 rounded-full bg-teal-100 text-teal-700 font-medium tabular-nums">{doneCount} done</span>
+            {blockedCount > 0 && <span className="text-xs px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 font-medium tabular-nums">{blockedCount} blocked</span>}
+            {missingEffortCount > 0 && <span className="text-xs px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 font-medium tabular-nums">{missingEffortCount} unestimated</span>}
+          </div>
 
-            {/* Actions */}
-            <div className="flex items-center gap-2">
-              <SaveIndicator />
-              {msg && <span className="text-xs text-gray-600 bg-gray-100 px-3 py-1.5 rounded-full max-w-[200px] truncate">{msg}</span>}
+          <div className="h-5 w-px bg-slate-200" />
 
-              <button onClick={exportXlsx} disabled={exportingXlsx}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-600 rounded-xl border border-gray-200 hover:bg-gray-50 hover:border-gray-300 disabled:opacity-50 transition-all">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v8M4 6l3 3 3-3M2 10v1a1 1 0 001 1h8a1 1 0 001-1v-1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                {exportingXlsx ? "…" : "XLSX"}
-              </button>
+          {/* Actions */}
+          <div className="flex items-center gap-1.5">
+            <SaveIndicator />
 
-              <button onClick={generateWbs} disabled={readOnly || genLoading}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-violet-700 rounded-xl border border-violet-200 bg-violet-50 hover:bg-violet-100 disabled:opacity-50 transition-all">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1l1.5 4H13l-3.5 2.5 1.5 4L7 9 3 11.5 4.5 7.5 1 5h4.5L7 1z" fill="currentColor" fillOpacity="0.8"/></svg>
-                {genLoading ? "Generating…" : "AI Generate"}
-              </button>
+            <button
+              onClick={exportXlsx}
+              disabled={exportingXlsx}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 rounded-lg border border-slate-200 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 transition-all"
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1v6M3.5 5l2.5 2 2.5-2M1.5 9v.5A1 1 0 002.5 10.5h7a1 1 0 001-1V9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              {exportingXlsx ? "…" : "XLSX"}
+            </button>
 
-              <button onClick={aiValidate} disabled={readOnly || isPending}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-600 rounded-xl border border-gray-200 hover:bg-gray-50 hover:border-gray-300 disabled:opacity-50 transition-all">
-                Validate
-              </button>
+            <button
+              onClick={generateWbs}
+              disabled={readOnly || genLoading}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-700 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-40 transition-all"
+            >
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M5.5 1L7 4h3.5L7.5 6l1.5 3.5L5.5 8 2.5 9.5 4 6 1 4h3.5L5.5 1z" fill="currentColor" fillOpacity="0.7"/></svg>
+              {genLoading ? "Generating…" : "AI Generate"}
+            </button>
 
-              <button
-                onClick={async () => { await requestCreateArtifactIfNeeded("focus"); const last = coded?.[coded.length - 1]?.id; if (last) addSibling(last); }}
-                disabled={readOnly || !coded?.length}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-600 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-all">
-                + Add item
-              </button>
+            <button
+              onClick={aiValidate}
+              disabled={readOnly || isPending}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 transition-all"
+            >
+              Validate
+            </button>
 
-              <button onClick={save} disabled={readOnly || saving}
-                className={`px-4 py-1.5 text-sm font-semibold rounded-xl transition-all ${dirty ? "bg-violet-600 text-white hover:bg-violet-700 shadow-sm shadow-violet-200" : "bg-gray-900 text-white hover:bg-gray-800"} disabled:opacity-60`}>
-                {saving ? "Saving…" : dirty ? "Save ●" : "Save"}
-              </button>
-            </div>
+            <button
+              onClick={async () => { await requestCreateArtifactIfNeeded("focus"); const last = coded?.[coded.length - 1]?.id; if (last) addSibling(last); }}
+              disabled={readOnly || !coded?.length}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-slate-600 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 transition-all"
+            >
+              <span className="text-sm leading-none">+</span> Add item
+            </button>
+
+            <button
+              onClick={save}
+              disabled={readOnly || saving}
+              className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                dirty
+                  ? "bg-slate-900 text-white hover:bg-slate-700 shadow-sm"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              } disabled:opacity-50`}
+            >
+              {saving ? "Saving…" : dirty ? "Save ●" : "Saved"}
+            </button>
           </div>
         </div>
 
-        {/* PROGRESS BAR */}
-        <div className="h-0.5 bg-gray-100">
-          <div className="h-full bg-gradient-to-r from-violet-500 via-indigo-500 to-sky-400 transition-all duration-700" style={{ width: `${overallProgress}%` }} />
+        {/* Progress track — thin, under the nav */}
+        <div className="h-[3px] bg-slate-100 relative overflow-hidden">
+          <div
+            className="h-full bg-slate-800 transition-all duration-700 ease-out"
+            style={{ width: `${overallProgress}%` }}
+          />
+          {overallProgress > 0 && overallProgress < 100 && (
+            <div
+              className="absolute top-0 h-full w-12 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-pulse"
+              style={{ left: `calc(${overallProgress}% - 24px)` }}
+            />
+          )}
         </div>
       </header>
 
-      <div className="max-w-[1800px] mx-auto px-6 py-6 space-y-5">
+      <div className="max-w-[1800px] mx-auto px-5 py-5 space-y-4">
 
-        {/* ── FILTER BAR ── */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 flex flex-col lg:flex-row lg:items-center gap-4">
+        {/* ── FILTER BAR ─────────────────────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+          {/* Primary row: search + status + quick toggles */}
+          <div className="px-4 py-3 flex flex-wrap items-center gap-2">
             {/* Search */}
-            <div className="relative flex-1 min-w-0 max-w-sm">
-              <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5"/><path d="M10 10l2.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-              <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search deliverables, owners, tags…"
-                className="w-full pl-9 pr-4 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-200 focus:border-violet-300 focus:bg-white outline-none transition-all" />
+            <div className="relative min-w-0 w-64 shrink-0">
+              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" width="13" height="13" viewBox="0 0 13 13" fill="none">
+                <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.4"/>
+                <path d="M9 9l2.5 2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              </svg>
+              <input
+                value={q}
+                onChange={e => setQ(e.target.value)}
+                placeholder="Search…"
+                className="w-full pl-8 pr-3 py-1.5 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-slate-300 focus:border-slate-400 focus:bg-white outline-none transition-all"
+              />
             </div>
 
-            {/* Filter pills */}
-            <div className="flex flex-wrap items-center gap-2">
-              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)}
-                className="text-sm px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-700 focus:ring-2 focus:ring-violet-200 focus:border-violet-300 outline-none">
-                <option value="">All statuses</option>
-                <option value="not_started">Not started</option>
-                <option value="in_progress">In progress</option>
-                <option value="done">Done</option>
-                <option value="blocked">Blocked</option>
-              </select>
+            <select
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value as any)}
+              className="text-sm px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 focus:ring-2 focus:ring-slate-300 outline-none"
+            >
+              <option value="">All statuses</option>
+              <option value="not_started">Not started</option>
+              <option value="in_progress">In progress</option>
+              <option value="done">Done</option>
+              <option value="blocked">Blocked</option>
+            </select>
 
-              <input value={ownerFilter} onChange={e => setOwnerFilter(e.target.value)} placeholder="Owner"
-                className="w-28 text-sm px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 focus:ring-2 focus:ring-violet-200 focus:border-violet-300 outline-none" />
+            <input
+              value={ownerFilter}
+              onChange={e => setOwnerFilter(e.target.value)}
+              placeholder="Owner"
+              className="w-28 text-sm px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 focus:ring-2 focus:ring-slate-300 outline-none"
+            />
 
-              <input value={tagFilter} onChange={e => setTagFilter(e.target.value)} placeholder="Tag"
-                className="w-24 text-sm px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 focus:ring-2 focus:ring-violet-200 focus:border-violet-300 outline-none" />
+            <input
+              value={tagFilter}
+              onChange={e => setTagFilter(e.target.value)}
+              placeholder="Tag"
+              className="w-24 text-sm px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 focus:ring-2 focus:ring-slate-300 outline-none"
+            />
 
-              {/* Toggle filters */}
-              {[
-                { label: "Overdue", active: onlyOverdue, toggle: () => setOnlyOverdue(v => !v) },
-                { label: "Blocked", active: onlyBlocked, toggle: () => setOnlyBlocked(v => !v) },
-                { label: "Leaves", active: leavesOnly, toggle: () => setLeavesOnly(v => !v) },
-                { label: "No effort", active: onlyMissingEffort, toggle: () => { setOnlyMissingEffort(v => !v); setLeavesOnly(true); } },
-              ].map(f => (
-                <button key={f.label} type="button" onClick={f.toggle}
-                  className={`text-xs px-3 py-1.5 rounded-xl font-medium border transition-all ${f.active ? "bg-violet-600 text-white border-violet-600" : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"}`}>
-                  {f.label}
-                </button>
-              ))}
-
-              <button type="button" onClick={clearFilters} className="text-xs px-3 py-1.5 rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50 transition-all">
-                Clear
+            {/* Toggle chips */}
+            {[
+              { label: "Overdue", active: onlyOverdue, toggle: () => setOnlyOverdue(v => !v) },
+              { label: "Blocked", active: onlyBlocked, toggle: () => setOnlyBlocked(v => !v) },
+              { label: "Leaves only", active: leavesOnly, toggle: () => setLeavesOnly(v => !v) },
+              { label: "No effort", active: onlyMissingEffort, toggle: () => { setOnlyMissingEffort(v => !v); setLeavesOnly(true); } },
+            ].map(f => (
+              <button
+                key={f.label}
+                type="button"
+                onClick={f.toggle}
+                className={`text-xs px-2.5 py-1.5 rounded-lg font-medium border transition-all ${
+                  f.active
+                    ? "bg-slate-900 text-white border-slate-900"
+                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:border-slate-300"
+                }`}
+              >
+                {f.label}
               </button>
-            </div>
+            ))}
 
-            {/* Right: views + meta */}
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 text-rose-600 hover:bg-rose-50 hover:border-rose-200 transition-all"
+              >
+                Clear filters
+              </button>
+            )}
+
+            {/* Right: views + date + rollup + count */}
             <div className="flex flex-wrap items-center gap-2 ml-auto">
-              <select value={activeViewId} onChange={e => { const id = e.target.value; setActiveViewId(id); if (id !== "__all") { const v = savedViews.find(x => x.id === id); if (v) applyViewState(v.state); } }}
-                className="text-sm px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-700 focus:ring-2 focus:ring-violet-200 outline-none max-w-[160px]">
+              <select
+                value={activeViewId}
+                onChange={e => { const id = e.target.value; setActiveViewId(id); if (id !== "__all") { const v = savedViews.find(x => x.id === id); if (v) applyViewState(v.state); } }}
+                className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 focus:ring-2 focus:ring-slate-300 outline-none max-w-[140px]"
+              >
                 <option value="__all">All rows</option>
                 {savedViews.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
 
-              <button onClick={saveCurrentAsView} disabled={!!readOnly} className="text-xs px-3 py-1.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-all">Save view</button>
-              <button onClick={renameActiveView} disabled={activeViewId === "__all"} className="text-xs px-3 py-1.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-all">Rename</button>
-              <button onClick={deleteActiveView} disabled={activeViewId === "__all"} className="text-xs px-3 py-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 disabled:opacity-50 transition-all">Delete</button>
+              <button onClick={saveCurrentAsView} disabled={!!readOnly} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition-all">Save view</button>
 
-              <div className="h-4 w-px bg-gray-200" />
-              <button onClick={applyMyWorkFilter} className="text-xs px-3 py-1.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition-all">My Work</button>
-              <button onClick={setMyWorkFromOwner} className="text-xs px-3 py-1.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition-all">Set owner</button>
+              {activeViewId !== "__all" && (
+                <>
+                  <button onClick={renameActiveView} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all">Rename</button>
+                  <button onClick={deleteActiveView} className="text-xs px-2.5 py-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition-all">Delete</button>
+                </>
+              )}
 
-              <div className="h-4 w-px bg-gray-200" />
+              <div className="h-4 w-px bg-slate-200" />
 
-              {/* WBS due date */}
-              <input type="date" value={doc.due_date ?? ""} disabled={!!readOnly}
+              <button onClick={applyMyWorkFilter} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all">My Work</button>
+              <button onClick={setMyWorkFromOwner} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all">Set owner</button>
+
+              <div className="h-4 w-px bg-slate-200" />
+
+              <input
+                type="date"
+                value={doc.due_date ?? ""}
+                disabled={!!readOnly}
                 onFocus={() => void requestCreateArtifactIfNeeded("focus")}
                 onChange={e => updateDoc({ due_date: e.target.value })}
-                className="text-sm px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 focus:ring-2 focus:ring-violet-200 outline-none" />
+                title="Project due date"
+                className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 focus:ring-2 focus:ring-slate-300 outline-none text-slate-600"
+              />
 
-              <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
-                <input type="checkbox" checked={doc.auto_rollup !== false} disabled={!!readOnly} onChange={e => updateDoc({ auto_rollup: e.target.checked })}
-                  className="rounded border-gray-300 text-violet-600 focus:ring-violet-300" />
+              <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={doc.auto_rollup !== false}
+                  disabled={!!readOnly}
+                  onChange={e => updateDoc({ auto_rollup: e.target.checked })}
+                  className="rounded border-slate-300 text-slate-700 focus:ring-slate-400"
+                />
                 Roll-up
               </label>
 
-              <span className="text-xs text-gray-500 font-medium bg-gray-100 px-2.5 py-1 rounded-full">
-                {visibleRows.length} / {rolled.length}
+              <span className="text-xs text-slate-500 font-medium bg-slate-100 px-2 py-1 rounded-md tabular-nums">
+                {visibleRows.length}/{rolled.length}
               </span>
             </div>
           </div>
 
-          {/* Date range */}
-          <div className="px-5 pb-3 flex flex-wrap items-center gap-3">
-            <span className="text-xs text-gray-500 font-medium">Due range:</span>
-            <input type="date" value={dueFrom} onChange={e => setDueFrom(e.target.value)} className="text-sm px-3 py-1.5 rounded-xl border border-gray-200 bg-gray-50 focus:ring-2 focus:ring-violet-200 outline-none" />
-            <span className="text-xs text-gray-400">→</span>
-            <input type="date" value={dueTo} onChange={e => setDueTo(e.target.value)} className="text-sm px-3 py-1.5 rounded-xl border border-gray-200 bg-gray-50 focus:ring-2 focus:ring-violet-200 outline-none" />
+          {/* Date range row — always visible but compact */}
+          <div className="px-4 pb-3 flex items-center gap-2 border-t border-slate-100 pt-2.5">
+            <span className="text-xs text-slate-400 font-medium">Due between</span>
+            <input type="date" value={dueFrom} onChange={e => setDueFrom(e.target.value)} className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 focus:ring-2 focus:ring-slate-300 outline-none text-slate-600" />
+            <span className="text-xs text-slate-300">–</span>
+            <input type="date" value={dueTo} onChange={e => setDueTo(e.target.value)} className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 focus:ring-2 focus:ring-slate-300 outline-none text-slate-600" />
           </div>
         </div>
 
-        {/* ── EFFORT WARNING ── */}
+        {/* ── EFFORT WARNING BANNER ─────────────────────────────────────── */}
         {missingEffortCount > 0 && (
-          <div className="flex items-center justify-between gap-4 px-5 py-4 rounded-2xl bg-amber-50 border border-amber-200/80">
+          <div className="flex items-center justify-between gap-4 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center text-amber-600 text-sm font-bold shrink-0">
+              <div className="w-7 h-7 rounded-lg bg-amber-200 flex items-center justify-center text-amber-900 text-xs font-bold shrink-0 tabular-nums">
                 {missingEffortCount}
               </div>
               <div>
-                <p className="text-sm font-semibold text-gray-900">Work packages missing effort estimate</p>
-                <p className="text-xs text-amber-700 mt-0.5">Roll-ups assume Medium — affects capacity reliability</p>
+                <p className="text-sm font-semibold text-slate-900 leading-tight">Work packages missing effort estimate</p>
+                <p className="text-xs text-amber-700 mt-0.5">Roll-ups default to Medium — may skew capacity planning</p>
               </div>
             </div>
             <div className="flex gap-2 shrink-0">
-              <button onClick={() => { setOnlyMissingEffort(v => !v); setLeavesOnly(true); setActiveViewId("__all"); }}
-                className={`text-sm px-4 py-2 rounded-xl font-medium border transition-all ${onlyMissingEffort ? "bg-amber-600 text-white border-amber-600" : "bg-white text-amber-800 border-amber-300 hover:bg-amber-100"}`}>
-                {onlyMissingEffort ? "Showing gaps ✓" : "Show gaps"}
+              <button
+                onClick={() => { setOnlyMissingEffort(v => !v); setLeavesOnly(true); setActiveViewId("__all"); }}
+                className={`text-xs px-3 py-1.5 rounded-lg font-medium border transition-all ${
+                  onlyMissingEffort
+                    ? "bg-amber-700 text-white border-amber-700"
+                    : "bg-white text-amber-800 border-amber-300 hover:bg-amber-100"
+                }`}
+              >
+                {onlyMissingEffort ? "Showing gaps ✓" : "Filter to gaps"}
               </button>
-              <button onClick={jumpToNextEffortGap} className="text-sm px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition-all">
+              <button
+                onClick={jumpToNextEffortGap}
+                className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-all"
+              >
                 Jump to next →
               </button>
             </div>
           </div>
         )}
 
-        {/* ── MAIN GRID ── */}
+        {/* ── MAIN GRID ────────────────────────────────────────────────── */}
         <div className="grid xl:grid-cols-12 gap-5">
 
-          {/* ── ROWS ── */}
-          <div className="xl:col-span-8 space-y-3">
+          {/* ── ROW LIST ─────────────────────────────────────────────── */}
+          <div className="xl:col-span-8 space-y-2">
             {visibleRows.length === 0 ? (
-              <div className="rounded-2xl border-2 border-dashed border-gray-200 bg-white p-16 text-center">
-                <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-4">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="7" height="7" rx="1.5" stroke="#9ca3af" strokeWidth="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5" stroke="#9ca3af" strokeWidth="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke="#9ca3af" strokeWidth="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5" stroke="#9ca3af" strokeWidth="1.5"/></svg>
+              <div className="rounded-xl border-2 border-dashed border-slate-200 bg-white p-14 text-center">
+                <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center mx-auto mb-3">
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                    <rect x="2" y="2" width="6" height="6" rx="1.5" stroke="#94a3b8" strokeWidth="1.5"/>
+                    <rect x="12" y="2" width="6" height="6" rx="1.5" stroke="#94a3b8" strokeWidth="1.5"/>
+                    <rect x="2" y="12" width="6" height="6" rx="1.5" stroke="#94a3b8" strokeWidth="1.5"/>
+                    <rect x="12" y="12" width="6" height="6" rx="1.5" stroke="#94a3b8" strokeWidth="1.5"/>
+                  </svg>
                 </div>
-                <p className="text-gray-700 font-semibold">No matching items</p>
-                <p className="text-sm text-gray-400 mt-1">Adjust filters or add new entries</p>
+                <p className="text-slate-700 font-semibold text-sm">No matching items</p>
+                <p className="text-xs text-slate-400 mt-1">Adjust filters or add new entries above</p>
               </div>
             ) : (
               visibleRows.map((r: any) => {
@@ -991,65 +1164,98 @@ export default function WBSEditor({
                 const overdue = isOverdue(r.due_date, statusShown);
                 const effortVal = normalizeEffort(r.effort);
                 const effortMissing = !isParent && effortVal === "";
-                const accentClass = LEVEL_ACCENT[Math.min(r.level, LEVEL_ACCENT.length - 1)];
+                const stripeClass = LEVEL_STRIPE[Math.min(r.level, LEVEL_STRIPE.length - 1)];
+                const bgClass = isParent && r.level === 0 ? LEVEL_BG[0] : "bg-white";
                 const cfg = STATUS_CONFIG[statusShown];
 
                 return (
-                  <div key={r.id}
-                    className={`group rounded-2xl bg-white border-l-4 ${accentClass} border-t border-r border-b transition-all duration-150 cursor-pointer ${
+                  <div
+                    key={r.id}
+                    className={`group rounded-xl border-l-[3px] ${stripeClass} border-t border-r border-b transition-all duration-100 cursor-pointer ${
                       isSelected
-                        ? "border-t-violet-200 border-r-violet-200 border-b-violet-200 ring-2 ring-violet-100 shadow-md"
-                        : "border-t-gray-200 border-r-gray-200 border-b-gray-200 hover:shadow-md hover:border-t-gray-300 hover:border-r-gray-300 hover:border-b-gray-300"
+                        ? `border-t-slate-300 border-r-slate-300 border-b-slate-300 ring-2 ring-slate-900/10 shadow-md ${bgClass}`
+                        : `border-t-slate-200 border-r-slate-200 border-b-slate-200 hover:shadow-sm hover:border-t-slate-300 hover:border-r-slate-300 hover:border-b-slate-300 ${bgClass}`
                     }`}
-                    onClick={() => { setSelectedRowId(r.id); setAssistantOpen(true); }}>
+                    onClick={() => { setSelectedRowId(r.id); setAssistantOpen(true); }}
+                  >
 
-                    {/* ROW MAIN */}
-                    <div className="flex items-center gap-3 px-4 pt-4 pb-3">
-                      {/* Level indent + collapse btn */}
-                      <div style={{ width: `${r.level * 24}px` }} className="shrink-0" />
+                    {/* ── ROW HEADER ─── */}
+                    <div className="flex items-center gap-2 px-3 pt-3 pb-2.5">
+                      {/* Indent spacer */}
+                      <div style={{ width: `${r.level * 20}px` }} className="shrink-0" />
+
+                      {/* Collapse toggle or status dot */}
                       {isParent ? (
-                        <button onClick={e => { e.stopPropagation(); toggleCollapse(r.id); }}
-                          className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all shrink-0 text-xs">
+                        <button
+                          onClick={e => { e.stopPropagation(); toggleCollapse(r.id); }}
+                          className="w-6 h-6 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all shrink-0 text-[10px]"
+                        >
                           {isCollapsed ? "▸" : "▾"}
                         </button>
                       ) : (
-                        <div className="w-7 shrink-0 flex items-center justify-center">
+                        <div className="w-6 h-6 shrink-0 flex items-center justify-center">
                           <div className={`w-2 h-2 rounded-full ${cfg.dot}`} />
                         </div>
                       )}
 
                       {/* Code */}
-                      <code className="text-xs font-mono text-gray-400 tabular-nums shrink-0 w-10 text-right">{r.code || "—"}</code>
+                      <code className="text-[11px] font-mono text-slate-400 tabular-nums shrink-0 w-10 text-right">{r.code || "—"}</code>
 
-                      {/* Deliverable */}
-                      <input value={r.deliverable} placeholder={isParent ? "Phase / Group" : "Work Package"}
+                      {/* Deliverable name */}
+                      <input
+                        value={r.deliverable}
+                        placeholder={isParent ? "Phase or group" : "Work package"}
                         onFocus={() => void requestCreateArtifactIfNeeded("focus")}
                         onChange={e => updateRow(r.id, { deliverable: e.target.value })}
                         disabled={!!readOnly}
                         onClick={e => e.stopPropagation()}
-                        className={`flex-1 bg-transparent outline-none placeholder:text-gray-300 min-w-0 ${isParent ? "text-base font-semibold text-gray-900" : "text-sm font-medium text-gray-800"}`} />
+                        className={`flex-1 bg-transparent outline-none placeholder:text-slate-300 min-w-0 ${
+                          isParent
+                            ? r.level === 0
+                              ? "text-sm font-bold text-slate-900 tracking-tight"
+                              : "text-sm font-semibold text-slate-800"
+                            : "text-sm font-medium text-slate-700"
+                        }`}
+                      />
 
-                      {/* Badges */}
-                      <div className="flex items-center gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-                        {overdue && <span className="text-xs font-semibold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">Overdue</span>}
-                        {effortMissing && <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">No effort</span>}
-                        <button onClick={() => toggleDetails(r.id)}
-                          className="text-xs px-3 py-1.5 rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-all">
-                          {detailsOpen ? "Hide" : "Details"}
+                      {/* Always-visible status badges for important states */}
+                      <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                        {overdue && (
+                          <span className="text-[10px] font-semibold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-md">Overdue</span>
+                        )}
+                        {effortMissing && (
+                          <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md">No effort</span>
+                        )}
+                        {statusShown === "blocked" && !isParent && (
+                          <span className="text-[10px] font-semibold text-rose-700 bg-rose-100 border border-rose-200 px-1.5 py-0.5 rounded-md">Blocked</span>
+                        )}
+
+                        {/* Hover-only controls */}
+                        <button
+                          onClick={e => { e.stopPropagation(); toggleDetails(r.id); }}
+                          className="opacity-0 group-hover:opacity-100 text-[11px] px-2 py-1 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-all"
+                        >
+                          {detailsOpen ? "↑ Hide" : "↓ Details"}
                         </button>
                         {!readOnly && <RowActions rowId={r.id} />}
                       </div>
                     </div>
 
-                    {/* ROW META */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 px-4 pb-4" onClick={e => e.stopPropagation()}>
+                    {/* ── ROW META ─── */}
+                    <div
+                      className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-3 pb-3"
+                      onClick={e => e.stopPropagation()}
+                    >
                       {/* Status */}
                       <div>
-                        <label className="block text-[10px] uppercase tracking-widest text-gray-400 mb-1.5 font-semibold">Status</label>
-                        <select value={statusShown} disabled={!!readOnly || (doc?.auto_rollup !== false && isParent)}
+                        <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">Status</label>
+                        <select
+                          value={statusShown}
+                          disabled={!!readOnly || (doc?.auto_rollup !== false && isParent)}
                           onFocus={() => void requestCreateArtifactIfNeeded("focus")}
                           onChange={e => updateRow(r.id, { status: e.target.value as WbsStatus })}
-                          className={`text-xs font-semibold rounded-xl px-3 py-1.5 border w-full disabled:opacity-60 outline-none focus:ring-2 focus:ring-violet-200 transition-all ${cfg.selectCls}`}>
+                          className={`text-xs font-semibold rounded-lg px-2.5 py-1.5 border w-full disabled:opacity-60 outline-none focus:ring-1 focus:ring-slate-400 transition-all ${cfg.selectCls}`}
+                        >
                           <option value="not_started">Not started</option>
                           <option value="in_progress">In progress</option>
                           <option value="done">Done</option>
@@ -1059,11 +1265,22 @@ export default function WBSEditor({
 
                       {/* Effort */}
                       <div>
-                        <label className="block text-[10px] uppercase tracking-widest text-gray-400 mb-1.5 font-semibold">Effort</label>
-                        <select value={effortVal} disabled={!!readOnly}
+                        <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">Effort</label>
+                        <select
+                          value={effortVal}
+                          disabled={!!readOnly}
                           onFocus={() => void requestCreateArtifactIfNeeded("focus")}
                           onChange={e => updateRow(r.id, { effort: normalizeEffort(e.target.value) })}
-                          className={`text-xs font-semibold rounded-xl px-3 py-1.5 border w-full outline-none focus:ring-2 focus:ring-violet-200 transition-all ${effortMissing ? "bg-rose-50 border-rose-300 text-rose-700" : effortVal === "S" ? "bg-sky-50 border-sky-200 text-sky-700" : effortVal === "M" ? "bg-violet-50 border-violet-200 text-violet-700" : "bg-orange-50 border-orange-200 text-orange-700"}`}>
+                          className={`text-xs font-semibold rounded-lg px-2.5 py-1.5 border w-full outline-none focus:ring-1 focus:ring-slate-400 transition-all ${
+                            effortMissing
+                              ? "bg-rose-50 border-rose-200 text-rose-700"
+                              : effortVal === "S"
+                              ? "bg-sky-50 border-sky-200 text-sky-800"
+                              : effortVal === "M"
+                              ? "bg-slate-50 border-slate-200 text-slate-700"
+                              : "bg-orange-50 border-orange-200 text-orange-800"
+                          }`}
+                        >
                           <option value="">— not set —</option>
                           <option value="S">S – Small</option>
                           <option value="M">M – Medium</option>
@@ -1073,58 +1290,84 @@ export default function WBSEditor({
 
                       {/* Progress */}
                       <div>
-                        <div className="flex justify-between items-center mb-1.5">
-                          <label className="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">Progress</label>
-                          <span className="text-xs font-bold text-gray-700 tabular-nums">{progressShown}%</span>
+                        <div className="flex justify-between items-center mb-1">
+                          <label className="text-[9px] uppercase tracking-widest text-slate-400 font-semibold">Progress</label>
+                          <span className="text-[11px] font-bold text-slate-700 tabular-nums">{progressShown}%</span>
                         </div>
-                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                          <div className="h-full rounded-full transition-all duration-500"
-                            style={{ width: `${progressShown}%`, background: progressShown === 100 ? "#10b981" : progressShown > 50 ? "#6366f1" : "#a78bfa" }} />
+                        {/* Segmented progress track */}
+                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${cfg.trackCls}`}
+                            style={{ width: `${progressShown}%` }}
+                          />
                         </div>
                       </div>
 
                       {/* Due date */}
                       <div>
-                        <label className="block text-[10px] uppercase tracking-widest text-gray-400 mb-1.5 font-semibold">Due date</label>
-                        <input type="date" value={r.due_date ?? ""} disabled={!!readOnly}
+                        <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">Due</label>
+                        <input
+                          type="date"
+                          value={r.due_date ?? ""}
+                          disabled={!!readOnly}
                           onFocus={() => void requestCreateArtifactIfNeeded("focus")}
                           onChange={e => updateRow(r.id, { due_date: e.target.value })}
-                          className={`text-xs w-full rounded-xl border px-3 py-1.5 outline-none focus:ring-2 focus:ring-violet-200 transition-all ${overdue ? "bg-rose-50 border-rose-300 text-rose-700" : "bg-gray-50 border-gray-200 text-gray-700"}`} />
+                          className={`text-xs w-full rounded-lg border px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-slate-400 transition-all ${
+                            overdue ? "bg-rose-50 border-rose-200 text-rose-700" : "bg-slate-50 border-slate-200 text-slate-600"
+                          }`}
+                        />
                       </div>
                     </div>
 
-                    {/* DETAILS PANEL */}
+                    {/* ── DETAILS PANEL ─── */}
                     {detailsOpen && (
-                      <div className="border-t border-gray-100 px-4 py-5 grid md:grid-cols-12 gap-5 bg-gray-50/50" onClick={e => e.stopPropagation()}>
-                        <div className="md:col-span-4 space-y-4">
+                      <div
+                        className="border-t border-slate-100 px-3 py-4 grid md:grid-cols-12 gap-4 bg-slate-50"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <div className="md:col-span-4 space-y-3.5">
                           {[
                             { label: "Owner", value: r.owner ?? "", key: "owner", placeholder: "Assign owner" },
                             { label: "Predecessor", value: r.predecessor ?? "", key: "predecessor", placeholder: "e.g. 1.2" },
                             { label: "Tags", value: joinTags(r.tags), key: "tags", placeholder: "governance, risk…" },
                           ].map(field => (
                             <div key={field.key}>
-                              <label className="block text-[10px] uppercase tracking-widest text-gray-400 mb-1.5 font-semibold">{field.label}</label>
-                              <input value={field.value} disabled={!!readOnly} placeholder={field.placeholder}
+                              <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">{field.label}</label>
+                              <input
+                                value={field.value}
+                                disabled={!!readOnly}
+                                placeholder={field.placeholder}
                                 onFocus={() => void requestCreateArtifactIfNeeded("focus")}
                                 onChange={e => updateRow(r.id, { [field.key]: field.key === "tags" ? parseTags(e.target.value) : e.target.value } as any)}
-                                className="w-full text-sm bg-white border border-gray-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-300 transition-all" />
+                                className="w-full text-sm bg-white border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-slate-400 focus:border-slate-400 transition-all placeholder:text-slate-300"
+                              />
                             </div>
                           ))}
                         </div>
-                        <div className="md:col-span-8 space-y-4">
+                        <div className="md:col-span-8 space-y-3.5">
                           <div>
-                            <label className="block text-[10px] uppercase tracking-widest text-gray-400 mb-1.5 font-semibold">Description</label>
-                            <textarea value={r.description ?? ""} disabled={!!readOnly} rows={3} placeholder="Context, notes, approach…"
+                            <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">Description</label>
+                            <textarea
+                              value={r.description ?? ""}
+                              disabled={!!readOnly}
+                              rows={3}
+                              placeholder="Context, notes, approach…"
                               onFocus={() => void requestCreateArtifactIfNeeded("focus")}
                               onChange={e => updateRow(r.id, { description: e.target.value })}
-                              className="w-full text-sm bg-white border border-gray-200 rounded-xl px-3 py-2 resize-y min-h-[72px] outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-300 transition-all" />
+                              className="w-full text-sm bg-white border border-slate-200 rounded-lg px-3 py-2 resize-y min-h-[68px] outline-none focus:ring-1 focus:ring-slate-400 focus:border-slate-400 transition-all placeholder:text-slate-300"
+                            />
                           </div>
                           <div>
-                            <label className="block text-[10px] uppercase tracking-widest text-gray-400 mb-1.5 font-semibold">Acceptance Criteria</label>
-                            <textarea value={r.acceptance_criteria ?? ""} disabled={!!readOnly} rows={4} placeholder={"• Must be measurable\n• Must be testable"}
+                            <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">Acceptance Criteria</label>
+                            <textarea
+                              value={r.acceptance_criteria ?? ""}
+                              disabled={!!readOnly}
+                              rows={4}
+                              placeholder={"• Must be measurable\n• Must be testable"}
                               onFocus={() => void requestCreateArtifactIfNeeded("focus")}
                               onChange={e => updateRow(r.id, { acceptance_criteria: e.target.value })}
-                              className="w-full text-sm bg-white border border-gray-200 rounded-xl px-3 py-2 resize-y min-h-[96px] outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-300 transition-all" />
+                              className="w-full text-sm bg-white border border-slate-200 rounded-lg px-3 py-2 resize-y min-h-[92px] outline-none focus:ring-1 focus:ring-slate-400 focus:border-slate-400 transition-all placeholder:text-slate-300"
+                            />
                           </div>
                         </div>
                       </div>
@@ -1134,36 +1377,59 @@ export default function WBSEditor({
               })
             )}
 
-            {readOnly && <p className="text-xs text-center text-gray-400 py-2">Read-only mode</p>}
+            {readOnly && (
+              <p className="text-[11px] text-center text-slate-400 py-2">Read-only mode</p>
+            )}
           </div>
 
-          {/* ── RIGHT RAIL ── */}
+          {/* ── RIGHT RAIL ──────────────────────────────────────────── */}
           <div className="xl:col-span-4 space-y-4">
 
-            {/* AI ASSISTANT */}
-            <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden sticky top-[76px]">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center">
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1l1.5 4H13l-3.5 2.5 1.5 4L7 9 3 11.5 4.5 7.5 1 5h4.5L7 1z" fill="white" fillOpacity="0.9"/></svg>
+            {/* AI ASSISTANT PANEL */}
+            <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden sticky top-[68px]">
+              {/* Panel header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-md bg-slate-900 flex items-center justify-center">
+                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                      <path d="M5.5 1L7 3.8h3L7.5 5.6l1.5 3.4-3.5-2-3.5 2 1.5-3.4L1 3.8h3L5.5 1z" fill="white" fillOpacity="0.85"/>
+                    </svg>
                   </div>
-                  <span className="text-sm font-semibold text-gray-900">AI Assistant</span>
+                  <span className="text-xs font-semibold text-slate-800">AI Assistant</span>
+                  {selectedRow && (
+                    <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md font-mono truncate max-w-[100px]">
+                      {selectedRow.code}
+                    </span>
+                  )}
                 </div>
-                <button onClick={() => setAssistantOpen(v => !v)}
-                  className="text-xs px-3 py-1.5 rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50 transition-all">
-                  {assistantOpen ? "Hide" : "Open"}
+                <button
+                  onClick={() => setAssistantOpen(v => !v)}
+                  className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 transition-all"
+                >
+                  {assistantOpen ? "Collapse" : "Expand"}
                 </button>
               </div>
 
               <div className="p-4">
                 {!assistantOpen ? (
-                  <p className="text-sm text-gray-400 text-center py-4">Click a row to open the assistant</p>
+                  <div className="text-center py-5">
+                    <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center mx-auto mb-2">
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="#94a3b8" strokeWidth="1.3"/><path d="M7 4.5v3M7 9v.5" stroke="#94a3b8" strokeWidth="1.3" strokeLinecap="round"/></svg>
+                    </div>
+                    <p className="text-xs text-slate-400">Select a row to open the assistant</p>
+                  </div>
                 ) : (
                   <LazyWbsAssistantRail
-                    projectId={projectId} readOnly={!!readOnly} selectedRow={selectedRow}
+                    projectId={projectId}
+                    readOnly={!!readOnly}
+                    selectedRow={selectedRow}
                     onEnsureArtifact={async () => { await requestCreateArtifactIfNeeded("focus"); return safeStr(artifactIdLocal).trim(); }}
                     onUpdateRow={(rowId, patch) => updateRow(rowId, patch)}
-                    onAppendDescription={(rowId, block) => { const row = coded.find(x => x.id === rowId); const existing = safeStr(row?.description); updateRow(rowId, { description: existing ? `${existing}\n\n${block}` : block }); }}
+                    onAppendDescription={(rowId, block) => {
+                      const row = coded.find(x => x.id === rowId);
+                      const existing = safeStr(row?.description);
+                      updateRow(rowId, { description: existing ? `${existing}\n\n${block}` : block });
+                    }}
                     onExpandChildren={rowId => aiExpand(rowId)}
                     onMessage={text => { setMsg(text); setTimeout(() => setMsg(""), 1200); }}
                   />
@@ -1171,29 +1437,39 @@ export default function WBSEditor({
               </div>
             </div>
 
-            {/* VALIDATE PANEL */}
+            {/* VALIDATION PANEL */}
             {validateOpen && (
-              <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-                  <span className="text-sm font-semibold text-gray-900">Validation</span>
-                  <button onClick={() => setValidateOpen(false)} className="text-xs px-3 py-1.5 rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50">Close</button>
+              <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
+                  <span className="text-xs font-semibold text-slate-800">Validation Report</span>
+                  <button onClick={() => setValidateOpen(false)} className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 transition-all">Close</button>
                 </div>
                 <div className="p-4 space-y-3">
-                  <p className="text-sm text-gray-600">{validateSummary}</p>
+                  <p className="text-sm text-slate-600">{validateSummary}</p>
                   {aiIssues.length > 0 && (
                     <div className="space-y-2">
                       {aiIssues.map((x, i) => (
-                        <div key={i} className={`rounded-xl px-4 py-3 text-sm border ${x.severity === "high" ? "border-rose-200 bg-rose-50" : x.severity === "medium" ? "border-amber-200 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
+                        <div key={i} className={`rounded-lg px-3 py-2.5 text-sm border ${
+                          x.severity === "high"
+                            ? "border-rose-200 bg-rose-50"
+                            : x.severity === "medium"
+                            ? "border-amber-200 bg-amber-50"
+                            : "border-slate-200 bg-slate-50"
+                        }`}>
                           <div className="flex items-center justify-between gap-2 mb-1">
-                            <span className={`text-[10px] font-bold uppercase tracking-widest ${x.severity === "high" ? "text-rose-600" : x.severity === "medium" ? "text-amber-700" : "text-gray-500"}`}>{x.severity}</span>
+                            <span className={`text-[9px] font-bold uppercase tracking-widest ${
+                              x.severity === "high" ? "text-rose-600" : x.severity === "medium" ? "text-amber-700" : "text-slate-400"
+                            }`}>{x.severity}</span>
                             {x.rowId && (
-                              <button onClick={() => { setSelectedRowId(x.rowId!); setAssistantOpen(true); setMsg("Jumped to row"); setTimeout(() => setMsg(""), 1000); }}
-                                className="text-xs px-2.5 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600">
+                              <button
+                                onClick={() => { setSelectedRowId(x.rowId!); setAssistantOpen(true); setMsg("Jumped to row"); setTimeout(() => setMsg(""), 1000); }}
+                                className="text-[10px] px-2 py-0.5 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
+                              >
                                 Jump →
                               </button>
                             )}
                           </div>
-                          <p className="text-gray-700 text-xs leading-relaxed">{x.message}</p>
+                          <p className="text-xs text-slate-700 leading-relaxed">{x.message}</p>
                         </div>
                       ))}
                     </div>
@@ -1202,33 +1478,38 @@ export default function WBSEditor({
               </div>
             )}
 
-            {/* GENERATE PANEL */}
+            {/* AI GENERATE PANEL */}
             {genOpen && (
-              <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
                   <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-violet-500 animate-pulse" />
-                    <span className="text-sm font-semibold text-gray-900">AI Generated WBS</span>
+                    {genLoading && <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />}
+                    <span className="text-xs font-semibold text-slate-800">AI Generated WBS</span>
                   </div>
-                  <button onClick={() => { setGenOpen(false); setGeneratedDoc(null); }} className="text-xs px-3 py-1.5 rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50">Close</button>
+                  <button onClick={() => { setGenOpen(false); setGeneratedDoc(null); }} className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 transition-all">Close</button>
                 </div>
-                <div className="p-4 space-y-4">
-                  <p className="text-sm text-gray-600">{genLoading ? "Generating your WBS…" : generatedDoc ? "Preview ready. Apply to replace current rows." : "No output yet."}</p>
+                <div className="p-4 space-y-3">
+                  <p className="text-sm text-slate-600">
+                    {genLoading ? "Generating your WBS…" : generatedDoc ? "Preview ready. Apply to replace current rows." : "No output yet."}
+                  </p>
                   {generatedDoc && (
                     <>
-                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 max-h-[200px] overflow-auto">
-                        <pre className="text-xs text-gray-600 whitespace-pre-wrap">{JSON.stringify(generatedDoc, null, 2)}</pre>
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 max-h-[200px] overflow-auto">
+                        <pre className="text-[11px] text-slate-600 whitespace-pre-wrap font-mono leading-relaxed">{JSON.stringify(generatedDoc, null, 2)}</pre>
                       </div>
                       <div className="flex gap-2">
-                        <button onClick={applyGeneratedDoc} disabled={!!readOnly}
-                          className="flex-1 py-2 text-sm font-semibold rounded-xl bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-60 transition-all">
+                        <button
+                          onClick={applyGeneratedDoc}
+                          disabled={!!readOnly}
+                          className="flex-1 py-2 text-sm font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-700 disabled:opacity-50 transition-all"
+                        >
                           Apply WBS
                         </button>
-                        <button onClick={() => generateWbs()} className="px-4 py-2 text-sm rounded-xl border border-gray-200 hover:bg-gray-50 transition-all">
-                          Regenerate
+                        <button onClick={() => generateWbs()} className="px-3 py-2 text-sm rounded-lg border border-slate-200 hover:bg-slate-50 transition-all">
+                          Retry
                         </button>
                       </div>
-                      <p className="text-xs text-gray-400 text-center">This will replace all current rows</p>
+                      <p className="text-[10px] text-slate-400 text-center">This replaces all current rows</p>
                     </>
                   )}
                 </div>
