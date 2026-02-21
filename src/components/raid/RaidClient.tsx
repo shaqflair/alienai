@@ -1843,17 +1843,6 @@ export default function RaidClient({
 
       {/* ── MAIN CONTENT ── */}
       <main className="max-w-[1800px] mx-auto px-6 py-6 pb-24 space-y-4">
-        {/* (rest of your file unchanged from here) */}
-        {/* ✅ NOTE: only status/priority styling was changed above */}
-        {/* Keep your remaining JSX/Editor/Digest exactly as you pasted. */}
-      </main>
-
-      {/* (rest unchanged) */}
-    </div>
-  );
-}
-      {/* ── MAIN CONTENT ── */}
-      <main className="max-w-[1800px] mx-auto px-6 py-6 pb-24 space-y-4">
         <DragDropContext onDragEnd={onDragEnd}>
           {(Object.keys(grouped) as RaidType[]).map((type) => {
             const cfg = TYPE_CONFIG[type];
