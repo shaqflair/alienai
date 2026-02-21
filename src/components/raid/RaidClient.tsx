@@ -114,89 +114,9 @@ function isOpenishStatus(s: any) {
   return v === "open" || v === "in progress" || v === "in_progress" || v === "inprogress";
 }
 
-/* ---------------- Notion keyboard + paste ---------------- */
+/* ---------------- keyboard shortcuts ---------------- */
 
-type CellKey =
-  | "description"
-  | "owner_label"
-  | "status"
-  | "priority"
-  | "probability"
-  | "severity"
-  | "due_date"
-  | "response_plan";
-
-const EDIT_COLS: CellKey[] = [
-  "description",
-  "owner_label",
-  "status",
-  "priority",
-  "probability",
-  "severity",
-  "due_date",
-  "response_plan",
-];
-
-function cx(...a: Array<string | false | null | undefined>) {
-  return a.filter(Boolean).join(" ");
-}
-
-function parseTsv(text: string) {
-  const raw = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  const rows = raw.split("\n").filter((r) => r.length > 0);
-  return rows.map((r) => r.split("\t"));
-}
-
-function normStatus(x: any): RaidStatus {
-  const s = safeStr(x).trim().toLowerCase();
-  if (s === "open") return "Open";
-  if (s === "in progress" || s === "in_progress" || s === "inprogress") return "In Progress";
-  if (s === "mitigated") return "Mitigated";
-  if (s === "closed") return "Closed";
-  return "Open";
-}
-
-function normPriority(x: any): "Low" | "Medium" | "High" | "Critical" | "" {
-  const s = safeStr(x).trim().toLowerCase();
-  if (!s || s === "—" || s === "-") return "";
-  if (s === "low") return "Low";
-  if (s === "medium") return "Medium";
-  if (s === "high") return "High";
-  if (s === "critical") return "Critical";
-  return "";
-}
-
-function normDateToIsoOnly(x: any): string | null {
-  const s = safeStr(x).trim();
-  if (!s) return null;
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
-  if (m) {
-    const dd = String(m[1]).padStart(2, "0");
-    const mm = String(m[2]).padStart(2, "0");
-    let yyyy = m[3];
-    if (yyyy.length === 2) {
-      const y = Number(yyyy);
-      yyyy = String(y >= 70 ? 1900 + y : 2000 + y);
-    }
-    return `${yyyy}-${mm}-${dd}`;
-  }
-
-  const d = new Date(s);
-  if (!Number.isNaN(d.getTime())) {
-    const yyyy = String(d.getFullYear());
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
-  }
-
-  return null;
-}
-
-/* ---------------- keyboard shortcuts (existing global) ---------------- */
-
+// ✅ Invalid removed
 const STATUS_ORDER = ["Open", "In Progress", "Mitigated", "Closed"] as const;
 const PRIORITY_ORDER = ["Low", "Medium", "High", "Critical"] as const;
 
@@ -213,39 +133,51 @@ function cycleInList(list: readonly string[], current: string) {
   return list[(idx + 1) % list.length];
 }
 
-/* ---------------- styling tokens ---------------- */
+/* ---------------- Notion-ish styling tokens ---------------- */
 
-const TYPE_STYLES: Record<RaidType, { border: string; text: string; desc: string; headerBg: string; dot: string }> = {
+const TYPE_STYLES: Record<
+  RaidType,
+  { accent: string; border: string; text: string; icon: string; desc: string; headerBg: string; dot: string }
+> = {
   Risk: {
+    accent: "rose",
     border: "border-rose-200",
     text: "text-rose-900",
+    icon: "text-rose-600",
     dot: "bg-rose-500",
     desc: "Events that may happen — mitigate early",
     headerBg: "bg-gradient-to-r from-rose-50 to-white",
   },
   Assumption: {
+    accent: "amber",
     border: "border-amber-200",
     text: "text-amber-900",
+    icon: "text-amber-600",
     dot: "bg-amber-500",
     desc: "Beliefs we hold — validate them",
     headerBg: "bg-gradient-to-r from-amber-50 to-white",
   },
   Issue: {
+    accent: "orange",
     border: "border-orange-200",
     text: "text-orange-900",
+    icon: "text-orange-600",
     dot: "bg-orange-500",
     desc: "Active problems — resolve quickly",
     headerBg: "bg-gradient-to-r from-orange-50 to-white",
   },
   Dependency: {
+    accent: "blue",
     border: "border-blue-200",
     text: "text-blue-900",
+    icon: "text-blue-600",
     dot: "bg-blue-500",
     desc: "External blockers — track closely",
     headerBg: "bg-gradient-to-r from-blue-50 to-white",
   },
 };
 
+// ✅ Premium but restrained: pill looks glossy, table stays flat.
 const STATUS_PILL: Record<string, { bg: string; text: string; ring: string }> = {
   open: {
     bg: "bg-gradient-to-b from-slate-400 to-slate-500",
@@ -333,7 +265,7 @@ function digestDeepLink(projectRouteId: string, x: any) {
 
 /* ---------------- api helpers ---------------- */
 
-// ✅ IMPORTANT: supports DELETE 204 and empty body responses
+// ✅ IMPORTANT: fixed to support DELETE 204 and empty body responses
 async function postJson(url: string, method: string, body?: any, headers?: Record<string, string>) {
   const res = await fetch(url, {
     method,
@@ -344,6 +276,7 @@ async function postJson(url: string, method: string, body?: any, headers?: Recor
     body: body ? JSON.stringify(body) : undefined,
   });
 
+  // DELETE routes often return 204 No Content (valid success)
   if (res.status === 204) return { ok: true };
 
   const text = await res.text().catch(() => "");
@@ -357,6 +290,7 @@ async function postJson(url: string, method: string, body?: any, headers?: Recor
       })()
     : null;
 
+  // Some endpoints return 200 with empty body
   if (res.ok && !j) return { ok: true };
 
   if (!res.ok || !j?.ok) {
@@ -393,43 +327,13 @@ async function createRaidItem(payload: any) {
   return j.item as RaidItem;
 }
 
-/**
- * ✅ Delete reliability:
- * - Primary: DELETE /api/raid/:id
- * - If your route only supports POST (common with some Next handlers), fallback:
- *   POST /api/raid/:id/delete  OR POST /api/raid/delete (id in body)
- * (We try both if 405.)
- */
 async function deleteRaidItem(id: string, expectedUpdatedAt?: string) {
-  try {
-    await postJson(
-      `/api/raid/${encodeURIComponent(id)}`,
-      "DELETE",
-      undefined,
-      expectedUpdatedAt ? { "if-match-updated-at": expectedUpdatedAt } : undefined
-    );
-  } catch (e: any) {
-    if ((e as any)?.status !== 405) throw e;
-    // Fallback 1
-    try {
-      await postJson(
-        `/api/raid/${encodeURIComponent(id)}/delete`,
-        "POST",
-        { id, expected_updated_at: expectedUpdatedAt || undefined },
-        expectedUpdatedAt ? { "if-match-updated-at": expectedUpdatedAt } : undefined
-      );
-      return;
-    } catch (e2: any) {
-      if ((e2 as any)?.status !== 404) throw e2;
-      // Fallback 2
-      await postJson(
-        `/api/raid/delete`,
-        "POST",
-        { id, expected_updated_at: expectedUpdatedAt || undefined },
-        expectedUpdatedAt ? { "if-match-updated-at": expectedUpdatedAt } : undefined
-      );
-    }
-  }
+  await postJson(
+    `/api/raid/${encodeURIComponent(id)}`,
+    "DELETE",
+    undefined,
+    expectedUpdatedAt ? { "if-match-updated-at": expectedUpdatedAt } : undefined
+  );
 }
 
 async function aiRefreshRaidItem(id: string) {
@@ -485,132 +389,16 @@ function newBanner(kind: Banner["kind"], text: string): Banner {
   return { kind, text, id: `${kind}:${Date.now()}:${Math.random().toString(16).slice(2)}` };
 }
 
-/* ---------------- Notion-like primitives (read-mode first) ---------------- */
+/* ---------------- Notion-like cell primitives ---------------- */
 
+function cx(...a: Array<string | false | null | undefined>) {
+  return a.filter(Boolean).join(" ");
+}
+
+const CELL_BASE =
+  "w-full bg-transparent border-0 outline-none ring-0 focus:ring-0 focus:outline-none text-[13px] leading-5 text-slate-900 placeholder:text-slate-400";
 const CELL_WRAP =
-  "px-3 py-2 min-h-[38px] border-r border-slate-200 group-hover:bg-slate-50/60 transition-colors align-top";
-
-function pluralLabel(type: RaidType) {
-  if (type === "Dependency") return "Dependencies";
-  return `${type}s`;
-}
-
-function CellDisplay({
-  value,
-  placeholder,
-  align = "left",
-  mono,
-  dimIfEmpty = true,
-  onActivate,
-  title,
-}: {
-  value: string;
-  placeholder?: string;
-  align?: "left" | "center" | "right";
-  mono?: boolean;
-  dimIfEmpty?: boolean;
-  onActivate: () => void;
-  title?: string;
-}) {
-  const v = safeStr(value ?? "").trim();
-  return (
-    <div
-      role="gridcell"
-      tabIndex={0}
-      onFocus={onActivate}
-      onMouseDown={(e) => {
-        // keep drag handle clicks unaffected
-        if ((e.target as HTMLElement | null)?.closest("[data-dnd-handle]")) return;
-        onActivate();
-      }}
-      onDoubleClick={onActivate}
-      className={cx(
-        "w-full min-h-[28px] px-2 py-1 rounded",
-        "outline-none",
-        "hover:bg-white/80",
-        "focus:bg-white focus:shadow-[0_0_0_2px_rgba(99,102,241,0.18)]",
-        align === "center" && "text-center",
-        align === "right" && "text-right",
-        mono && "font-mono text-[12px]",
-        !mono && "text-[13px]",
-        "truncate"
-      )}
-      title={title ?? (v || "")}
-    >
-      {v ? (
-        <span className="text-slate-900">{v}</span>
-      ) : (
-        <span className={cx(dimIfEmpty ? "text-slate-400" : "text-slate-500")}>{placeholder || "—"}</span>
-      )}
-    </div>
-  );
-}
-
-function PillTag({
-  kind,
-  label,
-  onActivate,
-  disabled,
-}: {
-  kind: "status" | "priority";
-  label: string;
-  onActivate: () => void;
-  disabled?: boolean;
-}) {
-  const stKey = kind === "status" ? statusToken(label) : "";
-  const priKey = kind === "priority" ? priorityToken(label) : "";
-  const st = STATUS_PILL[stKey] || STATUS_PILL.open;
-  const pr = PRIORITY_PILL[priKey] || PRIORITY_PILL[""];
-  const klass =
-    kind === "status"
-      ? cx("w-full h-8 px-3 rounded-full border-0", "text-[12px] font-semibold text-center", st.bg, st.text, st.ring)
-      : cx("w-full h-8 px-3 rounded-full border-0", "text-[12px] font-semibold text-center", pr.bg, pr.text, pr.ring);
-
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onMouseDown={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onActivate();
-      }}
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onActivate();
-      }}
-      className={cx(
-        klass,
-        "shadow-[0_6px_14px_rgba(2,6,23,0.08)] hover:brightness-105 transition",
-        disabled && "opacity-60 cursor-not-allowed"
-      )}
-      title="Click to edit"
-    >
-      {kind === "priority" ? (PRIORITY_PILL[priKey]?.label ?? "—") : safeStr(label || "Open")}
-    </button>
-  );
-}
-
-/* ---------------- Active-cell overlay editor ---------------- */
-
-type ActiveCell = { type: RaidType; rowId: string; col: CellKey } | null;
-
-type EditorState =
-  | null
-  | {
-      type: RaidType;
-      rowId: string;
-      col: CellKey;
-      rect: { left: number; top: number; width: number; height: number };
-      value: string;
-    };
-
-function isPrintableKey(e: KeyboardEvent) {
-  if (e.ctrlKey || e.metaKey || e.altKey) return false;
-  const k = e.key;
-  return k.length === 1;
-}
+  "px-3 py-2 min-h-[44px] flex items-center border-r border-slate-200 group-hover:bg-slate-50/70 transition-colors";
 
 export default function RaidClient({
   projectId,
@@ -669,144 +457,6 @@ export default function RaidClient({
 
   const [touchedById, setTouchedById] = useState<Record<string, { owner?: boolean; plan?: boolean }>>({});
   const [hotRowId, setHotRowId] = useState<string>("");
-
-  // ✅ Notion cell tracking
-  const [hotCell, setHotCell] = useState<ActiveCell>(null);
-
-  // ✅ Each read-mode cell is a DIV; we keep refs for overlay positioning
-  const cellRefs = useRef<Record<string, HTMLElement | null>>({});
-  const setCellRef = useCallback((rowId: string, col: CellKey, el: HTMLElement | null) => {
-    cellRefs.current[`${rowId}:${col}`] = el;
-  }, []);
-
-  const [editor, setEditor] = useState<EditorState>(null);
-  const editorInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null>(null);
-
-  const openEditor = useCallback(
-    (ctx: { type: RaidType; rowId: string; col: CellKey }, initialValue?: string) => {
-      const el = cellRefs.current[`${ctx.rowId}:${ctx.col}`];
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      const rect = {
-        left: Math.max(8, r.left),
-        top: Math.max(8, r.top),
-        width: Math.max(120, r.width),
-        height: Math.max(34, r.height),
-      };
-      const curItem = items.find((x) => x.id === ctx.rowId);
-      const fallback =
-        ctx.col === "description"
-          ? safeStr(curItem?.description)
-          : ctx.col === "owner_label"
-          ? safeStr(curItem?.owner_label)
-          : ctx.col === "status"
-          ? safeStr(curItem?.status || "Open")
-          : ctx.col === "priority"
-          ? safeStr(curItem?.priority || "")
-          : ctx.col === "probability"
-          ? String(Number.isFinite(Number(curItem?.probability)) ? Number(curItem?.probability) : 0)
-          : ctx.col === "severity"
-          ? String(Number.isFinite(Number(curItem?.severity)) ? Number(curItem?.severity) : 0)
-          : ctx.col === "due_date"
-          ? safeStr(curItem?.due_date || "")
-          : ctx.col === "response_plan"
-          ? safeStr(curItem?.response_plan || "")
-          : "";
-
-      setHotCell(ctx);
-      setEditor({
-        ...ctx,
-        rect,
-        value: initialValue != null ? initialValue : fallback,
-      });
-
-      // focus next tick
-      window.setTimeout(() => {
-        try {
-          editorInputRef.current?.focus?.();
-          // put caret end for text
-          const elAny = editorInputRef.current as any;
-          if (elAny && typeof elAny.setSelectionRange === "function" && typeof elAny.value === "string") {
-            const v = elAny.value;
-            elAny.setSelectionRange(v.length, v.length);
-          }
-        } catch {}
-      }, 0);
-    },
-    [items]
-  );
-
-  const closeEditor = useCallback(() => setEditor(null), []);
-
-  const commitEditor = useCallback(
-    async (opts?: { close?: boolean }) => {
-      if (!editor) return;
-      const { rowId, col } = editor;
-      const current = items.find((x) => x.id === rowId);
-      const expected = safeStr(current?.updated_at).trim();
-
-      const raw = editor.value ?? "";
-      const patch: any = {};
-      if (col === "description") patch.description = safeStr(raw).trim() || "Untitled";
-      if (col === "owner_label") patch.owner_label = safeStr(raw).trim();
-      if (col === "status") patch.status = normStatus(raw);
-      if (col === "priority") patch.priority = normPriority(raw) || null;
-      if (col === "probability") patch.probability = clampNum(raw, 0, 100);
-      if (col === "severity") patch.severity = clampNum(raw, 0, 100);
-      if (col === "due_date") patch.due_date = safeStr(raw).trim() || null;
-      if (col === "response_plan") patch.response_plan = safeStr(raw).trim() || null;
-
-      // local immediate
-      setItems((prev) =>
-        prev.map((it) => {
-          if (it.id !== rowId) return it;
-          return { ...it, ...patch } as RaidItem;
-        })
-      );
-
-      // persist
-      setBusyId(rowId);
-      try {
-        // mandatory owner enforcement
-        if ("owner_label" in patch) {
-          const o = safeStr(patch.owner_label).trim();
-          if (!o) throw new Error("Owner is mandatory");
-        }
-        // never write invalid from UI
-        if ("status" in patch && safeStr(patch.status).trim().toLowerCase() === "invalid") patch.status = "Closed";
-
-        const updated = await patchRaidItem(rowId, { ...patch, expected_updated_at: expected || undefined });
-        setItems((prev) => prev.map((x) => (x.id === rowId ? ({ ...x, ...updated } as RaidItem) : x)));
-        setStaleById((prev) => {
-          const n = { ...prev };
-          delete n[rowId];
-          return n;
-        });
-      } catch (e: any) {
-        const status = (e as any)?.status;
-        const payload = (e as any)?.payload;
-        if (status === 409 || payload?.stale) {
-          setStaleById((prev) => ({
-            ...prev,
-            [rowId]: { at: new Date().toISOString(), message: "Conflict detected. Reloading latest..." },
-          }));
-          try {
-            const fresh = await fetchRaidItemById(rowId);
-            setItems((prev) => prev.map((x) => (x.id === rowId ? { ...x, ...fresh } : x)));
-            pushBanner("success", "Reloaded with latest changes");
-          } catch (re: any) {
-            pushBanner("error", re?.message || "Stale update");
-          }
-        } else {
-          pushBanner("error", e?.message || "Update failed");
-        }
-      } finally {
-        setBusyId("");
-        if (opts?.close !== false) closeEditor();
-      }
-    },
-    [editor, items, pushBanner, closeEditor]
-  );
 
   // Close menu on outside click
   useEffect(() => {
@@ -901,6 +551,18 @@ export default function RaidClient({
     setTouchedById((prev) => ({ ...prev, [id]: { ...(prev[id] || {}), [key]: true } }));
   }, []);
 
+  const requireOwner = useCallback(
+    (owner: any) => {
+      const o = safeStr(owner).trim();
+      if (!o) {
+        pushBanner("error", "Owner is mandatory");
+        return null;
+      }
+      return o;
+    },
+    [pushBanner]
+  );
+
   const onReloadRow = useCallback(
     async (id: string) => {
       setBusyId(id);
@@ -920,6 +582,57 @@ export default function RaidClient({
       }
     },
     [pushBanner]
+  );
+
+  const onPatch = useCallback(
+    async (id: string, patch: any) => {
+      setBusyId(id);
+      try {
+        const current = items.find((x) => x.id === id);
+        const expected = safeStr(current?.updated_at).trim();
+
+        if ("owner_label" in patch) {
+          const ok = requireOwner(patch.owner_label);
+          if (!ok) return;
+          patch.owner_label = ok;
+        }
+
+        // ✅ Safety: never write "Invalid" from UI
+        if ("status" in patch && safeStr(patch.status).trim().toLowerCase() === "invalid") {
+          patch.status = "Closed";
+        }
+
+        const updated = await patchRaidItem(id, { ...patch, expected_updated_at: expected || undefined });
+        setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...updated } : x)));
+        setStaleById((prev) => {
+          const n = { ...prev };
+          delete n[id];
+          return n;
+        });
+        pushBanner("success", "Saved");
+      } catch (e: any) {
+        const status = (e as any)?.status;
+        const payload = (e as any)?.payload;
+        if (status === 409 || payload?.stale) {
+          setStaleById((prev) => ({
+            ...prev,
+            [id]: { at: new Date().toISOString(), message: "Conflict detected. Reloading latest..." },
+          }));
+          try {
+            const fresh = await fetchRaidItemById(id);
+            setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...fresh } : x)));
+            pushBanner("success", "Reloaded with latest changes");
+          } catch (re: any) {
+            pushBanner("error", re?.message || "Stale update");
+          }
+          return;
+        }
+        pushBanner("error", e?.message || "Update failed");
+      } finally {
+        setBusyId("");
+      }
+    },
+    [items, requireOwner, pushBanner]
   );
 
   const onCreate = useCallback(
@@ -950,6 +663,7 @@ export default function RaidClient({
 
   const onDelete = useCallback(
     async (id: string) => {
+      // Keep it explicit: delete is destructive
       if (!confirm("Delete this RAID item?")) return;
 
       setBusyId(id);
@@ -1065,7 +779,7 @@ export default function RaidClient({
     return { a: aa.length ? aa : ["—"], b: bb.length ? bb : ["—"] };
   }
 
-  // Auto-AI rules (unchanged)
+  // Auto-AI rules
   const AUTO_AI_ENABLED = true;
   const AUTO_AI_SCORE_THRESHOLD = 55;
   const AUTO_AI_DEBOUNCE_MS = 1200;
@@ -1130,7 +844,7 @@ export default function RaidClient({
     }
   }, [items, busyId]);
 
-  // Global keyboard shortcuts (keep)
+  // Keyboard shortcuts
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (!hotRowId || isTypingTarget(e.target)) return;
@@ -1141,24 +855,35 @@ export default function RaidClient({
       if (key === "s") {
         e.preventDefault();
         const next = cycleInList(STATUS_ORDER, safeStr(it.status) || "Open");
-        // Notion style: open editor then commit
-        openEditor({ type: normalizeType(it.type), rowId: it.id, col: "status" }, next);
-        window.setTimeout(() => void commitEditor(), 0);
+        void onPatch(it.id, { status: next });
         return;
       }
 
       if (key === "p") {
         e.preventDefault();
         const next = cycleInList(PRIORITY_ORDER, safeStr(it.priority || ""));
-        openEditor({ type: normalizeType(it.type), rowId: it.id, col: "priority" }, next);
-        window.setTimeout(() => void commitEditor(), 0);
+        void onPatch(it.id, { priority: next || null });
+        return;
+      }
+
+      if (e.ctrlKey && !e.altKey && ["1", "2", "3", "4"].includes(e.key) && !e.shiftKey) {
+        e.preventDefault();
+        const v = (STATUS_ORDER as readonly string[])[Number(e.key) - 1];
+        if (v) void onPatch(it.id, { status: v });
+        return;
+      }
+
+      if (e.ctrlKey && e.shiftKey && !e.altKey && ["0", "1", "2", "3", "4"].includes(e.key)) {
+        e.preventDefault();
+        const v = (PRIORITY_ORDER as readonly string[])[Number(e.key)];
+        void onPatch(it.id, { priority: v ? v : null });
         return;
       }
     }
 
     window.addEventListener("keydown", onKeyDown, { passive: false });
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [hotRowId, items, openEditor, commitEditor]);
+  }, [hotRowId, items, onPatch]);
 
   useEffect(() => {
     if (!digest) return;
@@ -1196,203 +921,6 @@ export default function RaidClient({
     return () => clearTimeout(t);
   }, []);
 
-  /* ---------- Notion key navigation per-cell ---------- */
-
-  const moveCell = useCallback(
-    (type: RaidType, rowIds: string[], rowIndex: number, col: CellKey, dRow: number, dCol: number) => {
-      const nextRow = Math.max(0, Math.min(rowIds.length - 1, rowIndex + dRow));
-      const colIndex = EDIT_COLS.indexOf(col);
-      const nextColIndex = Math.max(0, Math.min(EDIT_COLS.length - 1, colIndex + dCol));
-      const nextId = rowIds[nextRow];
-      const nextCol = EDIT_COLS[nextColIndex];
-      if (nextId && nextCol) {
-        setHotCell({ type, rowId: nextId, col: nextCol });
-        openEditor({ type, rowId: nextId, col: nextCol });
-      }
-    },
-    [openEditor]
-  );
-
-  const onCellKeyDown = useCallback(
-    (
-      e: React.KeyboardEvent,
-      ctx: { type: RaidType; rowIds: string[]; rowIndex: number; col: CellKey; isMultiline?: boolean }
-    ) => {
-      const { type, rowIds, rowIndex, col, isMultiline } = ctx;
-
-      if (e.key === "Escape") {
-        e.preventDefault();
-        closeEditor();
-        return;
-      }
-
-      if (e.key === "Tab") {
-        e.preventDefault();
-        void commitEditor({ close: false });
-        moveCell(type, rowIds, rowIndex, col, 0, e.shiftKey ? -1 : 1);
-        return;
-      }
-
-      if (e.key === "Enter") {
-        if (isMultiline && !e.ctrlKey && !e.metaKey && !e.altKey) {
-          e.preventDefault();
-          void commitEditor({ close: false });
-          moveCell(type, rowIds, rowIndex, col, e.shiftKey ? -1 : 1, 0);
-          return;
-        }
-        if (!isMultiline) {
-          e.preventDefault();
-          void commitEditor({ close: false });
-          moveCell(type, rowIds, rowIndex, col, e.shiftKey ? -1 : 1, 0);
-          return;
-        }
-      }
-
-      if (!isMultiline) {
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          void commitEditor({ close: false });
-          moveCell(type, rowIds, rowIndex, col, 1, 0);
-          return;
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault();
-          void commitEditor({ close: false });
-          moveCell(type, rowIds, rowIndex, col, -1, 0);
-          return;
-        }
-        if (e.key === "ArrowRight") {
-          e.preventDefault();
-          void commitEditor({ close: false });
-          moveCell(type, rowIds, rowIndex, col, 0, 1);
-          return;
-        }
-        if (e.key === "ArrowLeft") {
-          e.preventDefault();
-          void commitEditor({ close: false });
-          moveCell(type, rowIds, rowIndex, col, 0, -1);
-          return;
-        }
-      }
-    },
-    [moveCell, commitEditor, closeEditor]
-  );
-
-  /* ---------- Notion paste (multi-cell TSV) ---------- */
-
-  const applyPaste = useCallback(
-    async (ctx: { type: RaidType; rowIds: string[]; rowIndex: number; col: CellKey }, tsv: string) => {
-      const grid = parseTsv(tsv);
-      if (!grid.length) return;
-
-      const startColIndex = EDIT_COLS.indexOf(ctx.col);
-      if (startColIndex < 0) return;
-
-      const patchById: Record<string, any> = {};
-      const localById: Record<string, Partial<RaidItem>> = {};
-
-      for (let r = 0; r < grid.length; r++) {
-        const rowId = ctx.rowIds[ctx.rowIndex + r];
-        if (!rowId) break;
-
-        const rowPatch: any = {};
-        const rowLocal: any = {};
-
-        for (let c = 0; c < grid[r].length; c++) {
-          const colKey = EDIT_COLS[startColIndex + c];
-          if (!colKey) break;
-
-          const raw = grid[r][c];
-          const s = safeStr(raw).trim();
-
-          if (colKey === "description") {
-            rowLocal.description = s;
-            rowPatch.description = s || "Untitled";
-          } else if (colKey === "owner_label") {
-            rowLocal.owner_label = s;
-            rowPatch.owner_label = s;
-          } else if (colKey === "status") {
-            const ns = normStatus(s);
-            rowLocal.status = ns;
-            rowPatch.status = ns;
-          } else if (colKey === "priority") {
-            const np = normPriority(s);
-            rowLocal.priority = np || null;
-            rowPatch.priority = np || null;
-          } else if (colKey === "probability") {
-            const n = clampNum(s, 0, 100);
-            rowLocal.probability = n;
-            rowPatch.probability = n;
-          } else if (colKey === "severity") {
-            const n = clampNum(s, 0, 100);
-            rowLocal.severity = n;
-            rowPatch.severity = n;
-          } else if (colKey === "due_date") {
-            const iso = normDateToIsoOnly(s);
-            rowLocal.due_date = iso;
-            rowPatch.due_date = iso;
-          } else if (colKey === "response_plan") {
-            rowLocal.response_plan = s;
-            rowPatch.response_plan = s || null;
-          }
-        }
-
-        if (Object.keys(rowPatch).length) {
-          patchById[rowId] = rowPatch;
-          localById[rowId] = rowLocal;
-        }
-      }
-
-      const ids = Object.keys(patchById);
-      if (!ids.length) return;
-
-      setItems((prev) =>
-        prev.map((it) => (localById[it.id] ? ({ ...it, ...localById[it.id] } as RaidItem) : it))
-      );
-
-      setBusyId("paste");
-      try {
-        for (const id of ids) {
-          const current = items.find((x) => x.id === id);
-          const expected = safeStr(current?.updated_at).trim();
-
-          const patch = { ...patchById[id] };
-          if ("status" in patch && safeStr(patch.status).toLowerCase() === "invalid") patch.status = "Closed";
-          if ("owner_label" in patch) {
-            const o = safeStr(patch.owner_label).trim();
-            if (!o) delete patch.owner_label;
-            else patch.owner_label = o;
-          }
-          if (!Object.keys(patch).length) continue;
-
-          const updated = await patchRaidItem(id, { ...patch, expected_updated_at: expected || undefined });
-          setItems((prev) => prev.map((x) => (x.id === id ? ({ ...x, ...updated } as RaidItem) : x)));
-        }
-
-        pushBanner("success", `Pasted into ${ids.length} row(s)`);
-      } catch (e: any) {
-        pushBanner("error", e?.message || "Paste save failed");
-      } finally {
-        setBusyId("");
-      }
-    },
-    [items, pushBanner]
-  );
-
-  const onCellPaste = useCallback(
-    async (
-      e: React.ClipboardEvent,
-      ctx: { type: RaidType; rowIds: string[]; rowIndex: number; col: CellKey }
-    ) => {
-      const text = e.clipboardData?.getData("text/plain") ?? "";
-      if (!text || (!text.includes("\t") && !text.includes("\n"))) return;
-
-      e.preventDefault();
-      await applyPaste(ctx, text);
-    },
-    [applyPaste]
-  );
-
   // Group actions
   const closeMenu = useCallback(() => setMenuOpenFor(""), []);
 
@@ -1425,7 +953,7 @@ export default function RaidClient({
     closeMenu();
     const groupItems = items.filter((x) => normalizeType(x.type) === type);
     if (!groupItems.length) {
-      pushBanner("success", `No ${pluralLabel(type)} to refresh`);
+      pushBanner("success", `No ${type} items to refresh`);
       return;
     }
     setBusyId(`ai:group:${type}`);
@@ -1479,47 +1007,6 @@ export default function RaidClient({
     [pushBanner]
   );
 
-  // ✅ Type-to-edit (Notion feel)
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (isTypingTarget(e.target)) return;
-      if (!hotCell) return;
-      if (!isPrintableKey(e)) return;
-      e.preventDefault();
-      openEditor(hotCell, e.key);
-    }
-    window.addEventListener("keydown", onKey, { passive: false });
-    return () => window.removeEventListener("keydown", onKey);
-  }, [hotCell, openEditor]);
-
-  // ✅ Keep overlay aligned on scroll/resize
-  useEffect(() => {
-    if (!editor) return;
-    function sync() {
-      const el = cellRefs.current[`${editor.rowId}:${editor.col}`];
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      setEditor((cur) => {
-        if (!cur) return cur;
-        return {
-          ...cur,
-          rect: {
-            left: Math.max(8, r.left),
-            top: Math.max(8, r.top),
-            width: Math.max(120, r.width),
-            height: Math.max(34, r.height),
-          },
-        };
-      });
-    }
-    window.addEventListener("scroll", sync, true);
-    window.addEventListener("resize", sync);
-    return () => {
-      window.removeEventListener("scroll", sync, true);
-      window.removeEventListener("resize", sync);
-    };
-  }, [editor]);
-
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       {/* Top bar */}
@@ -1568,17 +1055,13 @@ export default function RaidClient({
                 </button>
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-xl border border-slate-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
                   <button
-                    onClick={() =>
-                      window.open(`/api/raid/export/excel?projectId=${encodeURIComponent(projectId)}`, "_blank")
-                    }
+                    onClick={() => window.open(`/api/raid/export/excel?projectId=${encodeURIComponent(projectId)}`, "_blank")}
                     className="block w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50 rounded-t-md"
                   >
                     Export Excel
                   </button>
                   <button
-                    onClick={() =>
-                      window.open(`/api/raid/export/pdf?projectId=${encodeURIComponent(projectId)}`, "_blank")
-                    }
+                    onClick={() => window.open(`/api/raid/export/pdf?projectId=${encodeURIComponent(projectId)}`, "_blank")}
                     className="block w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50 rounded-b-md"
                   >
                     Export PDF
@@ -1650,10 +1133,15 @@ export default function RaidClient({
               const typeStyle = TYPE_STYLES[type];
               const groupItems = grouped[type];
               const isOpen = openGroups[type];
-              const rowIds = groupItems.map((x) => x.id);
 
               return (
-                <section key={type} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <section
+                  key={type}
+                  className={cx(
+                    "bg-white rounded-xl border shadow-sm overflow-hidden",
+                    "border-slate-200"
+                  )}
+                >
                   {/* Group Header */}
                   <div className={cx("relative px-4 py-3 border-b border-slate-200", typeStyle.headerBg)}>
                     <div className="flex items-center justify-between gap-3">
@@ -1674,10 +1162,10 @@ export default function RaidClient({
                           </svg>
                         </button>
 
-                        <div className="flex items-center gap-2 min-w-0">
+                        <div className={cx("flex items-center gap-2 min-w-0")}>
                           <span className={cx("w-2 h-2 rounded-full", typeStyle.dot)} />
                           <div className="min-w-0">
-                            <div className={cx("font-semibold text-[14px]", typeStyle.text)}>{pluralLabel(type)}</div>
+                            <div className={cx("font-semibold text-[14px]", typeStyle.text)}>{type}s</div>
                             <div className="text-[12px] text-slate-500 truncate">{typeStyle.desc}</div>
                           </div>
                         </div>
@@ -1710,16 +1198,10 @@ export default function RaidClient({
                             <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                               {type} Actions
                             </div>
-                            <button
-                              onClick={() => exportGroupExcel(type)}
-                              className="w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50"
-                            >
+                            <button onClick={() => exportGroupExcel(type)} className="w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50">
                               Export to Excel
                             </button>
-                            <button
-                              onClick={() => exportGroupPdf(type)}
-                              className="w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50"
-                            >
+                            <button onClick={() => exportGroupPdf(type)} className="w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50">
                               Export to PDF
                             </button>
                             <div className="h-px bg-slate-100 my-1" />
@@ -1730,10 +1212,7 @@ export default function RaidClient({
                             >
                               {busyId === `ai:group:${type}` ? "Refreshing AI…" : "Refresh AI (Group)"}
                             </button>
-                            <button
-                              onClick={() => copyGroupLink(type)}
-                              className="w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50"
-                            >
+                            <button onClick={() => copyGroupLink(type)} className="w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50">
                               Copy Group Link
                             </button>
                           </div>
@@ -1742,7 +1221,11 @@ export default function RaidClient({
                         <button
                           onClick={() => onCreate(type)}
                           disabled={busyId === `new:${type}`}
-                          className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 text-[13px] font-medium text-slate-700"
+                          className={cx(
+                            "inline-flex items-center gap-2 px-3 py-2 rounded-md border",
+                            "border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50",
+                            "text-[13px] font-medium text-slate-700"
+                          )}
                         >
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -1779,6 +1262,7 @@ export default function RaidClient({
                                   />
                                 </th>
 
+                                {/* ✅ Wider Owner */}
                                 <th className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider w-80 border-r border-slate-200">
                                   Owner *
                                 </th>
@@ -1834,7 +1318,7 @@ export default function RaidClient({
                                 groupItems.map((it, index) => {
                                   const sc = calcScore(it.probability, it.severity);
                                   const tone = toneFromScore(sc);
-                                  const isBusy = busyId === it.id || busyId === "paste";
+                                  const isBusy = busyId === it.id;
 
                                   const owner = safeStr(it.owner_label).trim();
                                   const ownerOk = owner.length > 0 && owner.toLowerCase() !== "tbc";
@@ -1844,6 +1328,11 @@ export default function RaidClient({
                                   const touched = touchedById[it.id] || {};
                                   const showOwnerWarn = Boolean(touched.owner) && !ownerOk;
                                   const showPlanWarn = Boolean(touched.plan) && !planOk;
+
+                                  const stKey = statusToken(it.status);
+                                  const priKey = priorityToken(it.priority);
+                                  const st = STATUS_PILL[stKey] || STATUS_PILL.open;
+                                  const pr = PRIORITY_PILL[priKey] || PRIORITY_PILL[""];
 
                                   const ai = it?.related_refs?.ai || {};
                                   const runs = aiRunsById[it.id] || [];
@@ -1855,8 +1344,6 @@ export default function RaidClient({
                                   const diffRecs = runA && runB ? diffList(runA.ai?.recommendations, runB.ai?.recommendations) : null;
 
                                   const stale = staleById[it.id];
-
-                                  const ctxBase = { type, rowIds, rowIndex: index };
 
                                   return (
                                     <Draggable
@@ -1888,15 +1375,10 @@ export default function RaidClient({
                                               <div className="flex items-center gap-2 min-w-0">
                                                 <button
                                                   type="button"
-                                                  data-dnd-handle
                                                   {...dragProvided.dragHandleProps}
                                                   className="p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-grab active:cursor-grabbing"
                                                   title="Drag"
                                                   aria-label="Drag"
-                                                  onMouseDown={(e) => {
-                                                    // keep this as pure handle
-                                                    e.stopPropagation();
-                                                  }}
                                                 >
                                                   <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
                                                     <path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0zM7 10a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0zM7 16a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0z" />
@@ -1909,20 +1391,11 @@ export default function RaidClient({
 
                                                 {stale && (
                                                   <button
-                                                    onClick={(e) => {
-                                                      e.preventDefault();
-                                                      e.stopPropagation();
-                                                      void onReloadRow(it.id);
-                                                    }}
+                                                    onClick={() => onReloadRow(it.id)}
                                                     title="Reload"
                                                     className="text-amber-700 hover:text-amber-800"
                                                   >
-                                                    <svg
-                                                      className="w-4 h-4"
-                                                      fill="none"
-                                                      viewBox="0 0 24 24"
-                                                      stroke="currentColor"
-                                                    >
+                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                       <path
                                                         strokeLinecap="round"
                                                         strokeLinejoin="round"
@@ -1936,78 +1409,139 @@ export default function RaidClient({
                                               {stale && <div className="text-[12px] text-amber-800 mt-1">{stale.message}</div>}
                                             </td>
 
-                                            {/* Description (read-mode) */}
+                                            {/* Description */}
                                             <td className={CELL_WRAP} style={{ width: colW.desc }}>
-                                              <div ref={(el) => setCellRef(it.id, "description", el)} className="w-full">
-                                                <CellDisplay
-                                                  value={safeStr(it.description)}
-                                                  placeholder="Describe…"
-                                                  onActivate={() => openEditor({ type, rowId: it.id, col: "description" })}
-                                                  title={safeStr(it.description)}
-                                                />
-                                              </div>
-                                            </td>
-
-                                            {/* Owner (read-mode) */}
-                                            <td className={CELL_WRAP}>
-                                              <div ref={(el) => setCellRef(it.id, "owner_label", el)} className="w-full">
-                                                <CellDisplay
-                                                  value={safeStr(it.owner_label)}
-                                                  placeholder="Owner name…"
-                                                  onActivate={() => openEditor({ type, rowId: it.id, col: "owner_label" })}
-                                                />
-                                                {showOwnerWarn && (
-                                                  <div className="text-[12px] text-rose-700 mt-1 font-medium">Owner required</div>
+                                              <textarea
+                                                className={cx(
+                                                  CELL_BASE,
+                                                  "resize-none min-h-[28px] py-0",
+                                                  "focus:bg-white focus:shadow-[0_0_0_2px_rgba(99,102,241,0.20)] focus:rounded"
                                                 )}
-                                              </div>
+                                                value={safeStr(it.description)}
+                                                disabled={isBusy}
+                                                placeholder="Describe…"
+                                                onChange={(e) =>
+                                                  setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, description: e.target.value } : x)))
+                                                }
+                                                onBlur={() =>
+                                                  onPatch(it.id, { description: safeStr(it.description).trim() || "Untitled" })
+                                                }
+                                              />
                                             </td>
 
-                                            {/* Status (tag) */}
+                                            {/* Owner */}
                                             <td className={CELL_WRAP}>
-                                              <div ref={(el) => setCellRef(it.id, "status", el)} className="w-full">
-                                                <PillTag
-                                                  kind="status"
-                                                  label={safeStr(it.status || "Open")}
+                                              <div className="w-full">
+                                                <input
+                                                  className={cx(
+                                                    CELL_BASE,
+                                                    showOwnerWarn && "text-rose-700 placeholder:text-rose-300",
+                                                    "focus:bg-white focus:shadow-[0_0_0_2px_rgba(99,102,241,0.20)] focus:rounded px-1 py-1"
+                                                  )}
+                                                  value={safeStr(it.owner_label)}
                                                   disabled={isBusy}
-                                                  onActivate={() => openEditor({ type, rowId: it.id, col: "status" })}
+                                                  placeholder="Owner name…"
+                                                  onChange={(e) =>
+                                                    setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, owner_label: e.target.value } : x)))
+                                                  }
+                                                  onBlur={() => {
+                                                    touch(it.id, "owner");
+                                                    onPatch(it.id, { owner_label: safeStr(it.owner_label).trim() });
+                                                  }}
                                                 />
+                                                {showOwnerWarn && <div className="text-[12px] text-rose-700 mt-1 font-medium">Owner required</div>}
                                               </div>
                                             </td>
 
-                                            {/* Priority (tag) */}
+                                            {/* Status (pill select, no arrow) */}
                                             <td className={CELL_WRAP}>
-                                              <div ref={(el) => setCellRef(it.id, "priority", el)} className="w-full">
-                                                <PillTag
-                                                  kind="priority"
-                                                  label={safeStr(it.priority || "")}
-                                                  disabled={isBusy}
-                                                  onActivate={() => openEditor({ type, rowId: it.id, col: "priority" })}
-                                                />
-                                              </div>
+                                              <select
+                                                className={cx(
+                                                  "w-full h-8 px-3 rounded-full border-0 appearance-none",
+                                                  "text-[12px] font-semibold text-center",
+                                                  st.bg,
+                                                  st.text,
+                                                  st.ring,
+                                                  "shadow-[0_6px_14px_rgba(2,6,23,0.08)] hover:brightness-105 transition"
+                                                )}
+                                                style={{ backgroundImage: "none" }}
+                                                value={safeStr(it.status || "Open")}
+                                                disabled={isBusy}
+                                                onChange={(e) => onPatch(it.id, { status: e.target.value })}
+                                              >
+                                                <option value="Open">Open</option>
+                                                <option value="In Progress">In Progress</option>
+                                                <option value="Mitigated">Mitigated</option>
+                                                <option value="Closed">Closed</option>
+                                              </select>
                                             </td>
 
-                                            {/* Likelihood (read-mode) */}
+                                            {/* Priority (pill select, no arrow) */}
                                             <td className={CELL_WRAP}>
-                                              <div ref={(el) => setCellRef(it.id, "probability", el)} className="w-full">
-                                                <CellDisplay
-                                                  value={String(Number.isFinite(Number(it.probability)) ? Number(it.probability) : 0)}
-                                                  placeholder="0"
-                                                  align="center"
-                                                  onActivate={() => openEditor({ type, rowId: it.id, col: "probability" })}
-                                                />
-                                              </div>
+                                              <select
+                                                className={cx(
+                                                  "w-full h-8 px-3 rounded-full border-0 appearance-none",
+                                                  "text-[12px] font-semibold text-center",
+                                                  pr.bg,
+                                                  pr.text,
+                                                  pr.ring,
+                                                  "shadow-[0_6px_14px_rgba(2,6,23,0.08)] hover:brightness-105 transition"
+                                                )}
+                                                style={{ backgroundImage: "none" }}
+                                                value={safeStr(it.priority || "")}
+                                                disabled={isBusy}
+                                                onChange={(e) => onPatch(it.id, { priority: e.target.value || null })}
+                                              >
+                                                <option value="">—</option>
+                                                <option value="Low">Low</option>
+                                                <option value="Medium">Medium</option>
+                                                <option value="High">High</option>
+                                                <option value="Critical">Critical</option>
+                                              </select>
                                             </td>
 
-                                            {/* Severity (read-mode) */}
+                                            {/* Likelihood */}
                                             <td className={CELL_WRAP}>
-                                              <div ref={(el) => setCellRef(it.id, "severity", el)} className="w-full">
-                                                <CellDisplay
-                                                  value={String(Number.isFinite(Number(it.severity)) ? Number(it.severity) : 0)}
-                                                  placeholder="0"
-                                                  align="center"
-                                                  onActivate={() => openEditor({ type, rowId: it.id, col: "severity" })}
-                                                />
-                                              </div>
+                                              <input
+                                                className={cx(
+                                                  CELL_BASE,
+                                                  "text-center",
+                                                  "focus:bg-white focus:shadow-[0_0_0_2px_rgba(99,102,241,0.20)] focus:rounded px-1 py-1"
+                                                )}
+                                                type="number"
+                                                min={0}
+                                                max={100}
+                                                value={Number.isFinite(Number(it.probability)) ? Number(it.probability) : 0}
+                                                disabled={isBusy}
+                                                onChange={(e) =>
+                                                  setItems((prev) =>
+                                                    prev.map((x) => (x.id === it.id ? { ...x, probability: clampNum(e.target.value, 0, 100) } : x))
+                                                  )
+                                                }
+                                                onBlur={() => onPatch(it.id, { probability: clampNum(it.probability ?? 0, 0, 100) })}
+                                              />
+                                            </td>
+
+                                            {/* Severity */}
+                                            <td className={CELL_WRAP}>
+                                              <input
+                                                className={cx(
+                                                  CELL_BASE,
+                                                  "text-center",
+                                                  "focus:bg-white focus:shadow-[0_0_0_2px_rgba(99,102,241,0.20)] focus:rounded px-1 py-1"
+                                                )}
+                                                type="number"
+                                                min={0}
+                                                max={100}
+                                                value={Number.isFinite(Number(it.severity)) ? Number(it.severity) : 0}
+                                                disabled={isBusy}
+                                                onChange={(e) =>
+                                                  setItems((prev) =>
+                                                    prev.map((x) => (x.id === it.id ? { ...x, severity: clampNum(e.target.value, 0, 100) } : x))
+                                                  )
+                                                }
+                                                onBlur={() => onPatch(it.id, { severity: clampNum(it.severity ?? 0, 0, 100) })}
+                                              />
                                             </td>
 
                                             {/* Score */}
@@ -2037,30 +1571,46 @@ export default function RaidClient({
                                               </div>
                                             </td>
 
-                                            {/* Due Date (read-mode) */}
+                                            {/* Due Date */}
                                             <td className={CELL_WRAP}>
-                                              <div ref={(el) => setCellRef(it.id, "due_date", el)} className="w-full">
-                                                <CellDisplay
-                                                  value={fmtDateOnly(it.due_date)}
-                                                  placeholder="—"
-                                                  align="center"
-                                                  mono
-                                                  onActivate={() => openEditor({ type, rowId: it.id, col: "due_date" })}
-                                                />
-                                              </div>
+                                              <input
+                                                className={cx(
+                                                  CELL_BASE,
+                                                  "text-center",
+                                                  "focus:bg-white focus:shadow-[0_0_0_2px_rgba(99,102,241,0.20)] focus:rounded px-1 py-1"
+                                                )}
+                                                type="date"
+                                                value={fmtDateOnly(it.due_date)}
+                                                disabled={isBusy}
+                                                onChange={(e) =>
+                                                  setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, due_date: e.target.value || null } : x)))
+                                                }
+                                                onBlur={() => onPatch(it.id, { due_date: safeStr(it.due_date).trim() || null })}
+                                              />
                                             </td>
 
-                                            {/* Response Plan (read-mode) */}
+                                            {/* Response Plan */}
                                             <td className={CELL_WRAP} style={{ width: colW.resp }}>
-                                              <div ref={(el) => setCellRef(it.id, "response_plan", el)} className="w-full">
-                                                <CellDisplay
+                                              <div className="w-full">
+                                                <textarea
+                                                  className={cx(
+                                                    CELL_BASE,
+                                                    "resize-none min-h-[28px] py-0",
+                                                    showPlanWarn && "text-rose-700 placeholder:text-rose-300",
+                                                    "focus:bg-white focus:shadow-[0_0_0_2px_rgba(99,102,241,0.20)] focus:rounded"
+                                                  )}
                                                   value={safeStr(it.response_plan || "")}
+                                                  disabled={isBusy}
                                                   placeholder="Plan…"
-                                                  onActivate={() => openEditor({ type, rowId: it.id, col: "response_plan" })}
+                                                  onChange={(e) =>
+                                                    setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, response_plan: e.target.value } : x)))
+                                                  }
+                                                  onBlur={() => {
+                                                    touch(it.id, "plan");
+                                                    onPatch(it.id, { response_plan: safeStr(it.response_plan || "").trim() || null });
+                                                  }}
                                                 />
-                                                {showPlanWarn && (
-                                                  <div className="text-[12px] text-rose-700 mt-1 font-medium">Plan required</div>
-                                                )}
+                                                {showPlanWarn && <div className="text-[12px] text-rose-700 mt-1 font-medium">Plan required</div>}
                                               </div>
                                             </td>
 
@@ -2083,19 +1633,13 @@ export default function RaidClient({
                                             </td>
 
                                             {/* Actions */}
-                                            <td className="px-2 py-2 min-h-[38px]">
+                                            <td className="px-2 py-2 min-h-[44px]">
                                               <div className="flex items-center justify-end gap-1">
                                                 <button
-                                                  onClick={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                    setAiOpenId(aiOpenId === it.id ? "" : it.id);
-                                                  }}
+                                                  onClick={() => setAiOpenId(aiOpenId === it.id ? "" : it.id)}
                                                   className={cx(
                                                     "p-2 rounded-md",
-                                                    aiOpenId === it.id
-                                                      ? "bg-indigo-50 text-indigo-700"
-                                                      : "text-slate-500 hover:bg-slate-100"
+                                                    aiOpenId === it.id ? "bg-indigo-50 text-indigo-700" : "text-slate-500 hover:bg-slate-100"
                                                   )}
                                                   title="AI Insights"
                                                 >
@@ -2105,11 +1649,7 @@ export default function RaidClient({
                                                 </button>
 
                                                 <button
-                                                  onClick={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                    void onAiRefresh(it.id);
-                                                  }}
+                                                  onClick={() => onAiRefresh(it.id)}
                                                   disabled={isBusy}
                                                   className="p-2 text-slate-500 hover:bg-slate-100 rounded-md disabled:opacity-50"
                                                   title="Refresh AI"
@@ -2120,29 +1660,20 @@ export default function RaidClient({
                                                 </button>
 
                                                 <button
-                                                  onClick={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                    void onDelete(it.id);
-                                                  }}
+                                                  onClick={() => onDelete(it.id)}
                                                   disabled={isBusy}
                                                   className="p-2 text-rose-600 hover:bg-rose-50 rounded-md disabled:opacity-50"
                                                   title="Delete"
                                                 >
                                                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path
-                                                      strokeLinecap="round"
-                                                      strokeLinejoin="round"
-                                                      strokeWidth={2}
-                                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                                    />
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                                   </svg>
                                                 </button>
                                               </div>
                                             </td>
                                           </tr>
 
-                                          {/* AI Panel (unchanged) */}
+                                          {/* AI Panel */}
                                           {aiOpenId === it.id && (
                                             <tr>
                                               <td colSpan={13} className="bg-indigo-50/40 border-b border-indigo-100">
@@ -2165,22 +1696,14 @@ export default function RaidClient({
                                                     </div>
                                                     <div className="flex items-center gap-2">
                                                       <button
-                                                        onClick={(e) => {
-                                                          e.preventDefault();
-                                                          e.stopPropagation();
-                                                          void openHistory(it.id);
-                                                        }}
+                                                        onClick={() => openHistory(it.id)}
                                                         disabled={aiHistBusyId === it.id}
                                                         className="px-3 py-2 text-[13px] font-medium text-indigo-700 bg-indigo-100 hover:bg-indigo-200 rounded-md disabled:opacity-50"
                                                       >
                                                         {aiHistBusyId === it.id ? "Loading…" : aiHistOpenId === it.id ? "Hide History" : "View History"}
                                                       </button>
                                                       <button
-                                                        onClick={(e) => {
-                                                          e.preventDefault();
-                                                          e.stopPropagation();
-                                                          setAiOpenId("");
-                                                        }}
+                                                        onClick={() => setAiOpenId("")}
                                                         className="p-2 text-slate-500 hover:bg-slate-100 rounded-md"
                                                         title="Close"
                                                       >
@@ -2216,11 +1739,14 @@ export default function RaidClient({
                                                             </div>
                                                           ))
                                                         ) : (
-                                                          <p className="text-[13px] text-slate-500 italic">No recommendations yet.</p>
+                                                          <p className="text-[13px] text-slate-500 italic">
+                                                            No recommendations yet. Click “Refresh AI”.
+                                                          </p>
                                                         )}
                                                       </div>
                                                     </div>
 
+                                                    {/* History Comparison */}
                                                     {aiHistOpenId === it.id && (
                                                       <div className="bg-white rounded-lg p-4 border border-indigo-100 shadow-sm">
                                                         <h4 className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-3">
@@ -2359,154 +1885,7 @@ export default function RaidClient({
         </DragDropContext>
       </main>
 
-      {/* ✅ Active-cell editor overlay (Notion-style) */}
-      {editor && (
-        <div
-          className="fixed inset-0 z-[80]"
-          onMouseDown={(e) => {
-            // click outside commits (Notion-ish)
-            if (e.target === e.currentTarget) void commitEditor();
-          }}
-        >
-          <div
-            className="fixed z-[90]"
-            style={{
-              left: editor.rect.left,
-              top: editor.rect.top,
-              width: editor.rect.width,
-              minHeight: editor.rect.height,
-            }}
-          >
-            {/* editor surface */}
-            <div className="bg-white rounded-md shadow-[0_10px_30px_rgba(2,6,23,0.18)] border border-indigo-200 overflow-hidden">
-              {editor.col === "status" ? (
-                <select
-                  ref={(el) => {
-                    editorInputRef.current = el;
-                  }}
-                  className={cx(
-                    "w-full h-10 px-3 border-0 outline-none text-[13px] font-semibold",
-                    "bg-gradient-to-b from-indigo-50 to-white"
-                  )}
-                  value={safeStr(editor.value || "Open")}
-                  onKeyDown={(e) => onCellKeyDown(e as any, { type: editor.type, rowIds: [], rowIndex: 0, col: "status" })}
-                  onChange={(e) => {
-                    setEditor((cur) => (cur ? { ...cur, value: e.target.value } : cur));
-                    // commit immediately (Notion select)
-                    window.setTimeout(() => void commitEditor(), 0);
-                  }}
-                >
-                  <option value="Open">Open</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Mitigated">Mitigated</option>
-                  <option value="Closed">Closed</option>
-                </select>
-              ) : editor.col === "priority" ? (
-                <select
-                  ref={(el) => {
-                    editorInputRef.current = el;
-                  }}
-                  className={cx(
-                    "w-full h-10 px-3 border-0 outline-none text-[13px] font-semibold",
-                    "bg-gradient-to-b from-indigo-50 to-white"
-                  )}
-                  value={safeStr(editor.value || "")}
-                  onChange={(e) => {
-                    setEditor((cur) => (cur ? { ...cur, value: e.target.value } : cur));
-                    window.setTimeout(() => void commitEditor(), 0);
-                  }}
-                >
-                  <option value="">—</option>
-                  <option value="Low">Low</option>
-                  <option value="Medium">Medium</option>
-                  <option value="High">High</option>
-                  <option value="Critical">Critical</option>
-                </select>
-              ) : editor.col === "due_date" ? (
-                <input
-                  ref={(el) => {
-                    editorInputRef.current = el;
-                  }}
-                  type="date"
-                  className="w-full h-10 px-3 border-0 outline-none text-[13px]"
-                  value={safeStr(editor.value || "")}
-                  onKeyDown={(e) => onCellKeyDown(e as any, { type: editor.type, rowIds: [], rowIndex: 0, col: "due_date" })}
-                  onPaste={(e) => onCellPaste(e as any, { type: editor.type, rowIds: [], rowIndex: 0, col: "due_date" })}
-                  onChange={(e) => setEditor((cur) => (cur ? { ...cur, value: e.target.value } : cur))}
-                  onBlur={() => void commitEditor()}
-                />
-              ) : editor.col === "probability" || editor.col === "severity" ? (
-                <input
-                  ref={(el) => {
-                    editorInputRef.current = el;
-                  }}
-                  type="number"
-                  min={0}
-                  max={100}
-                  className="w-full h-10 px-3 border-0 outline-none text-[13px] text-center"
-                  value={safeStr(editor.value || "0")}
-                  onKeyDown={(e) =>
-                    onCellKeyDown(e as any, { type: editor.type, rowIds: [], rowIndex: 0, col: editor.col })
-                  }
-                  onPaste={(e) => onCellPaste(e as any, { type: editor.type, rowIds: [], rowIndex: 0, col: editor.col })}
-                  onChange={(e) => setEditor((cur) => (cur ? { ...cur, value: e.target.value } : cur))}
-                  onBlur={() => void commitEditor()}
-                />
-              ) : editor.col === "description" || editor.col === "response_plan" ? (
-                <textarea
-                  ref={(el) => {
-                    editorInputRef.current = el;
-                  }}
-                  className="w-full min-h-[84px] px-3 py-2 border-0 outline-none text-[13px] leading-5 resize-none"
-                  value={safeStr(editor.value || "")}
-                  onKeyDown={(e) =>
-                    onCellKeyDown(e as any, {
-                      type: editor.type,
-                      rowIds: [],
-                      rowIndex: 0,
-                      col: editor.col,
-                      isMultiline: true,
-                    })
-                  }
-                  onPaste={(e) => onCellPaste(e as any, { type: editor.type, rowIds: [], rowIndex: 0, col: editor.col })}
-                  onChange={(e) => setEditor((cur) => (cur ? { ...cur, value: e.target.value } : cur))}
-                  onBlur={() => void commitEditor()}
-                />
-              ) : (
-                <input
-                  ref={(el) => {
-                    editorInputRef.current = el;
-                  }}
-                  className="w-full h-10 px-3 border-0 outline-none text-[13px]"
-                  value={safeStr(editor.value || "")}
-                  onKeyDown={(e) => onCellKeyDown(e as any, { type: editor.type, rowIds: [], rowIndex: 0, col: editor.col })}
-                  onPaste={(e) => onCellPaste(e as any, { type: editor.type, rowIds: [], rowIndex: 0, col: editor.col })}
-                  onChange={(e) => setEditor((cur) => (cur ? { ...cur, value: e.target.value } : cur))}
-                  onBlur={() => void commitEditor()}
-                />
-              )}
-
-              <div className="px-3 py-2 border-t border-slate-100 bg-slate-50 flex items-center justify-between text-[12px] text-slate-500">
-                <span>
-                  Enter / Tab / ↑ ↓ to navigate • Paste TSV supported
-                </span>
-                <button
-                  className="px-2 py-1 rounded hover:bg-slate-200 text-slate-600"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    closeEditor();
-                  }}
-                >
-                  Esc
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Digest Modal (unchanged) */}
+      {/* Digest Modal */}
       {digest && (
         <div
           className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-start justify-center p-4 sm:p-6 overflow-y-auto"
@@ -2517,18 +1896,13 @@ export default function RaidClient({
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl my-8 overflow-hidden">
             <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between z-10">
               <div>
-                <h2 className="text-[16px] font-semibold text-slate-900">
-                  {safeStr(digest?.header?.title) || "Weekly RAID Digest"}
-                </h2>
+                <h2 className="text-[16px] font-semibold text-slate-900">{safeStr(digest?.header?.title) || "Weekly RAID Digest"}</h2>
                 <p className="text-[13px] text-slate-500 mt-1">
-                  {safeStr(digest?.header?.project_code) || humanProjectId} •{" "}
-                  {safeStr(digest?.header?.project_name) || humanProjectTitle} • {fmtWhen(digest?.generated_at)}
+                  {safeStr(digest?.header?.project_code) || humanProjectId} • {safeStr(digest?.header?.project_name) || humanProjectTitle} •{" "}
+                  {fmtWhen(digest?.generated_at)}
                 </p>
               </div>
-              <button
-                onClick={() => setDigest(null)}
-                className="p-2 text-slate-500 hover:bg-slate-100 rounded-md transition-colors"
-              >
+              <button onClick={() => setDigest(null)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-md transition-colors">
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -2538,10 +1912,7 @@ export default function RaidClient({
             <div className="p-6 bg-slate-50/60">
               <div className="grid md:grid-cols-2 gap-4">
                 {(Array.isArray(digest?.sections) ? digest.sections : []).map((sec: any) => (
-                  <div
-                    key={safeStr(sec?.key) || safeStr(sec?.title)}
-                    className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden"
-                  >
+                  <div key={safeStr(sec?.key) || safeStr(sec?.title)} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                       <h3 className="font-semibold text-slate-900">{safeStr(sec?.title) || "Section"}</h3>
                       <span className="px-2.5 py-0.5 bg-slate-200 text-slate-700 text-[12px] font-bold rounded-full">
@@ -2554,11 +1925,19 @@ export default function RaidClient({
                           const link = digestDeepLink(routeProjectId, x);
                           const idTxt = digestId(x);
                           return (
-                            <li
-                              key={safeStr(x?.id) || i}
-                              className="p-3 hover:bg-slate-50 transition-colors flex items-center gap-3"
-                            >
-                              <div className="w-2 h-2 rounded-full bg-slate-400" />
+                            <li key={safeStr(x?.id) || i} className="p-3 hover:bg-slate-50 transition-colors flex items-center gap-3">
+                              <div
+                                className={cx(
+                                  "w-2 h-2 rounded-full",
+                                  statusToken(x?.status) === "mitigated"
+                                    ? "bg-emerald-500"
+                                    : statusToken(x?.status) === "closed"
+                                    ? "bg-cyan-600"
+                                    : statusToken(x?.status) === "inprogress"
+                                    ? "bg-sky-500"
+                                    : "bg-slate-400"
+                                )}
+                              />
                               <Link
                                 href={link}
                                 className="font-mono text-[11px] bg-slate-100 text-slate-700 px-2 py-1 rounded hover:bg-slate-200 transition-colors"
@@ -2566,10 +1945,7 @@ export default function RaidClient({
                                 {digestIdShort(x)}
                               </Link>
                               <div className="flex-1 min-w-0">
-                                <Link
-                                  href={link}
-                                  className="text-[13px] font-medium text-slate-900 hover:text-indigo-600 truncate block"
-                                >
+                                <Link href={link} className="text-[13px] font-medium text-slate-900 hover:text-indigo-600 truncate block">
                                   {safeStr(x?.title) || safeStr(x?.description) || "Untitled"}
                                 </Link>
                               </div>
@@ -2580,12 +1956,7 @@ export default function RaidClient({
                                   title="Copy ID"
                                 >
                                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                                    />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                                   </svg>
                                 </button>
                                 <button
@@ -2594,12 +1965,7 @@ export default function RaidClient({
                                   title="Copy Link"
                                 >
                                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-                                    />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                                   </svg>
                                 </button>
                               </div>
