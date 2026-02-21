@@ -24,6 +24,8 @@ import {
   Flag,
   GitBranch,
   FileCheck,
+  ChevronDown,
+  Filter,
 } from "lucide-react";
 
 import {
@@ -65,34 +67,6 @@ export type ArtifactBoardRow = {
   currentLabel?: string;
   __idx?: number;
 };
-
-/* =========================================================
-   Theme (Light)
-========================================================= */
-
-const THEME = {
-  bg: "#F8FAFC", // slate-50
-  bg2: "#FFFFFF",
-  headerBg: "rgba(248, 250, 252, 0.85)",
-  panel: "rgba(255, 255, 255, 0.86)",
-  panelSolid: "#FFFFFF",
-  panelAlt: "rgba(15, 23, 42, 0.02)", // slate-900 @ 2%
-  border: "rgba(15, 23, 42, 0.08)",
-  border2: "rgba(15, 23, 42, 0.06)",
-  border3: "rgba(15, 23, 42, 0.05)",
-  text: "#0F172A", // slate-900
-  text2: "#1E293B", // slate-800
-  muted: "#475569", // slate-600
-  muted2: "#64748B", // slate-500
-  faint: "#94A3B8", // slate-400
-  kbd: "#334155", // slate-700
-  shadow:
-    "0 0 0 1px rgba(15,23,42,0.06), 0 24px 80px -12px rgba(15,23,42,0.16)",
-  overlay: "rgba(2, 6, 23, 0.35)",
-};
-
-/** One source of truth so header + rows always align */
-const GRID_COLS = "minmax(320px, 1fr) 240px 56px 130px 160px";
 
 /* =========================================================
    Utilities
@@ -164,51 +138,35 @@ function booly(v: any) {
   return ["true", "t", "yes", "y", "1"].includes(s);
 }
 
-/** Extract `/projects/<ref>` from a link, if present */
 function extractProjectRefFromHref(href: string): string | null {
   const h = safeStr(href).trim();
   const m = h.match(/\/projects\/([^\/?#]+)/i);
   return m?.[1] ? String(m[1]) : null;
 }
 
-/** Build a safe link for AI due items (prevents routing to invalid artifact detail pages). */
-function aiItemHref(args: {
-  item: any;
-  fallbackProjectRef: string;
-}): string {
+function aiItemHref(args: { item: any; fallbackProjectRef: string }): string {
   const { item, fallbackProjectRef } = args;
-
   const rawLink = safeStr(item?.href || item?.link || "").trim();
   const normalized = rawLink ? normalizeArtifactLink(rawLink) : "";
 
-  // If API gives a clean internal href, use it
   if (normalized.startsWith("/projects/")) {
-    // Safety: if it's an artifact detail path but the id isn't a UUID, it's probably wrong (work_item/milestone etc).
     const m = normalized.match(/\/projects\/[^\/]+\/artifacts\/([^\/?#]+)/i);
     if (m?.[1] && !looksLikeUuid(String(m[1]))) {
-      // fall back to project page rather than crash server-side route
       return `/projects/${fallbackProjectRef}`;
     }
     return normalized;
   }
 
-  // Otherwise, try to route by itemType/kind
   const refFromLink = normalized ? extractProjectRefFromHref(normalized) : null;
   const projRef = refFromLink || fallbackProjectRef;
-
   const kind = safeLower(item?.kind || item?.source || item?.type || item?.itemType || "");
-
-  // artifact_id present => safe artifact detail
   const artifactId = safeStr(item?.artifact_id || item?.artifactId || "").trim();
   if (artifactId && looksLikeUuid(artifactId)) return `/projects/${projRef}/artifacts/${artifactId}`;
-
   if (kind.includes("milestone") || kind.includes("schedule")) return `/projects/${projRef}/schedule`;
   if (kind.includes("wbs") || kind.includes("work_item") || kind.includes("work item")) return `/projects/${projRef}/wbs`;
   if (kind.includes("raid") || kind.includes("risk") || kind.includes("issue") || kind.includes("dependency"))
     return `/projects/${projRef}/raid`;
   if (kind.includes("change")) return `/projects/${projRef}/change`;
-
-  // final fallback
   return `/projects/${projRef}`;
 }
 
@@ -219,60 +177,30 @@ function aiItemHref(args: {
 function canonType(x: any): string {
   const raw = safeLower(x);
   if (!raw) return "";
-  const t = raw
-    .replace(/\s+/g, " ")
-    .replace(/[\/]+/g, " / ")
-    .replace(/[_-]+/g, "_")
-    .trim();
+  const t = raw.replace(/\s+/g, " ").replace(/[\/]+/g, " / ").replace(/[_-]+/g, "_").trim();
 
-  if (
-    [
-      "weekly_report",
-      "weekly report",
-      "weekly_status",
-      "weekly status",
-      "weekly_update",
-      "weekly update",
-      "delivery_report",
-      "delivery report",
-      "status_report",
-      "status report",
-    ].includes(t)
-  )
+  if (["weekly_report", "weekly report", "weekly_status", "weekly status", "weekly_update", "weekly update", "delivery_report", "delivery report", "status_report", "status report"].includes(t))
     return "WEEKLY_REPORT";
-  if (t === "status_dashboard" || t === "status dashboard")
-    return "PROJECT_CLOSURE_REPORT";
+  if (t === "status_dashboard" || t === "status dashboard") return "PROJECT_CLOSURE_REPORT";
   if (t.includes("charter") || t === "pid") return "PROJECT_CHARTER";
   if (t.includes("stakeholder")) return "STAKEHOLDER_REGISTER";
   if (t === "wbs" || t.includes("work breakdown")) return "WBS";
-  if (t.includes("schedule") || t.includes("roadmap") || t.includes("gantt"))
-    return "SCHEDULE";
+  if (t.includes("schedule") || t.includes("roadmap") || t.includes("gantt")) return "SCHEDULE";
   if (t.includes("change")) return "CHANGE_REQUESTS";
   if (t.includes("raid")) return "RAID";
   if (t.includes("lessons") || t.includes("retro")) return "LESSONS_LEARNED";
-  if (t.includes("closure") || t.includes("closeout"))
-    return "PROJECT_CLOSURE_REPORT";
+  if (t.includes("closure") || t.includes("closeout")) return "PROJECT_CLOSURE_REPORT";
   return t.toUpperCase().replace(/\s+/g, "_");
 }
 
 function phaseForCanonType(typeKey: string): Phase {
   switch (typeKey) {
-    case "PROJECT_CHARTER":
-      return "Initiating";
-    case "STAKEHOLDER_REGISTER":
-    case "WBS":
-    case "SCHEDULE":
-      return "Planning";
-    case "WEEKLY_REPORT":
-      return "Executing";
-    case "RAID":
-    case "CHANGE_REQUESTS":
-      return "Monitoring & Controlling";
-    case "LESSONS_LEARNED":
-    case "PROJECT_CLOSURE_REPORT":
-      return "Closing";
-    default:
-      return "Planning";
+    case "PROJECT_CHARTER": return "Initiating";
+    case "STAKEHOLDER_REGISTER": case "WBS": case "SCHEDULE": return "Planning";
+    case "WEEKLY_REPORT": return "Executing";
+    case "RAID": case "CHANGE_REQUESTS": return "Monitoring & Controlling";
+    case "LESSONS_LEARNED": case "PROJECT_CLOSURE_REPORT": return "Closing";
+    default: return "Planning";
   }
 }
 
@@ -300,11 +228,9 @@ function applyCurrentFallback(rows: ArtifactBoardRow[]) {
   if (!rows.length) return rows;
   const hasAnyCurrent = rows.some((r) => booly(r.isCurrent));
   if (hasAnyCurrent) return rows.map((r) => ({ ...r, isCurrent: booly(r.isCurrent) }));
-
   const seenType = new Set<string>();
   return rows.map((r) => {
-    const tk =
-      safeStr(r.typeKey || canonType(r.artifactType)).trim() || safeStr(r.artifactType).trim();
+    const tk = safeStr(r.typeKey || canonType(r.artifactType)).trim() || safeStr(r.artifactType).trim();
     const key = tk || r.id;
     const mark = !seenType.has(key);
     if (mark) seenType.add(key);
@@ -313,234 +239,123 @@ function applyCurrentFallback(rows: ArtifactBoardRow[]) {
 }
 
 /* =========================================================
-   Phase Icons & Config
+   Phase & Status Config
 ========================================================= */
 
-const PHASE_CONFIG: Record<
-  Phase,
-  {
-    icon: React.ElementType;
-    gradient: string;
-    accent: string;
-    glow: string;
-    bg: string;
-    label: string;
-    order: number;
-  }
-> = {
-  Initiating: {
-    icon: Target,
-    gradient: "from-amber-500 to-orange-600",
-    accent: "#f59e0b",
-    glow: "shadow-amber-500/15",
-    bg: "rgba(245, 158, 11, 0.08)",
-    label: "Initiate",
-    order: 0,
-  },
-  Planning: {
-    icon: GitBranch,
-    gradient: "from-sky-500 to-blue-600",
-    accent: "#0ea5e9",
-    glow: "shadow-sky-500/15",
-    bg: "rgba(14, 165, 233, 0.08)",
-    label: "Plan",
-    order: 1,
-  },
-  Executing: {
-    icon: Zap,
-    gradient: "from-violet-500 to-purple-600",
-    accent: "#8b5cf6",
-    glow: "shadow-violet-500/15",
-    bg: "rgba(139, 92, 246, 0.08)",
-    label: "Execute",
-    order: 2,
-  },
-  "Monitoring & Controlling": {
-    icon: BarChart3,
-    gradient: "from-cyan-500 to-teal-600",
-    accent: "#06b6d4",
-    glow: "shadow-cyan-500/15",
-    bg: "rgba(6, 182, 212, 0.08)",
-    label: "Monitor",
-    order: 3,
-  },
-  Closing: {
-    icon: Flag,
-    gradient: "from-emerald-500 to-green-600",
-    accent: "#10b981",
-    glow: "shadow-emerald-500/15",
-    bg: "rgba(16, 185, 129, 0.08)",
-    label: "Close",
-    order: 4,
-  },
+const PHASE_CONFIG: Record<Phase, {
+  icon: React.ElementType;
+  color: string;
+  bg: string;
+  label: string;
+  order: number;
+}> = {
+  Initiating: { icon: Target, color: "#D97706", bg: "#FFFBEB", label: "Initiate", order: 0 },
+  Planning: { icon: GitBranch, color: "#2563EB", bg: "#EFF6FF", label: "Plan", order: 1 },
+  Executing: { icon: Zap, color: "#7C3AED", bg: "#F5F3FF", label: "Execute", order: 2 },
+  "Monitoring & Controlling": { icon: BarChart3, color: "#0891B2", bg: "#ECFEFF", label: "Monitor", order: 3 },
+  Closing: { icon: Flag, color: "#059669", bg: "#ECFDF5", label: "Close", order: 4 },
 };
 
-const STATUS_CONFIG: Record<UiStatus, { color: string; bg: string; border: string; dotColor: string }> =
-  {
-    Draft: {
-      color: "rgba(100, 116, 139, 1)", // slate-500
-      bg: "rgba(100, 116, 139, 0.10)",
-      border: "rgba(100, 116, 139, 0.18)",
-      dotColor: "#64748B",
-    },
-    "In review": {
-      color: "rgba(37, 99, 235, 1)", // blue-600
-      bg: "rgba(37, 99, 235, 0.10)",
-      border: "rgba(37, 99, 235, 0.18)",
-      dotColor: "#2563EB",
-    },
-    Approved: {
-      color: "rgba(5, 150, 105, 1)", // emerald-600
-      bg: "rgba(5, 150, 105, 0.10)",
-      border: "rgba(5, 150, 105, 0.18)",
-      dotColor: "#059669",
-    },
-    Blocked: {
-      color: "rgba(225, 29, 72, 1)", // rose-600
-      bg: "rgba(225, 29, 72, 0.10)",
-      border: "rgba(225, 29, 72, 0.18)",
-      dotColor: "#E11D48",
-    },
-  };
+const STATUS_STYLES: Record<UiStatus, { color: string; bg: string; dot: string }> = {
+  Draft: { color: "#6B7280", bg: "#F3F4F6", dot: "#9CA3AF" },
+  "In review": { color: "#2563EB", bg: "#EFF6FF", dot: "#3B82F6" },
+  Approved: { color: "#059669", bg: "#ECFDF5", dot: "#10B981" },
+  Blocked: { color: "#DC2626", bg: "#FEF2F2", dot: "#EF4444" },
+};
 
 /* =========================================================
-   Styled Components
+   Notion-style Spreadsheet Components
 ========================================================= */
 
-function ArcProgress({
-  value,
-  size = 36,
-  strokeWidth = 3,
-  color,
-}: {
-  value: number;
-  size?: number;
-  strokeWidth?: number;
-  color: string;
-}) {
+/** Thin progress bar (Notion-style, no arc) */
+function ProgressBar({ value, color }: { value: number; color: string }) {
   const v = clampPct(value);
-  const r = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * r;
-  const offset = circumference - (v / 100) * circumference;
-
   return (
-    <div className="relative" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90">
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke="rgba(15,23,42,0.08)"
-          strokeWidth={strokeWidth}
+    <div className="flex items-center gap-2.5 w-full">
+      <div className="flex-1 h-[5px] rounded-full overflow-hidden" style={{ background: "#F1F5F9" }}>
+        <div
+          className="h-full rounded-full"
+          style={{
+            width: `${v}%`,
+            background: color,
+            transition: "width 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
+          }}
         />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke={color}
-          strokeWidth={strokeWidth}
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          strokeLinecap="round"
-          style={{ transition: "stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1)" }}
-        />
-      </svg>
-      <span
-        className="absolute inset-0 flex items-center justify-center font-mono text-[10px] font-bold"
-        style={{ color }}
-      >
-        {v}
+      </div>
+      <span className="text-[12px] tabular-nums font-medium" style={{ color: "#94A3B8", minWidth: 30, textAlign: "right" }}>
+        {v}%
       </span>
     </div>
   );
 }
 
-function StatusPill({ status }: { status: UiStatus }) {
-  const cfg = STATUS_CONFIG[status];
+function StatusBadge({ status }: { status: UiStatus }) {
+  const s = STATUS_STYLES[status];
   return (
     <span
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide uppercase"
-      style={{
-        color: cfg.color,
-        background: cfg.bg,
-        border: `1px solid ${cfg.border}`,
-      }}
+      className="inline-flex items-center gap-1.5 px-2 py-[3px] rounded-md text-[12px] font-medium"
+      style={{ color: s.color, background: s.bg }}
     >
-      <span className="w-1.5 h-1.5 rounded-full" style={{ background: cfg.dotColor }} />
+      <span className="w-[6px] h-[6px] rounded-full" style={{ background: s.dot }} />
       {status}
     </span>
   );
 }
 
-function OwnerChip({ email, name }: { email: string; name?: string }) {
-  const initials = initialsFromEmail(email);
-  const displayName = name || email.split("@")[0] || "Unassigned";
-
-  const hue = email
-    ? email.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 360
-    : 220;
-
-  return (
-    <div className="flex items-center gap-2.5 min-w-0">
-      <div
-        className="h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold tracking-wider shrink-0"
-        style={{
-          background: `hsla(${hue}, 70%, 45%, 0.10)`,
-          color: `hsla(${hue}, 80%, 30%, 1)`,
-          border: `1px solid hsla(${hue}, 70%, 45%, 0.18)`,
-        }}
-      >
-        {initials}
-      </div>
-      <span className="text-[13px] text-[#334155] truncate">
-        {displayName}
-      </span>
-    </div>
-  );
-}
-
-function CurrentTag() {
+function PhaseBadge({ phase }: { phase: Phase }) {
+  const cfg = PHASE_CONFIG[phase];
+  const Icon = cfg.icon;
   return (
     <span
-      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest"
-      style={{
-        background: "rgba(5,150,105,0.10)",
-        color: "#059669",
-        border: "1px solid rgba(5,150,105,0.18)",
-      }}
+      className="inline-flex items-center gap-1.5 px-2 py-[3px] rounded-md text-[12px] font-medium"
+      style={{ color: cfg.color, background: cfg.bg }}
     >
-      <CheckCircle2 className="h-3 w-3" />
-      Live
+      <Icon className="h-3 w-3" />
+      {cfg.label}
     </span>
   );
 }
 
-function BaselineTag() {
+function AvatarChip({ email, name }: { email: string; name?: string }) {
+  const initials = initialsFromEmail(email);
+  const displayName = name || email.split("@")[0] || "Unassigned";
+  const hue = email ? email.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 360 : 220;
+
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      <div
+        className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-semibold shrink-0"
+        style={{
+          background: `hsl(${hue}, 55%, 92%)`,
+          color: `hsl(${hue}, 60%, 35%)`,
+        }}
+      >
+        {initials}
+      </div>
+      <span className="text-[13px] text-[#374151] truncate">{displayName}</span>
+    </div>
+  );
+}
+
+function TagPill({ children, color, bg }: { children: React.ReactNode; color: string; bg: string }) {
   return (
     <span
-      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest"
-      style={{
-        background: "rgba(15,23,42,0.04)",
-        color: "#64748B",
-        border: "1px solid rgba(15,23,42,0.08)",
-      }}
+      className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded text-[10px] font-semibold uppercase tracking-wide"
+      style={{ color, background: bg }}
     >
-      <Shield className="h-3 w-3" />
-      Baseline
+      {children}
     </span>
   );
 }
 
 /* =========================================================
-   Artifact Row
+   Table Row
 ========================================================= */
 
-function ArtifactRow({
+const COL_TEMPLATE = "minmax(260px, 2fr) 180px 140px 130px 120px 100px";
+
+function ArtifactTableRow({
   row,
-  idx,
-  phaseAccent,
   projectUuid,
   onOpen,
   onMakeCurrent,
@@ -551,8 +366,6 @@ function ArtifactRow({
   deletingId,
 }: {
   row: ArtifactBoardRow;
-  idx: number;
-  phaseAccent: string;
   projectUuid: string;
   onOpen: (id: string) => void;
   onMakeCurrent: (id: string) => void;
@@ -572,325 +385,111 @@ function ArtifactRow({
     !row.isBaseline &&
     !row.isLocked &&
     !row.deletedAt;
+  const phaseCfg = PHASE_CONFIG[row.phase];
 
   return (
     <div
       onClick={() => onOpen(row.id)}
-      className="group relative grid items-center gap-4 px-5 py-4 cursor-pointer transition-all duration-200"
+      className="notion-row group relative grid items-center cursor-pointer"
       style={{
-        gridTemplateColumns: GRID_COLS,
-        animationDelay: `${idx * 40}ms`,
-        borderBottom: `1px solid ${THEME.border3}`,
-        background: isCurrent ? "rgba(5,150,105,0.04)" : "transparent",
-      }}
-      onMouseEnter={(e) => {
-        (e.currentTarget as HTMLElement).style.background = isCurrent
-          ? "rgba(5,150,105,0.06)"
-          : "rgba(15,23,42,0.02)";
-      }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLElement).style.background = isCurrent
-          ? "rgba(5,150,105,0.04)"
-          : "transparent";
+        gridTemplateColumns: COL_TEMPLATE,
+        borderBottom: "1px solid #F1F5F9",
+        minHeight: 44,
       }}
     >
-      {isCurrent && (
-        <div
-          className="absolute left-0 top-2 bottom-2 w-[2px] rounded-full"
-          style={{ background: "#059669" }}
-        />
-      )}
-
-      {/* Artifact */}
-      <div className="min-w-0">
-        <div className="flex items-center gap-2 mb-0.5 min-w-0">
-          <span className="text-[13px] font-semibold truncate" style={{ color: THEME.text }}>
-            {row.artifactType}
-          </span>
-          {isCurrent && <CurrentTag />}
-          {row.isBaseline && <BaselineTag />}
-        </div>
-        <p className="text-[12px] truncate" style={{ color: THEME.muted2 }}>
-          {row.title}
-        </p>
-      </div>
-
-      {/* Owner */}
-      <OwnerChip email={row.ownerEmail} name={row.ownerName} />
-
-      {/* Progress */}
-      <ArcProgress value={row.progress} color={phaseAccent} />
-
-      {/* Status */}
-      <StatusPill status={row.status} />
-
-      {/* Actions */}
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 justify-end">
-        {!isCurrent && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onMakeCurrent(row.id);
-            }}
-            disabled={isMaking || !projectUuid || !looksLikeUuid(projectUuid)}
-            className="p-1.5 rounded-md transition-colors disabled:opacity-30"
-            style={{
-              color: "#059669",
-              background: "rgba(5,150,105,0.10)",
-              border: "1px solid rgba(5,150,105,0.16)",
-            }}
-            title="Set as current"
-          >
-            {isMaking ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <CheckCircle2 className="h-3.5 w-3.5" />
+      {/* Name cell */}
+      <div className="flex items-center gap-2 px-3 py-2.5 min-w-0 h-full" style={{ borderRight: "1px solid #F8FAFC" }}>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-[13px] font-medium text-[#111827] truncate">{row.title || row.artifactType}</span>
+            {isCurrent && (
+              <TagPill color="#059669" bg="#ECFDF5">
+                <CheckCircle2 className="h-2.5 w-2.5" /> live
+              </TagPill>
             )}
-          </button>
-        )}
+            {row.isBaseline && (
+              <TagPill color="#6B7280" bg="#F3F4F6">
+                <Shield className="h-2.5 w-2.5" /> baseline
+              </TagPill>
+            )}
+          </div>
+          <span className="text-[11px] text-[#9CA3AF] truncate block">{row.artifactType}</span>
+        </div>
+      </div>
 
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onClone(row.id);
-          }}
-          disabled={isCloning || !projectUuid || !looksLikeUuid(projectUuid)}
-          className="p-1.5 rounded-md transition-colors disabled:opacity-30"
-          style={{
-            color: "#2563EB",
-            background: "rgba(37,99,235,0.10)",
-            border: "1px solid rgba(37,99,235,0.16)",
-          }}
-          title="Clone"
-        >
-          {isCloning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
-        </button>
+      {/* Owner cell */}
+      <div className="px-3 py-2.5 h-full flex items-center" style={{ borderRight: "1px solid #F8FAFC" }}>
+        <AvatarChip email={row.ownerEmail} name={row.ownerName} />
+      </div>
 
-        {canDelete && (
+      {/* Phase cell */}
+      <div className="px-3 py-2.5 h-full flex items-center" style={{ borderRight: "1px solid #F8FAFC" }}>
+        <PhaseBadge phase={row.phase} />
+      </div>
+
+      {/* Status cell */}
+      <div className="px-3 py-2.5 h-full flex items-center" style={{ borderRight: "1px solid #F8FAFC" }}>
+        <StatusBadge status={row.status} />
+      </div>
+
+      {/* Progress cell */}
+      <div className="px-3 py-2.5 h-full flex items-center" style={{ borderRight: "1px solid #F8FAFC" }}>
+        <ProgressBar value={row.progress} color={phaseCfg.color} />
+      </div>
+
+      {/* Actions cell */}
+      <div className="px-2 py-2.5 h-full flex items-center justify-end gap-0.5">
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          {!isCurrent && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onMakeCurrent(row.id); }}
+              disabled={isMaking || !projectUuid || !looksLikeUuid(projectUuid)}
+              className="p-1 rounded hover:bg-emerald-50 transition-colors disabled:opacity-30"
+              style={{ color: "#059669" }}
+              title="Set as current"
+            >
+              {isMaking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+            </button>
+          )}
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(row.id);
-            }}
-            disabled={isDeleting || !projectUuid || !looksLikeUuid(projectUuid)}
-            className="p-1.5 rounded-md transition-colors disabled:opacity-30"
-            style={{
-              color: "#E11D48",
-              background: "rgba(225,29,72,0.10)",
-              border: "1px solid rgba(225,29,72,0.16)",
-            }}
-            title="Delete draft"
+            onClick={(e) => { e.stopPropagation(); onClone(row.id); }}
+            disabled={isCloning || !projectUuid || !looksLikeUuid(projectUuid)}
+            className="p-1 rounded hover:bg-blue-50 transition-colors disabled:opacity-30"
+            style={{ color: "#2563EB" }}
+            title="Clone"
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            {isCloning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
-        )}
-
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpen(row.id);
-          }}
-          className="p-1.5 rounded-md transition-colors"
-          style={{
-            color: THEME.muted2,
-            background: "rgba(15,23,42,0.04)",
-            border: "1px solid rgba(15,23,42,0.08)",
-          }}
-          title="Open"
-        >
-          <ArrowUpRight className="h-3.5 w-3.5" />
-        </button>
+          {canDelete && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(row.id); }}
+              disabled={isDeleting || !projectUuid || !looksLikeUuid(projectUuid)}
+              className="p-1 rounded hover:bg-red-50 transition-colors disabled:opacity-30"
+              style={{ color: "#DC2626" }}
+              title="Delete draft"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpen(row.id); }}
+            className="p-1 rounded hover:bg-gray-100 transition-colors"
+            style={{ color: "#6B7280" }}
+            title="Open"
+          >
+            <ArrowUpRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
 /* =========================================================
-   Phase Group
+   Search / Filter Bar (inline, Notion-style)
 ========================================================= */
 
-function PhaseGroup({
-  phase,
-  rows,
-  projectUuid,
-  onOpen,
-  onMakeCurrent,
-  makingCurrentId,
-  onClone,
-  cloningId,
-  onDelete,
-  deletingId,
-  animIndex,
-}: {
-  phase: Phase;
-  rows: ArtifactBoardRow[];
-  projectUuid: string;
-  onOpen: (id: string) => void;
-  onMakeCurrent: (id: string) => void;
-  makingCurrentId: string;
-  onClone: (id: string) => void;
-  cloningId: string;
-  onDelete: (id: string) => void;
-  deletingId: string;
-  animIndex: number;
-}) {
-  const cfg = PHASE_CONFIG[phase];
-  const Icon = cfg.icon;
-
-  const sortedRows = useMemo(() => {
-    return [...rows].sort((a, b) => {
-      const ac = booly(a.isCurrent) ? 1 : 0;
-      const bc = booly(b.isCurrent) ? 1 : 0;
-      if (ac !== bc) return bc - ac;
-      const ab = a.isBaseline ? 1 : 0;
-      const bb = b.isBaseline ? 1 : 0;
-      if (ab !== bb) return bb - ab;
-      return (a.__idx ?? 0) - (b.__idx ?? 0);
-    });
-  }, [rows]);
-
-  if (!sortedRows.length) return null;
-
-  return (
-    <div className="mb-8 animate-[fadeSlideUp_0.5s_ease-out_both]" style={{ animationDelay: `${animIndex * 80}ms` }}>
-      {/* Phase Header */}
-      <div className="flex items-center gap-3 mb-3 px-1">
-        <div
-          className={`h-8 w-8 rounded-lg bg-gradient-to-br ${cfg.gradient} flex items-center justify-center shadow-lg ${cfg.glow}`}
-        >
-          <Icon className="h-4 w-4 text-white" />
-        </div>
-        <div>
-          <h3 className="text-[13px] font-bold tracking-wide" style={{ color: THEME.text }}>
-            {phase}
-          </h3>
-          <p className="text-[11px]" style={{ color: THEME.muted2 }}>
-            {sortedRows.length} artifact{sortedRows.length !== 1 ? "s" : ""}
-          </p>
-        </div>
-      </div>
-
-      {/* Rows Container */}
-      <div
-        className="rounded-xl overflow-hidden"
-        style={{
-          background: THEME.panel,
-          border: `1px solid ${THEME.border}`,
-          backdropFilter: "blur(18px)",
-          boxShadow: "0 1px 0 rgba(15,23,42,0.03)",
-        }}
-      >
-        {/* Table Header */}
-        <div
-          className="grid items-center gap-4 px-5 py-2.5"
-          style={{
-            gridTemplateColumns: GRID_COLS,
-            borderBottom: `1px solid ${THEME.border2}`,
-            background: "linear-gradient(180deg, rgba(15,23,42,0.02), transparent)",
-          }}
-        >
-          <span
-            className="text-[10px] font-bold uppercase tracking-[0.1em]"
-            style={{ color: THEME.muted2 }}
-          >
-            Artifact
-          </span>
-          <span
-            className="text-[10px] font-bold uppercase tracking-[0.1em]"
-            style={{ color: THEME.muted2 }}
-          >
-            Owner
-          </span>
-          <span
-            className="text-[10px] font-bold uppercase tracking-[0.1em]"
-            style={{ color: THEME.muted2 }}
-          >
-            %
-          </span>
-          <span
-            className="text-[10px] font-bold uppercase tracking-[0.1em]"
-            style={{ color: THEME.muted2 }}
-          >
-            Status
-          </span>
-          <span />
-        </div>
-
-        {sortedRows.map((row, idx) => (
-          <ArtifactRow
-            key={row.id}
-            row={row}
-            idx={idx}
-            phaseAccent={cfg.accent}
-            projectUuid={projectUuid}
-            onOpen={onOpen}
-            onMakeCurrent={onMakeCurrent}
-            makingCurrentId={makingCurrentId}
-            onClone={onClone}
-            cloningId={cloningId}
-            onDelete={onDelete}
-            deletingId={deletingId}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================
-   Stats Bar
-========================================================= */
-
-function StatsBar({ rows }: { rows: ArtifactBoardRow[] }) {
-  const stats = useMemo(() => {
-    const total = rows.length;
-    const approved = rows.filter((r) => r.status === "Approved").length;
-    const inReview = rows.filter((r) => r.status === "In review").length;
-    const blocked = rows.filter((r) => r.status === "Blocked").length;
-    const avgProgress = total ? Math.round(rows.reduce((s, r) => s + r.progress, 0) / total) : 0;
-    return { total, approved, inReview, blocked, avgProgress };
-  }, [rows]);
-
-  const items = [
-    { label: "Total", value: stats.total, color: "#334155" },
-    { label: "Approved", value: stats.approved, color: "#059669" },
-    { label: "In Review", value: stats.inReview, color: "#2563EB" },
-    { label: "Blocked", value: stats.blocked, color: "#E11D48" },
-    { label: "Avg Progress", value: `${stats.avgProgress}%`, color: "#7C3AED" },
-  ];
-
-  return (
-    <div className="flex items-center gap-6">
-      {items.map((item) => (
-        <div key={item.label} className="flex items-center gap-2">
-          <div className="w-1.5 h-1.5 rounded-full" style={{ background: item.color }} />
-          <span className="text-[11px]" style={{ color: THEME.muted2 }}>
-            {item.label}
-          </span>
-          <span className="text-[12px] font-bold font-mono" style={{ color: item.color }}>
-            {item.value}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/* =========================================================
-   Search + Filters Overlay
-========================================================= */
-
-function hexToRgb(hex: string): string {
-  const c = hex.replace("#", "");
-  const r = parseInt(c.substring(0, 2), 16);
-  const g = parseInt(c.substring(2, 4), 16);
-  const b = parseInt(c.substring(4, 6), 16);
-  return `${r}, ${g}, ${b}`;
-}
-
-function CommandPalette({
-  open,
-  onClose,
+function InlineFilterBar({
   search,
   setSearch,
   statusSet,
@@ -900,8 +499,6 @@ function CommandPalette({
   clearAll,
   activeCount,
 }: {
-  open: boolean;
-  onClose: () => void;
   search: string;
   setSearch: (v: string) => void;
   statusSet: Set<UiStatus>;
@@ -911,146 +508,170 @@ function CommandPalette({
   clearAll: () => void;
   activeCount: number;
 }) {
+  const [showFilters, setShowFilters] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (open) setTimeout(() => inputRef.current?.focus(), 50);
-  }, [open]);
-
+  // Global ⌘K to focus
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && open) onClose();
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  if (!open) return null;
+  }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
-      <div
-        className="absolute inset-0 animate-[fadeIn_0.15s_ease-out]"
-        style={{ background: THEME.overlay, backdropFilter: "blur(4px)" }}
-        onClick={onClose}
-      />
-
-      <div
-        className="relative w-full max-w-lg rounded-2xl overflow-hidden animate-[fadeSlideUp_0.2s_ease-out]"
-        style={{
-          background: THEME.panelSolid,
-          border: `1px solid ${THEME.border}`,
-          boxShadow: THEME.shadow,
-        }}
-      >
-        {/* Search */}
-        <div className="flex items-center gap-3 px-5 py-4" style={{ borderBottom: `1px solid ${THEME.border2}` }}>
-          <Search className="h-5 w-5" style={{ color: THEME.muted2 }} />
+    <div className="mb-1">
+      {/* Search row */}
+      <div className="flex items-center gap-2 px-1 py-2">
+        <div
+          className="flex items-center gap-2 flex-1 px-3 py-[7px] rounded-lg border transition-colors"
+          style={{ borderColor: "#E5E7EB", background: "#FAFAFA" }}
+        >
+          <Search className="h-4 w-4 text-[#9CA3AF] shrink-0" />
           <input
             ref={inputRef}
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search artifacts, owners, titles..."
-            className="flex-1 bg-transparent text-[14px] outline-none"
-            style={{
-              color: THEME.text,
-              fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace",
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                if (search) {
+                  setSearch("");
+                } else {
+                  (e.target as HTMLInputElement).blur();
+                }
+              }
             }}
+            placeholder="Filter artifacts..."
+            className="flex-1 bg-transparent text-[13px] outline-none text-[#111827] placeholder:text-[#9CA3AF]"
           />
-          <kbd
-            className="px-2 py-0.5 rounded text-[10px] font-mono border"
-            style={{ color: THEME.kbd, borderColor: THEME.border2, background: "rgba(15,23,42,0.03)" }}
-          >
-            ESC
+          {search && (
+            <button onClick={() => setSearch("")} className="p-0.5 rounded hover:bg-gray-200 transition-colors">
+              <X className="h-3 w-3 text-[#6B7280]" />
+            </button>
+          )}
+          <kbd className="hidden sm:inline text-[10px] text-[#9CA3AF] border border-[#E5E7EB] rounded px-1.5 py-0.5 bg-white font-mono">
+            ⌘K
           </kbd>
         </div>
 
-        {/* Filters */}
-        <div className="px-5 py-4 space-y-4">
-          <div>
-            <span
-              className="text-[10px] font-bold uppercase tracking-[0.15em] mb-2 block"
-              style={{ color: THEME.muted2 }}
-            >
-              Status
+        <button
+          onClick={() => setShowFilters((v) => !v)}
+          className="flex items-center gap-1.5 px-3 py-[7px] rounded-lg border text-[13px] font-medium transition-colors"
+          style={{
+            borderColor: activeCount > 0 ? "#BFDBFE" : "#E5E7EB",
+            background: activeCount > 0 ? "#EFF6FF" : "#FAFAFA",
+            color: activeCount > 0 ? "#2563EB" : "#6B7280",
+          }}
+        >
+          <Filter className="h-3.5 w-3.5" />
+          Filter
+          {activeCount > 0 && (
+            <span className="text-[11px] font-semibold bg-blue-600 text-white rounded-full w-4 h-4 flex items-center justify-center">
+              {activeCount}
             </span>
-            <div className="flex flex-wrap gap-2">
-              {(["Draft", "In review", "Approved", "Blocked"] as UiStatus[]).map((status) => {
-                const active = statusSet.has(status);
-                const cfg = STATUS_CONFIG[status];
-                return (
-                  <button
-                    key={status}
-                    onClick={() => toggleStatus(status)}
-                    className="px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all duration-150"
-                    style={{
-                      background: active ? cfg.bg : "rgba(15,23,42,0.03)",
-                      color: active ? cfg.color : THEME.muted,
-                      border: `1px solid ${active ? cfg.border : THEME.border}`,
-                    }}
-                  >
-                    {status}
-                  </button>
-                );
-              })}
-            </div>
+          )}
+          <ChevronDown className={`h-3 w-3 transition-transform ${showFilters ? "rotate-180" : ""}`} />
+        </button>
+      </div>
+
+      {/* Filter pills */}
+      {showFilters && (
+        <div className="px-1 pb-3 flex flex-wrap items-center gap-4 animate-[notionFadeIn_0.15s_ease-out]">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-medium text-[#9CA3AF] uppercase tracking-wider">Status</span>
+            {(["Draft", "In review", "Approved", "Blocked"] as UiStatus[]).map((status) => {
+              const active = statusSet.has(status);
+              const s = STATUS_STYLES[status];
+              return (
+                <button
+                  key={status}
+                  onClick={() => toggleStatus(status)}
+                  className="px-2 py-1 rounded-md text-[12px] font-medium transition-all"
+                  style={{
+                    background: active ? s.bg : "transparent",
+                    color: active ? s.color : "#9CA3AF",
+                    border: `1px solid ${active ? s.bg : "#E5E7EB"}`,
+                  }}
+                >
+                  {status}
+                </button>
+              );
+            })}
           </div>
 
-          <div>
-            <span
-              className="text-[10px] font-bold uppercase tracking-[0.15em] mb-2 block"
-              style={{ color: THEME.muted2 }}
-            >
-              Phase
-            </span>
-            <div className="flex flex-wrap gap-2">
-              {(
-                ["Initiating", "Planning", "Executing", "Monitoring & Controlling", "Closing"] as Phase[]
-              ).map((phase) => {
-                const active = phaseSet.has(phase);
-                const cfg = PHASE_CONFIG[phase];
-                return (
-                  <button
-                    key={phase}
-                    onClick={() => togglePhase(phase)}
-                    className="px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all duration-150"
-                    style={{
-                      background: active ? `rgba(${hexToRgb(cfg.accent)}, 0.12)` : "rgba(15,23,42,0.03)",
-                      color: active ? cfg.accent : THEME.muted,
-                      border: `1px solid ${
-                        active ? `rgba(${hexToRgb(cfg.accent)}, 0.22)` : THEME.border
-                      }`,
-                    }}
-                  >
-                    {cfg.label}
-                  </button>
-                );
-              })}
-            </div>
+          <div className="w-px h-5 bg-[#E5E7EB]" />
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-medium text-[#9CA3AF] uppercase tracking-wider">Phase</span>
+            {(["Initiating", "Planning", "Executing", "Monitoring & Controlling", "Closing"] as Phase[]).map((phase) => {
+              const active = phaseSet.has(phase);
+              const cfg = PHASE_CONFIG[phase];
+              return (
+                <button
+                  key={phase}
+                  onClick={() => togglePhase(phase)}
+                  className="px-2 py-1 rounded-md text-[12px] font-medium transition-all"
+                  style={{
+                    background: active ? cfg.bg : "transparent",
+                    color: active ? cfg.color : "#9CA3AF",
+                    border: `1px solid ${active ? cfg.bg : "#E5E7EB"}`,
+                  }}
+                >
+                  {cfg.label}
+                </button>
+              );
+            })}
           </div>
 
           {activeCount > 0 && (
-            <button
-              onClick={clearAll}
-              className="w-full py-2 rounded-lg text-[11px] font-semibold transition-colors"
-              style={{
-                border: `1px solid ${THEME.border}`,
-                background: "rgba(15,23,42,0.02)",
-                color: THEME.muted,
-              }}
-            >
-              Clear all filters
-            </button>
+            <>
+              <div className="w-px h-5 bg-[#E5E7EB]" />
+              <button
+                onClick={clearAll}
+                className="text-[12px] font-medium text-[#9CA3AF] hover:text-[#6B7280] transition-colors"
+              >
+                Clear all
+              </button>
+            </>
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
 /* =========================================================
-   AI Panel
+   Stats Row (compact, Notion-style)
+========================================================= */
+
+function StatsRow({ rows }: { rows: ArtifactBoardRow[] }) {
+  const stats = useMemo(() => {
+    const total = rows.length;
+    const approved = rows.filter((r) => r.status === "Approved").length;
+    const inReview = rows.filter((r) => r.status === "In review").length;
+    const blocked = rows.filter((r) => r.status === "Blocked").length;
+    const avgProgress = total ? Math.round(rows.reduce((s, r) => s + r.progress, 0) / total) : 0;
+    return { total, approved, inReview, blocked, avgProgress };
+  }, [rows]);
+
+  return (
+    <div className="flex items-center gap-5 text-[12px] text-[#9CA3AF]">
+      <span><b className="text-[#374151] font-semibold">{stats.total}</b> total</span>
+      <span><b className="text-emerald-600 font-semibold">{stats.approved}</b> approved</span>
+      <span><b className="text-blue-600 font-semibold">{stats.inReview}</b> in review</span>
+      {stats.blocked > 0 && <span><b className="text-red-600 font-semibold">{stats.blocked}</b> blocked</span>}
+      <span><b className="text-violet-600 font-semibold">{stats.avgProgress}%</b> avg progress</span>
+    </div>
+  );
+}
+
+/* =========================================================
+   AI Panel (preserved, restyled)
 ========================================================= */
 
 function daysUntil(iso: string) {
@@ -1078,59 +699,36 @@ function AiPanel({
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState("");
 
-  // reset state each time it opens
   useEffect(() => {
-    if (open) {
-      setLoading(false);
-      setResult(null);
-      setError("");
-    }
+    if (open) { setLoading(false); setResult(null); setError(""); }
   }, [open]);
 
-  async function runCheck() {
-    if (!projectUuid || !looksLikeUuid(projectUuid)) {
-      setError("Invalid project UUID");
-      return;
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && open) onClose();
     }
-    setLoading(true);
-    setError("");
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
 
+  async function runCheck() {
+    if (!projectUuid || !looksLikeUuid(projectUuid)) { setError("Invalid project UUID"); return; }
+    setLoading(true); setError("");
     try {
       const res = await fetch("/api/ai/events", {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json",
-        },
-        body: JSON.stringify({
-          eventType: "artifact_due",
-          windowDays: 14,
-          project_id: projectUuid,
-          project_human_id: projectCode,
-        }),
+        method: "POST", credentials: "include",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ eventType: "artifact_due", windowDays: 14, project_id: projectUuid, project_human_id: projectCode }),
       });
-
       const text = await res.text();
       let data: any = null;
-      try {
-        data = text ? JSON.parse(text) : null;
-      } catch {
-        // non-JSON response
-      }
-
-      if (!res.ok) {
-        const msg = data?.error || data?.message || `Request failed (${res.status})`;
-        throw new Error(msg);
-      }
-
+      try { data = text ? JSON.parse(text) : null; } catch {}
+      if (!res.ok) { throw new Error(data?.error || data?.message || `Request failed (${res.status})`); }
       setResult(data);
     } catch (e: any) {
       setError(e?.message || "AI request failed");
       setResult((prev: any) => prev ?? { ai: { dueSoon: [] } });
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
   if (!open) return null;
@@ -1138,173 +736,87 @@ function AiPanel({
   const projectRef = projectHumanId || projectCode || projectUuid;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh]">
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh]">
+      <div className="absolute inset-0 bg-black/20 backdrop-blur-sm animate-[notionFadeIn_0.12s_ease-out]" onClick={onClose} />
       <div
-        className="absolute inset-0 animate-[fadeIn_0.15s_ease-out]"
-        style={{ background: THEME.overlay, backdropFilter: "blur(4px)" }}
-        onClick={onClose}
-      />
-
-      <div
-        className="relative w-full max-w-md max-h-[75vh] rounded-2xl overflow-hidden flex flex-col animate-[fadeSlideUp_0.2s_ease-out]"
-        style={{
-          background: THEME.panelSolid,
-          border: `1px solid ${THEME.border}`,
-          boxShadow: THEME.shadow,
-        }}
+        className="relative w-full max-w-md max-h-[70vh] rounded-xl overflow-hidden flex flex-col bg-white animate-[notionSlideUp_0.2s_ease-out]"
+        style={{ border: "1px solid #E5E7EB", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.15)" }}
       >
-        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1px solid ${THEME.border2}` }}>
-          <div className="flex items-center gap-2.5">
-            <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-violet-600 to-purple-600 flex items-center justify-center">
-              <Sparkles className="h-3.5 w-3.5 text-white" />
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[#F1F5F9]">
+          <div className="flex items-center gap-2">
+            <div className="h-6 w-6 rounded-md bg-violet-100 flex items-center justify-center">
+              <Sparkles className="h-3.5 w-3.5 text-violet-600" />
             </div>
-            <div className="min-w-0">
-              <span className="block text-[13px] font-bold" style={{ color: THEME.text }}>
-                AI Assistant
-              </span>
-              <div className="text-[11px] truncate" style={{ color: THEME.muted2 }}>
-                <span className="font-mono font-bold" style={{ color: THEME.muted }}>
-                  {projectCode || projectHumanId || "—"}
-                </span>
-                <span className="mx-1">•</span>
-                <span className="truncate">{projectName || "Project"}</span>
-              </div>
+            <div>
+              <span className="text-[13px] font-semibold text-[#111827]">AI Assistant</span>
+              <span className="text-[11px] text-[#9CA3AF] ml-2">{projectCode || projectHumanId || "—"}</span>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg"
-            style={{ color: THEME.muted, background: "rgba(15,23,42,0.04)", border: `1px solid ${THEME.border}` }}
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
+          <button onClick={onClose} className="p-1 rounded-md hover:bg-gray-100" aria-label="Close">
+            <X className="h-4 w-4 text-[#6B7280]" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-auto p-5">
+        <div className="flex-1 overflow-auto p-4">
           {error ? (
-            <div
-              className="p-4 rounded-xl text-[13px] flex items-start gap-2"
-              style={{
-                background: "rgba(225,29,72,0.08)",
-                color: "#E11D48",
-                border: "1px solid rgba(225,29,72,0.16)",
-              }}
-            >
-              <AlertCircle className="h-4 w-4 mt-[1px]" />
-              <div className="min-w-0">
-                <div className="font-semibold">AI scan failed</div>
-                <div className="text-[12px] opacity-90">{error}</div>
-                <button
-                  onClick={runCheck}
-                  disabled={loading}
-                  className="mt-3 px-3 py-1.5 rounded-lg text-[12px] font-semibold"
-                  style={{
-                    color: "#ffffff",
-                    background: "linear-gradient(135deg, #7C3AED, #9333EA)",
-                    opacity: loading ? 0.6 : 1,
-                  }}
-                >
+            <div className="p-3 rounded-lg bg-red-50 text-[13px] text-red-700 flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 mt-[1px] shrink-0" />
+              <div>
+                <div className="font-medium">Scan failed</div>
+                <div className="text-[12px] opacity-80">{error}</div>
+                <button onClick={runCheck} disabled={loading} className="mt-2 px-3 py-1 rounded-md text-[12px] font-medium bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50">
                   {loading ? "Retrying..." : "Retry"}
                 </button>
               </div>
             </div>
           ) : !result ? (
-            <div className="text-center py-12">
-              <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl mb-4" style={{ background: "rgba(124,58,237,0.10)", border: `1px solid rgba(124,58,237,0.16)` }}>
-                <Clock className="h-7 w-7" style={{ color: "#7C3AED" }} />
-              </div>
-              <p className="text-[13px] mb-5" style={{ color: THEME.muted2 }}>
-                Check what&apos;s coming up in the next 14 days
-              </p>
+            <div className="text-center py-10">
+              <Clock className="h-8 w-8 mx-auto mb-3 text-violet-400" />
+              <p className="text-[13px] text-[#6B7280] mb-4">Check what&apos;s due in the next 14 days</p>
               <button
-                onClick={runCheck}
-                disabled={loading}
-                className="px-5 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 transition-all disabled:opacity-50"
+                onClick={runCheck} disabled={loading}
+                className="px-4 py-2 rounded-lg text-[13px] font-medium text-white bg-violet-600 hover:bg-violet-700 transition-colors disabled:opacity-50"
               >
                 {loading ? (
-                  <span className="flex items-center gap-2">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Scanning...
-                  </span>
-                ) : (
-                  "Scan Due Dates"
-                )}
+                  <span className="flex items-center gap-2"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Scanning...</span>
+                ) : "Scan Due Dates"}
               </button>
             </div>
           ) : items.length === 0 ? (
-            <div className="text-center py-12">
-              <FileCheck className="h-8 w-8 mx-auto mb-3" style={{ color: "#059669" }} />
-              <p className="text-[13px]" style={{ color: THEME.muted2 }}>
-                Nothing due in the next 14 days
-              </p>
+            <div className="text-center py-10">
+              <FileCheck className="h-8 w-8 mx-auto mb-3 text-emerald-400" />
+              <p className="text-[13px] text-[#6B7280]">Nothing due in the next 14 days</p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {items.map((item: any, idx: number) => {
                 const days = daysUntil(item.dueDate);
                 const isOverdue = days !== null && days < 0;
-
                 const href = aiItemHref({ item, fallbackProjectRef: projectRef });
-
                 return (
-                  <div
-                    key={idx}
-                    className="p-4 rounded-xl animate-[fadeSlideUp_0.3s_ease-out_both]"
-                    style={{
-                      background: "rgba(15,23,42,0.02)",
-                      border: `1px solid ${THEME.border}`,
-                      animationDelay: `${idx * 60}ms`,
-                    }}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span
-                        className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded"
-                        style={{
-                          background: "rgba(15,23,42,0.04)",
-                          color: THEME.muted,
-                          border: `1px solid ${THEME.border2}`,
-                        }}
-                      >
+                  <div key={idx} className="p-3 rounded-lg border border-[#F1F5F9] hover:border-[#E5E7EB] transition-colors">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] bg-[#F9FAFB] px-1.5 py-0.5 rounded">
                         {item.itemType || "Item"}
                       </span>
                       {days !== null && (
-                        <span className="text-[11px] font-bold font-mono" style={{ color: isOverdue ? "#E11D48" : "#D97706" }}>
+                        <span className="text-[11px] font-semibold tabular-nums" style={{ color: isOverdue ? "#DC2626" : "#D97706" }}>
                           {isOverdue ? `${Math.abs(days)}d overdue` : `${days}d`}
                         </span>
                       )}
                     </div>
-
-                    <h4 className="text-[13px] font-semibold mb-1.5" style={{ color: THEME.text }}>
-                      {item.title}
-                    </h4>
-
-                    <div className="flex items-center gap-2 text-[11px] mb-3" style={{ color: THEME.muted2 }}>
-                      <Calendar className="h-3 w-3" />
-                      {fmtUkDateOnly(item.dueDate)}
+                    <h4 className="text-[13px] font-medium text-[#111827] mb-1">{item.title}</h4>
+                    <div className="flex items-center gap-1.5 text-[11px] text-[#9CA3AF] mb-2.5">
+                      <Calendar className="h-3 w-3" /> {fmtUkDateOnly(item.dueDate)}
                     </div>
-
                     <div className="flex gap-2">
-                      <Link
-                        href={href}
-                        className="flex-1 px-3 py-1.5 rounded-lg text-center text-[11px] font-semibold transition-colors"
-                        style={{
-                          background: "rgba(15,23,42,0.04)",
-                          border: `1px solid ${THEME.border}`,
-                          color: THEME.text2,
-                        }}
-                      >
+                      <Link href={href} className="flex-1 px-3 py-1.5 rounded-md text-center text-[11px] font-medium bg-[#F9FAFB] border border-[#E5E7EB] text-[#374151] hover:bg-[#F3F4F6] transition-colors">
                         Open
                       </Link>
-
                       <button
-                        onClick={() =>
-                          navigator.clipboard.writeText(
-                            `Reminder: ${item.title} due ${fmtUkDateOnly(item.dueDate)}`
-                          )
-                        }
-                        className="px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white"
-                        style={{ background: "linear-gradient(135deg, #7C3AED, #9333EA)" }}
+                        onClick={() => navigator.clipboard.writeText(`Reminder: ${item.title} due ${fmtUkDateOnly(item.dueDate)}`)}
+                        className="px-3 py-1.5 rounded-md text-[11px] font-medium text-white bg-violet-600 hover:bg-violet-700 transition-colors"
                       >
                         Copy
                       </button>
@@ -1316,90 +828,12 @@ function AiPanel({
           )}
         </div>
 
-        {/* Footer actions */}
-        <div className="px-5 py-3" style={{ borderTop: `1px solid ${THEME.border2}`, background: "rgba(15,23,42,0.01)" }}>
-          <button
-            onClick={runCheck}
-            disabled={loading}
-            className="w-full py-2 rounded-xl text-[12px] font-semibold"
-            style={{
-              color: THEME.text2,
-              background: "rgba(15,23,42,0.03)",
-              border: `1px solid ${THEME.border}`,
-              opacity: loading ? 0.6 : 1,
-            }}
-          >
+        <div className="px-4 py-2.5 border-t border-[#F1F5F9]">
+          <button onClick={runCheck} disabled={loading} className="w-full py-1.5 rounded-lg text-[12px] font-medium text-[#6B7280] bg-[#F9FAFB] border border-[#E5E7EB] hover:bg-[#F3F4F6] transition-colors disabled:opacity-50">
             {loading ? "Scanning..." : "Rescan"}
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-/* =========================================================
-   Phase Timeline (top nav)
-========================================================= */
-
-function PhaseTimeline({
-  phases,
-  activePhases,
-  togglePhase,
-}: {
-  phases: { phase: Phase; count: number }[];
-  activePhases: Set<Phase>;
-  togglePhase: (p: Phase) => void;
-}) {
-  const allPhases: Phase[] = ["Initiating", "Planning", "Executing", "Monitoring & Controlling", "Closing"];
-  const countMap = new Map(phases.map((p) => [p.phase, p.count]));
-
-  return (
-    <div className="flex items-center gap-1">
-      {allPhases.map((phase, idx) => {
-        const cfg = PHASE_CONFIG[phase];
-        const Icon = cfg.icon;
-        const count = countMap.get(phase) ?? 0;
-        const active = activePhases.has(phase);
-        const hasItems = count > 0;
-
-        return (
-          <React.Fragment key={phase}>
-            {idx > 0 && (
-              <div
-                className="w-6 h-[1px]"
-                style={{
-                  background: hasItems ? "rgba(15,23,42,0.10)" : "rgba(15,23,42,0.05)",
-                }}
-              />
-            )}
-            <button
-              onClick={() => togglePhase(phase)}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200"
-              style={{
-                background: active
-                  ? `rgba(${hexToRgb(cfg.accent)}, 0.10)`
-                  : hasItems
-                    ? "rgba(15,23,42,0.03)"
-                    : "transparent",
-                border: `1px solid ${
-                  active ? `rgba(${hexToRgb(cfg.accent)}, 0.20)` : "rgba(15,23,42,0.08)"
-                }`,
-                opacity: hasItems ? 1 : 0.45,
-              }}
-            >
-              <Icon className="h-3.5 w-3.5" style={{ color: active ? cfg.accent : THEME.muted2 }} />
-              <span className="text-[11px] font-semibold hidden lg:inline" style={{ color: active ? cfg.accent : THEME.muted2 }}>
-                {cfg.label}
-              </span>
-              {count > 0 && (
-                <span className="text-[10px] font-bold font-mono" style={{ color: active ? cfg.accent : THEME.muted }}>
-                  {count}
-                </span>
-              )}
-            </button>
-          </React.Fragment>
-        );
-      })}
     </div>
   );
 }
@@ -1459,22 +893,10 @@ export default function ArtifactBoardClient(props: {
     );
   }, [props.rows, props.artifacts]);
 
-  const [commandOpen, setCommandOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [statusSet, setStatusSet] = useState<Set<UiStatus>>(new Set());
   const [phaseSet, setPhaseSet] = useState<Set<Phase>>(new Set());
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setCommandOpen((v) => !v);
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
 
   const toggleStatus = (s: UiStatus) => {
     const next = new Set(statusSet);
@@ -1491,11 +913,7 @@ export default function ArtifactBoardClient(props: {
     [phaseSet]
   );
 
-  const clearAll = () => {
-    setSearch("");
-    setStatusSet(new Set());
-    setPhaseSet(new Set());
-  };
+  const clearAll = () => { setSearch(""); setStatusSet(new Set()); setPhaseSet(new Set()); };
 
   const filteredRows = useMemo(() => {
     const q = safeLower(search);
@@ -1510,20 +928,21 @@ export default function ArtifactBoardClient(props: {
     });
   }, [baseRows, search, statusSet, phaseSet]);
 
-  const grouped = useMemo(() => {
-    const phases: Phase[] = ["Initiating", "Planning", "Executing", "Monitoring & Controlling", "Closing"];
-    return phases
-      .map((phase) => ({ phase, rows: filteredRows.filter((r) => r.phase === phase) }))
-      .filter((g) => g.rows.length > 0);
+  // Sort: current first, then baseline, then original order
+  const sortedRows = useMemo(() => {
+    return [...filteredRows].sort((a, b) => {
+      const phaseA = PHASE_CONFIG[a.phase]?.order ?? 99;
+      const phaseB = PHASE_CONFIG[b.phase]?.order ?? 99;
+      if (phaseA !== phaseB) return phaseA - phaseB;
+      const ac = booly(a.isCurrent) ? 1 : 0;
+      const bc = booly(b.isCurrent) ? 1 : 0;
+      if (ac !== bc) return bc - ac;
+      const ab = a.isBaseline ? 1 : 0;
+      const bb = b.isBaseline ? 1 : 0;
+      if (ab !== bb) return bb - ab;
+      return (a.__idx ?? 0) - (b.__idx ?? 0);
+    });
   }, [filteredRows]);
-
-  const phaseCounts = useMemo(() => {
-    const allPhases: Phase[] = ["Initiating", "Planning", "Executing", "Monitoring & Controlling", "Closing"];
-    return allPhases.map((phase) => ({
-      phase,
-      count: baseRows.filter((r) => r.phase === phase).length,
-    }));
-  }, [baseRows]);
 
   const activeFiltersCount = (search ? 1 : 0) + statusSet.size + phaseSet.size;
 
@@ -1541,10 +960,7 @@ export default function ArtifactBoardClient(props: {
   );
 
   const handleClone = async (id: string) => {
-    if (!projectUuid || !looksLikeUuid(projectUuid)) {
-      setActionError("Invalid project UUID");
-      return;
-    }
+    if (!projectUuid || !looksLikeUuid(projectUuid)) { setActionError("Invalid project UUID"); return; }
     setCloningId(id);
     try {
       const fd = new FormData();
@@ -1555,11 +971,8 @@ export default function ArtifactBoardClient(props: {
         const ref = projectHumanId || projectCode || projectUuid;
         router.push(`/projects/${ref}/artifacts/${res.newArtifactId}`);
       }
-    } catch (e: any) {
-      setActionError(e.message);
-    } finally {
-      setCloningId("");
-    }
+    } catch (e: any) { setActionError(e.message); }
+    finally { setCloningId(""); }
   };
 
   const handleDelete = async (id: string) => {
@@ -1572,293 +985,168 @@ export default function ArtifactBoardClient(props: {
       fd.set("artifactId", id);
       await deleteDraftArtifactAction(fd);
       router.refresh();
-    } catch (e: any) {
-      setActionError(e.message);
-    } finally {
-      setDeletingId("");
-    }
+    } catch (e: any) { setActionError(e.message); }
+    finally { setDeletingId(""); }
   };
 
   const handleMakeCurrent = async (id: string) => {
     if (!projectUuid || !looksLikeUuid(projectUuid)) return;
     setMakingCurrentId(id);
     try {
-      await setArtifactCurrentAction({
-        projectId: projectUuid,
-        artifactId: id,
-      });
+      await setArtifactCurrentAction({ projectId: projectUuid, artifactId: id });
       router.refresh();
-    } catch (e: any) {
-      setActionError(e.message);
-    } finally {
-      setMakingCurrentId("");
-    }
+    } catch (e: any) { setActionError(e.message); }
+    finally { setMakingCurrentId(""); }
   };
 
   return (
     <>
-      {/* Global Styles & Fonts */}
       <style jsx global>{`
-        @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600;700&display=swap");
+        @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 
-        @keyframes fadeSlideUp {
-          from {
-            opacity: 0;
-            transform: translateY(12px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+        @keyframes notionFadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
-        @keyframes fadeIn {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
+        @keyframes notionSlideUp {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
         }
 
-        .artifact-board * {
-          font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        }
-        .artifact-board .font-mono {
-          font-family: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
+        .notion-board * {
+          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
 
-        /* Scrollbar */
-        .artifact-board ::-webkit-scrollbar {
-          width: 8px;
+        .notion-row:hover {
+          background: #FAFAFA !important;
         }
-        .artifact-board ::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        .artifact-board ::-webkit-scrollbar-thumb {
-          background: rgba(15, 23, 42, 0.10);
-          border-radius: 6px;
-        }
-        .artifact-board ::-webkit-scrollbar-thumb:hover {
-          background: rgba(15, 23, 42, 0.18);
-        }
+
+        .notion-board ::-webkit-scrollbar { width: 6px; height: 6px; }
+        .notion-board ::-webkit-scrollbar-track { background: transparent; }
+        .notion-board ::-webkit-scrollbar-thumb { background: #E5E7EB; border-radius: 3px; }
+        .notion-board ::-webkit-scrollbar-thumb:hover { background: #D1D5DB; }
       `}</style>
 
-      <div
-        className="artifact-board min-h-screen"
-        style={{
-          background: THEME.bg,
-          color: THEME.text,
-          WebkitFontSmoothing: "antialiased",
-          MozOsxFontSmoothing: "grayscale",
-        }}
-      >
-        {/* Subtle grain overlay */}
-        <div
-          className="fixed inset-0 pointer-events-none z-0"
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.02'/%3E%3C/svg%3E")`,
-            backgroundRepeat: "repeat",
-          }}
-        />
-
-        {/* Top gradient accent */}
-        <div
-          className="fixed top-0 left-0 right-0 h-[220px] pointer-events-none z-0"
-          style={{
-            background:
-              "radial-gradient(ellipse 60% 55% at 50% -10%, rgba(99, 102, 241, 0.12) 0%, transparent 70%)",
-          }}
-        />
-
-        {/* ========== HEADER ========== */}
-        <header
-          className="sticky top-0 z-40 relative"
-          style={{
-            background: THEME.headerBg,
-            backdropFilter: "blur(18px) saturate(180%)",
-            borderBottom: `1px solid ${THEME.border}`,
-          }}
-        >
-          <div className="max-w-[1280px] mx-auto px-6">
-            {/* Top Row */}
+      <div className="notion-board min-h-screen bg-white" style={{ WebkitFontSmoothing: "antialiased" }}>
+        {/* Header */}
+        <header className="sticky top-0 z-40 bg-white border-b border-[#F1F5F9]">
+          <div className="max-w-[1320px] mx-auto px-6">
             <div className="flex items-center justify-between py-4">
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-3">
-                  <div
-                    className="h-9 w-9 rounded-xl flex items-center justify-center"
-                    style={{
-                      background: "linear-gradient(135deg, rgba(99, 102, 241, 0.14), rgba(168, 85, 247, 0.14))",
-                      border: "1px solid rgba(99, 102, 241, 0.22)",
-                    }}
-                  >
-                    <Layers className="h-4.5 w-4.5 text-indigo-600" />
-                  </div>
-                  <div>
-                    <h1
-                      className="text-[16px] font-bold tracking-tight"
-                      style={{
-                        color: THEME.text,
-                        fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
-                      }}
-                    >
-                      Artifacts
-                    </h1>
-                    <p className="text-[11px]" style={{ color: THEME.muted2 }}>
-                      {projectName || "Project"}
-                      {projectCode && (
-                        <span
-                          className="ml-2 font-mono px-1.5 py-0.5 rounded"
-                          style={{
-                            background: "rgba(15,23,42,0.03)",
-                            color: THEME.muted,
-                            border: `1px solid ${THEME.border}`,
-                          }}
-                        >
-                          {projectCode}
-                        </span>
-                      )}
-                    </p>
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-lg bg-[#F3F4F6] flex items-center justify-center">
+                  <Layers className="h-4 w-4 text-[#6B7280]" />
+                </div>
+                <div>
+                  <h1 className="text-[15px] font-semibold text-[#111827]">Artifacts</h1>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[12px] text-[#9CA3AF]">{projectName || "Project"}</span>
+                    {projectCode && (
+                      <span className="text-[11px] font-mono text-[#9CA3AF] bg-[#F9FAFB] border border-[#F1F5F9] px-1.5 py-0.5 rounded">
+                        {projectCode}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
-                {/* Search Trigger */}
-                <button
-                  onClick={() => setCommandOpen(true)}
-                  className="flex items-center gap-3 px-3.5 py-2 rounded-xl transition-all duration-200"
-                  style={{
-                    background: "rgba(15,23,42,0.03)",
-                    border: `1px solid ${THEME.border}`,
-                  }}
-                >
-                  <Search className="h-4 w-4" style={{ color: THEME.muted2 }} />
-                  <span className="text-[12px] hidden sm:inline" style={{ color: THEME.muted2 }}>
-                    Search & filter...
-                  </span>
-                  <kbd
-                    className="hidden sm:inline px-1.5 py-0.5 rounded text-[10px] font-mono"
-                    style={{ border: `1px solid ${THEME.border}`, color: THEME.muted, background: "rgba(15,23,42,0.02)" }}
-                  >
-                    ⌘K
-                  </kbd>
-                  {activeFiltersCount > 0 && (
-                    <span
-                      className="px-1.5 py-0.5 rounded-full text-[10px] font-bold"
-                      style={{
-                        background: "rgba(99, 102, 241, 0.14)",
-                        color: "#4F46E5",
-                        border: "1px solid rgba(99, 102, 241, 0.20)",
-                      }}
-                    >
-                      {activeFiltersCount}
-                    </span>
-                  )}
-                </button>
-
-                {/* AI Button */}
+                <StatsRow rows={filteredRows} />
+                <div className="w-px h-5 bg-[#E5E7EB] mx-1 hidden md:block" />
                 <button
                   onClick={() => setAiOpen(true)}
                   disabled={!projectUuid || !looksLikeUuid(projectUuid)}
-                  className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-[12px] font-semibold transition-all disabled:opacity-30"
-                  style={{
-                    background: "linear-gradient(135deg, rgba(124, 58, 237, 0.14), rgba(147, 51, 234, 0.14))",
-                    border: "1px solid rgba(124, 58, 237, 0.22)",
-                    color: "#6D28D9",
-                  }}
+                  className="flex items-center gap-1.5 px-3 py-[7px] rounded-lg text-[12px] font-medium bg-violet-50 text-violet-600 border border-violet-100 hover:bg-violet-100 transition-colors disabled:opacity-30"
                 >
                   <Sparkles className="h-3.5 w-3.5" />
                   AI
                 </button>
               </div>
             </div>
-
-            {/* Phase Timeline */}
-            <div className="pb-3 -mx-1 flex items-center justify-between" style={{ borderTop: `1px solid ${THEME.border3}` }}>
-              <div className="pt-3">
-                <PhaseTimeline phases={phaseCounts} activePhases={phaseSet} togglePhase={togglePhase} />
-              </div>
-              <div className="pt-3 hidden md:block">
-                <StatsBar rows={filteredRows} />
-              </div>
-            </div>
           </div>
         </header>
 
-        {/* ========== ERROR BAR ========== */}
+        {/* Error bar */}
         {actionError && (
-          <div className="max-w-[1280px] mx-auto px-6 pt-4 relative z-10">
-            <div
-              className="flex items-center gap-3 px-4 py-3 rounded-xl text-[13px] animate-[fadeSlideUp_0.2s_ease-out]"
-              style={{
-                background: "rgba(225,29,72,0.08)",
-                border: "1px solid rgba(225,29,72,0.16)",
-                color: "#E11D48",
-              }}
-            >
-              <AlertCircle className="h-4 w-4" />
+          <div className="max-w-[1320px] mx-auto px-6 pt-3 relative z-10">
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-[13px] bg-red-50 text-red-700 border border-red-100 animate-[notionSlideUp_0.15s_ease-out]">
+              <AlertCircle className="h-4 w-4 shrink-0" />
               {actionError}
-              <button onClick={() => setActionError("")} className="ml-auto p-1" aria-label="Dismiss error">
+              <button onClick={() => setActionError("")} className="ml-auto p-0.5 rounded hover:bg-red-100">
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
           </div>
         )}
 
-        {/* ========== CONTENT ========== */}
-        <main className="max-w-[1280px] mx-auto px-6 py-8 relative z-10">
-          {grouped.length === 0 ? (
-            <div className="text-center py-24 animate-[fadeIn_0.5s_ease-out]">
-              <div
-                className="inline-flex items-center justify-center h-16 w-16 rounded-2xl mb-5"
-                style={{
-                  background: "rgba(15,23,42,0.03)",
-                  border: `1px solid ${THEME.border}`,
-                }}
-              >
-                <Layers className="h-7 w-7" style={{ color: THEME.muted2 }} />
-              </div>
-              <p className="text-[14px] mb-1" style={{ color: THEME.muted }}>
-                No artifacts found
-              </p>
-              <p className="text-[12px]" style={{ color: THEME.muted2 }}>
+        {/* Content */}
+        <main className="max-w-[1320px] mx-auto px-6 py-4 relative z-10">
+          {/* Inline Filter Bar */}
+          <InlineFilterBar
+            search={search}
+            setSearch={setSearch}
+            statusSet={statusSet}
+            toggleStatus={toggleStatus}
+            phaseSet={phaseSet}
+            togglePhase={togglePhase}
+            clearAll={clearAll}
+            activeCount={activeFiltersCount}
+          />
+
+          {/* Spreadsheet */}
+          {sortedRows.length === 0 ? (
+            <div className="text-center py-20 animate-[notionFadeIn_0.3s_ease-out]">
+              <Layers className="h-8 w-8 mx-auto mb-3 text-[#D1D5DB]" />
+              <p className="text-[14px] text-[#6B7280] mb-1">No artifacts found</p>
+              <p className="text-[12px] text-[#9CA3AF]">
                 {activeFiltersCount > 0 ? "Try adjusting your filters" : "Create your first artifact to get started"}
               </p>
             </div>
           ) : (
-            grouped.map(({ phase, rows }, gIdx) => (
-              <PhaseGroup
-                key={phase}
-                phase={phase}
-                rows={rows}
-                projectUuid={projectUuid}
-                onOpen={openArtifact}
-                onMakeCurrent={handleMakeCurrent}
-                makingCurrentId={makingCurrentId}
-                onClone={handleClone}
-                cloningId={cloningId}
-                onDelete={handleDelete}
-                deletingId={deletingId}
-                animIndex={gIdx}
-              />
-            ))
+            <div
+              className="rounded-lg border border-[#E5E7EB] overflow-hidden overflow-x-auto"
+              style={{ background: "#FFFFFF" }}
+            >
+              {/* Column Header */}
+              <div
+                className="grid items-center sticky top-0 bg-[#F9FAFB] border-b border-[#E5E7EB] z-10"
+                style={{ gridTemplateColumns: COL_TEMPLATE, minHeight: 36 }}
+              >
+                <span className="px-3 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Name</span>
+                <span className="px-3 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Owner</span>
+                <span className="px-3 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Phase</span>
+                <span className="px-3 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Status</span>
+                <span className="px-3 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Progress</span>
+                <span className="px-3 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider"></span>
+              </div>
+
+              {/* Rows */}
+              {sortedRows.map((row) => (
+                <ArtifactTableRow
+                  key={row.id}
+                  row={row}
+                  projectUuid={projectUuid}
+                  onOpen={openArtifact}
+                  onMakeCurrent={handleMakeCurrent}
+                  makingCurrentId={makingCurrentId}
+                  onClone={handleClone}
+                  cloningId={cloningId}
+                  onDelete={handleDelete}
+                  deletingId={deletingId}
+                />
+              ))}
+
+              {/* Footer count */}
+              <div className="px-3 py-2 bg-[#F9FAFB] border-t border-[#E5E7EB]">
+                <span className="text-[11px] text-[#9CA3AF]">
+                  {sortedRows.length} artifact{sortedRows.length !== 1 ? "s" : ""}
+                  {activeFiltersCount > 0 && ` (filtered from ${baseRows.length})`}
+                </span>
+              </div>
+            </div>
           )}
         </main>
 
-        {/* ========== OVERLAYS ========== */}
-        <CommandPalette
-          open={commandOpen}
-          onClose={() => setCommandOpen(false)}
-          search={search}
-          setSearch={setSearch}
-          statusSet={statusSet}
-          toggleStatus={toggleStatus}
-          phaseSet={phaseSet}
-          togglePhase={togglePhase}
-          clearAll={clearAll}
-          activeCount={activeFiltersCount}
-        />
-
+        {/* AI Panel */}
         <AiPanel
           open={aiOpen}
           onClose={() => setAiOpen(false)}
