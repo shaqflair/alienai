@@ -289,22 +289,67 @@ const TYPE_CONFIG: Record<
   },
 };
 
-/* Notion-style status pills */
-const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
-  open: { bg: "bg-gray-100 hover:bg-gray-200", text: "text-gray-700", dot: "bg-gray-400" },
-  inprogress: { bg: "bg-blue-100 hover:bg-blue-200", text: "text-blue-700", dot: "bg-blue-500" },
-  mitigated: { bg: "bg-green-100 hover:bg-green-200", text: "text-green-700", dot: "bg-green-500" },
-  closed: { bg: "bg-slate-100 hover:bg-slate-200", text: "text-slate-500", dot: "bg-slate-400" },
-  invalid: { bg: "bg-red-100 hover:bg-red-200", text: "text-red-600", dot: "bg-red-400" },
+/* ✅ Bright glossy status pills */
+const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string; ring: string }> = {
+  open: {
+    bg: "bg-gradient-to-r from-sky-500 to-blue-600",
+    text: "text-white",
+    dot: "bg-white/90",
+    ring: "ring-1 ring-white/25",
+  },
+  inprogress: {
+    bg: "bg-gradient-to-r from-indigo-500 to-violet-600",
+    text: "text-white",
+    dot: "bg-white/90",
+    ring: "ring-1 ring-white/25",
+  },
+  mitigated: {
+    bg: "bg-gradient-to-r from-emerald-500 to-green-600",
+    text: "text-white",
+    dot: "bg-white/90",
+    ring: "ring-1 ring-white/25",
+  },
+  closed: {
+    bg: "bg-gradient-to-r from-slate-500 to-slate-700",
+    text: "text-white",
+    dot: "bg-white/75",
+    ring: "ring-1 ring-white/20",
+  },
+  invalid: {
+    bg: "bg-gradient-to-r from-rose-500 to-red-600",
+    text: "text-white",
+    dot: "bg-white/90",
+    ring: "ring-1 ring-white/25",
+  },
 };
 
-/* Monday.com-style priority tags */
-const PRIORITY_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  "": { bg: "bg-transparent", text: "text-gray-400", label: "—" },
-  low: { bg: "bg-blue-100 hover:bg-blue-200", text: "text-blue-600", label: "Low" },
-  medium: { bg: "bg-yellow-100 hover:bg-yellow-200", text: "text-yellow-700", label: "Medium" },
-  high: { bg: "bg-orange-100 hover:bg-orange-200", text: "text-orange-700", label: "High" },
-  critical: { bg: "bg-red-100 hover:bg-red-200", text: "text-red-700", label: "Critical" },
+/* ✅ Bright glossy priority tags */
+const PRIORITY_STYLES: Record<string, { bg: string; text: string; label: string; ring: string }> = {
+  "": { bg: "bg-transparent", text: "text-gray-400", label: "—", ring: "" },
+  low: {
+    bg: "bg-gradient-to-r from-cyan-500 to-sky-600",
+    text: "text-white",
+    label: "Low",
+    ring: "ring-1 ring-white/25",
+  },
+  medium: {
+    bg: "bg-gradient-to-r from-amber-400 to-orange-500",
+    text: "text-white",
+    label: "Medium",
+    ring: "ring-1 ring-white/25",
+  },
+  high: {
+    bg: "bg-gradient-to-r from-orange-500 to-rose-500",
+    text: "text-white",
+    label: "High",
+    ring: "ring-1 ring-white/25",
+  },
+  critical: {
+    bg: "bg-gradient-to-r from-red-600 to-fuchsia-600",
+    text: "text-white",
+    label: "Critical",
+    ring: "ring-1 ring-white/25",
+  },
 };
 
 /* ---------------- digest helpers ---------------- */
@@ -541,7 +586,7 @@ function CellDisplay({
   );
 }
 
-/* ------------ Notion-style status/priority tags ------------ */
+/* ------------ Glossy status/priority tags ------------ */
 function StatusTag({
   label,
   onActivate,
@@ -570,14 +615,18 @@ function StatusTag({
         onActivate();
       }}
       className={cx(
-        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium transition-colors",
+        "relative inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold",
+        "shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_8px_18px_rgba(0,0,0,0.08)]",
+        "transition-transform duration-150 active:scale-[0.98]",
         style.bg,
         style.text,
+        style.ring,
         disabled && "opacity-60 cursor-not-allowed"
       )}
     >
-      <span className={cx("w-1.5 h-1.5 rounded-full shrink-0", style.dot)} />
-      {displayLabel}
+      <span className="pointer-events-none absolute inset-0 rounded-full bg-gradient-to-b from-white/35 via-white/10 to-transparent" />
+      <span className={cx("relative w-1.5 h-1.5 rounded-full shrink-0", style.dot)} />
+      <span className="relative">{displayLabel}</span>
     </button>
   );
 }
@@ -609,13 +658,19 @@ function PriorityTag({
         onActivate();
       }}
       className={cx(
-        "inline-flex items-center px-2.5 py-1 rounded-full text-[12px] font-medium transition-colors",
+        "relative inline-flex items-center px-3 py-1 rounded-full text-[12px] font-semibold",
+        key ? "shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_8px_18px_rgba(0,0,0,0.08)]" : "",
+        "transition-transform duration-150 active:scale-[0.98]",
         style.bg,
         style.text,
+        style.ring,
         disabled && "opacity-60 cursor-not-allowed"
       )}
     >
-      {style.label}
+      {key ? (
+        <span className="pointer-events-none absolute inset-0 rounded-full bg-gradient-to-b from-white/35 via-white/10 to-transparent" />
+      ) : null}
+      <span className="relative">{style.label}</span>
     </button>
   );
 }
@@ -1786,6 +1841,17 @@ export default function RaidClient({
         </div>
       )}
 
+      {/* ── MAIN CONTENT ── */}
+      <main className="max-w-[1800px] mx-auto px-6 py-6 pb-24 space-y-4">
+        {/* (rest of your file unchanged from here) */}
+        {/* ✅ NOTE: only status/priority styling was changed above */}
+        {/* Keep your remaining JSX/Editor/Digest exactly as you pasted. */}
+      </main>
+
+      {/* (rest unchanged) */}
+    </div>
+  );
+}
       {/* ── MAIN CONTENT ── */}
       <main className="max-w-[1800px] mx-auto px-6 py-6 pb-24 space-y-4">
         <DragDropContext onDragEnd={onDragEnd}>
