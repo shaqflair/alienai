@@ -82,10 +82,27 @@ function fmtWhen(x: any) {
   }
 }
 
-function fmtDateOnly(x: any) {
+/** Display due date as UK format (dd/mm/yyyy). Accepts ISO date "yyyy-mm-dd" or datetime. */
+function fmtDateUK(x: any) {
   const s = safeStr(x).trim();
   if (!s) return "";
-  return s;
+  // If it's plain ISO date
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [yyyy, mm, dd] = s.split("-");
+    return `${dd}/${mm}/${yyyy}`;
+  }
+  // If it's UK already, keep
+  if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(s)) return s;
+  try {
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return s;
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const yyyy = String(d.getFullYear());
+    return `${dd}/${mm}/${yyyy}`;
+  } catch {
+    return s;
+  }
 }
 
 function statusToken(s: any): "open" | "inprogress" | "mitigated" | "closed" | "invalid" {
@@ -168,6 +185,8 @@ function normDateToIsoOnly(x: any): string | null {
   const s = safeStr(x).trim();
   if (!s) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  // UK: dd/mm/yyyy or dd/mm/yy
   const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
   if (m) {
     const dd = String(m[1]).padStart(2, "0");
@@ -179,6 +198,7 @@ function normDateToIsoOnly(x: any): string | null {
     }
     return `${yyyy}-${mm}-${dd}`;
   }
+
   const d = new Date(s);
   if (!Number.isNaN(d.getTime())) {
     const yyyy = String(d.getFullYear());
@@ -209,17 +229,20 @@ function cycleInList(list: readonly string[], current: string) {
 
 /* ---------------- styling tokens ---------------- */
 
-const TYPE_CONFIG: Record<RaidType, {
-  color: string;
-  bg: string;
-  headerBg: string;
-  border: string;
-  dot: string;
-  textColor: string;
-  lightBg: string;
-  desc: string;
-  emoji: string;
-}> = {
+const TYPE_CONFIG: Record<
+  RaidType,
+  {
+    color: string;
+    bg: string;
+    headerBg: string;
+    border: string;
+    dot: string;
+    textColor: string;
+    lightBg: string;
+    desc: string;
+    emoji: string;
+  }
+> = {
   Risk: {
     color: "#e03e3e",
     bg: "bg-red-50",
@@ -359,8 +382,9 @@ async function fetchRaidItemById(id: string) {
   return j.item as RaidItem;
 }
 
-async function patchRaidItem(id: string, patch: any) {
-  const j = await postJson(`/api/raid/${encodeURIComponent(id)}`, "PATCH", patch);
+async function patchRaidItem(id: string, patch: any, expectedUpdatedAt?: string) {
+  const hdrs = expectedUpdatedAt ? { "if-match-updated-at": expectedUpdatedAt } : undefined;
+  const j = await postJson(`/api/raid/${encodeURIComponent(id)}`, "PATCH", patch, hdrs);
   return j.item as RaidItem;
 }
 
@@ -452,10 +476,12 @@ function newBanner(kind: Banner["kind"], text: string): Banner {
 }
 
 /* ---------------- Column header cell ---------------- */
-const COL_HDR = "px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-[#f7f7f5] border-b border-r border-gray-200 select-none whitespace-nowrap";
+const COL_HDR =
+  "px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-[#f7f7f5] border-b border-r border-gray-200 select-none whitespace-nowrap";
 
 /* ---------------- Row cell base styles ---------------- */
-const CELL_BASE = "px-0 py-0 border-b border-r border-gray-200 bg-white align-middle group-hover/row:bg-[#fafaf9] transition-colors duration-75";
+const CELL_BASE =
+  "px-0 py-0 border-b border-r border-gray-200 bg-white align-middle group-hover/row:bg-[#fafaf9] transition-colors duration-75";
 
 function pluralLabel(type: RaidType) {
   if (type === "Dependency") return "Dependencies";
@@ -507,7 +533,9 @@ function CellDisplay({
       {v ? (
         <span className="text-gray-800 truncate">{v}</span>
       ) : (
-        <span className={cx(dimIfEmpty ? "text-gray-300" : "text-gray-400", "text-[12px]")}>{placeholder || "—"}</span>
+        <span className={cx(dimIfEmpty ? "text-gray-300" : "text-gray-400", "text-[12px]")}>
+          {placeholder || "—"}
+        </span>
       )}
     </div>
   );
@@ -531,11 +559,20 @@ function StatusTag({
     <button
       type="button"
       disabled={disabled}
-      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onActivate(); }}
-      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onActivate(); }}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onActivate();
+      }}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onActivate();
+      }}
       className={cx(
         "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium transition-colors",
-        style.bg, style.text,
+        style.bg,
+        style.text,
         disabled && "opacity-60 cursor-not-allowed"
       )}
     >
@@ -561,33 +598,26 @@ function PriorityTag({
     <button
       type="button"
       disabled={disabled}
-      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onActivate(); }}
-      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onActivate(); }}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onActivate();
+      }}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onActivate();
+      }}
       className={cx(
         "inline-flex items-center px-2.5 py-1 rounded-full text-[12px] font-medium transition-colors",
-        style.bg, style.text,
+        style.bg,
+        style.text,
         disabled && "opacity-60 cursor-not-allowed"
       )}
     >
       {style.label}
     </button>
   );
-}
-
-/* ------------ Legacy PillTag for backward compat ------------ */
-function PillTag({
-  kind,
-  label,
-  onActivate,
-  disabled,
-}: {
-  kind: "status" | "priority";
-  label: string;
-  onActivate: () => void;
-  disabled?: boolean;
-}) {
-  if (kind === "status") return <StatusTag label={label} onActivate={onActivate} disabled={disabled} />;
-  return <PriorityTag label={label} onActivate={onActivate} disabled={disabled} />;
 }
 
 /* ---------------- Active-cell overlay editor ---------------- */
@@ -618,9 +648,11 @@ function ScoreBadge({ score }: { score: number }) {
       <div
         className={cx(
           "w-8 h-8 rounded-lg flex items-center justify-center text-[12px] font-bold tabular-nums",
-          tone === "r" ? "bg-red-100 text-red-700" :
-          tone === "a" ? "bg-amber-100 text-amber-700" :
-          "bg-green-100 text-green-700"
+          tone === "r"
+            ? "bg-red-100 text-red-700"
+            : tone === "a"
+            ? "bg-amber-100 text-amber-700"
+            : "bg-green-100 text-green-700"
         )}
       >
         {score}
@@ -658,20 +690,32 @@ const IconAI = () => (
 
 const IconRefresh = () => (
   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+    />
   </svg>
 );
 
 const IconTrash = () => (
   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+    />
   </svg>
 );
 
 const IconChevron = ({ open }: { open: boolean }) => (
   <svg
     className={cx("w-4 h-4 transition-transform duration-200", open ? "rotate-90" : "rotate-0")}
-    fill="none" viewBox="0 0 24 24" stroke="currentColor"
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
   >
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
   </svg>
@@ -685,7 +729,7 @@ const IconDots = () => (
 
 const IconDragHandle = () => (
   <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" className="text-gray-400">
-    <path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0zM7 10a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0zM7 16a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0z" />
+    <path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0zM7 10a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0zM7 16a1 1 0 11-2 0 1 1 0 012 0zm8 16a1 1 0 11-2 0 1 1 0 012 0z" />
   </svg>
 );
 
@@ -785,14 +829,23 @@ export default function RaidClient({
       };
       const curItem = items.find((x) => x.id === ctx.rowId);
       const fallback =
-        ctx.col === "description" ? safeStr(curItem?.description) :
-        ctx.col === "owner_label" ? safeStr(curItem?.owner_label) :
-        ctx.col === "status" ? safeStr(curItem?.status || "Open") :
-        ctx.col === "priority" ? safeStr(curItem?.priority || "") :
-        ctx.col === "probability" ? String(Number.isFinite(Number(curItem?.probability)) ? Number(curItem?.probability) : 0) :
-        ctx.col === "severity" ? String(Number.isFinite(Number(curItem?.severity)) ? Number(curItem?.severity) : 0) :
-        ctx.col === "due_date" ? safeStr(curItem?.due_date || "") :
-        ctx.col === "response_plan" ? safeStr(curItem?.response_plan || "") : "";
+        ctx.col === "description"
+          ? safeStr(curItem?.description)
+          : ctx.col === "owner_label"
+          ? safeStr(curItem?.owner_label)
+          : ctx.col === "status"
+          ? safeStr(curItem?.status || "Open")
+          : ctx.col === "priority"
+          ? safeStr(curItem?.priority || "")
+          : ctx.col === "probability"
+          ? String(Number.isFinite(Number(curItem?.probability)) ? Number(curItem?.probability) : 0)
+          : ctx.col === "severity"
+          ? String(Number.isFinite(Number(curItem?.severity)) ? Number(curItem?.severity) : 0)
+          : ctx.col === "due_date"
+          ? safeStr(curItem?.due_date || "")
+          : ctx.col === "response_plan"
+          ? safeStr(curItem?.response_plan || "")
+          : "";
 
       setHotCell(ctx);
       setEditor({ ...ctx, rect, value: initialValue != null ? initialValue : fallback });
@@ -813,24 +866,36 @@ export default function RaidClient({
 
   const closeEditor = useCallback(() => setEditor(null), []);
 
-  const commitEditor = useCallback(
-    async (opts?: { close?: boolean }) => {
-      if (!editor) return;
-      const { rowId, col } = editor;
+  /** Build patch for a given cell value (single source of truth). */
+  const buildPatchForCell = useCallback((col: CellKey, rawValue: any) => {
+    const raw = safeStr(rawValue ?? "");
+    const patch: any = {};
+
+    if (col === "description") patch.description = safeStr(raw).trim() || "Untitled";
+    if (col === "owner_label") patch.owner_label = safeStr(raw).trim();
+    if (col === "status") patch.status = normStatus(raw);
+    if (col === "priority") patch.priority = normPriority(raw) || null;
+    if (col === "probability") patch.probability = clampNum(raw, 0, 100);
+    if (col === "severity") patch.severity = clampNum(raw, 0, 100);
+    if (col === "due_date") patch.due_date = normDateToIsoOnly(raw) || null;
+    if (col === "response_plan") patch.response_plan = safeStr(raw).trim() || null;
+
+    // safety: never allow "invalid" (legacy) to sneak in
+    if ("status" in patch && safeStr(patch.status).trim().toLowerCase() === "invalid") patch.status = "Closed";
+
+    return patch;
+  }, []);
+
+  /** Reliable commit that can take an override value (fixes "select change doesn't save"). */
+  const commitCell = useCallback(
+    async (rowId: string, col: CellKey, valueOverride?: any, opts?: { close?: boolean }) => {
       const current = items.find((x) => x.id === rowId);
       const expected = safeStr(current?.updated_at).trim();
 
-      const raw = editor.value ?? "";
-      const patch: any = {};
-      if (col === "description") patch.description = safeStr(raw).trim() || "Untitled";
-      if (col === "owner_label") patch.owner_label = safeStr(raw).trim();
-      if (col === "status") patch.status = normStatus(raw);
-      if (col === "priority") patch.priority = normPriority(raw) || null;
-      if (col === "probability") patch.probability = clampNum(raw, 0, 100);
-      if (col === "severity") patch.severity = clampNum(raw, 0, 100);
-      if (col === "due_date") patch.due_date = safeStr(raw).trim() || null;
-      if (col === "response_plan") patch.response_plan = safeStr(raw).trim() || null;
+      const effectiveValue = valueOverride != null ? valueOverride : editor?.value ?? "";
+      const patch = buildPatchForCell(col, effectiveValue);
 
+      // optimistic UI
       setItems((prev) =>
         prev.map((it) => {
           if (it.id !== rowId) return it;
@@ -844,9 +909,8 @@ export default function RaidClient({
           const o = safeStr(patch.owner_label).trim();
           if (!o) throw new Error("Owner is mandatory");
         }
-        if ("status" in patch && safeStr(patch.status).trim().toLowerCase() === "invalid") patch.status = "Closed";
 
-        const updated = await patchRaidItem(rowId, { ...patch, expected_updated_at: expected || undefined });
+        const updated = await patchRaidItem(rowId, { ...patch, expected_updated_at: expected || undefined }, expected || undefined);
         setItems((prev) => prev.map((x) => (x.id === rowId ? ({ ...x, ...updated } as RaidItem) : x)));
         setStaleById((prev) => {
           const n = { ...prev };
@@ -876,7 +940,15 @@ export default function RaidClient({
         if (opts?.close !== false) closeEditor();
       }
     },
-    [editor, items, pushBanner, closeEditor]
+    [items, editor, buildPatchForCell, pushBanner, closeEditor]
+  );
+
+  const commitEditor = useCallback(
+    async (opts?: { close?: boolean }) => {
+      if (!editor) return;
+      await commitCell(editor.rowId, editor.col, editor.value, opts);
+    },
+    [editor, commitCell]
   );
 
   // Close menu on outside click
@@ -1022,20 +1094,26 @@ export default function RaidClient({
     async (id: string) => {
       if (!confirm("Delete this RAID item?")) return;
       setBusyId(id);
+
       const current = items.find((x) => x.id === id);
       const expected = safeStr(current?.updated_at).trim() || undefined;
+
+      // optimistic remove
       const prev = items;
       setItems((cur) => cur.filter((x) => x.id !== id));
       if (aiOpenId === id) setAiOpenId("");
       if (aiHistOpenId === id) setAiHistOpenId("");
+
       try {
         await deleteRaidItem(id, expected);
         pushBanner("success", "Deleted");
       } catch (e: any) {
         const status = (e as any)?.status;
         const payload = (e as any)?.payload;
+        // restore
+        setItems(prev);
+
         if (status === 409 || payload?.stale) {
-          setItems(prev);
           setStaleById((p) => ({
             ...p,
             [id]: { at: new Date().toISOString(), message: "Delete blocked: item was updated by someone else" },
@@ -1043,7 +1121,6 @@ export default function RaidClient({
           pushBanner("error", "Delete blocked: item updated by someone else");
           return;
         }
-        setItems(prev);
         pushBanner("error", e?.message || "Delete failed");
       } finally {
         setBusyId("");
@@ -1207,7 +1284,7 @@ export default function RaidClient({
         e.preventDefault();
         const next = cycleInList(STATUS_ORDER, safeStr(it.status) || "Open");
         openEditor({ type: normalizeType(it.type), rowId: it.id, col: "status" }, next);
-        window.setTimeout(() => void commitEditor(), 0);
+        window.setTimeout(() => void commitCell(it.id, "status", next), 0);
         return;
       }
 
@@ -1215,14 +1292,14 @@ export default function RaidClient({
         e.preventDefault();
         const next = cycleInList(PRIORITY_ORDER, safeStr(it.priority || ""));
         openEditor({ type: normalizeType(it.type), rowId: it.id, col: "priority" }, next);
-        window.setTimeout(() => void commitEditor(), 0);
+        window.setTimeout(() => void commitCell(it.id, "priority", next), 0);
         return;
       }
     }
 
     window.addEventListener("keydown", onKeyDown, { passive: false });
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [hotRowId, items, openEditor, commitEditor]);
+  }, [hotRowId, items, openEditor, commitCell]);
 
   useEffect(() => {
     if (!digest) return;
@@ -1251,7 +1328,9 @@ export default function RaidClient({
         el.scrollIntoView({ behavior: "smooth", block: "center" });
         const id = focusId || safeStr(el.getAttribute("data-raid-id")).trim();
         if (id) setHotRowId(id);
-        try { el.focus(); } catch {}
+        try {
+          el.focus();
+        } catch {}
       }
     }, 120);
 
@@ -1282,7 +1361,11 @@ export default function RaidClient({
     ) => {
       const { type, rowIds, rowIndex, col, isMultiline } = ctx;
 
-      if (e.key === "Escape") { e.preventDefault(); closeEditor(); return; }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeEditor();
+        return;
+      }
 
       if (e.key === "Tab") {
         e.preventDefault();
@@ -1307,10 +1390,30 @@ export default function RaidClient({
       }
 
       if (!isMultiline) {
-        if (e.key === "ArrowDown") { e.preventDefault(); void commitEditor({ close: false }); moveCell(type, rowIds, rowIndex, col, 1, 0); return; }
-        if (e.key === "ArrowUp") { e.preventDefault(); void commitEditor({ close: false }); moveCell(type, rowIds, rowIndex, col, -1, 0); return; }
-        if (e.key === "ArrowRight") { e.preventDefault(); void commitEditor({ close: false }); moveCell(type, rowIds, rowIndex, col, 0, 1); return; }
-        if (e.key === "ArrowLeft") { e.preventDefault(); void commitEditor({ close: false }); moveCell(type, rowIds, rowIndex, col, 0, -1); return; }
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          void commitEditor({ close: false });
+          moveCell(type, rowIds, rowIndex, col, 1, 0);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          void commitEditor({ close: false });
+          moveCell(type, rowIds, rowIndex, col, -1, 0);
+          return;
+        }
+        if (e.key === "ArrowRight") {
+          e.preventDefault();
+          void commitEditor({ close: false });
+          moveCell(type, rowIds, rowIndex, col, 0, 1);
+          return;
+        }
+        if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          void commitEditor({ close: false });
+          moveCell(type, rowIds, rowIndex, col, 0, -1);
+          return;
+        }
       }
     },
     [moveCell, commitEditor, closeEditor]
@@ -1343,17 +1446,42 @@ export default function RaidClient({
           const raw = grid[r][c];
           const s = safeStr(raw).trim();
 
-          if (colKey === "description") { rowLocal.description = s; rowPatch.description = s || "Untitled"; }
-          else if (colKey === "owner_label") { rowLocal.owner_label = s; rowPatch.owner_label = s; }
-          else if (colKey === "status") { const ns = normStatus(s); rowLocal.status = ns; rowPatch.status = ns; }
-          else if (colKey === "priority") { const np = normPriority(s); rowLocal.priority = np || null; rowPatch.priority = np || null; }
-          else if (colKey === "probability") { const n = clampNum(s, 0, 100); rowLocal.probability = n; rowPatch.probability = n; }
-          else if (colKey === "severity") { const n = clampNum(s, 0, 100); rowLocal.severity = n; rowPatch.severity = n; }
-          else if (colKey === "due_date") { const iso = normDateToIsoOnly(s); rowLocal.due_date = iso; rowPatch.due_date = iso; }
-          else if (colKey === "response_plan") { rowLocal.response_plan = s; rowPatch.response_plan = s || null; }
+          if (colKey === "description") {
+            rowLocal.description = s;
+            rowPatch.description = s || "Untitled";
+          } else if (colKey === "owner_label") {
+            rowLocal.owner_label = s;
+            rowPatch.owner_label = s;
+          } else if (colKey === "status") {
+            const ns = normStatus(s);
+            rowLocal.status = ns;
+            rowPatch.status = ns;
+          } else if (colKey === "priority") {
+            const np = normPriority(s);
+            rowLocal.priority = np || null;
+            rowPatch.priority = np || null;
+          } else if (colKey === "probability") {
+            const n = clampNum(s, 0, 100);
+            rowLocal.probability = n;
+            rowPatch.probability = n;
+          } else if (colKey === "severity") {
+            const n = clampNum(s, 0, 100);
+            rowLocal.severity = n;
+            rowPatch.severity = n;
+          } else if (colKey === "due_date") {
+            const iso = normDateToIsoOnly(s);
+            rowLocal.due_date = iso;
+            rowPatch.due_date = iso;
+          } else if (colKey === "response_plan") {
+            rowLocal.response_plan = s;
+            rowPatch.response_plan = s || null;
+          }
         }
 
-        if (Object.keys(rowPatch).length) { patchById[rowId] = rowPatch; localById[rowId] = rowLocal; }
+        if (Object.keys(rowPatch).length) {
+          patchById[rowId] = rowPatch;
+          localById[rowId] = rowLocal;
+        }
       }
 
       const ids = Object.keys(patchById);
@@ -1376,7 +1504,7 @@ export default function RaidClient({
           }
           if (!Object.keys(patch).length) continue;
 
-          const updated = await patchRaidItem(id, { ...patch, expected_updated_at: expected || undefined });
+          const updated = await patchRaidItem(id, { ...patch, expected_updated_at: expected || undefined }, expected || undefined);
           setItems((prev) => prev.map((x) => (x.id === id ? ({ ...x, ...updated } as RaidItem) : x)));
         }
         pushBanner("success", `Pasted into ${ids.length} row(s)`);
@@ -1432,7 +1560,10 @@ export default function RaidClient({
   async function refreshAiForGroup(type: RaidType) {
     closeMenu();
     const groupItems = items.filter((x) => normalizeType(x.type) === type);
-    if (!groupItems.length) { pushBanner("success", `No ${pluralLabel(type)} to refresh`); return; }
+    if (!groupItems.length) {
+      pushBanner("success", `No ${pluralLabel(type)} to refresh`);
+      return;
+    }
     setBusyId(`ai:group:${type}`);
     try {
       for (let i = 0; i < groupItems.length; i++) {
@@ -1440,7 +1571,9 @@ export default function RaidClient({
         try {
           const updated = await aiRefreshRaidItem(id);
           setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...updated } : x)));
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
         await new Promise((r) => setTimeout(r, 250));
       }
       pushBanner("success", `${type}: AI refreshed (${groupItems.length})`);
@@ -1528,17 +1661,13 @@ export default function RaidClient({
 
   return (
     <div className="min-h-screen bg-[#f7f7f5] text-gray-900 font-sans">
-
       {/* ── TOP NAV ── */}
       <header className="sticky top-0 z-40 bg-white border-b border-gray-200 shadow-[0_1px_0_rgba(0,0,0,0.04)]">
         <div className="max-w-[1800px] mx-auto px-6">
           <div className="flex items-center justify-between h-14">
             {/* Breadcrumb */}
             <div className="flex items-center gap-2 min-w-0">
-              <Link
-                href={`/projects/${routeProjectId}`}
-                className="text-[13px] text-gray-500 hover:text-gray-800 transition-colors"
-              >
+              <Link href={`/projects/${routeProjectId}`} className="text-[13px] text-gray-500 hover:text-gray-800 transition-colors">
                 {humanProjectTitle}
               </Link>
               <svg className="w-3.5 h-3.5 text-gray-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1637,15 +1766,15 @@ export default function RaidClient({
               key={b.id}
               className={cx(
                 "flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] border",
-                b.kind === "success"
-                  ? "bg-green-50 border-green-200 text-green-800"
-                  : "bg-red-50 border-red-200 text-red-800"
+                b.kind === "success" ? "bg-green-50 border-green-200 text-green-800" : "bg-red-50 border-red-200 text-red-800"
               )}
             >
-              <span className={cx(
-                "w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0",
-                b.kind === "success" ? "bg-green-500 text-white" : "bg-red-500 text-white"
-              )}>
+              <span
+                className={cx(
+                  "w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0",
+                  b.kind === "success" ? "bg-green-500 text-white" : "bg-red-500 text-white"
+                )}
+              >
                 {b.kind === "success" ? "✓" : "!"}
               </span>
               <span className="flex-1">{b.text}</span>
@@ -1667,8 +1796,10 @@ export default function RaidClient({
             const rowIds = groupItems.map((x) => x.id);
 
             return (
-              <section key={type} className="rounded-xl border border-gray-200 bg-white overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
-
+              <section
+                key={type}
+                className="rounded-xl border border-gray-200 bg-white overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.04)]"
+              >
                 {/* Group header */}
                 <div
                   className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white cursor-pointer select-none"
@@ -1681,10 +1812,7 @@ export default function RaidClient({
                     <span className="text-[15px]">{cfg.emoji}</span>
                     <span className="font-semibold text-[14px] text-gray-800">{pluralLabel(type)}</span>
                     <span className="text-[12px] text-gray-400">{cfg.desc}</span>
-                    <span className={cx(
-                      "px-2 py-0.5 rounded-full text-[11px] font-semibold",
-                      cfg.lightBg, cfg.textColor
-                    )}>
+                    <span className={cx("px-2 py-0.5 rounded-full text-[11px] font-semibold", cfg.lightBg, cfg.textColor)}>
                       {groupItems.length}
                     </span>
                   </div>
@@ -1693,7 +1821,9 @@ export default function RaidClient({
                     {/* Group menu button */}
                     <div className="relative">
                       <button
-                        ref={(el) => { menuBtnRefs.current[type] = el; }}
+                        ref={(el) => {
+                          menuBtnRefs.current[type] = el;
+                        }}
                         onClick={() => setMenuOpenFor(menuOpenFor === type ? "" : type)}
                         className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
                         title="Group options"
@@ -1702,19 +1832,24 @@ export default function RaidClient({
                       </button>
 
                       {menuOpenFor === type && (
-                        <div
-                          ref={menuRef}
-                          className="absolute right-0 top-full mt-1 w-52 bg-white rounded-lg shadow-xl border border-gray-200 py-1 z-50"
-                        >
-                          <div className="px-3 py-1.5 text-[11px] font-semibold text-gray-400 uppercase tracking-widest">
-                            {type} options
-                          </div>
-                          <button onClick={() => exportGroupExcel(type)} className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-gray-700 hover:bg-gray-50">
-                            <svg className="w-3.5 h-3.5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                        <div ref={menuRef} className="absolute right-0 top-full mt-1 w-52 bg-white rounded-lg shadow-xl border border-gray-200 py-1 z-50">
+                          <div className="px-3 py-1.5 text-[11px] font-semibold text-gray-400 uppercase tracking-widest">{type} options</div>
+                          <button
+                            onClick={() => exportGroupExcel(type)}
+                            className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-gray-700 hover:bg-gray-50"
+                          >
+                            <svg className="w-3.5 h-3.5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
                             Export to Excel
                           </button>
-                          <button onClick={() => exportGroupPdf(type)} className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-gray-700 hover:bg-gray-50">
-                            <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                          <button
+                            onClick={() => exportGroupPdf(type)}
+                            className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-gray-700 hover:bg-gray-50"
+                          >
+                            <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                            </svg>
                             Export to PDF
                           </button>
                           <div className="my-1 border-t border-gray-100" />
@@ -1728,8 +1863,13 @@ export default function RaidClient({
                             </span>
                             {busyId === `ai:group:${type}` ? "Refreshing…" : "Refresh AI (Group)"}
                           </button>
-                          <button onClick={() => copyGroupLink(type)} className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-gray-700 hover:bg-gray-50">
-                            <svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                          <button
+                            onClick={() => copyGroupLink(type)}
+                            className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-gray-700 hover:bg-gray-50"
+                          >
+                            <svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                            </svg>
                             Copy Group Link
                           </button>
                         </div>
@@ -1742,7 +1882,9 @@ export default function RaidClient({
                       disabled={busyId === `new:${type}`}
                       className={cx(
                         "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium border transition-colors",
-                        cfg.lightBg, cfg.textColor, cfg.border,
+                        cfg.lightBg,
+                        cfg.textColor,
+                        cfg.border,
                         "hover:brightness-95 disabled:opacity-50"
                       )}
                     >
@@ -1764,16 +1906,12 @@ export default function RaidClient({
                         <table className="w-full text-[13px] table-fixed border-separate border-spacing-0">
                           <thead>
                             <tr>
-                              {/* Sticky left border */}
                               <th className={cx(COL_HDR, "w-36 border-l")}>
                                 <span className="text-gray-400">#</span> ID
                               </th>
                               <th className={cx(COL_HDR, "relative")} style={{ width: colW.desc }}>
                                 Description
-                                <span
-                                  className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-400/40 z-10"
-                                  onMouseDown={(e) => startResize("desc", e)}
-                                />
+                                <span className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-400/40 z-10" onMouseDown={(e) => startResize("desc", e)} />
                               </th>
                               <th className={cx(COL_HDR, "w-44")}>Owner</th>
                               <th className={cx(COL_HDR, "w-36")}>Status</th>
@@ -1784,10 +1922,7 @@ export default function RaidClient({
                               <th className={cx(COL_HDR, "w-32 text-center")}>Due Date</th>
                               <th className={cx(COL_HDR, "relative")} style={{ width: colW.resp }}>
                                 Response Plan
-                                <span
-                                  className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-400/40 z-10"
-                                  onMouseDown={(e) => startResize("resp", e)}
-                                />
+                                <span className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-400/40 z-10" onMouseDown={(e) => startResize("resp", e)} />
                               </th>
                               <th className={cx(COL_HDR, "w-60")}>AI Rollup</th>
                               <th className={cx(COL_HDR, "w-28 text-center")}>Updated</th>
@@ -1798,10 +1933,7 @@ export default function RaidClient({
                           <tbody>
                             {groupItems.length === 0 ? (
                               <tr>
-                                <td
-                                  colSpan={13}
-                                  className="px-6 py-12 text-center text-[13px] text-gray-400 border-b border-l border-r border-gray-200"
-                                >
+                                <td colSpan={13} className="px-6 py-12 text-center text-[13px] text-gray-400 border-b border-l border-r border-gray-200">
                                   <div className="flex flex-col items-center gap-2">
                                     <span className="text-2xl opacity-40">{cfg.emoji}</span>
                                     <span>No {type.toLowerCase()}s yet</span>
@@ -1837,12 +1969,7 @@ export default function RaidClient({
                                 const isHot = hotRowId === it.id;
 
                                 return (
-                                  <Draggable
-                                    key={dndIdForRaid(it)}
-                                    draggableId={dndIdForRaid(it)}
-                                    index={index}
-                                    isDragDisabled={Boolean(isBusy)}
-                                  >
+                                  <Draggable key={dndIdForRaid(it)} draggableId={dndIdForRaid(it)} index={index} isDragDisabled={Boolean(isBusy)}>
                                     {(dragProvided, dragSnapshot) => (
                                       <React.Fragment>
                                         <tr
@@ -1866,7 +1993,7 @@ export default function RaidClient({
                                           {/* ID cell */}
                                           <td className={cx(CELL_BASE, "w-36 border-l")}>
                                             <div className="flex items-center gap-1.5 px-2 py-2 min-h-[34px]">
-                                              {/* Drag handle - only visible on hover */}
+                                              {/* Drag handle - visible on hover */}
                                               <button
                                                 type="button"
                                                 data-dnd-handle
@@ -1887,7 +2014,11 @@ export default function RaidClient({
 
                                               {stale && (
                                                 <button
-                                                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onReloadRow(it.id); }}
+                                                  onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    void onReloadRow(it.id);
+                                                  }}
                                                   title="Reload latest"
                                                   className="text-amber-500 hover:text-amber-700 shrink-0"
                                                 >
@@ -1895,9 +2026,7 @@ export default function RaidClient({
                                                 </button>
                                               )}
                                             </div>
-                                            {stale && (
-                                              <div className="px-2 pb-1.5 text-[11px] text-amber-600">{stale.message}</div>
-                                            )}
+                                            {stale && <div className="px-2 pb-1.5 text-[11px] text-amber-600">{stale.message}</div>}
                                           </td>
 
                                           {/* Description */}
@@ -1918,11 +2047,12 @@ export default function RaidClient({
                                               <CellDisplay
                                                 value={safeStr(it.owner_label)}
                                                 placeholder="Assign owner…"
-                                                onActivate={() => { touch(it.id, "owner"); openEditor({ type, rowId: it.id, col: "owner_label" }); }}
+                                                onActivate={() => {
+                                                  touch(it.id, "owner");
+                                                  openEditor({ type, rowId: it.id, col: "owner_label" });
+                                                }}
                                               />
-                                              {showOwnerWarn && (
-                                                <div className="px-3 pb-1 text-[11px] text-red-500 font-medium">Owner required</div>
-                                              )}
+                                              {showOwnerWarn && <div className="px-3 pb-1 text-[11px] text-red-500 font-medium">Owner required</div>}
                                             </div>
                                           </td>
 
@@ -1981,11 +2111,11 @@ export default function RaidClient({
                                             </div>
                                           </td>
 
-                                          {/* Due Date */}
+                                          {/* Due Date (UK display) */}
                                           <td className={CELL_BASE}>
                                             <div ref={(el) => setCellRef(it.id, "due_date", el)} className="w-full">
                                               <CellDisplay
-                                                value={fmtDateOnly(it.due_date)}
+                                                value={fmtDateUK(it.due_date)}
                                                 placeholder="Set date…"
                                                 align="center"
                                                 mono
@@ -2000,11 +2130,12 @@ export default function RaidClient({
                                               <CellDisplay
                                                 value={safeStr(it.response_plan || "")}
                                                 placeholder="Add response plan…"
-                                                onActivate={() => { touch(it.id, "plan"); openEditor({ type, rowId: it.id, col: "response_plan" }); }}
+                                                onActivate={() => {
+                                                  touch(it.id, "plan");
+                                                  openEditor({ type, rowId: it.id, col: "response_plan" });
+                                                }}
                                               />
-                                              {showPlanWarn && (
-                                                <div className="px-3 pb-1 text-[11px] text-red-500 font-medium">Plan required</div>
-                                              )}
+                                              {showPlanWarn && <div className="px-3 pb-1 text-[11px] text-red-500 font-medium">Plan required</div>}
                                             </div>
                                           </td>
 
@@ -2028,19 +2159,20 @@ export default function RaidClient({
                                             </div>
                                           </td>
 
-                                          {/* Actions */}
+                                          {/* Actions — ALWAYS VISIBLE */}
                                           <td className={cx(CELL_BASE, "border-r-0")}>
-                                            <div className={cx(
-                                              "flex items-center justify-center gap-0.5 px-1 py-1",
-                                              "opacity-0 group-hover/row:opacity-100 transition-opacity"
-                                            )}>
+                                            <div className="flex items-center justify-center gap-1 px-1 py-1">
                                               <button
-                                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setAiOpenId(aiOpenId === it.id ? "" : it.id); }}
+                                                onClick={(e) => {
+                                                  e.preventDefault();
+                                                  e.stopPropagation();
+                                                  setAiOpenId(aiOpenId === it.id ? "" : it.id);
+                                                }}
                                                 className={cx(
-                                                  "p-1.5 rounded-md transition-colors",
+                                                  "p-1.5 rounded-md transition-colors border",
                                                   aiOpenId === it.id
-                                                    ? "bg-indigo-100 text-indigo-600"
-                                                    : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                                                    ? "bg-indigo-100 text-indigo-600 border-indigo-200"
+                                                    : "bg-white text-gray-500 border-gray-200 hover:text-gray-700 hover:bg-gray-50"
                                                 )}
                                                 title="AI Insights"
                                               >
@@ -2048,18 +2180,36 @@ export default function RaidClient({
                                               </button>
 
                                               <button
-                                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onAiRefresh(it.id); }}
+                                                onClick={(e) => {
+                                                  e.preventDefault();
+                                                  e.stopPropagation();
+                                                  void onAiRefresh(it.id);
+                                                }}
                                                 disabled={isBusy}
-                                                className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-40 transition-colors"
+                                                className={cx(
+                                                  "p-1.5 rounded-md border transition-colors",
+                                                  "bg-white text-gray-500 border-gray-200 hover:text-gray-700 hover:bg-gray-50",
+                                                  isBusy && "opacity-40 cursor-not-allowed"
+                                                )}
                                                 title="Refresh AI"
                                               >
-                                                <span className={isBusy ? "animate-spin" : ""}><IconRefresh /></span>
+                                                <span className={isBusy ? "animate-spin" : ""}>
+                                                  <IconRefresh />
+                                                </span>
                                               </button>
 
                                               <button
-                                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onDelete(it.id); }}
+                                                onClick={(e) => {
+                                                  e.preventDefault();
+                                                  e.stopPropagation();
+                                                  void onDelete(it.id);
+                                                }}
                                                 disabled={isBusy}
-                                                className="p-1.5 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 disabled:opacity-40 transition-colors"
+                                                className={cx(
+                                                  "p-1.5 rounded-md border transition-colors",
+                                                  "bg-white text-gray-500 border-gray-200 hover:text-red-600 hover:bg-red-50 hover:border-red-200",
+                                                  isBusy && "opacity-40 cursor-not-allowed"
+                                                )}
                                                 title="Delete"
                                               >
                                                 <IconTrash />
@@ -2081,22 +2231,30 @@ export default function RaidClient({
                                                     <div>
                                                       <h3 className="font-semibold text-[14px] text-gray-900">AI Insights</h3>
                                                       <p className="text-[12px] text-gray-400">
-                                                        {safeStr(ai.ai_status) || "—"} •{" "}
-                                                        Quality: {Number.isFinite(ai.ai_quality) ? `${Math.round(ai.ai_quality)}/100` : "—"} •{" "}
+                                                        {safeStr(ai.ai_status) || "—"} • Quality:{" "}
+                                                        {Number.isFinite(ai.ai_quality) ? `${Math.round(ai.ai_quality)}/100` : "—"} •{" "}
                                                         {safeStr(ai.last_run_at) ? fmtWhen(ai.last_run_at) : "Never run"}
                                                       </p>
                                                     </div>
                                                   </div>
                                                   <div className="flex items-center gap-2">
                                                     <button
-                                                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); void openHistory(it.id); }}
+                                                      onClick={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        void openHistory(it.id);
+                                                      }}
                                                       disabled={aiHistBusyId === it.id}
                                                       className="px-3 py-1.5 rounded-md text-[12px] font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 disabled:opacity-50 transition-colors"
                                                     >
                                                       {aiHistBusyId === it.id ? "Loading…" : aiHistOpenId === it.id ? "Hide History" : "View History"}
                                                     </button>
                                                     <button
-                                                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setAiOpenId(""); }}
+                                                      onClick={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        setAiOpenId("");
+                                                      }}
                                                       className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
                                                     >
                                                       <IconClose />
@@ -2145,7 +2303,9 @@ export default function RaidClient({
                                                             <select
                                                               className="w-full text-[13px] border border-gray-200 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                                                               value={cmp.a}
-                                                              onChange={(e) => setAiCompareById((prev) => ({ ...prev, [it.id]: { ...prev[it.id], a: e.target.value } }))}
+                                                              onChange={(e) =>
+                                                                setAiCompareById((prev) => ({ ...prev, [it.id]: { ...(prev[it.id] || {}), a: e.target.value } }))
+                                                              }
                                                             >
                                                               {runs.map((r) => (
                                                                 <option key={r.id} value={r.id}>
@@ -2160,7 +2320,9 @@ export default function RaidClient({
                                                             <select
                                                               className="w-full text-[13px] border border-gray-200 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                                                               value={cmp.b}
-                                                              onChange={(e) => setAiCompareById((prev) => ({ ...prev, [it.id]: { ...prev[it.id], b: e.target.value } }))}
+                                                              onChange={(e) =>
+                                                                setAiCompareById((prev) => ({ ...prev, [it.id]: { ...(prev[it.id] || {}), b: e.target.value } }))
+                                                              }
                                                             >
                                                               {runs.map((r) => (
                                                                 <option key={r.id} value={r.id}>
@@ -2202,21 +2364,29 @@ export default function RaidClient({
                                                                 <div className="p-3 bg-red-50 rounded-lg border border-red-100">
                                                                   <div className="text-[11px] font-semibold text-red-500 mb-2">Previous Recommendations</div>
                                                                   <ul className="space-y-1 text-[13px] text-gray-700">
-                                                                    {diffRecs.a.map((x, i) => <li key={i} className="flex gap-1.5"><span className="text-red-300">·</span>{x}</li>)}
+                                                                    {diffRecs.a.map((x, i) => (
+                                                                      <li key={i} className="flex gap-1.5">
+                                                                        <span className="text-red-300">·</span>
+                                                                        {x}
+                                                                      </li>
+                                                                    ))}
                                                                   </ul>
                                                                 </div>
                                                                 <div className="p-3 bg-green-50 rounded-lg border border-green-100">
                                                                   <div className="text-[11px] font-semibold text-green-600 mb-2">Current Recommendations</div>
                                                                   <ul className="space-y-1 text-[13px] text-gray-700">
-                                                                    {diffRecs.b.map((x, i) => <li key={i} className="flex gap-1.5"><span className="text-green-400">·</span>{x}</li>)}
+                                                                    {diffRecs.b.map((x, i) => (
+                                                                      <li key={i} className="flex gap-1.5">
+                                                                        <span className="text-green-400">·</span>
+                                                                        {x}
+                                                                      </li>
+                                                                    ))}
                                                                   </ul>
                                                                 </div>
                                                               </div>
                                                             )}
                                                             {!diffRollup && !diffSummary && !diffRecs && (
-                                                              <p className="text-[13px] text-gray-400 text-center py-4">
-                                                                No differences between selected versions.
-                                                              </p>
+                                                              <p className="text-[13px] text-gray-400 text-center py-4">No differences between selected versions.</p>
                                                             )}
                                                           </div>
                                                         )}
@@ -2279,12 +2449,16 @@ export default function RaidClient({
             <div className="bg-white rounded-lg shadow-[0_8px_30px_rgba(0,0,0,0.12)] border border-gray-200 overflow-hidden">
               {editor.col === "status" ? (
                 <select
-                  ref={(el) => { editorInputRef.current = el; }}
+                  ref={(el) => {
+                    editorInputRef.current = el;
+                  }}
                   className="w-full h-10 px-3 border-0 outline-none text-[13px] font-medium bg-white"
                   value={safeStr(editor.value || "Open")}
                   onChange={(e) => {
-                    setEditor((cur) => (cur ? { ...cur, value: e.target.value } : cur));
-                    window.setTimeout(() => void commitEditor(), 0);
+                    const v = e.target.value;
+                    setEditor((cur) => (cur ? { ...cur, value: v } : cur));
+                    // ✅ commit with override (fixes “changing field nothing saves”)
+                    window.setTimeout(() => void commitCell(editor.rowId, "status", v), 0);
                   }}
                 >
                   <option value="Open">Open</option>
@@ -2294,12 +2468,15 @@ export default function RaidClient({
                 </select>
               ) : editor.col === "priority" ? (
                 <select
-                  ref={(el) => { editorInputRef.current = el; }}
+                  ref={(el) => {
+                    editorInputRef.current = el;
+                  }}
                   className="w-full h-10 px-3 border-0 outline-none text-[13px] font-medium bg-white"
                   value={safeStr(editor.value || "")}
                   onChange={(e) => {
-                    setEditor((cur) => (cur ? { ...cur, value: e.target.value } : cur));
-                    window.setTimeout(() => void commitEditor(), 0);
+                    const v = e.target.value;
+                    setEditor((cur) => (cur ? { ...cur, value: v } : cur));
+                    window.setTimeout(() => void commitCell(editor.rowId, "priority", v), 0);
                   }}
                 >
                   <option value="">— No priority</option>
@@ -2310,16 +2487,21 @@ export default function RaidClient({
                 </select>
               ) : editor.col === "due_date" ? (
                 <input
-                  ref={(el) => { editorInputRef.current = el; }}
+                  ref={(el) => {
+                    editorInputRef.current = el;
+                  }}
                   type="date"
                   className="w-full h-10 px-3 border-0 outline-none text-[13px] bg-white"
                   value={safeStr(editor.value || "")}
                   onChange={(e) => setEditor((cur) => (cur ? { ...cur, value: e.target.value } : cur))}
                   onBlur={() => void commitEditor()}
+                  onKeyDown={(e) => onCellKeyDown(e as any, { type: editor.type, rowIds: [], rowIndex: 0, col: "due_date" })}
                 />
               ) : editor.col === "probability" || editor.col === "severity" ? (
                 <input
-                  ref={(el) => { editorInputRef.current = el; }}
+                  ref={(el) => {
+                    editorInputRef.current = el;
+                  }}
                   type="number"
                   min={0}
                   max={100}
@@ -2330,15 +2512,22 @@ export default function RaidClient({
                 />
               ) : editor.col === "description" || editor.col === "response_plan" ? (
                 <textarea
-                  ref={(el) => { editorInputRef.current = el; }}
+                  ref={(el) => {
+                    editorInputRef.current = el;
+                  }}
                   className="w-full min-h-[96px] px-3 py-2.5 border-0 outline-none text-[13px] leading-5 resize-none bg-white"
                   value={safeStr(editor.value || "")}
                   onChange={(e) => setEditor((cur) => (cur ? { ...cur, value: e.target.value } : cur))}
                   onBlur={() => void commitEditor()}
+                  onPaste={(e) =>
+                    onCellPaste(e, { type: editor.type, rowIds: [editor.rowId], rowIndex: 0, col: editor.col as any })
+                  }
                 />
               ) : (
                 <input
-                  ref={(el) => { editorInputRef.current = el; }}
+                  ref={(el) => {
+                    editorInputRef.current = el;
+                  }}
                   className="w-full h-10 px-3 border-0 outline-none text-[13px] bg-white"
                   value={safeStr(editor.value || "")}
                   onChange={(e) => setEditor((cur) => (cur ? { ...cur, value: e.target.value } : cur))}
@@ -2349,7 +2538,11 @@ export default function RaidClient({
                 <span className="text-[11px] text-gray-400">Enter · Tab · ↑↓ to navigate · Paste TSV</span>
                 <button
                   className="text-[11px] text-gray-400 hover:text-gray-600 px-1.5 py-0.5 rounded hover:bg-gray-200 transition-colors"
-                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); closeEditor(); }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeEditor();
+                  }}
                 >
                   Esc
                 </button>
@@ -2363,22 +2556,20 @@ export default function RaidClient({
       {digest && (
         <div
           className="fixed inset-0 z-50 bg-gray-900/30 backdrop-blur-sm flex items-start justify-center p-4 sm:p-8 overflow-y-auto"
-          onClick={(e) => { if (e.target === e.currentTarget) setDigest(null); }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setDigest(null);
+          }}
         >
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl my-8 overflow-hidden border border-gray-200">
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10">
               <div>
-                <h2 className="text-[16px] font-semibold text-gray-900">
-                  {safeStr(digest?.header?.title) || "Weekly RAID Digest"}
-                </h2>
+                <h2 className="text-[16px] font-semibold text-gray-900">{safeStr(digest?.header?.title) || "Weekly RAID Digest"}</h2>
                 <p className="text-[12px] text-gray-400 mt-0.5">
-                  {safeStr(digest?.header?.project_code) || humanProjectId} · {safeStr(digest?.header?.project_name) || humanProjectTitle} · {fmtWhen(digest?.generated_at)}
+                  {safeStr(digest?.header?.project_code) || humanProjectId} · {safeStr(digest?.header?.project_name) || humanProjectTitle} ·{" "}
+                  {fmtWhen(digest?.generated_at)}
                 </p>
               </div>
-              <button
-                onClick={() => setDigest(null)}
-                className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-              >
+              <button onClick={() => setDigest(null)} className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
                 <IconClose />
               </button>
             </div>
@@ -2417,7 +2608,12 @@ export default function RaidClient({
                                   title="Copy ID"
                                 >
                                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                                    />
                                   </svg>
                                 </button>
                                 <button
@@ -2426,7 +2622,12 @@ export default function RaidClient({
                                   title="Copy Link"
                                 >
                                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+                                    />
                                   </svg>
                                 </button>
                               </div>

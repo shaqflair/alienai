@@ -43,22 +43,12 @@ const Icons = {
   ),
   Trash: () => (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-      />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
     </svg>
   ),
   Refresh: () => (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-      />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
     </svg>
   ),
   Search: () => (
@@ -78,12 +68,7 @@ const Icons = {
   ),
   Grid: () => (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"
-      />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
     </svg>
   ),
   List: () => (
@@ -93,22 +78,12 @@ const Icons = {
   ),
   Download: () => (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-      />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
   ),
   FileSpreadsheet: () => (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-      />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
   ),
   FileText: () => (
@@ -123,12 +98,7 @@ const Icons = {
   ),
   Lightbulb: () => (
     <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-      />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
     </svg>
   ),
   AlertCircle: () => (
@@ -148,12 +118,7 @@ const Icons = {
   ),
   Expand: () => (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
-      />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
     </svg>
   ),
   Mail: () => (
@@ -172,32 +137,31 @@ function isDbUuid(x: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(x ?? ""));
 }
 
-// BRIGHT GLOSSY cell background colors for Impact/Influence
-function getImpactInfluenceCellClass(level: any) {
+// Notion-style soft tag colors for Impact/Influence levels
+function getLevelTagStyle(level: any): { cell: string; badge: string } {
   const s = String(level ?? "").toLowerCase();
-  // Using bright, saturated colors with gradient-like effect via shadow
-  if (s === "high") return "bg-gradient-to-br from-rose-400 to-red-500 shadow-inner";
-  if (s === "medium") return "bg-gradient-to-br from-amber-400 to-orange-500 shadow-inner";
-  if (s === "low") return "bg-gradient-to-br from-emerald-400 to-green-500 shadow-inner";
-  return "bg-white";
+  if (s === "high") return {
+    cell: "bg-red-50/60",
+    badge: "bg-red-100 text-red-700 border border-red-200",
+  };
+  if (s === "medium") return {
+    cell: "bg-amber-50/60",
+    badge: "bg-amber-100 text-amber-700 border border-amber-200",
+  };
+  if (s === "low") return {
+    cell: "bg-green-50/60",
+    badge: "bg-green-100 text-green-700 border border-green-200",
+  };
+  return { cell: "", badge: "bg-gray-100 text-gray-600 border border-gray-200" };
 }
 
-// GLOSSY pill classes - bright solid colors with white text
-function pillClassLevel(v: any) {
+function getMappingStyle(v: any): string {
   const s = String(v ?? "").toLowerCase();
-  if (s === "high") return "bg-white text-red-600 border-2 border-red-200 font-bold shadow-lg";
-  if (s === "medium") return "bg-white text-amber-600 border-2 border-amber-200 font-bold shadow-lg";
-  if (s === "low") return "bg-white text-emerald-600 border-2 border-emerald-200 font-bold shadow-lg";
-  return "bg-gray-100 text-gray-600 border-gray-200";
-}
-
-function pillClassMap(v: any) {
-  const s = String(v ?? "").toLowerCase();
-  if (s.includes("manage")) return "bg-rose-50 text-rose-800 border-rose-200";
-  if (s.includes("satisfied")) return "bg-amber-50 text-amber-800 border-amber-200";
-  if (s.includes("informed")) return "bg-blue-50 text-blue-800 border-blue-200";
-  if (s.includes("monitor")) return "bg-gray-50 text-gray-800 border-gray-200";
-  return "bg-gray-50 text-gray-600 border-gray-200";
+  if (s.includes("manage")) return "bg-red-100 text-red-700 border border-red-200";
+  if (s.includes("satisfied")) return "bg-amber-100 text-amber-700 border border-amber-200";
+  if (s.includes("informed")) return "bg-blue-100 text-blue-700 border border-blue-200";
+  if (s.includes("monitor")) return "bg-gray-100 text-gray-600 border border-gray-200";
+  return "bg-gray-100 text-gray-600 border border-gray-200";
 }
 
 function channelChipClass(label: any) {
@@ -245,12 +209,8 @@ function normalizeChannel(x: any) {
   return String(x ?? "").trim().replace(/\s+/g, " ");
 }
 
-// ✅ normalize stakeholder name for uniqueness checks (client-side)
 function normalizeNameKey(x: any) {
-  return String(x ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
+  return String(x ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 type StakeholdersChangedDetail = {
@@ -274,14 +234,20 @@ const DEFAULT_COL_WIDTHS: Record<string, number> = {
   role: 150,
   internal_external: 120,
   title_role: 180,
-  impact_level: 120,
-  influence_level: 120,
-  stakeholder_mapping: 150,
+  impact_level: 110,
+  influence_level: 110,
+  stakeholder_mapping: 160,
   involvement_milestone: 200,
   stakeholder_impact: 250,
   channels: 280,
-  actions: 100,
+  actions: 80,
 };
+
+/* ── Shared cell/header classes ── */
+const COL_HDR = "px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-[#f7f7f5] border-b border-r border-gray-200 select-none whitespace-nowrap";
+const CELL = "px-0 py-0 border-b border-r border-gray-200 align-middle bg-white group-hover/row:bg-[#fafaf9] transition-colors duration-75";
+const INPUT_CLS = "w-full px-2.5 py-1.5 bg-transparent border-0 outline-none text-[13px] text-gray-800 placeholder-gray-300 focus:bg-white focus:shadow-[inset_0_0_0_2px_#0f7b6c] rounded transition-all";
+const SELECT_CLS = "w-full px-2.5 py-1.5 bg-transparent border-0 outline-none text-[13px] text-gray-800 cursor-pointer focus:bg-white focus:shadow-[inset_0_0_0_2px_#0f7b6c] rounded transition-all appearance-none";
 
 export default function StakeholderRegisterEditor(props: {
   projectId: string;
@@ -320,7 +286,6 @@ export default function StakeholderRegisterEditor(props: {
   const resizeStartX = useRef(0);
   const resizeStartWidth = useRef(0);
 
-  // Instant paint from initialJson (if present)
   useEffect(() => {
     if (!initialJson) return;
     if (doc.rows?.length) return;
@@ -343,9 +308,7 @@ export default function StakeholderRegisterEditor(props: {
         __draft: false,
       }));
       if (mapped.length) setDoc({ version: 1, type: "stakeholder_register", rows: mapped });
-    } catch {
-      // ignore
-    }
+    } catch { }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialJson]);
 
@@ -414,9 +377,7 @@ export default function StakeholderRegisterEditor(props: {
         if (v) set.add(v);
       }
     }
-    return Array.from(set)
-      .sort((a, b) => a.localeCompare(b))
-      .map((v) => ({ value: v, label: v }));
+    return Array.from(set).sort((a, b) => a.localeCompare(b)).map((v) => ({ value: v, label: v }));
   }, [doc.rows]);
 
   async function loadSuggestions() {
@@ -427,11 +388,7 @@ export default function StakeholderRegisterEditor(props: {
         body: JSON.stringify({ projectId, target_artifact_type: "stakeholder_register" }),
       });
       const json = await safeJson(res);
-      if (!res.ok || !json?.ok) {
-        console.warn("[ai/suggestions/list] failed");
-        setPendingSugs([]);
-        return;
-      }
+      if (!res.ok || !json?.ok) { console.warn("[ai/suggestions/list] failed"); setPendingSugs([]); return; }
       const arr = Array.isArray(json?.suggestions) ? json.suggestions : [];
       setPendingSugs(arr);
     } catch (e) {
@@ -454,11 +411,9 @@ export default function StakeholderRegisterEditor(props: {
       }
       await loadFromDb().catch(() => null);
       await loadSuggestions().catch(() => null);
-      window.dispatchEvent(
-        new CustomEvent<StakeholdersChangedDetail>("alienai:stakeholders-changed", {
-          detail: { projectId, artifactId, reason: "suggestions_accepted_all" },
-        })
-      );
+      window.dispatchEvent(new CustomEvent<StakeholdersChangedDetail>("alienai:stakeholders-changed", {
+        detail: { projectId, artifactId, reason: "suggestions_accepted_all" },
+      }));
     });
   }
 
@@ -470,15 +425,10 @@ export default function StakeholderRegisterEditor(props: {
         body: JSON.stringify({ projectId, artifactId }),
       });
       const json = await safeJson(res);
-      if (!res.ok || !json?.ok) {
-        console.warn("[seed-from-charter] failed");
-        return;
-      }
-      window.dispatchEvent(
-        new CustomEvent<StakeholdersChangedDetail>("alienai:stakeholders-seeded", {
-          detail: { projectId, artifactId, reason: "seeded_from_charter" },
-        })
-      );
+      if (!res.ok || !json?.ok) { console.warn("[seed-from-charter] failed"); return; }
+      window.dispatchEvent(new CustomEvent<StakeholdersChangedDetail>("alienai:stakeholders-seeded", {
+        detail: { projectId, artifactId, reason: "seeded_from_charter" },
+      }));
     } catch (e) {
       console.warn("[seed-from-charter] exception", e);
     }
@@ -497,28 +447,16 @@ export default function StakeholderRegisterEditor(props: {
 
       const rows: StakeholderRow[] = (Array.isArray(json.stakeholders) ? json.stakeholders : []).map((s: any) => {
         const name = String(s?.name ?? "");
-
-        const contact =
-          s?.contact_info && typeof s.contact_info === "object" && s.contact_info !== null ? s.contact_info : {};
-
+        const contact = s?.contact_info && typeof s.contact_info === "object" && s.contact_info !== null ? s.contact_info : {};
         const influence = normalizeInfluenceToUi(s?.influence_level);
-
         const impactRaw = contact?.impact_level ?? s?.impact_level ?? "Medium";
-        const impact: Impact =
-          String(impactRaw) === "High" ? "High" : String(impactRaw) === "Low" ? "Low" : "Medium";
-
+        const impact: Impact = String(impactRaw) === "High" ? "High" : String(impactRaw) === "Low" ? "Low" : "Medium";
         const channelsRaw = Array.isArray(contact?.channels) ? contact.channels : ["Teams"];
         const channels = channelsRaw.map((x: any) => normalizeChannel(x)).filter(Boolean);
-
-        const internal_external: InternalExternal =
-          String(contact?.internal_external ?? "Internal") === "External" ? "External" : "Internal";
-
+        const internal_external: InternalExternal = String(contact?.internal_external ?? "Internal") === "External" ? "External" : "Internal";
         const title_role = String(contact?.title_role ?? "");
         const point_of_contact = String(contact?.point_of_contact ?? "");
-
-        const stakeholder_mapping: Mapping =
-          (contact?.stakeholder_mapping as Mapping) || inferMapping(influence, impact);
-
+        const stakeholder_mapping: Mapping = (contact?.stakeholder_mapping as Mapping) || inferMapping(influence, impact);
         const group = normalizeGroup(contact?.group ?? "Project");
 
         return {
@@ -539,13 +477,9 @@ export default function StakeholderRegisterEditor(props: {
         };
       });
 
-      // ✅ only seed from charter when the register is EMPTY (prevents unique constraint collisions)
       if (!seededFromCharterOnceRef.current && rows.length === 0) {
         seededFromCharterOnceRef.current = true;
-
         await seedFromCharter();
-
-        // After seeding, reload once to pick up newly inserted rows
         const res2 = await fetch(
           `/api/stakeholders?projectId=${encodeURIComponent(projectId)}&artifactId=${encodeURIComponent(artifactId)}`,
           { method: "GET" }
@@ -555,27 +489,15 @@ export default function StakeholderRegisterEditor(props: {
           const rows2: StakeholderRow[] = (Array.isArray(json2.stakeholders) ? json2.stakeholders : []).map((s: any) => {
             const name = String(s?.name ?? "");
             const contact = s?.contact_info && typeof s.contact_info === "object" ? s.contact_info : {};
-
             const influence = normalizeInfluenceToUi(s?.influence_level);
-
-            const impact: Impact =
-              String(contact?.impact_level ?? "Medium") === "High"
-                ? "High"
-                : String(contact?.impact_level ?? "Medium") === "Low"
-                ? "Low"
-                : "Medium";
-
+            const impact: Impact = String(contact?.impact_level ?? "Medium") === "High" ? "High" : String(contact?.impact_level ?? "Medium") === "Low" ? "Low" : "Medium";
             const channelsRaw = Array.isArray(contact?.channels) ? contact.channels : ["Teams"];
             const channels = channelsRaw.map((x: any) => normalizeChannel(x)).filter(Boolean);
-
-            const internal_external: InternalExternal =
-              String(contact?.internal_external ?? "Internal") === "External" ? "External" : "Internal";
-
+            const internal_external: InternalExternal = String(contact?.internal_external ?? "Internal") === "External" ? "External" : "Internal";
             const title_role = String(contact?.title_role ?? "");
             const point_of_contact = String(contact?.point_of_contact ?? "");
             const stakeholder_mapping = (contact?.stakeholder_mapping as Mapping) || inferMapping(influence, impact);
             const group = String(contact?.group ?? "Project");
-
             return {
               id: String(s?.id ?? uuid()),
               name,
@@ -593,7 +515,6 @@ export default function StakeholderRegisterEditor(props: {
               __draft: false,
             };
           });
-
           setDoc({ version: 1, type: "stakeholder_register", rows: rows2 });
           setDirty(false);
           await loadSuggestions().catch(() => null);
@@ -619,16 +540,11 @@ export default function StakeholderRegisterEditor(props: {
 
   useEffect(() => {
     function matches(detail: StakeholdersChangedDetail | null | undefined) {
-      const pid = String(detail?.projectId ?? "");
-      const aid = String(detail?.artifactId ?? "");
-      return pid === projectId && aid === artifactId;
+      return String(detail?.projectId ?? "") === projectId && String(detail?.artifactId ?? "") === artifactId;
     }
     function onChanged(ev: Event) {
       const ce = ev as CustomEvent<StakeholdersChangedDetail>;
-      if (!ce?.detail) {
-        loadFromDb();
-        return;
-      }
+      if (!ce?.detail) { loadFromDb(); return; }
       if (matches(ce.detail)) loadFromDb();
     }
     window.addEventListener("alienai:stakeholders-changed", onChanged as any);
@@ -643,19 +559,15 @@ export default function StakeholderRegisterEditor(props: {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return (doc.rows ?? []).filter((r) => {
-      const matchQ =
-        !q ||
+      const matchQ = !q ||
         String(r.name ?? "").toLowerCase().includes(q) ||
         String(r.role ?? "").toLowerCase().includes(q) ||
         String(r.title_role ?? "").toLowerCase().includes(q) ||
         String(r.point_of_contact ?? "").toLowerCase().includes(q) ||
         (Array.isArray(r.channels) && r.channels.join(" ").toLowerCase().includes(q));
-      const matchPerson =
-        personFilter === "all"
-          ? true
-          : personFilter === "internal"
-          ? String(r.internal_external ?? "") === "Internal"
-          : String(r.internal_external ?? "") === "External";
+      const matchPerson = personFilter === "all" ? true :
+        personFilter === "internal" ? String(r.internal_external ?? "") === "Internal" :
+        String(r.internal_external ?? "") === "External";
       return matchQ && matchPerson;
     });
   }, [doc.rows, search, personFilter]);
@@ -718,11 +630,9 @@ export default function StakeholderRegisterEditor(props: {
       const json = await safeJson(res);
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Delete failed");
       setDirty(false);
-      window.dispatchEvent(
-        new CustomEvent<StakeholdersChangedDetail>("alienai:stakeholders-changed", {
-          detail: { projectId, artifactId, reason: "row_deleted" },
-        })
-      );
+      window.dispatchEvent(new CustomEvent<StakeholdersChangedDetail>("alienai:stakeholders-changed", {
+        detail: { projectId, artifactId, reason: "row_deleted" },
+      }));
       loadSuggestions().catch(() => null);
     } catch (e: any) {
       setDoc((prev) => ({ ...prev, rows: prevRows }));
@@ -748,11 +658,9 @@ export default function StakeholderRegisterEditor(props: {
       const json = await safeJson(res);
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Delete all failed");
       setDirty(false);
-      window.dispatchEvent(
-        new CustomEvent<StakeholdersChangedDetail>("alienai:stakeholders-changed", {
-          detail: { projectId, artifactId, reason: "deleted_all" },
-        })
-      );
+      window.dispatchEvent(new CustomEvent<StakeholdersChangedDetail>("alienai:stakeholders-changed", {
+        detail: { projectId, artifactId, reason: "deleted_all" },
+      }));
       loadSuggestions().catch(() => null);
     } catch (e: any) {
       setDoc((prev) => ({ ...prev, rows: prevRows }));
@@ -762,7 +670,6 @@ export default function StakeholderRegisterEditor(props: {
     }
   }
 
-  // ✅ Build grouped doc for artifacts.content_json (used by exports if they read artifacts.content_json)
   function buildArtifactStakeholderDoc(rows: StakeholderRow[]) {
     const byGroup = new Map<string, StakeholderRow[]>();
     for (const r of rows) {
@@ -770,7 +677,6 @@ export default function StakeholderRegisterEditor(props: {
       if (!byGroup.has(g)) byGroup.set(g, []);
       byGroup.get(g)!.push(r);
     }
-
     const groupsArr = Array.from(byGroup.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([name, rs]) => ({
@@ -793,45 +699,29 @@ export default function StakeholderRegisterEditor(props: {
             group: name,
           })),
       }));
-
-    return {
-      version: 1,
-      type: "stakeholder_register",
-      groups: groupsArr,
-    };
+    return { version: 1, type: "stakeholder_register", groups: groupsArr };
   }
 
   async function persistArtifactContentJsonFromRows(rows: StakeholderRow[]) {
     const content_json = buildArtifactStakeholderDoc(rows);
-
     const res = await fetch(`/api/artifacts/${encodeURIComponent(artifactId)}/content-json`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        projectId,
-        title: "Stakeholder Register",
-        content_json,
-      }),
+      body: JSON.stringify({ projectId, title: "Stakeholder Register", content_json }),
     });
-
     const json = await safeJson(res);
-    if (!res.ok || !json?.ok) {
-      throw new Error(String(json?.error || "Failed to update artifact content_json"));
-    }
+    if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to update artifact content_json"));
   }
 
   async function saveNow() {
     setErr(null);
     startSaving(async () => {
       try {
-        // ✅ Client-side duplicate guard (prevents Postgres unique constraint banner)
         const seen = new Set<string>();
         for (const r of doc.rows ?? []) {
           const key = normalizeNameKey(r?.name);
           if (!key) continue;
-          if (seen.has(key)) {
-            throw new Error(`Duplicate stakeholder name: "${String(r?.name ?? "").trim()}". Each name must be unique.`);
-          }
+          if (seen.has(key)) throw new Error(`Duplicate stakeholder name: "${String(r?.name ?? "").trim()}". Each name must be unique.`);
           seen.add(key);
         }
 
@@ -839,28 +729,17 @@ export default function StakeholderRegisterEditor(props: {
           .map((r) => {
             const name = String(r.name ?? "").trim();
             if (!name) return null;
-
             const name_key = normalizeNameKey(name);
-
             const influence_db = normalizeUiInfluenceToDb(r.influence_level);
-            const impact_ui: Impact =
-              r.impact_level === "High" ? "High" : r.impact_level === "Low" ? "Low" : "Medium";
-
+            const impact_ui: Impact = r.impact_level === "High" ? "High" : r.impact_level === "Low" ? "Low" : "Medium";
             return {
-              // ✅ include id when it looks like a DB uuid so server can update instead of duplicating
               id: isDbUuid(r.id) ? r.id : undefined,
-
               name,
               name_key,
-
               role: String(r.role ?? "").trim() || null,
-
-              // ✅ keep core levels top-level (your table appears to store influence_level here)
               influence_level: influence_db,
-
               expectations: null,
               communication_strategy: null,
-
               contact_info: {
                 point_of_contact: String(r.point_of_contact ?? "").trim(),
                 internal_external: r.internal_external ?? "Internal",
@@ -870,8 +749,6 @@ export default function StakeholderRegisterEditor(props: {
                 stakeholder_impact: String(r.stakeholder_impact ?? "").trim(),
                 channels: Array.isArray(r.channels) ? r.channels.map(normalizeChannel).filter(Boolean) : [],
                 group: normalizeGroup(r.group ?? "Project"),
-
-                // ✅ IMPORTANT: persist impact_level inside contact_info (because your loader reads it from there)
                 impact_level: impact_ui,
               },
             };
@@ -885,28 +762,21 @@ export default function StakeholderRegisterEditor(props: {
         });
 
         const json = await safeJson(res);
-
         if (!res.ok || !json?.ok) {
           const msg = String(json?.error || "Save failed");
           if (msg.toLowerCase().includes("duplicate") || msg.toLowerCase().includes("unique")) {
-            throw new Error(
-              "A stakeholder with that name already exists in this project. Please choose a unique name (or edit the existing stakeholder)."
-            );
+            throw new Error("A stakeholder with that name already exists in this project. Please choose a unique name (or edit the existing stakeholder).");
           }
           throw new Error(msg);
         }
 
-        // ✅ keep artifact content_json in sync so exports won't be blank even if they read artifacts.content_json
         await persistArtifactContentJsonFromRows(doc.rows ?? []);
-
         setDirty(false);
         await loadFromDb();
 
-        window.dispatchEvent(
-          new CustomEvent<StakeholdersChangedDetail>("alienai:stakeholders-changed", {
-            detail: { projectId, artifactId, reason: "saved" },
-          })
-        );
+        window.dispatchEvent(new CustomEvent<StakeholdersChangedDetail>("alienai:stakeholders-changed", {
+          detail: { projectId, artifactId, reason: "saved" },
+        }));
         loadSuggestions().catch(() => null);
       } catch (e: any) {
         setErr(String(e?.message ?? e));
@@ -923,13 +793,7 @@ export default function StakeholderRegisterEditor(props: {
     });
   };
 
-  // ✅ BUSY MUST BE DEFINED BEFORE EXPORT HELPERS
   const busy = loading || saving || sugBusy || deletingAll || deletingId !== null;
-
-  // ─────────────────────────────────────────────────────────────
-  // Export helpers
-  // IMPORTANT: exports must call API routes only (never import server exporters in client).
-  // ─────────────────────────────────────────────────────────────
 
   function filenameFromDisposition(header: string | null) {
     if (!header) return null;
@@ -939,30 +803,23 @@ export default function StakeholderRegisterEditor(props: {
   }
 
   async function downloadFromRoute(opts: { url: string; fallbackName: string; mime?: string }) {
-    // If you have unsaved edits, warn because exports read from DB.
     if (dirty && !readOnly) {
       const ok = window.confirm("You have unsaved changes. Export may be out of date. Export anyway?");
       if (!ok) return;
     }
-
     const u = new URL(opts.url, window.location.origin);
     u.searchParams.set("projectId", projectId);
     u.searchParams.set("artifactId", artifactId);
-
     const res = await fetch(u.toString(), { method: "GET", cache: "no-store" });
-
     if (!res.ok) {
       const j = await safeJson(res);
       throw new Error(j?.error || j?.message || `Export failed (${res.status})`);
     }
-
     const ab = await res.arrayBuffer();
     const cd = res.headers.get("Content-Disposition");
     const name = filenameFromDisposition(cd) || opts.fallbackName;
-
     const blob = new Blob([ab], { type: opts.mime || res.headers.get("content-type") || "application/octet-stream" });
     const url = URL.createObjectURL(blob);
-
     const a = document.createElement("a");
     a.href = url;
     a.download = name;
@@ -985,28 +842,25 @@ export default function StakeholderRegisterEditor(props: {
   }
 
   const downloadExcel = async () => {
-    const date = new Date().toISOString().slice(0, 10);
     await runExport({
       url: "/api/artifacts/stakeholder-register/export/xlsx",
-      fallbackName: `Stakeholder_Register_${date}.xlsx`,
+      fallbackName: `Stakeholder_Register_${new Date().toISOString().slice(0, 10)}.xlsx`,
       mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
   };
 
   const downloadPDF = async () => {
-    const date = new Date().toISOString().slice(0, 10);
     await runExport({
       url: "/api/artifacts/stakeholder-register/export/pdf",
-      fallbackName: `Stakeholder_Register_${date}.pdf`,
+      fallbackName: `Stakeholder_Register_${new Date().toISOString().slice(0, 10)}.pdf`,
       mime: "application/pdf",
     });
   };
 
   const downloadWord = async () => {
-    const date = new Date().toISOString().slice(0, 10);
     await runExport({
       url: "/api/artifacts/stakeholder-register/export/docx",
-      fallbackName: `Stakeholder_Register_${date}.docx`,
+      fallbackName: `Stakeholder_Register_${new Date().toISOString().slice(0, 10)}.docx`,
       mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     });
   };
@@ -1021,66 +875,58 @@ export default function StakeholderRegisterEditor(props: {
     };
   }, [doc.rows]);
 
-  const ResizableHeader = ({
-    children,
-    colKey,
-    className = "",
-  }: {
-    children: React.ReactNode;
-    colKey: string;
-    className?: string;
-  }) => (
+  /* ── Resizable column header ── */
+  const ResizableHeader = ({ children, colKey, className = "" }: { children: React.ReactNode; colKey: string; className?: string }) => (
     <th
-      className={`relative px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50/80 border-b border-gray-200 group ${className}`}
-      style={{
-        width: colWidths[colKey] || DEFAULT_COL_WIDTHS[colKey],
-        minWidth: colWidths[colKey] || DEFAULT_COL_WIDTHS[colKey],
-      }}
+      className={`${COL_HDR} relative group/th ${className}`}
+      style={{ width: colWidths[colKey] || DEFAULT_COL_WIDTHS[colKey], minWidth: colWidths[colKey] || DEFAULT_COL_WIDTHS[colKey] }}
     >
-      <div className="flex items-center justify-between overflow-hidden">
-        <span className="truncate">{children}</span>
-      </div>
+      <span className="truncate block pr-3">{children}</span>
       <div
-        className={`absolute right-0 top-0 h-full w-4 cursor-col-resize flex items-center justify-center hover:bg-blue-100/50 transition-colors ${
-          resizingCol === colKey ? "bg-blue-200" : ""
-        }`}
+        className={`absolute right-0 top-0 h-full w-3 cursor-col-resize flex items-center justify-center z-10 ${resizingCol === colKey ? "opacity-100" : "opacity-0 group-hover/th:opacity-100"} transition-opacity`}
         onMouseDown={(e) => handleResizeStart(e, colKey)}
-        title="Drag to resize"
       >
-        <div className="w-0.5 h-4 bg-gray-300 group-hover:bg-blue-400 rounded-full" />
+        <div className="w-px h-4 bg-blue-400 rounded-full" />
       </div>
     </th>
   );
 
+  /* ────────────────────────────────────────────
+     RENDER
+  ──────────────────────────────────────────── */
   return (
-    <div className="min-h-screen bg-gray-50/50">
-      <div className="max-w-[1920px] mx-auto p-6 space-y-6">
-        {/* Header Section */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white rounded-2xl border border-gray-200/60 p-6 shadow-sm">
+    <div className="min-h-screen bg-[#f7f7f5] font-sans text-gray-900">
+      <div className="max-w-[1920px] mx-auto p-6 space-y-4">
+
+        {/* ── Top header bar ── */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white rounded-xl border border-gray-200 px-6 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Stakeholder Register</h1>
-            <p className="text-sm text-gray-500 mt-1">
-              Manage project stakeholders, influence levels, and communication strategies
-            </p>
+            <h1 className="text-[18px] font-semibold text-gray-900 tracking-tight">Stakeholder Register</h1>
+            <p className="text-[13px] text-gray-400 mt-0.5">Track influence, impact, and communication strategies</p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="hidden md:flex items-center gap-2 mr-4">
-              <div className="px-3 py-1.5 bg-gray-50 rounded-full border border-gray-200 text-xs font-medium text-gray-600">
+          <div className="flex items-center gap-2">
+            {/* Stat chips */}
+            <div className="hidden md:flex items-center gap-2 mr-2">
+              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-[12px] font-medium text-gray-600 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+                <span className="w-2 h-2 rounded-full bg-gray-400" />
                 {stats.total} Total
-              </div>
-              <div className="px-3 py-1.5 bg-blue-50 rounded-full border border-blue-100 text-xs font-medium text-blue-700">
+              </span>
+              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-100 text-[12px] font-medium text-blue-700">
+                <span className="w-2 h-2 rounded-full bg-blue-400" />
                 {stats.internal} Internal
-              </div>
-              <div className="px-3 py-1.5 bg-purple-50 rounded-full border border-purple-100 text-xs font-medium text-purple-700">
+              </span>
+              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-50 border border-purple-100 text-[12px] font-medium text-purple-700">
+                <span className="w-2 h-2 rounded-full bg-purple-400" />
                 {stats.external} External
-              </div>
+              </span>
             </div>
 
+            {/* Export dropdown */}
             <div className="relative" ref={downloadMenuRef}>
               <button
                 onClick={() => setShowDownloadMenu((v) => !v)}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-md text-[13px] font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-colors shadow-[0_1px_2px_rgba(0,0,0,0.04)] disabled:opacity-50"
                 type="button"
                 disabled={busy}
               >
@@ -1090,50 +936,23 @@ export default function StakeholderRegisterEditor(props: {
               </button>
 
               {showDownloadMenu && (
-                <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl border border-gray-200 shadow-lg z-50 py-1 animate-in fade-in slide-in-from-top-2 duration-200">
-                  <button
-                    onClick={downloadExcel}
-                    className="w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors"
-                    type="button"
-                    disabled={busy}
-                  >
-                    <span className="text-emerald-600">
-                      <Icons.FileSpreadsheet />
-                    </span>
-                    Excel (.xlsx)
+                <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg border border-gray-200 shadow-xl py-1 z-50">
+                  <button onClick={downloadExcel} className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-gray-700 hover:bg-gray-50" type="button" disabled={busy}>
+                    <span className="text-green-600"><Icons.FileSpreadsheet /></span> Excel (.xlsx)
                   </button>
-
                   <div className="h-px bg-gray-100 my-1" />
-
-                  <button
-                    onClick={downloadPDF}
-                    className="w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors"
-                    type="button"
-                    disabled={busy}
-                  >
-                    <span className="text-red-600">
-                      <Icons.FilePdf />
-                    </span>
-                    PDF Document
+                  <button onClick={downloadPDF} className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-gray-700 hover:bg-gray-50" type="button" disabled={busy}>
+                    <span className="text-red-500"><Icons.FilePdf /></span> PDF Document
                   </button>
-
-                  <button
-                    onClick={downloadWord}
-                    className="w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors"
-                    type="button"
-                    disabled={busy}
-                  >
-                    <span className="text-blue-600">
-                      <Icons.FileText />
-                    </span>
-                    Word Document
+                  <button onClick={downloadWord} className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-gray-700 hover:bg-gray-50" type="button" disabled={busy}>
+                    <span className="text-blue-600"><Icons.FileText /></span> Word Document
                   </button>
                 </div>
               )}
             </div>
 
             <button
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 active:bg-blue-800 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#0f7b6c] text-white rounded-md text-[13px] font-medium hover:bg-[#0a6b5d] transition-colors shadow-[0_1px_2px_rgba(0,0,0,0.08)] disabled:opacity-50"
               disabled={readOnly || busy}
               onClick={() => addRow(groups[0]?.[0] ?? "Project")}
               type="button"
@@ -1144,27 +963,25 @@ export default function StakeholderRegisterEditor(props: {
           </div>
         </div>
 
-        {/* AI Suggestions Banner */}
+        {/* ── AI Suggestions Banner ── */}
         {pendingSugs.length > 0 && (
-          <div className="bg-gradient-to-r from-amber-50/80 to-orange-50/80 border border-amber-200 rounded-2xl p-5 shadow-sm backdrop-blur-sm">
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-start gap-4">
-                <div className="p-2 bg-white rounded-xl border border-amber-200 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-white border border-amber-200 flex items-center justify-center shrink-0">
                   <Icons.Lightbulb />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-gray-900">
-                    {pendingSugs.length} stakeholder suggestion{pendingSugs.length === 1 ? "" : "s"} from Project Charter
+                  <h3 className="font-semibold text-[14px] text-gray-900">
+                    {pendingSugs.length} suggestion{pendingSugs.length === 1 ? "" : "s"} from Project Charter
                   </h3>
-                  <p className="text-sm text-gray-600 mt-0.5">
-                    Review AI-generated stakeholders based on your project charter analysis
-                  </p>
+                  <p className="text-[12px] text-gray-500 mt-0.5">AI-generated stakeholders based on charter analysis</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  className="flex-1 sm:flex-none px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                  className="px-3 py-1.5 bg-white border border-gray-200 rounded-md text-[13px] font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                   disabled={busy}
                   onClick={() => document.getElementById("ai-suggestions-panel")?.scrollIntoView({ behavior: "smooth" })}
                 >
@@ -1173,11 +990,11 @@ export default function StakeholderRegisterEditor(props: {
                 {!readOnly && (
                   <button
                     type="button"
-                    className="flex-1 sm:flex-none px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+                    className="px-3 py-1.5 bg-[#0f7b6c] text-white rounded-md text-[13px] font-medium hover:bg-[#0a6b5d] transition-colors"
                     disabled={busy}
                     onClick={acceptAllSuggestions}
                   >
-                    {sugBusy ? "Accepting..." : "Accept All"}
+                    {sugBusy ? "Accepting…" : "Accept All"}
                   </button>
                 )}
               </div>
@@ -1185,49 +1002,46 @@ export default function StakeholderRegisterEditor(props: {
           </div>
         )}
 
+        {/* ── Error banner ── */}
         {err && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3 text-red-800 animate-in slide-in-from-top-1">
+          <div className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-[13px] text-red-800">
             <Icons.AlertCircle />
-            <span className="text-sm font-medium">{err}</span>
-            <button onClick={() => setErr(null)} className="ml-auto p-1 hover:bg-red-100 rounded" type="button">
+            <span className="flex-1">{err}</span>
+            <button onClick={() => setErr(null)} className="p-1 rounded hover:bg-red-100 transition-colors" type="button">
               <Icons.X />
             </button>
           </div>
         )}
 
-        {/* Toolbar */}
-        <div className="bg-white rounded-2xl border border-gray-200/60 p-4 shadow-sm flex flex-col lg:flex-row gap-4 items-center justify-between">
-          <div className="flex items-center gap-2 bg-gray-100/50 p-1 rounded-xl border border-gray-200/50 w-full lg:w-auto">
+        {/* ── Toolbar ── */}
+        <div className="bg-white rounded-xl border border-gray-200 px-4 py-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] flex flex-col lg:flex-row gap-3 items-center justify-between">
+          {/* View toggle */}
+          <div className="flex items-center p-1 rounded-lg bg-gray-100 border border-gray-200 w-full lg:w-auto gap-1">
             <button
               onClick={() => setMode("table")}
-              className={`flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                mode === "table"
-                  ? "bg-white text-gray-900 shadow-sm border border-gray-200"
-                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-200/50"
+              className={`flex-1 lg:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium transition-all ${
+                mode === "table" ? "bg-white text-gray-900 shadow-[0_1px_2px_rgba(0,0,0,0.06)] border border-gray-200" : "text-gray-500 hover:text-gray-700"
               }`}
               type="button"
               disabled={busy}
             >
-              <Icons.List />
-              Table View
+              <Icons.List /> Table
             </button>
             <button
               onClick={() => setMode("cards")}
-              className={`flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                mode === "cards"
-                  ? "bg-white text-gray-900 shadow-sm border border-gray-200"
-                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-200/50"
+              className={`flex-1 lg:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium transition-all ${
+                mode === "cards" ? "bg-white text-gray-900 shadow-[0_1px_2px_rgba(0,0,0,0.06)] border border-gray-200" : "text-gray-500 hover:text-gray-700"
               }`}
               type="button"
               disabled={busy}
             >
-              <Icons.Grid />
-              Card View
+              <Icons.Grid /> Cards
             </button>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
-            <div className="relative w-full sm:w-72">
+          <div className="flex flex-col sm:flex-row items-center gap-2 w-full lg:w-auto">
+            {/* Search */}
+            <div className="relative w-full sm:w-64">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <Icons.Search />
               </div>
@@ -1235,56 +1049,60 @@ export default function StakeholderRegisterEditor(props: {
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="block w-full pl-10 pr-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                placeholder="Search stakeholders..."
+                className="w-full pl-9 pr-3 py-1.5 bg-white border border-gray-200 rounded-lg text-[13px] placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0f7b6c]/20 focus:border-[#0f7b6c] transition-all"
+                placeholder="Search stakeholders…"
                 disabled={busy}
               />
             </div>
 
-            <div className="relative w-full sm:w-40">
+            {/* Filter */}
+            <div className="relative w-full sm:w-36">
               <select
-                className="block w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all appearance-none cursor-pointer"
+                className="w-full px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0f7b6c]/20 focus:border-[#0f7b6c] transition-all appearance-none cursor-pointer"
                 value={personFilter}
                 onChange={(e) => setPersonFilter(e.target.value as any)}
                 disabled={readOnly || busy}
               >
                 <option value="all">All Types</option>
-                <option value="internal">Internal Only</option>
-                <option value="external">External Only</option>
+                <option value="internal">Internal</option>
+                <option value="external">External</option>
               </select>
-              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+              <div className="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none">
                 <Icons.ChevronDown />
               </div>
             </div>
 
-            <div className="h-8 w-px bg-gray-200 hidden sm:block" />
+            <div className="w-px h-6 bg-gray-200 hidden sm:block" />
 
+            {/* Action buttons */}
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <button
-                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 hover:border-gray-400 transition-all disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-[13px] font-medium text-gray-600 bg-white hover:bg-gray-50 transition-all disabled:opacity-50"
                 type="button"
                 onClick={loadFromDb}
                 disabled={busy}
               >
-                <Icons.Refresh />
-                <span className="hidden sm:inline">{loading ? "Loading..." : "Refresh"}</span>
+                <span className={loading ? "animate-spin" : ""}><Icons.Refresh /></span>
+                <span className="hidden sm:inline">{loading ? "Loading…" : "Refresh"}</span>
               </button>
 
               <button
-                className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all shadow-sm ${
-                  dirty ? "bg-blue-600 text-white hover:bg-blue-700 hover:shadow-md" : "bg-gray-100 text-gray-600 cursor-default"
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all ${
+                  dirty
+                    ? "bg-[#0f7b6c] text-white hover:bg-[#0a6b5d] shadow-[0_1px_2px_rgba(0,0,0,0.08)]"
+                    : "bg-gray-100 text-gray-400 cursor-default"
                 }`}
                 onClick={saveNow}
                 disabled={readOnly || saving || !dirty || busy}
                 type="button"
               >
                 <Icons.Save />
-                {saving ? "Saving..." : dirty ? "Save Changes" : "Saved"}
+                {saving ? "Saving…" : dirty ? "Save Changes" : "Saved"}
               </button>
 
               {!readOnly && (
                 <button
-                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-2.5 border border-red-200 text-red-700 rounded-xl text-sm font-medium hover:bg-red-50 transition-all disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-red-200 text-red-600 rounded-lg text-[13px] font-medium hover:bg-red-50 transition-all disabled:opacity-50"
                   disabled={busy || (doc.rows?.length ?? 0) === 0}
                   onClick={deleteAll}
                   type="button"
@@ -1297,172 +1115,153 @@ export default function StakeholderRegisterEditor(props: {
           </div>
         </div>
 
-        {/* Content */}
-        <div className="bg-white rounded-2xl border border-gray-200/60 shadow-sm overflow-hidden">
+        {/* ── Main content ── */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden">
+
+          {/* ── CARD VIEW ── */}
           {mode === "cards" ? (
             <div className="p-6">
               {filtered.length === 0 ? (
                 <div className="text-center py-16">
-                  <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <div className="w-14 h-14 bg-gray-100 rounded-xl flex items-center justify-center mx-auto mb-3">
                     <Icons.Grid />
                   </div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-1">No stakeholders found</h3>
-                  <p className="text-sm text-gray-500 mb-4">Get started by adding your first stakeholder</p>
+                  <h3 className="text-[15px] font-semibold text-gray-800 mb-1">No stakeholders found</h3>
+                  <p className="text-[13px] text-gray-400 mb-4">Add your first stakeholder to get started</p>
                   <button
                     onClick={() => addRow()}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#0f7b6c] text-white rounded-md text-[13px] font-medium hover:bg-[#0a6b5d] transition-colors"
                     disabled={readOnly || busy}
                     type="button"
                   >
-                    <Icons.Plus />
-                    Add Stakeholder
+                    <Icons.Plus /> Add Stakeholder
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {filtered.map((s) => (
-                    <div
-                      key={s.id}
-                      className="group relative bg-white rounded-xl border border-gray-200 p-5 hover:shadow-lg hover:border-blue-300 transition-all duration-200"
-                    >
-                      <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {filtered.map((s) => {
+                    const initials = s.name ? s.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) : "ST";
+                    const impactStyle = getLevelTagStyle(s.impact_level);
+                    const influenceStyle = getLevelTagStyle(s.influence_level);
+                    return (
+                      <div
+                        key={s.id}
+                        className="group relative bg-white rounded-xl border border-gray-200 p-4 hover:border-[#0f7b6c]/40 hover:shadow-[0_2px_8px_rgba(15,123,108,0.08)] transition-all duration-150"
+                      >
                         {!readOnly && (
                           <button
                             onClick={() => removeRow(s.id)}
                             disabled={busy || deletingId === s.id}
-                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            className="absolute top-3 right-3 p-1.5 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
                             type="button"
                           >
                             <Icons.Trash />
                           </button>
                         )}
-                      </div>
 
-                      <div className="flex items-start gap-3 mb-4">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-semibold text-sm shadow-sm">
-                          {s.name ? s.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) : "ST"}
-                        </div>
-                        <div className="flex-1 min-w-0 pr-8">
-                          <h3 className="font-semibold text-gray-900 truncate" title={s.name}>
-                            {s.name || "Unnamed stakeholder"}
-                          </h3>
-                          <p className="text-sm text-gray-500 truncate" title={s.title_role || s.role}>
-                            {s.title_role || s.role || "—"}
-                          </p>
-                          <span className="inline-flex mt-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
-                            {normalizeGroup(s.group ?? "")}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="space-y-3">
-                        <div className="flex flex-wrap gap-2">
-                          {(s.channels ?? []).length ? (
-                            s.channels!.map((c) => (
-                              <span
-                                key={c}
-                                className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${channelChipClass(
-                                  c
-                                )}`}
-                              >
-                                {c}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-xs text-gray-400 italic">No channels specified</span>
-                          )}
+                        <div className="flex items-start gap-3 mb-4 pr-8">
+                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#0f7b6c] to-[#0a6b5d] flex items-center justify-center text-white text-[12px] font-semibold shrink-0">
+                            {initials}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold text-[14px] text-gray-900 truncate">{s.name || "Unnamed"}</h3>
+                            <p className="text-[12px] text-gray-400 truncate">{s.title_role || s.role || "—"}</p>
+                            <span className="mt-1 inline-block px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                              {normalizeGroup(s.group ?? "")}
+                            </span>
+                          </div>
                         </div>
 
+                        {/* Channel chips */}
+                        <div className="flex flex-wrap gap-1.5 mb-3">
+                          {(s.channels ?? []).length ? s.channels!.map((c) => (
+                            <span key={c} className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${channelChipClass(c)}`}>
+                              {c}
+                            </span>
+                          )) : <span className="text-[11px] text-gray-300 italic">No channels</span>}
+                        </div>
+
+                        {/* Stats grid */}
                         <div className="grid grid-cols-2 gap-2 pt-3 border-t border-gray-100">
-                          <div className="bg-gray-50 rounded-lg p-2.5">
-                            <div className="text-xs text-gray-500 mb-1">Internal/External</div>
-                            <div className="text-sm font-medium text-gray-900">{s.internal_external ?? "—"}</div>
+                          <div className="bg-gray-50 rounded-lg p-2">
+                            <div className="text-[10px] text-gray-400 mb-1 uppercase tracking-wider">Type</div>
+                            <div className="text-[12px] font-medium text-gray-700">{s.internal_external ?? "—"}</div>
                           </div>
-                          <div className="bg-gray-50 rounded-lg p-2.5">
-                            <div className="text-xs text-gray-500 mb-1">Mapping</div>
-                            <div
-                              className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium border ${pillClassMap(
-                                s.stakeholder_mapping ?? ""
-                              )}`}
-                            >
+                          <div className="bg-gray-50 rounded-lg p-2">
+                            <div className="text-[10px] text-gray-400 mb-1 uppercase tracking-wider">Mapping</div>
+                            <span className={`inline-flex px-1.5 py-0.5 rounded-full text-[11px] font-medium ${getMappingStyle(s.stakeholder_mapping ?? "")}`}>
                               {s.stakeholder_mapping ?? "—"}
-                            </div>
+                            </span>
                           </div>
-                          <div className={`rounded-lg p-2.5 ${getImpactInfluenceCellClass(s.impact_level)}`}>
-                            <div className="text-xs text-gray-600 mb-1 font-medium">Impact</div>
-                            <div
-                              className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium border ${pillClassLevel(
-                                s.impact_level ?? ""
-                              )}`}
-                            >
+                          <div className={`rounded-lg p-2 ${impactStyle.cell}`}>
+                            <div className="text-[10px] text-gray-500 mb-1 uppercase tracking-wider">Impact</div>
+                            <span className={`inline-flex px-1.5 py-0.5 rounded-full text-[11px] font-medium ${impactStyle.badge}`}>
                               {s.impact_level ?? "—"}
-                            </div>
+                            </span>
                           </div>
-                          <div className={`rounded-lg p-2.5 ${getImpactInfluenceCellClass(s.influence_level)}`}>
-                            <div className="text-xs text-gray-600 mb-1 font-medium">Influence</div>
-                            <div
-                              className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium border ${pillClassLevel(
-                                s.influence_level ?? ""
-                              )}`}
-                            >
+                          <div className={`rounded-lg p-2 ${influenceStyle.cell}`}>
+                            <div className="text-[10px] text-gray-500 mb-1 uppercase tracking-wider">Influence</div>
+                            <span className={`inline-flex px-1.5 py-0.5 rounded-full text-[11px] font-medium ${influenceStyle.badge}`}>
                               {s.influence_level ?? "—"}
-                            </div>
+                            </span>
                           </div>
                         </div>
 
                         {s.point_of_contact && (
-                          <div className="pt-3 border-t border-gray-100">
-                            <div className="text-xs text-gray-500 mb-1">Point of Contact</div>
-                            <div className="text-sm text-gray-900 flex items-center gap-2">
+                          <div className="pt-3 mt-1 border-t border-gray-100">
+                            <div className="text-[11px] text-gray-400 mb-1">Contact</div>
+                            <div className="flex items-center gap-1.5 text-[12px] text-gray-700">
                               <Icons.Mail />
-                              {s.point_of_contact}
+                              <span className="truncate">{s.point_of_contact}</span>
                             </div>
                           </div>
                         )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
           ) : (
+
+            /* ── TABLE VIEW ── */
             <div className="divide-y divide-gray-100">
               {groups.length === 0 ? (
                 <div className="text-center py-16 px-4">
-                  <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <div className="w-14 h-14 bg-gray-100 rounded-xl flex items-center justify-center mx-auto mb-3">
                     <Icons.List />
                   </div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-1">No stakeholders yet</h3>
-                  <p className="text-sm text-gray-500 mb-4 max-w-md mx-auto">
-                    Build your stakeholder register to track influence, impact, and communication strategies
+                  <h3 className="text-[15px] font-semibold text-gray-800 mb-1">No stakeholders yet</h3>
+                  <p className="text-[13px] text-gray-400 mb-4 max-w-sm mx-auto">
+                    Build your register to track influence, impact, and communication strategies
                   </p>
                   <button
                     onClick={() => addRow()}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#0f7b6c] text-white rounded-md text-[13px] font-medium hover:bg-[#0a6b5d] transition-colors"
                     disabled={readOnly || busy}
                     type="button"
                   >
-                    <Icons.Plus />
-                    Add First Stakeholder
+                    <Icons.Plus /> Add First Stakeholder
                   </button>
                 </div>
               ) : (
                 groups.map(([groupName, rows]) => {
                   const isCollapsed = !!collapsed[groupName];
                   return (
-                    <div key={groupName} className="bg-white">
-                      <div className="flex items-center justify-between px-6 py-4 hover:bg-gray-50/50 transition-colors group">
+                    <div key={groupName}>
+                      {/* Group header */}
+                      <div className="flex items-center justify-between px-5 py-3 hover:bg-gray-50/60 transition-colors group/grp bg-white">
                         <button
                           type="button"
-                          className="flex items-center gap-3 flex-1 text-left"
+                          className="flex items-center gap-2.5 flex-1 text-left"
                           onClick={() => setCollapsed((c) => ({ ...c, [groupName]: !c[groupName] }))}
                           disabled={busy}
                         >
-                          <span className={`transform transition-transform duration-200 ${isCollapsed ? "" : "rotate-90"}`}>
+                          <span className={`text-gray-400 transition-transform duration-150 ${isCollapsed ? "" : "rotate-90"}`}>
                             <Icons.ChevronRight />
                           </span>
-                          <h3 className="font-semibold text-gray-900">{groupName}</h3>
-                          <span className="px-2.5 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs font-medium border border-gray-200">
+                          <span className="font-semibold text-[14px] text-gray-800">{groupName}</span>
+                          <span className="px-2 py-0.5 rounded-full bg-gray-100 text-[11px] font-semibold text-gray-600 border border-gray-200">
                             {rows.length}
                           </span>
                         </button>
@@ -1470,80 +1269,69 @@ export default function StakeholderRegisterEditor(props: {
                         {!readOnly && (
                           <button
                             type="button"
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-[12px] font-medium text-[#0f7b6c] hover:bg-[#0f7b6c]/10 rounded-md transition-all opacity-0 group-hover/grp:opacity-100"
                             onClick={() => addRow(groupName)}
                             disabled={busy}
                           >
-                            <Icons.Plus />
-                            Add to group
+                            <Icons.Plus /> Add row
                           </button>
                         )}
                       </div>
 
                       {!isCollapsed && (
-                        <div
-                          className="overflow-x-auto border-t border-gray-100"
-                          style={{ cursor: resizingCol ? "col-resize" : "default" }}
-                        >
-                          <table ref={tableRef} className="w-full border-collapse">
+                        <div className="overflow-x-auto border-t border-gray-100" style={{ cursor: resizingCol ? "col-resize" : "default" }}>
+                          <table ref={tableRef} className="w-full text-[13px] table-fixed border-separate border-spacing-0">
                             <thead>
                               <tr>
                                 <ResizableHeader colKey="name">Stakeholder</ResizableHeader>
-                                <ResizableHeader colKey="point_of_contact">Contact Details</ResizableHeader>
+                                <ResizableHeader colKey="point_of_contact">Contact</ResizableHeader>
                                 <ResizableHeader colKey="role">Role</ResizableHeader>
                                 <ResizableHeader colKey="internal_external">Type</ResizableHeader>
-                                <ResizableHeader colKey="title_role">Title/Role</ResizableHeader>
+                                <ResizableHeader colKey="title_role">Title</ResizableHeader>
                                 <ResizableHeader colKey="impact_level">Impact</ResizableHeader>
                                 <ResizableHeader colKey="influence_level">Influence</ResizableHeader>
                                 <ResizableHeader colKey="stakeholder_mapping">Mapping</ResizableHeader>
                                 <ResizableHeader colKey="involvement_milestone">Milestone</ResizableHeader>
                                 <ResizableHeader colKey="stakeholder_impact">Impact Notes</ResizableHeader>
                                 <ResizableHeader colKey="channels">Channels</ResizableHeader>
-                                {!readOnly && <ResizableHeader colKey="actions">Actions</ResizableHeader>}
+                                {!readOnly && <ResizableHeader colKey="actions" className="border-r-0"> </ResizableHeader>}
                               </tr>
                             </thead>
 
-                            <tbody className="divide-y divide-gray-100">
-                              {rows.map((r, idx) => {
+                            <tbody>
+                              {rows.map((r) => {
                                 const isExpanded = expandedRows.has(r.id);
+                                const impactStyle = getLevelTagStyle(r.impact_level);
+                                const influenceStyle = getLevelTagStyle(r.influence_level);
+
                                 return (
                                   <React.Fragment key={r.id}>
-                                    <tr
-                                      className={`group hover:bg-blue-50/30 transition-colors ${
-                                        idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"
-                                      }`}
-                                    >
-                                      {/* Name */}
-                                      <td
-                                        className="px-4 py-3 align-top"
-                                        style={{ width: colWidths.name, minWidth: colWidths.name }}
-                                      >
+                                    <tr className="group/row">
+                                      {/* Stakeholder name */}
+                                      <td className={CELL} style={{ width: colWidths.name, minWidth: colWidths.name }}>
                                         <input
-                                          className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                                          className={INPUT_CLS}
                                           value={r.name ?? ""}
                                           onChange={(e) => updateRow(r.id, { name: e.target.value })}
                                           readOnly={readOnly}
-                                          placeholder="Enter name..."
+                                          placeholder="Enter name…"
                                           disabled={busy}
                                           title={r.name}
                                         />
                                       </td>
 
                                       {/* Contact */}
-                                      <td
-                                        className="px-4 py-3 align-top"
-                                        style={{ width: colWidths.point_of_contact, minWidth: colWidths.point_of_contact }}
-                                      >
+                                      <td className={CELL} style={{ width: colWidths.point_of_contact, minWidth: colWidths.point_of_contact }}>
                                         <div className="relative">
-                                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                          <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none opacity-40">
                                             <Icons.Mail />
                                           </div>
                                           <input
-                                            className="w-full pl-10 pr-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                                            className={`${INPUT_CLS} pl-8`}
                                             value={r.point_of_contact ?? ""}
                                             onChange={(e) => updateRow(r.id, { point_of_contact: e.target.value })}
                                             readOnly={readOnly}
-                                            placeholder="Email / Phone / Contact..."
+                                            placeholder="Email / Phone…"
                                             disabled={busy}
                                             title={r.point_of_contact}
                                           />
@@ -1551,145 +1339,128 @@ export default function StakeholderRegisterEditor(props: {
                                       </td>
 
                                       {/* Role */}
-                                      <td className="px-4 py-3 align-top" style={{ width: colWidths.role, minWidth: colWidths.role }}>
+                                      <td className={CELL} style={{ width: colWidths.role, minWidth: colWidths.role }}>
                                         <input
-                                          className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                                          className={INPUT_CLS}
                                           value={r.role ?? ""}
                                           onChange={(e) => updateRow(r.id, { role: e.target.value })}
                                           readOnly={readOnly}
-                                          placeholder="Role..."
+                                          placeholder="Role…"
                                           disabled={busy}
-                                          title={r.role}
                                         />
                                       </td>
 
                                       {/* Type */}
-                                      <td
-                                        className="px-4 py-3 align-top"
-                                        style={{ width: colWidths.internal_external, minWidth: colWidths.internal_external }}
-                                      >
-                                        <select
-                                          className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer"
-                                          value={r.internal_external ?? "Internal"}
-                                          onChange={(e) => updateRow(r.id, { internal_external: e.target.value as InternalExternal })}
-                                          disabled={readOnly || busy}
-                                        >
-                                          <option value="Internal">Internal</option>
-                                          <option value="External">External</option>
-                                        </select>
+                                      <td className={CELL} style={{ width: colWidths.internal_external, minWidth: colWidths.internal_external }}>
+                                        <div className="px-2 py-1.5">
+                                          <select
+                                            className={SELECT_CLS}
+                                            value={r.internal_external ?? "Internal"}
+                                            onChange={(e) => updateRow(r.id, { internal_external: e.target.value as InternalExternal })}
+                                            disabled={readOnly || busy}
+                                          >
+                                            <option value="Internal">Internal</option>
+                                            <option value="External">External</option>
+                                          </select>
+                                        </div>
                                       </td>
 
-                                      {/* Title/Role */}
-                                      <td
-                                        className="px-4 py-3 align-top"
-                                        style={{ width: colWidths.title_role, minWidth: colWidths.title_role }}
-                                      >
+                                      {/* Title */}
+                                      <td className={CELL} style={{ width: colWidths.title_role, minWidth: colWidths.title_role }}>
                                         <input
-                                          className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                                          className={INPUT_CLS}
                                           value={r.title_role ?? ""}
                                           onChange={(e) => updateRow(r.id, { title_role: e.target.value })}
                                           readOnly={readOnly}
-                                          placeholder="Title..."
+                                          placeholder="Title…"
                                           disabled={busy}
-                                          title={r.title_role}
                                         />
                                       </td>
 
-                                      {/* Impact - Bright glossy cell background */}
+                                      {/* Impact — tinted cell */}
                                       <td
-                                        className={`px-4 py-3 align-top ${getImpactInfluenceCellClass(r.impact_level)}`}
+                                        className={`${CELL} ${impactStyle.cell}`}
                                         style={{ width: colWidths.impact_level, minWidth: colWidths.impact_level }}
                                       >
-                                        <select
-                                          className={`w-full px-3 py-2 border-2 rounded-lg text-sm font-bold focus:outline-none focus:ring-2 focus:ring-offset-0 transition-all cursor-pointer shadow-lg ${pillClassLevel(
-                                            r.impact_level ?? ""
-                                          )}`}
-                                          value={r.impact_level ?? "Medium"}
-                                          onChange={(e) => updateRow(r.id, { impact_level: e.target.value as Impact })}
-                                          disabled={readOnly || busy}
-                                        >
-                                          <option value="High">HIGH</option>
-                                          <option value="Medium">MEDIUM</option>
-                                          <option value="Low">LOW</option>
-                                        </select>
+                                        <div className="px-2 py-1.5">
+                                          <select
+                                            className={`${SELECT_CLS} font-medium`}
+                                            value={r.impact_level ?? "Medium"}
+                                            onChange={(e) => updateRow(r.id, { impact_level: e.target.value as Impact })}
+                                            disabled={readOnly || busy}
+                                          >
+                                            <option value="High">High</option>
+                                            <option value="Medium">Medium</option>
+                                            <option value="Low">Low</option>
+                                          </select>
+                                        </div>
                                       </td>
 
-                                      {/* Influence - Bright glossy cell background */}
+                                      {/* Influence — tinted cell */}
                                       <td
-                                        className={`px-4 py-3 align-top ${getImpactInfluenceCellClass(r.influence_level)}`}
+                                        className={`${CELL} ${influenceStyle.cell}`}
                                         style={{ width: colWidths.influence_level, minWidth: colWidths.influence_level }}
                                       >
-                                        <select
-                                          className={`w-full px-3 py-2 border-2 rounded-lg text-sm font-bold focus:outline-none focus:ring-2 focus:ring-offset-0 transition-all cursor-pointer shadow-lg ${pillClassLevel(
-                                            r.influence_level ?? ""
-                                          )}`}
-                                          value={r.influence_level ?? "Medium"}
-                                          onChange={(e) => updateRow(r.id, { influence_level: e.target.value as Influence })}
-                                          disabled={readOnly || busy}
-                                        >
-                                          <option value="High">HIGH</option>
-                                          <option value="Medium">MEDIUM</option>
-                                          <option value="Low">LOW</option>
-                                        </select>
+                                        <div className="px-2 py-1.5">
+                                          <select
+                                            className={`${SELECT_CLS} font-medium`}
+                                            value={r.influence_level ?? "Medium"}
+                                            onChange={(e) => updateRow(r.id, { influence_level: e.target.value as Influence })}
+                                            disabled={readOnly || busy}
+                                          >
+                                            <option value="High">High</option>
+                                            <option value="Medium">Medium</option>
+                                            <option value="Low">Low</option>
+                                          </select>
+                                        </div>
                                       </td>
 
                                       {/* Mapping */}
-                                      <td
-                                        className="px-4 py-3 align-top"
-                                        style={{ width: colWidths.stakeholder_mapping, minWidth: colWidths.stakeholder_mapping }}
-                                      >
-                                        <select
-                                          className={`w-full px-3 py-2 border rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-0 transition-all cursor-pointer ${pillClassMap(
-                                            r.stakeholder_mapping ?? ""
-                                          )}`}
-                                          value={r.stakeholder_mapping ?? "Keep Informed"}
-                                          onChange={(e) => updateRow(r.id, { stakeholder_mapping: e.target.value as Mapping })}
-                                          disabled={readOnly || busy}
-                                        >
-                                          <option value="Manage Closely">Manage Closely</option>
-                                          <option value="Keep Satisfied">Keep Satisfied</option>
-                                          <option value="Keep Informed">Keep Informed</option>
-                                          <option value="Monitor">Monitor</option>
-                                        </select>
+                                      <td className={CELL} style={{ width: colWidths.stakeholder_mapping, minWidth: colWidths.stakeholder_mapping }}>
+                                        <div className="px-2 py-1.5">
+                                          <select
+                                            className={`${SELECT_CLS} font-medium`}
+                                            value={r.stakeholder_mapping ?? "Keep Informed"}
+                                            onChange={(e) => updateRow(r.id, { stakeholder_mapping: e.target.value as Mapping })}
+                                            disabled={readOnly || busy}
+                                          >
+                                            <option value="Manage Closely">Manage Closely</option>
+                                            <option value="Keep Satisfied">Keep Satisfied</option>
+                                            <option value="Keep Informed">Keep Informed</option>
+                                            <option value="Monitor">Monitor</option>
+                                          </select>
+                                        </div>
                                       </td>
 
                                       {/* Milestone */}
-                                      <td
-                                        className="px-4 py-3 align-top"
-                                        style={{ width: colWidths.involvement_milestone, minWidth: colWidths.involvement_milestone }}
-                                      >
+                                      <td className={CELL} style={{ width: colWidths.involvement_milestone, minWidth: colWidths.involvement_milestone }}>
                                         <input
-                                          className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                                          className={INPUT_CLS}
                                           value={r.involvement_milestone ?? ""}
                                           onChange={(e) => updateRow(r.id, { involvement_milestone: e.target.value })}
                                           readOnly={readOnly}
-                                          placeholder="Milestone..."
+                                          placeholder="Milestone…"
                                           disabled={busy}
-                                          title={r.involvement_milestone}
                                         />
                                       </td>
 
                                       {/* Impact Notes */}
-                                      <td
-                                        className="px-4 py-3 align-top"
-                                        style={{ width: colWidths.stakeholder_impact, minWidth: colWidths.stakeholder_impact }}
-                                      >
+                                      <td className={CELL} style={{ width: colWidths.stakeholder_impact, minWidth: colWidths.stakeholder_impact }}>
                                         <div className="relative">
                                           <textarea
-                                            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none"
+                                            className={`${INPUT_CLS} resize-none`}
                                             value={r.stakeholder_impact ?? ""}
                                             onChange={(e) => updateRow(r.id, { stakeholder_impact: e.target.value })}
                                             readOnly={readOnly}
-                                            placeholder="Impact notes..."
+                                            placeholder="Impact notes…"
                                             disabled={busy}
                                             rows={isExpanded ? 3 : 1}
-                                            style={{ minHeight: isExpanded ? "60px" : "36px" }}
+                                            style={{ minHeight: isExpanded ? "60px" : "32px" }}
                                           />
                                           {r.stakeholder_impact && r.stakeholder_impact.length > 30 && (
                                             <button
                                               onClick={() => toggleRowExpand(r.id)}
-                                              className="absolute right-1 bottom-1 p-1 text-gray-400 hover:text-blue-600 bg-white rounded"
-                                              title={isExpanded ? "Collapse" : "Expand"}
+                                              className="absolute right-1 bottom-1 p-0.5 text-gray-300 hover:text-[#0f7b6c] bg-white rounded transition-colors"
                                               type="button"
                                               disabled={busy}
                                             >
@@ -1699,11 +1470,8 @@ export default function StakeholderRegisterEditor(props: {
                                         </div>
                                       </td>
 
-                                      {/* Channels - Question marks removed */}
-                                      <td
-                                        className="px-4 py-3 align-top"
-                                        style={{ width: colWidths.channels, minWidth: colWidths.channels }}
-                                      >
+                                      {/* Channels */}
+                                      <td className={CELL} style={{ width: colWidths.channels, minWidth: colWidths.channels }}>
                                         <MultiSelectPopover
                                           value={Array.isArray(r.channels) ? r.channels : []}
                                           options={channelOptions}
@@ -1713,7 +1481,7 @@ export default function StakeholderRegisterEditor(props: {
                                             })
                                           }
                                           disabled={readOnly || busy}
-                                          placeholder="Select channels..."
+                                          placeholder="Select channels…"
                                           widthClassName="w-full"
                                           maxChips={isExpanded ? 5 : 2}
                                           helpText=""
@@ -1723,22 +1491,24 @@ export default function StakeholderRegisterEditor(props: {
                                       {/* Actions */}
                                       {!readOnly && (
                                         <td
-                                          className="px-4 py-3 text-right align-top"
+                                          className={`${CELL} border-r-0`}
                                           style={{ width: colWidths.actions, minWidth: colWidths.actions }}
                                         >
-                                          <button
-                                            type="button"
-                                            className="inline-flex items-center justify-center p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
-                                            onClick={() => removeRow(r.id)}
-                                            disabled={busy || deletingId === r.id}
-                                            title="Delete stakeholder"
-                                          >
-                                            {deletingId === r.id ? (
-                                              <span className="w-4 h-4 border-2 border-red-200 border-t-red-600 rounded-full animate-spin" />
-                                            ) : (
-                                              <Icons.Trash />
-                                            )}
-                                          </button>
+                                          <div className="flex items-center justify-center px-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
+                                            <button
+                                              type="button"
+                                              className="p-1.5 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                                              onClick={() => removeRow(r.id)}
+                                              disabled={busy || deletingId === r.id}
+                                              title="Delete"
+                                            >
+                                              {deletingId === r.id ? (
+                                                <span className="block w-3.5 h-3.5 border-2 border-red-200 border-t-red-500 rounded-full animate-spin" />
+                                              ) : (
+                                                <Icons.Trash />
+                                              )}
+                                            </button>
+                                          </div>
                                         </td>
                                       )}
                                     </tr>
@@ -1747,6 +1517,19 @@ export default function StakeholderRegisterEditor(props: {
                               })}
                             </tbody>
                           </table>
+
+                          {/* Add row footer */}
+                          {!readOnly && (
+                            <button
+                              onClick={() => addRow(groupName)}
+                              disabled={busy}
+                              className="w-full px-5 py-2.5 flex items-center gap-2 text-[13px] text-gray-400 hover:text-gray-600 hover:bg-gray-50/80 border-t border-gray-200 transition-colors"
+                              type="button"
+                            >
+                              <Icons.Plus />
+                              Add stakeholder to {groupName}
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1757,17 +1540,19 @@ export default function StakeholderRegisterEditor(props: {
           )}
         </div>
 
-        <div className="flex items-center justify-between text-sm text-gray-500 px-2">
-          <div className="flex items-center gap-4">
-            <span>{readOnly ? "🔒 Read-only mode" : dirty ? "⚡ Unsaved changes" : "✓ All changes saved"}</span>
-            <span className="hidden sm:inline text-gray-300">|</span>
-            <span className="hidden sm:inline opacity-75">Tip: Drag column borders to resize</span>
+        {/* ── Footer status ── */}
+        <div className="flex items-center justify-between text-[12px] text-gray-400 px-1">
+          <div className="flex items-center gap-3">
+            <span>{readOnly ? "🔒 Read-only" : dirty ? "⚡ Unsaved changes" : "✓ All saved"}</span>
+            <span className="hidden sm:inline text-gray-200">|</span>
+            <span className="hidden sm:inline">Drag column borders to resize</span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <div className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             <span>Auto-sync enabled</span>
           </div>
         </div>
+
       </div>
     </div>
   );
