@@ -92,9 +92,8 @@ function projectLabel(r: Row) {
 }
 
 /**
- * ✅ Deep-link straight to the CR inside the project Change Board
+ * ✅ Deep-link straight to the CR inside the project Change Board (Kanban)
  * - /projects/:projectId/change?cr=<uuid>&publicId=<cr-123>
- * ChangeBoard will read this and auto-filter/focus.
  */
 function openHref(r: Row) {
   const pid = safeStr(r.project_id).trim();
@@ -129,7 +128,8 @@ export default function ChangesClient({
   const [loadingMore, setLoadingMore] = useState(false);
   const [err, setErr] = useState("");
 
-  // keep URL in sync so briefing links + refresh work
+  // ✅ keep URL in sync so briefing links + refresh work
+  // IMPORTANT: This is the portfolio page => /changes (NOT /change)
   useEffect(() => {
     const qs = new URLSearchParams();
     if (q.trim()) qs.set("q", q.trim());
