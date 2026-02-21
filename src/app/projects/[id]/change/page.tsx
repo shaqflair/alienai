@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 ------------------------------------------- */
 
 function safeStr(x: unknown) {
-  return typeof x === "string" ? x : "";
+  return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
 function toText(v: any) {
@@ -29,6 +29,85 @@ function toText(v: any) {
   } catch {
     return "";
   }
+}
+
+function looksLikeUuid(s: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(s || "").trim()
+  );
+}
+
+function extractDigits(raw: string): string | null {
+  const s = safeStr(raw).toUpperCase();
+  const m = s.match(/(\d{1,10})/);
+  if (!m?.[1]) return null;
+  const digits = m[1];
+  const norm = String(Number(digits));
+  return norm && norm !== "NaN" ? norm : digits.replace(/^0+/, "") || "0";
+}
+
+function projectCodeVariants(raw: string): string[] {
+  const out = new Set<string>();
+  const s = safeStr(raw).trim();
+  if (s) out.add(s);
+  const up = s.toUpperCase();
+  if (up) out.add(up);
+
+  const digits = extractDigits(s);
+  if (digits) {
+    out.add(digits);
+    out.add(`P-${digits}`);
+    out.add(`P-${digits.padStart(5, "0")}`);
+  }
+
+  const m = up.match(/^P-(\d{1,10})$/);
+  if (m?.[1]) {
+    out.add(m[1]);
+    out.add(String(Number(m[1])));
+  }
+
+  return Array.from(out).filter(Boolean);
+}
+
+/* -------------------------------------------
+   project resolve (UUID or code)
+------------------------------------------- */
+
+const PROJECT_SELECT =
+  "id, code, public_id, external_id, project_code, project_number, project_no";
+
+async function resolveProject(sb: any, rawParam: string) {
+  const raw = safeStr(rawParam).trim();
+  if (!raw) return { project: null as any, error: new Error("Missing project id") };
+
+  // 1) UUID path
+  if (looksLikeUuid(raw)) {
+    const { data, error } = await sb
+      .from("projects")
+      .select(PROJECT_SELECT)
+      .eq("id", raw)
+      .maybeSingle();
+
+    if (error) return { project: null as any, error };
+    if (data) return { project: data, error: null };
+
+    // If UUID but not found, treat as not found
+    return { project: null as any, error: new Error("Project not found") };
+  }
+
+  // 2) Human code variants path
+  const variants = projectCodeVariants(raw);
+  for (const v of variants) {
+    const { data, error } = await sb
+      .from("projects")
+      .select(PROJECT_SELECT)
+      .eq("project_code", v)
+      .maybeSingle();
+    if (error) return { project: null as any, error };
+    if (data) return { project: data, error: null };
+  }
+
+  return { project: null as any, error: new Error("Project not found") };
 }
 
 /* -------------------------------------------
@@ -47,14 +126,29 @@ export default async function ChangeLogPage({
   const sp =
     typeof (searchParams as any)?.then === "function" ? await (searchParams as any) : (searchParams as any);
 
-  const projectId = safeStr(p?.id).trim();
-  if (!projectId) notFound();
+  const paramId = safeStr(p?.id).trim();
+  if (!paramId) notFound();
 
   // If some old UI is still linking to /change?view=changes, normalise it
   const view = safeStr(sp?.view);
   if (view && view.toLowerCase() === "changes") {
-    redirect(`/projects/${projectId}/change`);
+    redirect(`/projects/${paramId}/change`);
   }
+
+  const supabase = await createClient();
+
+  // ✅ auth guard (keeps behaviour consistent with your other server pages)
+  const { data: auth, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !auth?.user) redirect("/login");
+
+  // ✅ Resolve project UUID even if the route param is a code
+  const resolved = await resolveProject(supabase, paramId);
+  if (resolved.error || !resolved.project?.id) {
+    notFound();
+  }
+
+  const projectUuid = safeStr(resolved.project.id);
+  if (!looksLikeUuid(projectUuid)) notFound();
 
   /* -------------------------------------------
      project "human id" (for UI chip only)
@@ -62,31 +156,20 @@ export default async function ChangeLogPage({
 
   let projectCode: string | null = null;
 
-  try {
-    const supabase = await createClient();
+  {
+    const proj = resolved.project;
+    const candidates = [
+      toText((proj as any).project_number),
+      toText((proj as any).project_no),
+      toText((proj as any).external_id),
+      toText((proj as any).public_id),
+      toText((proj as any).code),
+      toText((proj as any).project_code),
+    ]
+      .map((s) => s.trim())
+      .filter(Boolean);
 
-    const { data: proj, error } = await supabase
-      .from("projects")
-      .select("id, code, public_id, external_id, project_code, project_number, project_no")
-      .eq("id", projectId)
-      .maybeSingle();
-
-    if (!error && proj) {
-      const candidates = [
-        toText((proj as any).project_number),
-        toText((proj as any).project_no),
-        toText((proj as any).external_id),
-        toText((proj as any).public_id),
-        toText((proj as any).code),
-        toText((proj as any).project_code),
-      ]
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      projectCode = candidates.length ? candidates[0] : null;
-    }
-  } catch {
-    // ignore – UI chip just won’t show
+    projectCode = candidates.length ? candidates[0] : null;
   }
 
   /* -------------------------------------------
@@ -96,12 +179,10 @@ export default async function ChangeLogPage({
   let compareHref: string | null = null;
 
   try {
-    const supabase = await createClient();
-
     const { data: crArtifact, error } = await supabase
       .from("artifacts")
       .select("id, type, updated_at")
-      .eq("project_id", projectId)
+      .eq("project_id", projectUuid)
       .in("type", [
         "change_requests",
         "change requests",
@@ -110,13 +191,14 @@ export default async function ChangeLogPage({
         "change_log",
         "change log",
         "kanban",
+        "change",
       ])
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
     if (!error && crArtifact?.id) {
-      compareHref = `/projects/${projectId}/artifacts/${crArtifact.id}/compare`;
+      compareHref = `/projects/${projectUuid}/artifacts/${crArtifact.id}/compare`;
     }
   } catch {
     // optional feature – safe to ignore
@@ -163,8 +245,8 @@ export default async function ChangeLogPage({
         }
       />
 
-      {/* ✅ route param passed directly */}
-      <ChangeManagementBoard projectId={projectId} />
+      {/* ✅ ALWAYS Kanban. ✅ No props passed (board reads params internally). */}
+      <ChangeManagementBoard />
     </main>
   );
 }
