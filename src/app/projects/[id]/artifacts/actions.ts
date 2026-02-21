@@ -22,6 +22,29 @@ function safeLower(x: any) {
   return String(x ?? "").trim().toLowerCase();
 }
 
+function looksLikeUuid(s: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(s || "").trim()
+  );
+}
+
+/**
+ * Accepts:
+ * - UUID
+ * - "P-100011" / "PRJ-100011" / "100011" etc
+ * Returns best id token (typically numeric part) for project_code lookups.
+ */
+function normalizeProjectIdentifier(input: string) {
+  let v = normStr(input);
+  try {
+    v = decodeURIComponent(v);
+  } catch {}
+  v = v.trim();
+  const m = v.match(/(\d{3,})$/);
+  if (m?.[1]) return m[1];
+  return v;
+}
+
 function throwDb(error: any, label: string): never {
   const code = error?.code ?? "";
   const msg = error?.message ?? "";
@@ -41,23 +64,66 @@ async function requireUser() {
 }
 
 /**
- * ✅ Org-based access control (matches your NewArtifactPage gating):
+ * ✅ Resolve project UUID from either:
+ * - UUID (projects.id)
+ * - project_code / human id
+ * - "P-100011" style ids
+ */
+async function resolveProjectUuid(supabase: any, projectRef: string): Promise<string> {
+  const raw = normStr(projectRef);
+  if (!raw) throw new Error("Missing project id");
+
+  // 1) UUID
+  if (looksLikeUuid(raw)) return raw;
+
+  // 2) Normalized code
+  const code = normalizeProjectIdentifier(raw);
+
+  // Try common columns safely (your schema: projects.project_code exists)
+  // project_code might be numeric or text; we just try equality.
+  const { data: byCode, error: codeErr } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("project_code", code)
+    .maybeSingle();
+
+  if (codeErr) throwDb(codeErr, "projects.resolve.by_project_code");
+  if (byCode?.id) return String(byCode.id);
+
+  // Final fallback: try raw as project_code (in case normalize stripped meaning)
+  const { data: byRaw, error: rawErr } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("project_code", raw)
+    .maybeSingle();
+
+  if (rawErr) throwDb(rawErr, "projects.resolve.by_project_code_raw");
+  if (byRaw?.id) return String(byRaw.id);
+
+  throw new Error("Project not found");
+}
+
+/**
+ * ✅ Org-based access control (accepts project uuid OR human ref)
  * projects.organisation_id + organisation_members
  */
 async function requireOrgRoleForProject(
   supabase: any,
-  projectId: string,
+  projectRef: string,
   allowed: Array<"admin" | "member" | "owner" | "editor" | "viewer">
 ) {
+  const projectUuid = await resolveProjectUuid(supabase, projectRef);
+
   // 1) load project org
   const { data: proj, error: pErr } = await supabase
     .from("projects")
     .select("id, organisation_id")
-    .eq("id", projectId)
+    .eq("id", projectUuid)
     .maybeSingle();
 
   if (pErr) throwDb(pErr, "projects.loadForRole");
   if (!proj?.id) throw new Error("Project not found");
+
   const orgId = String(proj.organisation_id ?? "").trim();
   if (!orgId) throw new Error("Project missing organisation_id");
 
@@ -87,7 +153,7 @@ async function requireOrgRoleForProject(
     throw new Error(`Access denied. Required: ${allowed.join(" or ")}.`);
   }
 
-  return effective as "owner" | "editor" | "viewer";
+  return { projectUuid, effective: effective as "owner" | "editor" | "viewer" };
 }
 
 async function loadArtifact(supabase: any, artifactId: string) {
@@ -144,11 +210,11 @@ async function auditBestEffort(
 /**
  * DB constraint: one_current_per_project_type
  */
-async function demoteCurrentForProjectType(supabase: any, projectId: string, type: string) {
+async function demoteCurrentForProjectType(supabase: any, projectUuid: string, type: string) {
   const { error } = await supabase
     .from("artifacts")
     .update({ is_current: false })
-    .eq("project_id", projectId)
+    .eq("project_id", projectUuid)
     .eq("type", type)
     .eq("is_current", true);
 
@@ -225,22 +291,40 @@ function canEditArtifactRow(a: any) {
   return { ok: true as const, status: st };
 }
 
+/**
+ * Revalidate both:
+ * - UUID-based path (some internal calls)
+ * - Human-id path (your actual routes)
+ */
+function revalidateArtifactsPaths(projectRef: string, projectUuid: string) {
+  const ref = normStr(projectRef);
+  const uuid = normStr(projectUuid);
+
+  // list pages
+  revalidatePath(`/projects/${uuid}/artifacts`);
+  if (ref && ref !== uuid) revalidatePath(`/projects/${ref}/artifacts`);
+
+  // project root pages sometimes render artifact cards
+  revalidatePath(`/projects/${uuid}`);
+  if (ref && ref !== uuid) revalidatePath(`/projects/${ref}`);
+}
+
 /* =========================
    CREATE
 ========================= */
 
 export async function createArtifact(formData: FormData) {
-  const projectId = normStr(formData.get("project_id"));
+  const projectRef = normStr(formData.get("project_id"));
   const rawType = normStr(formData.get("type")).toUpperCase();
   const title = normStr(formData.get("title")) || "";
   const content = String(formData.get("content") ?? "");
 
-  if (!projectId) throw new Error("Missing project_id");
+  if (!projectRef) throw new Error("Missing project_id");
   if (!rawType) throw new Error("Missing type");
   if (!isArtifactType(rawType)) throw new Error("Invalid artifact type");
 
   const { supabase, user } = await requireUser();
-  await requireOrgRoleForProject(supabase, projectId, ["owner", "editor", "admin"]);
+  const { projectUuid } = await requireOrgRoleForProject(supabase, projectRef, ["owner", "editor", "admin"]);
 
   const now = new Date().toISOString();
   const isWeekly = isWeeklyReportTypeServer(rawType);
@@ -249,7 +333,7 @@ export async function createArtifact(formData: FormData) {
   const { data: existing, error: exErr } = await supabase
     .from("artifacts")
     .select("id,content,version,root_artifact_id,approval_status,content_json,title")
-    .eq("project_id", projectId)
+    .eq("project_id", projectUuid)
     .eq("type", rawType)
     .eq("is_current", true)
     .is("deleted_at", null)
@@ -263,7 +347,7 @@ export async function createArtifact(formData: FormData) {
     const rootId = String(existing.root_artifact_id ?? existing.id);
     const nextV = await nextVersionForRoot(supabase, rootId, Number(existing.version ?? 1));
 
-    await demoteCurrentForProjectType(supabase, projectId, rawType);
+    await demoteCurrentForProjectType(supabase, projectUuid, rawType);
 
     const seededWeeklyJson =
       existing.content_json && typeof existing.content_json === "object"
@@ -273,7 +357,7 @@ export async function createArtifact(formData: FormData) {
     const { data: inserted, error: insErr } = await supabase
       .from("artifacts")
       .insert({
-        project_id: projectId,
+        project_id: projectUuid,
         user_id: user.id,
         type: rawType,
         title: title || existing.title || rawType,
@@ -299,7 +383,7 @@ export async function createArtifact(formData: FormData) {
     if (insErr) throwDb(insErr, "artifacts.create.insertRevision");
 
     await auditBestEffort(supabase, {
-      project_id: projectId,
+      project_id: projectUuid,
       artifact_id: inserted.id,
       actor_user_id: user.id,
       actor_email: user.email,
@@ -317,19 +401,19 @@ export async function createArtifact(formData: FormData) {
       },
     });
 
-    revalidatePath(`/projects/${projectId}/artifacts`);
+    revalidateArtifactsPaths(projectRef, projectUuid);
     return inserted.id as string;
   }
 
   // Brand new root v1
-  await demoteCurrentForProjectType(supabase, projectId, rawType);
+  await demoteCurrentForProjectType(supabase, projectUuid, rawType);
 
   const weeklyJson = isWeekly ? defaultWeeklyReportModel() : null;
 
   const { data: inserted, error } = await supabase
     .from("artifacts")
     .insert({
-      project_id: projectId,
+      project_id: projectUuid,
       user_id: user.id,
       type: rawType,
       title: title || rawType,
@@ -357,7 +441,7 @@ export async function createArtifact(formData: FormData) {
   if (upErr) throwDb(upErr, "artifacts.create.backfill_root");
 
   await auditBestEffort(supabase, {
-    project_id: projectId,
+    project_id: projectUuid,
     artifact_id: inserted.id,
     actor_user_id: user.id,
     actor_email: user.email,
@@ -369,7 +453,7 @@ export async function createArtifact(formData: FormData) {
     meta: { type: rawType, version: 1, seeded_weekly_json: isWeekly ? true : false },
   });
 
-  revalidatePath(`/projects/${projectId}/artifacts`);
+  revalidateArtifactsPaths(projectRef, projectUuid);
   return inserted.id as string;
 }
 
@@ -379,18 +463,18 @@ export async function createArtifact(formData: FormData) {
 
 export async function updateArtifact(formData: FormData) {
   const artifactId = normStr(formData.get("artifact_id"));
-  const projectId = normStr(formData.get("project_id"));
+  const projectRef = normStr(formData.get("project_id"));
   const title = normStr(formData.get("title"));
   const content = String(formData.get("content") ?? "");
 
   if (!artifactId) throw new Error("Missing artifact_id");
-  if (!projectId) throw new Error("Missing project_id");
+  if (!projectRef) throw new Error("Missing project_id");
 
   const { supabase, user } = await requireUser();
-  await requireOrgRoleForProject(supabase, projectId, ["owner", "editor", "admin"]);
+  const { projectUuid } = await requireOrgRoleForProject(supabase, projectRef, ["owner", "editor", "admin"]);
 
   const a = await loadArtifact(supabase, artifactId);
-  if (String(a.project_id ?? "") !== projectId) throw new Error("Project mismatch");
+  if (String(a.project_id ?? "") !== projectUuid) throw new Error("Project mismatch");
 
   const edit = canEditArtifactRow(a);
   if (!edit.ok) throw new Error(edit.reason);
@@ -403,7 +487,7 @@ export async function updateArtifact(formData: FormData) {
   if (error) throwDb(error, "artifacts.update");
 
   await auditBestEffort(supabase, {
-    project_id: projectId,
+    project_id: projectUuid,
     artifact_id: artifactId,
     actor_user_id: user.id,
     actor_email: user.email,
@@ -415,7 +499,9 @@ export async function updateArtifact(formData: FormData) {
     meta: { before_len: String(a.content ?? "").length, after_len: content.length },
   });
 
-  revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+  revalidateArtifactsPaths(projectRef, projectUuid);
+  revalidatePath(`/projects/${projectUuid}/artifacts/${artifactId}`);
+  if (projectRef && projectRef !== projectUuid) revalidatePath(`/projects/${projectRef}/artifacts/${artifactId}`);
 }
 
 /* =========================
@@ -423,19 +509,19 @@ export async function updateArtifact(formData: FormData) {
 ========================= */
 
 export async function updateArtifactJson(formData: FormData) {
-  const projectId = normStr(formData.get("project_id"));
+  const projectRef = normStr(formData.get("project_id"));
   const artifactId = normStr(formData.get("artifact_id"));
   const jsonStr = normStr(formData.get("content_json"));
 
-  if (!projectId) throw new Error("Missing project_id");
+  if (!projectRef) throw new Error("Missing project_id");
   if (!artifactId) throw new Error("Missing artifact_id");
   if (!jsonStr) throw new Error("Missing content_json");
 
   const { supabase, user } = await requireUser();
-  await requireOrgRoleForProject(supabase, projectId, ["owner", "editor", "admin"]);
+  const { projectUuid } = await requireOrgRoleForProject(supabase, projectRef, ["owner", "editor", "admin"]);
 
   const a = await loadArtifact(supabase, artifactId);
-  if (String(a.project_id ?? "") !== projectId) throw new Error("Project mismatch");
+  if (String(a.project_id ?? "") !== projectUuid) throw new Error("Project mismatch");
 
   const edit = canEditArtifactRow(a);
   if (!edit.ok) throw new Error(edit.reason);
@@ -458,7 +544,7 @@ export async function updateArtifactJson(formData: FormData) {
   if (error) throwDb(error, "artifacts.updateArtifactJson");
 
   await auditBestEffort(supabase, {
-    project_id: projectId,
+    project_id: projectUuid,
     artifact_id: artifactId,
     actor_user_id: user.id,
     actor_email: user.email,
@@ -470,7 +556,9 @@ export async function updateArtifactJson(formData: FormData) {
     meta: { json_bytes: jsonStr.length },
   });
 
-  revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+  revalidateArtifactsPaths(projectRef, projectUuid);
+  revalidatePath(`/projects/${projectUuid}/artifacts/${artifactId}`);
+  if (projectRef && projectRef !== projectUuid) revalidatePath(`/projects/${projectRef}/artifacts/${artifactId}`);
 }
 
 /* =========================
@@ -487,13 +575,16 @@ export async function reviseArtifact(formData: FormData) {
   const { supabase, user } = await requireUser();
 
   const src = await loadArtifact(supabase, artifactId);
-  const projectId = String(src.project_id ?? "");
-  await requireOrgRoleForProject(supabase, projectId, ["owner", "editor", "admin"]);
+  const projectUuid = String(src.project_id ?? "");
+  if (!projectUuid) throw new Error("Artifact missing project_id");
+
+  // allowed editors for that project
+  await requireOrgRoleForProject(supabase, projectUuid, ["owner", "editor", "admin"]);
 
   const rootId = String(src.root_artifact_id ?? src.id);
   const nextV = await nextVersionForRoot(supabase, rootId, Number(src.version ?? 1));
 
-  await demoteCurrentForProjectType(supabase, projectId, String(src.type ?? ""));
+  await demoteCurrentForProjectType(supabase, projectUuid, String(src.type ?? ""));
 
   const isWeekly = isWeeklyReportTypeServer(String(src.type ?? ""));
   const seededWeeklyJson =
@@ -502,7 +593,7 @@ export async function reviseArtifact(formData: FormData) {
   const { data: inserted, error: insErr } = await supabase
     .from("artifacts")
     .insert({
-      project_id: projectId,
+      project_id: projectUuid,
       user_id: user.id,
       type: src.type,
       title: src.title ?? src.type,
@@ -528,7 +619,7 @@ export async function reviseArtifact(formData: FormData) {
   if (insErr) throwDb(insErr, "artifacts.revise.insert");
 
   await auditBestEffort(supabase, {
-    project_id: projectId,
+    project_id: projectUuid,
     artifact_id: inserted.id,
     actor_user_id: user.id,
     actor_email: user.email,
@@ -540,29 +631,29 @@ export async function reviseArtifact(formData: FormData) {
     meta: { from: src.id, to: inserted.id, version: nextV, revision_type, revision_reason, seeded_weekly_json: isWeekly },
   });
 
-  revalidatePath(`/projects/${projectId}/artifacts`);
+  revalidatePath(`/projects/${projectUuid}/artifacts`);
   return inserted.id as string;
 }
 
 export async function restoreArtifactVersion(formData: FormData) {
-  const projectId = normStr(formData.get("project_id"));
+  const projectRef = normStr(formData.get("project_id"));
   const targetId = normStr(formData.get("target_artifact_id"));
   const reason = normStr(formData.get("reason")) || "Restored a previous version";
 
-  if (!projectId) throw new Error("Missing project_id");
+  if (!projectRef) throw new Error("Missing project_id");
   if (!targetId) throw new Error("Missing target_artifact_id");
 
   const { supabase, user } = await requireUser();
-  await requireOrgRoleForProject(supabase, projectId, ["owner", "editor", "admin"]);
+  const { projectUuid } = await requireOrgRoleForProject(supabase, projectRef, ["owner", "editor", "admin"]);
 
   const target = await loadArtifact(supabase, targetId);
-  if (String(target.project_id ?? "") !== projectId) throw new Error("Project mismatch");
+  if (String(target.project_id ?? "") !== projectUuid) throw new Error("Project mismatch");
 
   const type = String(target.type ?? "");
   const rootId = String(target.root_artifact_id ?? target.id);
   const nextV = await nextVersionForRoot(supabase, rootId, Number(target.version ?? 1));
 
-  await demoteCurrentForProjectType(supabase, projectId, type);
+  await demoteCurrentForProjectType(supabase, projectUuid, type);
 
   const isWeekly = isWeeklyReportTypeServer(type);
   const seededWeeklyJson =
@@ -571,7 +662,7 @@ export async function restoreArtifactVersion(formData: FormData) {
   const { data: inserted, error: insErr } = await supabase
     .from("artifacts")
     .insert({
-      project_id: projectId,
+      project_id: projectUuid,
       user_id: user.id,
       type,
       title: target.title ?? type,
@@ -597,7 +688,7 @@ export async function restoreArtifactVersion(formData: FormData) {
   if (insErr) throwDb(insErr, "artifacts.restore.insert");
 
   await auditBestEffort(supabase, {
-    project_id: projectId,
+    project_id: projectUuid,
     artifact_id: inserted.id,
     actor_user_id: user.id,
     actor_email: user.email,
@@ -609,26 +700,26 @@ export async function restoreArtifactVersion(formData: FormData) {
     meta: { restored_from: target.id, to: inserted.id, version: nextV, reason, seeded_weekly_json: isWeekly },
   });
 
-  revalidatePath(`/projects/${projectId}/artifacts`);
+  revalidateArtifactsPaths(projectRef, projectUuid);
   return inserted.id as string;
 }
 
 export async function setArtifactCurrent(args: { projectId: string; artifactId: string }) {
-  const projectId = normStr(args?.projectId);
+  const projectRef = normStr(args?.projectId);
   const artifactId = normStr(args?.artifactId);
-  if (!projectId) throw new Error("Missing projectId");
+  if (!projectRef) throw new Error("Missing projectId");
   if (!artifactId) throw new Error("Missing artifactId");
 
   const { supabase, user } = await requireUser();
-  await requireOrgRoleForProject(supabase, projectId, ["owner", "editor", "admin"]);
+  const { projectUuid } = await requireOrgRoleForProject(supabase, projectRef, ["owner", "editor", "admin"]);
 
   const a = await loadArtifact(supabase, artifactId);
-  if (String(a.project_id ?? "") !== projectId) throw new Error("Project mismatch");
+  if (String(a.project_id ?? "") !== projectUuid) throw new Error("Project mismatch");
 
   const type = String(a.type ?? "");
   if (!type) throw new Error("Artifact missing type");
 
-  await demoteCurrentForProjectType(supabase, projectId, type);
+  await demoteCurrentForProjectType(supabase, projectUuid, type);
 
   const { error } = await supabase
     .from("artifacts")
@@ -638,7 +729,7 @@ export async function setArtifactCurrent(args: { projectId: string; artifactId: 
   if (error) throwDb(error, "artifacts.setArtifactCurrent");
 
   await auditBestEffort(supabase, {
-    project_id: projectId,
+    project_id: projectUuid,
     artifact_id: artifactId,
     actor_user_id: user.id,
     actor_email: user.email,
@@ -650,10 +741,10 @@ export async function setArtifactCurrent(args: { projectId: string; artifactId: 
     meta: { type },
   });
 
-  revalidatePath(`/projects/${projectId}/artifacts`);
-  revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+  revalidateArtifactsPaths(projectRef, projectUuid);
+  revalidatePath(`/projects/${projectUuid}/artifacts/${artifactId}`);
+  if (projectRef && projectRef !== projectUuid) revalidatePath(`/projects/${projectRef}/artifacts/${artifactId}`);
 
-  // ✅ match client expectation
   return { ok: true };
 }
 
@@ -702,22 +793,22 @@ export async function cloneArtifact(
   formData: FormData
 ): Promise<{ ok: boolean; newArtifactId?: string; error?: string }> {
   try {
-    const projectId = normStr(formData.get("projectId"));
+    const projectRef = normStr(formData.get("projectId"));
     const artifactId = normStr(formData.get("artifactId"));
-    if (!projectId) throw new Error("Missing projectId");
+    if (!projectRef) throw new Error("Missing projectId");
     if (!artifactId) throw new Error("Missing artifactId");
 
     const { supabase, user } = await requireUser();
-    await requireOrgRoleForProject(supabase, projectId, ["owner", "editor", "admin"]);
+    const { projectUuid } = await requireOrgRoleForProject(supabase, projectRef, ["owner", "editor", "admin"]);
 
     const src = await loadArtifact(supabase, artifactId);
-    if (String(src.project_id ?? "") !== projectId) throw new Error("Project mismatch");
+    if (String(src.project_id ?? "") !== projectUuid) throw new Error("Project mismatch");
 
     // Clone becomes a NEW revision under same root (and becomes current)
     const rootId = String(src.root_artifact_id ?? src.id);
     const nextV = await nextVersionForRoot(supabase, rootId, Number(src.version ?? 1));
 
-    await demoteCurrentForProjectType(supabase, projectId, String(src.type ?? ""));
+    await demoteCurrentForProjectType(supabase, projectUuid, String(src.type ?? ""));
 
     const isWeekly = isWeeklyReportTypeServer(String(src.type ?? ""));
     const seededWeeklyJson =
@@ -726,7 +817,7 @@ export async function cloneArtifact(
     const { data: inserted, error } = await supabase
       .from("artifacts")
       .insert({
-        project_id: projectId,
+        project_id: projectUuid,
         user_id: user.id,
         type: src.type,
         title: src.title ?? src.type,
@@ -751,7 +842,7 @@ export async function cloneArtifact(
 
     if (error) throwDb(error, "artifacts.clone.insert");
 
-    revalidatePath(`/projects/${projectId}/artifacts`);
+    revalidateArtifactsPaths(projectRef, projectUuid);
     return { ok: true, newArtifactId: inserted.id };
   } catch (e: any) {
     return { ok: false, error: e?.message ?? "Clone failed" };
@@ -762,16 +853,16 @@ export async function deleteDraftArtifact(
   formData: FormData
 ): Promise<{ ok: boolean; error?: string }> {
   try {
-    const projectId = normStr(formData.get("projectId"));
+    const projectRef = normStr(formData.get("projectId"));
     const artifactId = normStr(formData.get("artifactId"));
-    if (!projectId) throw new Error("Missing projectId");
+    if (!projectRef) throw new Error("Missing projectId");
     if (!artifactId) throw new Error("Missing artifactId");
 
     const { supabase } = await requireUser();
-    await requireOrgRoleForProject(supabase, projectId, ["owner", "editor", "admin"]);
+    const { projectUuid } = await requireOrgRoleForProject(supabase, projectRef, ["owner", "editor", "admin"]);
 
     const a = await loadArtifact(supabase, artifactId);
-    if (String(a.project_id ?? "") !== projectId) throw new Error("Project mismatch");
+    if (String(a.project_id ?? "") !== projectUuid) throw new Error("Project mismatch");
 
     const st = String(a.approval_status ?? "draft").toLowerCase();
     if (st !== "draft") throw new Error("Only draft artifacts can be deleted.");
@@ -786,7 +877,7 @@ export async function deleteDraftArtifact(
 
     if (error) throwDb(error, "artifacts.deleteDraft");
 
-    revalidatePath(`/projects/${projectId}/artifacts`);
+    revalidateArtifactsPaths(projectRef, projectUuid);
     return { ok: true };
   } catch (e: any) {
     return { ok: false, error: e?.message ?? "Delete failed" };
