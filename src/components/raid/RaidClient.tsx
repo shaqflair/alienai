@@ -133,139 +133,111 @@ function cycleInList(list: readonly string[], current: string) {
   return list[(idx + 1) % list.length];
 }
 
-/* ---------------- styling tokens - clean enterprise database ---------------- */
+/* ---------------- Notion-ish styling tokens ---------------- */
 
 const TYPE_STYLES: Record<
   RaidType,
-  { band: string; border: string; text: string; icon: string; desc: string }
+  { accent: string; border: string; text: string; icon: string; desc: string; headerBg: string; dot: string }
 > = {
   Risk: {
-    band: "bg-rose-50",
+    accent: "rose",
     border: "border-rose-200",
     text: "text-rose-900",
     icon: "text-rose-600",
+    dot: "bg-rose-500",
     desc: "Events that may happen — mitigate early",
+    headerBg: "bg-gradient-to-r from-rose-50 to-white",
   },
   Assumption: {
-    band: "bg-amber-50",
+    accent: "amber",
     border: "border-amber-200",
     text: "text-amber-900",
     icon: "text-amber-600",
+    dot: "bg-amber-500",
     desc: "Beliefs we hold — validate them",
+    headerBg: "bg-gradient-to-r from-amber-50 to-white",
   },
   Issue: {
-    band: "bg-orange-50",
+    accent: "orange",
     border: "border-orange-200",
     text: "text-orange-900",
     icon: "text-orange-600",
+    dot: "bg-orange-500",
     desc: "Active problems — resolve quickly",
+    headerBg: "bg-gradient-to-r from-orange-50 to-white",
   },
   Dependency: {
-    band: "bg-blue-50",
+    accent: "blue",
     border: "border-blue-200",
     text: "text-blue-900",
     icon: "text-blue-600",
+    dot: "bg-blue-500",
     desc: "External blockers — track closely",
+    headerBg: "bg-gradient-to-r from-blue-50 to-white",
   },
 };
 
-// ✅ Glossy bright (full cell “pill”), still editable via select.
-// We add a subtle highlight using before: to get the glossy look.
-const STATUS_STYLES: Record<string, { base: string; ring: string }> = {
+// ✅ Premium but restrained: pill looks glossy, table stays flat.
+const STATUS_PILL: Record<string, { bg: string; text: string; ring: string }> = {
   open: {
-    base:
-      "text-white bg-gradient-to-b from-[#cfd4da] to-[#aeb6c0] shadow-[0_10px_22px_rgba(148,163,184,0.22)]",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#aeb6c0]/50",
+    bg: "bg-gradient-to-b from-slate-400 to-slate-500",
+    text: "text-white",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-slate-400/50",
   },
   inprogress: {
-    base:
-      "text-white bg-gradient-to-b from-[#75b5ff] to-[#3e86f0] shadow-[0_10px_22px_rgba(87,155,252,0.25)]",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#579bfc]/50",
+    bg: "bg-gradient-to-b from-sky-400 to-sky-600",
+    text: "text-white",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-sky-400/50",
   },
   mitigated: {
-    base:
-      "text-white bg-gradient-to-b from-[#1be69a] to-[#00b86b] shadow-[0_10px_22px_rgba(0,200,117,0.24)]",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#00c875]/45",
+    bg: "bg-gradient-to-b from-emerald-400 to-emerald-600",
+    text: "text-white",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-emerald-400/50",
   },
   closed: {
-    base:
-      "text-white bg-gradient-to-b from-[#1aa6e6] to-[#0077b0] shadow-[0_10px_22px_rgba(0,134,192,0.22)]",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#0086c0]/45",
+    bg: "bg-gradient-to-b from-cyan-500 to-cyan-700",
+    text: "text-white",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-cyan-500/50",
   },
   invalid: {
-    base:
-      "text-white bg-gradient-to-b from-[#b6b6b6] to-[#8c8c8c] shadow-[0_10px_22px_rgba(120,120,120,0.18)]",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#9d9d9d]/40",
+    bg: "bg-gradient-to-b from-slate-300 to-slate-500",
+    text: "text-white",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-slate-400/50",
   },
 };
 
-const PRIORITY_STYLES: Record<string, { base: string; ring: string }> = {
+const PRIORITY_PILL: Record<string, { bg: string; text: string; ring: string; label: string }> = {
   "": {
-    base:
-      "text-slate-800 bg-gradient-to-b from-[#eef2f7] to-[#e6ebf2] shadow-[0_8px_16px_rgba(148,163,184,0.10)]",
+    bg: "bg-slate-100",
+    text: "text-slate-700",
     ring: "focus:ring-2 focus:ring-offset-1 focus:ring-slate-300/70",
+    label: "—",
   },
   low: {
-    base:
-      "text-white bg-gradient-to-b from-[#b3b3b3] to-[#8d8d8d] shadow-[0_10px_22px_rgba(120,120,120,0.18)]",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#9d9d9d]/45",
+    bg: "bg-gradient-to-b from-slate-400 to-slate-600",
+    text: "text-white",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-slate-400/50",
+    label: "Low",
   },
   medium: {
-    base:
-      "text-white bg-gradient-to-b from-[#7fbaff] to-[#4785e8] shadow-[0_10px_22px_rgba(87,155,252,0.22)]",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#579bfc]/45",
+    bg: "bg-gradient-to-b from-sky-400 to-sky-600",
+    text: "text-white",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-sky-400/50",
+    label: "Medium",
   },
   high: {
-    base:
-      "text-white bg-gradient-to-b from-[#ffe266] to-[#e6c200] shadow-[0_10px_22px_rgba(255,203,0,0.20)]",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#ffcb00]/45",
+    bg: "bg-gradient-to-b from-amber-300 to-amber-500",
+    text: "text-slate-900",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-amber-300/60",
+    label: "High",
   },
   critical: {
-    base:
-      "text-white bg-gradient-to-b from-[#ff6f86] to-[#d63a52] shadow-[0_10px_22px_rgba(226,68,92,0.22)]",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-[#e2445c]/50",
+    bg: "bg-gradient-to-b from-rose-400 to-rose-600",
+    text: "text-white",
+    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-rose-400/50",
+    label: "Critical",
   },
 };
-
-function pillClass(extra?: string) {
-  return [
-    "relative w-full h-10 rounded-xl px-3",
-    "appearance-none border-0 outline-none",
-    "font-semibold text-[13px] tracking-wide",
-    "text-center",
-    "cursor-pointer",
-    "transition-all hover:brightness-[1.06] active:brightness-[0.98]",
-    "before:content-[''] before:absolute before:inset-x-1 before:top-1 before:h-[42%] before:rounded-lg before:bg-white/20 before:pointer-events-none",
-    "focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2",
-    extra || "",
-  ].join(" ");
-}
-
-function cellInputClass(extra?: string) {
-  // Notion-like: clean, minimal, border on focus.
-  return [
-    "w-full h-10 px-2.5 rounded-lg",
-    "bg-transparent",
-    "text-[13px] text-slate-900 placeholder:text-slate-400",
-    "border border-transparent",
-    "focus:border-indigo-300 focus:bg-white focus:shadow-[0_8px_16px_rgba(15,23,42,0.06)]",
-    "focus:ring-2 focus:ring-indigo-500/30 outline-none transition-all",
-    extra || "",
-  ].join(" ");
-}
-
-function cellTextareaClass(extra?: string) {
-  return [
-    "w-full min-h-[44px] max-h-[120px] px-2.5 py-2 rounded-lg",
-    "bg-transparent",
-    "text-[13px] leading-[1.25rem] text-slate-900 placeholder:text-slate-400",
-    "border border-transparent",
-    "focus:border-indigo-300 focus:bg-white focus:shadow-[0_8px_16px_rgba(15,23,42,0.06)]",
-    "focus:ring-2 focus:ring-indigo-500/30 outline-none transition-all",
-    "resize-y",
-    extra || "",
-  ].join(" ");
-}
 
 /* ---------------- digest helpers ---------------- */
 
@@ -293,6 +265,7 @@ function digestDeepLink(projectRouteId: string, x: any) {
 
 /* ---------------- api helpers ---------------- */
 
+// ✅ IMPORTANT: fixed to support DELETE 204 and empty body responses
 async function postJson(url: string, method: string, body?: any, headers?: Record<string, string>) {
   const res = await fetch(url, {
     method,
@@ -303,7 +276,22 @@ async function postJson(url: string, method: string, body?: any, headers?: Recor
     body: body ? JSON.stringify(body) : undefined,
   });
 
-  const j = await res.json().catch(() => null);
+  // DELETE routes often return 204 No Content (valid success)
+  if (res.status === 204) return { ok: true };
+
+  const text = await res.text().catch(() => "");
+  const j = text
+    ? (() => {
+        try {
+          return JSON.parse(text);
+        } catch {
+          return null;
+        }
+      })()
+    : null;
+
+  // Some endpoints return 200 with empty body
+  if (res.ok && !j) return { ok: true };
 
   if (!res.ok || !j?.ok) {
     const err = new Error(j?.error || `Failed (${res.status})`);
@@ -353,7 +341,7 @@ async function aiRefreshRaidItem(id: string) {
   return j.item as RaidItem;
 }
 
-// ✅ Fix 405: try GET first; if endpoint is POST-only (or misconfigured), retry with POST.
+// ✅ Fix 405: try GET first; if endpoint is POST-only, retry with POST.
 async function fetchWeeklyDigest(projectId: string) {
   const url = `/api/raid/digest?projectId=${encodeURIComponent(projectId)}`;
   try {
@@ -374,6 +362,11 @@ async function fetchAiHistory(raidId: string) {
   if (!res.ok || !j?.ok) throw new Error(j?.error || `Failed (${res.status})`);
   return (j.runs ?? []) as AiRun[];
 }
+
+/* ---------------- component ---------------- */
+
+type ColKey = "desc" | "resp";
+const DEFAULT_COL_WIDTHS: Record<ColKey, number> = { desc: 420, resp: 360 };
 
 /* ---------------- dnd helpers ---------------- */
 
@@ -396,10 +389,16 @@ function newBanner(kind: Banner["kind"], text: string): Banner {
   return { kind, text, id: `${kind}:${Date.now()}:${Math.random().toString(16).slice(2)}` };
 }
 
-/* ---------------- component ---------------- */
+/* ---------------- Notion-like cell primitives ---------------- */
 
-type ColKey = "desc" | "resp";
-const DEFAULT_COL_WIDTHS: Record<ColKey, number> = { desc: 420, resp: 360 };
+function cx(...a: Array<string | false | null | undefined>) {
+  return a.filter(Boolean).join(" ");
+}
+
+const CELL_BASE =
+  "w-full bg-transparent border-0 outline-none ring-0 focus:ring-0 focus:outline-none text-[13px] leading-5 text-slate-900 placeholder:text-slate-400";
+const CELL_WRAP =
+  "px-3 py-2 min-h-[44px] flex items-center border-r border-slate-200 group-hover:bg-slate-50/70 transition-colors";
 
 export default function RaidClient({
   projectId,
@@ -428,7 +427,7 @@ export default function RaidClient({
     setBanners((prev) => [b, ...prev].slice(0, 3));
     window.setTimeout(() => {
       setBanners((prev) => prev.filter((x) => x.id !== b.id));
-    }, 3800);
+    }, 3500);
   }, []);
   const dismissBanner = useCallback((id: string) => setBanners((prev) => prev.filter((x) => x.id !== id)), []);
 
@@ -489,7 +488,7 @@ export default function RaidClient({
       const key = resizeRef.current.key;
       if (!key) return;
       const dx = e.clientX - resizeRef.current.startX;
-      const next = Math.max(280, Math.min(980, resizeRef.current.startW + dx));
+      const next = Math.max(280, Math.min(900, resizeRef.current.startW + dx));
       setColW((prev) => ({ ...prev, [key]: next }));
     }
     function onUp() {
@@ -522,7 +521,6 @@ export default function RaidClient({
     const g: Record<RaidType, RaidItem[]> = { Risk: [], Assumption: [], Issue: [], Dependency: [] };
     for (const it of items) g[normalizeType(it.type)].push(it);
     (Object.keys(g) as RaidType[]).forEach((k) => {
-      // latest first by updated_at
       g[k].sort((a, b) => (safeStr(b.updated_at) > safeStr(a.updated_at) ? 1 : -1));
     });
     return g;
@@ -665,8 +663,11 @@ export default function RaidClient({
 
   const onDelete = useCallback(
     async (id: string) => {
+      // Keep it explicit: delete is destructive
       if (!confirm("Delete this RAID item?")) return;
+
       setBusyId(id);
+
       const current = items.find((x) => x.id === id);
       const expected = safeStr(current?.updated_at).trim() || undefined;
 
@@ -965,7 +966,7 @@ export default function RaidClient({
         } catch {
           /* ignore */
         }
-        await new Promise((r) => setTimeout(r, 280));
+        await new Promise((r) => setTimeout(r, 250));
       }
       pushBanner("success", `${type}: AI refreshed (${groupItems.length})`);
     } catch (e: any) {
@@ -989,8 +990,6 @@ export default function RaidClient({
 
       const srcGroup = source.droppableId.replace(/^group:/, "") as RaidType;
       const dstGroup = destination.droppableId.replace(/^group:/, "") as RaidType;
-
-      // only within group (Excel-like reorder)
       if (srcGroup !== dstGroup) return;
 
       setItems((prev) => {
@@ -1009,92 +1008,61 @@ export default function RaidClient({
   );
 
   return (
-    <div className="min-h-screen bg-[#f6f7fb] text-slate-900">
-      {/* Top Bar */}
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      {/* Top bar */}
       <header className="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-slate-200">
-        <div className="max-w-[1900px] mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="h-16 flex items-center justify-between">
+        <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
             <div className="min-w-0">
-              <div className="flex items-center gap-3">
-                <h1 className="text-lg font-semibold tracking-tight">RAID Log</h1>
-                <span className="hidden sm:inline-flex items-center gap-2 text-xs text-slate-500">
-                  <span className="truncate max-w-[520px]">
-                    <span className="font-medium text-slate-700">{humanProjectTitle}</span>
-                    {humanClient ? <span className="text-slate-300"> • </span> : null}
-                    {humanClient ? <span>{humanClient}</span> : null}
-                  </span>
-                  <span className="text-slate-300"> • </span>
-                  <span className="font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200">
-                    {humanProjectId}
-                  </span>
+              <h1 className="text-[16px] font-semibold tracking-tight text-slate-900">RAID Log</h1>
+              <div className="flex items-center gap-2 text-[12px] text-slate-500 mt-1 min-w-0">
+                <span className="font-medium text-slate-700 truncate">{humanProjectTitle}</span>
+                {humanClient && <span className="text-slate-300">•</span>}
+                {humanClient && <span className="truncate">{humanClient}</span>}
+                <span className="text-slate-300">•</span>
+                <span className="font-mono text-[11px] bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                  {humanProjectId}
                 </span>
-              </div>
-
-              {/* Stats */}
-              <div className="mt-1 flex items-center gap-4 text-xs text-slate-500">
-                <span className="inline-flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#579bfc]" />
-                  <span>
-                    <span className="font-semibold text-slate-900">{stats.open}</span> Open
-                  </span>
-                </span>
-                <span className="inline-flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#e2445c]" />
-                  <span>
-                    <span className="font-semibold text-slate-900">{stats.high}</span> High exposure
-                  </span>
-                </span>
-                <span className="inline-flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#00c875]" />
-                  <span>
-                    <span className="font-semibold text-slate-900">{stats.mitigated}</span> Mitigated
-                  </span>
-                </span>
-                <span className="ml-auto hidden md:inline">{stats.total} total</span>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-2">
               <Link
                 href={`/projects/${routeProjectId}`}
-                className="hidden sm:inline-flex items-center px-3 h-10 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-sm font-medium text-slate-700"
+                className="text-[13px] text-slate-600 hover:text-slate-900 font-medium px-3 py-2 rounded-md hover:bg-slate-100 transition-colors"
               >
-                Back to Project
+                Back
               </Link>
-
+              <div className="h-6 w-px bg-slate-200 mx-1" />
               <button
                 onClick={onWeeklyDigest}
                 disabled={digestBusy}
-                className="inline-flex items-center px-3 h-10 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-sm font-medium text-slate-700 disabled:opacity-50"
+                className="text-[13px] px-3 py-2 rounded-md border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50"
               >
                 {digestBusy ? "Generating…" : "Weekly Digest"}
               </button>
-
               <button
                 onClick={onRefreshAll}
                 disabled={busyId === "refresh:all"}
-                className="inline-flex items-center px-3 h-10 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-sm font-medium text-slate-700 disabled:opacity-50"
+                className="text-[13px] px-3 py-2 rounded-md border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50"
               >
                 {busyId === "refresh:all" ? "Refreshing…" : "Refresh"}
               </button>
 
               <div className="relative group">
-                <button className="inline-flex items-center gap-2 px-3 h-10 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-sm font-medium text-slate-700">
+                <button className="text-[13px] px-3 py-2 rounded-md border border-slate-200 bg-white hover:bg-slate-50">
                   Export
-                  <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
                 </button>
-                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-slate-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 overflow-hidden">
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-xl border border-slate-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
                   <button
                     onClick={() => window.open(`/api/raid/export/excel?projectId=${encodeURIComponent(projectId)}`, "_blank")}
-                    className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                    className="block w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50 rounded-t-md"
                   >
                     Export Excel
                   </button>
                   <button
                     onClick={() => window.open(`/api/raid/export/pdf?projectId=${encodeURIComponent(projectId)}`, "_blank")}
-                    className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                    className="block w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50 rounded-b-md"
                   >
                     Export PDF
                   </button>
@@ -1102,28 +1070,51 @@ export default function RaidClient({
               </div>
             </div>
           </div>
+
+          {/* Stats */}
+          <div className="flex items-center gap-5 py-3 border-t border-slate-100">
+            <div className="flex items-center gap-2 text-[13px] text-slate-600">
+              <span className="inline-block w-2 h-2 rounded-full bg-sky-500" />
+              <span>
+                <span className="font-semibold text-slate-900">{stats.open}</span> Open
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-[13px] text-slate-600">
+              <span className="inline-block w-2 h-2 rounded-full bg-rose-500" />
+              <span>
+                <span className="font-semibold text-slate-900">{stats.high}</span> High Exposure
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-[13px] text-slate-600">
+              <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+              <span>
+                <span className="font-semibold text-slate-900">{stats.mitigated}</span> Mitigated
+              </span>
+            </div>
+            <div className="ml-auto text-[13px] text-slate-500">{stats.total} items</div>
+          </div>
         </div>
       </header>
 
       {/* Banners */}
-      <div className="max-w-[1900px] mx-auto px-4 sm:px-6 lg:px-8 mt-4 space-y-2">
+      <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 mt-4 space-y-2">
         {banners.map((b) => (
           <div
             key={b.id}
-            className={[
-              "px-4 py-3 rounded-xl text-sm flex items-center gap-3 border shadow-[0_8px_18px_rgba(15,23,42,0.06)]",
+            className={cx(
+              "px-3 py-2 rounded-md text-[13px] flex items-center gap-2 border",
               b.kind === "success"
                 ? "bg-emerald-50 border-emerald-200 text-emerald-900"
-                : "bg-rose-50 border-rose-200 text-rose-900",
-            ].join(" ")}
+                : "bg-rose-50 border-rose-200 text-rose-900"
+            )}
           >
-            <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-white/70 border border-black/5 font-bold">
+            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-white/70 border border-black/5">
               {b.kind === "success" ? "✓" : "!"}
             </span>
-            <div className="flex-1 min-w-0">{b.text}</div>
+            <div className="flex-1">{b.text}</div>
             <button
               onClick={() => dismissBanner(b.id)}
-              className="p-2 rounded-lg hover:bg-black/5 transition-colors"
+              className="p-1 rounded hover:bg-black/5"
               aria-label="Dismiss"
               title="Dismiss"
             >
@@ -1135,34 +1126,34 @@ export default function RaidClient({
         ))}
       </div>
 
-      {/* Content */}
-      <main className="max-w-[1900px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-20">
+      <main className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-20">
         <DragDropContext onDragEnd={onDragEnd}>
-          <div className="space-y-5">
+          <div className="space-y-6">
             {(Object.keys(grouped) as RaidType[]).map((type) => {
-              const t = TYPE_STYLES[type];
+              const typeStyle = TYPE_STYLES[type];
               const groupItems = grouped[type];
               const isOpen = openGroups[type];
 
               return (
                 <section
                   key={type}
-                  className={[
-                    "bg-white rounded-2xl border shadow-[0_12px_28px_rgba(15,23,42,0.06)] overflow-hidden",
-                    t.border,
-                  ].join(" ")}
+                  className={cx(
+                    "bg-white rounded-xl border shadow-sm overflow-hidden",
+                    "border-slate-200"
+                  )}
                 >
                   {/* Group Header */}
-                  <div className={["relative px-4 py-3 border-b", t.band, t.border].join(" ")}>
+                  <div className={cx("relative px-4 py-3 border-b border-slate-200", typeStyle.headerBg)}>
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
                         <button
                           onClick={() => toggleGroup(type)}
-                          className={["p-2 rounded-lg hover:bg-white/60 transition-colors", t.text].join(" ")}
-                          aria-label={isOpen ? "Collapse group" : "Expand group"}
+                          className={cx("p-1 rounded hover:bg-black/5 transition-colors", typeStyle.text)}
+                          aria-label="Toggle group"
+                          title="Toggle"
                         >
                           <svg
-                            className={`w-5 h-5 transform transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`}
+                            className={cx("w-5 h-5 transform transition-transform", isOpen ? "rotate-90" : "")}
                             fill="none"
                             viewBox="0 0 24 24"
                             stroke="currentColor"
@@ -1171,54 +1162,17 @@ export default function RaidClient({
                           </svg>
                         </button>
 
-                        <div className={["w-9 h-9 rounded-xl bg-white border flex items-center justify-center", t.border, t.icon].join(" ")}>
-                          {/* icon */}
-                          {type === "Risk" && (
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                              />
-                            </svg>
-                          )}
-                          {type === "Assumption" && (
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-                              />
-                            </svg>
-                          )}
-                          {type === "Issue" && (
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                            </svg>
-                          )}
-                          {type === "Dependency" && (
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-                              />
-                            </svg>
-                          )}
+                        <div className={cx("flex items-center gap-2 min-w-0")}>
+                          <span className={cx("w-2 h-2 rounded-full", typeStyle.dot)} />
+                          <div className="min-w-0">
+                            <div className={cx("font-semibold text-[14px]", typeStyle.text)}>{type}s</div>
+                            <div className="text-[12px] text-slate-500 truncate">{typeStyle.desc}</div>
+                          </div>
                         </div>
 
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <h2 className={["font-semibold", t.text].join(" ")}>{type}s</h2>
-                            <span className="px-2.5 py-0.5 bg-white border border-slate-200 rounded-full text-xs font-semibold text-slate-700">
-                              {groupItems.length}
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-500 truncate">{t.desc}</p>
-                        </div>
+                        <span className="ml-2 px-2 py-0.5 bg-white border border-slate-200 rounded-full text-[12px] font-medium text-slate-600">
+                          {groupItems.length}
+                        </span>
                       </div>
 
                       <div className="flex items-center gap-2">
@@ -1227,8 +1181,9 @@ export default function RaidClient({
                             menuBtnRefs.current[type] = el;
                           }}
                           onClick={() => setMenuOpenFor(menuOpenFor === type ? "" : type)}
-                          className="p-2 text-slate-500 hover:text-slate-700 hover:bg-white/60 rounded-lg transition-colors"
+                          className="p-2 text-slate-500 hover:text-slate-700 hover:bg-white/70 rounded-md"
                           aria-label="Group menu"
+                          title="Group menu"
                         >
                           <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                             <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
@@ -1238,26 +1193,26 @@ export default function RaidClient({
                         {menuOpenFor === type && (
                           <div
                             ref={menuRef}
-                            className="absolute right-4 top-[56px] w-56 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden"
+                            className="absolute right-4 top-[46px] w-56 bg-white rounded-md shadow-xl border border-slate-200 z-50 py-1"
                           >
-                            <div className="px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                              {type} actions
+                            <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                              {type} Actions
                             </div>
-                            <button onClick={() => exportGroupExcel(type)} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                            <button onClick={() => exportGroupExcel(type)} className="w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50">
                               Export to Excel
                             </button>
-                            <button onClick={() => exportGroupPdf(type)} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                            <button onClick={() => exportGroupPdf(type)} className="w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50">
                               Export to PDF
                             </button>
                             <div className="h-px bg-slate-100 my-1" />
                             <button
                               onClick={() => refreshAiForGroup(type)}
                               disabled={busyId === `ai:group:${type}`}
-                              className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                              className="w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                             >
                               {busyId === `ai:group:${type}` ? "Refreshing AI…" : "Refresh AI (Group)"}
                             </button>
-                            <button onClick={() => copyGroupLink(type)} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                            <button onClick={() => copyGroupLink(type)} className="w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50">
                               Copy Group Link
                             </button>
                           </div>
@@ -1266,16 +1221,15 @@ export default function RaidClient({
                         <button
                           onClick={() => onCreate(type)}
                           disabled={busyId === `new:${type}`}
-                          className={[
-                            "inline-flex items-center gap-2 px-3 h-10 rounded-xl border bg-white text-sm font-semibold shadow-sm",
-                            "hover:bg-slate-50 disabled:opacity-50 transition-colors",
-                            t.border,
-                            t.text,
-                          ].join(" ")}
+                          className={cx(
+                            "inline-flex items-center gap-2 px-3 py-2 rounded-md border",
+                            "border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50",
+                            "text-[13px] font-medium text-slate-700"
+                          )}
                         >
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-slate-100 border border-slate-200 text-slate-700">
-                            +
-                          </span>
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                          </svg>
                           New {type}
                         </button>
                       </div>
@@ -1289,67 +1243,75 @@ export default function RaidClient({
                         <div
                           ref={dropProvided.innerRef}
                           {...dropProvided.droppableProps}
-                          className={[
-                            "overflow-x-auto",
-                            dropSnapshot.isDraggingOver ? "bg-indigo-50/30" : "bg-white",
-                          ].join(" ")}
+                          className={cx("overflow-x-auto", dropSnapshot.isDraggingOver && "bg-indigo-50/20")}
                         >
-                          <table className="w-full text-sm border-collapse table-fixed">
-                            <thead className="bg-slate-50 border-b border-slate-200">
-                              <tr className="text-[11px] uppercase tracking-wider text-slate-500">
-                                <th className="px-4 py-3 text-left w-40 border-r border-slate-200">ID</th>
-
-                                <th className="px-4 py-3 text-left relative border-r border-slate-200" style={{ width: colW.desc }}>
+                          <table className="w-full text-[13px] border-collapse table-fixed">
+                            <thead className="bg-white sticky top-16 z-10">
+                              <tr className="border-b border-slate-200">
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider w-40 border-r border-slate-200">
+                                  ID
+                                </th>
+                                <th
+                                  className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider relative border-r border-slate-200"
+                                  style={{ width: colW.desc }}
+                                >
                                   Description
                                   <span
-                                    className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-300/60 transition-colors"
+                                    className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-300/70"
                                     onMouseDown={(e) => startResize("desc", e)}
                                   />
                                 </th>
 
-                                {/* ✅ Wider Owner column (read full names) */}
-                                <th className="px-4 py-3 text-left w-80 border-r border-slate-200">Owner *</th>
+                                {/* ✅ Wider Owner */}
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider w-80 border-r border-slate-200">
+                                  Owner *
+                                </th>
 
-                                <th className="px-4 py-3 text-left w-48 border-r border-slate-200">Status *</th>
-                                <th className="px-4 py-3 text-left w-44 border-r border-slate-200">Priority</th>
-
-                                <th className="px-4 py-3 text-left w-28 border-r border-slate-200">Like</th>
-                                <th className="px-4 py-3 text-left w-28 border-r border-slate-200">Sev</th>
-                                <th className="px-4 py-3 text-left w-28 border-r border-slate-200">Score</th>
-
-                                <th className="px-4 py-3 text-left w-40 border-r border-slate-200">Due</th>
-
-                                <th className="px-4 py-3 text-left relative border-r border-slate-200" style={{ width: colW.resp }}>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider w-44 border-r border-slate-200">
+                                  Status *
+                                </th>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider w-44 border-r border-slate-200">
+                                  Priority
+                                </th>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider w-28 border-r border-slate-200">
+                                  Likelihood
+                                </th>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider w-28 border-r border-slate-200">
+                                  Severity
+                                </th>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider w-24 border-r border-slate-200">
+                                  Score
+                                </th>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider w-40 border-r border-slate-200">
+                                  Due Date
+                                </th>
+                                <th
+                                  className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider relative border-r border-slate-200"
+                                  style={{ width: colW.resp }}
+                                >
                                   Response Plan
                                   <span
-                                    className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-300/60 transition-colors"
+                                    className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-300/70"
                                     onMouseDown={(e) => startResize("resp", e)}
                                   />
                                 </th>
-
-                                <th className="px-4 py-3 text-left w-80 border-r border-slate-200">AI Rollup</th>
-                                <th className="px-4 py-3 text-left w-28 border-r border-slate-200">Updated</th>
-                                <th className="px-4 py-3 text-right w-28">Actions</th>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider w-72 border-r border-slate-200">
+                                  AI Rollup
+                                </th>
+                                <th className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider w-28 border-r border-slate-200">
+                                  Updated
+                                </th>
+                                <th className="px-3 py-2 text-right text-[11px] font-semibold text-slate-500 uppercase tracking-wider w-24">
+                                  Actions
+                                </th>
                               </tr>
                             </thead>
 
-                            <tbody className="divide-y divide-slate-200">
+                            <tbody>
                               {groupItems.length === 0 ? (
                                 <tr>
                                   <td colSpan={13} className="px-4 py-12 text-center text-slate-500">
-                                    <div className="flex flex-col items-center gap-2">
-                                      <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">
-                                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                          <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={2}
-                                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                          />
-                                        </svg>
-                                      </div>
-                                      <p>No {type.toLowerCase()}s yet. Create one to get started.</p>
-                                    </div>
+                                    No {type.toLowerCase()}s yet. Create one to get started.
                                   </td>
                                 </tr>
                               ) : (
@@ -1369,9 +1331,10 @@ export default function RaidClient({
 
                                   const stKey = statusToken(it.status);
                                   const priKey = priorityToken(it.priority);
-                                  const stStyle = STATUS_STYLES[stKey] || STATUS_STYLES.open;
-                                  const priStyle = PRIORITY_STYLES[priKey] || PRIORITY_STYLES[""];
+                                  const st = STATUS_PILL[stKey] || STATUS_PILL.open;
+                                  const pr = PRIORITY_PILL[priKey] || PRIORITY_PILL[""];
 
+                                  const ai = it?.related_refs?.ai || {};
                                   const runs = aiRunsById[it.id] || [];
                                   const cmp = aiCompareById[it.id] || { a: "", b: "" };
                                   const runA = cmp.a ? getRun(runs, cmp.a) : null;
@@ -1396,34 +1359,33 @@ export default function RaidClient({
                                             {...dragProvided.draggableProps}
                                             data-raid-id={it.id}
                                             data-raid-public={safeStr(it.public_id || "").trim()}
-                                            className={[
-                                              "group",
+                                            className={cx(
+                                              "group border-b border-slate-200",
                                               "hover:bg-slate-50/70",
-                                              index % 2 === 1 ? "bg-white" : "bg-white",
-                                              isBusy ? "opacity-60" : "",
-                                              stale ? "bg-amber-50/30" : "",
-                                              dragSnapshot.isDragging ? "bg-indigo-50" : "",
-                                            ].join(" ")}
+                                              isBusy && "opacity-60",
+                                              stale && "bg-amber-50/30",
+                                              dragSnapshot.isDragging && "bg-indigo-50/50"
+                                            )}
                                             tabIndex={0}
                                             onFocus={() => setHotRowId(it.id)}
                                             onMouseDown={() => setHotRowId(it.id)}
                                           >
-                                            {/* ID + drag */}
-                                            <td className="px-4 py-3 border-r border-slate-200">
-                                              <div className="flex items-center gap-2">
+                                            {/* ID + handle */}
+                                            <td className={cx(CELL_WRAP, "w-40")}>
+                                              <div className="flex items-center gap-2 min-w-0">
                                                 <button
                                                   type="button"
                                                   {...dragProvided.dragHandleProps}
-                                                  className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-grab active:cursor-grabbing"
-                                                  title="Drag to reorder"
-                                                  aria-label="Drag to reorder"
+                                                  className="p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-grab active:cursor-grabbing"
+                                                  title="Drag"
+                                                  aria-label="Drag"
                                                 >
                                                   <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
                                                     <path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0zM7 10a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0zM7 16a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0z" />
                                                   </svg>
                                                 </button>
 
-                                                <span className="font-mono text-xs bg-slate-100 text-slate-700 px-2 py-1 rounded-lg border border-slate-200">
+                                                <span className="font-mono text-[11px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded border border-slate-200 truncate">
                                                   {safeStr(it.public_id) || "—"}
                                                 </span>
 
@@ -1444,33 +1406,41 @@ export default function RaidClient({
                                                   </button>
                                                 )}
                                               </div>
-                                              {stale && <div className="text-xs text-amber-700 mt-1 max-w-[260px]">{stale.message}</div>}
+                                              {stale && <div className="text-[12px] text-amber-800 mt-1">{stale.message}</div>}
                                             </td>
 
                                             {/* Description */}
-                                            <td className="px-4 py-3 border-r border-slate-200" style={{ width: colW.desc }}>
+                                            <td className={CELL_WRAP} style={{ width: colW.desc }}>
                                               <textarea
-                                                className={cellTextareaClass()}
+                                                className={cx(
+                                                  CELL_BASE,
+                                                  "resize-none min-h-[28px] py-0",
+                                                  "focus:bg-white focus:shadow-[0_0_0_2px_rgba(99,102,241,0.20)] focus:rounded"
+                                                )}
                                                 value={safeStr(it.description)}
                                                 disabled={isBusy}
-                                                placeholder="Describe the item…"
+                                                placeholder="Describe…"
                                                 onChange={(e) =>
                                                   setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, description: e.target.value } : x)))
                                                 }
-                                                onBlur={() => onPatch(it.id, { description: safeStr(it.description).trim() || "Untitled" })}
+                                                onBlur={() =>
+                                                  onPatch(it.id, { description: safeStr(it.description).trim() || "Untitled" })
+                                                }
                                               />
                                             </td>
 
                                             {/* Owner */}
-                                            <td className="px-4 py-3 border-r border-slate-200">
-                                              <div className="space-y-1">
+                                            <td className={CELL_WRAP}>
+                                              <div className="w-full">
                                                 <input
-                                                  className={cellInputClass(
-                                                    showOwnerWarn ? "border-rose-300 bg-rose-50 focus:border-rose-300" : ""
+                                                  className={cx(
+                                                    CELL_BASE,
+                                                    showOwnerWarn && "text-rose-700 placeholder:text-rose-300",
+                                                    "focus:bg-white focus:shadow-[0_0_0_2px_rgba(99,102,241,0.20)] focus:rounded px-1 py-1"
                                                   )}
                                                   value={safeStr(it.owner_label)}
                                                   disabled={isBusy}
-                                                  placeholder="e.g. Alex Adu-Poku"
+                                                  placeholder="Owner name…"
                                                   onChange={(e) =>
                                                     setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, owner_label: e.target.value } : x)))
                                                   }
@@ -1479,14 +1449,22 @@ export default function RaidClient({
                                                     onPatch(it.id, { owner_label: safeStr(it.owner_label).trim() });
                                                   }}
                                                 />
-                                                {showOwnerWarn && <div className="text-xs text-rose-600 font-semibold">Owner required</div>}
+                                                {showOwnerWarn && <div className="text-[12px] text-rose-700 mt-1 font-medium">Owner required</div>}
                                               </div>
                                             </td>
 
-                                            {/* Status (glossy pill, no arrow) */}
-                                            <td className="px-4 py-3 border-r border-slate-200">
+                                            {/* Status (pill select, no arrow) */}
+                                            <td className={CELL_WRAP}>
                                               <select
-                                                className={pillClass(`${stStyle.base} ${stStyle.ring}`)}
+                                                className={cx(
+                                                  "w-full h-8 px-3 rounded-full border-0 appearance-none",
+                                                  "text-[12px] font-semibold text-center",
+                                                  st.bg,
+                                                  st.text,
+                                                  st.ring,
+                                                  "shadow-[0_6px_14px_rgba(2,6,23,0.08)] hover:brightness-105 transition"
+                                                )}
+                                                style={{ backgroundImage: "none" }}
                                                 value={safeStr(it.status || "Open")}
                                                 disabled={isBusy}
                                                 onChange={(e) => onPatch(it.id, { status: e.target.value })}
@@ -1495,14 +1473,21 @@ export default function RaidClient({
                                                 <option value="In Progress">In Progress</option>
                                                 <option value="Mitigated">Mitigated</option>
                                                 <option value="Closed">Closed</option>
-                                                {/* ✅ Invalid removed */}
                                               </select>
                                             </td>
 
-                                            {/* Priority (glossy pill, no arrow) */}
-                                            <td className="px-4 py-3 border-r border-slate-200">
+                                            {/* Priority (pill select, no arrow) */}
+                                            <td className={CELL_WRAP}>
                                               <select
-                                                className={pillClass(`${priStyle.base} ${priStyle.ring}`)}
+                                                className={cx(
+                                                  "w-full h-8 px-3 rounded-full border-0 appearance-none",
+                                                  "text-[12px] font-semibold text-center",
+                                                  pr.bg,
+                                                  pr.text,
+                                                  pr.ring,
+                                                  "shadow-[0_6px_14px_rgba(2,6,23,0.08)] hover:brightness-105 transition"
+                                                )}
+                                                style={{ backgroundImage: "none" }}
                                                 value={safeStr(it.priority || "")}
                                                 disabled={isBusy}
                                                 onChange={(e) => onPatch(it.id, { priority: e.target.value || null })}
@@ -1516,9 +1501,13 @@ export default function RaidClient({
                                             </td>
 
                                             {/* Likelihood */}
-                                            <td className="px-4 py-3 border-r border-slate-200">
+                                            <td className={CELL_WRAP}>
                                               <input
-                                                className={cellInputClass("text-center font-semibold")}
+                                                className={cx(
+                                                  CELL_BASE,
+                                                  "text-center",
+                                                  "focus:bg-white focus:shadow-[0_0_0_2px_rgba(99,102,241,0.20)] focus:rounded px-1 py-1"
+                                                )}
                                                 type="number"
                                                 min={0}
                                                 max={100}
@@ -1534,9 +1523,13 @@ export default function RaidClient({
                                             </td>
 
                                             {/* Severity */}
-                                            <td className="px-4 py-3 border-r border-slate-200">
+                                            <td className={CELL_WRAP}>
                                               <input
-                                                className={cellInputClass("text-center font-semibold")}
+                                                className={cx(
+                                                  CELL_BASE,
+                                                  "text-center",
+                                                  "focus:bg-white focus:shadow-[0_0_0_2px_rgba(99,102,241,0.20)] focus:rounded px-1 py-1"
+                                                )}
                                                 type="number"
                                                 min={0}
                                                 max={100}
@@ -1552,36 +1545,40 @@ export default function RaidClient({
                                             </td>
 
                                             {/* Score */}
-                                            <td className="px-4 py-3 border-r border-slate-200">
-                                              <div className="flex items-center gap-2">
+                                            <td className={CELL_WRAP}>
+                                              <div className="flex items-center gap-2 w-full">
                                                 <div
-                                                  className={[
-                                                    "w-10 h-10 rounded-xl flex items-center justify-center text-xs font-extrabold shadow-sm",
+                                                  className={cx(
+                                                    "w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-bold",
                                                     tone === "r"
-                                                      ? "bg-[#e2445c] text-white"
+                                                      ? "bg-rose-500 text-white"
                                                       : tone === "a"
-                                                      ? "bg-[#ffcb00] text-white"
-                                                      : "bg-[#00c875] text-white",
-                                                  ].join(" ")}
+                                                      ? "bg-amber-400 text-slate-900"
+                                                      : "bg-emerald-500 text-white"
+                                                  )}
                                                 >
                                                   {sc}
                                                 </div>
-                                                <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
+                                                <div className="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden">
                                                   <div
-                                                    className={[
+                                                    className={cx(
                                                       "h-full rounded-full",
-                                                      tone === "r" ? "bg-[#e2445c]" : tone === "a" ? "bg-[#ffcb00]" : "bg-[#00c875]",
-                                                    ].join(" ")}
-                                                    style={{ width: `${Math.min(100, Math.max(0, sc))}%` }}
+                                                      tone === "r" ? "bg-rose-500" : tone === "a" ? "bg-amber-400" : "bg-emerald-500"
+                                                    )}
+                                                    style={{ width: `${sc}%` }}
                                                   />
                                                 </div>
                                               </div>
                                             </td>
 
-                                            {/* Due */}
-                                            <td className="px-4 py-3 border-r border-slate-200">
+                                            {/* Due Date */}
+                                            <td className={CELL_WRAP}>
                                               <input
-                                                className={cellInputClass("text-center font-semibold")}
+                                                className={cx(
+                                                  CELL_BASE,
+                                                  "text-center",
+                                                  "focus:bg-white focus:shadow-[0_0_0_2px_rgba(99,102,241,0.20)] focus:rounded px-1 py-1"
+                                                )}
                                                 type="date"
                                                 value={fmtDateOnly(it.due_date)}
                                                 disabled={isBusy}
@@ -1592,16 +1589,19 @@ export default function RaidClient({
                                               />
                                             </td>
 
-                                            {/* Response plan */}
-                                            <td className="px-4 py-3 border-r border-slate-200" style={{ width: colW.resp }}>
-                                              <div className="space-y-1">
+                                            {/* Response Plan */}
+                                            <td className={CELL_WRAP} style={{ width: colW.resp }}>
+                                              <div className="w-full">
                                                 <textarea
-                                                  className={cellTextareaClass(
-                                                    showPlanWarn ? "border-rose-300 bg-rose-50 focus:border-rose-300" : ""
+                                                  className={cx(
+                                                    CELL_BASE,
+                                                    "resize-none min-h-[28px] py-0",
+                                                    showPlanWarn && "text-rose-700 placeholder:text-rose-300",
+                                                    "focus:bg-white focus:shadow-[0_0_0_2px_rgba(99,102,241,0.20)] focus:rounded"
                                                   )}
                                                   value={safeStr(it.response_plan || "")}
                                                   disabled={isBusy}
-                                                  placeholder="Mitigation plan…"
+                                                  placeholder="Plan…"
                                                   onChange={(e) =>
                                                     setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, response_plan: e.target.value } : x)))
                                                   }
@@ -1610,68 +1610,63 @@ export default function RaidClient({
                                                     onPatch(it.id, { response_plan: safeStr(it.response_plan || "").trim() || null });
                                                   }}
                                                 />
-                                                {showPlanWarn && <div className="text-xs text-rose-600 font-semibold">Plan required</div>}
+                                                {showPlanWarn && <div className="text-[12px] text-rose-700 mt-1 font-medium">Plan required</div>}
                                               </div>
                                             </td>
 
                                             {/* AI Rollup */}
-                                            <td className="px-4 py-3 border-r border-slate-200">
-                                              <div className="max-w-[520px]">
+                                            <td className={CELL_WRAP}>
+                                              <div className="w-full">
                                                 {it.ai_rollup ? (
                                                   <p className="text-[13px] text-slate-600 line-clamp-2" title={it.ai_rollup}>
                                                     {it.ai_rollup}
                                                   </p>
                                                 ) : (
-                                                  <span className="text-[13px] text-slate-400 italic">No AI analysis yet</span>
+                                                  <span className="text-[13px] text-slate-400 italic">No AI yet</span>
                                                 )}
                                               </div>
                                             </td>
 
                                             {/* Updated */}
-                                            <td className="px-4 py-3 border-r border-slate-200">
-                                              <span className="text-xs text-slate-500">{fmtWhen(it.updated_at)}</span>
+                                            <td className={CELL_WRAP}>
+                                              <span className="text-[12px] text-slate-500">{fmtWhen(it.updated_at)}</span>
                                             </td>
 
                                             {/* Actions */}
-                                            <td className="px-4 py-3 text-right">
-                                              <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <td className="px-2 py-2 min-h-[44px]">
+                                              <div className="flex items-center justify-end gap-1">
                                                 <button
                                                   onClick={() => setAiOpenId(aiOpenId === it.id ? "" : it.id)}
-                                                  className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                                  className={cx(
+                                                    "p-2 rounded-md",
+                                                    aiOpenId === it.id ? "bg-indigo-50 text-indigo-700" : "text-slate-500 hover:bg-slate-100"
+                                                  )}
                                                   title="AI Insights"
                                                 >
                                                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                                                   </svg>
                                                 </button>
+
                                                 <button
                                                   onClick={() => onAiRefresh(it.id)}
                                                   disabled={isBusy}
-                                                  className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                                  className="p-2 text-slate-500 hover:bg-slate-100 rounded-md disabled:opacity-50"
                                                   title="Refresh AI"
                                                 >
                                                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path
-                                                      strokeLinecap="round"
-                                                      strokeLinejoin="round"
-                                                      strokeWidth={2}
-                                                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                                                    />
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                                                   </svg>
                                                 </button>
+
                                                 <button
                                                   onClick={() => onDelete(it.id)}
                                                   disabled={isBusy}
-                                                  className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                                  className="p-2 text-rose-600 hover:bg-rose-50 rounded-md disabled:opacity-50"
                                                   title="Delete"
                                                 >
                                                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path
-                                                      strokeLinecap="round"
-                                                      strokeLinejoin="round"
-                                                      strokeWidth={2}
-                                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                                    />
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                                   </svg>
                                                 </button>
                                               </div>
@@ -1681,21 +1676,21 @@ export default function RaidClient({
                                           {/* AI Panel */}
                                           {aiOpenId === it.id && (
                                             <tr>
-                                              <td colSpan={13} className="bg-indigo-50/50 border-t border-indigo-100">
+                                              <td colSpan={13} className="bg-indigo-50/40 border-b border-indigo-100">
                                                 <div className="p-4">
-                                                  <div className="flex items-center justify-between mb-4">
+                                                  <div className="flex items-center justify-between mb-3">
                                                     <div className="flex items-center gap-3">
-                                                      <div className="w-9 h-9 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600">
+                                                      <div className="w-8 h-8 bg-indigo-100 rounded-md flex items-center justify-center text-indigo-700">
                                                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                                                         </svg>
                                                       </div>
                                                       <div>
                                                         <h3 className="font-semibold text-slate-900">AI Insights</h3>
-                                                        <p className="text-xs text-slate-500">
-                                                          Status: {safeStr(it?.related_refs?.ai?.ai_status) || "—"} • Quality:{" "}
-                                                          {Number.isFinite(it?.related_refs?.ai?.ai_quality) ? `${Math.round(it?.related_refs?.ai?.ai_quality)}/100` : "—"} •{" "}
-                                                          {safeStr(it?.related_refs?.ai?.last_run_at) ? fmtWhen(it?.related_refs?.ai?.last_run_at) : "Never"}
+                                                        <p className="text-[12px] text-slate-500">
+                                                          Status: {safeStr(ai.ai_status) || "—"} • Quality:{" "}
+                                                          {Number.isFinite(ai.ai_quality) ? `${Math.round(ai.ai_quality)}/100` : "—"} •{" "}
+                                                          {safeStr(ai.last_run_at) ? fmtWhen(ai.last_run_at) : "Never"}
                                                         </p>
                                                       </div>
                                                     </div>
@@ -1703,17 +1698,14 @@ export default function RaidClient({
                                                       <button
                                                         onClick={() => openHistory(it.id)}
                                                         disabled={aiHistBusyId === it.id}
-                                                        className="px-3 h-10 text-sm font-semibold text-indigo-700 bg-indigo-100 hover:bg-indigo-200 rounded-xl transition-colors"
+                                                        className="px-3 py-2 text-[13px] font-medium text-indigo-700 bg-indigo-100 hover:bg-indigo-200 rounded-md disabled:opacity-50"
                                                       >
-                                                        {aiHistBusyId === it.id
-                                                          ? "Loading…"
-                                                          : aiHistOpenId === it.id
-                                                          ? "Hide History"
-                                                          : "View History"}
+                                                        {aiHistBusyId === it.id ? "Loading…" : aiHistOpenId === it.id ? "Hide History" : "View History"}
                                                       </button>
                                                       <button
                                                         onClick={() => setAiOpenId("")}
-                                                        className="p-2 text-slate-400 hover:text-slate-600 hover:bg-white/60 rounded-xl transition-colors"
+                                                        className="p-2 text-slate-500 hover:bg-slate-100 rounded-md"
+                                                        title="Close"
                                                       >
                                                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1722,21 +1714,25 @@ export default function RaidClient({
                                                     </div>
                                                   </div>
 
-                                                  <div className="grid gap-4">
-                                                    <div className="bg-white rounded-2xl p-4 border border-indigo-100 shadow-sm">
-                                                      <h4 className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Summary</h4>
+                                                  <div className="grid gap-3">
+                                                    <div className="bg-white rounded-lg p-4 border border-indigo-100 shadow-sm">
+                                                      <h4 className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                                                        Summary
+                                                      </h4>
                                                       <p className="text-[13px] text-slate-700 leading-relaxed">
-                                                        {safeStr(it?.related_refs?.ai?.summary || it.ai_rollup || "No summary available.")}
+                                                        {safeStr(ai.summary || it.ai_rollup || "No summary available.")}
                                                       </p>
                                                     </div>
 
-                                                    <div className="bg-white rounded-2xl p-4 border border-indigo-100 shadow-sm">
-                                                      <h4 className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-3">Recommendations</h4>
+                                                    <div className="bg-white rounded-lg p-4 border border-indigo-100 shadow-sm">
+                                                      <h4 className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                                                        Recommendations
+                                                      </h4>
                                                       <div className="grid gap-2">
-                                                        {(it?.related_refs?.ai?.recommendations || []).length > 0 ? (
-                                                          it.related_refs.ai.recommendations.map((r: string, idx: number) => (
-                                                            <div key={idx} className="flex items-start gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
-                                                              <span className="flex-shrink-0 w-7 h-7 bg-indigo-100 text-indigo-700 rounded-xl flex items-center justify-center text-xs font-extrabold">
+                                                        {(ai?.recommendations || []).length > 0 ? (
+                                                          ai.recommendations.map((r: string, idx: number) => (
+                                                            <div key={idx} className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                                                              <span className="flex-shrink-0 w-6 h-6 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-[12px] font-bold">
                                                                 {idx + 1}
                                                               </span>
                                                               <p className="text-[13px] text-slate-700">{r}</p>
@@ -1744,7 +1740,7 @@ export default function RaidClient({
                                                           ))
                                                         ) : (
                                                           <p className="text-[13px] text-slate-500 italic">
-                                                            No recommendations yet. Click “Refresh AI” to generate.
+                                                            No recommendations yet. Click “Refresh AI”.
                                                           </p>
                                                         )}
                                                       </div>
@@ -1752,8 +1748,8 @@ export default function RaidClient({
 
                                                     {/* History Comparison */}
                                                     {aiHistOpenId === it.id && (
-                                                      <div className="bg-white rounded-2xl p-4 border border-indigo-100 shadow-sm">
-                                                        <h4 className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-4">
+                                                      <div className="bg-white rounded-lg p-4 border border-indigo-100 shadow-sm">
+                                                        <h4 className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-3">
                                                           Version History & Diff
                                                         </h4>
 
@@ -1761,11 +1757,11 @@ export default function RaidClient({
                                                           <p className="text-[13px] text-slate-500">No history available.</p>
                                                         ) : (
                                                           <div className="space-y-4">
-                                                            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-3 items-end">
-                                                              <div>
-                                                                <label className="text-xs text-slate-500 mb-1 block">Version A</label>
+                                                            <div className="flex items-center gap-4">
+                                                              <div className="flex-1">
+                                                                <label className="text-[12px] text-slate-500 mb-1 block">Version A</label>
                                                                 <select
-                                                                  className="w-full h-10 text-sm border border-slate-200 rounded-xl px-3 bg-white focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300 outline-none"
+                                                                  className="w-full text-[13px] border border-slate-200 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500"
                                                                   value={cmp.a}
                                                                   onChange={(e) =>
                                                                     setAiCompareById((prev) => ({
@@ -1781,11 +1777,11 @@ export default function RaidClient({
                                                                   ))}
                                                                 </select>
                                                               </div>
-                                                              <div className="hidden md:flex justify-center pb-2 text-slate-400">vs</div>
-                                                              <div>
-                                                                <label className="text-xs text-slate-500 mb-1 block">Version B</label>
+                                                              <div className="text-slate-400 pt-6">vs</div>
+                                                              <div className="flex-1">
+                                                                <label className="text-[12px] text-slate-500 mb-1 block">Version B</label>
                                                                 <select
-                                                                  className="w-full h-10 text-sm border border-slate-200 rounded-xl px-3 bg-white focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300 outline-none"
+                                                                  className="w-full text-[13px] border border-slate-200 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500"
                                                                   value={cmp.b}
                                                                   onChange={(e) =>
                                                                     setAiCompareById((prev) => ({
@@ -1806,43 +1802,43 @@ export default function RaidClient({
                                                             {runA && runB && (
                                                               <div className="space-y-3 border-t border-slate-100 pt-4">
                                                                 {diffRollup && (
-                                                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                                    <div className="p-3 bg-rose-50 rounded-xl border border-rose-200">
-                                                                      <div className="text-xs font-semibold text-rose-700 mb-1">Previous</div>
+                                                                  <div className="grid grid-cols-2 gap-4">
+                                                                    <div className="p-3 bg-rose-50 rounded-lg border border-rose-100">
+                                                                      <div className="text-[11px] font-semibold text-rose-700 mb-1">Previous</div>
                                                                       <div className="text-[13px] text-slate-700">{diffRollup.a}</div>
                                                                     </div>
-                                                                    <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200">
-                                                                      <div className="text-xs font-semibold text-emerald-700 mb-1">Current</div>
+                                                                    <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                                                                      <div className="text-[11px] font-semibold text-emerald-700 mb-1">Current</div>
                                                                       <div className="text-[13px] text-slate-700">{diffRollup.b}</div>
                                                                     </div>
                                                                   </div>
                                                                 )}
 
                                                                 {diffSummary && (
-                                                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                                    <div className="p-3 bg-rose-50 rounded-xl border border-rose-200">
-                                                                      <div className="text-xs font-semibold text-rose-700 mb-1">Previous Summary</div>
+                                                                  <div className="grid grid-cols-2 gap-4">
+                                                                    <div className="p-3 bg-rose-50 rounded-lg border border-rose-100">
+                                                                      <div className="text-[11px] font-semibold text-rose-700 mb-1">Previous Summary</div>
                                                                       <div className="text-[13px] text-slate-700">{diffSummary.a}</div>
                                                                     </div>
-                                                                    <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200">
-                                                                      <div className="text-xs font-semibold text-emerald-700 mb-1">Current Summary</div>
+                                                                    <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                                                                      <div className="text-[11px] font-semibold text-emerald-700 mb-1">Current Summary</div>
                                                                       <div className="text-[13px] text-slate-700">{diffSummary.b}</div>
                                                                     </div>
                                                                   </div>
                                                                 )}
 
                                                                 {diffRecs && (
-                                                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                                    <div className="p-3 bg-rose-50 rounded-xl border border-rose-200">
-                                                                      <div className="text-xs font-semibold text-rose-700 mb-2">Previous Recommendations</div>
+                                                                  <div className="grid grid-cols-2 gap-4">
+                                                                    <div className="p-3 bg-rose-50 rounded-lg border border-rose-100">
+                                                                      <div className="text-[11px] font-semibold text-rose-700 mb-2">Previous Recommendations</div>
                                                                       <ul className="list-disc list-inside text-[13px] text-slate-700 space-y-1">
                                                                         {diffRecs.a.map((x, i) => (
                                                                           <li key={i}>{x}</li>
                                                                         ))}
                                                                       </ul>
                                                                     </div>
-                                                                    <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200">
-                                                                      <div className="text-xs font-semibold text-emerald-700 mb-2">Current Recommendations</div>
+                                                                    <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                                                                      <div className="text-[11px] font-semibold text-emerald-700 mb-2">Current Recommendations</div>
                                                                       <ul className="list-disc list-inside text-[13px] text-slate-700 space-y-1">
                                                                         {diffRecs.b.map((x, i) => (
                                                                           <li key={i}>{x}</li>
@@ -1892,37 +1888,34 @@ export default function RaidClient({
       {/* Digest Modal */}
       {digest && (
         <div
-          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-start justify-center p-4 sm:p-6 overflow-y-auto"
+          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-start justify-center p-4 sm:p-6 overflow-y-auto"
           onClick={(e) => {
             if (e.target === e.currentTarget) setDigest(null);
           }}
         >
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl my-8 overflow-hidden border border-slate-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl my-8 overflow-hidden">
             <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between z-10">
               <div>
-                <h2 className="text-xl font-bold text-slate-900">{safeStr(digest?.header?.title) || "Weekly RAID Digest"}</h2>
-                <p className="text-sm text-slate-500 mt-1">
+                <h2 className="text-[16px] font-semibold text-slate-900">{safeStr(digest?.header?.title) || "Weekly RAID Digest"}</h2>
+                <p className="text-[13px] text-slate-500 mt-1">
                   {safeStr(digest?.header?.project_code) || humanProjectId} • {safeStr(digest?.header?.project_name) || humanProjectTitle} •{" "}
                   {fmtWhen(digest?.generated_at)}
                 </p>
               </div>
-              <button
-                onClick={() => setDigest(null)}
-                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
-              >
+              <button onClick={() => setDigest(null)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-md transition-colors">
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            <div className="p-6 bg-slate-50/50">
+            <div className="p-6 bg-slate-50/60">
               <div className="grid md:grid-cols-2 gap-4">
                 {(Array.isArray(digest?.sections) ? digest.sections : []).map((sec: any) => (
-                  <div key={safeStr(sec?.key) || safeStr(sec?.title)} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div key={safeStr(sec?.key) || safeStr(sec?.title)} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                       <h3 className="font-semibold text-slate-900">{safeStr(sec?.title) || "Section"}</h3>
-                      <span className="px-2.5 py-0.5 bg-slate-200 text-slate-700 text-xs font-extrabold rounded-full">
+                      <span className="px-2.5 py-0.5 bg-slate-200 text-slate-700 text-[12px] font-bold rounded-full">
                         {sec?.count || sec?.items?.length || 0}
                       </span>
                     </div>
@@ -1931,57 +1924,48 @@ export default function RaidClient({
                         sec.items.map((x: any, i: number) => {
                           const link = digestDeepLink(routeProjectId, x);
                           const idTxt = digestId(x);
-                          const st = statusToken(x?.status);
-                          const dot =
-                            st === "mitigated"
-                              ? "bg-[#00c875]"
-                              : st === "closed"
-                              ? "bg-[#0086c0]"
-                              : st === "inprogress"
-                              ? "bg-[#579bfc]"
-                              : "bg-slate-400";
-
                           return (
                             <li key={safeStr(x?.id) || i} className="p-3 hover:bg-slate-50 transition-colors flex items-center gap-3">
-                              <div className={`w-2 h-2 rounded-full ${dot}`} />
+                              <div
+                                className={cx(
+                                  "w-2 h-2 rounded-full",
+                                  statusToken(x?.status) === "mitigated"
+                                    ? "bg-emerald-500"
+                                    : statusToken(x?.status) === "closed"
+                                    ? "bg-cyan-600"
+                                    : statusToken(x?.status) === "inprogress"
+                                    ? "bg-sky-500"
+                                    : "bg-slate-400"
+                                )}
+                              />
                               <Link
                                 href={link}
-                                className="font-mono text-xs bg-slate-100 text-slate-700 px-2 py-1 rounded-lg border border-slate-200 hover:bg-slate-200 transition-colors"
+                                className="font-mono text-[11px] bg-slate-100 text-slate-700 px-2 py-1 rounded hover:bg-slate-200 transition-colors"
                               >
                                 {digestIdShort(x)}
                               </Link>
                               <div className="flex-1 min-w-0">
-                                <Link href={link} className="text-sm font-semibold text-slate-900 hover:text-indigo-600 truncate block">
+                                <Link href={link} className="text-[13px] font-medium text-slate-900 hover:text-indigo-600 truncate block">
                                   {safeStr(x?.title) || safeStr(x?.description) || "Untitled"}
                                 </Link>
                               </div>
                               <div className="flex items-center gap-1">
                                 <button
                                   onClick={() => copyToClipboard(idTxt)}
-                                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                  className="p-2 text-slate-500 hover:bg-slate-100 rounded-md transition-colors"
                                   title="Copy ID"
                                 >
                                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                                    />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                                   </svg>
                                 </button>
                                 <button
                                   onClick={() => copyLinkToClipboard(link)}
-                                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                  className="p-2 text-slate-500 hover:bg-slate-100 rounded-md transition-colors"
                                   title="Copy Link"
                                 >
                                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-                                    />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                                   </svg>
                                 </button>
                               </div>
@@ -1989,7 +1973,7 @@ export default function RaidClient({
                           );
                         })
                       ) : (
-                        <li className="p-4 text-sm text-slate-500 text-center">No items</li>
+                        <li className="p-4 text-[13px] text-slate-500 text-center">No items</li>
                       )}
                     </ul>
                   </div>
