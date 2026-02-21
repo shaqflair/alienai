@@ -5,7 +5,6 @@ import Link from "next/link";
 import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 
 type RaidType = "Risk" | "Assumption" | "Issue" | "Dependency";
-// ✅ Invalid removed from dropdown + keyboard cycling
 type RaidStatus = "Open" | "In Progress" | "Mitigated" | "Closed";
 
 export type RaidItem = {
@@ -89,7 +88,6 @@ function fmtDateOnly(x: any) {
   return s;
 }
 
-// Note: we still handle "invalid" rows coming from DB, but we DON'T offer it in the UI.
 function statusToken(s: any): "open" | "inprogress" | "mitigated" | "closed" | "invalid" {
   const v = safeStr(s).toLowerCase().trim();
   if (v === "open") return "open";
@@ -169,9 +167,7 @@ function normPriority(x: any): "Low" | "Medium" | "High" | "Critical" | "" {
 function normDateToIsoOnly(x: any): string | null {
   const s = safeStr(x).trim();
   if (!s) return null;
-
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-
   const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
   if (m) {
     const dd = String(m[1]).padStart(2, "0");
@@ -183,7 +179,6 @@ function normDateToIsoOnly(x: any): string | null {
     }
     return `${yyyy}-${mm}-${dd}`;
   }
-
   const d = new Date(s);
   if (!Number.isNaN(d.getTime())) {
     const yyyy = String(d.getFullYear());
@@ -191,7 +186,6 @@ function normDateToIsoOnly(x: any): string | null {
     const dd = String(d.getDate()).padStart(2, "0");
     return `${yyyy}-${mm}-${dd}`;
   }
-
   return null;
 }
 
@@ -215,96 +209,79 @@ function cycleInList(list: readonly string[], current: string) {
 
 /* ---------------- styling tokens ---------------- */
 
-const TYPE_STYLES: Record<RaidType, { border: string; text: string; desc: string; headerBg: string; dot: string }> = {
+const TYPE_CONFIG: Record<RaidType, {
+  color: string;
+  bg: string;
+  headerBg: string;
+  border: string;
+  dot: string;
+  textColor: string;
+  lightBg: string;
+  desc: string;
+  emoji: string;
+}> = {
   Risk: {
-    border: "border-rose-200",
-    text: "text-rose-900",
-    dot: "bg-rose-500",
-    desc: "Events that may happen — mitigate early",
-    headerBg: "bg-rose-50",
+    color: "#e03e3e",
+    bg: "bg-red-50",
+    headerBg: "bg-white",
+    border: "border-red-100",
+    dot: "bg-red-500",
+    textColor: "text-red-700",
+    lightBg: "bg-red-50/60",
+    desc: "Events that may occur",
+    emoji: "⚠",
   },
   Assumption: {
-    border: "border-amber-200",
-    text: "text-amber-900",
-    dot: "bg-amber-500",
-    desc: "Beliefs we hold — validate them",
-    headerBg: "bg-amber-50",
+    color: "#d9730d",
+    bg: "bg-orange-50",
+    headerBg: "bg-white",
+    border: "border-orange-100",
+    dot: "bg-orange-400",
+    textColor: "text-orange-700",
+    lightBg: "bg-orange-50/60",
+    desc: "Beliefs that need validation",
+    emoji: "💡",
   },
   Issue: {
-    border: "border-orange-200",
-    text: "text-orange-900",
-    dot: "bg-orange-500",
-    desc: "Active problems — resolve quickly",
-    headerBg: "bg-orange-50",
+    color: "#0f7b6c",
+    bg: "bg-emerald-50",
+    headerBg: "bg-white",
+    border: "border-emerald-100",
+    dot: "bg-emerald-500",
+    textColor: "text-emerald-700",
+    lightBg: "bg-emerald-50/60",
+    desc: "Active blockers to resolve",
+    emoji: "🔥",
   },
   Dependency: {
-    border: "border-blue-200",
-    text: "text-blue-900",
+    color: "#0b6bcb",
+    bg: "bg-blue-50",
+    headerBg: "bg-white",
+    border: "border-blue-100",
     dot: "bg-blue-500",
-    desc: "External blockers — track closely",
-    headerBg: "bg-blue-50",
+    textColor: "text-blue-700",
+    lightBg: "bg-blue-50/60",
+    desc: "External blockers to track",
+    emoji: "🔗",
   },
 };
 
-const STATUS_PILL: Record<string, { bg: string; text: string; ring: string }> = {
-  open: {
-    bg: "bg-gradient-to-b from-slate-400 to-slate-500",
-    text: "text-white",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-slate-400/50",
-  },
-  inprogress: {
-    bg: "bg-gradient-to-b from-sky-400 to-sky-600",
-    text: "text-white",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-sky-400/50",
-  },
-  mitigated: {
-    bg: "bg-gradient-to-b from-emerald-400 to-emerald-600",
-    text: "text-white",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-emerald-400/50",
-  },
-  closed: {
-    bg: "bg-gradient-to-b from-cyan-500 to-cyan-700",
-    text: "text-white",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-cyan-500/50",
-  },
-  invalid: {
-    bg: "bg-gradient-to-b from-slate-300 to-slate-500",
-    text: "text-white",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-slate-400/50",
-  },
+/* Notion-style status pills */
+const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
+  open: { bg: "bg-gray-100 hover:bg-gray-200", text: "text-gray-700", dot: "bg-gray-400" },
+  inprogress: { bg: "bg-blue-100 hover:bg-blue-200", text: "text-blue-700", dot: "bg-blue-500" },
+  mitigated: { bg: "bg-green-100 hover:bg-green-200", text: "text-green-700", dot: "bg-green-500" },
+  closed: { bg: "bg-slate-100 hover:bg-slate-200", text: "text-slate-500", dot: "bg-slate-400" },
+  invalid: { bg: "bg-red-100 hover:bg-red-200", text: "text-red-600", dot: "bg-red-400" },
 };
 
-const PRIORITY_PILL: Record<string, { bg: string; text: string; ring: string; label: string }> = {
-  "": {
-    bg: "bg-slate-100",
-    text: "text-slate-700",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-slate-300/70",
-    label: "—",
-  },
-  low: {
-    bg: "bg-gradient-to-b from-slate-400 to-slate-600",
-    text: "text-white",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-slate-400/50",
-    label: "Low",
-  },
-  medium: {
-    bg: "bg-gradient-to-b from-sky-400 to-sky-600",
-    text: "text-white",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-sky-400/50",
-    label: "Medium",
-  },
-  high: {
-    bg: "bg-gradient-to-b from-amber-300 to-amber-500",
-    text: "text-slate-900",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-amber-300/60",
-    label: "High",
-  },
-  critical: {
-    bg: "bg-gradient-to-b from-rose-400 to-rose-600",
-    text: "text-white",
-    ring: "focus:ring-2 focus:ring-offset-1 focus:ring-rose-400/50",
-    label: "Critical",
-  },
+/* Monday.com-style priority tags */
+const PRIORITY_STYLES: Record<string, { bg: string; text: string; label: string }> = {
+  "": { bg: "bg-transparent", text: "text-gray-400", label: "—" },
+  low: { bg: "bg-blue-100 hover:bg-blue-200", text: "text-blue-600", label: "Low" },
+  medium: { bg: "bg-yellow-100 hover:bg-yellow-200", text: "text-yellow-700", label: "Medium" },
+  high: { bg: "bg-orange-100 hover:bg-orange-200", text: "text-orange-700", label: "High" },
+  critical: { bg: "bg-red-100 hover:bg-red-200", text: "text-red-700", label: "Critical" },
 };
 
 /* ---------------- digest helpers ---------------- */
@@ -333,7 +310,6 @@ function digestDeepLink(projectRouteId: string, x: any) {
 
 /* ---------------- api helpers ---------------- */
 
-// ✅ IMPORTANT: supports DELETE 204 and empty body responses
 async function postJson(url: string, method: string, body?: any, headers?: Record<string, string>) {
   const res = await fetch(url, {
     method,
@@ -393,13 +369,6 @@ async function createRaidItem(payload: any) {
   return j.item as RaidItem;
 }
 
-/**
- * ✅ Delete reliability:
- * - Primary: DELETE /api/raid/:id
- * - If your route only supports POST (common with some Next handlers), fallback:
- *   POST /api/raid/:id/delete  OR POST /api/raid/delete (id in body)
- * (We try both if 405.)
- */
 async function deleteRaidItem(id: string, expectedUpdatedAt?: string) {
   try {
     await postJson(
@@ -410,7 +379,6 @@ async function deleteRaidItem(id: string, expectedUpdatedAt?: string) {
     );
   } catch (e: any) {
     if ((e as any)?.status !== 405) throw e;
-    // Fallback 1
     try {
       await postJson(
         `/api/raid/${encodeURIComponent(id)}/delete`,
@@ -421,7 +389,6 @@ async function deleteRaidItem(id: string, expectedUpdatedAt?: string) {
       return;
     } catch (e2: any) {
       if ((e2 as any)?.status !== 404) throw e2;
-      // Fallback 2
       await postJson(
         `/api/raid/delete`,
         "POST",
@@ -437,7 +404,6 @@ async function aiRefreshRaidItem(id: string) {
   return j.item as RaidItem;
 }
 
-// ✅ Fix 405: try GET first; if endpoint is POST-only, retry with POST.
 async function fetchWeeklyDigest(projectId: string) {
   const url = `/api/raid/digest?projectId=${encodeURIComponent(projectId)}`;
   try {
@@ -462,7 +428,7 @@ async function fetchAiHistory(raidId: string) {
 /* ---------------- component ---------------- */
 
 type ColKey = "desc" | "resp";
-const DEFAULT_COL_WIDTHS: Record<ColKey, number> = { desc: 420, resp: 360 };
+const DEFAULT_COL_WIDTHS: Record<ColKey, number> = { desc: 340, resp: 300 };
 
 /* ---------------- dnd helpers ---------------- */
 
@@ -485,28 +451,18 @@ function newBanner(kind: Banner["kind"], text: string): Banner {
   return { kind, text, id: `${kind}:${Date.now()}:${Math.random().toString(16).slice(2)}` };
 }
 
-/* ---------------- Spreadsheet-like primitives ----------------
-   Goal: remove "card / white canvas" feel and make a true grid:
-   - outer border + full cell borders
-   - border-separate + border-spacing-0 for crisp lines
---------------------------------------------------------------- */
+/* ---------------- Column header cell ---------------- */
+const COL_HDR = "px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-widest bg-[#f7f7f5] border-b border-r border-gray-200 select-none whitespace-nowrap";
 
-// ✅ Every cell gets bottom + right border for grid feel
-const CELL_WRAP =
-  "px-3 py-2 min-h-[38px] align-top bg-white " +
-  "border-b border-slate-200 border-r border-slate-200 " +
-  "group-hover:bg-slate-50/40 transition-colors";
-
-// ✅ For <th> we match the same grid border rules
-const TH_WRAP =
-  "px-3 py-2 text-left text-[11px] font-semibold text-slate-600 uppercase tracking-wider " +
-  "bg-slate-50 border-b border-slate-200 border-r border-slate-200";
+/* ---------------- Row cell base styles ---------------- */
+const CELL_BASE = "px-0 py-0 border-b border-r border-gray-200 bg-white align-middle group-hover/row:bg-[#fafaf9] transition-colors duration-75";
 
 function pluralLabel(type: RaidType) {
   if (type === "Dependency") return "Dependencies";
   return `${type}s`;
 }
 
+/* ------------ Notion-style inline cell display ------------ */
 function CellDisplay({
   value,
   placeholder,
@@ -536,12 +492,12 @@ function CellDisplay({
       }}
       onDoubleClick={onActivate}
       className={cx(
-        "w-full min-h-[28px] px-2 py-1 rounded",
+        "w-full min-h-[34px] flex items-center px-3 py-1.5 cursor-text",
         "outline-none",
-        "hover:bg-white/80",
-        "focus:bg-white focus:shadow-[0_0_0_2px_rgba(99,102,241,0.18)]",
-        align === "center" && "text-center",
-        align === "right" && "text-right",
+        "focus:shadow-[inset_0_0_0_2px_#0f7b6c]",
+        "hover:bg-[#f0efec]/70",
+        align === "center" && "justify-center text-center",
+        align === "right" && "justify-end text-right",
         mono && "font-mono text-[12px]",
         !mono && "text-[13px]",
         "truncate"
@@ -549,14 +505,76 @@ function CellDisplay({
       title={title ?? (v || "")}
     >
       {v ? (
-        <span className="text-slate-900">{v}</span>
+        <span className="text-gray-800 truncate">{v}</span>
       ) : (
-        <span className={cx(dimIfEmpty ? "text-slate-400" : "text-slate-500")}>{placeholder || "—"}</span>
+        <span className={cx(dimIfEmpty ? "text-gray-300" : "text-gray-400", "text-[12px]")}>{placeholder || "—"}</span>
       )}
     </div>
   );
 }
 
+/* ------------ Notion-style status/priority tags ------------ */
+function StatusTag({
+  label,
+  onActivate,
+  disabled,
+}: {
+  label: string;
+  onActivate: () => void;
+  disabled?: boolean;
+}) {
+  const key = statusToken(label);
+  const style = STATUS_STYLES[key] || STATUS_STYLES.open;
+  const displayLabel = label === "In Progress" ? "In Progress" : label || "Open";
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onActivate(); }}
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onActivate(); }}
+      className={cx(
+        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium transition-colors",
+        style.bg, style.text,
+        disabled && "opacity-60 cursor-not-allowed"
+      )}
+    >
+      <span className={cx("w-1.5 h-1.5 rounded-full shrink-0", style.dot)} />
+      {displayLabel}
+    </button>
+  );
+}
+
+function PriorityTag({
+  label,
+  onActivate,
+  disabled,
+}: {
+  label: string;
+  onActivate: () => void;
+  disabled?: boolean;
+}) {
+  const key = priorityToken(label);
+  const style = PRIORITY_STYLES[key] || PRIORITY_STYLES[""];
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onActivate(); }}
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onActivate(); }}
+      className={cx(
+        "inline-flex items-center px-2.5 py-1 rounded-full text-[12px] font-medium transition-colors",
+        style.bg, style.text,
+        disabled && "opacity-60 cursor-not-allowed"
+      )}
+    >
+      {style.label}
+    </button>
+  );
+}
+
+/* ------------ Legacy PillTag for backward compat ------------ */
 function PillTag({
   kind,
   label,
@@ -568,39 +586,8 @@ function PillTag({
   onActivate: () => void;
   disabled?: boolean;
 }) {
-  const stKey = kind === "status" ? statusToken(label) : "";
-  const priKey = kind === "priority" ? priorityToken(label) : "";
-  const st = STATUS_PILL[stKey] || STATUS_PILL.open;
-  const pr = PRIORITY_PILL[priKey] || PRIORITY_PILL[""];
-  const klass =
-    kind === "status"
-      ? cx("w-full h-8 px-3 rounded-full border-0", "text-[12px] font-semibold text-center", st.bg, st.text, st.ring)
-      : cx("w-full h-8 px-3 rounded-full border-0", "text-[12px] font-semibold text-center", pr.bg, pr.text, pr.ring);
-
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onMouseDown={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onActivate();
-      }}
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onActivate();
-      }}
-      className={cx(
-        klass,
-        "shadow-[0_6px_14px_rgba(2,6,23,0.08)] hover:brightness-105 transition",
-        disabled && "opacity-60 cursor-not-allowed"
-      )}
-      title="Click to edit"
-    >
-      {kind === "priority" ? (PRIORITY_PILL[priKey]?.label ?? "—") : safeStr(label || "Open")}
-    </button>
-  );
+  if (kind === "status") return <StatusTag label={label} onActivate={onActivate} disabled={disabled} />;
+  return <PriorityTag label={label} onActivate={onActivate} disabled={disabled} />;
 }
 
 /* ---------------- Active-cell overlay editor ---------------- */
@@ -623,6 +610,101 @@ function isPrintableKey(e: KeyboardEvent) {
   return k.length === 1;
 }
 
+/* ------------ Score badge ------------ */
+function ScoreBadge({ score }: { score: number }) {
+  const tone = toneFromScore(score);
+  return (
+    <div className="flex items-center gap-2">
+      <div
+        className={cx(
+          "w-8 h-8 rounded-lg flex items-center justify-center text-[12px] font-bold tabular-nums",
+          tone === "r" ? "bg-red-100 text-red-700" :
+          tone === "a" ? "bg-amber-100 text-amber-700" :
+          "bg-green-100 text-green-700"
+        )}
+      >
+        {score}
+      </div>
+      <div className="w-14 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+        <div
+          className={cx(
+            "h-full rounded-full transition-all duration-300",
+            tone === "r" ? "bg-red-400" : tone === "a" ? "bg-amber-400" : "bg-green-400"
+          )}
+          style={{ width: `${score}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* ------------ Stat chip ------------ */
+function StatChip({ value, label, color }: { value: number; label: string; color: string }) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-gray-200 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+      <span className={cx("w-2 h-2 rounded-full", color)} />
+      <span className="text-[13px] text-gray-500">{label}</span>
+      <span className="text-[13px] font-semibold text-gray-800">{value}</span>
+    </div>
+  );
+}
+
+/* ------------ Icon components ------------ */
+const IconAI = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+  </svg>
+);
+
+const IconRefresh = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+  </svg>
+);
+
+const IconTrash = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+  </svg>
+);
+
+const IconChevron = ({ open }: { open: boolean }) => (
+  <svg
+    className={cx("w-4 h-4 transition-transform duration-200", open ? "rotate-90" : "rotate-0")}
+    fill="none" viewBox="0 0 24 24" stroke="currentColor"
+  >
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+  </svg>
+);
+
+const IconDots = () => (
+  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+    <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+  </svg>
+);
+
+const IconDragHandle = () => (
+  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" className="text-gray-400">
+    <path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0zM7 10a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0zM7 16a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0z" />
+  </svg>
+);
+
+const IconPlus = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+  </svg>
+);
+
+const IconClose = () => (
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+  </svg>
+);
+
+/* ============================================================
+   MAIN COMPONENT
+   ============================================================ */
+
 export default function RaidClient({
   projectId,
   projectRouteId,
@@ -631,8 +713,8 @@ export default function RaidClient({
   projectPublicId,
   initialItems,
 }: {
-  projectId: string; // UUID (API)
-  projectRouteId?: string; // human id (URLs) — optional + safe fallback
+  projectId: string;
+  projectRouteId?: string;
   projectTitle?: string;
   projectClient?: string;
   projectPublicId?: string;
@@ -643,7 +725,6 @@ export default function RaidClient({
   const [items, setItems] = useState<RaidItem[]>(initialItems ?? []);
   const [busyId, setBusyId] = useState<string>("");
 
-  // ✅ banners that you can dismiss
   const [banners, setBanners] = useState<Banner[]>([]);
   const pushBanner = useCallback((kind: Banner["kind"], text: string) => {
     const b = newBanner(kind, text);
@@ -680,11 +761,9 @@ export default function RaidClient({
 
   const [touchedById, setTouchedById] = useState<Record<string, { owner?: boolean; plan?: boolean }>>({});
   const [hotRowId, setHotRowId] = useState<string>("");
-
-  // ✅ Notion cell tracking
   const [hotCell, setHotCell] = useState<ActiveCell>(null);
+  const [hoveredRowId, setHoveredRowId] = useState<string>("");
 
-  // ✅ Each read-mode cell is a DIV; we keep refs for overlay positioning
   const cellRefs = useRef<Record<string, HTMLElement | null>>({});
   const setCellRef = useCallback((rowId: string, col: CellKey, el: HTMLElement | null) => {
     cellRefs.current[`${rowId}:${col}`] = el;
@@ -706,30 +785,17 @@ export default function RaidClient({
       };
       const curItem = items.find((x) => x.id === ctx.rowId);
       const fallback =
-        ctx.col === "description"
-          ? safeStr(curItem?.description)
-          : ctx.col === "owner_label"
-          ? safeStr(curItem?.owner_label)
-          : ctx.col === "status"
-          ? safeStr(curItem?.status || "Open")
-          : ctx.col === "priority"
-          ? safeStr(curItem?.priority || "")
-          : ctx.col === "probability"
-          ? String(Number.isFinite(Number(curItem?.probability)) ? Number(curItem?.probability) : 0)
-          : ctx.col === "severity"
-          ? String(Number.isFinite(Number(curItem?.severity)) ? Number(curItem?.severity) : 0)
-          : ctx.col === "due_date"
-          ? safeStr(curItem?.due_date || "")
-          : ctx.col === "response_plan"
-          ? safeStr(curItem?.response_plan || "")
-          : "";
+        ctx.col === "description" ? safeStr(curItem?.description) :
+        ctx.col === "owner_label" ? safeStr(curItem?.owner_label) :
+        ctx.col === "status" ? safeStr(curItem?.status || "Open") :
+        ctx.col === "priority" ? safeStr(curItem?.priority || "") :
+        ctx.col === "probability" ? String(Number.isFinite(Number(curItem?.probability)) ? Number(curItem?.probability) : 0) :
+        ctx.col === "severity" ? String(Number.isFinite(Number(curItem?.severity)) ? Number(curItem?.severity) : 0) :
+        ctx.col === "due_date" ? safeStr(curItem?.due_date || "") :
+        ctx.col === "response_plan" ? safeStr(curItem?.response_plan || "") : "";
 
       setHotCell(ctx);
-      setEditor({
-        ...ctx,
-        rect,
-        value: initialValue != null ? initialValue : fallback,
-      });
+      setEditor({ ...ctx, rect, value: initialValue != null ? initialValue : fallback });
 
       window.setTimeout(() => {
         try {
@@ -843,7 +909,7 @@ export default function RaidClient({
       const key = resizeRef.current.key;
       if (!key) return;
       const dx = e.clientX - resizeRef.current.startX;
-      const next = Math.max(280, Math.min(900, resizeRef.current.startW + dx));
+      const next = Math.max(200, Math.min(900, resizeRef.current.startW + dx));
       setColW((prev) => ({ ...prev, [key]: next }));
     }
     function onUp() {
@@ -955,17 +1021,13 @@ export default function RaidClient({
   const onDelete = useCallback(
     async (id: string) => {
       if (!confirm("Delete this RAID item?")) return;
-
       setBusyId(id);
-
       const current = items.find((x) => x.id === id);
       const expected = safeStr(current?.updated_at).trim() || undefined;
-
       const prev = items;
       setItems((cur) => cur.filter((x) => x.id !== id));
       if (aiOpenId === id) setAiOpenId("");
       if (aiHistOpenId === id) setAiHistOpenId("");
-
       try {
         await deleteRaidItem(id, expected);
         pushBanner("success", "Deleted");
@@ -1133,7 +1195,7 @@ export default function RaidClient({
     }
   }, [items, busyId]);
 
-  // Global keyboard shortcuts (keep)
+  // Global keyboard shortcuts
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (!hotRowId || isTypingTarget(e.target)) return;
@@ -1189,9 +1251,7 @@ export default function RaidClient({
         el.scrollIntoView({ behavior: "smooth", block: "center" });
         const id = focusId || safeStr(el.getAttribute("data-raid-id")).trim();
         if (id) setHotRowId(id);
-        try {
-          el.focus();
-        } catch {}
+        try { el.focus(); } catch {}
       }
     }, 120);
 
@@ -1222,11 +1282,7 @@ export default function RaidClient({
     ) => {
       const { type, rowIds, rowIndex, col, isMultiline } = ctx;
 
-      if (e.key === "Escape") {
-        e.preventDefault();
-        closeEditor();
-        return;
-      }
+      if (e.key === "Escape") { e.preventDefault(); closeEditor(); return; }
 
       if (e.key === "Tab") {
         e.preventDefault();
@@ -1251,30 +1307,10 @@ export default function RaidClient({
       }
 
       if (!isMultiline) {
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          void commitEditor({ close: false });
-          moveCell(type, rowIds, rowIndex, col, 1, 0);
-          return;
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault();
-          void commitEditor({ close: false });
-          moveCell(type, rowIds, rowIndex, col, -1, 0);
-          return;
-        }
-        if (e.key === "ArrowRight") {
-          e.preventDefault();
-          void commitEditor({ close: false });
-          moveCell(type, rowIds, rowIndex, col, 0, 1);
-          return;
-        }
-        if (e.key === "ArrowLeft") {
-          e.preventDefault();
-          void commitEditor({ close: false });
-          moveCell(type, rowIds, rowIndex, col, 0, -1);
-          return;
-        }
+        if (e.key === "ArrowDown") { e.preventDefault(); void commitEditor({ close: false }); moveCell(type, rowIds, rowIndex, col, 1, 0); return; }
+        if (e.key === "ArrowUp") { e.preventDefault(); void commitEditor({ close: false }); moveCell(type, rowIds, rowIndex, col, -1, 0); return; }
+        if (e.key === "ArrowRight") { e.preventDefault(); void commitEditor({ close: false }); moveCell(type, rowIds, rowIndex, col, 0, 1); return; }
+        if (e.key === "ArrowLeft") { e.preventDefault(); void commitEditor({ close: false }); moveCell(type, rowIds, rowIndex, col, 0, -1); return; }
       }
     },
     [moveCell, commitEditor, closeEditor]
@@ -1307,50 +1343,23 @@ export default function RaidClient({
           const raw = grid[r][c];
           const s = safeStr(raw).trim();
 
-          if (colKey === "description") {
-            rowLocal.description = s;
-            rowPatch.description = s || "Untitled";
-          } else if (colKey === "owner_label") {
-            rowLocal.owner_label = s;
-            rowPatch.owner_label = s;
-          } else if (colKey === "status") {
-            const ns = normStatus(s);
-            rowLocal.status = ns;
-            rowPatch.status = ns;
-          } else if (colKey === "priority") {
-            const np = normPriority(s);
-            rowLocal.priority = np || null;
-            rowPatch.priority = np || null;
-          } else if (colKey === "probability") {
-            const n = clampNum(s, 0, 100);
-            rowLocal.probability = n;
-            rowPatch.probability = n;
-          } else if (colKey === "severity") {
-            const n = clampNum(s, 0, 100);
-            rowLocal.severity = n;
-            rowPatch.severity = n;
-          } else if (colKey === "due_date") {
-            const iso = normDateToIsoOnly(s);
-            rowLocal.due_date = iso;
-            rowPatch.due_date = iso;
-          } else if (colKey === "response_plan") {
-            rowLocal.response_plan = s;
-            rowPatch.response_plan = s || null;
-          }
+          if (colKey === "description") { rowLocal.description = s; rowPatch.description = s || "Untitled"; }
+          else if (colKey === "owner_label") { rowLocal.owner_label = s; rowPatch.owner_label = s; }
+          else if (colKey === "status") { const ns = normStatus(s); rowLocal.status = ns; rowPatch.status = ns; }
+          else if (colKey === "priority") { const np = normPriority(s); rowLocal.priority = np || null; rowPatch.priority = np || null; }
+          else if (colKey === "probability") { const n = clampNum(s, 0, 100); rowLocal.probability = n; rowPatch.probability = n; }
+          else if (colKey === "severity") { const n = clampNum(s, 0, 100); rowLocal.severity = n; rowPatch.severity = n; }
+          else if (colKey === "due_date") { const iso = normDateToIsoOnly(s); rowLocal.due_date = iso; rowPatch.due_date = iso; }
+          else if (colKey === "response_plan") { rowLocal.response_plan = s; rowPatch.response_plan = s || null; }
         }
 
-        if (Object.keys(rowPatch).length) {
-          patchById[rowId] = rowPatch;
-          localById[rowId] = rowLocal;
-        }
+        if (Object.keys(rowPatch).length) { patchById[rowId] = rowPatch; localById[rowId] = rowLocal; }
       }
 
       const ids = Object.keys(patchById);
       if (!ids.length) return;
 
-      setItems((prev) =>
-        prev.map((it) => (localById[it.id] ? ({ ...it, ...localById[it.id] } as RaidItem) : it))
-      );
+      setItems((prev) => prev.map((it) => (localById[it.id] ? ({ ...it, ...localById[it.id] } as RaidItem) : it)));
 
       setBusyId("paste");
       try {
@@ -1370,7 +1379,6 @@ export default function RaidClient({
           const updated = await patchRaidItem(id, { ...patch, expected_updated_at: expected || undefined });
           setItems((prev) => prev.map((x) => (x.id === id ? ({ ...x, ...updated } as RaidItem) : x)));
         }
-
         pushBanner("success", `Pasted into ${ids.length} row(s)`);
       } catch (e: any) {
         pushBanner("error", e?.message || "Paste save failed");
@@ -1388,7 +1396,6 @@ export default function RaidClient({
     ) => {
       const text = e.clipboardData?.getData("text/plain") ?? "";
       if (!text || (!text.includes("\t") && !text.includes("\n"))) return;
-
       e.preventDefault();
       await applyPaste(ctx, text);
     },
@@ -1413,28 +1420,19 @@ export default function RaidClient({
   }
 
   function exportGroupExcel(type: RaidType) {
-    window.open(
-      `/api/raid/export/excel?projectId=${encodeURIComponent(projectId)}&type=${encodeURIComponent(type)}`,
-      "_blank"
-    );
+    window.open(`/api/raid/export/excel?projectId=${encodeURIComponent(projectId)}&type=${encodeURIComponent(type)}`, "_blank");
     closeMenu();
   }
 
   function exportGroupPdf(type: RaidType) {
-    window.open(
-      `/api/raid/export/pdf?projectId=${encodeURIComponent(projectId)}&type=${encodeURIComponent(type)}`,
-      "_blank"
-    );
+    window.open(`/api/raid/export/pdf?projectId=${encodeURIComponent(projectId)}&type=${encodeURIComponent(type)}`, "_blank");
     closeMenu();
   }
 
   async function refreshAiForGroup(type: RaidType) {
     closeMenu();
     const groupItems = items.filter((x) => normalizeType(x.type) === type);
-    if (!groupItems.length) {
-      pushBanner("success", `No ${pluralLabel(type)} to refresh`);
-      return;
-    }
+    if (!groupItems.length) { pushBanner("success", `No ${pluralLabel(type)} to refresh`); return; }
     setBusyId(`ai:group:${type}`);
     try {
       for (let i = 0; i < groupItems.length; i++) {
@@ -1442,9 +1440,7 @@ export default function RaidClient({
         try {
           const updated = await aiRefreshRaidItem(id);
           setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...updated } : x)));
-        } catch {
-          /* ignore */
-        }
+        } catch { /* ignore */ }
         await new Promise((r) => setTimeout(r, 250));
       }
       pushBanner("success", `${type}: AI refreshed (${groupItems.length})`);
@@ -1460,7 +1456,6 @@ export default function RaidClient({
     closeMenu();
   }
 
-  // ✅ DnD: reorder only within a group
   const onDragEnd = useCallback(
     (result: DropResult) => {
       const { destination, source, draggableId } = result;
@@ -1486,7 +1481,7 @@ export default function RaidClient({
     [pushBanner]
   );
 
-  // ✅ Type-to-edit (Notion feel)
+  // Type-to-edit (Notion feel)
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (isTypingTarget(e.target)) return;
@@ -1499,7 +1494,7 @@ export default function RaidClient({
     return () => window.removeEventListener("keydown", onKey);
   }, [hotCell, openEditor]);
 
-  // ✅ Keep overlay aligned on scroll/resize
+  // Keep overlay aligned on scroll/resize
   useEffect(() => {
     if (!editor) return;
     function sync() {
@@ -1527,827 +1522,744 @@ export default function RaidClient({
     };
   }, [editor]);
 
-  return (
-    <div className="min-h-screen bg-white text-slate-900">
-      {/* Top bar */}
-      <header className="sticky top-0 z-40 bg-white border-b border-slate-200">
-        <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="min-w-0">
-              <h1 className="text-[16px] font-semibold tracking-tight text-slate-900">RAID Log</h1>
-              <div className="flex items-center gap-2 text-[12px] text-slate-500 mt-1 min-w-0">
-                <span className="font-medium text-slate-700 truncate">{humanProjectTitle}</span>
-                {humanClient && <span className="text-slate-300">•</span>}
-                {humanClient && <span className="truncate">{humanClient}</span>}
-                <span className="text-slate-300">•</span>
-                <span className="font-mono text-[11px] bg-slate-50 px-2 py-0.5 border border-slate-200">
-                  {humanProjectId}
-                </span>
-              </div>
-            </div>
+  /* ============================================================
+     RENDER
+     ============================================================ */
 
-            <div className="flex items-center gap-2">
+  return (
+    <div className="min-h-screen bg-[#f7f7f5] text-gray-900 font-sans">
+
+      {/* ── TOP NAV ── */}
+      <header className="sticky top-0 z-40 bg-white border-b border-gray-200 shadow-[0_1px_0_rgba(0,0,0,0.04)]">
+        <div className="max-w-[1800px] mx-auto px-6">
+          <div className="flex items-center justify-between h-14">
+            {/* Breadcrumb */}
+            <div className="flex items-center gap-2 min-w-0">
               <Link
                 href={`/projects/${routeProjectId}`}
-                className="text-[13px] text-slate-600 hover:text-slate-900 font-medium px-3 py-2 hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-200"
+                className="text-[13px] text-gray-500 hover:text-gray-800 transition-colors"
               >
-                Back
+                {humanProjectTitle}
               </Link>
-              <div className="h-6 w-px bg-slate-200 mx-1" />
+              <svg className="w-3.5 h-3.5 text-gray-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+              <span className="text-[13px] font-semibold text-gray-900">RAID Log</span>
+              {humanClient && (
+                <>
+                  <span className="text-gray-300 text-[13px]">·</span>
+                  <span className="text-[12px] text-gray-400 truncate">{humanClient}</span>
+                </>
+              )}
+              <span className="ml-1 px-2 py-0.5 rounded bg-gray-100 text-[11px] font-mono text-gray-500">{humanProjectId}</span>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-1.5">
               <button
                 onClick={onWeeklyDigest}
                 disabled={digestBusy}
-                className="text-[13px] px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md border border-gray-200 transition-colors disabled:opacity-50"
               >
+                {digestBusy ? (
+                  <span className="w-3.5 h-3.5 rounded-full border-2 border-gray-300 border-t-gray-600 animate-spin" />
+                ) : (
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                )}
                 {digestBusy ? "Generating…" : "Weekly Digest"}
               </button>
+
               <button
                 onClick={onRefreshAll}
                 disabled={busyId === "refresh:all"}
-                className="text-[13px] px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md border border-gray-200 transition-colors disabled:opacity-50"
               >
+                <svg className={cx("w-3.5 h-3.5", busyId === "refresh:all" && "animate-spin")} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
                 {busyId === "refresh:all" ? "Refreshing…" : "Refresh"}
               </button>
 
+              {/* Export dropdown */}
               <div className="relative group">
-                <button className="text-[13px] px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50">
+                <button className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md border border-gray-200 transition-colors">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
                   Export
+                  <svg className="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
                 </button>
-                <div className="absolute right-0 mt-2 w-48 bg-white shadow-xl border border-slate-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                <div className="absolute right-0 mt-1 w-44 bg-white rounded-lg shadow-lg border border-gray-200 py-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
                   <button
-                    onClick={() =>
-                      window.open(`/api/raid/export/excel?projectId=${encodeURIComponent(projectId)}`, "_blank")
-                    }
-                    className="block w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50"
+                    onClick={() => window.open(`/api/raid/export/excel?projectId=${encodeURIComponent(projectId)}`, "_blank")}
+                    className="flex items-center gap-2 w-full px-3 py-2 text-[13px] text-gray-700 hover:bg-gray-50"
                   >
-                    Export Excel
+                    <svg className="w-4 h-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Excel (.xlsx)
                   </button>
                   <button
                     onClick={() => window.open(`/api/raid/export/pdf?projectId=${encodeURIComponent(projectId)}`, "_blank")}
-                    className="block w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50"
+                    className="flex items-center gap-2 w-full px-3 py-2 text-[13px] text-gray-700 hover:bg-gray-50"
                   >
-                    Export PDF
+                    <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                    PDF Report
                   </button>
                 </div>
               </div>
             </div>
           </div>
-
-          {/* Stats */}
-          <div className="flex items-center gap-5 py-3 border-t border-slate-100">
-            <div className="flex items-center gap-2 text-[13px] text-slate-600">
-              <span className="inline-block w-2 h-2 rounded-full bg-sky-500" />
-              <span>
-                <span className="font-semibold text-slate-900">{stats.open}</span> Open
-              </span>
-            </div>
-            <div className="flex items-center gap-2 text-[13px] text-slate-600">
-              <span className="inline-block w-2 h-2 rounded-full bg-rose-500" />
-              <span>
-                <span className="font-semibold text-slate-900">{stats.high}</span> High Exposure
-              </span>
-            </div>
-            <div className="flex items-center gap-2 text-[13px] text-slate-600">
-              <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
-              <span>
-                <span className="font-semibold text-slate-900">{stats.mitigated}</span> Mitigated
-              </span>
-            </div>
-            <div className="ml-auto text-[13px] text-slate-500">{stats.total} items</div>
-          </div>
         </div>
       </header>
 
-      {/* Banners */}
-      <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 mt-4 space-y-2">
-        {banners.map((b) => (
-          <div
-            key={b.id}
-            className={cx(
-              "px-3 py-2 text-[13px] flex items-center gap-2 border",
-              b.kind === "success"
-                ? "bg-emerald-50 border-emerald-200 text-emerald-900"
-                : "bg-rose-50 border-rose-200 text-rose-900"
-            )}
-          >
-            <span className="inline-flex items-center justify-center w-5 h-5 bg-white/70 border border-black/5">
-              {b.kind === "success" ? "✓" : "!"}
-            </span>
-            <div className="flex-1">{b.text}</div>
-            <button
-              onClick={() => dismissBanner(b.id)}
-              className="p-1 hover:bg-black/5"
-              aria-label="Dismiss"
-              title="Dismiss"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        ))}
+      {/* ── STATS BAR ── */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="max-w-[1800px] mx-auto px-6 py-3 flex items-center gap-3">
+          <StatChip value={stats.open} label="Open" color="bg-blue-400" />
+          <StatChip value={stats.high} label="High Exposure" color="bg-red-500" />
+          <StatChip value={stats.mitigated} label="Mitigated" color="bg-green-500" />
+          <div className="ml-auto text-[12px] text-gray-400 font-medium">{stats.total} total items</div>
+        </div>
       </div>
 
-      <main className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-20">
+      {/* ── BANNERS ── */}
+      {banners.length > 0 && (
+        <div className="max-w-[1800px] mx-auto px-6 pt-3 space-y-2">
+          {banners.map((b) => (
+            <div
+              key={b.id}
+              className={cx(
+                "flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] border",
+                b.kind === "success"
+                  ? "bg-green-50 border-green-200 text-green-800"
+                  : "bg-red-50 border-red-200 text-red-800"
+              )}
+            >
+              <span className={cx(
+                "w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0",
+                b.kind === "success" ? "bg-green-500 text-white" : "bg-red-500 text-white"
+              )}>
+                {b.kind === "success" ? "✓" : "!"}
+              </span>
+              <span className="flex-1">{b.text}</span>
+              <button onClick={() => dismissBanner(b.id)} className="p-0.5 rounded hover:bg-black/10">
+                <IconClose />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── MAIN CONTENT ── */}
+      <main className="max-w-[1800px] mx-auto px-6 py-6 pb-24 space-y-4">
         <DragDropContext onDragEnd={onDragEnd}>
-          <div className="space-y-8">
-            {(Object.keys(grouped) as RaidType[]).map((type) => {
-              const typeStyle = TYPE_STYLES[type];
-              const groupItems = grouped[type];
-              const isOpen = openGroups[type];
-              const rowIds = groupItems.map((x) => x.id);
+          {(Object.keys(grouped) as RaidType[]).map((type) => {
+            const cfg = TYPE_CONFIG[type];
+            const groupItems = grouped[type];
+            const isOpen = openGroups[type];
+            const rowIds = groupItems.map((x) => x.id);
 
-              return (
-                <section key={type} className="border border-slate-200">
-                  {/* Group Header (no card, no canvas) */}
-                  <div className={cx("relative px-4 py-3 border-b border-slate-200", typeStyle.headerBg)}>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <button
-                          onClick={() => toggleGroup(type)}
-                          className={cx("p-1 hover:bg-black/5 transition-colors", typeStyle.text)}
-                          aria-label="Toggle group"
-                          title="Toggle"
-                        >
-                          <svg
-                            className={cx("w-5 h-5 transform transition-transform", isOpen ? "rotate-90" : "")}
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                          >
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                          </svg>
-                        </button>
+            return (
+              <section key={type} className="rounded-xl border border-gray-200 bg-white overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
 
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className={cx("w-2 h-2 rounded-full", typeStyle.dot)} />
-                          <div className="min-w-0">
-                            <div className={cx("font-semibold text-[14px]", typeStyle.text)}>{pluralLabel(type)}</div>
-                            <div className="text-[12px] text-slate-500 truncate">{typeStyle.desc}</div>
-                          </div>
-                        </div>
-
-                        <span className="ml-2 px-2 py-0.5 bg-white border border-slate-200 text-[12px] font-medium text-slate-600">
-                          {groupItems.length}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          ref={(el) => {
-                            menuBtnRefs.current[type] = el;
-                          }}
-                          onClick={() => setMenuOpenFor(menuOpenFor === type ? "" : type)}
-                          className="p-2 text-slate-500 hover:text-slate-700 hover:bg-white/70 border border-transparent hover:border-slate-200"
-                          aria-label="Group menu"
-                          title="Group menu"
-                        >
-                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                            <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
-                          </svg>
-                        </button>
-
-                        {menuOpenFor === type && (
-                          <div
-                            ref={menuRef}
-                            className="absolute right-4 top-[46px] w-56 bg-white shadow-xl border border-slate-200 z-50 py-1"
-                          >
-                            <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                              {type} Actions
-                            </div>
-                            <button
-                              onClick={() => exportGroupExcel(type)}
-                              className="w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50"
-                            >
-                              Export to Excel
-                            </button>
-                            <button
-                              onClick={() => exportGroupPdf(type)}
-                              className="w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50"
-                            >
-                              Export to PDF
-                            </button>
-                            <div className="h-px bg-slate-100 my-1" />
-                            <button
-                              onClick={() => refreshAiForGroup(type)}
-                              disabled={busyId === `ai:group:${type}`}
-                              className="w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                            >
-                              {busyId === `ai:group:${type}` ? "Refreshing AI…" : "Refresh AI (Group)"}
-                            </button>
-                            <button
-                              onClick={() => copyGroupLink(type)}
-                              className="w-full text-left px-4 py-2 text-[13px] text-slate-700 hover:bg-slate-50"
-                            >
-                              Copy Group Link
-                            </button>
-                          </div>
-                        )}
-
-                        <button
-                          onClick={() => onCreate(type)}
-                          disabled={busyId === `new:${type}`}
-                          className="inline-flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 text-[13px] font-medium text-slate-700"
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                          </svg>
-                          New {type}
-                        </button>
-                      </div>
-                    </div>
+                {/* Group header */}
+                <div
+                  className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white cursor-pointer select-none"
+                  onClick={() => toggleGroup(type)}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-gray-400">
+                      <IconChevron open={isOpen} />
+                    </span>
+                    <span className="text-[15px]">{cfg.emoji}</span>
+                    <span className="font-semibold text-[14px] text-gray-800">{pluralLabel(type)}</span>
+                    <span className="text-[12px] text-gray-400">{cfg.desc}</span>
+                    <span className={cx(
+                      "px-2 py-0.5 rounded-full text-[11px] font-semibold",
+                      cfg.lightBg, cfg.textColor
+                    )}>
+                      {groupItems.length}
+                    </span>
                   </div>
 
-                  {/* Table */}
-                  {isOpen && (
-                    <Droppable droppableId={`group:${type}`} direction="vertical">
-                      {(dropProvided, dropSnapshot) => (
+                  <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    {/* Group menu button */}
+                    <div className="relative">
+                      <button
+                        ref={(el) => { menuBtnRefs.current[type] = el; }}
+                        onClick={() => setMenuOpenFor(menuOpenFor === type ? "" : type)}
+                        className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                        title="Group options"
+                      >
+                        <IconDots />
+                      </button>
+
+                      {menuOpenFor === type && (
                         <div
-                          ref={dropProvided.innerRef}
-                          {...dropProvided.droppableProps}
-                          className={cx(
-                            "overflow-x-auto",
-                            "bg-white",
-                            dropSnapshot.isDraggingOver && "bg-indigo-50/20"
-                          )}
+                          ref={menuRef}
+                          className="absolute right-0 top-full mt-1 w-52 bg-white rounded-lg shadow-xl border border-gray-200 py-1 z-50"
                         >
-                          {/* ✅ True spreadsheet grid: border-separate + border-spacing-0 + full cell borders */}
-                          <table className="w-full text-[13px] table-fixed border-separate border-spacing-0">
-                            <thead className="bg-slate-50 sticky top-16 z-10">
+                          <div className="px-3 py-1.5 text-[11px] font-semibold text-gray-400 uppercase tracking-widest">
+                            {type} options
+                          </div>
+                          <button onClick={() => exportGroupExcel(type)} className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-gray-700 hover:bg-gray-50">
+                            <svg className="w-3.5 h-3.5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                            Export to Excel
+                          </button>
+                          <button onClick={() => exportGroupPdf(type)} className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-gray-700 hover:bg-gray-50">
+                            <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                            Export to PDF
+                          </button>
+                          <div className="my-1 border-t border-gray-100" />
+                          <button
+                            onClick={() => refreshAiForGroup(type)}
+                            disabled={busyId === `ai:group:${type}`}
+                            className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            <span className={cx("w-3.5 h-3.5 text-indigo-500", busyId === `ai:group:${type}` && "animate-spin")}>
+                              <IconRefresh />
+                            </span>
+                            {busyId === `ai:group:${type}` ? "Refreshing…" : "Refresh AI (Group)"}
+                          </button>
+                          <button onClick={() => copyGroupLink(type)} className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-gray-700 hover:bg-gray-50">
+                            <svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                            Copy Group Link
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* New item button */}
+                    <button
+                      onClick={() => onCreate(type)}
+                      disabled={busyId === `new:${type}`}
+                      className={cx(
+                        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium border transition-colors",
+                        cfg.lightBg, cfg.textColor, cfg.border,
+                        "hover:brightness-95 disabled:opacity-50"
+                      )}
+                    >
+                      <IconPlus />
+                      New {type}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Table */}
+                {isOpen && (
+                  <Droppable droppableId={`group:${type}`} direction="vertical">
+                    {(dropProvided, dropSnapshot) => (
+                      <div
+                        ref={dropProvided.innerRef}
+                        {...dropProvided.droppableProps}
+                        className={cx("overflow-x-auto", dropSnapshot.isDraggingOver && "bg-blue-50/30")}
+                      >
+                        <table className="w-full text-[13px] table-fixed border-separate border-spacing-0">
+                          <thead>
+                            <tr>
+                              {/* Sticky left border */}
+                              <th className={cx(COL_HDR, "w-36 border-l")}>
+                                <span className="text-gray-400">#</span> ID
+                              </th>
+                              <th className={cx(COL_HDR, "relative")} style={{ width: colW.desc }}>
+                                Description
+                                <span
+                                  className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-400/40 z-10"
+                                  onMouseDown={(e) => startResize("desc", e)}
+                                />
+                              </th>
+                              <th className={cx(COL_HDR, "w-44")}>Owner</th>
+                              <th className={cx(COL_HDR, "w-36")}>Status</th>
+                              <th className={cx(COL_HDR, "w-36")}>Priority</th>
+                              <th className={cx(COL_HDR, "w-24 text-center")}>Likelihood</th>
+                              <th className={cx(COL_HDR, "w-24 text-center")}>Severity</th>
+                              <th className={cx(COL_HDR, "w-28")}>Score</th>
+                              <th className={cx(COL_HDR, "w-32 text-center")}>Due Date</th>
+                              <th className={cx(COL_HDR, "relative")} style={{ width: colW.resp }}>
+                                Response Plan
+                                <span
+                                  className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-400/40 z-10"
+                                  onMouseDown={(e) => startResize("resp", e)}
+                                />
+                              </th>
+                              <th className={cx(COL_HDR, "w-60")}>AI Rollup</th>
+                              <th className={cx(COL_HDR, "w-28 text-center")}>Updated</th>
+                              <th className={cx(COL_HDR, "w-24 text-center border-r-0")}>Actions</th>
+                            </tr>
+                          </thead>
+
+                          <tbody>
+                            {groupItems.length === 0 ? (
                               <tr>
-                                <th className={cx(TH_WRAP, "w-40 border-l border-slate-200")}>ID</th>
-
-                                <th className={cx(TH_WRAP, "relative")} style={{ width: colW.desc }}>
-                                  Description
-                                  <span
-                                    className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-300/70"
-                                    onMouseDown={(e) => startResize("desc", e)}
-                                  />
-                                </th>
-
-                                <th className={cx(TH_WRAP, "w-80")}>Owner *</th>
-                                <th className={cx(TH_WRAP, "w-44")}>Status *</th>
-                                <th className={cx(TH_WRAP, "w-44")}>Priority</th>
-                                <th className={cx(TH_WRAP, "w-28")}>Likelihood</th>
-                                <th className={cx(TH_WRAP, "w-28")}>Severity</th>
-                                <th className={cx(TH_WRAP, "w-24")}>Score</th>
-                                <th className={cx(TH_WRAP, "w-40")}>Due Date</th>
-
-                                <th className={cx(TH_WRAP, "relative")} style={{ width: colW.resp }}>
-                                  Response Plan
-                                  <span
-                                    className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-300/70"
-                                    onMouseDown={(e) => startResize("resp", e)}
-                                  />
-                                </th>
-
-                                <th className={cx(TH_WRAP, "w-72")}>AI Rollup</th>
-                                <th className={cx(TH_WRAP, "w-28")}>Updated</th>
-
-                                {/* ✅ last header cell: no right border */}
-                                <th className={cx(TH_WRAP, "w-24 text-right border-r-0")}>Actions</th>
-                              </tr>
-                            </thead>
-
-                            <tbody>
-                              {groupItems.length === 0 ? (
-                                <tr>
-                                  <td
-                                    colSpan={13}
-                                    className="px-4 py-12 text-center text-slate-500 border-b border-slate-200 border-l border-slate-200 border-r border-slate-200"
-                                  >
-                                    No {type.toLowerCase()}s yet. Create one to get started.
-                                  </td>
-                                </tr>
-                              ) : (
-                                groupItems.map((it, index) => {
-                                  const sc = calcScore(it.probability, it.severity);
-                                  const tone = toneFromScore(sc);
-                                  const isBusy = busyId === it.id || busyId === "paste";
-
-                                  const owner = safeStr(it.owner_label).trim();
-                                  const ownerOk = owner.length > 0 && owner.toLowerCase() !== "tbc";
-                                  const plan = safeStr(it.response_plan || "").trim();
-                                  const planOk = plan.length > 0 && plan.toLowerCase() !== "tbc";
-
-                                  const touched = touchedById[it.id] || {};
-                                  const showOwnerWarn = Boolean(touched.owner) && !ownerOk;
-                                  const showPlanWarn = Boolean(touched.plan) && !planOk;
-
-                                  const ai = it?.related_refs?.ai || {};
-                                  const runs = aiRunsById[it.id] || [];
-                                  const cmp = aiCompareById[it.id] || { a: "", b: "" };
-                                  const runA = cmp.a ? getRun(runs, cmp.a) : null;
-                                  const runB = cmp.b ? getRun(runs, cmp.b) : null;
-                                  const diffSummary = runA && runB ? diffLines(runA.ai?.summary, runB.ai?.summary) : null;
-                                  const diffRollup = runA && runB ? diffLines(runA.ai?.rollup, runB.ai?.rollup) : null;
-                                  const diffRecs = runA && runB ? diffList(runA.ai?.recommendations, runB.ai?.recommendations) : null;
-
-                                  const stale = staleById[it.id];
-
-                                  return (
-                                    <Draggable
-                                      key={dndIdForRaid(it)}
-                                      draggableId={dndIdForRaid(it)}
-                                      index={index}
-                                      isDragDisabled={Boolean(isBusy)}
+                                <td
+                                  colSpan={13}
+                                  className="px-6 py-12 text-center text-[13px] text-gray-400 border-b border-l border-r border-gray-200"
+                                >
+                                  <div className="flex flex-col items-center gap-2">
+                                    <span className="text-2xl opacity-40">{cfg.emoji}</span>
+                                    <span>No {type.toLowerCase()}s yet</span>
+                                    <button
+                                      onClick={() => onCreate(type)}
+                                      className={cx("mt-1 px-3 py-1.5 rounded-md text-[12px] font-medium border", cfg.lightBg, cfg.textColor, cfg.border)}
                                     >
-                                      {(dragProvided, dragSnapshot) => (
-                                        <React.Fragment>
-                                          <tr
-                                            ref={dragProvided.innerRef}
-                                            {...dragProvided.draggableProps}
-                                            data-raid-id={it.id}
-                                            data-raid-public={safeStr(it.public_id || "").trim()}
-                                            className={cx(
-                                              "group",
-                                              isBusy && "opacity-60",
-                                              stale && "bg-amber-50/30",
-                                              dragSnapshot.isDragging && "bg-indigo-50/50"
+                                      + Add first {type.toLowerCase()}
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ) : (
+                              groupItems.map((it, index) => {
+                                const sc = calcScore(it.probability, it.severity);
+                                const isBusy = busyId === it.id || busyId === "paste";
+                                const owner = safeStr(it.owner_label).trim();
+                                const ownerOk = owner.length > 0 && owner.toLowerCase() !== "tbc";
+                                const plan = safeStr(it.response_plan || "").trim();
+                                const planOk = plan.length > 0 && plan.toLowerCase() !== "tbc";
+                                const touched = touchedById[it.id] || {};
+                                const showOwnerWarn = Boolean(touched.owner) && !ownerOk;
+                                const showPlanWarn = Boolean(touched.plan) && !planOk;
+                                const ai = it?.related_refs?.ai || {};
+                                const runs = aiRunsById[it.id] || [];
+                                const cmp = aiCompareById[it.id] || { a: "", b: "" };
+                                const runA = cmp.a ? getRun(runs, cmp.a) : null;
+                                const runB = cmp.b ? getRun(runs, cmp.b) : null;
+                                const diffSummary = runA && runB ? diffLines(runA.ai?.summary, runB.ai?.summary) : null;
+                                const diffRollup = runA && runB ? diffLines(runA.ai?.rollup, runB.ai?.rollup) : null;
+                                const diffRecs = runA && runB ? diffList(runA.ai?.recommendations, runB.ai?.recommendations) : null;
+                                const stale = staleById[it.id];
+                                const isHot = hotRowId === it.id;
+
+                                return (
+                                  <Draggable
+                                    key={dndIdForRaid(it)}
+                                    draggableId={dndIdForRaid(it)}
+                                    index={index}
+                                    isDragDisabled={Boolean(isBusy)}
+                                  >
+                                    {(dragProvided, dragSnapshot) => (
+                                      <React.Fragment>
+                                        <tr
+                                          ref={dragProvided.innerRef}
+                                          {...dragProvided.draggableProps}
+                                          data-raid-id={it.id}
+                                          data-raid-public={safeStr(it.public_id || "").trim()}
+                                          className={cx(
+                                            "group/row",
+                                            isBusy && "opacity-60",
+                                            stale && "bg-amber-50/40",
+                                            dragSnapshot.isDragging && "shadow-xl bg-white",
+                                            isHot && !dragSnapshot.isDragging && "bg-blue-50/30"
+                                          )}
+                                          tabIndex={0}
+                                          onFocus={() => setHotRowId(it.id)}
+                                          onMouseDown={() => setHotRowId(it.id)}
+                                          onMouseEnter={() => setHoveredRowId(it.id)}
+                                          onMouseLeave={() => setHoveredRowId("")}
+                                        >
+                                          {/* ID cell */}
+                                          <td className={cx(CELL_BASE, "w-36 border-l")}>
+                                            <div className="flex items-center gap-1.5 px-2 py-2 min-h-[34px]">
+                                              {/* Drag handle - only visible on hover */}
+                                              <button
+                                                type="button"
+                                                data-dnd-handle
+                                                {...dragProvided.dragHandleProps}
+                                                className={cx(
+                                                  "shrink-0 p-0.5 rounded cursor-grab active:cursor-grabbing",
+                                                  "text-gray-300 hover:text-gray-500 hover:bg-gray-100 transition-all",
+                                                  "opacity-0 group-hover/row:opacity-100"
+                                                )}
+                                                onMouseDown={(e) => e.stopPropagation()}
+                                              >
+                                                <IconDragHandle />
+                                              </button>
+
+                                              <span className="font-mono text-[11px] text-gray-500 truncate">
+                                                {safeStr(it.public_id) || <span className="text-gray-300">—</span>}
+                                              </span>
+
+                                              {stale && (
+                                                <button
+                                                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onReloadRow(it.id); }}
+                                                  title="Reload latest"
+                                                  className="text-amber-500 hover:text-amber-700 shrink-0"
+                                                >
+                                                  <IconRefresh />
+                                                </button>
+                                              )}
+                                            </div>
+                                            {stale && (
+                                              <div className="px-2 pb-1.5 text-[11px] text-amber-600">{stale.message}</div>
                                             )}
-                                            tabIndex={0}
-                                            onFocus={() => setHotRowId(it.id)}
-                                            onMouseDown={() => setHotRowId(it.id)}
-                                          >
-                                            {/* ID + handle (✅ left border to close grid) */}
-                                            <td className={cx(CELL_WRAP, "w-40 border-l border-slate-200")}>
-                                              <div className="flex items-center gap-2 min-w-0">
-                                                <button
-                                                  type="button"
-                                                  data-dnd-handle
-                                                  {...dragProvided.dragHandleProps}
-                                                  className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-grab active:cursor-grabbing"
-                                                  title="Drag"
-                                                  aria-label="Drag"
-                                                  onMouseDown={(e) => {
-                                                    e.stopPropagation();
-                                                  }}
-                                                >
-                                                  <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
-                                                    <path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0zM7 10a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0zM7 16a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0z" />
-                                                  </svg>
-                                                </button>
+                                          </td>
 
-                                                <span className="font-mono text-[11px] bg-slate-50 text-slate-700 px-2 py-0.5 border border-slate-200 truncate">
-                                                  {safeStr(it.public_id) || "—"}
-                                                </span>
+                                          {/* Description */}
+                                          <td className={CELL_BASE} style={{ width: colW.desc }}>
+                                            <div ref={(el) => setCellRef(it.id, "description", el)} className="w-full">
+                                              <CellDisplay
+                                                value={safeStr(it.description)}
+                                                placeholder="Add description…"
+                                                onActivate={() => openEditor({ type, rowId: it.id, col: "description" })}
+                                                title={safeStr(it.description)}
+                                              />
+                                            </div>
+                                          </td>
 
-                                                {stale && (
-                                                  <button
-                                                    onClick={(e) => {
-                                                      e.preventDefault();
-                                                      e.stopPropagation();
-                                                      void onReloadRow(it.id);
-                                                    }}
-                                                    title="Reload"
-                                                    className="text-amber-700 hover:text-amber-800"
-                                                  >
-                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                      <path
-                                                        strokeLinecap="round"
-                                                        strokeLinejoin="round"
-                                                        strokeWidth={2}
-                                                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                                                      />
-                                                    </svg>
-                                                  </button>
+                                          {/* Owner */}
+                                          <td className={CELL_BASE}>
+                                            <div ref={(el) => setCellRef(it.id, "owner_label", el)} className="w-full">
+                                              <CellDisplay
+                                                value={safeStr(it.owner_label)}
+                                                placeholder="Assign owner…"
+                                                onActivate={() => { touch(it.id, "owner"); openEditor({ type, rowId: it.id, col: "owner_label" }); }}
+                                              />
+                                              {showOwnerWarn && (
+                                                <div className="px-3 pb-1 text-[11px] text-red-500 font-medium">Owner required</div>
+                                              )}
+                                            </div>
+                                          </td>
+
+                                          {/* Status */}
+                                          <td className={CELL_BASE}>
+                                            <div ref={(el) => setCellRef(it.id, "status", el)} className="px-2 py-1.5 w-full">
+                                              <StatusTag
+                                                label={safeStr(it.status || "Open")}
+                                                disabled={isBusy}
+                                                onActivate={() => openEditor({ type, rowId: it.id, col: "status" })}
+                                              />
+                                            </div>
+                                          </td>
+
+                                          {/* Priority */}
+                                          <td className={CELL_BASE}>
+                                            <div ref={(el) => setCellRef(it.id, "priority", el)} className="px-2 py-1.5 w-full">
+                                              <PriorityTag
+                                                label={safeStr(it.priority || "")}
+                                                disabled={isBusy}
+                                                onActivate={() => openEditor({ type, rowId: it.id, col: "priority" })}
+                                              />
+                                            </div>
+                                          </td>
+
+                                          {/* Likelihood */}
+                                          <td className={CELL_BASE}>
+                                            <div ref={(el) => setCellRef(it.id, "probability", el)} className="w-full">
+                                              <CellDisplay
+                                                value={String(Number.isFinite(Number(it.probability)) ? Number(it.probability) : 0)}
+                                                placeholder="0"
+                                                align="center"
+                                                mono
+                                                onActivate={() => openEditor({ type, rowId: it.id, col: "probability" })}
+                                              />
+                                            </div>
+                                          </td>
+
+                                          {/* Severity */}
+                                          <td className={CELL_BASE}>
+                                            <div ref={(el) => setCellRef(it.id, "severity", el)} className="w-full">
+                                              <CellDisplay
+                                                value={String(Number.isFinite(Number(it.severity)) ? Number(it.severity) : 0)}
+                                                placeholder="0"
+                                                align="center"
+                                                mono
+                                                onActivate={() => openEditor({ type, rowId: it.id, col: "severity" })}
+                                              />
+                                            </div>
+                                          </td>
+
+                                          {/* Score */}
+                                          <td className={CELL_BASE}>
+                                            <div className="px-3 py-1.5">
+                                              <ScoreBadge score={sc} />
+                                            </div>
+                                          </td>
+
+                                          {/* Due Date */}
+                                          <td className={CELL_BASE}>
+                                            <div ref={(el) => setCellRef(it.id, "due_date", el)} className="w-full">
+                                              <CellDisplay
+                                                value={fmtDateOnly(it.due_date)}
+                                                placeholder="Set date…"
+                                                align="center"
+                                                mono
+                                                onActivate={() => openEditor({ type, rowId: it.id, col: "due_date" })}
+                                              />
+                                            </div>
+                                          </td>
+
+                                          {/* Response Plan */}
+                                          <td className={CELL_BASE} style={{ width: colW.resp }}>
+                                            <div ref={(el) => setCellRef(it.id, "response_plan", el)} className="w-full">
+                                              <CellDisplay
+                                                value={safeStr(it.response_plan || "")}
+                                                placeholder="Add response plan…"
+                                                onActivate={() => { touch(it.id, "plan"); openEditor({ type, rowId: it.id, col: "response_plan" }); }}
+                                              />
+                                              {showPlanWarn && (
+                                                <div className="px-3 pb-1 text-[11px] text-red-500 font-medium">Plan required</div>
+                                              )}
+                                            </div>
+                                          </td>
+
+                                          {/* AI Rollup */}
+                                          <td className={CELL_BASE}>
+                                            <div className="px-3 py-2">
+                                              {it.ai_rollup ? (
+                                                <p className="text-[12px] text-gray-500 line-clamp-2 leading-relaxed" title={it.ai_rollup}>
+                                                  {it.ai_rollup}
+                                                </p>
+                                              ) : (
+                                                <span className="text-[12px] text-gray-300 italic">No AI summary</span>
+                                              )}
+                                            </div>
+                                          </td>
+
+                                          {/* Updated */}
+                                          <td className={CELL_BASE}>
+                                            <div className="px-3 py-2 text-center">
+                                              <span className="text-[11px] text-gray-400 tabular-nums">{fmtWhen(it.updated_at)}</span>
+                                            </div>
+                                          </td>
+
+                                          {/* Actions */}
+                                          <td className={cx(CELL_BASE, "border-r-0")}>
+                                            <div className={cx(
+                                              "flex items-center justify-center gap-0.5 px-1 py-1",
+                                              "opacity-0 group-hover/row:opacity-100 transition-opacity"
+                                            )}>
+                                              <button
+                                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setAiOpenId(aiOpenId === it.id ? "" : it.id); }}
+                                                className={cx(
+                                                  "p-1.5 rounded-md transition-colors",
+                                                  aiOpenId === it.id
+                                                    ? "bg-indigo-100 text-indigo-600"
+                                                    : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
                                                 )}
-                                              </div>
-                                              {stale && <div className="text-[12px] text-amber-800 mt-1">{stale.message}</div>}
-                                            </td>
+                                                title="AI Insights"
+                                              >
+                                                <IconAI />
+                                              </button>
 
-                                            {/* Description (read-mode) */}
-                                            <td className={CELL_WRAP} style={{ width: colW.desc }}>
-                                              <div ref={(el) => setCellRef(it.id, "description", el)} className="w-full">
-                                                <CellDisplay
-                                                  value={safeStr(it.description)}
-                                                  placeholder="Describe…"
-                                                  onActivate={() => openEditor({ type, rowId: it.id, col: "description" })}
-                                                  title={safeStr(it.description)}
-                                                />
-                                              </div>
-                                            </td>
+                                              <button
+                                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onAiRefresh(it.id); }}
+                                                disabled={isBusy}
+                                                className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-40 transition-colors"
+                                                title="Refresh AI"
+                                              >
+                                                <span className={isBusy ? "animate-spin" : ""}><IconRefresh /></span>
+                                              </button>
 
-                                            {/* Owner (read-mode) */}
-                                            <td className={CELL_WRAP}>
-                                              <div ref={(el) => setCellRef(it.id, "owner_label", el)} className="w-full">
-                                                <CellDisplay
-                                                  value={safeStr(it.owner_label)}
-                                                  placeholder="Owner name…"
-                                                  onActivate={() => {
-                                                    touch(it.id, "owner");
-                                                    openEditor({ type, rowId: it.id, col: "owner_label" });
-                                                  }}
-                                                />
-                                                {showOwnerWarn && (
-                                                  <div className="text-[12px] text-rose-700 mt-1 font-medium">Owner required</div>
-                                                )}
-                                              </div>
-                                            </td>
+                                              <button
+                                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onDelete(it.id); }}
+                                                disabled={isBusy}
+                                                className="p-1.5 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 disabled:opacity-40 transition-colors"
+                                                title="Delete"
+                                              >
+                                                <IconTrash />
+                                              </button>
+                                            </div>
+                                          </td>
+                                        </tr>
 
-                                            {/* Status (tag) */}
-                                            <td className={CELL_WRAP}>
-                                              <div ref={(el) => setCellRef(it.id, "status", el)} className="w-full">
-                                                <PillTag
-                                                  kind="status"
-                                                  label={safeStr(it.status || "Open")}
-                                                  disabled={isBusy}
-                                                  onActivate={() => openEditor({ type, rowId: it.id, col: "status" })}
-                                                />
-                                              </div>
-                                            </td>
-
-                                            {/* Priority (tag) */}
-                                            <td className={CELL_WRAP}>
-                                              <div ref={(el) => setCellRef(it.id, "priority", el)} className="w-full">
-                                                <PillTag
-                                                  kind="priority"
-                                                  label={safeStr(it.priority || "")}
-                                                  disabled={isBusy}
-                                                  onActivate={() => openEditor({ type, rowId: it.id, col: "priority" })}
-                                                />
-                                              </div>
-                                            </td>
-
-                                            {/* Likelihood (read-mode) */}
-                                            <td className={CELL_WRAP}>
-                                              <div ref={(el) => setCellRef(it.id, "probability", el)} className="w-full">
-                                                <CellDisplay
-                                                  value={String(Number.isFinite(Number(it.probability)) ? Number(it.probability) : 0)}
-                                                  placeholder="0"
-                                                  align="center"
-                                                  onActivate={() => openEditor({ type, rowId: it.id, col: "probability" })}
-                                                />
-                                              </div>
-                                            </td>
-
-                                            {/* Severity (read-mode) */}
-                                            <td className={CELL_WRAP}>
-                                              <div ref={(el) => setCellRef(it.id, "severity", el)} className="w-full">
-                                                <CellDisplay
-                                                  value={String(Number.isFinite(Number(it.severity)) ? Number(it.severity) : 0)}
-                                                  placeholder="0"
-                                                  align="center"
-                                                  onActivate={() => openEditor({ type, rowId: it.id, col: "severity" })}
-                                                />
-                                              </div>
-                                            </td>
-
-                                            {/* Score */}
-                                            <td className={CELL_WRAP}>
-                                              <div className="flex items-center gap-2 w-full">
-                                                <div
-                                                  className={cx(
-                                                    "w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-bold",
-                                                    tone === "r"
-                                                      ? "bg-rose-500 text-white"
-                                                      : tone === "a"
-                                                      ? "bg-amber-400 text-slate-900"
-                                                      : "bg-emerald-500 text-white"
-                                                  )}
-                                                >
-                                                  {sc}
-                                                </div>
-                                                <div className="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                                                  <div
-                                                    className={cx(
-                                                      "h-full rounded-full",
-                                                      tone === "r" ? "bg-rose-500" : tone === "a" ? "bg-amber-400" : "bg-emerald-500"
-                                                    )}
-                                                    style={{ width: `${sc}%` }}
-                                                  />
-                                                </div>
-                                              </div>
-                                            </td>
-
-                                            {/* Due Date (read-mode) */}
-                                            <td className={CELL_WRAP}>
-                                              <div ref={(el) => setCellRef(it.id, "due_date", el)} className="w-full">
-                                                <CellDisplay
-                                                  value={fmtDateOnly(it.due_date)}
-                                                  placeholder="—"
-                                                  align="center"
-                                                  mono
-                                                  onActivate={() => openEditor({ type, rowId: it.id, col: "due_date" })}
-                                                />
-                                              </div>
-                                            </td>
-
-                                            {/* Response Plan (read-mode) */}
-                                            <td className={CELL_WRAP} style={{ width: colW.resp }}>
-                                              <div ref={(el) => setCellRef(it.id, "response_plan", el)} className="w-full">
-                                                <CellDisplay
-                                                  value={safeStr(it.response_plan || "")}
-                                                  placeholder="Plan…"
-                                                  onActivate={() => {
-                                                    touch(it.id, "plan");
-                                                    openEditor({ type, rowId: it.id, col: "response_plan" });
-                                                  }}
-                                                />
-                                                {showPlanWarn && (
-                                                  <div className="text-[12px] text-rose-700 mt-1 font-medium">Plan required</div>
-                                                )}
-                                              </div>
-                                            </td>
-
-                                            {/* AI Rollup */}
-                                            <td className={CELL_WRAP}>
-                                              <div className="w-full">
-                                                {it.ai_rollup ? (
-                                                  <p className="text-[13px] text-slate-600 line-clamp-2" title={it.ai_rollup}>
-                                                    {it.ai_rollup}
-                                                  </p>
-                                                ) : (
-                                                  <span className="text-[13px] text-slate-400 italic">No AI yet</span>
-                                                )}
-                                              </div>
-                                            </td>
-
-                                            {/* Updated */}
-                                            <td className={CELL_WRAP}>
-                                              <span className="text-[12px] text-slate-500">{fmtWhen(it.updated_at)}</span>
-                                            </td>
-
-                                            {/* Actions (✅ last cell: remove right border to avoid double line) */}
-                                            <td className="px-2 py-2 min-h-[38px] bg-white border-b border-slate-200 border-r-0">
-                                              <div className="flex items-center justify-end gap-1">
-                                                <button
-                                                  onClick={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                    setAiOpenId(aiOpenId === it.id ? "" : it.id);
-                                                  }}
-                                                  className={cx(
-                                                    "p-2 border border-transparent hover:border-slate-200 hover:bg-slate-50",
-                                                    aiOpenId === it.id ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "text-slate-500"
-                                                  )}
-                                                  title="AI Insights"
-                                                >
-                                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                                  </svg>
-                                                </button>
-
-                                                <button
-                                                  onClick={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                    void onAiRefresh(it.id);
-                                                  }}
-                                                  disabled={isBusy}
-                                                  className="p-2 text-slate-500 border border-transparent hover:border-slate-200 hover:bg-slate-50 disabled:opacity-50"
-                                                  title="Refresh AI"
-                                                >
-                                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                                  </svg>
-                                                </button>
-
-                                                <button
-                                                  onClick={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                    void onDelete(it.id);
-                                                  }}
-                                                  disabled={isBusy}
-                                                  className="p-2 text-rose-600 border border-transparent hover:border-rose-200 hover:bg-rose-50 disabled:opacity-50"
-                                                  title="Delete"
-                                                >
-                                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path
-                                                      strokeLinecap="round"
-                                                      strokeLinejoin="round"
-                                                      strokeWidth={2}
-                                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                                    />
-                                                  </svg>
-                                                </button>
-                                              </div>
-                                            </td>
-                                          </tr>
-
-                                          {/* AI Panel (left as functional, minimal "card") */}
-                                          {aiOpenId === it.id && (
-                                            <tr>
-                                              <td colSpan={13} className="bg-indigo-50/40 border-b border-indigo-100 border-l border-slate-200 border-r border-slate-200">
-                                                <div className="p-4">
-                                                  <div className="flex items-center justify-between mb-3">
-                                                    <div className="flex items-center gap-3">
-                                                      <div className="w-8 h-8 bg-indigo-100 flex items-center justify-center text-indigo-700 border border-indigo-200">
-                                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                                        </svg>
-                                                      </div>
-                                                      <div>
-                                                        <h3 className="font-semibold text-slate-900">AI Insights</h3>
-                                                        <p className="text-[12px] text-slate-500">
-                                                          Status: {safeStr(ai.ai_status) || "—"} • Quality:{" "}
-                                                          {Number.isFinite(ai.ai_quality) ? `${Math.round(ai.ai_quality)}/100` : "—"} •{" "}
-                                                          {safeStr(ai.last_run_at) ? fmtWhen(ai.last_run_at) : "Never"}
-                                                        </p>
-                                                      </div>
+                                        {/* ── AI Panel ── */}
+                                        {aiOpenId === it.id && (
+                                          <tr>
+                                            <td colSpan={13} className="border-b border-gray-200 border-l border-r bg-[#f9f9f8]">
+                                              <div className="p-5">
+                                                <div className="flex items-start justify-between mb-4">
+                                                  <div className="flex items-center gap-3">
+                                                    <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600">
+                                                      <IconAI />
                                                     </div>
-                                                    <div className="flex items-center gap-2">
-                                                      <button
-                                                        onClick={(e) => {
-                                                          e.preventDefault();
-                                                          e.stopPropagation();
-                                                          void openHistory(it.id);
-                                                        }}
-                                                        disabled={aiHistBusyId === it.id}
-                                                        className="px-3 py-2 text-[13px] font-medium text-indigo-700 bg-indigo-100 hover:bg-indigo-200 border border-indigo-200 disabled:opacity-50"
-                                                      >
-                                                        {aiHistBusyId === it.id
-                                                          ? "Loading…"
-                                                          : aiHistOpenId === it.id
-                                                          ? "Hide History"
-                                                          : "View History"}
-                                                      </button>
-                                                      <button
-                                                        onClick={(e) => {
-                                                          e.preventDefault();
-                                                          e.stopPropagation();
-                                                          setAiOpenId("");
-                                                        }}
-                                                        className="p-2 text-slate-500 hover:bg-slate-100 border border-transparent hover:border-slate-200"
-                                                        title="Close"
-                                                      >
-                                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                                        </svg>
-                                                      </button>
-                                                    </div>
-                                                  </div>
-
-                                                  <div className="grid gap-3">
-                                                    <div className="bg-white p-4 border border-indigo-100">
-                                                      <h4 className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                                                        Summary
-                                                      </h4>
-                                                      <p className="text-[13px] text-slate-700 leading-relaxed">
-                                                        {safeStr(ai.summary || it.ai_rollup || "No summary available.")}
+                                                    <div>
+                                                      <h3 className="font-semibold text-[14px] text-gray-900">AI Insights</h3>
+                                                      <p className="text-[12px] text-gray-400">
+                                                        {safeStr(ai.ai_status) || "—"} •{" "}
+                                                        Quality: {Number.isFinite(ai.ai_quality) ? `${Math.round(ai.ai_quality)}/100` : "—"} •{" "}
+                                                        {safeStr(ai.last_run_at) ? fmtWhen(ai.last_run_at) : "Never run"}
                                                       </p>
                                                     </div>
+                                                  </div>
+                                                  <div className="flex items-center gap-2">
+                                                    <button
+                                                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); void openHistory(it.id); }}
+                                                      disabled={aiHistBusyId === it.id}
+                                                      className="px-3 py-1.5 rounded-md text-[12px] font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 disabled:opacity-50 transition-colors"
+                                                    >
+                                                      {aiHistBusyId === it.id ? "Loading…" : aiHistOpenId === it.id ? "Hide History" : "View History"}
+                                                    </button>
+                                                    <button
+                                                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setAiOpenId(""); }}
+                                                      className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                                                    >
+                                                      <IconClose />
+                                                    </button>
+                                                  </div>
+                                                </div>
 
-                                                    <div className="bg-white p-4 border border-indigo-100">
-                                                      <h4 className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-3">
-                                                        Recommendations
-                                                      </h4>
-                                                      <div className="grid gap-2">
-                                                        {(ai?.recommendations || []).length > 0 ? (
-                                                          ai.recommendations.map((r: string, idx: number) => (
-                                                            <div key={idx} className="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200">
-                                                              <span className="flex-shrink-0 w-6 h-6 bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center justify-center text-[12px] font-bold">
-                                                                {idx + 1}
-                                                              </span>
-                                                              <p className="text-[13px] text-slate-700">{r}</p>
-                                                            </div>
-                                                          ))
-                                                        ) : (
-                                                          <p className="text-[13px] text-slate-500 italic">No recommendations yet.</p>
-                                                        )}
+                                                <div className="grid md:grid-cols-2 gap-3">
+                                                  <div className="bg-white rounded-lg border border-gray-200 p-4">
+                                                    <h4 className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-2">Summary</h4>
+                                                    <p className="text-[13px] text-gray-700 leading-relaxed">
+                                                      {safeStr(ai.summary || it.ai_rollup || "No AI summary yet.")}
+                                                    </p>
+                                                  </div>
+
+                                                  <div className="bg-white rounded-lg border border-gray-200 p-4">
+                                                    <h4 className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3">Recommendations</h4>
+                                                    {(ai?.recommendations || []).length > 0 ? (
+                                                      <div className="space-y-2">
+                                                        {ai.recommendations.map((r: string, idx: number) => (
+                                                          <div key={idx} className="flex items-start gap-2.5">
+                                                            <span className="shrink-0 w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-[11px] font-bold mt-0.5">
+                                                              {idx + 1}
+                                                            </span>
+                                                            <p className="text-[13px] text-gray-700 leading-relaxed">{r}</p>
+                                                          </div>
+                                                        ))}
                                                       </div>
-                                                    </div>
+                                                    ) : (
+                                                      <p className="text-[13px] text-gray-400 italic">No recommendations yet.</p>
+                                                    )}
+                                                  </div>
+                                                </div>
 
-                                                    {aiHistOpenId === it.id && (
-                                                      <div className="bg-white p-4 border border-indigo-100">
-                                                        <h4 className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-3">
-                                                          Version History & Diff
-                                                        </h4>
+                                                {aiHistOpenId === it.id && (
+                                                  <div className="mt-3 bg-white rounded-lg border border-gray-200 p-4">
+                                                    <h4 className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3">Version History & Diff</h4>
 
-                                                        {runs.length === 0 ? (
-                                                          <p className="text-[13px] text-slate-500">No history available.</p>
-                                                        ) : (
-                                                          <div className="space-y-4">
-                                                            <div className="flex items-center gap-4">
-                                                              <div className="flex-1">
-                                                                <label className="text-[12px] text-slate-500 mb-1 block">Version A</label>
-                                                                <select
-                                                                  className="w-full text-[13px] border border-slate-200 px-3 py-2 focus:ring-2 focus:ring-indigo-500"
-                                                                  value={cmp.a}
-                                                                  onChange={(e) =>
-                                                                    setAiCompareById((prev) => ({
-                                                                      ...prev,
-                                                                      [it.id]: { ...prev[it.id], a: e.target.value },
-                                                                    }))
-                                                                  }
-                                                                >
-                                                                  {runs.map((r) => (
-                                                                    <option key={r.id} value={r.id}>
-                                                                      {fmtWhen(r.created_at)} • {safeStr(r.version) || "v?"} • Q{Math.round(r.ai_quality || 0)}
-                                                                    </option>
-                                                                  ))}
-                                                                </select>
+                                                    {runs.length === 0 ? (
+                                                      <p className="text-[13px] text-gray-400">No history available.</p>
+                                                    ) : (
+                                                      <div className="space-y-4">
+                                                        <div className="flex items-end gap-4">
+                                                          <div className="flex-1">
+                                                            <label className="block text-[11px] text-gray-400 mb-1">Version A</label>
+                                                            <select
+                                                              className="w-full text-[13px] border border-gray-200 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                                                              value={cmp.a}
+                                                              onChange={(e) => setAiCompareById((prev) => ({ ...prev, [it.id]: { ...prev[it.id], a: e.target.value } }))}
+                                                            >
+                                                              {runs.map((r) => (
+                                                                <option key={r.id} value={r.id}>
+                                                                  {fmtWhen(r.created_at)} · {safeStr(r.version) || "v?"} · Q{Math.round(r.ai_quality || 0)}
+                                                                </option>
+                                                              ))}
+                                                            </select>
+                                                          </div>
+                                                          <div className="text-[12px] text-gray-400 pb-2.5">vs</div>
+                                                          <div className="flex-1">
+                                                            <label className="block text-[11px] text-gray-400 mb-1">Version B</label>
+                                                            <select
+                                                              className="w-full text-[13px] border border-gray-200 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                                                              value={cmp.b}
+                                                              onChange={(e) => setAiCompareById((prev) => ({ ...prev, [it.id]: { ...prev[it.id], b: e.target.value } }))}
+                                                            >
+                                                              {runs.map((r) => (
+                                                                <option key={r.id} value={r.id}>
+                                                                  {fmtWhen(r.created_at)} · {safeStr(r.version) || "v?"} · Q{Math.round(r.ai_quality || 0)}
+                                                                </option>
+                                                              ))}
+                                                            </select>
+                                                          </div>
+                                                        </div>
+
+                                                        {runA && runB && (
+                                                          <div className="space-y-3 border-t border-gray-100 pt-4">
+                                                            {diffRollup && (
+                                                              <div className="grid grid-cols-2 gap-3">
+                                                                <div className="p-3 bg-red-50 rounded-lg border border-red-100">
+                                                                  <div className="text-[11px] font-semibold text-red-500 mb-1.5">Previous</div>
+                                                                  <div className="text-[13px] text-gray-700">{diffRollup.a}</div>
+                                                                </div>
+                                                                <div className="p-3 bg-green-50 rounded-lg border border-green-100">
+                                                                  <div className="text-[11px] font-semibold text-green-600 mb-1.5">Current</div>
+                                                                  <div className="text-[13px] text-gray-700">{diffRollup.b}</div>
+                                                                </div>
                                                               </div>
-                                                              <div className="text-slate-400 pt-6">vs</div>
-                                                              <div className="flex-1">
-                                                                <label className="text-[12px] text-slate-500 mb-1 block">Version B</label>
-                                                                <select
-                                                                  className="w-full text-[13px] border border-slate-200 px-3 py-2 focus:ring-2 focus:ring-indigo-500"
-                                                                  value={cmp.b}
-                                                                  onChange={(e) =>
-                                                                    setAiCompareById((prev) => ({
-                                                                      ...prev,
-                                                                      [it.id]: { ...prev[it.id], b: e.target.value },
-                                                                    }))
-                                                                  }
-                                                                >
-                                                                  {runs.map((r) => (
-                                                                    <option key={r.id} value={r.id}>
-                                                                      {fmtWhen(r.created_at)} • {safeStr(r.version) || "v?"} • Q{Math.round(r.ai_quality || 0)}
-                                                                    </option>
-                                                                  ))}
-                                                                </select>
+                                                            )}
+                                                            {diffSummary && (
+                                                              <div className="grid grid-cols-2 gap-3">
+                                                                <div className="p-3 bg-red-50 rounded-lg border border-red-100">
+                                                                  <div className="text-[11px] font-semibold text-red-500 mb-1.5">Previous Summary</div>
+                                                                  <div className="text-[13px] text-gray-700">{diffSummary.a}</div>
+                                                                </div>
+                                                                <div className="p-3 bg-green-50 rounded-lg border border-green-100">
+                                                                  <div className="text-[11px] font-semibold text-green-600 mb-1.5">Current Summary</div>
+                                                                  <div className="text-[13px] text-gray-700">{diffSummary.b}</div>
+                                                                </div>
                                                               </div>
-                                                            </div>
-
-                                                            {runA && runB && (
-                                                              <div className="space-y-3 border-t border-slate-100 pt-4">
-                                                                {diffRollup && (
-                                                                  <div className="grid grid-cols-2 gap-4">
-                                                                    <div className="p-3 bg-rose-50 border border-rose-100">
-                                                                      <div className="text-[11px] font-semibold text-rose-700 mb-1">Previous</div>
-                                                                      <div className="text-[13px] text-slate-700">{diffRollup.a}</div>
-                                                                    </div>
-                                                                    <div className="p-3 bg-emerald-50 border border-emerald-100">
-                                                                      <div className="text-[11px] font-semibold text-emerald-700 mb-1">Current</div>
-                                                                      <div className="text-[13px] text-slate-700">{diffRollup.b}</div>
-                                                                    </div>
-                                                                  </div>
-                                                                )}
-
-                                                                {diffSummary && (
-                                                                  <div className="grid grid-cols-2 gap-4">
-                                                                    <div className="p-3 bg-rose-50 border border-rose-100">
-                                                                      <div className="text-[11px] font-semibold text-rose-700 mb-1">Previous Summary</div>
-                                                                      <div className="text-[13px] text-slate-700">{diffSummary.a}</div>
-                                                                    </div>
-                                                                    <div className="p-3 bg-emerald-50 border border-emerald-100">
-                                                                      <div className="text-[11px] font-semibold text-emerald-700 mb-1">Current Summary</div>
-                                                                      <div className="text-[13px] text-slate-700">{diffSummary.b}</div>
-                                                                    </div>
-                                                                  </div>
-                                                                )}
-
-                                                                {diffRecs && (
-                                                                  <div className="grid grid-cols-2 gap-4">
-                                                                    <div className="p-3 bg-rose-50 border border-rose-100">
-                                                                      <div className="text-[11px] font-semibold text-rose-700 mb-2">Previous Recommendations</div>
-                                                                      <ul className="list-disc list-inside text-[13px] text-slate-700 space-y-1">
-                                                                        {diffRecs.a.map((x, i) => (
-                                                                          <li key={i}>{x}</li>
-                                                                        ))}
-                                                                      </ul>
-                                                                    </div>
-                                                                    <div className="p-3 bg-emerald-50 border border-emerald-100">
-                                                                      <div className="text-[11px] font-semibold text-emerald-700 mb-2">Current Recommendations</div>
-                                                                      <ul className="list-disc list-inside text-[13px] text-slate-700 space-y-1">
-                                                                        {diffRecs.b.map((x, i) => (
-                                                                          <li key={i}>{x}</li>
-                                                                        ))}
-                                                                      </ul>
-                                                                    </div>
-                                                                  </div>
-                                                                )}
-
-                                                                {!diffRollup && !diffSummary && !diffRecs && (
-                                                                  <p className="text-[13px] text-slate-500 text-center py-4">
-                                                                    No differences between selected versions.
-                                                                  </p>
-                                                                )}
+                                                            )}
+                                                            {diffRecs && (
+                                                              <div className="grid grid-cols-2 gap-3">
+                                                                <div className="p-3 bg-red-50 rounded-lg border border-red-100">
+                                                                  <div className="text-[11px] font-semibold text-red-500 mb-2">Previous Recommendations</div>
+                                                                  <ul className="space-y-1 text-[13px] text-gray-700">
+                                                                    {diffRecs.a.map((x, i) => <li key={i} className="flex gap-1.5"><span className="text-red-300">·</span>{x}</li>)}
+                                                                  </ul>
+                                                                </div>
+                                                                <div className="p-3 bg-green-50 rounded-lg border border-green-100">
+                                                                  <div className="text-[11px] font-semibold text-green-600 mb-2">Current Recommendations</div>
+                                                                  <ul className="space-y-1 text-[13px] text-gray-700">
+                                                                    {diffRecs.b.map((x, i) => <li key={i} className="flex gap-1.5"><span className="text-green-400">·</span>{x}</li>)}
+                                                                  </ul>
+                                                                </div>
                                                               </div>
+                                                            )}
+                                                            {!diffRollup && !diffSummary && !diffRecs && (
+                                                              <p className="text-[13px] text-gray-400 text-center py-4">
+                                                                No differences between selected versions.
+                                                              </p>
                                                             )}
                                                           </div>
                                                         )}
                                                       </div>
                                                     )}
                                                   </div>
-                                                </div>
-                                              </td>
-                                            </tr>
-                                          )}
-                                        </React.Fragment>
-                                      )}
-                                    </Draggable>
-                                  );
-                                })
-                              )}
+                                                )}
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        )}
+                                      </React.Fragment>
+                                    )}
+                                  </Draggable>
+                                );
+                              })
+                            )}
+                            {dropProvided.placeholder}
+                          </tbody>
+                        </table>
 
-                              {dropProvided.placeholder}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </Droppable>
-                  )}
-                </section>
-              );
-            })}
-          </div>
+                        {/* Add row footer */}
+                        {groupItems.length > 0 && (
+                          <button
+                            onClick={() => onCreate(type)}
+                            disabled={busyId === `new:${type}`}
+                            className="w-full px-4 py-2.5 flex items-center gap-2 text-[13px] text-gray-400 hover:text-gray-600 hover:bg-gray-50/80 border-t border-gray-200 transition-colors"
+                          >
+                            <IconPlus />
+                            Add {type.toLowerCase()}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </Droppable>
+                )}
+              </section>
+            );
+          })}
         </DragDropContext>
       </main>
 
-      {/* ✅ Active-cell editor overlay (Notion-style) */}
+      {/* ── EDITOR OVERLAY ── */}
       {editor && (
         <div
           className="fixed inset-0 z-[80]"
@@ -2364,13 +2276,11 @@ export default function RaidClient({
               minHeight: editor.rect.height,
             }}
           >
-            <div className="bg-white shadow-[0_10px_30px_rgba(2,6,23,0.18)] border border-indigo-200 overflow-hidden">
+            <div className="bg-white rounded-lg shadow-[0_8px_30px_rgba(0,0,0,0.12)] border border-gray-200 overflow-hidden">
               {editor.col === "status" ? (
                 <select
-                  ref={(el) => {
-                    editorInputRef.current = el;
-                  }}
-                  className={cx("w-full h-10 px-3 border-0 outline-none text-[13px] font-semibold", "bg-indigo-50")}
+                  ref={(el) => { editorInputRef.current = el; }}
+                  className="w-full h-10 px-3 border-0 outline-none text-[13px] font-medium bg-white"
                   value={safeStr(editor.value || "Open")}
                   onChange={(e) => {
                     setEditor((cur) => (cur ? { ...cur, value: e.target.value } : cur));
@@ -2384,17 +2294,15 @@ export default function RaidClient({
                 </select>
               ) : editor.col === "priority" ? (
                 <select
-                  ref={(el) => {
-                    editorInputRef.current = el;
-                  }}
-                  className={cx("w-full h-10 px-3 border-0 outline-none text-[13px] font-semibold", "bg-indigo-50")}
+                  ref={(el) => { editorInputRef.current = el; }}
+                  className="w-full h-10 px-3 border-0 outline-none text-[13px] font-medium bg-white"
                   value={safeStr(editor.value || "")}
                   onChange={(e) => {
                     setEditor((cur) => (cur ? { ...cur, value: e.target.value } : cur));
                     window.setTimeout(() => void commitEditor(), 0);
                   }}
                 >
-                  <option value="">—</option>
+                  <option value="">— No priority</option>
                   <option value="Low">Low</option>
                   <option value="Medium">Medium</option>
                   <option value="High">High</option>
@@ -2402,59 +2310,46 @@ export default function RaidClient({
                 </select>
               ) : editor.col === "due_date" ? (
                 <input
-                  ref={(el) => {
-                    editorInputRef.current = el;
-                  }}
+                  ref={(el) => { editorInputRef.current = el; }}
                   type="date"
-                  className="w-full h-10 px-3 border-0 outline-none text-[13px]"
+                  className="w-full h-10 px-3 border-0 outline-none text-[13px] bg-white"
                   value={safeStr(editor.value || "")}
                   onChange={(e) => setEditor((cur) => (cur ? { ...cur, value: e.target.value } : cur))}
                   onBlur={() => void commitEditor()}
                 />
               ) : editor.col === "probability" || editor.col === "severity" ? (
                 <input
-                  ref={(el) => {
-                    editorInputRef.current = el;
-                  }}
+                  ref={(el) => { editorInputRef.current = el; }}
                   type="number"
                   min={0}
                   max={100}
-                  className="w-full h-10 px-3 border-0 outline-none text-[13px] text-center"
+                  className="w-full h-10 px-3 border-0 outline-none text-[13px] text-center font-mono bg-white"
                   value={safeStr(editor.value || "0")}
                   onChange={(e) => setEditor((cur) => (cur ? { ...cur, value: e.target.value } : cur))}
                   onBlur={() => void commitEditor()}
                 />
               ) : editor.col === "description" || editor.col === "response_plan" ? (
                 <textarea
-                  ref={(el) => {
-                    editorInputRef.current = el;
-                  }}
-                  className="w-full min-h-[84px] px-3 py-2 border-0 outline-none text-[13px] leading-5 resize-none"
+                  ref={(el) => { editorInputRef.current = el; }}
+                  className="w-full min-h-[96px] px-3 py-2.5 border-0 outline-none text-[13px] leading-5 resize-none bg-white"
                   value={safeStr(editor.value || "")}
                   onChange={(e) => setEditor((cur) => (cur ? { ...cur, value: e.target.value } : cur))}
                   onBlur={() => void commitEditor()}
                 />
               ) : (
                 <input
-                  ref={(el) => {
-                    editorInputRef.current = el;
-                  }}
-                  className="w-full h-10 px-3 border-0 outline-none text-[13px]"
+                  ref={(el) => { editorInputRef.current = el; }}
+                  className="w-full h-10 px-3 border-0 outline-none text-[13px] bg-white"
                   value={safeStr(editor.value || "")}
                   onChange={(e) => setEditor((cur) => (cur ? { ...cur, value: e.target.value } : cur))}
                   onBlur={() => void commitEditor()}
                 />
               )}
-
-              <div className="px-3 py-2 border-t border-slate-100 bg-slate-50 flex items-center justify-between text-[12px] text-slate-500">
-                <span>Enter / Tab / ↑ ↓ to navigate • Paste TSV supported</span>
+              <div className="px-3 py-1.5 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
+                <span className="text-[11px] text-gray-400">Enter · Tab · ↑↓ to navigate · Paste TSV</span>
                 <button
-                  className="px-2 py-1 hover:bg-slate-200 text-slate-600"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    closeEditor();
-                  }}
+                  className="text-[11px] text-gray-400 hover:text-gray-600 px-1.5 py-0.5 rounded hover:bg-gray-200 transition-colors"
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); closeEditor(); }}
                 >
                   Esc
                 </button>
@@ -2464,83 +2359,74 @@ export default function RaidClient({
         </div>
       )}
 
-      {/* Digest Modal (unchanged) */}
+      {/* ── DIGEST MODAL ── */}
       {digest && (
         <div
-          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-start justify-center p-4 sm:p-6 overflow-y-auto"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setDigest(null);
-          }}
+          className="fixed inset-0 z-50 bg-gray-900/30 backdrop-blur-sm flex items-start justify-center p-4 sm:p-8 overflow-y-auto"
+          onClick={(e) => { if (e.target === e.currentTarget) setDigest(null); }}
         >
-          <div className="bg-white shadow-2xl w-full max-w-5xl my-8 overflow-hidden border border-slate-200">
-            <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between z-10">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl my-8 overflow-hidden border border-gray-200">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10">
               <div>
-                <h2 className="text-[16px] font-semibold text-slate-900">
+                <h2 className="text-[16px] font-semibold text-gray-900">
                   {safeStr(digest?.header?.title) || "Weekly RAID Digest"}
                 </h2>
-                <p className="text-[13px] text-slate-500 mt-1">
-                  {safeStr(digest?.header?.project_code) || humanProjectId} • {safeStr(digest?.header?.project_name) || humanProjectTitle} •{" "}
-                  {fmtWhen(digest?.generated_at)}
+                <p className="text-[12px] text-gray-400 mt-0.5">
+                  {safeStr(digest?.header?.project_code) || humanProjectId} · {safeStr(digest?.header?.project_name) || humanProjectTitle} · {fmtWhen(digest?.generated_at)}
                 </p>
               </div>
-              <button onClick={() => setDigest(null)} className="p-2 text-slate-500 hover:bg-slate-100 border border-transparent hover:border-slate-200">
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+              <button
+                onClick={() => setDigest(null)}
+                className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                <IconClose />
               </button>
             </div>
 
-            <div className="p-6 bg-slate-50/60">
+            <div className="p-6 bg-[#f9f9f8]">
               <div className="grid md:grid-cols-2 gap-4">
                 {(Array.isArray(digest?.sections) ? digest.sections : []).map((sec: any) => (
-                  <div key={safeStr(sec?.key) || safeStr(sec?.title)} className="bg-white border border-slate-200 overflow-hidden">
-                    <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                      <h3 className="font-semibold text-slate-900">{safeStr(sec?.title) || "Section"}</h3>
-                      <span className="px-2.5 py-0.5 bg-slate-200 text-slate-700 text-[12px] font-bold">{sec?.count || sec?.items?.length || 0}</span>
+                  <div key={safeStr(sec?.key) || safeStr(sec?.title)} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                      <h3 className="font-semibold text-[14px] text-gray-800">{safeStr(sec?.title) || "Section"}</h3>
+                      <span className="px-2 py-0.5 rounded-full bg-gray-100 text-[11px] font-semibold text-gray-600">
+                        {sec?.count || sec?.items?.length || 0}
+                      </span>
                     </div>
-                    <ul className="divide-y divide-slate-100">
+                    <ul className="divide-y divide-gray-50">
                       {Array.isArray(sec?.items) && sec.items.length > 0 ? (
                         sec.items.map((x: any, i: number) => {
                           const link = digestDeepLink(routeProjectId, x);
                           const idTxt = digestId(x);
                           return (
-                            <li key={safeStr(x?.id) || i} className="p-3 hover:bg-slate-50 transition-colors flex items-center gap-3">
-                              <div className="w-2 h-2 rounded-full bg-slate-400" />
-                              <Link href={link} className="font-mono text-[11px] bg-slate-100 text-slate-700 px-2 py-1 hover:bg-slate-200 transition-colors border border-slate-200">
+                            <li key={safeStr(x?.id) || i} className="px-4 py-3 hover:bg-gray-50 transition-colors flex items-center gap-3">
+                              <span className="w-1.5 h-1.5 rounded-full bg-gray-300 shrink-0" />
+                              <Link
+                                href={link}
+                                className="font-mono text-[11px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded hover:bg-gray-200 transition-colors shrink-0"
+                              >
                                 {digestIdShort(x)}
                               </Link>
-                              <div className="flex-1 min-w-0">
-                                <Link href={link} className="text-[13px] font-medium text-slate-900 hover:text-indigo-600 truncate block">
-                                  {safeStr(x?.title) || safeStr(x?.description) || "Untitled"}
-                                </Link>
-                              </div>
-                              <div className="flex items-center gap-1">
+                              <Link href={link} className="flex-1 text-[13px] text-gray-800 hover:text-indigo-600 truncate min-w-0">
+                                {safeStr(x?.title) || safeStr(x?.description) || "Untitled"}
+                              </Link>
+                              <div className="flex items-center gap-1 shrink-0">
                                 <button
                                   onClick={() => copyToClipboard(idTxt)}
-                                  className="p-2 text-slate-500 hover:bg-slate-100 border border-transparent hover:border-slate-200 transition-colors"
+                                  className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
                                   title="Copy ID"
                                 >
-                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                                    />
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                                   </svg>
                                 </button>
                                 <button
                                   onClick={() => copyLinkToClipboard(link)}
-                                  className="p-2 text-slate-500 hover:bg-slate-100 border border-transparent hover:border-slate-200 transition-colors"
+                                  className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
                                   title="Copy Link"
                                 >
-                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-                                    />
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                                   </svg>
                                 </button>
                               </div>
@@ -2548,7 +2434,7 @@ export default function RaidClient({
                           );
                         })
                       ) : (
-                        <li className="p-4 text-[13px] text-slate-500 text-center">No items</li>
+                        <li className="px-4 py-8 text-[13px] text-gray-400 text-center">No items</li>
                       )}
                     </ul>
                   </div>
