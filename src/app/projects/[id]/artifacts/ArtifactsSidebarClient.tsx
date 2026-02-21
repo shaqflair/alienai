@@ -27,7 +27,7 @@ import {
    TYPES
 ═══════════════════════════════════════════════════════════════ */
 
-type SidebarItem = {
+export type SidebarItem = {
   key: string;
   label: string;
   ui_kind: string;
@@ -43,8 +43,8 @@ type SidebarItem = {
   canEdit: boolean;
 };
 
-type Role = "owner" | "editor" | "viewer" | "unknown";
-type GroupName = "Plan" | "Control" | "Close";
+export type Role = "owner" | "editor" | "viewer" | "unknown";
+export type GroupName = "Plan" | "Control" | "Close";
 
 /* ═══════════════════════════════════════════════════════════════
    UTILS
@@ -145,7 +145,7 @@ const GROUP_CFG: Record<GroupName, { Icon: React.ElementType; accent: string }> 
    COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 
-export default function ArtifactsSidebarClient({
+function ArtifactsSidebarClientImpl({
   items,
   role,
   projectId,
@@ -242,9 +242,7 @@ export default function ArtifactsSidebarClient({
       const itKey = canonicalKeyUpper(it);
       const active =
         (it.current?.id && activeId && it.current.id === activeId) ||
-        (!it.current &&
-          String(pathname ?? "").includes("/artifacts/new") &&
-          newType === itKey);
+        (!it.current && String(pathname ?? "").includes("/artifacts/new") && newType === itKey);
 
       const status = normStatus(it.current?.approval_status);
       const href = normalizeHref(it.href, projectId, projectRoute);
@@ -399,6 +397,7 @@ export default function ArtifactsSidebarClient({
 
   function ArtifactRow({ it, idx }: { it: (typeof enhanced)[0]; idx: number }) {
     const cfg = it.statusCfg;
+
     const RowIcon = it.isLocked
       ? Lock
       : it.isDeleted
@@ -416,6 +415,7 @@ export default function ArtifactsSidebarClient({
 
     return (
       <div className="relative group/row">
+        {/* Amber accent rail for active item */}
         {it.active && (
           <div
             className={[
@@ -441,9 +441,12 @@ export default function ArtifactsSidebarClient({
             "outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-900",
             "transition-all duration-150",
             collapsed ? "justify-center w-10 h-10 mx-auto p-0" : "px-3 py-2.5 pl-4",
-            it.active ? "bg-white/[0.07] hover:bg-white/[0.09]" : "hover:bg-white/[0.04] active:bg-white/[0.06]",
+            it.active
+              ? "bg-white/[0.07] hover:bg-white/[0.09]"
+              : "hover:bg-white/[0.04] active:bg-white/[0.06]",
           ].join(" ")}
         >
+          {/* Icon */}
           <div
             className={[
               "shrink-0 rounded-lg flex items-center justify-center transition-all duration-200 w-8 h-8",
@@ -457,8 +460,10 @@ export default function ArtifactsSidebarClient({
             <RowIcon className="w-3.5 h-3.5" />
           </div>
 
+          {/* Content (expanded only) */}
           {!collapsed && (
             <div className="flex-1 min-w-0">
+              {/* Label + CURRENT badge */}
               <div className="flex items-center gap-2">
                 <span
                   className={[
@@ -469,7 +474,7 @@ export default function ArtifactsSidebarClient({
                   {it.label}
                 </span>
 
-                {/* Current badge (NO nested Link) */}
+                {/* ✅ Current badge (NO nested Link) */}
                 {it.active && it.current?.id && (
                   <button
                     type="button"
@@ -493,11 +498,13 @@ export default function ArtifactsSidebarClient({
                 )}
               </div>
 
+              {/* Status row */}
               <div className="flex items-center gap-1.5 mt-0.5">
                 {it.current ? (
                   <>
                     <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cfg.dot}`} />
                     <span className={`text-[11px] font-medium ${cfg.text}`}>{cfg.label}</span>
+
                     {it.isLocked && (
                       <span className="inline-flex items-center gap-0.5 text-[10px] text-zinc-600">
                         <Lock className="w-2.5 h-2.5" /> Locked
@@ -518,6 +525,7 @@ export default function ArtifactsSidebarClient({
             </div>
           )}
 
+          {/* Collapsed: amber dot for active */}
           {collapsed && it.active && (
             <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-400 rounded-full border-2 border-zinc-900 shadow-[0_0_8px_rgba(251,191,36,0.5)]" />
           )}
@@ -587,6 +595,7 @@ export default function ArtifactsSidebarClient({
       ].join(" ")}
       style={{ width: collapsed ? 60 : 272 }}
     >
+      {/* Subtle noise texture */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 z-0 opacity-[0.03]"
@@ -596,6 +605,7 @@ export default function ArtifactsSidebarClient({
       />
 
       <div className="relative z-10 flex flex-col h-full">
+        {/* Collapse toggle */}
         <button
           type="button"
           onClick={() => setCollapsed((v) => !v)}
@@ -610,7 +620,11 @@ export default function ArtifactsSidebarClient({
             hovered || collapsed ? "opacity-100 scale-100" : "opacity-0 scale-75 pointer-events-none",
           ].join(" ")}
         >
-          {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+          {collapsed ? (
+            <ChevronRight className="w-3.5 h-3.5" />
+          ) : (
+            <ChevronLeft className="w-3.5 h-3.5" />
+          )}
         </button>
 
         {/* HEADER */}
@@ -648,6 +662,7 @@ export default function ArtifactsSidebarClient({
             </div>
           ) : (
             <>
+              {/* Project identity */}
               <div className="flex items-center gap-3 mb-4">
                 <Link
                   href={`/projects/${projectRoute}`}
@@ -688,6 +703,7 @@ export default function ArtifactsSidebarClient({
                 </div>
               </div>
 
+              {/* Action strip */}
               <div className="flex items-center gap-1.5 mb-2">
                 <Link
                   href={`/projects/${projectRoute}/board`}
@@ -723,6 +739,7 @@ export default function ArtifactsSidebarClient({
                 </Link>
               </div>
 
+              {/* Submitted strip */}
               {counts.submitted > 0 && (
                 <Link
                   href={boardHref("submitted")}
@@ -808,11 +825,7 @@ export default function ArtifactsSidebarClient({
           ) : (
             <>
               <GroupSection name="Plan" groupItems={grouped.Plan} start={groupStarts.Plan} />
-              <GroupSection
-                name="Control"
-                groupItems={grouped.Control}
-                start={groupStarts.Control}
-              />
+              <GroupSection name="Control" groupItems={grouped.Control} start={groupStarts.Control} />
               <GroupSection name="Close" groupItems={grouped.Close} start={groupStarts.Close} />
             </>
           )}
@@ -826,7 +839,9 @@ export default function ArtifactsSidebarClient({
                 <Zap className="w-3 h-3 text-amber-500/70" />
                 <span className="text-[10px] font-bold text-zinc-800">AlienAI</span>
               </div>
-              <p className="hidden lg:block text-[9px] font-mono text-zinc-800">↑↓ · / · [ ]</p>
+              <p className="hidden lg:block text-[9px] font-mono text-zinc-800">
+                ↑↓ · / · [ ]
+              </p>
             </div>
           </div>
         )}
@@ -839,3 +854,11 @@ export default function ArtifactsSidebarClient({
     </aside>
   );
 }
+
+/**
+ * ✅ Export BOTH:
+ * - default export (for any existing default imports)
+ * - named export (so your server file can do: import { ArtifactsSidebarClient } from "./ArtifactsSidebarClient";
+ */
+export default ArtifactsSidebarClientImpl;
+export const ArtifactsSidebarClient = ArtifactsSidebarClientImpl;
