@@ -10,6 +10,7 @@ import ChangeManagementBoard from "@/components/change/ChangeManagementBoard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 /* -------------------------------------------
    small helpers
@@ -69,12 +70,57 @@ function projectCodeVariants(raw: string): string[] {
   return Array.from(out).filter(Boolean);
 }
 
+function buildQueryString(sp: any) {
+  const qs = new URLSearchParams();
+  if (!sp) return qs.toString();
+
+  for (const [k, v] of Object.entries(sp)) {
+    if (v == null) continue;
+    if (Array.isArray(v)) {
+      for (const item of v) {
+        const s = safeStr(item).trim();
+        if (s) qs.append(k, s);
+      }
+    } else {
+      const s = safeStr(v).trim();
+      if (s) qs.set(k, s);
+    }
+  }
+  return qs.toString();
+}
+
 /* -------------------------------------------
    project resolve (UUID or code)
+   ✅ Robust against schema differences (prod/dev)
 ------------------------------------------- */
 
-const PROJECT_SELECT =
-  "id, code, public_id, external_id, project_code, project_number, project_no";
+// Prefer safe/minimal columns that exist in your schema
+const PROJECT_SELECT_MIN = "id, title, project_code";
+
+// Optional extra columns (might not exist everywhere)
+const PROJECT_SELECT_MAX =
+  "id, title, project_code, code, public_id, external_id, project_number, project_no";
+
+/**
+ * Try a select; if it fails due to missing columns, retry with minimal select.
+ */
+async function selectProjectBy(sb: any, col: "id" | "project_code", value: string) {
+  // 1) try max (nice-to-have fields)
+  {
+    const { data, error } = await sb.from("projects").select(PROJECT_SELECT_MAX).eq(col, value).maybeSingle();
+    if (!error) return { project: data ?? null, error: null as any };
+    // If schema mismatch (missing column), fall through to minimal.
+    const msg = safeStr((error as any)?.message).toLowerCase();
+    const looksLikeMissingColumn =
+      msg.includes("column") && msg.includes("does not exist");
+    if (!looksLikeMissingColumn) return { project: null as any, error };
+  }
+
+  // 2) safe minimal select
+  const { data, error } = await sb.from("projects").select(PROJECT_SELECT_MIN).eq(col, value).maybeSingle();
+  if (error) return { project: null as any, error };
+  return { project: data ?? null, error: null as any };
+}
 
 async function resolveProject(sb: any, rawParam: string) {
   const raw = safeStr(rawParam).trim();
@@ -82,29 +128,18 @@ async function resolveProject(sb: any, rawParam: string) {
 
   // 1) UUID path
   if (looksLikeUuid(raw)) {
-    const { data, error } = await sb
-      .from("projects")
-      .select(PROJECT_SELECT)
-      .eq("id", raw)
-      .maybeSingle();
-
-    if (error) return { project: null as any, error };
-    if (data) return { project: data, error: null };
-
-    // If UUID but not found, treat as not found
+    const r = await selectProjectBy(sb, "id", raw);
+    if (r.error) return { project: null as any, error: r.error };
+    if (r.project) return { project: r.project, error: null as any };
     return { project: null as any, error: new Error("Project not found") };
   }
 
   // 2) Human code variants path
   const variants = projectCodeVariants(raw);
   for (const v of variants) {
-    const { data, error } = await sb
-      .from("projects")
-      .select(PROJECT_SELECT)
-      .eq("project_code", v)
-      .maybeSingle();
-    if (error) return { project: null as any, error };
-    if (data) return { project: data, error: null };
+    const r = await selectProjectBy(sb, "project_code", v);
+    if (r.error) return { project: null as any, error: r.error };
+    if (r.project) return { project: r.project, error: null as any };
   }
 
   return { project: null as any, error: new Error("Project not found") };
@@ -118,7 +153,6 @@ export default async function ChangeLogPage({
   params,
   searchParams,
 }: {
-  // Next.js can pass params as a Promise in some setups — handle both safely
   params: { id?: string } | Promise<{ id?: string }>;
   searchParams?: { [k: string]: string | string[] | undefined } | Promise<{ [k: string]: any }>;
 }) {
@@ -137,34 +171,40 @@ export default async function ChangeLogPage({
 
   const supabase = await createClient();
 
-  // ✅ auth guard (keeps behaviour consistent with your other server pages)
+  // ✅ auth guard
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr || !auth?.user) redirect("/login");
 
   // ✅ Resolve project UUID even if the route param is a code
   const resolved = await resolveProject(supabase, paramId);
   if (resolved.error || !resolved.project?.id) {
+    // This is what was causing your 404 in prod when PROJECT_SELECT had missing columns.
     notFound();
   }
 
-  const projectUuid = safeStr(resolved.project.id);
+  const projectUuid = safeStr(resolved.project.id).trim();
   if (!looksLikeUuid(projectUuid)) notFound();
+
+  // ✅ Normalize URL to UUID so ChangeManagementBoard (useParams) always gets UUID
+  if (paramId !== projectUuid) {
+    const q = buildQueryString(sp);
+    redirect(q ? `/projects/${projectUuid}/change?${q}` : `/projects/${projectUuid}/change`);
+  }
 
   /* -------------------------------------------
      project "human id" (for UI chip only)
   ------------------------------------------- */
 
   let projectCode: string | null = null;
-
   {
     const proj = resolved.project;
     const candidates = [
+      toText((proj as any).project_code),
+      toText((proj as any).public_id),
+      toText((proj as any).external_id),
+      toText((proj as any).code),
       toText((proj as any).project_number),
       toText((proj as any).project_no),
-      toText((proj as any).external_id),
-      toText((proj as any).public_id),
-      toText((proj as any).code),
-      toText((proj as any).project_code),
     ]
       .map((s) => s.trim())
       .filter(Boolean);
@@ -173,7 +213,8 @@ export default async function ChangeLogPage({
   }
 
   /* -------------------------------------------
-     locate Change Requests artifact for compare
+     locate Change Requests artifact for compare (optional)
+     ✅ Do NOT include "change" (legacy) to avoid picking wrong artifact
   ------------------------------------------- */
 
   let compareHref: string | null = null;
@@ -181,7 +222,7 @@ export default async function ChangeLogPage({
   try {
     const { data: crArtifact, error } = await supabase
       .from("artifacts")
-      .select("id, type, updated_at")
+      .select("id, type, artifact_type, updated_at")
       .eq("project_id", projectUuid)
       .in("type", [
         "change_requests",
@@ -191,7 +232,6 @@ export default async function ChangeLogPage({
         "change_log",
         "change log",
         "kanban",
-        "change",
       ])
       .order("updated_at", { ascending: false })
       .limit(1)
@@ -203,10 +243,6 @@ export default async function ChangeLogPage({
   } catch {
     // optional feature – safe to ignore
   }
-
-  /* -------------------------------------------
-     render
-  ------------------------------------------- */
 
   return (
     <main className="crPage">
@@ -245,7 +281,7 @@ export default async function ChangeLogPage({
         }
       />
 
-      {/* ✅ ALWAYS Kanban. ✅ No props passed (board reads params internally). */}
+      {/* ✅ ALWAYS Kanban */}
       <ChangeManagementBoard />
     </main>
   );
