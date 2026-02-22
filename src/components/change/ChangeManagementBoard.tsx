@@ -1,9 +1,9 @@
 // src/components/change/ChangeManagementBoard.tsx
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 
 /**
  * Heavy UI (DnD + drawers + modals) is loaded dynamically
@@ -53,11 +53,40 @@ function looksLikeUuid(s: string) {
   );
 }
 
+function looksLikePublicId(x: string) {
+  const t = String(x || "").trim();
+  return /^cr-\d+$/i.test(t) || /^cr\d+$/i.test(t);
+}
+
+function normalizePublicId(x: string) {
+  const t = String(x || "").trim();
+  const m = t.match(/cr[-_\s]*(\d+)/i);
+  return m?.[1] ? `cr-${m[1]}` : t.toLowerCase();
+}
+
 export default function ChangeBoard() {
   const params = useParams() as any;
+  const searchParams = useSearchParams();
 
   const routeProjectParam = safeStr(params?.id || params?.projectId).trim();
   const artifactId = safeStr(params?.artifactId).trim() || null;
+
+  // ✅ deep link support:
+  // /projects/:id/change?cr=<uuid>
+  // /projects/:id/change?publicId=cr-123
+  const initialOpen = useMemo(() => {
+    const cr = safeStr(searchParams?.get("cr")).trim();
+    const publicId = safeStr(searchParams?.get("publicId")).trim();
+
+    return {
+      cr: looksLikeUuid(cr) ? cr : "",
+      publicId: publicId
+        ? looksLikePublicId(publicId)
+          ? normalizePublicId(publicId)
+          : publicId
+        : "",
+    };
+  }, [searchParams]);
 
   const [projectHumanId, setProjectHumanId] = useState<string>(routeProjectParam);
   const [projectUuid, setProjectUuid] = useState<string>("");
@@ -178,6 +207,9 @@ export default function ChangeBoard() {
       projectHumanId={projectHumanId}
       projectLabel={projectLabel}
       artifactId={artifactId}
+      // ✅ new props (safe even if DnD ignores them)
+      initialOpenChangeId={initialOpen.cr || undefined}
+      initialOpenPublicId={initialOpen.publicId || undefined}
     />
   );
 }

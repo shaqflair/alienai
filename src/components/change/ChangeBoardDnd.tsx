@@ -229,7 +229,7 @@ function mapRowToModalInitialValue(it: ChangeItem) {
 }
 
 /**
- * ? Canonical dedupe:
+ * ✅ Canonical dedupe:
  * keeps the newest row if the same id appears multiple times.
  */
 function dedupeKeepLatest(rows: ChangeItem[]) {
@@ -274,25 +274,14 @@ async function apiJson(url: string, init?: RequestInit) {
    Droppable lane list wrapper
 ========================= */
 
-function LaneList({
-  lane,
-  children,
-}: {
-  lane: DeliveryLane;
-  children: React.ReactNode;
-}) {
+function LaneList({ lane, children }: { lane: DeliveryLane; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({
-    id: lane, // ? THIS is how resolveDropLane can detect lane drops
+    id: lane, // ✅ lane id
     data: { type: "Lane", lane },
   });
 
   return (
-    <div
-      ref={setNodeRef}
-      className={`p-3 space-y-3 min-h-[60vh] transition-colors ${
-        isOver ? "bg-indigo-50/40" : ""
-      }`}
-    >
+    <div ref={setNodeRef} className={`p-3 space-y-3 min-h-[60vh] transition-colors ${isOver ? "bg-indigo-50/40" : ""}`}>
       {children}
     </div>
   );
@@ -325,7 +314,7 @@ function SortableCard({
   onSubmit: (it: ChangeItem) => void;
   showSubmit: boolean;
 }) {
-  // ? dnd-kit MUST have globally unique draggable ids
+  // ✅ dnd-kit MUST have globally unique draggable ids
   const sortableId = `card:${item.id}`;
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -365,11 +354,7 @@ function SortableCard({
               <span className="text-xs font-semibold text-gray-500">{changeDisplay(item)}</span>
 
               {item.priority ? (
-                <span
-                  className={`px-2 py-0.5 rounded-full text-[11px] font-medium border ${priorityTone(
-                    item.priority
-                  )}`}
-                >
+                <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium border ${priorityTone(item.priority)}`}>
                   {safeStr(item.priority)}
                 </span>
               ) : null}
@@ -392,10 +377,8 @@ function SortableCard({
             </div>
 
             <div className="mt-2 flex items-center gap-2 flex-wrap text-[11px]">
-              <span className="bg-gray-50 border border-gray-200 px-1.5 rounded">
-                AI {Math.round(score)}
-              </span>
-              <span className="bg-gray-50 border border-gray-200 px-1.5 rounded">? {impactDays}d</span>
+              <span className="bg-gray-50 border border-gray-200 px-1.5 rounded">AI {Math.round(score)}</span>
+              <span className="bg-gray-50 border border-gray-200 px-1.5 rounded">Δ {impactDays}d</span>
               <span className="bg-gray-50 border border-gray-200 px-1.5 rounded">
                 £ {impactCost.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
               </span>
@@ -427,7 +410,7 @@ function SortableCard({
             className="px-2 py-1 rounded-md text-xs font-medium bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
             title="Timeline"
           >
-            ??
+            🕒
           </button>
 
           <button
@@ -437,7 +420,7 @@ function SortableCard({
             className="px-2 py-1 rounded-md text-xs font-medium bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
             title="Attachments"
           >
-            ??
+            📎
           </button>
 
           <button
@@ -447,7 +430,7 @@ function SortableCard({
             className="px-2 py-1 rounded-md text-xs font-medium bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
             title="AI"
           >
-            ?
+            ✨
           </button>
 
           {showSubmit ? (
@@ -476,11 +459,17 @@ export default function ChangeBoardDnd({
   artifactId,
   projectHumanId,
   projectLabel,
+  initialOpenChangeId,
+  initialOpenPublicId,
 }: {
   projectUuid: string;
   artifactId?: string | null;
   projectHumanId?: string | null;
   projectLabel?: string | null;
+
+  // ✅ from ChangeManagementBoard search params
+  initialOpenChangeId?: string;
+  initialOpenPublicId?: string;
 }) {
   const [items, setItems] = useState<ChangeItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -511,6 +500,9 @@ export default function ChangeBoardDnd({
   const [attOpen, setAttOpen] = useState(false);
   const [attChangeId, setAttChangeId] = useState<string | null>(null);
 
+  // ✅ deep link: ensure we only auto-open once per mount / params
+  const autoOpenDoneRef = useRef(false);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -521,15 +513,11 @@ export default function ChangeBoardDnd({
     setLoading(true);
     setErr("");
     try {
-      // ? consume server lanes (deduped + grouped + sorted if you used my API update)
-      const j = await apiJson(
-        `/api/change?projectId=${encodeURIComponent(projectUuid)}&shape=lanes`,
-        { cache: "no-store" }
-      );
+      const j = await apiJson(`/api/change?projectId=${encodeURIComponent(projectUuid)}&shape=lanes`, {
+        cache: "no-store",
+      });
 
       const lanes = (j as any)?.lanes as LanesResponse | undefined;
-
-      // fallback if server returns items for any reason
       const list = Array.isArray((j as any)?.items) ? ((j as any).items as ChangeItem[]) : [];
 
       const flattened =
@@ -537,9 +525,7 @@ export default function ChangeBoardDnd({
           ? LANES.flatMap((l) => (Array.isArray((lanes as any)[l]) ? (lanes as any)[l] : []))
           : list;
 
-      // ? canonical dedupe keeps latest row only
       const deduped = dedupeKeepLatest(flattened).sort(sortForBoard);
-
       setItems(deduped);
     } catch (e: any) {
       setItems([]);
@@ -624,7 +610,44 @@ export default function ChangeBoardDnd({
     setAttOpen(true);
   }, []);
 
-  // ? move delivery lane (drag)
+  // ✅ Auto-open from deep link once we have items
+  useEffect(() => {
+    if (autoOpenDoneRef.current) return;
+    if (!items.length) return;
+
+    const targetId = safeStr(initialOpenChangeId).trim();
+    const targetPublic = safeStr(initialOpenPublicId).trim().toLowerCase();
+
+    if (!targetId && !targetPublic) return;
+
+    let found: ChangeItem | undefined;
+
+    if (targetId) {
+      found = items.find((x) => safeStr(x.id).trim() === targetId);
+    }
+
+    if (!found && targetPublic) {
+      found = items.find((x) => safeStr((x as any)?.public_id).trim().toLowerCase() === targetPublic);
+
+      // tolerate CR123 / CR-123 variants
+      if (!found) {
+        const norm = targetPublic.replace(/\s+/g, "").replace(/_/g, "-");
+        found = items.find((x) => {
+          const p = safeStr((x as any)?.public_id).trim().toLowerCase();
+          if (!p) return false;
+          const pNorm = p.replace(/\s+/g, "").replace(/_/g, "-");
+          return pNorm === norm;
+        });
+      }
+    }
+
+    if (found) {
+      autoOpenDoneRef.current = true;
+      openEdit(found);
+    }
+  }, [items, initialOpenChangeId, initialOpenPublicId, openEdit]);
+
+  // move delivery lane (drag)
   const patchDeliveryStatus = useCallback(async (id: string, toLane: DeliveryLane) => {
     await apiJson(`/api/change/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -637,10 +660,8 @@ export default function ChangeBoardDnd({
     const overId = safeStr(over?.id).trim();
     if (!overId) return null;
 
-    // ? lane droppable id is the lane string (because we added useDroppable)
     if (LANES.includes(overId as DeliveryLane)) return overId as DeliveryLane;
 
-    // card droppable id is "card:<uuid>"
     if (overId.startsWith("card:")) {
       const id = overId.slice("card:".length);
       const overItem = items.find((x) => safeStr(x.id).trim() === id);
@@ -689,13 +710,10 @@ export default function ChangeBoardDnd({
       setErr("");
       setSavingIds((p) => ({ ...p, [activeId]: true }));
 
-      // optimistic move (dedupe keeps uniqueness)
       setItems((prev) =>
         dedupeKeepLatest(
           prev.map((x) =>
-            safeStr(x.id).trim() === activeId
-              ? { ...x, delivery_status: targetLane, updated_at: new Date().toISOString() }
-              : x
+            safeStr(x.id).trim() === activeId ? { ...x, delivery_status: targetLane, updated_at: new Date().toISOString() } : x
           )
         )
       );
@@ -788,18 +806,11 @@ export default function ChangeBoardDnd({
       </div>
 
       {err ? (
-        <div className="mx-6 mt-4 p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm">
-          {err}
-        </div>
+        <div className="mx-6 mt-4 p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm">{err}</div>
       ) : null}
 
       {/* Board */}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCorners}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-      >
+      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="flex gap-4 p-6 overflow-x-auto min-h-[80vh] items-start">
           {LANES.map((lane) => {
             const laneItems = laneMap[lane] || [];
@@ -876,9 +887,7 @@ export default function ChangeBoardDnd({
             <div className="w-[300px]">
               <div className="rounded-xl border border-gray-200 bg-white shadow-lg p-3">
                 <div className="text-xs font-semibold text-gray-500">{changeDisplay(activeItem)}</div>
-                <div className="mt-1 font-semibold text-gray-900 line-clamp-2">
-                  {safeStr(activeItem.title) || "Untitled change"}
-                </div>
+                <div className="mt-1 font-semibold text-gray-900 line-clamp-2">{safeStr(activeItem.title) || "Untitled change"}</div>
               </div>
             </div>
           ) : null}
@@ -915,15 +924,9 @@ export default function ChangeBoardDnd({
       />
 
       {/* AI drawer */}
-      <ChangeAiDrawer
-        open={aiOpen}
-        onClose={() => setAiOpen(false)}
-        projectId={projectUuid}
-        artifactId={artifactId ?? null}
-        changeId={aiChangeId}
-      />
+      <ChangeAiDrawer open={aiOpen} onClose={() => setAiOpen(false)} projectId={projectUuid} artifactId={artifactId ?? null} changeId={aiChangeId} />
 
-      {/* Timeline drawer - FIX: Only render when changeId is not null */}
+      {/* Timeline drawer */}
       {timelineChangeId ? (
         <ChangeTimeline
           open={timelineOpen}
@@ -934,7 +937,7 @@ export default function ChangeBoardDnd({
         />
       ) : null}
 
-      {/* Attachments drawer - FIX: Only render when changeId is not null */}
+      {/* Attachments drawer */}
       {attChangeId ? (
         <AttachmentsDrawer
           open={attOpen}
