@@ -15,27 +15,23 @@ function fmtDate(d?: any) {
   return s.slice(0, 10) || "—";
 }
 
-function statusTone(status?: string) {
+function statusTone(status?: string, closed?: boolean) {
+  if (closed) return { dot: "#94a3b8", badge: "bg-slate-100 text-slate-500 ring-1 ring-slate-200" };
   const s = String(status || "").toLowerCase();
-  if (s.includes("close") || s.includes("complete")) return "border-gray-200 bg-gray-50 text-gray-700";
-  if (s.includes("cancel")) return "border-rose-200 bg-rose-50 text-rose-700";
-  if (s.includes("hold")) return "border-amber-200 bg-amber-50 text-amber-700";
-  return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (s.includes("cancel")) return { dot: "#f87171", badge: "bg-rose-50 text-rose-600 ring-1 ring-rose-200" };
+  if (s.includes("hold")) return { dot: "#fbbf24", badge: "bg-amber-50 text-amber-600 ring-1 ring-amber-200" };
+  return { dot: "#00B8DB", badge: "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200" };
 }
 
 function pmLabel(p: ProjectListRow): string {
   const anyP = p as any;
-
   const label =
     safeStr(anyP?.project_manager_label).trim() ||
     safeStr(anyP?.project_manager_name).trim() ||
     safeStr(anyP?.pm_name).trim();
-
   if (label) return label;
-
   const pmId = safeStr(anyP?.project_manager_id).trim();
   if (pmId) return "Assigned";
-
   return "Unassigned";
 }
 
@@ -81,19 +77,13 @@ export default async function ProjectsResults({
   pid?: string;
   err?: string;
   msg?: string;
-
-  // ✅ SERIALIZABLE (was Set<string>, which breaks RSC stringify)
   orgAdminOrgIds: string[];
-
   baseHrefForDismiss: string;
   panelGlow: string;
 }) {
   const total = Array.isArray(rows) ? rows.length : 0;
   const orgAdminSet = new Set((orgAdminOrgIds ?? []).map((x) => String(x)));
 
-  // ------------------------------------------------------------------
-  // Enterprise delete protection (server-side)
-  // ------------------------------------------------------------------
   const supabase = await createClient();
   const projectIds = (Array.isArray(rows) ? rows : []).map((r) => String((r as any)?.id || "")).filter(Boolean);
 
@@ -106,7 +96,6 @@ export default async function ProjectsResults({
       .in("project_id", projectIds)
       .is("deleted_at", null);
 
-    // If artifact query fails, default to safe (block delete)
     if (error) {
       for (const pid of projectIds) {
         guardByProject[pid] = {
@@ -119,42 +108,25 @@ export default async function ProjectsResults({
       }
     } else {
       const list = Array.isArray(arts) ? arts : [];
-
-      // init
       for (const pid of projectIds) {
-        guardByProject[pid] = {
-          canDelete: true,
-          totalArtifacts: 0,
-          submittedCount: 0,
-          contentCount: 0,
-          reasons: [],
-        };
+        guardByProject[pid] = { canDelete: true, totalArtifacts: 0, submittedCount: 0, contentCount: 0, reasons: [] };
       }
-
       for (const a of list) {
         const pid = String((a as any)?.project_id || "");
         if (!pid || !guardByProject[pid]) continue;
-
         guardByProject[pid].totalArtifacts += 1;
-
         const status = safeStr((a as any)?.approval_status).trim().toLowerCase();
         const isSubmittedOrBeyond = !!status && status !== "draft";
-
         const hasInfo = nonEmptyText((a as any)?.content) || hasJsonContent((a as any)?.content_json);
-
         if (isSubmittedOrBeyond) guardByProject[pid].submittedCount += 1;
         if (hasInfo) guardByProject[pid].contentCount += 1;
       }
-
       for (const pid of projectIds) {
         const g = guardByProject[pid];
-
         const reasons: string[] = [];
         if (g.submittedCount > 0) reasons.push(`${g.submittedCount} artifact(s) submitted / in workflow`);
         if (g.contentCount > 0) reasons.push(`${g.contentCount} artifact(s) contain information`);
-
         const protectedExists = g.submittedCount > 0 || g.contentCount > 0;
-
         guardByProject[pid] = {
           ...g,
           canDelete: !protectedExists,
@@ -164,7 +136,6 @@ export default async function ProjectsResults({
     }
   }
 
-  // Simple URL builder (no buildQs dependency)
   function qsSafe(params: Record<string, unknown>) {
     const sp = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) {
@@ -178,245 +149,516 @@ export default async function ProjectsResults({
   }
 
   const makeHref = (next: Record<string, unknown>) =>
-    `/projects${qsSafe({
-      q,
-      view,
-      sort,
-      filter,
-      ...next,
-    })}`;
+    `/projects${qsSafe({ q, view, sort, filter, ...next })}`;
 
   return (
-    <section className="space-y-4">
-      {/* Controls */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="text-sm text-gray-600">
-          Showing <span className="font-semibold text-gray-900">{total}</span> project{total === 1 ? "" : "s"}
-        </div>
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300&family=DM+Mono:wght@400;500&display=swap');
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-          {/* Filter */}
-          <div className="flex items-center gap-2">
-            <Link
-              href={makeHref({ filter: "active" })}
-              className={[
-                "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
-                filter === "active"
-                  ? "border-[#00B8DB] bg-[#00B8DB] text-white shadow-sm shadow-[#00B8DB]/20"
-                  : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50",
-              ].join(" ")}
-            >
-              Active
-            </Link>
-            <Link
-              href={makeHref({ filter: "closed" })}
-              className={[
-                "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
-                filter === "closed"
-                  ? "border-[#00B8DB] bg-[#00B8DB] text-white shadow-sm shadow-[#00B8DB]/20"
-                  : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50",
-              ].join(" ")}
-            >
-              Closed
-            </Link>
-            <Link
-              href={makeHref({ filter: "all" })}
-              className={[
-                "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
-                filter === "all"
-                  ? "border-[#00B8DB] bg-[#00B8DB] text-white shadow-sm shadow-[#00B8DB]/20"
-                  : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50",
-              ].join(" ")}
-            >
-              All
-            </Link>
+        .pr-root { font-family: 'DM Sans', sans-serif; }
+        .pr-mono { font-family: 'DM Mono', monospace; }
+
+        .pr-tab {
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+          height: 36px;
+          padding: 0 16px;
+          border-radius: 8px;
+          font-size: 13px;
+          font-weight: 600;
+          letter-spacing: 0.01em;
+          transition: all 0.15s ease;
+          border: 1px solid transparent;
+          cursor: pointer;
+          text-decoration: none;
+          white-space: nowrap;
+        }
+
+        .pr-tab-inactive {
+          color: #64748b;
+          background: white;
+          border-color: #e2e8f0;
+        }
+
+        .pr-tab-inactive:hover {
+          background: #f8fafc;
+          border-color: #cbd5e1;
+          color: #334155;
+        }
+
+        .pr-tab-active {
+          color: white;
+          background: #00B8DB;
+          border-color: #00B8DB;
+          box-shadow: 0 2px 8px rgba(0,184,219,0.35);
+        }
+
+        .pr-search-input {
+          height: 36px;
+          padding: 0 14px;
+          border: 1px solid #e2e8f0;
+          border-radius: 8px;
+          font-size: 13px;
+          font-family: 'DM Sans', sans-serif;
+          color: #0f172a;
+          background: white;
+          outline: none;
+          transition: all 0.15s ease;
+          width: 240px;
+        }
+
+        .pr-search-input:focus {
+          border-color: #00B8DB;
+          box-shadow: 0 0 0 3px rgba(0,184,219,0.12);
+        }
+
+        .pr-search-btn {
+          height: 36px;
+          padding: 0 18px;
+          border-radius: 8px;
+          font-size: 13px;
+          font-weight: 600;
+          font-family: 'DM Sans', sans-serif;
+          background: #00B8DB;
+          color: white;
+          border: none;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          white-space: nowrap;
+        }
+
+        .pr-search-btn:hover {
+          background: #00a0bf;
+          box-shadow: 0 2px 8px rgba(0,184,219,0.35);
+        }
+
+        .pr-card {
+          background: white;
+          border: 1px solid #e8edf4;
+          border-radius: 14px;
+          padding: 20px 24px;
+          transition: all 0.18s ease;
+          position: relative;
+          overflow: hidden;
+        }
+
+        .pr-card:hover {
+          border-color: #b8dde8;
+          box-shadow: 0 4px 24px rgba(0,184,219,0.1), 0 1px 4px rgba(0,0,0,0.04);
+          transform: translateY(-1px);
+        }
+
+        .pr-card::before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: 0;
+          bottom: 0;
+          width: 3px;
+          background: #00B8DB;
+          opacity: 0;
+          transition: opacity 0.18s ease;
+          border-radius: 14px 0 0 14px;
+        }
+
+        .pr-card:hover::before {
+          opacity: 1;
+        }
+
+        .pr-card-closed::before {
+          background: #94a3b8;
+        }
+
+        .pr-status-dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          flex-shrink: 0;
+          margin-top: 2px;
+        }
+
+        .pr-status-dot-active {
+          background: #00B8DB;
+          box-shadow: 0 0 0 3px rgba(0,184,219,0.2);
+          animation: pr-pulse 2.5s infinite;
+        }
+
+        @keyframes pr-pulse {
+          0%, 100% { box-shadow: 0 0 0 3px rgba(0,184,219,0.2); }
+          50% { box-shadow: 0 0 0 5px rgba(0,184,219,0.08); }
+        }
+
+        .pr-action-link {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          padding: 6px 13px;
+          border-radius: 7px;
+          font-size: 12.5px;
+          font-weight: 600;
+          text-decoration: none;
+          transition: all 0.14s ease;
+          border: 1px solid #e8edf4;
+          background: #fafbfd;
+          color: #475569;
+          letter-spacing: 0.01em;
+        }
+
+        .pr-action-link:hover {
+          background: white;
+          border-color: #00B8DB;
+          color: #00869e;
+          box-shadow: 0 2px 8px rgba(0,184,219,0.12);
+        }
+
+        .pr-action-link-admin {
+          background: #f0fdf4;
+          border-color: #bbf7d0;
+          color: #15803d;
+        }
+
+        .pr-action-link-admin:hover {
+          background: #dcfce7;
+          border-color: #86efac;
+          color: #166534;
+          box-shadow: 0 2px 8px rgba(34,197,94,0.12);
+        }
+
+        .pr-code-badge {
+          display: inline-flex;
+          align-items: center;
+          padding: 2px 8px;
+          border-radius: 5px;
+          font-size: 11px;
+          font-weight: 500;
+          letter-spacing: 0.05em;
+          background: #f1f5f9;
+          color: #64748b;
+          border: 1px solid #e2e8f0;
+          font-family: 'DM Mono', monospace;
+        }
+
+        .pr-empty-state {
+          padding: 72px 24px;
+          text-align: center;
+        }
+
+        .pr-divider {
+          height: 1px;
+          background: linear-gradient(to right, transparent, #e2e8f0 20%, #e2e8f0 80%, transparent);
+          margin: 2px 0;
+        }
+
+        .pr-controls {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-bottom: 20px;
+        }
+
+        .pr-controls-right {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .pr-tab-group {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          background: #f8fafc;
+          padding: 3px;
+          border-radius: 10px;
+          border: 1px solid #e8edf4;
+        }
+
+        .pr-count-label {
+          font-size: 13px;
+          color: #94a3b8;
+          font-weight: 500;
+        }
+
+        .pr-count-label strong {
+          color: #334155;
+          font-weight: 700;
+        }
+
+        .pr-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .pr-card-grid {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 16px;
+          align-items: start;
+        }
+
+        .pr-title {
+          font-size: 15px;
+          font-weight: 700;
+          color: #0f172a;
+          line-height: 1.3;
+        }
+
+        .pr-meta {
+          font-size: 12px;
+          color: #94a3b8;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-wrap: wrap;
+          margin-top: 4px;
+        }
+
+        .pr-meta-sep {
+          color: #cbd5e1;
+        }
+
+        .pr-meta strong {
+          color: #475569;
+          font-weight: 600;
+        }
+
+        .pr-schedule {
+          font-size: 12.5px;
+          color: #475569;
+          font-weight: 500;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-top: 8px;
+        }
+
+        .pr-schedule svg {
+          opacity: 0.5;
+        }
+
+        .pr-actions-row {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+
+        .pr-section-header {
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          color: #94a3b8;
+          text-transform: uppercase;
+          margin-bottom: 10px;
+        }
+
+        .pr-search-form {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+      `}</style>
+
+      <section className="pr-root">
+        {/* Controls bar */}
+        <div className="pr-controls">
+          <div className="pr-count-label">
+            <strong>{total}</strong> project{total === 1 ? "" : "s"}
           </div>
 
-          {/* Search */}
-          <form action="/projects" method="GET" className="flex items-center gap-2">
-            <input type="hidden" name="view" value={view} />
-            <input type="hidden" name="sort" value={sort} />
-            <input type="hidden" name="filter" value={filter} />
+          <div className="pr-controls-right">
+            {/* Filter tabs */}
+            <div className="pr-tab-group">
+              <Link href={makeHref({ filter: "active" })} className={`pr-tab ${filter === "active" ? "pr-tab-active" : "pr-tab-inactive"}`}>
+                Active
+              </Link>
+              <Link href={makeHref({ filter: "closed" })} className={`pr-tab ${filter === "closed" ? "pr-tab-active" : "pr-tab-inactive"}`}>
+                Closed
+              </Link>
+              <Link href={makeHref({ filter: "all" })} className={`pr-tab ${filter === "all" ? "pr-tab-active" : "pr-tab-inactive"}`}>
+                All
+              </Link>
+            </div>
 
-            <input
-              name="q"
-              defaultValue={q}
-              placeholder="Search projects…"
-              className="h-10 w-full sm:w-72 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#00B8DB] focus:ring-2 focus:ring-[#00B8DB]/20 outline-none"
-            />
+            {/* Search */}
+            <form action="/projects" method="GET" className="pr-search-form">
+              <input type="hidden" name="view" value={view} />
+              <input type="hidden" name="sort" value={sort} />
+              <input type="hidden" name="filter" value={filter} />
+              <input
+                name="q"
+                defaultValue={q}
+                placeholder="Search projects…"
+                className="pr-search-input"
+              />
+              <button type="submit" className="pr-search-btn">Search</button>
+            </form>
 
-            <button
-              type="submit"
-              className="h-10 rounded-lg bg-[#00B8DB] px-4 text-sm font-semibold text-white hover:bg-[#00a5c4] transition shadow-sm shadow-[#00B8DB]/20"
-            >
-              Search
-            </button>
-          </form>
-
-          {/* Sort */}
-          <div className="flex items-center gap-2">
-            <Link
-              href={makeHref({ sort: "created_desc" })}
-              className={[
-                "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
-                sort === "created_desc"
-                  ? "border-[#00B8DB] bg-[#00B8DB] text-white shadow-sm shadow-[#00B8DB]/20"
-                  : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50",
-              ].join(" ")}
-            >
-              Newest
-            </Link>
-
-            <Link
-              href={makeHref({ sort: "title_asc" })}
-              className={[
-                "h-10 inline-flex items-center rounded-lg border px-3 text-sm font-semibold transition",
-                sort === "title_asc"
-                  ? "border-[#00B8DB] bg-[#00B8DB] text-white shadow-sm shadow-[#00B8DB]/20"
-                  : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50",
-              ].join(" ")}
-            >
-              A–Z
-            </Link>
+            {/* Sort tabs */}
+            <div className="pr-tab-group">
+              <Link href={makeHref({ sort: "created_desc" })} className={`pr-tab ${sort === "created_desc" ? "pr-tab-active" : "pr-tab-inactive"}`}>
+                Newest
+              </Link>
+              <Link href={makeHref({ sort: "title_asc" })} className={`pr-tab ${sort === "title_asc" ? "pr-tab-active" : "pr-tab-inactive"}`}>
+                A–Z
+              </Link>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Table */}
-      <div className={`rounded-xl ${panelGlow} overflow-hidden`}>
-        <div className="overflow-x-auto">
-          <table className="w-full table-fixed border-collapse">
-            <thead>
-              <tr className="bg-gray-50 text-gray-600 text-xs uppercase tracking-wider">
-                <th className="text-left font-semibold px-5 py-4 border-b border-gray-200 w-[46%]">Project</th>
-                <th className="text-left font-semibold px-5 py-4 border-b border-gray-200 w-[22%]">Schedule</th>
-                <th className="text-right font-semibold px-5 py-4 border-b border-gray-200 w-[32%]">Actions</th>
-              </tr>
-            </thead>
+        {/* Project list */}
+        {total > 0 ? (
+          <div className="pr-list">
+            {(Array.isArray(rows) ? rows : []).map((p, idx) => {
+              const projectId = String((p as any)?.id || "");
+              const orgId = String((p as any)?.organisation_id || "");
+              const isOrgAdmin = orgId ? orgAdminSet.has(orgId) : false;
 
-            <tbody className="bg-white">
-              {(Array.isArray(rows) ? rows : []).map((p) => {
-                const projectId = String((p as any)?.id || "");
-                const orgId = String((p as any)?.organisation_id || "");
-                const isOrgAdmin = orgId ? orgAdminSet.has(orgId) : false;
+              const hrefProject = `/projects/${encodeURIComponent(projectId)}`;
+              const hrefArtifacts = `/projects/${encodeURIComponent(projectId)}/artifacts`;
+              const hrefMembers = `/projects/${encodeURIComponent(projectId)}/members`;
+              const hrefApprovals = `/projects/${encodeURIComponent(projectId)}/approvals`;
+              const hrefDoa = `/projects/${encodeURIComponent(projectId)}/doa`;
 
-                const hrefProject = `/projects/${encodeURIComponent(projectId)}`;
-                const hrefArtifacts = `/projects/${encodeURIComponent(projectId)}/artifacts`;
-                const hrefMembers = `/projects/${encodeURIComponent(projectId)}/members`;
-                const hrefApprovals = `/projects/${encodeURIComponent(projectId)}/approvals`;
-                const hrefDoa = `/projects/${encodeURIComponent(projectId)}/doa`;
+              const pm = pmLabel(p);
+              const guard = guardByProject[projectId] ?? null;
+              const closed = isClosedProject(p);
+              const tone = statusTone((p as any)?.status, closed);
 
-                const pm = pmLabel(p);
-                const guard = guardByProject[projectId] ?? null;
-                const closed = isClosedProject(p);
+              const startDate = fmtDate((p as any)?.start_date);
+              const endDate = fmtDate((p as any)?.finish_date);
 
-                return (
-                  <tr key={projectId} className="border-b border-gray-200 hover:bg-gray-50/70 transition-colors">
-                    {/* PROJECT */}
-                    <td className="px-5 py-5 align-top">
-                      <div className="flex items-start gap-4">
-                        <span
-                          className={[
-                            "inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold border",
-                            statusTone((p as any)?.status),
-                          ].join(" ")}
-                        >
-                          {closed ? "Closed" : "Active"}
-                        </span>
+              return (
+                <div key={projectId} className={`pr-card ${closed ? "pr-card-closed" : ""}`} style={{ animationDelay: `${idx * 30}ms` }}>
+                  <div className="pr-card-grid">
+                    {/* Left: project info */}
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
+                        {/* Status dot */}
+                        <div style={{ paddingTop: "4px", flexShrink: 0 }}>
+                          <div
+                            className={`pr-status-dot ${!closed ? "pr-status-dot-active" : ""}`}
+                            style={{ background: tone.dot }}
+                          />
+                        </div>
 
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className="font-semibold text-gray-900 truncate">{safeStr((p as any)?.title)}</div>
-                            {(p as any)?.project_code != null && String((p as any)?.project_code).trim() !== "" && (
-                              <span className="shrink-0 inline-flex items-center rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-gray-700">
-                                {String((p as any)?.project_code)}
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          {/* Title row */}
+                          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                            <Link href={hrefProject} style={{ textDecoration: "none" }}>
+                              <span className="pr-title" style={{ color: closed ? "#94a3b8" : "#0f172a" }}>
+                                {safeStr((p as any)?.title)}
                               </span>
-                            )}
-                          </div>
-
-                          <div className="mt-1 text-xs text-gray-500">
-                            Owner • PM:{" "}
-                            <span className={pm === "Unassigned" ? "text-gray-400" : "text-gray-700 font-semibold"}>
-                              {pm}
-                            </span>{" "}
-                            • Created {fmtDate((p as any)?.created_at)}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* SCHEDULE */}
-                    <td className="px-5 py-5 align-top">
-                      <div className="text-sm text-gray-900">
-                        {fmtDate((p as any)?.start_date)} — {fmtDate((p as any)?.finish_date)}
-                      </div>
-                      <div className="mt-2 text-xs text-gray-500">Schedule window</div>
-                    </td>
-
-                    {/* ACTIONS */}
-                    <td className="px-5 py-5 align-top">
-                      <div className="flex flex-col items-end gap-3">
-                        <div className="flex flex-wrap justify-end gap-2">
-                          <Link
-                            href={hrefProject}
-                            className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
-                          >
-                            Overview
-                          </Link>
-                          <Link
-                            href={hrefArtifacts}
-                            className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
-                          >
-                            Artifacts
-                          </Link>
-                          <Link
-                            href={hrefMembers}
-                            className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
-                          >
-                            Members
-                          </Link>
-                          <Link
-                            href={hrefApprovals}
-                            className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
-                          >
-                            Approvals
-                          </Link>
-
-                          {isOrgAdmin && (
-                            <Link
-                              href={hrefDoa}
-                              className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100"
-                            >
-                              DOA (Admin)
                             </Link>
-                          )}
+
+                            {(p as any)?.project_code != null && String((p as any)?.project_code).trim() !== "" && (
+                              <span className="pr-code-badge">{String((p as any)?.project_code)}</span>
+                            )}
+
+                            <span className={`pr-code-badge ${tone.badge}`} style={{ fontSize: "11px", fontFamily: "'DM Sans', sans-serif", letterSpacing: "0.03em" }}>
+                              {closed ? "Closed" : "Active"}
+                            </span>
+                          </div>
+
+                          {/* Meta row */}
+                          <div className="pr-meta">
+                            <span>
+                              PM:{" "}
+                              <strong style={{ color: pm === "Unassigned" ? "#cbd5e1" : "#475569" }}>
+                                {pm}
+                              </strong>
+                            </span>
+                            <span className="pr-meta-sep">·</span>
+                            <span>Created {fmtDate((p as any)?.created_at)}</span>
+                          </div>
+
+                          {/* Schedule */}
+                          <div className="pr-schedule">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                              <line x1="16" y1="2" x2="16" y2="6"></line>
+                              <line x1="8" y1="2" x2="8" y2="6"></line>
+                              <line x1="3" y1="10" x2="21" y2="10"></line>
+                            </svg>
+                            {startDate} — {endDate}
+                          </div>
                         </div>
-
-                        {/* Single entry point modal handles delete vs abnormal close */}
-                        <ProjectsDangerButtonsClient
-                          projectId={projectId}
-                          projectTitle={safeStr((p as any)?.title)}
-                          guard={guard}
-                          isClosed={closed}
-                        />
                       </div>
-                    </td>
-                  </tr>
-                );
-              })}
+                    </div>
 
-              {total === 0 && (
-                <tr>
-                  <td colSpan={3} className="px-6 py-14 text-center">
-                    <div className="text-sm font-semibold text-gray-900">No projects found</div>
-                    <div className="mt-1 text-sm text-gray-500">Try adjusting your filters or search.</div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
+                    {/* Right: actions */}
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "10px", flexShrink: 0 }}>
+                      <div className="pr-actions-row">
+                        <Link href={hrefProject} className="pr-action-link">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="12" y1="8" x2="12" y2="12"/>
+                            <line x1="12" y1="16" x2="12.01" y2="16"/>
+                          </svg>
+                          Overview
+                        </Link>
+                        <Link href={hrefArtifacts} className="pr-action-link">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                          </svg>
+                          Artifacts
+                        </Link>
+                        <Link href={hrefMembers} className="pr-action-link">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                            <circle cx="9" cy="7" r="4"/>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                          </svg>
+                          Members
+                        </Link>
+                        <Link href={hrefApprovals} className="pr-action-link">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12"/>
+                          </svg>
+                          Approvals
+                        </Link>
+                        {isOrgAdmin && (
+                          <Link href={hrefDoa} className="pr-action-link pr-action-link-admin">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                            </svg>
+                            DOA (Admin)
+                          </Link>
+                        )}
+                      </div>
+
+                      <ProjectsDangerButtonsClient
+                        projectId={projectId}
+                        projectTitle={safeStr((p as any)?.title)}
+                        guard={guard}
+                        isClosed={closed}
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="pr-empty-state" style={{ background: "white", borderRadius: "14px", border: "1px solid #e8edf4" }}>
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: "0 auto 16px" }}>
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+              <line x1="8" y1="21" x2="16" y2="21"/>
+              <line x1="12" y1="17" x2="12" y2="21"/>
+            </svg>
+            <div style={{ fontSize: "14px", fontWeight: 700, color: "#334155" }}>No projects found</div>
+            <div style={{ marginTop: "6px", fontSize: "13px", color: "#94a3b8" }}>Try adjusting your filters or search terms.</div>
+          </div>
+        )}
+      </section>
+    </>
   );
 }
