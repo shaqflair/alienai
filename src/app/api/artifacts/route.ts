@@ -59,11 +59,48 @@ function buildArtifactHref(a: { project_id?: any; id?: any; type?: any }) {
 
   if (!pid) return "/projects";
   if (t === "raid" || t === "raid_log") return `/projects/${pid}/raid`;
-  if (t === "change_requests" || t === "change" || t === "changes" || t.includes("change"))
+  if (t === "change_requests" || t === "change_request" || t === "change" || t === "changes" || t.includes("change"))
     return `/projects/${pid}/change`;
   if (t === "lessons_learned" || t === "lessons" || t.includes("lesson")) return `/projects/${pid}/lessons`;
   if (aid) return `/projects/${pid}/artifacts/${aid}`;
   return `/projects/${pid}/artifacts`;
+}
+
+/* ---------------- shared filters ---------------- */
+
+/**
+ * We treat these as “inactive projects” and exclude them.
+ * Matches your client-side logic.
+ */
+function applyExcludeInactiveProjects(query: any) {
+  // PostgREST filters on joined table columns use "projects.<col>"
+  // We apply NOT ILIKE on each lifecycle column.
+  const bad = ["%cancel%", "%close%", "%archive%", "%inactive%", "%complete%", "%done%"];
+
+  const cols = [
+    "projects.status",
+    "projects.state",
+    "projects.lifecycle_status",
+    "projects.lifecycle_state",
+  ];
+
+  for (const col of cols) {
+    for (const pat of bad) {
+      query = query.not(col, "ilike", pat);
+    }
+  }
+  return query;
+}
+
+/**
+ * Exclude “closed/cancelled” artifacts for ACTIVE counts.
+ * (We do not exclude from the list unless you want the list to only show open artifacts too.
+ * Right now: list shows all artifacts in active projects; activeCount counts only open ones.)
+ */
+function applyExcludeClosedArtifacts(query: any) {
+  const bad = ["%closed%", "%done%", "%complete%", "%completed%", "%cancel%"];
+  for (const pat of bad) query = query.not("status", "ilike", pat);
+  return query;
 }
 
 /* ---------------- route ---------------- */
@@ -86,7 +123,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
 
   /**
-   * ✅ projectId is OPTIONAL now:
+   * ✅ projectId is OPTIONAL:
    * - If provided => project-scoped results
    * - If missing => GLOBAL results across projects the user can read (RLS enforces access)
    */
@@ -94,6 +131,9 @@ export async function GET(req: Request) {
 
   const q = safeStr(url.searchParams.get("q")).trim();
   const type = safeStr(url.searchParams.get("type")).trim(); // e.g. "wbs"
+
+  const includeTotals = parseBool(url.searchParams.get("includeTotals"));
+
   const missingEffortOn = parseBool(url.searchParams.get("missingEffort"));
   const stalledOn = parseBool(url.searchParams.get("stalled"));
 
@@ -101,68 +141,73 @@ export async function GET(req: Request) {
   const cursor = parseCursor(url.searchParams.get("cursor"));
 
   try {
-    let query = supabase
-      .from("artifacts")
-      .select(
-        `
-          id,
-          project_id,
-          title,
-          type,
-          status,
-          approval_status,
-          is_current,
-          version,
-          root_artifact_id,
-          parent_artifact_id,
-          created_at,
-          updated_at,
-          projects:projects (
+    // ---------------- Base query builder (shared filters) ----------------
+    const makeBase = () => {
+      let query = supabase
+        .from("artifacts")
+        .select(
+          `
             id,
+            project_id,
             title,
-            project_code
-          )
-        `,
-        { count: "exact" }
-      )
-      .order("updated_at", { ascending: false })
-      .order("created_at", { ascending: false });
+            type,
+            status,
+            approval_status,
+            is_current,
+            version,
+            root_artifact_id,
+            parent_artifact_id,
+            created_at,
+            updated_at,
+            projects:projects (
+              id,
+              title,
+              project_code,
+              status,
+              state,
+              lifecycle_status,
+              lifecycle_state
+            )
+          `,
+          { count: "exact" }
+        )
+        .order("updated_at", { ascending: false })
+        .order("created_at", { ascending: false });
 
-    // ✅ Optional project scope
-    if (projectId) {
-      query = query.eq("project_id", projectId);
-    }
+      // Optional project scope
+      if (projectId) query = query.eq("project_id", projectId);
 
-    // ✅ Type filter
-    if (type) query = query.eq("type", type);
+      // Type filter
+      if (type) query = query.eq("type", type);
 
-    // ✅ Text search
-    if (q) {
-      const qq = `%${escapeIlike(q)}%`;
-      query = query.or(
-        `title.ilike.${qq},type.ilike.${qq},status.ilike.${qq},approval_status.ilike.${qq}`
-      );
-    }
+      // Text search
+      if (q) {
+        const qq = `%${escapeIlike(q)}%`;
+        query = query.or(
+          `title.ilike.${qq},type.ilike.${qq},status.ilike.${qq},approval_status.ilike.${qq}`
+        );
+      }
 
-    /**
-     * Optional quick filters (enable ONLY if your table actually has these columns)
-     *
-     * If you have:
-     * - artifacts.effort (text) or artifacts.effort_size
-     * - artifacts.stalled (boolean)
-     *
-     * then uncomment:
-     */
-    // if (missingEffortOn) query = query.or("effort.is.null,effort.eq.");
-    // if (stalledOn) query = query.eq("stalled", true);
-    void missingEffortOn;
-    void stalledOn;
+      // Optional quick filters (only enable if columns exist)
+      // if (missingEffortOn) query = query.or("effort.is.null,effort.eq.");
+      // if (stalledOn) query = query.eq("stalled", true);
+      void missingEffortOn;
+      void stalledOn;
+
+      // ✅ Always exclude inactive projects (closed/cancelled/etc)
+      query = applyExcludeInactiveProjects(query);
+
+      return query;
+    };
+
+    // ---------------- Page query ----------------
+    let pageQuery = makeBase();
 
     // pagination
     const from = cursor;
     const to = cursor + limit - 1;
 
-    const { data, error, count } = await query.range(from, to);
+    const { data, error, count } = await pageQuery.range(from, to);
 
     if (error) {
       return jsonErr(
@@ -195,6 +240,10 @@ export async function GET(req: Request) {
             id: r.projects.id,
             title: r.projects.title,
             project_code: r.projects.project_code,
+            status: r.projects.status ?? null,
+            state: r.projects.state ?? null,
+            lifecycle_status: r.projects.lifecycle_status ?? null,
+            lifecycle_state: r.projects.lifecycle_state ?? null,
           }
         : null,
     }));
@@ -210,7 +259,55 @@ export async function GET(req: Request) {
             a.localeCompare(b)
           );
 
-    return jsonOk({ items, nextCursor, facets: { types } }, 200, noStoreHeaders);
+    // ---------------- Totals (optional) ----------------
+    let totalCount: number | null = null;
+    let activeCount: number | null = null;
+    let activeProjectCount: number | null = null;
+
+    if (includeTotals) {
+      // Total count for current view (already excludes inactive projects)
+      const { count: totalC, error: totalErr } = await makeBase().range(0, 0); // cheap count
+      if (!totalErr && typeof totalC === "number") totalCount = totalC;
+
+      // Active artifacts count (exclude closed/cancelled artifact statuses)
+      const activeBase = applyExcludeClosedArtifacts(makeBase());
+      const { count: activeC, error: activeErr } = await activeBase.range(0, 0);
+      if (!activeErr && typeof activeC === "number") activeCount = activeC;
+
+      // Active project count (distinct project_id across active artifacts)
+      // JS de-dupe (capped to 10k rows)
+      const { data: pidRows, error: pidErr } = await applyExcludeClosedArtifacts(
+        makeBase()
+          .select("project_id, projects:projects(id)", { count: "exact" }) // minimal
+          .order("project_id", { ascending: true })
+      ).range(0, 9999);
+
+      if (!pidErr && Array.isArray(pidRows)) {
+        const set = new Set<string>();
+        for (const r of pidRows as any[]) {
+          const pid = safeStr(r.project_id).trim();
+          if (pid) set.add(pid);
+        }
+        activeProjectCount = set.size;
+      }
+    }
+
+    return jsonOk(
+      {
+        items,
+        nextCursor,
+        facets: { types },
+        ...(includeTotals
+          ? {
+              totalCount,
+              activeCount,
+              activeProjectCount,
+            }
+          : {}),
+      },
+      200,
+      noStoreHeaders
+    );
   } catch (e: any) {
     return jsonErr(e?.message || "Unknown error", 500, undefined, noStoreHeaders);
   }
