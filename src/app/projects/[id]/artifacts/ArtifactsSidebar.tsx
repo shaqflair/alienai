@@ -40,9 +40,8 @@ const ARTIFACT_TYPE_REGISTRY: ArtifactTypeDef[] = [
 
   // ✅ IMPORTANT: Change Requests is a board route (change_requests table),
   // not a living-document artifact view.
-  { key: "CHANGE", dbType: "change", label: "Change Requests", group: "Control", legacyRoute: "change" },
-
-  // Close
+  { key: "CHANGE", dbType: "change", label: "Change Requests", group: "Control" },
+    // Close
   { key: "LESSONS_LEARNED", dbType: "lessons_learned", label: "Lessons Learned", group: "Close", legacyRoute: "lessons" },
   { key: "PROJECT_CLOSURE_REPORT", dbType: "project_closure_report", label: "Closure Report", group: "Close" },
 ];
@@ -282,7 +281,7 @@ function buildSidebarItems(dbArtifacts: any[], projectUuid: string): SidebarItem
     if (!t) continue;
 
     // ✅ Ignore legacy "change" artifacts so we don't treat them as living-docs in the UI.
-    // Change Requests must always route to /projects/:uuid/change.
+    // Change Requests must always route to the board/workspace.
     if (t === "change" || t === "change_request" || t === "change_requests") continue;
 
     if (!byDbType.has(t)) byDbType.set(t, a);
@@ -291,8 +290,20 @@ function buildSidebarItems(dbArtifacts: any[], projectUuid: string): SidebarItem
   return ARTIFACT_TYPE_REGISTRY.map((def) => {
     const dbTypeLower = safeStr(def.dbType).toLowerCase();
 
-    // ✅ Legacy routes ALWAYS route to board pages (UUID).
-    // Also: do not show "current artifact" for them, and do not allow "Create" via artifacts/new.
+    // ✅ Change Requests: ALWAYS route to change workspace, never an artifact doc
+    if (dbTypeLower === "change") {
+      return {
+        key: def.key,
+        label: def.label,
+        ui_kind: def.key,
+        current: null,
+        href: `/change?projectId=${projectUuid}`,
+        canCreate: false,
+        canEdit: true,
+      };
+    }
+
+    // ✅ Other legacy board routes (RAID, Lessons legacy etc)
     if (def.legacyRoute) {
       return {
         key: def.key,
@@ -332,7 +343,6 @@ function buildSidebarItems(dbArtifacts: any[], projectUuid: string): SidebarItem
     };
   });
 }
-
 /* ═══════════════════════════════════════════════════════════════
    EXPORTED SERVER COMPONENT
 ═══════════════════════════════════════════════════════════════ */
