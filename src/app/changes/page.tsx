@@ -1,6 +1,5 @@
 ﻿// src/app/changes/page.tsx
 import "server-only";
-
 import ChangesClient from "./ChangesClient";
 
 export const runtime = "nodejs";
