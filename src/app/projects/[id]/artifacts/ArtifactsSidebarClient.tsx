@@ -1,3 +1,4 @@
+// src/app/projects/[id]/artifacts/ArtifactsSidebarClient.tsx
 "use client";
 
 import Link from "next/link";
@@ -541,7 +542,7 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
     [mounted, SKEY]
   );
 
-  // ✅ FIX: deleteDraftArtifact expects FormData: { projectId, artifactId }
+  // ✅ FIX: deleteDraftArtifact expects FormData keys: { projectId, artifactId }
   const onDeleteDraft = useCallback(
     (artifactId: string) => {
       if (!artifactId) return;
@@ -563,7 +564,7 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
         }
       });
     },
-    [projectId, router]
+    [projectId, router, startTransition]
   );
 
   const initial = (safeStr(projectName).trim() || "P").charAt(0).toUpperCase();

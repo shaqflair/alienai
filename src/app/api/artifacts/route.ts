@@ -1,3 +1,4 @@
+// src/app/api/artifacts/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -93,33 +94,49 @@ function applyExcludeInactiveProjects(query: any, cols: ProjectCol[]) {
   // Always exclude soft-deleted projects
   query = query.is("projects.deleted_at", null);
 
-  // We want the *Projects page definition* of “active”:
-  // - not closed/cancelled/completed/archived/rejected
-  // - and ideally status/state == 'active' where available
-  //
-  // Since schema varies, we do:
-  // - If a primary "status" or "state" exists -> require 'active'
-  // - If lifecycle exists -> require 'active'
-  //
-  // This ensures the “Active Projects” card matches the Projects list count.
+  // ✅ Be tolerant to casing / enums:
+  // - Prefer active (case-insensitive) when those columns exist
+  // - Always exclude obvious inactive words (closed/cancelled/completed/archived/rejected)
+  const bad = ["%closed%", "%complete%", "%completed%", "%cancel%", "%cancelled%", "%archiv%", "%reject%"];
 
+  // Prefer "active" (case-insensitive) where available
   if (cols.includes("status")) {
-    query = query.eq("projects.status", "active");
+    query = query.ilike("projects.status", "active");
+    for (const pat of bad) query = query.not("projects.status", "ilike", pat);
   } else if (cols.includes("state")) {
-    query = query.eq("projects.state", "active");
+    query = query.ilike("projects.state", "active");
+    for (const pat of bad) query = query.not("projects.state", "ilike", pat);
   }
 
   if (cols.includes("lifecycle_status")) {
-    query = query.eq("projects.lifecycle_status", "active");
+    query = query.ilike("projects.lifecycle_status", "active");
+    for (const pat of bad) query = query.not("projects.lifecycle_status", "ilike", pat);
   } else if (cols.includes("lifecycle_state")) {
-    query = query.eq("projects.lifecycle_state", "active");
+    query = query.ilike("projects.lifecycle_state", "active");
+    for (const pat of bad) query = query.not("projects.lifecycle_state", "ilike", pat);
+  }
+
+  // If only one of the fields exists, still block inactive keywords on any other available field
+  // (helps if schema uses "state" but has "lifecycle_status" too)
+  if (cols.includes("status")) {
+    for (const pat of bad) query = query.not("projects.status", "ilike", pat);
+  }
+  if (cols.includes("state")) {
+    for (const pat of bad) query = query.not("projects.state", "ilike", pat);
+  }
+  if (cols.includes("lifecycle_status")) {
+    for (const pat of bad) query = query.not("projects.lifecycle_status", "ilike", pat);
+  }
+  if (cols.includes("lifecycle_state")) {
+    for (const pat of bad) query = query.not("projects.lifecycle_state", "ilike", pat);
   }
 
   return query;
 }
 
 function applyExcludeClosedArtifacts(query: any) {
-  const bad = ["%closed%", "%done%", "%complete%", "%completed%", "%cancel%"];
+  // Artifact.status may be used for portfolio health/labels; exclude closed-ish ones from this API
+  const bad = ["%closed%", "%done%", "%complete%", "%completed%", "%cancel%", "%cancelled%"];
   for (const pat of bad) query = query.not("status", "ilike", pat);
   return query;
 }
@@ -214,6 +231,7 @@ export async function GET(req: Request) {
           );
         }
 
+        // ✅ critical: align with Projects "Active" definition
         query = applyExcludeInactiveProjects(query, projCols);
         query = applyExcludeClosedArtifacts(query);
 
@@ -272,13 +290,14 @@ export async function GET(req: Request) {
       let activeProjectCount: number | null = null;
 
       if (includeTotals) {
+        // Total = count of active artifacts after filters (same as “activeCount” here)
         const { count: totalC, error: totalErr } = await makeBase(undefined, true).range(0, 0);
         if (totalErr) throw totalErr;
         if (typeof totalC === "number") totalCount = totalC;
 
         activeCount = totalCount;
 
-        // Distinct project count across *active-only* base query
+        // Distinct project count across the base query
         const pidSelect = `project_id, ${projectsSelect}`;
         const { data: pidRows, error: pidErr } = await makeBase(pidSelect, false)
           .order("project_id", { ascending: true })
