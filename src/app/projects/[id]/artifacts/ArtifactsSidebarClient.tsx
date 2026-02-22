@@ -1,9 +1,11 @@
-// src/app/projects/[id]/artifacts/ArtifactsSidebarClient.tsx
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
-import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { Trash2 } from "lucide-react";
+
+import { deleteDraftArtifact as deleteDraftArtifactAction } from "@/app/projects/[id]/artifacts/actions";
 
 /* ═══════════════════════════════════════════════════════════════
    TYPES
@@ -58,10 +60,27 @@ function canonicalKeyUpper(it: Pick<SidebarItem, "ui_kind" | "key">) {
   return safeUpper(it.ui_kind || it.key);
 }
 
+function isChangeKey(kUpper: string) {
+  const u = safeUpper(kUpper);
+  return (
+    u === "CHANGE" ||
+    u === "CHANGES" ||
+    u === "CHANGE_REQUEST" ||
+    u === "CHANGE_REQUESTS" ||
+    u.includes("CHANGE_REQUEST") ||
+    (u.includes("CHANGE") && !u.includes("CHARTER"))
+  );
+}
+
+function isRaidKey(kUpper: string) {
+  const u = safeUpper(kUpper);
+  return u === "RAID" || u === "RAID_LOG" || u.includes("RAID");
+}
+
 function groupForKey(k: string): GroupName {
   const u = k.toUpperCase().trim();
   if (["PROJECT_CHARTER", "STAKEHOLDER_REGISTER", "WBS", "SCHEDULE", "WEEKLY_REPORT"].includes(u)) return "Plan";
-  if (["RAID", "CHANGE"].includes(u)) return "Control";
+  if (isRaidKey(u) || isChangeKey(u)) return "Control";
   return "Close";
 }
 
@@ -99,6 +118,7 @@ type EnhancedItem = SidebarItem & {
   keyUpper: string;
   isLocked: boolean;
   isDeleted: boolean;
+  canDeleteDraft: boolean;
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -111,12 +131,16 @@ const ArtifactRow = React.memo(function ArtifactRow({
   collapsed,
   rowRefs,
   onRowClick,
+  onDeleteDraft,
+  deleting,
 }: {
   it: EnhancedItem;
   idx: number;
   collapsed: boolean;
   rowRefs: React.MutableRefObject<Array<HTMLAnchorElement | null>>;
   onRowClick: (id: string | undefined) => void;
+  onDeleteDraft: (artifactId: string) => void;
+  deleting: boolean;
 }) {
   const rightBadge = it.current ? (
     <span className={it.badge.cls}>{it.badge.label}</span>
@@ -165,7 +189,29 @@ const ArtifactRow = React.memo(function ArtifactRow({
               </div>
             )}
           </div>
-          {!collapsed && <div className="shrink-0 mt-0.5">{rightBadge}</div>}
+
+          {!collapsed && (
+            <div className="shrink-0 mt-0.5 flex items-center gap-2">
+              {rightBadge}
+
+              {it.canDeleteDraft && it.current?.id && (
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onDeleteDraft(it.current!.id);
+                  }}
+                  title="Delete draft"
+                  className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-neutral-200 bg-white text-neutral-500 hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50 transition disabled:opacity-50"
+                  aria-label="Delete draft"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </Link>
     </div>
@@ -181,6 +227,8 @@ const GroupSection = React.memo(function GroupSection({
   toggleGroup,
   rowRefs,
   onRowClick,
+  onDeleteDraft,
+  deleting,
 }: {
   name: GroupName;
   groupItems: EnhancedItem[];
@@ -190,6 +238,8 @@ const GroupSection = React.memo(function GroupSection({
   toggleGroup: (g: GroupName) => void;
   rowRefs: React.MutableRefObject<Array<HTMLAnchorElement | null>>;
   onRowClick: (id: string | undefined) => void;
+  onDeleteDraft: (artifactId: string) => void;
+  deleting: boolean;
 }) {
   const open = groupOpen[name];
   const count = groupItems.filter((x) => x.current?.id).length;
@@ -229,6 +279,8 @@ const GroupSection = React.memo(function GroupSection({
               collapsed={collapsed}
               rowRefs={rowRefs}
               onRowClick={onRowClick}
+              onDeleteDraft={onDeleteDraft}
+              deleting={deleting}
             />
           ))}
         </div>
@@ -243,13 +295,8 @@ const GroupSection = React.memo(function GroupSection({
    INNER (useSearchParams inside Suspense)
 ═══════════════════════════════════════════════════════════════ */
 
-function ArtifactsSidebarInner({
-  items,
-  role,
-  projectId, // UUID
-  projectName,
-  projectCode,
-}: ArtifactsSidebarClientProps) {
+function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCode }: ArtifactsSidebarClientProps) {
+  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const newTypeRaw = searchParams?.get("type") ?? null;
@@ -261,10 +308,11 @@ function ArtifactsSidebarInner({
   const [storedId, setStoredId] = useState<string | null>(null);
   const [groupOpen, setGroupOpen] = useState<Record<GroupName, boolean>>({ Plan: true, Control: true, Close: true });
 
+  const [isPending, startTransition] = useTransition();
+
   const rowRefs = useRef<Array<HTMLAnchorElement | null>>([]);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
-  // ✅ Storage key should be stable and based on UUID (routing key)
   const SKEY = `alienai:lastArtifact:${projectId}`;
   const GKEY = `alienai:artifactGroups:${projectId}`;
 
@@ -306,22 +354,62 @@ function ArtifactsSidebarInner({
 
   const safeItems = useMemo(() => (Array.isArray(items) ? items : []), [items]);
 
+  // ✅ Ensure Change Requests always shows (even if server didn’t include it)
+  const itemsWithChange = useMemo(() => {
+    const hasChange = safeItems.some((it) => isChangeKey(canonicalKeyUpper(it)));
+    if (hasChange) return safeItems;
+
+    const canEdit = role === "owner" || role === "editor";
+    const canCreate = canEdit;
+
+    const injected: SidebarItem = {
+      key: "CHANGE",
+      ui_kind: "CHANGE",
+      label: "Change Requests",
+      current: null,
+      href: `/projects/${projectId}/change`,
+      canCreate,
+      canEdit,
+    };
+    return [...safeItems, injected];
+  }, [safeItems, role, projectId]);
+
   const enhanced: EnhancedItem[] = useMemo(() => {
     const urlId = artifactIdFromPath(pathname);
     const activeId = urlId ?? (mounted ? storedId : null);
     const newType = safeUpper(newTypeRaw);
 
-    return safeItems.map((it) => {
+    return itemsWithChange.map((it) => {
       const itKey = canonicalKeyUpper(it);
 
       const active =
         (it.current?.id != null && activeId != null && it.current.id === activeId) ||
-        (!it.current && String(pathname ?? "").includes("/artifacts/new") && newType === itKey);
+        (!it.current && String(pathname ?? "").includes("/artifacts/new") && newType === itKey) ||
+        (!it.current && isChangeKey(itKey) && String(pathname ?? "").includes("/change")) ||
+        (!it.current && isRaidKey(itKey) && String(pathname ?? "").includes("/raid"));
 
       const status = normStatus(it.current?.approval_status);
 
-      // ✅ IMPORTANT: openUrl uses the href produced by server (which is already UUID-based)
-      const openUrl = it.current?.id ? `/projects/${projectId}/artifacts/${it.current.id}` : it.href;
+      const openUrl = it.current?.id
+        ? `/projects/${projectId}/artifacts/${it.current.id}`
+        : isChangeKey(itKey)
+          ? `/projects/${projectId}/change`
+          : isRaidKey(itKey)
+            ? `/projects/${projectId}/raid`
+            : it.href || `/projects/${projectId}/artifacts`;
+
+      const isLocked = Boolean(it.current?.is_locked);
+      const isDeleted = Boolean(it.current?.deleted_at);
+      const isDraft = !status || status === "draft";
+
+      const canDeleteDraft =
+        Boolean(it.current?.id) &&
+        it.canEdit &&
+        isDraft &&
+        !isLocked &&
+        !isDeleted &&
+        !isChangeKey(itKey) &&
+        !isRaidKey(itKey);
 
       return {
         ...it,
@@ -330,11 +418,12 @@ function ArtifactsSidebarInner({
         status,
         badge: getBadge(status),
         keyUpper: itKey,
-        isLocked: Boolean(it.current?.is_locked),
-        isDeleted: Boolean(it.current?.deleted_at),
+        isLocked,
+        isDeleted,
+        canDeleteDraft,
       };
     });
-  }, [safeItems, pathname, newTypeRaw, storedId, mounted, projectId]);
+  }, [itemsWithChange, pathname, newTypeRaw, storedId, mounted, projectId]);
 
   const counts = useMemo(() => {
     let submitted = 0;
@@ -384,7 +473,6 @@ function ArtifactsSidebarInner({
     rowRefs.current[focusIdx]?.focus?.();
   }, [focusIdx]);
 
-  // Keyboard
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
@@ -451,6 +539,31 @@ function ArtifactsSidebarInner({
       } catch {}
     },
     [mounted, SKEY]
+  );
+
+  // ✅ FIX: deleteDraftArtifact expects FormData: { projectId, artifactId }
+  const onDeleteDraft = useCallback(
+    (artifactId: string) => {
+      if (!artifactId) return;
+      const ok = window.confirm("Delete this draft artifact? This cannot be undone.");
+      if (!ok) return;
+
+      startTransition(async () => {
+        try {
+          const fd = new FormData();
+          fd.set("projectId", projectId);
+          fd.set("artifactId", artifactId);
+
+          const res = await deleteDraftArtifactAction(fd);
+          if (!res?.ok) throw new Error(res?.error || "Delete failed");
+
+          router.refresh();
+        } catch (e: any) {
+          alert(e?.message || "Delete failed");
+        }
+      });
+    },
+    [projectId, router]
   );
 
   const initial = (safeStr(projectName).trim() || "P").charAt(0).toUpperCase();
@@ -591,7 +704,6 @@ function ArtifactsSidebarInner({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search artifacts…  (/)"
-
                 aria-label="Search artifacts"
                 className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-sm text-neutral-900 placeholder-neutral-400 outline-none focus:ring-2 focus:ring-neutral-300 focus:border-neutral-300 transition-all"
               />
@@ -646,6 +758,8 @@ function ArtifactsSidebarInner({
                 toggleGroup={toggleGroup}
                 rowRefs={rowRefs}
                 onRowClick={handleRowClick}
+                onDeleteDraft={onDeleteDraft}
+                deleting={isPending}
               />
               <GroupSection
                 name="Control"
@@ -656,6 +770,8 @@ function ArtifactsSidebarInner({
                 toggleGroup={toggleGroup}
                 rowRefs={rowRefs}
                 onRowClick={handleRowClick}
+                onDeleteDraft={onDeleteDraft}
+                deleting={isPending}
               />
               <GroupSection
                 name="Close"
@@ -666,6 +782,8 @@ function ArtifactsSidebarInner({
                 toggleGroup={toggleGroup}
                 rowRefs={rowRefs}
                 onRowClick={handleRowClick}
+                onDeleteDraft={onDeleteDraft}
+                deleting={isPending}
               />
             </>
           )}
