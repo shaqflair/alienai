@@ -60,6 +60,11 @@ function looksLikeUuid(x: any) {
   );
 }
 
+function clampText(x: unknown, max: number) {
+  const s = safeStr(x);
+  return s.length > max ? s.slice(0, max) : s;
+}
+
 /* =========================================================
    Auth / Membership
 ========================================================= */
@@ -88,7 +93,11 @@ export async function requireProjectRole(
     .eq("is_active", true)
     .maybeSingle();
 
-  if (error) throw new Error(error.message);
+  // If this table is missing in some env, fail closed (no access)
+  if (error) {
+    if (isMissingRelation(safeStr(error.message))) return null;
+    throw new Error(error.message);
+  }
   if (!mem) return null;
 
   const role = safeStr((mem as any).role).toLowerCase();
@@ -107,8 +116,7 @@ export function isOwner(role: ProjectRole) {
 
 /* =========================================================
    Designated Approvers (LEGACY / DIRECTORY)
-   - Keep only if you still use organisation_approvers as a directory
-   - NOT used by the new approval engine (artifact_step_approvers + decisions)
+   - Keep only if you still use organisation_approvers/doa_rules
 ========================================================= */
 
 async function getOrganisationIdForProject(
@@ -118,7 +126,7 @@ async function getOrganisationIdForProject(
   const pid = safeStr(projectId);
   if (!pid) return null;
 
-  // try organisation_id then organization_id (support both spellings)
+  // Try organisation_id then organization_id (support both spellings)
   const first = await supabase.from("projects").select("organisation_id").eq("id", pid).maybeSingle();
   if (!first.error) {
     const orgId = (first.data as any)?.organisation_id;
@@ -135,6 +143,7 @@ async function getOrganisationIdForProject(
 
 function amountMatchesRule(amount: number | null, rule: any): boolean {
   if (amount == null) return true;
+
   const min = Number(rule?.min_amount ?? 0);
   const maxRaw = rule?.max_amount;
   const max = maxRaw == null ? null : Number(maxRaw);
@@ -269,7 +278,13 @@ export async function getPendingArtifactStepForArtifact(args: {
     .limit(1)
     .maybeSingle();
 
-  if (stErr) throw new Error(stErr.message);
+  if (stErr) {
+    if (isMissingRelation(safeStr(stErr.message))) {
+      // make this explicit so routes can map to 409 if you want
+      throw new Error("Approval engine not available");
+    }
+    throw new Error(stErr.message);
+  }
   if (!step) return null;
 
   return {
@@ -288,17 +303,21 @@ export async function getPendingArtifactStepForArtifact(args: {
 }
 
 /**
- * ? Tightened: resolve user approvers via canonical approver_member_id -> organisation_members.user_id
- * Fallback: legacy approver_ref UUID (user_id)
+ * Resolve user approvers:
+ * - Canonical: approver_member_id -> organisation_members.user_id
+ * - Legacy fallback: approver_ref = user_id (uuid)
  */
 async function listDirectApproverUserIdsForStep(supabase: any, stepId: string): Promise<string[]> {
   const { data, error } = await supabase
     .from("artifact_step_approvers")
     .select("approver_type, approver_ref, approver_member_id, active")
-    .eq("step_id", stepId)
+    .eq("step_id", safeStr(stepId))
     .eq("active", true);
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (isMissingRelation(safeStr(error.message))) return [];
+    throw new Error(error.message);
+  }
 
   const rows = Array.isArray(data) ? data : [];
 
@@ -329,11 +348,10 @@ async function listDirectApproverUserIdsForStep(supabase: any, stepId: string): 
         });
       }
     } catch {
-      // swallow, fallback to legacy
+      // swallow, fallback to legacy below
     }
   }
 
-  // Legacy fallback
   legacyUserIds.forEach((u) => out.add(u));
 
   return Array.from(out);
@@ -350,6 +368,7 @@ async function findDelegatorForActorOnStep(
   const tables = ["approver_delegations", "approval_delegations"];
   for (const t of tables) {
     try {
+      // schema v1
       const q1 = await supabase
         .from(t)
         .select("primary_user_id, delegate_user_id, start_at, end_at, is_active")
@@ -369,6 +388,7 @@ async function findDelegatorForActorOnStep(
         continue;
       }
 
+      // schema v2 fallback
       if (
         hasMissingColumn(safeStr(q1.error?.message), "primary_user_id") ||
         hasMissingColumn(safeStr(q1.error?.message), "start_at") ||
@@ -401,7 +421,7 @@ async function findDelegatorForActorOnStep(
 }
 
 /**
- * ? Canonical auth check for Approve/Reject.
+ * Canonical auth check for Approve/Reject.
  */
 export async function canActOnPendingArtifactStep(args: {
   supabase: any;
@@ -423,8 +443,8 @@ export async function canActOnPendingArtifactStep(args: {
 }
 
 /**
- * ? Required by approve/reject routes.
- * Throws 403 if the actor can’t approve current pending step for artifact.
+ * Required by approve/reject routes.
+ * Throws "Forbidden" if actor can’t approve current pending step for artifact.
  */
 export async function requireApproverForPendingArtifactStep(args: {
   supabase: any;
@@ -461,7 +481,7 @@ export async function recordArtifactApprovalDecision(args: {
     approver_user_id: safeStr(args.approverUserId),
     actor_user_id: safeStr(args.actorUserId),
     decision: safeStr(args.decision).toLowerCase(),
-    reason: args.reason == null ? null : safeStr(args.reason) || null,
+    reason: args.reason == null ? null : clampText(args.reason, 5000) || null,
   };
 
   if (!row.chain_id || !row.step_id || !row.approver_user_id || !row.actor_user_id) {
@@ -478,6 +498,11 @@ export async function recordArtifactApprovalDecision(args: {
   if (ins.error) throw new Error(ins.error.message);
 }
 
+/**
+ * Recompute:
+ * - If rejected threshold exceeded: step rejected, chain rejected, artifact rejected
+ * - If approvals reached: step approved, move next step to pending OR finish chain approved
+ */
 export async function recomputeApprovalState(args: {
   supabase: any;
   artifactId: string;
@@ -497,7 +522,10 @@ export async function recomputeApprovalState(args: {
     .eq("id", stepId)
     .maybeSingle();
 
-  if (stErr) throw new Error(stErr.message);
+  if (stErr) {
+    if (isMissingRelation(safeStr(stErr.message))) throw new Error("Approval engine not available");
+    throw new Error(stErr.message);
+  }
   if (!step) throw new Error("Step not found.");
 
   const stepOrder = Number((step as any).step_order ?? 1) || 1;
@@ -516,20 +544,29 @@ export async function recomputeApprovalState(args: {
   const approvals = rows.filter((r: any) => safeStr(r?.decision).toLowerCase() === "approved").length;
   const rejections = rows.filter((r: any) => safeStr(r?.decision).toLowerCase() === "rejected").length;
 
-  const isRejected = rejections > 0 && rejections > maxRejections;
+  const isRejected = rejections > maxRejections; // maxRejections=0 => first rejection rejects
   const isApproved = !isRejected && approvals >= minApprovals;
 
   if (isRejected) {
-    await supabase.from("artifact_approval_steps").update({ status: "rejected", completed_at: nowIso }).eq("id", stepId);
+    await supabase
+      .from("artifact_approval_steps")
+      .update({ status: "rejected", completed_at: nowIso })
+      .eq("id", stepId);
+
     await supabase.from("approval_chains").update({ status: "rejected", is_active: false }).eq("id", chainId);
+
     try {
       await supabase.from("artifacts").update({ status: "rejected" }).eq("id", artifactId);
     } catch {}
+
     return { stepStatus: "rejected", chainStatus: "rejected", artifactStatus: "rejected" };
   }
 
   if (isApproved) {
-    await supabase.from("artifact_approval_steps").update({ status: "approved", completed_at: nowIso }).eq("id", stepId);
+    await supabase
+      .from("artifact_approval_steps")
+      .update({ status: "approved", completed_at: nowIso })
+      .eq("id", stepId);
 
     const { data: next, error: nErr } = await supabase
       .from("artifact_approval_steps")
@@ -548,13 +585,17 @@ export async function recomputeApprovalState(args: {
         await supabase.from("artifact_approval_steps").update({ status: "pending" }).eq("id", (next as any).id);
       }
       await supabase.from("approval_chains").update({ status: "active", is_active: true }).eq("id", chainId);
+
+      // Artifact remains submitted/in_review until chain completes
       return { stepStatus: "approved", chainStatus: "active", artifactStatus: "submitted" };
     }
 
     await supabase.from("approval_chains").update({ status: "approved", is_active: false }).eq("id", chainId);
+
     try {
       await supabase.from("artifacts").update({ status: "approved" }).eq("id", artifactId);
     } catch {}
+
     return { stepStatus: "approved", chainStatus: "approved", artifactStatus: "approved" };
   }
 
@@ -562,11 +603,7 @@ export async function recomputeApprovalState(args: {
 }
 
 /**
- * ? Progress helper for UI
- * - current step info
- * - totals
- * - remaining approvers on the current step (count)
- * - can current actor approve (direct or delegated)
+ * Progress helper for UI
  */
 export async function getApprovalProgressForArtifact(args: {
   supabase: any;
@@ -621,7 +658,10 @@ export async function getApprovalProgressForArtifact(args: {
     .eq("chain_id", chainId)
     .eq("artifact_id", artifactId);
 
-  if (sErr) throw new Error(sErr.message);
+  if (sErr) {
+    if (isMissingRelation(safeStr(sErr.message))) throw new Error("Approval engine not available");
+    throw new Error(sErr.message);
+  }
 
   const stepRows = Array.isArray(steps) ? steps : [];
   const totalSteps = stepRows.length;
@@ -635,13 +675,11 @@ export async function getApprovalProgressForArtifact(args: {
   let myAction = { canApprove: false, onBehalfOf: null as string | null };
 
   if (currentStep?.stepId) {
-    // who can act?
     if (actorUserId) {
       const check = await canActOnPendingArtifactStep({ supabase, stepId: currentStep.stepId, actorUserId });
       myAction = { canApprove: !!check.ok, onBehalfOf: check.onBehalfOf ?? null };
     }
 
-    // remaining approvers: count of active user approvers minus decisions recorded for that step
     try {
       const { data: appr, error: apErr } = await supabase
         .from("artifact_step_approvers")
@@ -652,8 +690,8 @@ export async function getApprovalProgressForArtifact(args: {
       if (apErr) throw apErr;
 
       const approverUserIds = new Set<string>();
-
       const rows = Array.isArray(appr) ? appr : [];
+
       const memberIds = rows
         .filter((r: any) => safeStr(r?.approver_type).toLowerCase() === "user")
         .map((r: any) => safeStr(r?.approver_member_id))
@@ -673,7 +711,7 @@ export async function getApprovalProgressForArtifact(args: {
         }
       }
 
-      // fallback legacy
+      // legacy fallback
       rows
         .filter((r: any) => safeStr(r?.approver_type).toLowerCase() === "user")
         .map((r: any) => safeStr(r?.approver_ref))
@@ -689,7 +727,9 @@ export async function getApprovalProgressForArtifact(args: {
       if (dErr) throw dErr;
 
       const decided = new Set(
-        (Array.isArray(decs) ? decs : []).map((d: any) => safeStr(d?.approver_user_id)).filter((x) => looksLikeUuid(x))
+        (Array.isArray(decs) ? decs : [])
+          .map((d: any) => safeStr(d?.approver_user_id))
+          .filter((x) => looksLikeUuid(x))
       );
 
       let remaining = 0;
@@ -763,23 +803,36 @@ export async function logChangeEvent(
     payload = {},
   } = args;
 
+  // Legacy table: change_request_events (best effort, payload column optional)
   try {
-    await supabase.from("change_request_events").insert({
+    const baseRow: any = {
       project_id: projectId,
       change_request_id: changeRequestId,
       actor_user_id: actorUserId,
       event_type: eventType,
       from_value: fromValue,
       to_value: toValue,
-      note,
-    });
-  } catch {}
+      note: note ? clampText(note, 8000) : null,
+    };
 
+    // Try with payload first; if missing, retry without it.
+    baseRow.payload = payload && typeof payload === "object" ? payload : {};
+
+    const ins1 = await supabase.from("change_request_events").insert(baseRow);
+    if (ins1?.error && hasMissingColumn(safeStr(ins1.error.message), "payload")) {
+      delete baseRow.payload;
+      await supabase.from("change_request_events").insert(baseRow);
+    }
+  } catch {
+    // swallow
+  }
+
+  // Newer table: change_events (best effort)
   let mappedType: "created" | "status_changed" | "comment" | "edited" = "edited";
   const et = safeStr(eventType).toLowerCase();
 
   if (et === "created") mappedType = "created";
-  else if (et.includes("status") || et.includes("lane")) mappedType = "status_changed";
+  else if (et.includes("status") || et.includes("lane") || et.includes("approve") || et.includes("reject")) mappedType = "status_changed";
   else if (et.includes("comment")) mappedType = "comment";
 
   try {
@@ -791,10 +844,12 @@ export async function logChangeEvent(
       to_status: toValue,
       actor_user_id: actorUserId,
       actor_role: actorRole,
-      comment: note,
-      payload: { legacy_event_type: eventType, ...payload },
+      comment: note ? clampText(note, 8000) : null,
+      payload: { legacy_event_type: eventType, ...(payload && typeof payload === "object" ? payload : {}) },
     });
-  } catch {}
+  } catch {
+    // swallow
+  }
 }
 
 /* =========================================================

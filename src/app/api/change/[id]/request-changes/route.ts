@@ -13,6 +13,32 @@ import {
 import { computeChangeAIFields } from "@/lib/change/ai-compute";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+/* =========================================================
+   response helpers
+========================================================= */
+
+function jsonOk(payload: any, status = 200) {
+  const res = NextResponse.json({ ok: true, ...payload }, { status });
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  return res;
+}
+
+function jsonErr(error: string, status = 400, meta?: any) {
+  const res = NextResponse.json({ ok: false, error, meta }, { status });
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  return res;
+}
+
+/* =========================================================
+   helpers
+========================================================= */
 
 function hasMissingColumn(errMsg: string, col: string) {
   const m = (errMsg || "").toLowerCase();
@@ -23,6 +49,14 @@ function hasDeliveryStatusMissingColumn(errMsg: string) {
 }
 function hasArtifactIdMissingColumn(errMsg: string) {
   return hasMissingColumn(errMsg, "artifact_id");
+}
+
+function normalizeLane(v: unknown) {
+  const x = safeStr(v).trim().toLowerCase();
+  if (!x) return "";
+  if (x === "in-progress" || x === "in progress") return "in_progress";
+  if (x === "new") return "intake";
+  return x;
 }
 
 async function insertTimelineEvent(
@@ -68,14 +102,6 @@ async function emitAiEvent(req: Request, body: any) {
   }
 }
 
-function normalizeLane(v: unknown) {
-  const x = safeStr(v).trim().toLowerCase();
-  if (!x) return "";
-  if (x === "in-progress" || x === "in progress") return "in_progress";
-  if (x === "new") return "intake";
-  return x;
-}
-
 async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise<string | null> {
   const current = safeStr(cr?.artifact_id).trim();
   if (current) return current;
@@ -98,30 +124,29 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
 
   try {
     await supabase.from("change_requests").update({ artifact_id: resolved }).eq("id", cr.id);
-  } catch {
-    // ignore
-  }
+  } catch {}
 
   return resolved;
 }
 
 /**
  * POST /api/change/:id/request-changes
- * Optionally accepts { note }
+ * Body: { note?: string }
  */
-export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>}) {
+export async function POST(req: Request, ctx: { params: Promise<{ id?: string }> }) {
   try {
     const supabase = await sb();
     const user = await requireUser(supabase);
 
     const id = safeStr((await ctx.params).id).trim();
-    if (!id) return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
+    if (!id) return jsonErr("Missing id", 400);
 
     const body = await req.json().catch(() => ({}));
-    const note = safeStr(body?.note).trim();
+    const note = safeStr(body?.note).trim().slice(0, 5000);
 
     // Load CR (delivery_status / artifact_id may not exist)
     let cr: any = null;
+    let deliveryStatusMissing = false;
 
     const firstLoad = await supabase
       .from("change_requests")
@@ -133,7 +158,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       cr = firstLoad.data;
     } else {
       const msg = safeStr(firstLoad.error.message);
-      const needsRetry = hasDeliveryStatusMissingColumn(msg) || hasArtifactIdMissingColumn(msg);
+      deliveryStatusMissing = hasDeliveryStatusMissingColumn(msg);
+      const needsRetry = deliveryStatusMissing || hasArtifactIdMissingColumn(msg);
 
       if (needsRetry) {
         const secondLoad = await supabase
@@ -149,47 +175,37 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       }
     }
 
-    if (!cr) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+    if (!cr) return jsonErr("Not found", 404);
 
     const projectId = safeStr(cr?.project_id).trim();
-    if (!projectId) return NextResponse.json({ ok: false, error: "Missing project_id" }, { status: 500 });
+    if (!projectId) return jsonErr("Missing project_id", 500);
 
     const lifecycle = safeStr(cr?.status).trim().toLowerCase();
     const decisionStatus = safeStr(cr?.decision_status).trim().toLowerCase();
     const fromLane = normalizeLane(cr?.delivery_status) || null;
 
     const role = await requireProjectRole(supabase, projectId, user.id);
-    if (!role) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
-    if (!isOwner(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    if (!role) return jsonErr("Forbidden", 403);
+    if (!isOwner(role)) return jsonErr("Forbidden", 403);
 
-    // âœ… Idempotent: already rework
+    // ✅ Idempotent
     if (decisionStatus === "rework") {
-      return NextResponse.json({ ok: true, item: cr, data: cr });
+      return jsonOk({ item: cr, data: cr, already: "rework" });
     }
 
-    // âœ… only request changes when decision_status=submitted
+    // Only from submitted
     if (decisionStatus !== "submitted") {
-      return NextResponse.json(
-        { ok: false, error: `Cannot request changes when decision_status=${decisionStatus || "(null)"}` },
-        { status: 409 }
-      );
+      return jsonErr(`Cannot request changes when decision_status=${decisionStatus || "(null)"}`, 409);
     }
 
-    // âœ… strict: only from Review lane (submit put it there)
-    if (fromLane && fromLane !== "review") {
-      return NextResponse.json(
-        { ok: false, error: `Only changes in Review can be sent back for rework (current lane=${fromLane}).` },
-        { status: 409 }
-      );
+    // Lane gate ONLY if lane exists
+    if (!deliveryStatusMissing && fromLane && fromLane !== "review") {
+      return jsonErr(`Only changes in Review can be sent back for rework (current lane=${fromLane}).`, 409);
     }
 
-    // âœ… Ensure artifact_id exists
     const artifactId = await ensureArtifactIdForChangeRequest(supabase, cr);
     if (!artifactId) {
-      return NextResponse.json(
-        { ok: false, error: "Missing artifact_id (Change Requests artifact). Create/backfill the project artifact first." },
-        { status: 409 }
-      );
+      return jsonErr("Missing artifact_id (Change Requests artifact). Create/backfill the project artifact first.", 409);
     }
 
     const now = new Date().toISOString();
@@ -206,12 +222,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       updated_at: now,
     };
 
-    // legacy columns (only if present)
     let patch: any = { ...patchBase, approver_id: user.id, approval_date: now };
 
     const first = await supabase.from("change_requests").update(patch).eq("id", id).select("*").single();
 
-    // Retry stripping missing columns (legacy-safe)
+    let updatedRow: any = null;
+
     if (first.error) {
       const msg = safeStr(first.error.message);
 
@@ -226,127 +242,57 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       const second = await supabase.from("change_requests").update(patch).eq("id", id).select("*").single();
       if (second.error) throw second.error;
 
-      // Audit log (best effort)
-      try {
-        const artifactIdFromUpdated = safeStr((second.data as any)?.artifact_id).trim();
-        const finalArtifactId = artifactIdFromUpdated || artifactId;
-
-        if (finalArtifactId) {
-          await logChangeEvent(
-            supabase,
-            {
-              projectId,
-              artifactId: finalArtifactId,
-              changeRequestId: id,
-              actorUserId: user.id,
-              actorRole: role,
-              eventType: "changes_requested",
-              fromValue: lifecycle,
-              toValue: "analysis",
-              note: note || null,
-              payload: { decision_status: "rework", to_lane: toLane, delivery_status_missing: !("delivery_status" in patch) },
-            } as any
-          );
-        }
-      } catch {}
-
-      await insertTimelineEvent(supabase, {
-        project_id: projectId,
-        change_id: id,
-        event_type: "status_changed",
-        from_status: fromLane,
-        to_status: ("delivery_status" in patch) ? toLane : null,
-        actor_user_id: user.id,
-        actor_role: safeStr(role),
-        comment: note || null,
-        payload: {
-          source: "request_changes_route",
-          lifecycle: { from: lifecycle, to: "analysis" },
-          decision_status: { from: "submitted", to: "rework" },
-          to_lane: toLane,
-          at: now,
-        },
-      });
-
-      // AI compute + persist (best effort)
-      try {
-        const computed = await computeChangeAIFields({ supabase, projectId, changeRow: second.data });
-        await supabase
-          .from("change_requests")
-          .update({
-            ai_score: computed.ai_score,
-            ai_schedule: computed.ai_schedule,
-            ai_cost: computed.ai_cost,
-            ai_scope: computed.ai_scope,
-            links: computed.links,
-          })
-          .eq("id", id);
-      } catch {}
-
-      await emitAiEvent(req, {
-        projectId,
-        artifactId,
-        eventType: "change_saved",
-        severity: "info",
-        source: "app",
-        payload: {
-          target_artifact_type: "change_request",
-          change_id: id,
-          action: "request_changes",
-          decision_status: "rework",
-        },
-      });
-
-      return NextResponse.json({ ok: true, item: second.data, data: second.data });
+      updatedRow = second.data;
+    } else {
+      updatedRow = first.data;
     }
 
-    // Audit log (best effort)
+    // Audit (best effort)
     try {
-      const artifactIdFromUpdated = safeStr((first.data as any)?.artifact_id).trim();
-      const finalArtifactId = artifactIdFromUpdated || artifactId;
-
-      if (finalArtifactId) {
-        await logChangeEvent(
-          supabase,
-          {
-            projectId,
-            artifactId: finalArtifactId,
-            changeRequestId: id,
-            actorUserId: user.id,
-            actorRole: role,
-            eventType: "changes_requested",
-            fromValue: lifecycle,
-            toValue: "analysis",
-            note: note || null,
-            payload: { decision_status: "rework", to_lane: toLane },
-          } as any
-        );
-      }
+      await logChangeEvent(
+        supabase,
+        {
+          projectId,
+          artifactId,
+          changeRequestId: id,
+          actorUserId: user.id,
+          actorRole: role,
+          eventType: "changes_requested",
+          fromValue: lifecycle || null,
+          toValue: "analysis",
+          note: note || null,
+          payload: {
+            lifecycle: { from: lifecycle || null, to: "analysis" },
+            decision_status: { from: "submitted", to: "rework" },
+            to_lane: "delivery_status" in patch ? toLane : null,
+            delivery_status_missing: !("delivery_status" in patch),
+          },
+        } as any
+      );
     } catch {}
 
     await insertTimelineEvent(supabase, {
       project_id: projectId,
       change_id: id,
       event_type: "status_changed",
-      from_status: fromLane,
-      to_status: toLane,
+      from_status: deliveryStatusMissing ? null : fromLane,
+      to_status: "delivery_status" in patch ? toLane : null,
       actor_user_id: user.id,
       actor_role: safeStr(role),
       comment: note || null,
       payload: {
         source: "request_changes_route",
-        lifecycle: { from: lifecycle, to: "analysis" },
+        lifecycle: { from: lifecycle || null, to: "analysis" },
         decision_status: { from: "submitted", to: "rework" },
-        to_lane: toLane,
+        to_lane: "delivery_status" in patch ? toLane : null,
         at: now,
       },
     });
 
-    // AI compute + persist (best effort)
+    // AI compute (best-effort)
     try {
-      const computed = await computeChangeAIFields({ supabase, projectId, changeRow: first.data });
-
-      const up = await supabase
+      const computed = await computeChangeAIFields({ supabase, projectId, changeRow: updatedRow });
+      await supabase
         .from("change_requests")
         .update({
           ai_score: computed.ai_score,
@@ -355,49 +301,28 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
           ai_scope: computed.ai_scope,
           links: computed.links,
         })
-        .eq("id", id)
-        .select("*")
-        .single();
+        .eq("id", id);
+    } catch {}
 
-      if (up.error) throw up.error;
+    await emitAiEvent(req, {
+      projectId,
+      artifactId,
+      eventType: "change_saved",
+      severity: "info",
+      source: "app",
+      payload: {
+        target_artifact_type: "change_request",
+        change_id: id,
+        action: "request_changes",
+        decision_status: "rework",
+      },
+    });
 
-      await emitAiEvent(req, {
-        projectId,
-        artifactId,
-        eventType: "change_saved",
-        severity: "info",
-        source: "app",
-        payload: {
-          target_artifact_type: "change_request",
-          change_id: id,
-          action: "request_changes",
-          decision_status: "rework",
-        },
-      });
-
-      return NextResponse.json({ ok: true, item: up.data, data: up.data });
-    } catch {
-      await emitAiEvent(req, {
-        projectId,
-        artifactId,
-        eventType: "change_saved",
-        severity: "info",
-        source: "app",
-        payload: {
-          target_artifact_type: "change_request",
-          change_id: id,
-          action: "request_changes",
-          decision_status: "rework",
-        },
-      });
-
-      return NextResponse.json({ ok: true, item: first.data, data: first.data });
-    }
+    return jsonOk({ item: updatedRow, data: updatedRow });
   } catch (e: any) {
     console.error("[POST /api/change/:id/request-changes]", e);
     const msg = safeStr(e?.message) || "Unexpected error";
-    const status = msg === "Unauthorized" ? 401 : 500;
-    return NextResponse.json({ ok: false, error: msg }, { status });
+    const status = msg === "Unauthorized" ? 401 : msg === "Forbidden" ? 403 : 500;
+    return jsonErr(msg, status);
   }
 }
-

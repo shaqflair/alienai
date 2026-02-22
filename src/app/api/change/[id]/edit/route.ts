@@ -15,8 +15,25 @@ import {
 import { computeChangeAIFields } from "@/lib/change/ai-compute";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-type Ctx = { params: { id: string } };
+type Ctx = { params: Promise<{ id?: string }> };
+
+function jsonOk(payload: any, status = 200) {
+  const res = NextResponse.json({ ok: true, ...payload }, { status });
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  return res;
+}
+function jsonErr(error: string, status = 400, meta?: any) {
+  const res = NextResponse.json({ ok: false, error, meta }, { status });
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  return res;
+}
 
 function clamp(s: string, max: number) {
   const t = String(s ?? "");
@@ -49,8 +66,6 @@ function hasOwn(obj: any, key: string) {
 }
 
 function containsGovernanceFields(body: any) {
-  // Block any attempt to mutate governed fields via edit form route
-  // Include both snake_case and camelCase variants you might send from UI
   const blockedKeys = [
     "status",
     "decision_status",
@@ -66,7 +81,6 @@ function containsGovernanceFields(body: any) {
     "rejected_by",
     "rejectedBy",
   ];
-
   return blockedKeys.some((k) => hasOwn(body, k));
 }
 
@@ -77,9 +91,7 @@ async function emitAiEvent(req: Request, body: any) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }).catch(() => null);
-  } catch {
-    // swallow
-  }
+  } catch {}
 }
 
 export async function PATCH(req: Request, ctx: Ctx) {
@@ -87,26 +99,18 @@ export async function PATCH(req: Request, ctx: Ctx) {
     const supabase = await sb();
     const user = await requireUser(supabase);
 
-    const changeId = safeStr(ctx?.params?.id).trim();
-    if (!changeId) {
-      return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
-    }
+    const changeId = safeStr((await ctx.params)?.id).trim();
+    if (!changeId) return jsonErr("Missing id", 400);
 
     const body = await req.json().catch(() => ({}));
 
-    // ✅ Governance: never allow status/decision/delivery edits here
     if (containsGovernanceFields(body)) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "Governance enforced: status/decision updates must use Submit/Approve/Reject routes (not the edit form).",
-        },
-        { status: 409 }
+      return jsonErr(
+        "Governance enforced: status/decision updates must use Submit/Approve/Reject/Request-Changes routes.",
+        409
       );
     }
 
-    // Load CR for authorization + project id + decision_status (for locked check)
     const { data: cr, error: crErr } = await supabase
       .from("change_requests")
       .select("id, project_id, decision_status, status")
@@ -114,72 +118,45 @@ export async function PATCH(req: Request, ctx: Ctx) {
       .maybeSingle();
 
     if (crErr) throw crErr;
-    if (!cr) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+    if (!cr) return jsonErr("Not found", 404);
 
     const projectId = String((cr as any).project_id ?? "");
     const decisionStatus = String((cr as any).decision_status ?? "").toLowerCase();
     const lifecycleStatus = String((cr as any).status ?? "").toLowerCase();
 
     const role = await requireProjectRole(supabase, projectId, user.id);
-    if (!role) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
-    if (!canEdit(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    if (!role) return jsonErr("Forbidden", 403);
+    if (!canEdit(role)) return jsonErr("Forbidden", 403);
 
-    // ✅ Lock on decision_status only (governance lock)
     if (decisionStatus === "submitted") {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "This change is locked awaiting decision. Approve, reject, or request changes first.",
-        },
-        { status: 409 }
-      );
+      return jsonErr("This change is locked awaiting decision. Approve, reject, or request changes first.", 409);
     }
 
-    // Patchable fields (keep limits sane)
     const title = clamp(safeStr(body?.title).trim(), 160);
     const description = clamp(safeStr(body?.description).trim(), 1200);
-    const proposed_change = clamp(
-      safeStr(body?.proposed_change ?? body?.proposedChange).trim(),
-      8000
-    );
+    const proposed_change = clamp(safeStr(body?.proposed_change ?? body?.proposedChange).trim(), 8000);
 
     const tags = asTags(body?.tags);
     const impact_analysis = normalizeImpactAnalysis(body?.impact_analysis ?? body?.impactAnalysis);
 
     const patch: any = {};
-
     if (title) patch.title = title;
 
-    // Allow clearing these fields
     patch.description = description;
     patch.proposed_change = proposed_change;
 
-    // Priority: normalize to satisfy DB CHECK (Low/Medium/High/Critical)
-    if (safeStr(body?.priority).trim()) {
-      patch.priority = normalizePriority(body?.priority);
-    }
+    if (safeStr(body?.priority).trim()) patch.priority = normalizePriority(body?.priority);
 
-    // tags / impact_analysis are NOT NULL in schema → safe defaults
     patch.tags = tags;
     patch.impact_analysis = impact_analysis;
 
-    // Links: allow explicit clear (null) OR update (object)
-    if (hasOwn(body, "links")) {
-      patch.links = body.links;
-    }
+    if (hasOwn(body, "links")) patch.links = body.links;
 
     patch.updated_at = new Date().toISOString();
 
-    const updated = await supabase
-      .from("change_requests")
-      .update(patch)
-      .eq("id", changeId)
-      .select("*")
-      .single();
-
+    const updated = await supabase.from("change_requests").update(patch).eq("id", changeId).select("*").single();
     if (updated.error) throw updated.error;
 
-    // Legacy audit trail (best effort)
     try {
       await logChangeEvent(supabase, {
         projectId,
@@ -190,11 +167,8 @@ export async function PATCH(req: Request, ctx: Ctx) {
         note: "Change updated",
         payload: { lifecycle: lifecycleStatus, decision_status: decisionStatus },
       } as any);
-    } catch {
-      // swallow
-    }
+    } catch {}
 
-    // New timeline table (best effort)
     try {
       const ins = await supabase.from("change_events").insert({
         project_id: projectId,
@@ -208,19 +182,12 @@ export async function PATCH(req: Request, ctx: Ctx) {
         payload: { source: "edit_form" },
       });
       if (ins.error && !isMissingRelation(safeStr(ins.error.message))) {
-        console.warn("[PATCH /api/change/:id/edit] change_events insert error:", ins.error.message);
+        // swallow
       }
-    } catch {
-      // swallow
-    }
+    } catch {}
 
-    // ✅ Recompute AI and persist (best effort)
     try {
-      const computed = await computeChangeAIFields({
-        supabase,
-        projectId,
-        changeRow: updated.data,
-      });
+      const computed = await computeChangeAIFields({ supabase, projectId, changeRow: updated.data });
 
       const up2 = await supabase
         .from("change_requests")
@@ -244,14 +211,10 @@ export async function PATCH(req: Request, ctx: Ctx) {
         eventType: "change_saved",
         severity: "info",
         source: "app",
-        payload: {
-          target_artifact_type: "change_request",
-          change_id: changeId,
-          action: "updated",
-        },
+        payload: { target_artifact_type: "change_request", change_id: changeId, action: "updated" },
       });
 
-      return NextResponse.json({ ok: true, item: up2.data, data: up2.data, role });
+      return jsonOk({ item: up2.data, data: up2.data, role });
     } catch {
       await emitAiEvent(req, {
         projectId,
@@ -259,19 +222,14 @@ export async function PATCH(req: Request, ctx: Ctx) {
         eventType: "change_saved",
         severity: "info",
         source: "app",
-        payload: {
-          target_artifact_type: "change_request",
-          change_id: changeId,
-          action: "updated",
-        },
+        payload: { target_artifact_type: "change_request", change_id: changeId, action: "updated" },
       });
-
-      return NextResponse.json({ ok: true, item: updated.data, data: updated.data, role });
+      return jsonOk({ item: updated.data, data: updated.data, role });
     }
   } catch (e: any) {
     console.error("[PATCH /api/change/:id/edit]", e);
     const msg = safeStr(e?.message) || "Unexpected error";
-    const status = msg === "Unauthorized" ? 401 : 500;
-    return NextResponse.json({ ok: false, error: msg }, { status });
+    const status = msg === "Unauthorized" ? 401 : msg === "Forbidden" ? 403 : 500;
+    return jsonErr(msg, status);
   }
 }

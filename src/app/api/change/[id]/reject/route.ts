@@ -14,6 +14,28 @@ import {
 } from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+/* =========================================================
+   response helpers
+========================================================= */
+
+function jsonOk(payload: any, status = 200) {
+  const res = NextResponse.json({ ok: true, ...payload }, { status });
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  return res;
+}
+
+function jsonErr(error: string, status = 400, meta?: any) {
+  const res = NextResponse.json({ ok: false, error, meta }, { status });
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  return res;
+}
 
 /* =========================================================
    helpers
@@ -29,6 +51,14 @@ function hasDeliveryStatusMissingColumn(errMsg: string) {
 function isMissingRelation(errMsg: string) {
   const m = (errMsg || "").toLowerCase();
   return m.includes("does not exist") && m.includes("relation");
+}
+
+function normalizeLane(v: unknown) {
+  const x = safeStr(v).trim().toLowerCase();
+  if (!x) return "";
+  if (x === "in-progress" || x === "in progress") return "in_progress";
+  if (x === "new") return "intake";
+  return x;
 }
 
 async function insertTimelineEvent(
@@ -59,19 +89,23 @@ async function insertTimelineEvent(
     });
 
     if (ins.error && !isMissingRelation(safeStr(ins.error.message))) {
-      // swallow
+      // best-effort: swallow
     }
   } catch {
     // swallow
   }
 }
 
-function normalizeLane(v: unknown) {
-  const x = safeStr(v).trim().toLowerCase();
-  if (!x) return "";
-  if (x === "in-progress" || x === "in progress") return "in_progress";
-  if (x === "new") return "intake";
-  return x;
+async function emitAiEvent(req: Request, body: any) {
+  try {
+    await fetch(new URL("/api/ai/events", req.url), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).catch(() => null);
+  } catch {
+    // swallow
+  }
 }
 
 async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise<string | null> {
@@ -91,12 +125,15 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
     .limit(1);
 
   if (error) return null;
+
   const resolved = Array.isArray(data) && data[0]?.id ? String(data[0].id) : null;
   if (!resolved) return null;
 
   try {
     await supabase.from("change_requests").update({ artifact_id: resolved }).eq("id", cr.id);
-  } catch {}
+  } catch {
+    // ignore
+  }
 
   return resolved;
 }
@@ -105,10 +142,10 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
    Route
 ========================================================= */
 
-export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>}) {
+export async function POST(req: Request, ctx: { params: Promise<{ id?: string }> }) {
   try {
     const id = safeStr((await ctx.params).id).trim();
-    if (!id) return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
+    if (!id) return jsonErr("Missing id", 400);
 
     const supabase = await sb();
     const user = await requireUser(supabase);
@@ -146,57 +183,69 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       }
     }
 
-    if (!cr) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+    if (!cr) return jsonErr("Not found", 404);
 
     const projectId = safeStr(cr?.project_id).trim();
-    if (!projectId) return NextResponse.json({ ok: false, error: "Missing project_id" }, { status: 500 });
+    if (!projectId) return jsonErr("Missing project_id", 500);
 
     const role = await requireProjectRole(supabase, projectId, user.id);
-    if (!role) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    if (!role) return jsonErr("Forbidden", 403);
 
     const govStatus = safeStr(cr?.status).trim().toLowerCase();
     const fromLane = normalizeLane(cr?.delivery_status) || null;
     const decisionStatus = safeStr(cr?.decision_status).trim().toLowerCase();
 
-    // Idempotent: already rejected
+    // Idempotent
     if (decisionStatus === "rejected" || govStatus === "rejected") {
-      return NextResponse.json({ ok: true, item: cr, data: cr });
+      return jsonOk({ item: cr, data: cr, already: "rejected" });
+    }
+    if (decisionStatus === "approved" || govStatus === "approved" || govStatus === "in_progress") {
+      return jsonErr("Cannot reject an approved change request.", 409);
     }
 
     if (decisionStatus !== "submitted") {
-      return NextResponse.json(
-        { ok: false, error: `Cannot reject unless decision_status=submitted (current=${decisionStatus || "blank"})` },
-        { status: 409 }
+      return jsonErr(
+        `Cannot reject unless decision_status=submitted (current=${decisionStatus || "blank"})`,
+        409
       );
     }
 
-    // strict lane gate if column exists
+    // strict lane gate if delivery_status column exists
     if (!deliveryStatusMissing && fromLane && fromLane !== "review") {
-      return NextResponse.json(
-        { ok: false, error: `Only changes in Review can be rejected (current lane=${fromLane}).` },
-        { status: 409 }
-      );
+      return jsonErr(`Only changes in Review can be rejected (current lane=${fromLane}).`, 409);
     }
 
-    // Ensure artifact_id exists (we now drive approvals from artifacts.approval_chain_id)
     const artifactId = await ensureArtifactIdForChangeRequest(supabase, cr);
     if (!artifactId) {
-      return NextResponse.json(
-        { ok: false, error: "Missing artifact_id for this change request. Ensure submit created/linked an artifact." },
-        { status: 409 }
+      return jsonErr(
+        "Missing artifact_id for this change request. Ensure submit created/linked an artifact.",
+        409
       );
     }
 
-    // âœ… Canonical approver check (member-id enforced inside server-helpers) + pending step
-    const { pending, onBehalfOf } = await requireApproverForPendingArtifactStep({
-      supabase,
-      artifactId,
-      actorUserId: user.id,
-    });
+    // Approver check + pending step
+    let pending: any;
+    let onBehalfOf: string | null = null;
+
+    try {
+      const res = await requireApproverForPendingArtifactStep({
+        supabase,
+        artifactId,
+        actorUserId: user.id,
+      });
+      pending = res.pending;
+      onBehalfOf = res.onBehalfOf;
+    } catch (e: any) {
+      const msg = safeStr(e?.message);
+      if (msg === "Approval engine not available") return jsonErr(msg, 409);
+      if (msg === "No pending approval step found.") return jsonErr(msg, 409);
+      if (msg === "Forbidden") return jsonErr("Forbidden", 403);
+      throw e;
+    }
 
     const effectiveApproverUserId = onBehalfOf ?? user.id;
 
-    // âœ… Record rejected decision (idempotent)
+    // Record rejected decision (idempotent)
     await recordArtifactApprovalDecision({
       supabase,
       chainId: pending.chainId,
@@ -207,7 +256,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       reason: note || null,
     });
 
-    // âœ… Recompute => will mark chain/artifact rejected
+    // Recompute (will typically reject chain immediately if maxRejections=0)
     const state = await recomputeApprovalState({
       supabase,
       artifactId,
@@ -222,70 +271,36 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       status: "rejected",
       decision_status: "rejected",
       decision_rationale: note || null,
-      decision_by: user.id,
+
+      decision_by: effectiveApproverUserId,
       decision_at: now,
       decision_role: onBehalfOf ? "delegate_final" : "chain_final",
+
       delivery_status: toLane,
       updated_at: now,
     };
 
-    // legacy columns (keep compatibility)
-    let patch: any = { ...patchBase, approver_id: user.id, approval_date: now };
+    // legacy columns (compat)
+    let patch: any = { ...patchBase, approver_id: effectiveApproverUserId, approval_date: now };
 
     const first = await supabase.from("change_requests").update(patch).eq("id", id).select("*").single();
 
     if (first.error) {
       const msg = safeStr(first.error.message);
+
       if (hasDeliveryStatusMissingColumn(msg)) delete patch.delivery_status;
       if (hasMissingColumn(msg, "approver_id")) delete patch.approver_id;
       if (hasMissingColumn(msg, "approval_date")) delete patch.approval_date;
+      if (hasMissingColumn(msg, "decision_role")) delete patch.decision_role;
+      if (hasMissingColumn(msg, "decision_rationale")) delete patch.decision_rationale;
+      if (hasMissingColumn(msg, "decision_by")) delete patch.decision_by;
+      if (hasMissingColumn(msg, "decision_at")) delete patch.decision_at;
 
       const second = await supabase.from("change_requests").update(patch).eq("id", id).select("*").single();
       if (second.error) throw second.error;
 
       try {
-        await logChangeEvent(
-          supabase,
-          {
-            projectId,
-            changeRequestId: id,
-            actorUserId: user.id,
-            actorRole: patch.decision_role,
-            eventType: "rejected",
-            fromValue: "submitted",
-            toValue: "rejected",
-            note: note || null,
-            payload: {
-              chain_id: pending.chainId,
-              step_id: pending.stepId,
-              delegated_for: onBehalfOf || null,
-              to_lane: toLane,
-              delivery_status_missing: !("delivery_status" in patch),
-              chain_status: state.chainStatus,
-            },
-          } as any
-        );
-      } catch {}
-
-      await insertTimelineEvent(supabase, {
-        project_id: projectId,
-        change_id: id,
-        event_type: "status_changed",
-        from_status: fromLane,
-        to_status: "delivery_status" in patch ? toLane : null,
-        actor_user_id: user.id,
-        actor_role: patch.decision_role,
-        comment: note || null,
-        payload: { source: "reject_route", chain_id: pending.chainId, decision_status: "rejected", at: now },
-      });
-
-      return NextResponse.json({ ok: true, item: second.data, data: second.data });
-    }
-
-    try {
-      await logChangeEvent(
-        supabase,
-        {
+        await logChangeEvent(supabase, {
           projectId,
           changeRequestId: id,
           actorUserId: user.id,
@@ -300,9 +315,61 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
             delegated_for: onBehalfOf || null,
             to_lane: toLane,
             chain_status: state.chainStatus,
+            effective_approver: effectiveApproverUserId,
+            delivery_status_missing: !("delivery_status" in patch),
           },
-        } as any
-      );
+        } as any);
+      } catch {}
+
+      await insertTimelineEvent(supabase, {
+        project_id: projectId,
+        change_id: id,
+        event_type: "status_changed",
+        from_status: fromLane,
+        to_status: "delivery_status" in patch ? toLane : null,
+        actor_user_id: user.id,
+        actor_role: patch.decision_role,
+        comment: note || null,
+        payload: { source: "reject_route", chain_id: pending.chainId, decision_status: "rejected", at: now },
+      });
+
+      await emitAiEvent(req, {
+        projectId,
+        artifactId,
+        eventType: "change_saved",
+        severity: "info",
+        source: "app",
+        payload: {
+          target_artifact_type: "change_request",
+          change_id: id,
+          action: "rejected_final",
+          decision_status: "rejected",
+          chain_id: pending.chainId,
+        },
+      });
+
+      return jsonOk({ item: second.data, data: second.data });
+    }
+
+    try {
+      await logChangeEvent(supabase, {
+        projectId,
+        changeRequestId: id,
+        actorUserId: user.id,
+        actorRole: patch.decision_role,
+        eventType: "rejected",
+        fromValue: "submitted",
+        toValue: "rejected",
+        note: note || null,
+        payload: {
+          chain_id: pending.chainId,
+          step_id: pending.stepId,
+          delegated_for: onBehalfOf || null,
+          to_lane: toLane,
+          chain_status: state.chainStatus,
+          effective_approver: effectiveApproverUserId,
+        },
+      } as any);
     } catch {}
 
     await insertTimelineEvent(supabase, {
@@ -317,12 +384,39 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       payload: { source: "reject_route", chain_id: pending.chainId, decision_status: "rejected", at: now },
     });
 
-    return NextResponse.json({ ok: true, item: first.data, data: first.data });
+    await emitAiEvent(req, {
+      projectId,
+      artifactId,
+      eventType: "change_saved",
+      severity: "info",
+      source: "app",
+      payload: {
+        target_artifact_type: "change_request",
+        change_id: id,
+        action: "rejected_final",
+        decision_status: "rejected",
+        chain_id: pending.chainId,
+      },
+    });
+
+    return jsonOk({ item: first.data, data: first.data });
   } catch (e: any) {
     console.error("[POST /api/change/:id/reject]", e);
     const msg = safeStr(e?.message) || "Unexpected error";
-    const status = msg === "Unauthorized" ? 401 : msg === "Forbidden" ? 403 : 500;
-    return NextResponse.json({ ok: false, error: msg }, { status });
+
+    const status =
+      msg === "Unauthorized"
+        ? 401
+        : msg === "Forbidden"
+          ? 403
+          : msg === "Not found"
+            ? 404
+            : msg === "Approval engine not available"
+              ? 409
+              : msg === "No pending approval step found."
+                ? 409
+                : 500;
+
+    return jsonErr(msg, status);
   }
 }
-

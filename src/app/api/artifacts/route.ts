@@ -91,23 +91,24 @@ function buildProjectsSelect(cols: ProjectCol[]) {
  *   projects.lifecycle_status: active | paused | completed | closed | cancelled
  *   projects.deleted_at:       null = not deleted
  *
- * Active = status 'active' AND lifecycle_status IN ('active','paused') AND deleted_at IS NULL
+ * "Active" matches the projects page definition:
+ *   status = 'active' AND lifecycle_status = 'active' AND deleted_at IS NULL
  *
- * NOTE: `state` and `lifecycle_state` do NOT exist on this table — they are dropped
- * by the retry logic and excluded via cols, so we only act on columns that exist.
+ * NOTE: paused is intentionally excluded to match the projects list count.
  */
 function applyExcludeInactiveProjects(query: any, cols: ProjectCol[]) {
   // Exclude soft-deleted projects
   query = query.is("projects.deleted_at", null);
 
-  // status must be 'active' — closed/rejected/archived/cancelled all mean inactive
+  // status must be 'active'
   if (cols.includes("status")) {
     query = query.eq("projects.status", "active");
   }
 
-  // lifecycle_status: active + paused are open; completed/closed/cancelled are done
+  // lifecycle_status must be 'active' only (paused projects are excluded,
+  // matching the projects page which shows 7 active projects)
   if (cols.includes("lifecycle_status")) {
-    query = query.in("projects.lifecycle_status", ["active", "paused"]);
+    query = query.eq("projects.lifecycle_status", "active");
   }
 
   return query;

@@ -5,12 +5,22 @@ import { NextResponse, type NextRequest } from "next/server";
 import { sb, requireUser, requireProjectRole, safeStr } from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-function jsonOk(payload: any) {
-  return NextResponse.json({ ok: true, ...payload }, { status: 200 });
+function jsonOk(payload: any, status = 200) {
+  const res = NextResponse.json({ ok: true, ...payload }, { status });
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  return res;
 }
 function jsonErr(message: string, status = 400, extra?: any) {
-  return NextResponse.json({ ok: false, error: message, ...(extra ? { extra } : {}) }, { status });
+  const res = NextResponse.json({ ok: false, error: message, ...(extra ? { extra } : {}) }, { status });
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  return res;
 }
 
 function isMissingRelation(errMsg: string) {
@@ -23,10 +33,6 @@ function canComment(role: string) {
   return r === "owner" || r === "editor";
 }
 
-/**
- * GET /api/change/:id/comments
- * Load comments for a change request (viewers+ can read)
- */
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
@@ -36,7 +42,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     const supabase = await sb();
     const user = await requireUser(supabase);
 
-    // Load change request to verify access
     const { data: cr, error: crErr } = await supabase
       .from("change_requests")
       .select("id, project_id")
@@ -49,7 +54,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     const projectId = safeStr((cr as any)?.project_id).trim();
     if (!projectId) return jsonErr("Missing project_id", 500);
 
-    // Verify project membership (viewers can see comments)
     const role = await requireProjectRole(supabase, projectId, user.id);
     if (!role) return jsonErr("Forbidden", 403);
 
@@ -61,9 +65,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
     if (error) {
       if (isMissingRelation(safeStr(error.message))) {
-        return jsonErr("Comments table is not available yet (change_comments missing).", 409, {
-          table: "change_comments",
-        });
+        return jsonErr("Comments table is not available yet (change_comments missing).", 409, { table: "change_comments" });
       }
       return jsonErr("Failed to load comments", 500, error);
     }
@@ -86,12 +88,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   }
 }
 
-/**
- * POST /api/change/:id/comments
- * Add a comment to a change request
- * Comments are allowed even when the change is locked for approval (submitted)
- * but only editors/owners can post.
- */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
@@ -101,7 +97,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const supabase = await sb();
     const user = await requireUser(supabase);
 
-    // Load change request to verify access and get project info
     const { data: cr, error: crErr } = await supabase
       .from("change_requests")
       .select("id, project_id, artifact_id")
@@ -116,7 +111,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
     const artifactId = safeStr((cr as any)?.artifact_id).trim();
 
-    // Verify project membership (editors and above can comment)
     const role = await requireProjectRole(supabase, projectId, user.id);
     if (!role) return jsonErr("Forbidden", 403);
     if (!canComment(role)) return jsonErr("Forbidden (editor/owner only)", 403);
@@ -127,7 +121,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
     const targetArtifactId = safeStr(bodyJson?.artifactId).trim() || artifactId || null;
 
-    // author_name: use profile if available; else fallback
     let authorName = "";
     try {
       const { data: prof } = await supabase
@@ -141,9 +134,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         safeStr((prof as any)?.name) ||
         safeStr((prof as any)?.email) ||
         "";
-    } catch {
-      authorName = "";
-    }
+    } catch {}
     if (!authorName) authorName = safeStr((user as any)?.email) || "User";
 
     const { data, error } = await supabase
@@ -152,7 +143,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         change_id: changeId,
         project_id: projectId,
         artifact_id: targetArtifactId,
-        body: commentBody.slice(0, 8000), // ✅ guard
+        body: commentBody.slice(0, 8000),
         author_id: user.id,
         author_name: authorName.slice(0, 200),
       })
@@ -161,14 +152,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
     if (error) {
       if (isMissingRelation(safeStr(error.message))) {
-        return jsonErr("Comments table is not available yet (change_comments missing).", 409, {
-          table: "change_comments",
-        });
+        return jsonErr("Comments table is not available yet (change_comments missing).", 409, { table: "change_comments" });
       }
       return jsonErr("Failed to post comment", 500, error);
     }
 
-    return jsonOk({ item: data });
+    return jsonOk({ item: data, data });
   } catch (e: any) {
     const msg = safeStr(e?.message) || "Failed to post comment";
     const status = msg === "Unauthorized" ? 401 : msg === "Forbidden" ? 403 : msg === "Not found" ? 404 : 500;

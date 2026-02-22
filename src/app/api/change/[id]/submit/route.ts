@@ -13,6 +13,29 @@ import {
 
 export const runtime = "nodejs";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+/* =========================================================
+   response helpers
+========================================================= */
+
+function jsonOk(payload: any, status = 200) {
+  const res = NextResponse.json({ ok: true, ...payload }, { status });
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  return res;
+}
+
+function jsonErr(error: string, status = 400, meta?: any) {
+  const res = NextResponse.json({ ok: false, error, meta }, { status });
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  return res;
+}
+
 /* =========================================================
    local helpers (holiday-cover safe)
 ========================================================= */
@@ -22,24 +45,17 @@ function isBadIdString(x: string) {
   return !v || v === "null" || v === "undefined";
 }
 
-/**
- * Robust ID resolution for /api/change/[id]/submit
- * Supports:
- *  - /api/change/<id>/submit (path param)
- *  - /api/change/submit?id=<id> (query)
- *  - body.id / body.change_id (body)
- *
- * FIX: Made async to handle Promise-based params in Next.js 15+
- */
-async function pickChangeId(req: Request, params: Promise<{ id?: string }> | undefined, body: any): Promise<string | null> {
-  // 1) params.id (now async)
+async function pickChangeId(
+  req: Request,
+  params: Promise<{ id?: string }> | undefined,
+  body: any
+): Promise<string | null> {
   if (params) {
     const resolvedParams = await params;
     const p = safeStr(resolvedParams?.id).trim();
     if (!isBadIdString(p)) return p;
   }
 
-  // 2) URL path: .../change/<id>/submit  (id is the segment BEFORE "submit")
   try {
     const pathname = new URL(req.url).pathname || "";
     const parts = pathname.split("/").filter(Boolean);
@@ -55,11 +71,8 @@ async function pickChangeId(req: Request, params: Promise<{ id?: string }> | und
       const candidate = safeStr(parts[idx + 1]).trim();
       if (!isBadIdString(candidate)) return candidate;
     }
-  } catch {
-    // ignore
-  }
+  } catch {}
 
-  // 3) query ?id=... or ?change_id=...
   try {
     const u = new URL(req.url);
     const q1 = safeStr(u.searchParams.get("id")).trim();
@@ -67,11 +80,8 @@ async function pickChangeId(req: Request, params: Promise<{ id?: string }> | und
 
     const q2 = safeStr(u.searchParams.get("change_id")).trim();
     if (!isBadIdString(q2)) return q2;
-  } catch {
-    // ignore
-  }
+  } catch {}
 
-  // 4) body.id / body.change_id
   const b = safeStr(body?.id ?? body?.change_id).trim();
   if (!isBadIdString(b)) return b;
 
@@ -128,10 +138,10 @@ async function insertTimelineEvent(
     });
 
     if (ins.error && !isMissingRelation(safeStr(ins.error.message))) {
-      // swallow (best-effort)
+      // swallow
     }
   } catch {
-    // swallow: timeline must not block submit
+    // swallow
   }
 }
 
@@ -166,7 +176,6 @@ function normalizeArtifactType(raw: any): "project_charter" | "change" | "projec
 
 /* =========================================================
    ensureArtifactIdForChangeRequest
-   - checks BOTH `type` and `artifact_type`
 ========================================================= */
 
 async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise<string | null> {
@@ -190,12 +199,9 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
   const resolved = Array.isArray(data) && data[0]?.id ? String(data[0].id) : null;
   if (!resolved) return null;
 
-  // backfill so DB audit triggers stop failing (best-effort)
   try {
     await supabase.from("change_requests").update({ artifact_id: resolved }).eq("id", cr.id);
-  } catch {
-    // ignore
-  }
+  } catch {}
 
   return resolved;
 }
@@ -205,7 +211,6 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
 ========================================================= */
 
 async function getOrganisationIdForProject(supabase: any, projectId: string): Promise<string | null> {
-  // try organisation_id then organization_id (support both spellings)
   const first = await supabase.from("projects").select("organisation_id").eq("id", projectId).maybeSingle();
   if (!first.error) {
     const orgId = (first.data as any)?.organisation_id;
@@ -231,14 +236,11 @@ function extractCostFromImpactAnalysis(impact: any): number {
 
 async function loadImpactCostForChange(supabase: any, changeId: string): Promise<number> {
   const first = await supabase.from("change_requests").select("impact_analysis").eq("id", changeId).maybeSingle();
-
   if (!first.error) {
     const ia = (first.data as any)?.impact_analysis;
     return extractCostFromImpactAnalysis(ia);
   }
-
   if (hasImpactAnalysisMissingColumn(safeStr(first.error?.message))) return 0;
-
   return 0;
 }
 
@@ -254,7 +256,7 @@ type RuleRow = {
 
 function inBand(amount: number, min: number, max: number | null) {
   const minOk = amount >= (Number.isFinite(min) ? min : 0);
-  const maxOk = max == null ? true : amount <= Number(max); // inclusive
+  const maxOk = max == null ? true : amount <= Number(max);
   return minOk && maxOk;
 }
 
@@ -289,51 +291,14 @@ async function loadRulesForArtifact(
 }
 
 /**
- * Expand approval group members into auth.user ids.
- * Supports:
- *  A) approval_group_members.approver_id -> organisation_approvers.user_id
- *  B) approver_group_members.user_id direct (fallback)
+ * ✅ Canonical group expansion for YOUR schema:
+ * - approver_groups / approver_group_members
+ * - groupId is approver_groups.id
  */
 async function expandGroupMembersToUserIds(supabase: any, groupId: string): Promise<string[]> {
   const gid = safeStr(groupId).trim();
   if (!gid) return [];
 
-  // A) Try approval_group_members -> organisation_approvers.user_id
-  try {
-    const a = await supabase
-      .from("approval_group_members")
-      .select("approver_id, is_active")
-      .eq("group_id", gid)
-      .eq("is_active", true);
-
-    if (!a.error) {
-      const approverIds = (Array.isArray(a.data) ? a.data : [])
-        .map((r: any) => (r?.approver_id ? String(r.approver_id) : ""))
-        .filter(Boolean);
-
-      if (approverIds.length) {
-        const b = await supabase
-          .from("organisation_approvers")
-          .select("id, user_id, is_active")
-          .in("id", approverIds)
-          .eq("is_active", true);
-
-        if (!b.error) {
-          const userIds = (Array.isArray(b.data) ? b.data : [])
-            .map((r: any) => (r?.user_id ? String(r.user_id) : ""))
-            .filter(Boolean);
-
-          if (userIds.length) return Array.from(new Set(userIds));
-        }
-      }
-
-      return [];
-    }
-  } catch {
-    // ignore
-  }
-
-  // B) Fallback: approver_group_members.user_id direct
   try {
     const { data, error } = await supabase
       .from("approver_group_members")
@@ -342,30 +307,27 @@ async function expandGroupMembersToUserIds(supabase: any, groupId: string): Prom
       .eq("is_active", true);
 
     if (error) return [];
-    return (Array.isArray(data) ? data : []).map((r: any) => (r?.user_id ? String(r.user_id) : "")).filter(Boolean);
+    const ids = (Array.isArray(data) ? data : [])
+      .map((r: any) => (r?.user_id ? String(r.user_id) : ""))
+      .filter(Boolean);
+
+    // de-dupe
+    return Array.from(new Set(ids));
   } catch {
     return [];
   }
 }
 
-/* =========================================================
-   IMPORTANT UPDATE:
-   Supersede by artifact_id (NOT via artifacts.approval_chain_id)
-========================================================= */
-
 async function supersedeExistingArtifactChain(supabase: any, artifactId: string) {
   const aid = safeStr(artifactId).trim();
   if (!aid) return;
-
   try {
     await supabase
       .from("approval_chains")
       .update({ is_active: false, status: "superseded" })
       .eq("artifact_id", aid)
       .eq("is_active", true);
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
 async function updateArtifactSubmitted(
@@ -401,15 +363,8 @@ async function updateArtifactSubmitted(
 async function tryAttachApprovalChainIdToChange(supabase: any, changeId: string, chainId: string) {
   const first = await supabase.from("change_requests").update({ approval_chain_id: chainId }).eq("id", changeId);
   if (!first.error) return;
-
   if (hasApprovalChainIdMissingColumn(safeStr(first.error.message))) return;
 }
-
-/* =========================================================
-   IMPORTANT UPDATE:
-   If unique index (one active chain per artifact) triggers,
-   reuse the existing active chain instead of failing.
-========================================================= */
 
 async function getActiveChainIdForArtifact(supabase: any, artifactId: string): Promise<string | null> {
   const aid = safeStr(artifactId).trim();
@@ -428,6 +383,42 @@ async function getActiveChainIdForArtifact(supabase: any, artifactId: string): P
   return (data as any)?.id ? String((data as any).id) : null;
 }
 
+/**
+ * ✅ Map user_ids -> organisation_members.id (canonical approver_member_id)
+ * Falls back gracefully if mapping is missing.
+ */
+async function mapUserIdsToOrgMemberIds(
+  supabase: any,
+  organisationId: string,
+  userIds: string[]
+): Promise<Map<string, string>> {
+  const orgId = safeStr(organisationId).trim();
+  const ids = Array.from(new Set((userIds || []).map((x) => safeStr(x)).filter(Boolean)));
+  const out = new Map<string, string>();
+  if (!orgId || !ids.length) return out;
+
+  try {
+    const { data, error } = await supabase
+      .from("organisation_members")
+      .select("id, user_id")
+      .eq("organisation_id", orgId)
+      .in("user_id", ids)
+      .is("removed_at", null);
+
+    if (error) return out;
+
+    (Array.isArray(data) ? data : []).forEach((r: any) => {
+      const uid = safeStr(r?.user_id);
+      const mid = safeStr(r?.id);
+      if (uid && mid) out.set(uid, mid);
+    });
+
+    return out;
+  } catch {
+    return out;
+  }
+}
+
 async function createChainAndStepsFromRules(
   supabase: any,
   args: {
@@ -436,14 +427,14 @@ async function createChainAndStepsFromRules(
     artifactId: string;
     actorId: string;
     amount: number;
-    artifactType: string; // desired canonical type (e.g. "change")
+    artifactType: string;
   }
 ): Promise<{ chainId: string; stepIds: string[]; chosenType: string }> {
   const { organisationId, projectId, artifactId, actorId, amount } = args;
 
   const desiredType = normalizeArtifactType(args.artifactType) || "change";
-
   const typeCandidates = Array.from(new Set([desiredType, "change_request", "change_requests", "change"]));
+
   let rules: RuleRow[] = [];
   let chosenType = desiredType;
 
@@ -491,11 +482,8 @@ async function createChainAndStepsFromRules(
     chainId = String(chainIns.data.id);
   } else {
     const existing = await getActiveChainIdForArtifact(supabase, artifactId);
-    if (existing) {
-      chainId = existing;
-    } else {
-      throw new Error(safeStr(chainIns.error.message));
-    }
+    if (existing) chainId = existing;
+    else throw new Error(safeStr(chainIns.error.message));
   }
 
   const existingSteps = await supabase
@@ -505,23 +493,17 @@ async function createChainAndStepsFromRules(
     .order("step_order", { ascending: true });
 
   if (!existingSteps.error && Array.isArray(existingSteps.data) && existingSteps.data.length > 0) {
-    return {
-      chainId,
-      stepIds: existingSteps.data.map((s: any) => String(s.id)),
-      chosenType,
-    };
+    return { chainId, stepIds: existingSteps.data.map((s: any) => String(s.id)), chosenType };
   }
 
   const stepRows = stepNumbers.map((stepNo) => {
     const stepRules = byStep.get(stepNo) || [];
     const label = safeStr(stepRules[0]?.approval_role) || `Step ${stepNo}`;
-
     return {
       artifact_id: artifactId,
       chain_id: chainId,
       project_id: projectId,
       artifact_type: chosenType,
-
       step_order: stepNo,
       name: label,
       mode: "VETO_QUORUM",
@@ -529,7 +511,6 @@ async function createChainAndStepsFromRules(
       max_rejections: 0,
       round: 1,
       status: "pending",
-
       approval_step_id: null,
     };
   });
@@ -539,11 +520,10 @@ async function createChainAndStepsFromRules(
 
   const insertedSteps = Array.isArray(stepIns.data) ? stepIns.data : [];
   const stepIdByOrder = new Map<number, string>();
-  for (const s of insertedSteps as any[]) {
-    stepIdByOrder.set(Number(s.step_order), String(s.id));
-  }
+  for (const s of insertedSteps as any[]) stepIdByOrder.set(Number(s.step_order), String(s.id));
 
-  const approverRows: any[] = [];
+  // Build approver rows (collect all user_ids first so we can map -> organisation_members.id)
+  const pendingApproversByStep: { stepId: string; userId: string }[] = [];
 
   for (const stepNo of stepNumbers) {
     const stepId = stepIdByOrder.get(stepNo);
@@ -552,47 +532,72 @@ async function createChainAndStepsFromRules(
     const stepRules = byStep.get(stepNo) || [];
     for (const r of stepRules) {
       if (r.approver_user_id) {
-        approverRows.push({
-          step_id: stepId,
-          approver_type: "user",
-          approver_ref: String(r.approver_user_id),
-          required: true,
-          active: true,
-        });
+        pendingApproversByStep.push({ stepId, userId: String(r.approver_user_id) });
       } else if (r.approval_group_id) {
         const members = await expandGroupMembersToUserIds(supabase, String(r.approval_group_id));
         for (const userId of members) {
-          approverRows.push({
-            step_id: stepId,
-            approver_type: "user",
-            approver_ref: String(userId),
-            required: true,
-            active: true,
-          });
+          pendingApproversByStep.push({ stepId, userId: String(userId) });
         }
       }
     }
   }
 
-  const seen = new Set<string>();
-  const deduped = approverRows.filter((x) => {
-    const k = `${x.step_id}::${x.approver_type}::${x.approver_ref}`;
-    if (seen.has(k)) return false;
-    seen.add(k);
+  // De-dupe at (step,user)
+  const pairSeen = new Set<string>();
+  const pairs = pendingApproversByStep.filter((p) => {
+    const k = `${p.stepId}::${p.userId}`;
+    if (pairSeen.has(k)) return false;
+    pairSeen.add(k);
     return true;
   });
 
-  if (!deduped.length) {
+  if (!pairs.length) {
     throw new Error(
-      "Approval rules matched, but produced zero approvers. If using Groups, ensure group members are linked to user accounts (organisation_approvers.user_id)."
+      "Approval rules matched, but produced zero approvers. Ensure approver_user_id is set or the approver group has active members."
     );
   }
 
-  const apprIns = await supabase.from("artifact_step_approvers").insert(deduped);
-  if (apprIns.error) {
-    throw new Error(
-      `Failed to insert artifact_step_approvers. Ensure table exists and matches schema. (${safeStr(apprIns.error.message)})`
-    );
+  // Canonical mapping: user_id -> organisation_members.id
+  const memberIdByUserId = await mapUserIdsToOrgMemberIds(
+    supabase,
+    organisationId,
+    pairs.map((p) => p.userId)
+  );
+
+  // Compose rows preferring approver_member_id
+  const approverRowsPreferred: any[] = pairs.map((p) => ({
+    step_id: p.stepId,
+    approver_type: "user",
+    approver_member_id: memberIdByUserId.get(p.userId) ?? null, // canonical
+    approver_ref: p.userId, // fallback
+    required: true,
+    active: true,
+  }));
+
+  // Insert with member_id when possible; if column missing, fallback
+  const try1 = await supabase.from("artifact_step_approvers").insert(approverRowsPreferred);
+
+  if (try1.error) {
+    const msg = safeStr(try1.error.message);
+    const missingMemberIdCol = hasMissingColumn(msg, "approver_member_id");
+
+    if (!missingMemberIdCol) {
+      throw new Error(`Failed to insert artifact_step_approvers. (${msg})`);
+    }
+
+    // fallback: legacy-only shape
+    const legacyRows = pairs.map((p) => ({
+      step_id: p.stepId,
+      approver_type: "user",
+      approver_ref: p.userId,
+      required: true,
+      active: true,
+    }));
+
+    const try2 = await supabase.from("artifact_step_approvers").insert(legacyRows);
+    if (try2.error) {
+      throw new Error(`Failed to insert artifact_step_approvers (legacy fallback). (${safeStr(try2.error.message)})`);
+    }
   }
 
   return { chainId, stepIds: insertedSteps.map((s: any) => String(s.id)), chosenType };
@@ -602,7 +607,6 @@ async function createChainAndStepsFromRules(
    Route
 ========================================================= */
 
-// FIX: Updated ctx type to match Next.js 15+ async params
 export async function POST(req: Request, ctx: { params: Promise<{ id?: string }> }) {
   try {
     let body: any = {};
@@ -612,14 +616,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       body = {};
     }
 
-    // FIX: Await the async pickChangeId
     const changeId = await pickChangeId(req, ctx.params, body);
-    if (!changeId) return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
+    if (!changeId) return jsonErr("Missing id", 400);
 
     const supabase = await sb();
     const user = await requireUser(supabase);
 
-    // FIX: Define a flexible type that handles both with and without delivery_status
     type ChangeRow = {
       id: string;
       project_id: string;
@@ -627,11 +629,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       status?: string;
       delivery_status?: string;
       decision_status?: string;
-      [key: string]: any; // Allow additional properties
+      [key: string]: any;
     };
 
-    // Load row safely (delivery_status may not exist in legacy)
     let cr: ChangeRow | null = null;
+    let deliveryStatusMissing = false;
 
     const firstLoad = await supabase
       .from("change_requests")
@@ -641,54 +643,53 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
 
     if (!firstLoad.error) {
       cr = firstLoad.data as ChangeRow;
-    } else if (hasDeliveryStatusMissingColumn(safeStr(firstLoad.error.message))) {
-      const secondLoad = await supabase
-        .from("change_requests")
-        .select("id, project_id, artifact_id, status, decision_status")
-        .eq("id", changeId)
-        .maybeSingle();
-
-      if (secondLoad.error) throw new Error(secondLoad.error.message);
-      cr = secondLoad.data as ChangeRow;
     } else {
-      throw new Error(firstLoad.error.message);
+      deliveryStatusMissing = hasDeliveryStatusMissingColumn(safeStr(firstLoad.error.message));
+      if (deliveryStatusMissing) {
+        const secondLoad = await supabase
+          .from("change_requests")
+          .select("id, project_id, artifact_id, status, decision_status")
+          .eq("id", changeId)
+          .maybeSingle();
+
+        if (secondLoad.error) throw new Error(secondLoad.error.message);
+        cr = secondLoad.data as ChangeRow;
+      } else {
+        throw new Error(firstLoad.error.message);
+      }
     }
 
-    if (!cr) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+    if (!cr) return jsonErr("Not found", 404);
 
     const projectId = safeStr(cr?.project_id).trim();
-    if (!projectId) return NextResponse.json({ ok: false, error: "Missing project_id" }, { status: 500 });
+    if (!projectId) return jsonErr("Missing project_id", 500);
 
     const role = await requireProjectRole(supabase, projectId, user.id);
-    if (!role) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
-    if (!canEdit(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    if (!role) return jsonErr("Forbidden", 403);
+    if (!canEdit(role)) return jsonErr("Forbidden", 403);
 
     const fromLane = safeStr(cr?.delivery_status).trim().toLowerCase() || null;
     const decision = safeStr(cr?.decision_status).trim().toLowerCase();
 
     if (decision === "approved" || decision === "rejected") {
-      return NextResponse.json({ ok: false, error: "This change is already decided" }, { status: 400 });
+      return jsonErr("This change is already decided", 400);
     }
 
+    // ✅ Idempotent: already submitted
     if (decision === "submitted") {
-      return NextResponse.json({ ok: true, item: cr });
+      return jsonOk({ item: { ...cr, delivery_status: cr?.delivery_status ?? null }, data: cr, already: "submitted" });
     }
 
-    if (fromLane !== "analysis") {
-      return NextResponse.json(
-        { ok: false, error: "Only changes in Analysis can be submitted for approval." },
-        { status: 409 }
-      );
+    // ✅ Only lane-gate when column exists (legacy-safe)
+    if (!deliveryStatusMissing && fromLane !== "analysis") {
+      return jsonErr("Only changes in Analysis can be submitted for approval.", 409);
     }
 
     const artifactId = await ensureArtifactIdForChangeRequest(supabase, cr);
     if (!artifactId) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Missing artifact_id (Change Requests artifact). Create/backfill the project artifact first.",
-        },
-        { status: 409 }
+      return jsonErr(
+        "Missing artifact_id (Change Requests artifact). Create/backfill the project artifact first.",
+        409
       );
     }
 
@@ -697,10 +698,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
 
     const organisationId = await getOrganisationIdForProject(supabase, projectId);
     if (!organisationId) {
-      return NextResponse.json(
-        { ok: false, error: "Project has no organisation_id. Configure organisation_id on the project first." },
-        { status: 409 }
-      );
+      return jsonErr("Project has no organisation_id. Configure organisation_id on the project first.", 409);
     }
 
     const amount = await loadImpactCostForChange(supabase, changeId);
@@ -739,9 +737,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       .maybeSingle();
 
     let updated = firstUpdate.data as ChangeRow | null;
-    const deliveryMissing = Boolean(firstUpdate.error && hasDeliveryStatusMissingColumn(safeStr(firstUpdate.error.message)));
+    const deliveryMissingOnUpdate = Boolean(
+      firstUpdate.error && hasDeliveryStatusMissingColumn(safeStr(firstUpdate.error.message))
+    );
 
-    if (deliveryMissing) {
+    if (deliveryMissingOnUpdate) {
       delete patch.delivery_status;
 
       const secondUpdate = await supabase
@@ -767,12 +767,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
           actorUserId: user.id,
           actorRole: role,
           eventType: "submitted_for_approval",
-          fromValue: fromLane || null,
-          toValue: deliveryMissing ? null : toLane,
+          fromValue: deliveryStatusMissing ? null : (fromLane || null),
+          toValue: deliveryMissingOnUpdate ? null : toLane,
           note: null,
           payload: {
             decision_status: { from: decision || null, to: "submitted" },
-            lane: { from: fromLane || null, to: deliveryMissing ? null : toLane },
+            lane: { from: deliveryStatusMissing ? null : (fromLane || null), to: deliveryMissingOnUpdate ? null : toLane },
             approval_chain_id: chainId,
             approval_chain_artifact_type: chosenType,
             amount,
@@ -780,16 +780,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
           },
         } as any
       );
-    } catch {
-      // swallow
-    }
+    } catch {}
 
     await insertTimelineEvent(supabase, {
       project_id: projectId,
       change_id: changeId,
       event_type: "status_changed",
-      from_status: fromLane,
-      to_status: deliveryMissing ? null : toLane,
+      from_status: deliveryStatusMissing ? null : fromLane,
+      to_status: deliveryMissingOnUpdate ? null : toLane,
       actor_user_id: user.id,
       actor_role: safeStr(role),
       comment: null,
@@ -805,22 +803,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       },
     });
 
-    // FIX: Ensure the returned object has delivery_status property
     const resultItem = updated || cr;
-    const finalItem = {
-      ...resultItem,
-      delivery_status: resultItem?.delivery_status ?? null,
-    };
+    const finalItem = { ...resultItem, delivery_status: resultItem?.delivery_status ?? null };
 
-    return NextResponse.json({
-      ok: true,
+    return jsonOk({
       item: finalItem,
+      data: finalItem,
       approval_chain_id: chainId,
       amount,
       artifact_type: chosenType,
     });
   } catch (e: any) {
+    console.error("[POST /api/change/:id/submit]", e);
     const msg = safeStr(e?.message) || "Server error";
-    return NextResponse.json({ ok: false, error: msg }, { status: msg === "Unauthorized" ? 401 : 500 });
+    const status = msg === "Unauthorized" ? 401 : msg === "Forbidden" ? 403 : 500;
+    return jsonErr(msg, status);
   }
 }

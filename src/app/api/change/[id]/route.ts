@@ -8,7 +8,6 @@ import {
   requireProjectRole,
   canEdit,
   safeStr,
-  normalizeImpactAnalysis,
   logChangeEvent,
   getApprovalProgressForArtifact,
 } from "@/lib/change/server-helpers";
@@ -35,18 +34,10 @@ function ok(data: any, init?: ResponseInit) {
   return res;
 }
 
-function err(
-  message: string,
-  init?: ResponseInit & { extra?: any; code?: string }
-) {
+function err(message: string, init?: ResponseInit & { extra?: any; code?: string }) {
   const { extra, code, ...rest } = init || {};
   const res = NextResponse.json(
-    {
-      ok: false,
-      error: message,
-      ...(code ? { code } : {}),
-      ...(extra ? { extra } : {}),
-    },
+    { ok: false, error: message, ...(code ? { code } : {}), ...(extra ? { extra } : {}) },
     rest
   );
   res.headers.set("Cache-Control", "no-store");
@@ -83,9 +74,7 @@ function isMissingRelation(errMsg: string) {
   return m.includes("does not exist") && m.includes("relation");
 }
 
-function normalizePriorityToDb(
-  p: unknown
-): "Low" | "Medium" | "High" | "Critical" {
+function normalizePriorityToDb(p: unknown): "Low" | "Medium" | "High" | "Critical" {
   const v = safeStr(p).trim().toLowerCase();
   if (v === "low") return "Low";
   if (v === "high") return "High";
@@ -93,14 +82,7 @@ function normalizePriorityToDb(
   return "Medium";
 }
 
-const ALLOWED_DELIVERY = new Set([
-  "intake",
-  "analysis",
-  "review",
-  "in_progress",
-  "implemented",
-  "closed",
-]);
+const ALLOWED_DELIVERY = new Set(["intake", "analysis", "review", "in_progress", "implemented", "closed"]);
 
 function normalizeDeliveryStatus(x: unknown): string | null {
   const v = safeStr(x).trim().toLowerCase();
@@ -126,11 +108,7 @@ function isUuid(x: string) {
  * 2) URL path segment after "/change/"
  * 3) body.id / body.change_id
  */
-async function pickId(
-  req: Request,
-  ctx: Ctx | undefined,
-  body: any
-): Promise<string | null> {
+async function pickId(req: Request, ctx: Ctx | undefined, body: any): Promise<string | null> {
   // 1) Next route params (async)
   if (ctx?.params) {
     const params = await ctx.params;
@@ -149,8 +127,7 @@ async function pickId(
     const idx = parts.findIndex((x) => String(x).toLowerCase() === "change");
     if (idx !== -1 && parts[idx + 1]) {
       const candidate = safeStr(parts[idx + 1]).trim();
-      if (!isBadIdString(candidate) && candidate.toLowerCase() !== "change")
-        return candidate;
+      if (!isBadIdString(candidate) && candidate.toLowerCase() !== "change") return candidate;
     }
   } catch {
     // ignore
@@ -169,13 +146,13 @@ async function pickId(
 
 export async function GET(req: Request, ctx: Ctx) {
   try {
-    const supabase = sb(req);
+    const supabase = await sb();
     const user = await requireUser(supabase);
 
     const id = await pickId(req, ctx, null);
     if (!id) return err("Missing id", { status: 400, code: "missing_id" });
 
-    // 1) Try: treat as SINGLE change_request id
+    // 1) SINGLE change_request id
     {
       const { data: change, error: chErr } = await supabase
         .from(TABLE)
@@ -191,36 +168,30 @@ export async function GET(req: Request, ctx: Ctx) {
             extra: { table: TABLE },
           });
         }
-        return err(chErr.message || "Failed to load change", {
-          status: 500,
-          code: "db_error",
-        });
+        return err(chErr.message || "Failed to load change", { status: 500, code: "db_error" });
       }
 
       if (change) {
-        await requireProjectRole(
-          supabase,
-          user.id,
-          change.project_id,
-          "viewer"
-        );
+        const role = await requireProjectRole(supabase, change.project_id, user.id);
+        if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
 
-        const normalized = normalizeImpactAnalysis(change);
-
-        const approvals = await getApprovalProgressForArtifact(
+        // approvals progress (best-effort)
+        const approvals = await getApprovalProgressForArtifact({
           supabase,
-          change.id
-        ).catch(() => null);
+          artifactId: change.id,
+          actorUserId: user.id,
+        }).catch(() => null);
 
         return ok({
           mode: "change",
-          item: normalized,
+          item: change,
+          role,
           approvals,
         });
       }
     }
 
-    // 2) Otherwise: treat as PROJECT scope (uuid project_id OR human project_code)
+    // 2) PROJECT scope (uuid project_id OR human project_code)
     let projectId: string | null = null;
 
     if (isUuid(id)) {
@@ -232,18 +203,14 @@ export async function GET(req: Request, ctx: Ctx) {
         .eq("project_code", id)
         .maybeSingle();
 
-      if (projErr) {
-        return err(projErr.message || "Failed to resolve project", {
-          status: 500,
-          code: "db_error",
-        });
-      }
+      if (projErr) return err(projErr.message || "Failed to resolve project", { status: 500, code: "db_error" });
       projectId = proj?.id ?? null;
     }
 
     if (!projectId) return err("Not found", { status: 404, code: "not_found" });
 
-    await requireProjectRole(supabase, user.id, projectId, "viewer");
+    const role = await requireProjectRole(supabase, projectId, user.id);
+    if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
 
     const { data: items, error: itemsErr } = await supabase
       .from(TABLE)
@@ -260,13 +227,10 @@ export async function GET(req: Request, ctx: Ctx) {
           extra: { table: TABLE },
         });
       }
-      return err(itemsErr.message || "Failed to load changes", {
-        status: 500,
-        code: "db_error",
-      });
+      return err(itemsErr.message || "Failed to load changes", { status: 500, code: "db_error" });
     }
 
-    // compute AI fields (safe)
+    // add AI fields safely
     let withAI = items ?? [];
     try {
       withAI = (items ?? []).map((it: any) => {
@@ -283,15 +247,14 @@ export async function GET(req: Request, ctx: Ctx) {
     return ok({
       mode: "project",
       project_id: projectId,
+      role,
+      can_edit: canEdit(role),
       items: withAI,
     });
   } catch (e: any) {
     const msg = safeStr(e?.message) || "Unexpected error";
     const status = msg === "Unauthorized" ? 401 : 500;
-    return err(msg, {
-      status,
-      code: status === 401 ? "unauthorized" : "server_error",
-    });
+    return err(msg, { status, code: status === 401 ? "unauthorized" : "server_error" });
   }
 }
 
@@ -301,7 +264,7 @@ export async function GET(req: Request, ctx: Ctx) {
 
 export async function POST(req: Request, ctx: Ctx) {
   try {
-    const supabase = sb(req);
+    const supabase = await sb();
     const user = await requireUser(supabase);
 
     let body: any = {};
@@ -315,7 +278,7 @@ export async function POST(req: Request, ctx: Ctx) {
     const id = await pickId(req, ctx, body);
     if (!id) return err("Missing id", { status: 400, code: "missing_id" });
 
-    // Load change by id (updates must target a change row)
+    // updates must target a change row id
     const { data: existing, error: exErr } = await supabase
       .from(TABLE)
       .select("*")
@@ -330,34 +293,20 @@ export async function POST(req: Request, ctx: Ctx) {
           extra: { table: TABLE },
         });
       }
-      return err(exErr.message || "Failed to load change", {
-        status: 500,
-        code: "db_error",
-      });
+      return err(exErr.message || "Failed to load change", { status: 500, code: "db_error" });
     }
     if (!existing) return err("Not found", { status: 404, code: "not_found" });
 
-    await requireProjectRole(
-      supabase,
-      user.id,
-      existing.project_id,
-      "viewer"
-    );
+    const role = await requireProjectRole(supabase, existing.project_id, user.id);
+    if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
+    if (!canEdit(role)) return err("Forbidden", { status: 403, code: "forbidden" });
 
-    if (!canEdit(user, existing)) {
-      // (canEdit comes from your server-helpers; keep your business rules)
-      return err("Forbidden", { status: 403, code: "forbidden" });
-    }
-
-    // Build a safe patch from known fields
     const patch: any = {};
 
     if (hasOwn(body, "title")) patch.title = clamp(safeStr(body.title), 140);
-    if (hasOwn(body, "description"))
-      patch.description = clamp(safeStr(body.description), 5000);
+    if (hasOwn(body, "description")) patch.description = clamp(safeStr(body.description), 5000);
 
-    if (hasOwn(body, "priority"))
-      patch.priority = normalizePriorityToDb(body.priority);
+    if (hasOwn(body, "priority")) patch.priority = normalizePriorityToDb(body.priority);
 
     if (hasOwn(body, "stage")) {
       const st = normalizeDeliveryStatus(body.stage);
@@ -365,16 +314,13 @@ export async function POST(req: Request, ctx: Ctx) {
     }
 
     if (hasOwn(body, "status")) {
-      // allow status to pass through as-is (many setups use custom values)
       const s = safeStr(body.status).trim();
-      if (s) patch.status = clamp(s, 40);
+      if (s) patch.status = clamp(s, 60);
     }
 
     if (hasOwn(body, "owner_id")) patch.owner_id = safeStr(body.owner_id) || null;
-    if (hasOwn(body, "owner_label"))
-      patch.owner_label = clamp(safeStr(body.owner_label), 120);
+    if (hasOwn(body, "owner_label")) patch.owner_label = clamp(safeStr(body.owner_label), 120);
 
-    // Impact fields (support a few common shapes)
     if (hasOwn(body, "impact_cost")) {
       const n = Number(body.impact_cost);
       patch.impact_cost = Number.isFinite(n) ? n : null;
@@ -383,26 +329,22 @@ export async function POST(req: Request, ctx: Ctx) {
       const n = Number(body.impact_days);
       patch.impact_days = Number.isFinite(n) ? n : null;
     }
-    if (hasOwn(body, "impact_scope"))
-      patch.impact_scope = clamp(safeStr(body.impact_scope), 2000);
+    if (hasOwn(body, "impact_scope")) patch.impact_scope = clamp(safeStr(body.impact_scope), 2000);
 
     if (hasOwn(body, "tags")) patch.tags = asTags(body.tags);
 
-    // optional: if you store rollups computed server-side
+    // compute/refresh AI (best-effort)
     try {
       const computed = computeChangeAIFields({ ...existing, ...patch });
       if (computed && typeof computed === "object") {
-        if (hasOwn(computed, "ai_rollup")) patch.ai_rollup = computed.ai_rollup;
-        // add more computed fields here if your helper returns them
+        if (hasOwn(computed, "ai_rollup")) patch.ai_rollup = (computed as any).ai_rollup;
       }
     } catch {
-      // ignore compute errors
+      // ignore
     }
 
     if (!Object.keys(patch).length) {
-      // nothing to update: still return the latest
-      const normalized = normalizeImpactAnalysis(existing);
-      return ok({ item: normalized });
+      return ok({ item: existing });
     }
 
     const { data: updated, error: upErr } = await supabase
@@ -412,34 +354,38 @@ export async function POST(req: Request, ctx: Ctx) {
       .select("*")
       .maybeSingle();
 
-    if (upErr) {
-      return err(upErr.message || "Failed to update change", {
-        status: 500,
-        code: "db_error",
-      });
-    }
+    if (upErr) return err(upErr.message || "Failed to update change", { status: 500, code: "db_error" });
     if (!updated) return err("Failed to update change", { status: 500, code: "db_error" });
 
-    // Log an event (best-effort)
+    // audit (best-effort)
     try {
       await logChangeEvent(supabase, {
-        change_id: existing.id,
-        project_id: existing.project_id,
-        event_type: "updated",
-        message: "Change updated",
+        projectId: existing.project_id,
+        changeRequestId: existing.id,
+        actorUserId: user.id,
+        actorRole: role,
+        eventType: "edited",
+        fromValue: null,
+        toValue: null,
+        note: "Change updated",
+        payload: { patch_keys: Object.keys(patch) },
       });
     } catch {
       // ignore
     }
 
-    return ok({ item: normalizeImpactAnalysis(updated) });
+    // approvals progress (best-effort)
+    const approvals = await getApprovalProgressForArtifact({
+      supabase,
+      artifactId: existing.id,
+      actorUserId: user.id,
+    }).catch(() => null);
+
+    return ok({ item: updated, approvals });
   } catch (e: any) {
     const msg = safeStr(e?.message) || "Unexpected error";
     const status = msg === "Unauthorized" ? 401 : 500;
-    return err(msg, {
-      status,
-      code: status === 401 ? "unauthorized" : "server_error",
-    });
+    return err(msg, { status, code: status === 401 ? "unauthorized" : "server_error" });
   }
 }
 
@@ -453,10 +399,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
   } catch (e: any) {
     const msg = safeStr(e?.message) || "Unexpected error";
     const status = msg === "Unauthorized" ? 401 : 500;
-    return err(msg, {
-      status,
-      code: status === 401 ? "unauthorized" : "server_error",
-    });
+    return err(msg, { status, code: status === 401 ? "unauthorized" : "server_error" });
   }
 }
 
@@ -466,7 +409,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
 export async function DELETE(req: Request, ctx: Ctx) {
   try {
-    const supabase = sb(req);
+    const supabase = await sb();
     const user = await requireUser(supabase);
 
     const id = await pickId(req, ctx, null);
@@ -486,25 +429,14 @@ export async function DELETE(req: Request, ctx: Ctx) {
           extra: { table: TABLE },
         });
       }
-      return err(exErr.message || "Failed to load change", {
-        status: 500,
-        code: "db_error",
-      });
+      return err(exErr.message || "Failed to load change", { status: 500, code: "db_error" });
     }
     if (!existing) return err("Not found", { status: 404, code: "not_found" });
 
-    await requireProjectRole(
-      supabase,
-      user.id,
-      existing.project_id,
-      "viewer"
-    );
+    const role = await requireProjectRole(supabase, existing.project_id, user.id);
+    if (!role) return err("Forbidden", { status: 403, code: "forbidden" });
+    if (!canEdit(role)) return err("Forbidden", { status: 403, code: "forbidden" });
 
-    if (!canEdit(user, existing)) {
-      return err("Forbidden", { status: 403, code: "forbidden" });
-    }
-
-    // soft delete if you have deleted_at; else hard delete
     const hasDeletedAt = hasOwn(existing, "deleted_at");
 
     if (hasDeletedAt) {
@@ -515,55 +447,42 @@ export async function DELETE(req: Request, ctx: Ctx) {
         .select("*")
         .maybeSingle();
 
-      if (delErr) {
-        return err(delErr.message || "Failed to delete change", {
-          status: 500,
-          code: "db_error",
-        });
-      }
+      if (delErr) return err(delErr.message || "Failed to delete change", { status: 500, code: "db_error" });
 
-      // best-effort event
       try {
         await logChangeEvent(supabase, {
-          change_id: existing.id,
-          project_id: existing.project_id,
-          event_type: "deleted",
-          message: "Change deleted",
+          projectId: existing.project_id,
+          changeRequestId: existing.id,
+          actorUserId: user.id,
+          actorRole: role,
+          eventType: "deleted",
+          note: "Change deleted",
+          payload: {},
         });
       } catch {}
 
       return ok({ id: existing.id, deleted: true, item: deleted ?? null });
-    } else {
-      const { error: delErr } = await supabase
-        .from(TABLE)
-        .delete()
-        .eq("id", existing.id);
-
-      if (delErr) {
-        return err(delErr.message || "Failed to delete change", {
-          status: 500,
-          code: "db_error",
-        });
-      }
-
-      // best-effort event
-      try {
-        await logChangeEvent(supabase, {
-          change_id: existing.id,
-          project_id: existing.project_id,
-          event_type: "deleted",
-          message: "Change deleted",
-        });
-      } catch {}
-
-      return ok({ id: existing.id, deleted: true });
     }
+
+    const { error: hardErr } = await supabase.from(TABLE).delete().eq("id", existing.id);
+    if (hardErr) return err(hardErr.message || "Failed to delete change", { status: 500, code: "db_error" });
+
+    try {
+      await logChangeEvent(supabase, {
+        projectId: existing.project_id,
+        changeRequestId: existing.id,
+        actorUserId: user.id,
+        actorRole: role,
+        eventType: "deleted",
+        note: "Change deleted",
+        payload: {},
+      });
+    } catch {}
+
+    return ok({ id: existing.id, deleted: true });
   } catch (e: any) {
     const msg = safeStr(e?.message) || "Unexpected error";
     const status = msg === "Unauthorized" ? 401 : 500;
-    return err(msg, {
-      status,
-      code: status === 401 ? "unauthorized" : "server_error",
-    });
+    return err(msg, { status, code: status === 401 ? "unauthorized" : "server_error" });
   }
 }

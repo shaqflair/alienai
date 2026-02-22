@@ -1,18 +1,18 @@
 import "server-only";
+
 import { NextRequest, NextResponse } from "next/server";
-import {
-  sb,
-  safeStr,
-  jsonError,
-  requireUser,
-  requireProjectRole,
-  canEdit,
-  isOwner,
-} from "@/lib/change/server-helpers";
+import { sb, safeStr, jsonError, requireUser, requireProjectRole, canEdit } from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type RouteCtx = { params: Promise<{ id: string; crId: string }> };
+
+function isAllowedLegacyStatus(x: string) {
+  const v = safeStr(x).trim().toLowerCase();
+  return v === "new" || v === "analysis" || v === "review" || v === "in_progress" || v === "implemented" || v === "closed";
+}
 
 export async function PATCH(req: NextRequest, ctx: RouteCtx) {
   try {
@@ -32,16 +32,34 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx) {
 
     const body = await req.json().catch(() => ({}));
     const status = safeStr(body?.status).trim();
-    if (!status) return jsonError("Missing status", 400);
 
-    // Only owners can set approved/rejected
-    if (!isOwner(role) && (status === "approved" || status === "rejected")) {
-      return jsonError("Only owners can approve/reject", 403);
+    if (!status) return jsonError("Missing status", 400);
+    if (!isAllowedLegacyStatus(status)) {
+      return jsonError(
+        "This endpoint only supports lifecycle statuses. Use submit/approve/reject/request-changes for governance decisions.",
+        409
+      );
+    }
+
+    // Block if currently submitted (locked)
+    const meta = await supabase
+      .from("change_requests")
+      .select("id, decision_status")
+      .eq("id", changeId)
+      .eq("project_id", projectId)
+      .maybeSingle();
+
+    if (meta.error) throw new Error(meta.error.message);
+    if (!meta.data) return jsonError("Not found", 404);
+
+    const decisionStatus = safeStr((meta.data as any)?.decision_status).trim().toLowerCase();
+    if (decisionStatus === "submitted") {
+      return jsonError("This change is locked awaiting decision. Use approve/reject/request-changes routes.", 409);
     }
 
     const { data, error } = await supabase
       .from("change_requests")
-      .update({ status })
+      .update({ status: safeStr(status).trim().toLowerCase(), updated_at: new Date().toISOString() })
       .eq("id", changeId)
       .eq("project_id", projectId)
       .select("id, status, updated_at")
@@ -49,10 +67,10 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx) {
 
     if (error) throw new Error(error.message);
 
-    return NextResponse.json({ ok: true, data });
+    return NextResponse.json({ ok: true, item: data, data });
   } catch (e: any) {
     const msg = safeStr(e?.message) || "Unexpected error";
-    const status = msg === "Unauthorized" ? 401 : 500;
+    const status = msg === "Unauthorized" ? 401 : msg === "Forbidden" ? 403 : 500;
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }

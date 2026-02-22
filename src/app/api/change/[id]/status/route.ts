@@ -1,9 +1,27 @@
 // src/app/api/change/[id]/status/route.ts
 import "server-only";
+
 import { NextResponse } from "next/server";
 import { sb, requireUser, requireProjectRole, canEdit, safeStr, logChangeEvent } from "@/lib/change/server-helpers";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+function jsonOk(payload: any, status = 200) {
+  const res = NextResponse.json({ ok: true, ...payload }, { status });
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  return res;
+}
+function jsonErr(error: string, status = 400, meta?: any) {
+  const res = NextResponse.json({ ok: false, error, meta }, { status });
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  return res;
+}
 
 function safeParam(x: unknown): string {
   if (typeof x === "string") return x;
@@ -11,26 +29,9 @@ function safeParam(x: unknown): string {
   return "";
 }
 
-// status (governance) supports lanes + approved/rejected
-function isValidCrStatus(s: string) {
+function isValidLifecycleStatus(s: string) {
   const v = String(s ?? "").trim().toLowerCase();
-  return (
-    v === "new" ||
-    v === "analysis" ||
-    v === "review" ||
-    v === "in_progress" ||
-    v === "implemented" ||
-    v === "closed" ||
-    v === "approved" ||
-    v === "rejected" ||
-    v === "submitted" ||
-    v === "changes_requested"
-  );
-}
-
-function canApprove(role: string) {
-  const r = String(role ?? "").toLowerCase();
-  return r === "approver" || r === "admin";
+  return v === "new" || v === "analysis" || v === "review" || v === "in_progress" || v === "implemented" || v === "closed";
 }
 
 function hasMissingColumn(errMsg: string, col: string) {
@@ -65,18 +66,16 @@ async function insertTimelineEvent(
       payload: row.payload && typeof row.payload === "object" ? row.payload : {},
     });
   } catch {
-    // swallow: must not block status update
+    // swallow
   }
 }
 
 /**
  * PATCH /api/change/:id/status
- * Body: { status: string }
+ * Body: { status: "new"|"analysis"|"review"|"in_progress"|"implemented"|"closed" }
  *
- * NOTE: This is a generic status update. For approval workflow, use:
- * - POST /submit (submit for approval)
- * - POST /reject (reject)
- * - POST /request-changes (request changes)
+ * Governance: This route NEVER approves/rejects/submits/reworks.
+ * Use submit/approve/reject/request-changes routes for that.
  */
 export async function PATCH(req: Request, ctx: { params: Promise<{ id?: string }> }) {
   try {
@@ -85,19 +84,19 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id?: string }
 
     const { id: rawId } = await ctx.params;
     const id = safeParam(rawId).trim();
-    if (!id) return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
+    if (!id) return jsonErr("Missing id", 400);
 
     const body = await req.json().catch(() => ({}));
-    const nextRaw = safeStr(body?.status).trim();
-    const next = nextRaw.toLowerCase();
+    const next = safeStr(body?.status).trim().toLowerCase();
 
-    if (!next || !isValidCrStatus(next)) {
-      return NextResponse.json({ ok: false, error: "Invalid status" }, { status: 400 });
+    if (!next || !isValidLifecycleStatus(next)) {
+      return jsonErr("Invalid status (lifecycle only)", 400, {
+        allowed: ["new", "analysis", "review", "in_progress", "implemented", "closed"],
+      });
     }
 
-    // load meta for RBAC + current status + decision_status (+ artifact_id when present)
+    // Load minimal meta (artifact_id might not exist)
     let meta: any = null;
-
     const metaRes1 = await supabase
       .from("change_requests")
       .select("id, project_id, artifact_id, status, decision_status, delivery_status")
@@ -107,99 +106,60 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id?: string }
     if (!metaRes1.error) {
       meta = metaRes1.data;
     } else if (hasMissingColumn(safeStr(metaRes1.error.message), "artifact_id")) {
-      // fallback if artifact_id column doesn't exist yet
       const metaRes2 = await supabase
         .from("change_requests")
         .select("id, project_id, status, decision_status, delivery_status")
         .eq("id", id)
         .maybeSingle();
-
       if (metaRes2.error) throw metaRes2.error;
       meta = metaRes2.data;
     } else {
       throw metaRes1.error;
     }
 
-    if (!meta) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+    if (!meta) return jsonErr("Not found", 404);
 
     const projectId = safeStr(meta.project_id).trim();
-    if (!projectId) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+    if (!projectId) return jsonErr("Not found", 404);
 
-    const artifactId = safeStr(meta.artifact_id).trim(); // may be "" if column missing or null
+    const artifactId = safeStr(meta.artifact_id).trim();
     const currentStatus = String(meta.status ?? "").toLowerCase();
     const currentDecision = String(meta.decision_status ?? "").toLowerCase();
     const currentLane = String(meta.delivery_status ?? "").toLowerCase();
 
     const role = await requireProjectRole(supabase, projectId, user.id);
-    if (!role) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
-    if (!canEdit(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    if (!role) return jsonErr("Forbidden", 403);
+    if (!canEdit(role)) return jsonErr("Forbidden", 403);
 
-    // Locked items can only be moved via approve/reject/request-changes endpoints
-    if (currentDecision === "submitted" && !canApprove(role)) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "This change is locked in Review awaiting decision. Use approve/reject endpoints.",
-        },
-        { status: 409 }
-      );
-    }
-
-    if ((next === "approved" || next === "rejected") && !canApprove(role)) {
-      return NextResponse.json({ ok: false, error: "Approver role required" }, { status: 403 });
+    // 🔒 Lock while submitted
+    if (currentDecision === "submitted") {
+      return jsonErr("This change is locked awaiting decision. Use approve/reject/request-changes routes.", 409);
     }
 
     const now = new Date().toISOString();
 
-    const patch: any = {
-      status: next,
-      updated_at: now,
-    };
+    // lifecycle status only (no decision mutations)
+    const patch: any = { status: next, updated_at: now };
 
-    // Sync decision_status with status for consistency
-    if (next === "approved") {
-      patch.decision_status = "approved";
-      patch.approval_date = now;
-      patch.approver_id = user.id;
-      patch.decision_by = user.id;
-      patch.decision_at = now;
-      patch.decision_role = safeStr(role);
-      patch.delivery_status = "in_progress";
-    } else if (next === "rejected") {
-      patch.decision_status = "rejected";
-      patch.decision_by = user.id;
-      patch.decision_at = now;
-      patch.decision_role = safeStr(role);
-      patch.delivery_status = "analysis";
-    } else if (next === "submitted") {
-      return NextResponse.json(
-        { ok: false, error: "Use POST /api/change/:id/submit to submit for approval" },
-        { status: 400 }
-      );
-    } else if (next === "changes_requested") {
-      return NextResponse.json(
-        { ok: false, error: "Use POST /api/change/:id/request-changes to request changes" },
-        { status: 400 }
-      );
+    // keep delivery_status loosely aligned if column exists in schema
+    // (safe: if column doesn’t exist, update will fail and we’ll retry without it)
+    patch.delivery_status = next === "new" ? "intake" : next;
+
+    const upd1 = await supabase.from("change_requests").update(patch).eq("id", id).select("*").single();
+
+    let updated: any = null;
+
+    if (upd1.error && hasMissingColumn(safeStr(upd1.error.message), "delivery_status")) {
+      delete patch.delivery_status;
+      const upd2 = await supabase.from("change_requests").update(patch).eq("id", id).select("*").single();
+      if (upd2.error) throw upd2.error;
+      updated = upd2.data;
+    } else if (upd1.error) {
+      throw upd1.error;
     } else {
-      // For other status changes (new, analysis, in_progress, implemented, closed)
-      if (currentDecision && currentDecision !== "null") {
-        if (currentDecision !== "approved" && currentDecision !== "rejected") {
-          patch.decision_status = null;
-        }
-      }
-
-      // Sync delivery_status with status for lane moves (except review)
-      if (next !== "review") {
-        patch.delivery_status = next;
-      }
+      updated = upd1.data;
     }
 
-    const upd = await supabase.from("change_requests").update(patch).eq("id", id).select("*").single();
-    if (upd.error) throw upd.error;
-
-    // ✅ Audit log (best effort) — only if we have an artifactId value
-    // This avoids the NOT NULL constraint error.
     try {
       if (artifactId) {
         await logChangeEvent(supabase, {
@@ -215,11 +175,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id?: string }
           payload: { from_status: currentStatus, to_status: next, from_lane: currentLane || null },
         } as any);
       }
-    } catch {
-      // swallow
-    }
+    } catch {}
 
-    // ✅ Timeline event (best effort)
     await insertTimelineEvent(supabase, {
       project_id: projectId,
       change_id: id,
@@ -232,11 +189,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id?: string }
       payload: { source: "status_route", from_status: currentStatus, to_status: next },
     });
 
-    return NextResponse.json({ ok: true, item: upd.data });
+    return jsonOk({ item: updated, data: updated });
   } catch (e: any) {
     console.error("[PATCH /api/change/:id/status]", e);
     const msg = safeStr(e?.message) || "Unexpected error";
-    const status = msg === "Unauthorized" ? 401 : 500;
-    return NextResponse.json({ ok: false, error: msg }, { status });
+    const status = msg === "Unauthorized" ? 401 : msg === "Forbidden" ? 403 : 500;
+    return jsonErr(msg, status);
   }
 }
