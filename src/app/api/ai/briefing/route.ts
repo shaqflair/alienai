@@ -116,6 +116,16 @@ function wbsListHref(params?: Record<string, any>) {
   return href("/artifacts", { type: "wbs", view: "list", ...(params || {}) });
 }
 
+/**
+ * ✅ Change routing rules:
+ * - /change is a redirect (avoid using it in generated links)
+ * - portfolio page is /changes
+ * - project kanban is /projects/:id/change
+ */
+function changesHref(params?: Record<string, any>) {
+  return href("/changes", params || {});
+}
+
 /* ------------------------------------------------------------------ */
 /* ✅ project scope helpers (exclude closed/deleted)                    */
 /* ------------------------------------------------------------------ */
@@ -151,9 +161,6 @@ function looksMissingColumn(err: any) {
  * - closed_at: timestamp|null
  *
  * If the projects query fails (RLS / missing cols), we fall back safely.
- *
- * IMPORTANT: This is used even if resolveActiveProjectScope already tries to filter,
- * so we never “count” closed/deleted projects by accident.
  */
 async function filterActiveProjectIds(supabase: any, projectIds: string[]) {
   const ids = uniqStrings(projectIds);
@@ -187,8 +194,6 @@ async function filterActiveProjectIds(supabase: any, projectIds: string[]) {
       // ✅ exclude anything not active
       if (deletedAt) continue;
       if (status && status !== "active") continue;
-
-      // optional hardening (some rows might have status active but closed_at set)
       if (closedAt) continue;
 
       out.push(id);
@@ -795,7 +800,7 @@ function buildExecutiveAiWarningBody(args: { windowLabel: string; agg: FlowAgg }
 
   if (top.length > 0) {
     body =
-      `• Blockers signal\n attaching: ${top.find((w) => w.kind === "blockers")?.detail || "—"}\n\n` +
+      `• Blockers signal\n ${top.find((w) => w.kind === "blockers")?.detail || "—"}\n\n` +
       `• Bottleneck signal\n ${top.find((w) => w.kind === "bottleneck")?.detail || "—"}\n\n` +
       `• Slippage risk\n ${top.find((w) => w.kind === "throughput_forecast")?.detail || "—"}\n\n` +
       `👉 Action: Reduce WIP limits and unblock upstream dependencies to restore flow.`;
@@ -1117,7 +1122,7 @@ export async function GET(req: Request) {
     }
 
     // ------------------------------
-    // Change Request Insights
+    // Change Request Insights (PORTFOLIO) → /changes
     // ------------------------------
     if (crHi > 0) {
       insights.push({
@@ -1125,7 +1130,7 @@ export async function GET(req: Request) {
         severity: "medium",
         title: "High/Critical change requests require attention",
         body: `${crHi} high/critical change request(s) are open (out of ${crOpen} open). Prioritise decisioning and impact mitigation.`,
-        href: href("/change", { priority: "High,Critical" }),
+        href: changesHref({ priority: "High,Critical" }),
         meta: { crHi, crOpen },
       });
     } else if (crOpen > 0) {
@@ -1134,7 +1139,7 @@ export async function GET(req: Request) {
         severity: "info",
         title: "Change workload in progress",
         body: `${crOpen} open change request(s). Keep flow moving with clear owners and decision dates.`,
-        href: href("/change"),
+        href: changesHref(),
         meta: { crOpen },
       });
     }
@@ -1145,7 +1150,7 @@ export async function GET(req: Request) {
         severity: "medium",
         title: "Stale change requests detected",
         body: `${crStale} change request(s) haven't been updated recently. Recommend nudges, decision deadlines, or close-out.`,
-        href: href("/change", { stale: 1 }),
+        href: changesHref({ stale: 1 }),
         meta: { crStale },
       });
     }
@@ -1275,6 +1280,3 @@ export async function GET(req: Request) {
     return res;
   }
 }
-
-
-

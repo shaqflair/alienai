@@ -1,4 +1,5 @@
-﻿import "server-only";
+﻿// src/app/api/success-stories/route.ts
+import "server-only";
 
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
@@ -63,7 +64,7 @@ function sinceIso(days: number) {
   return d.toISOString();
 }
 
-/** ✅ UK date display (dd/mm/yyyy) from ISO yyyy-mm-dd or timestamp-ish strings */
+/** ✅ UK date display (dd/mm/yyyy) */
 function fmtDateUK(x: any): string | null {
   if (!x) return null;
   const s = String(x).trim();
@@ -182,7 +183,10 @@ function hrefFor(kind: "milestones" | "raid" | "change" | "lessons" | "wbs", pro
   if (kind === "wbs") return `/projects/${projectRouteId}/wbs?days=${days}`;
   if (kind === "milestones") return `/projects/${projectRouteId}/schedule?days=${days}`;
   if (kind === "raid") return `/projects/${projectRouteId}/raid?days=${days}`;
+
+  // ✅ IMPORTANT: project change board route (NOT /change)
   if (kind === "change") return `/projects/${projectRouteId}/change?days=${days}`;
+
   if (kind === "lessons") return `/projects/${projectRouteId}/lessons?days=${days}`;
 
   return `/projects/${projectRouteId}`;
@@ -228,7 +232,6 @@ export async function GET(req: Request) {
     const stories: Story[] = [];
 
     // 0) Optional: Commercial headline (only if favourable)
-    // Assumption: fv > 0 means favourable (under forecast). Flip if your sign convention differs.
     if (fv != null && fv > 0) {
       const nowIso = new Date().toISOString();
       stories.push({
@@ -443,9 +446,7 @@ export async function GET(req: Request) {
     }
 
     // Category filter
-    const filtered = category
-      ? stories.filter((s) => safeLower(s.category) === safeLower(category))
-      : stories;
+    const filtered = category ? stories.filter((s) => safeLower(s.category) === safeLower(category)) : stories;
 
     // Sort newest first (robust)
     filtered.sort((a, b) => isoDateOnly(b.happened_at).localeCompare(isoDateOnly(a.happened_at)));
@@ -471,4 +472,3 @@ export async function GET(req: Request) {
     return jsonErr(e?.message || "Unknown error", 500);
   }
 }
-
