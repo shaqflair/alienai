@@ -20,6 +20,10 @@ import {
   FileText,
   AlertCircle,
   CheckCircle2,
+  TrendingUp,
+  Activity,
+  Layers,
+  RefreshCw,
 } from "lucide-react";
 
 /* ============================
@@ -39,8 +43,6 @@ type ArtifactRow = {
     id?: string;
     title?: string | null;
     project_code?: string | number | null;
-
-    // ✅ make project lifecycle available for filtering active projects
     status?: string | null;
     state?: string | null;
     lifecycle_status?: string | null;
@@ -92,9 +94,18 @@ function isWithinLastDays(a: ArtifactRow, days: number) {
   return ms >= cutoff;
 }
 
-function isClosedStatus(status?: string) {
+/**
+ * Returns true if an artifact's own status is "closed" / "done" / "complete".
+ */
+function isClosedArtifactStatus(status?: string) {
   const s = norm(status);
-  return !!s && (s.includes("closed") || s.includes("done") || s.includes("complete") || s.includes("completed"));
+  return !!s && (
+    s.includes("closed") ||
+    s.includes("done") ||
+    s.includes("complete") ||
+    s.includes("completed") ||
+    s.includes("cancel")
+  );
 }
 
 function isMissingEffort(a: ArtifactRow) {
@@ -103,32 +114,24 @@ function isMissingEffort(a: ArtifactRow) {
 }
 
 function isNeedsAttention(a: ArtifactRow) {
-  if (isClosedStatus(a.status)) return false;
+  if (isClosedArtifactStatus(a.status)) return false;
   if (a.stalled === true) return true;
   if (isMissingEffort(a)) return true;
   return false;
 }
 
 /**
- * ✅ Project lifecycle filter
- * We exclude projects that are closed/cancelled (and a few common synonyms).
- * This relies on the API including one of:
- * - project.status
- * - project.state
- * - project.lifecycle_status / project.lifecycle_state
+ * Project lifecycle filter — excludes closed/cancelled/archived/inactive projects.
  */
 function isInactiveProjectStatus(x?: string | null) {
   const s = norm(x);
   if (!s) return false;
-
-  // keep this permissive (covers "Closed", "CLOSED", "Cancelled", "Canceled", "Archived", etc.)
-  if (s.includes("cancel")) return true; // cancelled / canceled
-  if (s.includes("close")) return true; // closed / closure
-  if (s.includes("archive")) return true; // archived
+  if (s.includes("cancel")) return true;
+  if (s.includes("close")) return true;
+  if (s.includes("archive")) return true;
   if (s.includes("inactive")) return true;
   if (s.includes("complete")) return true;
   if (s.includes("done")) return true;
-
   return false;
 }
 
@@ -141,6 +144,17 @@ function isInactiveProject(a: ArtifactRow) {
     isInactiveProjectStatus(p.lifecycle_status) ||
     isInactiveProjectStatus(p.lifecycle_state)
   );
+}
+
+/**
+ * ✅ An artifact is "active" (eligible for stats) if BOTH:
+ *   1. Its parent project is not inactive (closed/cancelled/archived/done)
+ *   2. Its own status is not closed/done/complete/cancelled
+ */
+function isActiveArtifact(a: ArtifactRow) {
+  if (isInactiveProject(a)) return false;
+  if (isClosedArtifactStatus(a.status)) return false;
+  return true;
 }
 
 const fmtDateUk = (x?: string | null) => {
@@ -159,8 +173,8 @@ const fmtRelativeTime = (x?: string | null) => {
 
   if (days === 0) return "Today";
   if (days === 1) return "Yesterday";
-  if (days < 7) return `${days} days ago`;
-  if (days < 30) return `${Math.floor(days / 7)} weeks ago`;
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
   return fmtDateUk(x);
 };
 
@@ -214,8 +228,8 @@ function displayStatus(status?: string) {
   if (!status) return "—";
   const s = norm(status);
   if (s === "draft") return "Draft";
-  if (s.includes("review")) return "In review";
-  if (s.includes("progress")) return "In progress";
+  if (s.includes("review")) return "In Review";
+  if (s.includes("progress")) return "In Progress";
   if (s.includes("closed") || s.includes("done")) return "Closed";
   if (s.includes("new")) return "New";
   return safeStr(status).replace(/_/g, " ").trim();
@@ -248,50 +262,52 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
 }
 
 /* ============================
-   Visual System (Premium Light)
+   Type & Status Badge Configs
 ============================ */
 
 const typeConfig: Record<string, { icon: React.ReactNode; bg: string; text: string; border: string }> = {
   charter: {
-    icon: <FileText className="w-3.5 h-3.5" />,
+    icon: <FileText className="w-3 h-3" />,
     bg: "bg-emerald-50",
     text: "text-emerald-700",
     border: "border-emerald-200",
   },
   wbs: {
-    icon: <Folder className="w-3.5 h-3.5" />,
+    icon: <Layers className="w-3 h-3" />,
     bg: "bg-violet-50",
     text: "text-violet-700",
     border: "border-violet-200",
   },
   raid: {
-    icon: <AlertCircle className="w-3.5 h-3.5" />,
+    icon: <AlertCircle className="w-3 h-3" />,
     bg: "bg-rose-50",
     text: "text-rose-700",
     border: "border-rose-200",
   },
   change: {
-    icon: <Sparkles className="w-3.5 h-3.5" />,
+    icon: <Sparkles className="w-3 h-3" />,
     bg: "bg-sky-50",
     text: "text-sky-700",
     border: "border-sky-200",
   },
   default: {
-    icon: <FileText className="w-3.5 h-3.5" />,
-    bg: "bg-gray-50",
-    text: "text-gray-700",
-    border: "border-gray-200",
+    icon: <FileText className="w-3 h-3" />,
+    bg: "bg-slate-50",
+    text: "text-slate-600",
+    border: "border-slate-200",
   },
 };
 
 function TypeBadge({ type }: { type?: string }) {
   const t = norm(type);
   const config =
-    typeConfig[t] || typeConfig[Object.keys(typeConfig).find((k) => t.includes(k)) || "default"] || typeConfig.default;
+    typeConfig[t] ||
+    typeConfig[Object.keys(typeConfig).find((k) => t.includes(k)) || "default"] ||
+    typeConfig.default;
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border ${config.bg} ${config.text} ${config.border}`}
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide border ${config.bg} ${config.text} ${config.border}`}
     >
       {config.icon}
       {displayType(type)}
@@ -300,13 +316,13 @@ function TypeBadge({ type }: { type?: string }) {
 }
 
 const statusConfig: Record<string, { dot: string; bg: string; text: string }> = {
-  draft: { dot: "bg-gray-400", bg: "bg-gray-50", text: "text-gray-600" },
-  review: { dot: "bg-amber-500", bg: "bg-amber-50", text: "text-amber-700" },
+  draft: { dot: "bg-slate-400", bg: "bg-slate-50", text: "text-slate-600" },
+  review: { dot: "bg-amber-400", bg: "bg-amber-50", text: "text-amber-700" },
   progress: { dot: "bg-blue-500", bg: "bg-blue-50", text: "text-blue-700" },
   closed: { dot: "bg-emerald-500", bg: "bg-emerald-50", text: "text-emerald-700" },
   done: { dot: "bg-emerald-500", bg: "bg-emerald-50", text: "text-emerald-700" },
   new: { dot: "bg-purple-500", bg: "bg-purple-50", text: "text-purple-700" },
-  default: { dot: "bg-gray-400", bg: "bg-gray-50", text: "text-gray-600" },
+  default: { dot: "bg-slate-300", bg: "bg-slate-50", text: "text-slate-500" },
 };
 
 function StatusBadge({ status }: { status?: string }) {
@@ -318,9 +334,9 @@ function StatusBadge({ status }: { status?: string }) {
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${config.bg} ${config.text}`}
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide ${config.bg} ${config.text}`}
     >
-      <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`} />
+      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${config.dot}`} />
       {displayStatus(status)}
     </span>
   );
@@ -333,8 +349,8 @@ function AIHealthBadge({ artifact }: { artifact: ArtifactRow }) {
 
   if (stalled) {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-rose-50 text-rose-700 border border-rose-200">
-        <AlertCircle className="w-3.5 h-3.5" />
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-50 text-rose-600 border border-rose-200">
+        <AlertCircle className="w-3 h-3" />
         Risk
       </span>
     );
@@ -342,16 +358,16 @@ function AIHealthBadge({ artifact }: { artifact: ArtifactRow }) {
 
   if (missingEffort) {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
-        <Clock className="w-3.5 h-3.5" />
-        Needs effort
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-600 border border-amber-200">
+        <Clock className="w-3 h-3" />
+        Needs Effort
       </span>
     );
   }
 
   return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-      <CheckCircle2 className="w-3.5 h-3.5" />
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-600 border border-emerald-200">
+      <CheckCircle2 className="w-3 h-3" />
       Healthy
     </span>
   );
@@ -442,18 +458,105 @@ function cmpBase(a: string, b: string) {
 }
 
 /* ============================
-   Components
+   Stat Card Component
 ============================ */
 
-function StatCard({ label, value, trend }: { label: string; value: string | number; trend?: string }) {
+function StatCard({
+  label,
+  value,
+  sub,
+  accent,
+  icon,
+}: {
+  label: string;
+  value: string | number;
+  sub?: string;
+  accent?: "blue" | "emerald" | "amber" | "rose";
+  icon?: React.ReactNode;
+}) {
+  const accentMap = {
+    blue: {
+      iconBg: "bg-blue-100",
+      iconText: "text-blue-600",
+      bar: "bg-blue-500",
+      val: "text-blue-700",
+    },
+    emerald: {
+      iconBg: "bg-emerald-100",
+      iconText: "text-emerald-600",
+      bar: "bg-emerald-500",
+      val: "text-emerald-700",
+    },
+    amber: {
+      iconBg: "bg-amber-100",
+      iconText: "text-amber-600",
+      bar: "bg-amber-400",
+      val: "text-amber-700",
+    },
+    rose: {
+      iconBg: "bg-rose-100",
+      iconText: "text-rose-600",
+      bar: "bg-rose-500",
+      val: "text-rose-700",
+    },
+  };
+
+  const c = accentMap[accent ?? "blue"];
+
   return (
-    <div className="bg-white rounded-xl border p-5 shadow-sm hover:shadow-md transition-shadow border-[#00B8DB]">
-      <div className="text-sm text-gray-500 font-medium">{label}</div>
-      <div className="mt-2 flex items-baseline gap-2">
-        <span className="text-2xl font-bold text-gray-900">{value}</span>
-        {trend && <span className="text-xs text-emerald-600 font-medium">{trend}</span>}
+    <div className="relative bg-white rounded-2xl border border-slate-100 p-5 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden group">
+      {/* Top accent line */}
+      <div className={`absolute top-0 left-0 right-0 h-0.5 ${c.bar}`} />
+
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">{label}</p>
+          <p className={`text-3xl font-black ${c.val} leading-none`}>{value}</p>
+          {sub && <p className="mt-1.5 text-xs text-slate-500 font-medium">{sub}</p>}
+        </div>
+        {icon && (
+          <div className={`p-2.5 rounded-xl ${c.iconBg} ${c.iconText} group-hover:scale-110 transition-transform duration-200`}>
+            {icon}
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+/* ============================
+   Sort Header Button
+============================ */
+
+function SortButton({
+  label,
+  sortKey,
+  activeSortKey,
+  sortDir,
+  onToggle,
+  align = "left",
+}: {
+  label: string;
+  sortKey: SortKey;
+  activeSortKey: SortKey;
+  sortDir: SortDir;
+  onToggle: (k: SortKey) => void;
+  align?: "left" | "right";
+}) {
+  const active = activeSortKey === sortKey;
+  return (
+    <button
+      type="button"
+      onClick={() => onToggle(sortKey)}
+      className={`inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest transition-colors ${
+        active ? "text-slate-800" : "text-slate-400 hover:text-slate-600"
+      } ${align === "right" ? "ml-auto" : ""}`}
+    >
+      {label}
+      <span className={`transition-opacity ${active ? "opacity-100" : "opacity-0"}`}>
+        {sortDir === "asc" ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+      </span>
+    </button>
   );
 }
 
@@ -564,7 +667,6 @@ export default function ArtifactsClientPage() {
       if (!isOkResp(j)) throw new Error(safeStr((j as any)?.error) || "API returned invalid response");
 
       const ok = j;
-
       setItems(ok.items || []);
       setCursor(ok.nextCursor ?? null);
 
@@ -600,7 +702,6 @@ export default function ArtifactsClientPage() {
       if (!isOkResp(j)) throw new Error(safeStr((j as any)?.error) || "API returned invalid response");
 
       const ok = j;
-
       setItems((prev) => {
         const seen = new Set(prev.map((x) => x.id));
         const next = (ok.items || []).filter((x) => !seen.has(x.id));
@@ -622,12 +723,21 @@ export default function ArtifactsClientPage() {
 
   /* ---------------- Derived State ---------------- */
 
-  // ✅ Exclude closed/cancelled projects from the page (and from project count)
+  /**
+   * visibleItems — all artifacts from non-inactive projects (used for the table/list view).
+   * isInactiveProject already excludes closed/cancelled/archived parent projects.
+   */
   const visibleItems = useMemo(() => (items || []).filter((a) => !isInactiveProject(a)), [items]);
+
+  /**
+   * activeItems — subset of visibleItems where the artifact itself is also not closed/done/complete.
+   * Used exclusively for stats so they only count genuinely open, live work.
+   */
+  const activeItems = useMemo(() => visibleItems.filter(isActiveArtifact), [visibleItems]);
 
   const filteredItems = useMemo(() => {
     const t = norm(typeDebounced);
-    return (visibleItems || []).filter((a) => {
+    return visibleItems.filter((a) => {
       if (t && norm(a.type) !== t) return false;
       return true;
     });
@@ -687,6 +797,31 @@ export default function ArtifactsClientPage() {
 
   const grouped = useMemo(() => groupByProject(sortedItems), [sortedItems]);
 
+  /* ---------------- Stats (active artifacts only) ------------------- */
+
+  const stats = useMemo(() => {
+    // ✅ All four stat cards use activeItems — excludes:
+    //    • inactive/closed/cancelled/archived parent projects
+    //    • artifacts whose own status is closed/done/complete/cancelled
+    const total = activeItems.length;
+    const thisWeek = activeItems.filter((i) => isWithinLastDays(i, 7)).length;
+    const projects = new Set(activeItems.map((i) => i.project_id)).size;
+
+    const needsAttentionItems = activeItems.filter(isNeedsAttention);
+    const needsAttention = needsAttentionItems.length;
+
+    const urgent = needsAttentionItems.filter((i) => i.stalled === true).length;
+    const needsEffortCount = needsAttentionItems.filter(isMissingEffort).length;
+
+    let attentionSub = "";
+    if (urgent > 0 && needsEffortCount > 0) attentionSub = `${urgent} risk · ${needsEffortCount} need effort`;
+    else if (urgent > 0) attentionSub = `${urgent} stalled`;
+    else if (needsEffortCount > 0) attentionSub = `${needsEffortCount} missing effort`;
+    else if (needsAttention === 0) attentionSub = "All looking good";
+
+    return { total, thisWeek, projects, needsAttention, attentionSub };
+  }, [activeItems]);
+
   /* ---------------- Scroll to Highlight ---------------- */
 
   useEffect(() => {
@@ -712,131 +847,141 @@ export default function ArtifactsClientPage() {
     setSortDir((d) => (d === "asc" ? "desc" : "asc"));
   }
 
-  function sortIndicator(key: SortKey) {
-    if (sortKey !== key) return <div className="w-4 h-4 opacity-0" />;
-    return sortDir === "asc" ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />;
-  }
-
   function toggleProjectCollapse(projectId: string) {
     setCollapsed((prev) => ({ ...prev, [projectId]: !prev[projectId] }));
   }
 
   const hasActiveFilters = q || type;
 
-  const stats = useMemo(() => {
-    // ✅ stats should reflect only active projects (visibleItems)
-    const total = visibleItems.length;
-    const thisWeek = visibleItems.filter((i) => isWithinLastDays(i, 7)).length;
-    const projects = new Set(visibleItems.map((i) => i.project_id)).size;
-
-    const needsAttentionItems = visibleItems.filter(isNeedsAttention);
-    const needsAttention = needsAttentionItems.length;
-
-    const urgent = needsAttentionItems.filter((i) => i.stalled === true && !isClosedStatus(i.status)).length;
-    const needsEffortCount = needsAttentionItems.filter((i) => isMissingEffort(i)).length;
-
-    let trend = "";
-    if (urgent > 0 && needsEffortCount > 0) trend = `${urgent} urgent • ${needsEffortCount} need effort`;
-    else if (urgent > 0) trend = `${urgent} urgent`;
-    else if (needsEffortCount > 0) trend = `${needsEffortCount} need effort`;
-
-    return { total, thisWeek, projects, needsAttention, needsAttentionTrend: trend };
-  }, [visibleItems]);
-
   /* ============================
       Render
    ============================ */
 
   return (
-    <div className="min-h-screen bg-gray-50/50">
-      {/* Top Navigation Bar */}
-      <div className="sticky top-0 z-50 bg-white border-b border-[#00B8DB] shadow-sm">
-        <div className="mx-auto max-w-7xl px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-600/20">
-                <Folder className="w-5 h-5 text-white" />
+    <div className="min-h-screen bg-[#F7F8FA]">
+      {/* ─── Top Navigation Bar ─── */}
+      <div className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-slate-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+        <div className="mx-auto max-w-7xl px-6">
+          <div className="flex items-center justify-between h-16">
+            {/* Brand */}
+            <div className="flex items-center gap-3.5">
+              <div className="relative h-9 w-9">
+                <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-[#0066FF] to-[#00B8DB] shadow-lg shadow-blue-500/25" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Layers className="w-4.5 h-4.5 text-white" />
+                </div>
               </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">Artifacts</h1>
-                <p className="text-sm text-gray-500">Governance across all projects</p>
+                <h1 className="text-[15px] font-bold text-slate-900 leading-tight">Artifacts</h1>
+                <p className="text-[11px] text-slate-400 font-medium">Project governance hub</p>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <Button
-                variant="outline"
-                size="sm"
+            {/* Actions */}
+            <div className="flex items-center gap-2">
+              <button
                 onClick={() => setShowFilters(!showFilters)}
-                className={`gap-2 ${showFilters ? "bg-gray-100 border-gray-300" : ""}`}
+                className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium border transition-all duration-150 ${
+                  showFilters
+                    ? "bg-slate-900 text-white border-slate-900"
+                    : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                }`}
               >
-                <Filter className="w-4 h-4" />
+                <Filter className="w-3.5 h-3.5" />
                 Filters
                 {hasActiveFilters && (
-                  <span className="ml-1 px-1.5 py-0.5 bg-blue-600 text-white text-xs rounded-full">
+                  <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-blue-500 text-white text-[10px] font-bold">
                     {[q, type].filter(Boolean).length}
                   </span>
                 )}
-              </Button>
+              </button>
 
-              <Button variant="outline" size="sm" onClick={loadFirst} disabled={loading}>
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Refresh"}
-              </Button>
+              <button
+                onClick={loadFirst}
+                disabled={loading}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium bg-white text-slate-600 border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all duration-150 disabled:opacity-50"
+              >
+                {loading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3.5 h-3.5" />
+                )}
+                Refresh
+              </button>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="mx-auto max-w-7xl px-6 py-8 space-y-6">
-        {/* Stats Overview */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Total Artifacts" value={stats.total} trend="+12%" />
-          <StatCard label="This Week" value={stats.thisWeek} />
-          <StatCard label="Projects" value={stats.projects} />
+      <div className="mx-auto max-w-7xl px-6 py-6 space-y-5">
+        {/* ─── Stats Cards ─── */}
+        {/* Note: all stat values reflect ACTIVE artifacts only (not closed/cancelled projects or artifacts) */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <StatCard
+            label="Active Artifacts"
+            value={stats.total}
+            sub="Across open projects"
+            accent="blue"
+            icon={<Layers className="w-4 h-4" />}
+          />
+          <StatCard
+            label="Updated This Week"
+            value={stats.thisWeek}
+            sub="Recent activity"
+            accent="emerald"
+            icon={<TrendingUp className="w-4 h-4" />}
+          />
+          <StatCard
+            label="Active Projects"
+            value={stats.projects}
+            sub="With open artifacts"
+            accent="blue"
+            icon={<Folder className="w-4 h-4" />}
+          />
           <StatCard
             label="Needs Attention"
             value={stats.needsAttention}
-            trend={stats.needsAttentionTrend || undefined}
+            sub={stats.attentionSub || undefined}
+            accent={stats.needsAttention > 0 ? "rose" : "emerald"}
+            icon={<Activity className="w-4 h-4" />}
           />
         </div>
 
-        {/* Expandable Filters */}
+        {/* ─── Expandable Filters ─── */}
         <div
           className={`overflow-hidden transition-all duration-300 ease-in-out ${
-            showFilters ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
+            showFilters ? "max-h-96 opacity-100" : "max-h-0 opacity-0 pointer-events-none"
           }`}
         >
-          <div className="bg-white rounded-xl border border-[#00B8DB] p-5 shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-900">Filters</h3>
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-slate-700 uppercase tracking-widest">Filter Artifacts</h3>
               {hasActiveFilters && (
                 <button
-                  onClick={() => {
-                    setQ("");
-                    setType("");
-                  }}
-                  className="text-sm text-red-600 hover:text-red-700 flex items-center gap-1"
+                  onClick={() => { setQ(""); setType(""); }}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-500 hover:text-rose-600 transition-colors"
                 >
-                  <X className="w-4 h-4" /> Clear all
+                  <X className="w-3.5 h-3.5" />
+                  Clear all
                 </button>
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                 <input
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
-                  placeholder="Search artifacts..."
-                  className="w-full rounded-lg bg-gray-50 border border-gray-200 pl-10 pr-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                  placeholder="Search artifacts…"
+                  className="w-full rounded-lg bg-slate-50 border border-slate-200 pl-9 pr-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-400/15 outline-none transition-all"
                 />
               </div>
 
               <select
                 value={type}
                 onChange={(e) => setType(e.target.value)}
-                className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-2.5 text-sm text-gray-700 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-2.5 text-sm text-slate-700 focus:bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-400/15 outline-none transition-all min-w-[160px]"
               >
                 <option value="">All types</option>
                 {types.map((t) => (
@@ -846,152 +991,142 @@ export default function ArtifactsClientPage() {
                 ))}
               </select>
 
-              <Button onClick={loadFirst} className="bg-blue-600 hover:bg-blue-700 text-white font-medium">
-                {loading ? (
-                  <span className="inline-flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Searching...
-                  </span>
-                ) : (
-                  "Apply Filters"
-                )}
-              </Button>
+              <button
+                onClick={loadFirst}
+                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition-colors"
+              >
+                {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                Apply
+              </button>
             </div>
           </div>
         </div>
 
-        {/* View Toggle & Sort Info */}
+        {/* ─── View Toggle + Count ─── */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 bg-white rounded-lg border border-[#00B8DB] p-1 shadow-sm">
+          <div className="inline-flex items-center bg-white rounded-lg border border-slate-200 p-1 shadow-sm gap-0.5">
             <button
               onClick={() => setView("list")}
-              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                view === "list" ? "bg-gray-900 text-white shadow-sm" : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                view === "list"
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
               }`}
             >
-              <ListIcon className="w-4 h-4" />
+              <ListIcon className="w-3.5 h-3.5" />
               List
             </button>
             <button
               onClick={() => setView("grouped")}
-              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
                 view === "grouped"
-                  ? "bg-gray-900 text-white shadow-sm"
-                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
               }`}
             >
-              <LayoutGrid className="w-4 h-4" />
+              <LayoutGrid className="w-3.5 h-3.5" />
               Grouped
             </button>
           </div>
 
-          <div className="text-sm text-gray-500">
+          <p className="text-xs font-medium text-slate-400">
             {sortedItems.length} artifact{sortedItems.length !== 1 ? "s" : ""}
-            {cursor && ` • More available`}
-          </div>
+            {cursor && <span className="text-slate-300 mx-1.5">·</span>}
+            {cursor && <span>more available</span>}
+          </p>
         </div>
 
-        {/* Error Message */}
+        {/* ─── Error ─── */}
         {error && (
-          <div className="rounded-lg border border-[#00B8DB] bg-red-50 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4" />
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 flex items-center gap-2.5 font-medium">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
             {error}
           </div>
         )}
 
-        {/* Results */}
+        {/* ─── Results ─── */}
         {loading && items.length === 0 ? (
-          <div className="bg-white rounded-xl border border-[#00B8DB] p-12 text-center">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gray-100 mb-4">
-              <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
-            </div>
-            <p className="text-gray-500">Loading artifacts...</p>
+          <div className="bg-white rounded-2xl border border-slate-100 p-16 text-center shadow-sm">
+            <Loader2 className="w-6 h-6 text-slate-300 animate-spin mx-auto mb-3" />
+            <p className="text-sm text-slate-400 font-medium">Loading artifacts…</p>
           </div>
         ) : sortedItems.length ? (
           view === "list" ? (
-            <div className="bg-white rounded-xl border border-[#00B8DB] shadow-sm overflow-hidden">
-              <div className="border-b border-gray-200 bg-gray-50/80 backdrop-blur">
-                <div className="grid grid-cols-12 gap-4 px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("project")}
-                    className="col-span-3 flex items-center gap-2 hover:text-gray-700 transition-colors text-left"
-                  >
-                    Project {sortIndicator("project")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("artifact")}
-                    className="col-span-4 flex items-center gap-2 hover:text-gray-700 transition-colors text-left"
-                  >
-                    Artifact {sortIndicator("artifact")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("type")}
-                    className="col-span-2 flex items-center gap-2 hover:text-gray-700 transition-colors text-left"
-                  >
-                    Type {sortIndicator("type")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("status")}
-                    className="col-span-2 flex items-center gap-2 hover:text-gray-700 transition-colors text-left"
-                  >
-                    Status {sortIndicator("status")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("updated")}
-                    className="col-span-1 flex items-center justify-end gap-2 hover:text-gray-700 transition-colors text-right"
-                  >
-                    {sortIndicator("updated")}
-                  </button>
+            /* ──── LIST VIEW ──── */
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+              {/* Header */}
+              <div className="grid grid-cols-12 gap-4 px-6 py-3 border-b border-slate-100 bg-slate-50/60">
+                <div className="col-span-3">
+                  <SortButton label="Project" sortKey="project" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                </div>
+                <div className="col-span-4">
+                  <SortButton label="Artifact" sortKey="artifact" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                </div>
+                <div className="col-span-2">
+                  <SortButton label="Type" sortKey="type" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                </div>
+                <div className="col-span-2">
+                  <SortButton label="Status" sortKey="status" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                </div>
+                <div className="col-span-1 flex justify-end">
+                  <SortButton label="Updated" sortKey="updated" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} align="right" />
                 </div>
               </div>
 
-              <div className="divide-y divide-gray-100">
-                {sortedItems.map((a, index) => {
-                  const isHighlighted = highlightId && a.id === highlightId;
+              {/* Rows */}
+              <div className="divide-y divide-slate-50">
+                {sortedItems.map((a) => {
+                  const isHighlighted = !!(highlightId && a.id === highlightId);
                   const openHref = buildArtifactHref(a);
                   return (
                     <div
                       key={a.id}
-                      ref={(el) => {
-                        rowRefs.current[a.id] = el;
-                      }}
-                      className={`group grid grid-cols-12 gap-4 px-6 py-4 transition-all duration-200 ${
-                        isHighlighted ? "bg-blue-50/80 ring-1 ring-inset ring-blue-200" : "hover:bg-gray-50"
-                      } ${index % 2 === 0 ? "bg-white" : "bg-gray-50/30"}`}
+                      ref={(el) => { rowRefs.current[a.id] = el; }}
+                      className={`group grid grid-cols-12 gap-4 px-6 py-3.5 transition-colors duration-100 ${
+                        isHighlighted
+                          ? "bg-blue-50/60 ring-1 ring-inset ring-blue-200"
+                          : "hover:bg-slate-50/80"
+                      }`}
                     >
-                      <div className="col-span-3 flex flex-col gap-0.5">
-                        <Link href={`/projects/${a.project_id}`} className="text-xs font-bold text-blue-600 hover:underline">
+                      {/* Project */}
+                      <div className="col-span-3 flex flex-col justify-center gap-0.5 min-w-0">
+                        <Link
+                          href={`/projects/${a.project_id}`}
+                          className="text-[11px] font-bold text-blue-600 hover:text-blue-700 hover:underline truncate"
+                        >
                           {projectHumanId(a)}
                         </Link>
-                        <span className="text-sm font-medium text-gray-900 line-clamp-1">{projectTitleLabel(a)}</span>
+                        <span className="text-sm font-medium text-slate-700 truncate leading-tight">
+                          {projectTitleLabel(a)}
+                        </span>
                       </div>
-                      <div className="col-span-4 flex items-center gap-3">
+
+                      {/* Artifact */}
+                      <div className="col-span-4 flex items-center gap-2 min-w-0">
                         <Link
                           href={openHref}
-                          className="text-sm font-semibold text-gray-900 hover:text-blue-600 transition-colors line-clamp-1"
+                          className="text-sm font-semibold text-slate-800 hover:text-blue-600 transition-colors truncate"
                         >
                           {a.title}
                         </Link>
                         <AIHealthBadge artifact={a} />
                       </div>
+
+                      {/* Type */}
                       <div className="col-span-2 flex items-center">
                         <TypeBadge type={a.type} />
                       </div>
+
+                      {/* Status */}
                       <div className="col-span-2 flex items-center">
                         <StatusBadge status={a.status} />
                       </div>
-                      <div className="col-span-1 flex items-center justify-end text-right">
-                        <div className="flex flex-col items-end">
-                          <span className="text-sm font-medium text-gray-900">
-                            {fmtRelativeTime(a.updated_at || a.created_at)}
-                          </span>
-                          <span className="text-[10px] text-gray-400 uppercase tracking-tight">Last update</span>
-                        </div>
+
+                      {/* Updated */}
+                      <div className="col-span-1 flex items-center justify-end">
+                        <span className="text-xs font-medium text-slate-400 whitespace-nowrap">
+                          {fmtRelativeTime(a.updated_at || a.created_at)}
+                        </span>
                       </div>
                     </div>
                   );
@@ -999,88 +1134,129 @@ export default function ArtifactsClientPage() {
               </div>
             </div>
           ) : (
-            <div className="space-y-8">
-              {grouped.map((g) => (
-                <div key={g.project_id} className="bg-white rounded-xl border border-[#00B8DB] shadow-sm overflow-hidden">
-                  <div className="bg-gray-50/80 px-6 py-4 border-b flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <button
-                        onClick={() => toggleProjectCollapse(g.project_id)}
-                        className="p-1 hover:bg-gray-200 rounded transition-colors"
-                      >
-                        {collapsed[g.project_id] ? <ChevronRight className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-                      </button>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-blue-600">{g.project_human}</span>
-                          <h2 className="text-lg font-bold text-gray-900">{g.project_title}</h2>
+            /* ──── GROUPED VIEW ──── */
+            <div className="space-y-4">
+              {grouped.map((g) => {
+                const isOpen = !collapsed[g.project_id];
+                const attentionCount = g.items.filter(isNeedsAttention).length;
+                return (
+                  <div
+                    key={g.project_id}
+                    className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden"
+                  >
+                    {/* Group Header */}
+                    <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <button
+                          onClick={() => toggleProjectCollapse(g.project_id)}
+                          className="p-1 rounded-md hover:bg-slate-100 transition-colors flex-shrink-0"
+                        >
+                          {isOpen ? (
+                            <ChevronDown className="w-4 h-4 text-slate-500" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4 text-slate-500" />
+                          )}
+                        </button>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[11px] font-bold text-blue-600 uppercase tracking-wider">
+                              {g.project_human}
+                            </span>
+                            <h2 className="text-sm font-bold text-slate-800 truncate">{g.project_title}</h2>
+                            {attentionCount > 0 && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-600 border border-rose-200">
+                                <AlertCircle className="w-2.5 h-2.5" />
+                                {attentionCount}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-0.5 font-medium">
+                            {fmtRelativeTime(g.last_updated_raw)} · {g.items.length} artifact{g.items.length !== 1 ? "s" : ""}
+                          </p>
                         </div>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          Updated {fmtRelativeTime(g.last_updated_raw)} • {g.items.length} artifacts
-                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <Link
+                          href={projectRaidHref(g.project_id)}
+                          className="text-[11px] font-semibold text-slate-500 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 px-3 py-1.5 rounded-lg transition-all"
+                        >
+                          RAID
+                        </Link>
+                        <Link
+                          href={projectChangeHref(g.project_id)}
+                          className="text-[11px] font-semibold text-slate-500 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 px-3 py-1.5 rounded-lg transition-all"
+                        >
+                          Changes
+                        </Link>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Link
-                        href={projectRaidHref(g.project_id)}
-                        className="text-xs font-medium text-gray-600 hover:text-blue-600 bg-white border px-3 py-1.5 rounded-lg shadow-sm"
-                      >
-                        RAID
-                      </Link>
-                      <Link
-                        href={projectChangeHref(g.project_id)}
-                        className="text-xs font-medium text-gray-600 hover:text-blue-600 bg-white border px-3 py-1.5 rounded-lg shadow-sm"
-                      >
-                        Changes
-                      </Link>
-                    </div>
+
+                    {/* Group Rows */}
+                    {isOpen && (
+                      <div className="divide-y divide-slate-50">
+                        {g.items.map((a) => (
+                          <div
+                            key={a.id}
+                            className="px-5 py-3 flex items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <TypeBadge type={a.type} />
+                              <Link
+                                href={buildArtifactHref(a)}
+                                className="text-sm font-semibold text-slate-800 hover:text-blue-600 transition-colors truncate"
+                              >
+                                {a.title}
+                              </Link>
+                              <AIHealthBadge artifact={a} />
+                            </div>
+                            <div className="flex items-center gap-4 flex-shrink-0">
+                              <StatusBadge status={a.status} />
+                              <span className="text-xs text-slate-400 font-medium w-16 text-right">
+                                {fmtRelativeTime(a.updated_at || a.created_at)}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  {!collapsed[g.project_id] && (
-                    <div className="divide-y divide-gray-100">
-                      {g.items.map((a) => (
-                        <div
-                          key={a.id}
-                          className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
-                        >
-                          <div className="flex items-center gap-4">
-                            <TypeBadge type={a.type} />
-                            <Link
-                              href={buildArtifactHref(a)}
-                              className="text-sm font-semibold text-gray-900 hover:text-blue-600"
-                            >
-                              {a.title}
-                            </Link>
-                            <AIHealthBadge artifact={a} />
-                          </div>
-                          <div className="flex items-center gap-6">
-                            <StatusBadge status={a.status} />
-                            <span className="text-sm text-gray-500 min-w-[100px] text-right">
-                              {fmtRelativeTime(a.updated_at || a.created_at)}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )
         ) : (
-          <div className="bg-white rounded-xl border border-[#00B8DB] p-12 text-center">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gray-100 mb-4">
-              <Search className="w-6 h-6 text-gray-400" />
+          /* ──── EMPTY STATE ──── */
+          <div className="bg-white rounded-2xl border border-slate-100 p-16 text-center shadow-sm">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-slate-100 mb-4">
+              <Search className="w-5 h-5 text-slate-400" />
             </div>
-            <h3 className="text-lg font-bold text-gray-900">No artifacts found</h3>
-            <p className="text-gray-500 mt-1">Try adjusting your filters or search terms.</p>
+            <h3 className="text-base font-bold text-slate-700">No artifacts found</h3>
+            <p className="text-sm text-slate-400 mt-1">
+              {hasActiveFilters ? "Try adjusting your filters or search terms." : "No active artifacts available."}
+            </p>
+            {hasActiveFilters && (
+              <button
+                onClick={() => { setQ(""); setType(""); }}
+                className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-700"
+              >
+                <X className="w-4 h-4" />
+                Clear filters
+              </button>
+            )}
           </div>
         )}
 
+        {/* ─── Load More ─── */}
         {cursor && !loading && (
-          <div className="flex justify-center pt-4">
-            <Button variant="outline" onClick={loadMore} disabled={loadingMore} className="min-w-[200px] gap-2">
+          <div className="flex justify-center pt-2">
+            <button
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm disabled:opacity-50"
+            >
               {loadingMore ? <Loader2 className="w-4 h-4 animate-spin" /> : "Load more artifacts"}
-            </Button>
+            </button>
           </div>
         )}
       </div>
