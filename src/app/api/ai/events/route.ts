@@ -4,6 +4,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { createClient as createSbJsClient } from "@supabase/supabase-js";
+import { buildPmImpactAssessment, safeNum as safeNumAi } from "@/lib/ai/change-ai";
 
 export const runtime = "nodejs";
 
@@ -91,7 +92,6 @@ function parseDueToUtcDate(value: any): Date | null {
 
 function fmtUkDateFromDate(d: Date | null | undefined) {
   if (!d) return "";
-  // Always format in UTC to avoid local-time day shifts
   return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "2-digit",
@@ -118,12 +118,6 @@ function normalizeProjectHumanId(projectHumanId: string | null | undefined, fall
   return v || safeStr(fallback).trim();
 }
 
-/**
- * Normalize incoming project identifier:
- * - decodeURIComponent
- * - trim
- * - allow "P-100011" -> "100011"
- */
 function normalizeProjectIdentifier(input: string) {
   let v = safeStr(input).trim();
   try {
@@ -131,7 +125,6 @@ function normalizeProjectIdentifier(input: string) {
   } catch {}
   v = v.trim();
 
-  // common prefixes: P-100011 / PRJ-100011 etc → extract last numeric run
   const m = v.match(/(\d{3,})$/);
   if (m?.[1]) return m[1];
 
@@ -158,10 +151,6 @@ function shapeSbError(err: any) {
   };
 }
 
-/**
- * ✅ Server-side link normaliser (prevents /RAID, /WBS etc)
- * Works on relative paths; preserves query/hash.
- */
 function normalizeArtifactLink(href: string | null | undefined) {
   const raw = safeStr(href).trim();
   if (!raw) return null;
@@ -178,7 +167,7 @@ function normalizeArtifactLink(href: string | null | undefined) {
     .replace(/\/RAID(\/|$)/g, "/raid$1")
     .replace(/\/WBS(\/|$)/g, "/wbs$1")
     .replace(/\/SCHEDULE(\/|$)/g, "/schedule$1")
-        .replace(/\/CHANGE(\/|$)/g, "/change$1")
+    .replace(/\/CHANGE(\/|$)/g, "/change$1")
     .replace(/\/CHANGES(\/|$)/g, "/change$1")
     .replace(/\/CHANGE_REQUESTS(\/|$)/g, "/change$1")
     .replace(/\/ARTIFACTS(\/|$)/g, "/artifacts$1");
@@ -227,12 +216,6 @@ function normalizeCharterSections(doc: any): Array<{ key: string; title: string;
     .filter((s) => !!s.key);
 }
 
-/**
- * FAST, deterministic "exec-friendly" rules:
- * - If key sections empty → propose content
- * - Always store patch shape compatible with your apply route:
- *   { kind:"replace_bullets", bullets:"..." } or { kind:"add_rows", rows:[...] }
- */
 function buildCharterRuleSuggestions(args: {
   projectUuid: string;
   artifactId: string;
@@ -313,7 +296,6 @@ function buildCharterRuleSuggestions(args: {
     });
   }
 
-  // Example table suggestion: milestones_timeline empty → add starter row
   const ms = byKey.get("milestones_timeline");
   const msTableRows = Array.isArray(ms?.table?.rows) ? ms!.table.rows : [];
   const hasAnyDataRow = msTableRows.some(
@@ -343,7 +325,6 @@ function buildCharterRuleSuggestions(args: {
     });
   }
 
-  // Optional: propose to populate PM/owner if missing (meta is handled in editor, but suggestion is still useful)
   if (pmName && pmName.trim()) {
     // (intentionally left empty for now)
   }
@@ -351,7 +332,6 @@ function buildCharterRuleSuggestions(args: {
   return suggestions;
 }
 
-/** De-dupe: same project+artifact+section+suggestion_type+status='proposed' */
 async function insertSuggestionsDeduped(args: { supabaseAdmin: any; suggestions: SuggestionInsert[] }) {
   const { supabaseAdmin, suggestions } = args;
   if (!suggestions.length) return [];
@@ -402,13 +382,6 @@ async function requireAuth(supabase: any) {
   return auth.user;
 }
 
-/**
- * ✅ Membership check MUST be via organisation_members + projects.organisation_id
- * (project_members was legacy and can cause false positives/negatives)
- *
- * NOTE: We keep this against `projects` (not the view) so direct access to a closed project
- * can still work when called project-scoped. Dashboard/org lists use projects_active instead.
- */
 async function requireProjectAccessViaOrg(supabase: any, projectUuid: string, userId: string) {
   const { data, error } = await supabase
     .from("projects")
@@ -449,10 +422,6 @@ async function loadMyOrgIds(supabase: any, userId: string): Promise<string[]> {
     .filter(Boolean);
 }
 
-/**
- * ✅ DASHBOARD-GRADE ACTIVE PROJECTS ONLY
- * Uses DB view `public.projects_active` which already excludes deleted/closed/cancelled/completed.
- */
 async function loadProjectsForOrgs(supabase: any, orgIds: string[]) {
   if (!orgIds.length) return [];
   const { data, error } = await supabase
@@ -485,13 +454,10 @@ async function resolveProjectUuid(supabase: any, identifier: string): Promise<st
   const raw = safeStr(identifier).trim();
   if (!raw) return null;
 
-  // 1) UUID
   if (looksLikeUuid(raw)) return raw;
 
-  // 2) Normalize human ids like P-100011 → 100011
   const id = normalizeProjectIdentifier(raw);
 
-  // 3) Probe candidate columns until one works
   for (const col of HUMAN_COL_CANDIDATES) {
     const likelyNumeric = col === "project_code" || col === "human_id" || col === "project_human_id";
     if (likelyNumeric && !isNumericLike(id)) continue;
@@ -507,7 +473,6 @@ async function resolveProjectUuid(supabase: any, identifier: string): Promise<st
     if (data?.id) return String(data.id);
   }
 
-  // 4) Final attempt, try slug-ish columns with raw (in case normalize stripped meaning)
   for (const col of ["slug", "reference", "ref", "code"] as const) {
     const { data, error } = await supabase.from("projects").select("id").eq(col as any, raw).maybeSingle();
 
@@ -525,21 +490,14 @@ async function resolveProjectUuid(supabase: any, identifier: string): Promise<st
 /* ---------------- project meta + PM resolver ---------------- */
 
 type ProjectMeta = {
-  project_human_id: string | null; // project_code
+  project_human_id: string | null;
   project_code: string | null;
   project_name: string | null;
-
   project_manager_user_id: string | null;
   project_manager_name: string | null;
   project_manager_email: string | null;
 };
 
-/**
- * PM resolution (production-safe):
- * 1) role='project_manager' (active) earliest assignment
- * 2) else role='owner' (active) earliest assignment
- * Profiles lookup via profiles.user_id (unique in your schema)
- */
 async function loadProjectMeta(supabase: any, projectUuid: string): Promise<ProjectMeta> {
   const { data: proj, error } = await supabase
     .from("projects")
@@ -571,20 +529,15 @@ async function loadProjectMeta(supabase: any, projectUuid: string): Promise<Proj
     }
 
     const rows = Array.isArray(data) ? data : [];
-    // prefer first role in roles[] order
     for (const r of roles) {
       const hit = rows.find((x: any) => safeLower(x?.role) === safeLower(r) && x?.user_id);
       if (hit) return String(hit.user_id);
     }
-    // fallback to first row
     const first = rows.find((x: any) => x?.user_id);
     return first?.user_id ? String(first.user_id) : null;
   };
 
-  // Try PM role first, then owner
   let pmUserId: string | null = null;
-
-  // If your constraint currently doesn't include 'project_manager', this will simply return no rows (fine).
   pmUserId = await pickMemberForRoles(["project_manager", "owner"]);
 
   let project_manager_name: string | null = null;
@@ -739,7 +692,7 @@ function buildDraftAssistAi(input: any) {
 type DueDigestItem = {
   itemType: "artifact" | "milestone" | "work_item" | "raid" | "change";
   title: string;
-  dueDate: string | null; // ISO timestamp string
+  dueDate: string | null;
   status?: string | null;
   ownerLabel?: string | null;
   ownerEmail?: string | null;
@@ -818,7 +771,6 @@ async function bulkLoadProjectManagers(supabase: any, projectIds: string[]) {
   if (!projectIds.length)
     return new Map<string, { user_id: string | null; name: string | null; email: string | null }>();
 
-  // Pull active members for these projects (limit kept high but bounded)
   const { data: mem, error: memErr } = await supabase
     .from("project_members")
     .select("project_id,user_id,role,created_at,removed_at")
@@ -839,7 +791,6 @@ async function bulkLoadProjectManagers(supabase: any, projectIds: string[]) {
     byProject.set(pid, arr);
   }
 
-  // pick PM per project: project_manager then owner
   const pmUserIds: string[] = [];
   const pmUserByProject = new Map<string, string | null>();
 
@@ -903,7 +854,6 @@ async function buildDueDigestOrgBulk(args: {
 
   const projectIds = projects.map((p) => String(p.id)).filter(Boolean);
 
-  // ✅ bulk PM lookup (no N+1)
   const pmByProjectId = await bulkLoadProjectManagers(supabase, projectIds);
 
   const projectById = new Map<
@@ -936,7 +886,6 @@ async function buildDueDigestOrgBulk(args: {
     });
   }
 
-  // Run the 5 “due” queries once each (bulk).
   const [artRes, msRes, wbsRes, raidRes, chRes] = await Promise.all([
     supabase
       .from("v_artifact_board")
@@ -964,7 +913,6 @@ async function buildDueDigestOrgBulk(args: {
       .order("due_date", { ascending: true })
       .order("sort_order", { ascending: true })
       .limit(20000),
-    // RAID with resilient fallback if source_artifact_id missing
     supabase
       .from("raid_items")
       .select(
@@ -982,7 +930,6 @@ async function buildDueDigestOrgBulk(args: {
       .limit(5000),
   ]);
 
-  // RAID fallback if column missing
   let raidRows: any[] = Array.isArray(raidRes.data) ? (raidRes.data as any[]) : [];
   if (raidRes.error && isMissingColumnError(raidRes.error.message, "source_artifact_id")) {
     const fb = await supabase
@@ -997,7 +944,6 @@ async function buildDueDigestOrgBulk(args: {
 
   const all: DueDigestItem[] = [];
 
-  // Artifacts
   const artRows: any[] = Array.isArray(artRes.data) ? (artRes.data as any[]) : [];
   for (const x of artRows) {
     const projectUuid = safeStr(x?.project_id).trim();
@@ -1034,7 +980,6 @@ async function buildDueDigestOrgBulk(args: {
     );
   }
 
-  // Milestones
   const msRows: any[] = Array.isArray(msRes.data) ? (msRes.data as any[]) : [];
   for (const m of msRows) {
     const projectUuid = safeStr(m?.project_id).trim();
@@ -1072,7 +1017,6 @@ async function buildDueDigestOrgBulk(args: {
     );
   }
 
-  // WBS
   const wbsRows: any[] = Array.isArray(wbsRes.data) ? (wbsRes.data as any[]) : [];
   for (const w of wbsRows) {
     const projectUuid = safeStr(w?.project_id).trim();
@@ -1117,7 +1061,6 @@ async function buildDueDigestOrgBulk(args: {
     );
   }
 
-  // RAID
   for (const r of raidRows) {
     const projectUuid = safeStr(r?.project_id).trim();
     const p = projectById.get(projectUuid);
@@ -1160,7 +1103,6 @@ async function buildDueDigestOrgBulk(args: {
     );
   }
 
-  // Changes-in-review
   const chRows: any[] = Array.isArray(chRes.data) ? (chRes.data as any[]) : [];
   const isInReview = (r: any) => {
     const delivery = safeLower(r?.delivery_status);
@@ -1248,7 +1190,7 @@ async function buildDueDigestOrgBulk(args: {
   };
 }
 
-/* ---------------- project-scoped due (unchanged, still OK) ---------------- */
+/* ---------------- project-scoped due ---------------- */
 
 async function loadDueArtifacts(
   supabase: any,
@@ -1410,7 +1352,6 @@ async function loadDueRaidItems(
     .order("due_date", { ascending: true })
     .limit(500);
 
-  // resilient fallback if source_artifact_id doesn't exist
   let rows = data as any[] | null;
   if (error) {
     const fallback = await supabase
@@ -1593,7 +1534,6 @@ async function buildDashboardStatsGlobal(supabase: any, userId: string) {
     };
   }
 
-  // ✅ active-only projects via projects_active view
   const projects = await loadProjectsForOrgs(supabase, orgIds);
   const projectIds = projects.map((p: any) => p.id).filter(Boolean);
 
@@ -1612,7 +1552,6 @@ async function buildDashboardStatsGlobal(supabase: any, userId: string) {
     };
   }
 
-  // Milestones due in next 30 days (end_date within window; not completed)
   const from = startOfUtcDay(new Date());
   const to = endOfUtcWindow(from, 30);
 
@@ -1632,7 +1571,6 @@ async function buildDashboardStatsGlobal(supabase: any, userId: string) {
         }).length
       : 0;
 
-  // WBS done count (items with status done/closed/completed)
   const { data: wbs, error: wbsErr } = await supabase
     .from("wbs_items")
     .select("id,status,project_id")
@@ -1647,7 +1585,6 @@ async function buildDashboardStatsGlobal(supabase: any, userId: string) {
         }).length
       : 0;
 
-  // Lessons count (current lessons artifacts)
   const { data: lessons, error: lessonsErr } = await supabase
     .from("artifacts")
     .select("id,type,artifact_type,is_current,deleted_at,project_id")
@@ -1663,7 +1600,6 @@ async function buildDashboardStatsGlobal(supabase: any, userId: string) {
         }).length
       : 0;
 
-  // RAID closed count
   const { data: raid, error: raidErr } = await supabase
     .from("raid_items")
     .select("id,status,project_id")
@@ -1673,7 +1609,6 @@ async function buildDashboardStatsGlobal(supabase: any, userId: string) {
   const raid_closed =
     !raidErr && Array.isArray(raid) ? raid.filter((r: any) => safeLower(r?.status) === "closed").length : 0;
 
-  // Changes closed/implemented
   const { data: changes, error: chErr } = await supabase
     .from("change_requests")
     .select("id,status,delivery_status,decision_status,project_id")
@@ -1689,7 +1624,6 @@ async function buildDashboardStatsGlobal(supabase: any, userId: string) {
         }).length
       : 0;
 
-  // Milestones done
   const milestones_done =
     !msErr && Array.isArray(ms)
       ? ms.filter((m: any) => {
@@ -1699,7 +1633,7 @@ async function buildDashboardStatsGlobal(supabase: any, userId: string) {
       : 0;
 
   return {
-    projects: projectIds.length, // ✅ active-only count
+    projects: projectIds.length,
     success: {
       work_packages_completed: wbs_done,
       milestones_done,
@@ -1716,7 +1650,7 @@ async function buildDashboardStatsGlobal(supabase: any, userId: string) {
 
 type DeliveryReportV1 = {
   version: 1;
-  period: { from: string; to: string }; // ISO YYYY-MM-DD
+  period: { from: string; to: string };
   sections: {
     executive_summary: { rag: "green" | "amber" | "red"; headline: string; narrative: string };
     completed_this_period: Array<{ text: string }>;
@@ -1741,14 +1675,12 @@ type DeliveryReportV1 = {
 };
 
 function ymd(s: string) {
-  // keep ISO for machine fields
   return safeStr(s).trim();
 }
 
 function dateFromYmdOrIso(s: string): Date | null {
   const v = safeStr(s).trim();
   if (!v) return null;
-  // YYYY-MM-DD
   const m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (m) {
     const yyyy = clampInt(m[1], 1900, 3000, 2000);
@@ -1765,28 +1697,13 @@ function uniq<T>(xs: T[]) {
   return Array.from(new Set(xs));
 }
 
-/**
- * Best-effort "dimensions" (safe probing):
- * We DO NOT assume columns exist; we attempt common names and ignore missing-column errors.
- */
 async function loadProjectDimensionsSafe(supabase: any, projectUuid: string) {
   const dimensionCols = [
-    "client_name",
-    "client",
-    "account_name",
-    "programme_name",
-    "portfolio",
-    "service_line",
-    "business_unit",
-    "region",
-    "country",
-    "sector",
-    "contract_ref",
-    "contract_reference",
-    "project_type",
+    "client_name", "client", "account_name", "programme_name", "portfolio",
+    "service_line", "business_unit", "region", "country", "sector",
+    "contract_ref", "contract_reference", "project_type",
   ] as const;
 
-  // attempt a single select with many cols; if missing, progressively remove (cheap + safe)
   let cols = ["id", "title", "project_code", "organisation_id", ...dimensionCols] as string[];
 
   while (cols.length >= 4) {
@@ -1803,14 +1720,12 @@ async function loadProjectDimensionsSafe(supabase: any, projectUuid: string) {
       }
       return out;
     }
-    // if any missing column error, drop that column and retry
     const msg = safeStr(error?.message).toLowerCase();
     const missing = cols.find((c) => isMissingColumnError(msg, c));
     if (!missing) break;
     cols = cols.filter((c) => c !== missing);
   }
 
-  // fallback: minimal
   return {};
 }
 
@@ -1818,7 +1733,6 @@ async function loadPreviousDeliveryReportSummarySafe(supabase: any, artifactId: 
   const id = safeStr(artifactId).trim();
   if (!looksLikeUuid(id)) return null;
 
-  // try artifacts.content_json first (your platform uses content_json heavily)
   const { data, error } = await supabase
     .from("artifacts")
     .select("id,type,artifact_type,title,content_json,updated_at")
@@ -1867,19 +1781,14 @@ async function buildDeliveryReportV1(args: {
 
   const fromD = dateFromYmdOrIso(periodFrom) || startOfUtcDay(new Date(Date.now() - 6 * 86400_000));
   const toD = dateFromYmdOrIso(periodTo) || startOfUtcDay(new Date());
-
-  // inclusive-ish end: add 1 day - 1ms
   const toEnd = new Date(toD.getTime() + 86400_000 - 1);
 
-  // UK display strings
   const fromUk = fmtUkDateFromDate(fromD);
   const toUk = fmtUkDateFromDate(toD);
 
-  // 3 Next Period Focus = due-soon digest
   const dueDigest = await buildDueDigestAi(supabase, projectUuid, projectHumanId, windowDays);
   const dueSoon = Array.isArray(dueDigest?.dueSoon) ? dueDigest.dueSoon : [];
 
-  // Pull core sets for period
   const [msRes, raidRes, chRes] = await Promise.all([
     supabase
       .from("schedule_milestones")
@@ -1888,9 +1797,7 @@ async function buildDeliveryReportV1(args: {
       .limit(5000),
     supabase
       .from("raid_items")
-      .select(
-        "id,public_id,type,title,description,status,due_date,owner_label,priority,ai_status,source_artifact_id,updated_at"
-      )
+      .select("id,public_id,type,title,description,status,due_date,owner_label,priority,ai_status,source_artifact_id,updated_at")
       .eq("project_id", projectUuid)
       .limit(20000),
     supabase
@@ -1901,7 +1808,6 @@ async function buildDeliveryReportV1(args: {
       .limit(20000),
   ]);
 
-  // WBS: attempt to include updated_at; fallback if missing
   let wbsRows: any[] = [];
   const wbsTry = await supabase
     .from("wbs_items")
@@ -1924,7 +1830,6 @@ async function buildDeliveryReportV1(args: {
   const raidRows: any[] = Array.isArray(raidRes.data) ? (raidRes.data as any[]) : [];
   const chRows: any[] = Array.isArray(chRes.data) ? (chRes.data as any[]) : [];
 
-  // milestone map + raw list (requested for meta enrichment)
   const schedule_milestones_raw = msRows.slice(0, 5000);
   const milestone_map: Record<
     string,
@@ -1943,7 +1848,6 @@ async function buildDeliveryReportV1(args: {
     };
   }
 
-  // Helpers for period filtering
   const withinPeriod = (d: any) => {
     const dd = parseDueToUtcDate(d);
     if (!dd) return false;
@@ -1955,7 +1859,6 @@ async function buildDeliveryReportV1(args: {
     return dd.getTime() >= fromD.getTime() && dd.getTime() <= toEnd.getTime();
   };
 
-  // Completed in period
   const msDone = msRows.filter((m) => {
     const st = safeLower(m?.status);
     const done = st === "done" || st === "completed" || st === "closed";
@@ -1967,7 +1870,6 @@ async function buildDeliveryReportV1(args: {
     const st = safeLower(w?.status);
     const done = st === "done" || st === "completed" || st === "closed";
     if (!done) return false;
-    // prefer updated_at if present, else fall back to due_date window (best-effort)
     if (w?.updated_at) return withinUpdated(w.updated_at);
     return withinPeriod(w?.due_date);
   });
@@ -1975,7 +1877,6 @@ async function buildDeliveryReportV1(args: {
   const raidClosed = raidRows.filter((r) => {
     const st = safeLower(r?.status);
     if (st !== "closed") return false;
-    // prefer updated_at, else due_date
     if (r?.updated_at) return withinUpdated(r.updated_at);
     return withinPeriod(r?.due_date);
   });
@@ -1988,7 +1889,6 @@ async function buildDeliveryReportV1(args: {
     return withinUpdated(c?.updated_at);
   });
 
-  // Key Decisions Taken: approved/rejected during period
   const decisions = chRows
     .filter((c) => {
       const dec = safeLower(c?.decision_status);
@@ -2007,7 +1907,6 @@ async function buildDeliveryReportV1(args: {
       };
     });
 
-  // Operational Blockers: open issues/risks high priority or overdue/due soon
   const blockers = raidRows
     .filter((r) => {
       const st = safeLower(r?.status);
@@ -2043,7 +1942,6 @@ async function buildDeliveryReportV1(args: {
       };
     });
 
-  // Resource summary (best-effort from WBS owners on open items due soon)
   const openDueWork = dueSoon.filter((x: any) => x?.itemType === "work_item");
   const owners = openDueWork.map((x: any) => safeStr(x?.ownerLabel).trim()).filter(Boolean);
   const ownerList = uniq(owners).slice(0, 12);
@@ -2059,28 +1957,21 @@ async function buildDeliveryReportV1(args: {
     resourceSummary.push({ text: "No resource hotspots detected from due-soon workload." });
   }
 
-  // Completed this period (top bullets)
   const completed: Array<{ text: string }> = [];
-
   for (const m of msDone.slice(0, 12)) {
-    const name = safeStr(m?.milestone_name).trim() || "Milestone";
-    completed.push({ text: `Milestone completed: ${name}` });
+    completed.push({ text: `Milestone completed: ${safeStr(m?.milestone_name).trim() || "Milestone"}` });
   }
   for (const w of wbsDone.slice(0, 12)) {
-    const name = safeStr(w?.name).trim() || "WBS item";
-    completed.push({ text: `Work item completed: ${name}` });
+    completed.push({ text: `Work item completed: ${safeStr(w?.name).trim() || "WBS item"}` });
   }
   for (const c of changesClosed.slice(0, 8)) {
-    const name = safeStr(c?.title).trim() || "Change request";
-    completed.push({ text: `Change closed/implemented: ${name}` });
+    completed.push({ text: `Change closed/implemented: ${safeStr(c?.title).trim() || "Change request"}` });
   }
   for (const r of raidClosed.slice(0, 8)) {
-    const name = safeStr(r?.title).trim() || "RAID item";
-    completed.push({ text: `RAID closed: ${name}` });
+    completed.push({ text: `RAID closed: ${safeStr(r?.title).trim() || "RAID item"}` });
   }
   if (completed.length === 0) completed.push({ text: "No completed items detected for the selected period." });
 
-  // Next period focus = dueSoon titles (UK due date in text)
   const nextFocus: Array<{ text: string }> = dueSoon
     .slice(0, 12)
     .map((x: any) => {
@@ -2092,7 +1983,6 @@ async function buildDeliveryReportV1(args: {
 
   if (nextFocus.length === 0) nextFocus.push({ text: "No due-soon items detected for next period focus." });
 
-  // RAG heuristic
   const overdue = dueSoon.filter((x: any) => {
     const d = parseDueToUtcDate(x?.dueDate);
     if (!d) return false;
@@ -2118,7 +2008,6 @@ async function buildDeliveryReportV1(args: {
     `Next period focus items (due soon): ${dueSoon.length}.`,
   ]);
 
-  // Detail lists for optional UI usage (keep original values as-is)
   const milestonesList = msRows.slice(0, 50).map((m) => ({
     name: safeStr(m?.milestone_name).trim() || "Milestone",
     due: safeStr(m?.end_date ?? m?.start_date).trim() || null,
@@ -2184,7 +2073,9 @@ async function buildDeliveryReportV1(args: {
   };
 }
 
-/* ---------------- handler ---------------- */
+/* ============================================================
+   POST handler
+   ============================================================ */
 
 export async function POST(req: Request) {
   try {
@@ -2196,7 +2087,6 @@ export async function POST(req: Request) {
     const eventType = safeStr(body?.eventType).trim();
     const payload = (body && typeof body === "object" ? (body as any).payload : null) || null;
 
-    // accept either project_id/projectId/project_human_id at top-level or inside payload
     const rawProject =
       safeStr(body?.project_id).trim() ||
       safeStr(body?.projectId).trim() ||
@@ -2209,12 +2099,11 @@ export async function POST(req: Request) {
        Global dashboard: no project
        =========================== */
 
-    // ✅ If the dashboard calls artifact_due without a project, return org-scoped aggregate.
     if (eventType === "artifact_due" && !rawProject) {
       const windowDays = clampInt(body?.windowDays ?? payload?.windowDays, 1, 90, 14);
 
       const orgIds = await loadMyOrgIds(supabase, user.id);
-      const projects = await loadProjectsForOrgs(supabase, orgIds); // ✅ active-only via view
+      const projects = await loadProjectsForOrgs(supabase, orgIds);
 
       if (!projects.length) {
         return jsonNoStore({
@@ -2273,17 +2162,15 @@ export async function POST(req: Request) {
       return jsonNoStore({ ok: false, error: "Project not found", meta: { rawProject } }, { status: 404 });
     }
 
-    // ✅ org-membership check (replaces legacy project_members)
     await requireProjectAccessViaOrg(supabase, projectUuid, user.id);
 
     const meta = await loadProjectMeta(supabase, projectUuid);
 
-    // ✅ human id MUST be project_code (fallback only if missing)
     const projectHumanId = normalizeProjectHumanId(meta.project_human_id, rawProject);
 
     const draftId = safeStr((payload as any)?.draftId).trim() || safeStr(body?.draftId).trim() || "";
 
-    /* ---------- ai_suggestions_generate (creates rows in ai_suggestions) ---------- */
+    /* ---------- ai_suggestions_generate ---------- */
     if (eventType === "ai_suggestions_generate") {
       const p = payload && typeof payload === "object" ? payload : {};
 
@@ -2297,10 +2184,8 @@ export async function POST(req: Request) {
         return jsonNoStore({ ok: false, error: "artifactId is required (uuid)" }, { status: 400 });
       }
 
-      // Use admin client if available (recommended), but keep auth/membership gates above.
       const supabaseAdmin = adminClientOrNull() ?? supabase;
 
-      // Load artifact content (admin)
       const { data: art, error: artErr } = await supabaseAdmin
         .from("artifacts")
         .select("id, project_id, type, artifact_type, content_json")
@@ -2314,7 +2199,6 @@ export async function POST(req: Request) {
       const aType = safeLower((art as any)?.artifact_type ?? (art as any)?.type);
       const cj = (art as any)?.content_json ?? {};
 
-      // For now: only generate Charter suggestions (fast rules). Extend later for RAID/WBS/Change/etc.
       if (aType !== "project_charter" && aType !== "charter" && !aType.includes("charter")) {
         return jsonNoStore({
           ok: true,
@@ -2337,12 +2221,10 @@ export async function POST(req: Request) {
         actorUserId: user.id,
       });
 
-      // Insert deduped
       let inserted: any[] = [];
       try {
         inserted = await insertSuggestionsDeduped({ supabaseAdmin, suggestions });
       } catch (e: any) {
-        // if RLS blocks (because no service role), still return computed suggestions so UI can show something
         return jsonNoStore({
           ok: true,
           eventType,
@@ -2352,9 +2234,7 @@ export async function POST(req: Request) {
           generated: suggestions.length,
           inserted: 0,
           suggestionsComputed: suggestions,
-          warning: `Could not insert suggestions (check SUPABASE_SERVICE_ROLE_KEY / RLS): ${String(
-            e?.message ?? e
-          )}`,
+          warning: `Could not insert suggestions (check SUPABASE_SERVICE_ROLE_KEY / RLS): ${String(e?.message ?? e)}`,
         });
       }
 
@@ -2374,12 +2254,10 @@ export async function POST(req: Request) {
       });
     }
 
-    /* ---------- delivery_report (weekly report) ---------- */
+    /* ---------- delivery_report ---------- */
     if (eventType === "delivery_report") {
       const p = payload && typeof payload === "object" ? payload : {};
 
-      // matches your payload:
-      // payload: { artifactId, period:{from,to}, ... }
       const artifactId =
         safeStr((p as any)?.artifactId).trim() ||
         safeStr((p as any)?.artifact_id).trim() ||
@@ -2398,11 +2276,6 @@ export async function POST(req: Request) {
 
       const windowDays = clampInt((p as any)?.windowDays ?? (body as any)?.windowDays, 1, 90, 7);
 
-      // ✅ meta enrichment (requested):
-      // - previous rag (from the report artifact, if provided)
-      // - milestone map
-      // - dimensions
-      // - schedule milestones (raw)
       const [prevSummary, dimensions] = await Promise.all([
         artifactId ? loadPreviousDeliveryReportSummarySafe(supabase, artifactId) : Promise.resolve(null),
         loadProjectDimensionsSafe(supabase, projectUuid),
@@ -2417,7 +2290,6 @@ export async function POST(req: Request) {
         windowDays,
       });
 
-      // ✅ Canonical project meta inside the report (so it persists in saved JSON + exports)
       const report: any = {
         ...reportBase,
         project: {
@@ -2429,7 +2301,6 @@ export async function POST(req: Request) {
         },
         meta: {
           ...(reportBase?.meta ?? {}),
-          // enrich meta (requested)
           previous: prevSummary
             ? {
                 rag: prevSummary.prevRag,
@@ -2458,9 +2329,6 @@ export async function POST(req: Request) {
         },
       };
 
-      // ✅ keys your editor already supports
-      // - report
-      // - content_json (canonical save payload for artifact update)
       const content_json = report;
 
       return jsonNoStore({
@@ -2480,7 +2348,7 @@ export async function POST(req: Request) {
       });
     }
 
-    /* ---------- artifact_due ---------- */
+    /* ---------- artifact_due (project-scoped) ---------- */
     if (eventType === "artifact_due") {
       const windowDays = clampInt((body as any)?.windowDays ?? (payload as any)?.windowDays, 1, 90, 14);
 
@@ -2490,8 +2358,8 @@ export async function POST(req: Request) {
         ok: true,
         eventType,
         scope: "project",
-        project_id: projectUuid, // UUID
-        project_human_id: meta.project_human_id, // project_code (preferred)
+        project_id: projectUuid,
+        project_human_id: meta.project_human_id,
         project_code: meta.project_code,
         project_name: meta.project_name,
         project_manager_name: meta.project_manager_name,
@@ -2499,6 +2367,83 @@ export async function POST(req: Request) {
         project_manager_user_id: meta.project_manager_user_id,
         model: "artifact-due-rules-v4",
         ai,
+      });
+    }
+
+    /* ---------- change_ai_impact_assessment (PM review panel) ---------- */
+    if (eventType === "change_ai_impact_assessment") {
+      const changeId =
+        safeStr((payload as any)?.changeId).trim() ||
+        safeStr((payload as any)?.change_id).trim() ||
+        safeStr((body as any)?.changeId).trim() ||
+        safeStr((body as any)?.artifactId).trim();
+
+      if (!changeId) {
+        return jsonNoStore(
+          { ok: false, error: "Missing changeId (payload.changeId or body.artifactId)" },
+          { status: 400 }
+        );
+      }
+
+      // Load ALL CR fields — proper PM assessment needs justification, risks,
+      // implementation_plan, rollback_plan, not just title/description
+      const { data: cr, error: crErr } = await supabase
+        .from("change_requests")
+        .select(
+          "id, project_id, title, description, delivery_status, decision_status, priority, " +
+          "impact_analysis, risk, justification, financial, schedule, risks, dependencies, " +
+          "assumptions, implementation_plan, rollback_plan"
+        )
+        .eq("id", changeId)
+        .eq("project_id", projectUuid)
+        .maybeSingle();
+
+      if (crErr) return jsonNoStore({ ok: false, error: crErr.message }, { status: 500 });
+      if (!cr) return jsonNoStore({ ok: false, error: "Change request not found" }, { status: 404 });
+
+      const impact = (cr as any)?.impact_analysis ?? {};
+
+      const assessment = await buildPmImpactAssessment({
+        title:              safeStr((cr as any)?.title),
+        description:        safeStr((cr as any)?.description),
+        justification:      safeStr((cr as any)?.justification),
+        financial:          safeStr((cr as any)?.financial),
+        schedule:           safeStr((cr as any)?.schedule),
+        risks:              safeStr((cr as any)?.risks),
+        dependencies:       safeStr((cr as any)?.dependencies),
+        implementationPlan:
+          safeStr((cr as any)?.implementation_plan) ||
+          safeStr((cr as any)?.implementationPlan),
+        rollbackPlan:
+          safeStr((cr as any)?.rollback_plan) ||
+          safeStr((cr as any)?.rollbackPlan),
+        deliveryStatus:     safeStr((cr as any)?.delivery_status),
+        decisionStatus:     safeStr((cr as any)?.decision_status),
+        priority:           safeStr((cr as any)?.priority),
+        cost:               safeNumAi(impact?.cost, 0),
+        days:               safeNumAi(impact?.days, 0),
+        risk:               safeStr((cr as any)?.risk ?? impact?.risk),
+      });
+
+      // Return flat at top level — ChangeAiDrawer.tsx parseAnalysis() picks it up directly
+      return jsonNoStore({
+        ok: true,
+        eventType,
+        scope: "project",
+        project_id: projectUuid,
+        readiness_score:   assessment.readiness_score,
+        readiness_label:   assessment.readiness_label,
+        recommendation:    assessment.recommendation,
+        executive_summary: assessment.executive_summary,
+        schedule:          assessment.schedule,
+        cost:              assessment.cost,
+        risk:              assessment.risk,
+        scope:             assessment.scope,
+        governance:        assessment.governance,
+        blockers:          assessment.blockers,
+        strengths:         assessment.strengths,
+        next_actions:      assessment.next_actions,
+        model:             assessment.model,
       });
     }
 
@@ -2512,7 +2457,7 @@ export async function POST(req: Request) {
       model: "draft-rules-v1",
       draftId,
       project_id: projectUuid,
-      project_human_id: meta.project_human_id, // project_code
+      project_human_id: meta.project_human_id,
       project_code: meta.project_code,
       project_name: meta.project_name,
       project_manager_name: meta.project_manager_name,
