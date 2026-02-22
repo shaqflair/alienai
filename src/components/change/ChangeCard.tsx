@@ -51,41 +51,36 @@ function riskLevelFromText(risk: unknown): RiskLevel {
 
   const highWords =
     /\bhalt\b|\bhalted\b|\bhalting\b|\bstopp?age\b|\bshutdown\b|\bproject will be halted\b|\boutage\b|\bservice down\b|\bdown\b|\bbreach\b|\bsecurity\b|\bdata loss\b|\bprivacy\b|\bregulatory\b|\bfine\b|\bpenalt(y|ies)\b|\bmajor\b|\bsev[ -]?(1|2)\b|\bcritical path\b|\brollback fails?\b|\bcatastrophic\b/;
-
   const medWords =
     /\bdelay\b|\bslip(page)?\b|\bdegrad(e|ation)\b|\bperformance\b|\bcapacity\b|\bvendor\b|\bdependency\b|\bblocked\b|\brework\b|\btesting\b|\bintegration\b|\bapproval\b|\bcab\b|\bchange window\b|\breschedule\b/;
-
   const lowWords = /\bcosmetic\b|\bdocs?\b|\bcopy\b|\blabel\b|\bminor\b|\blimited\b|\blow impact\b/;
 
   if (highWords.test(t)) return "High";
   if (medWords.test(t)) return "Medium";
   if (lowWords.test(t)) return "Low";
-
   return "Medium";
 }
 
-function riskBadgeClass(level: RiskLevel): string {
-  if (level === "High") return "bg-rose-50 text-rose-700 ring-1 ring-rose-200";
-  if (level === "Medium") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
-  if (level === "Low") return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
-  return "bg-gray-50 text-gray-600 ring-1 ring-gray-200";
+function riskConfig(level: RiskLevel) {
+  if (level === "High") return { dot: "#ef4444", bg: "rgba(239,68,68,0.08)", text: "#dc2626", border: "rgba(239,68,68,0.2)" };
+  if (level === "Medium") return { dot: "#f59e0b", bg: "rgba(245,158,11,0.08)", text: "#d97706", border: "rgba(245,158,11,0.2)" };
+  if (level === "Low") return { dot: "#3b82f6", bg: "rgba(59,130,246,0.08)", text: "#2563eb", border: "rgba(59,130,246,0.2)" };
+  return { dot: "#94a3b8", bg: "rgba(148,163,184,0.08)", text: "#64748b", border: "rgba(148,163,184,0.2)" };
 }
 
-function priorityBadgeClass(p: string): string {
+function priorityConfig(p: string) {
   const v = p.toLowerCase();
-  if (v === "critical") return "bg-rose-50 text-rose-700 ring-1 ring-rose-200";
-  if (v === "high") return "bg-orange-50 text-orange-700 ring-1 ring-orange-200";
-  if (v === "low") return "bg-slate-50 text-slate-600 ring-1 ring-slate-200";
-  return "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200";
+  if (v === "critical") return { color: "#dc2626", bg: "rgba(220,38,38,0.08)", border: "rgba(220,38,38,0.2)" };
+  if (v === "high") return { color: "#ea580c", bg: "rgba(234,88,12,0.08)", border: "rgba(234,88,12,0.2)" };
+  if (v === "low") return { color: "#64748b", bg: "rgba(100,116,139,0.08)", border: "rgba(100,116,139,0.2)" };
+  return { color: "#6366f1", bg: "rgba(99,102,241,0.08)", border: "rgba(99,102,241,0.2)" };
 }
 
 function crHumanId(item: any) {
   const seq = Number((item as any)?.seq);
   if (Number.isFinite(seq) && seq > 0) return `CR${seq}`;
-
   const display = safeStr((item as any)?.crDisplayId).trim();
   if (display) return display.toUpperCase();
-
   const pub = safeStr((item as any)?.publicId ?? (item as any)?.public_id ?? "").trim();
   if (pub) {
     const m = pub.match(/cr[-_\s]*(\d+)/i);
@@ -93,7 +88,6 @@ function crHumanId(item: any) {
     if (/^cr\d+$/i.test(pub)) return pub.toUpperCase();
     return pub.toUpperCase();
   }
-
   const id = safeStr((item as any)?.dbId ?? item?.id).trim();
   if (!id) return "CR";
   return id.length > 10 ? `CR-${id.slice(0, 6).toUpperCase()}` : id.toUpperCase();
@@ -198,6 +192,7 @@ export default function ChangeCard({
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
 
   const canSubmitForApproval = status === "analysis" && !!projectId && !!navId;
 
@@ -207,7 +202,6 @@ export default function ChangeCard({
     setErr("");
     try {
       await patchJson("/api/change", { projectId, changeId: navId, action: "submit_for_approval" });
-
       try {
         await postJson("/api/ai/events", {
           projectId,
@@ -222,7 +216,6 @@ export default function ChangeCard({
           },
         });
       } catch {}
-
       window.location.reload();
     } catch (e: any) {
       setErr(safeStr(e?.message) || "Submit failed");
@@ -232,7 +225,7 @@ export default function ChangeCard({
   }
 
   const lockedMsg = lockReview
-    ? "Locked in Review — awaiting approval"
+    ? "Awaiting approval"
     : decisionStatus === "approved"
     ? "Approved"
     : decisionStatus === "rejected"
@@ -240,181 +233,483 @@ export default function ChangeCard({
     : "";
 
   const requester = safeStr((item as any)?.requester).trim() || "Unknown requester";
+  const risk = riskConfig(level);
+  const priority = priorityLabel ? priorityConfig(priorityLabel) : null;
 
   return (
-    <div
-      className={`bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all ${
-        lockReview ? "opacity-75" : ""
-      }`}
-      draggable={!lockReview}
-      onDragStart={(e) => {
-        if (lockReview) return;
-        e.dataTransfer.setData("text/change-id", navId);
-        e.dataTransfer.setData("text/change-from", status);
-        e.dataTransfer.effectAllowed = "move";
-      }}
-    >
-      <div className="p-4">
-        {/* Header: ID and Move Controls */}
-        <div className="flex items-center justify-between mb-3">
-          <span className="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-gray-700 text-xs font-mono font-medium">
-            {displayId}
-          </span>
+    <>
+      <style>{`
+        .kc-card {
+          background: #ffffff;
+          border-radius: 12px;
+          border: 1px solid #e8eaf0;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
+          transition: box-shadow 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+          cursor: grab;
+          position: relative;
+          overflow: hidden;
+        }
+        .kc-card:hover {
+          box-shadow: 0 4px 16px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.06);
+          border-color: #d0d5e8;
+          transform: translateY(-1px);
+        }
+        .kc-card.kc-locked {
+          opacity: 0.65;
+          cursor: default;
+        }
+        .kc-card.kc-dragging {
+          box-shadow: 0 16px 40px rgba(0,0,0,0.16);
+          transform: rotate(1.5deg) scale(1.02);
+          z-index: 999;
+        }
+        .kc-accent-bar {
+          position: absolute;
+          top: 0; left: 0; right: 0;
+          height: 3px;
+          border-radius: 12px 12px 0 0;
+        }
+        .kc-body { padding: 14px 14px 12px; }
+        .kc-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 10px;
+        }
+        .kc-id {
+          font-family: 'DM Mono', 'Fira Code', 'Courier New', monospace;
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 0.06em;
+          color: #8b91a7;
+          background: #f4f5f9;
+          padding: 3px 8px;
+          border-radius: 6px;
+          border: 1px solid #e8eaf0;
+        }
+        .kc-nav {
+          display: flex;
+          align-items: center;
+          gap: 2px;
+        }
+        .kc-nav-btn {
+          width: 26px; height: 26px;
+          display: flex; align-items: center; justify-content: center;
+          border: none;
+          background: transparent;
+          color: #b0b7cc;
+          border-radius: 6px;
+          cursor: pointer;
+          transition: background 0.1s, color 0.1s;
+        }
+        .kc-nav-btn:hover:not(:disabled) {
+          background: #f0f1f7;
+          color: #4f5882;
+        }
+        .kc-nav-btn:disabled { opacity: 0.28; cursor: not-allowed; }
+        .kc-title {
+          font-size: 13px;
+          font-weight: 600;
+          color: #1e2235;
+          line-height: 1.45;
+          margin-bottom: 6px;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+          text-decoration: none;
+          transition: color 0.12s;
+        }
+        .kc-title:hover { color: #4f46e5; }
+        .kc-requester {
+          font-size: 11px;
+          color: #9ba3ba;
+          margin-bottom: 10px;
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .kc-requester-icon {
+          width: 16px; height: 16px;
+          background: linear-gradient(135deg, #6366f1, #8b5cf6);
+          border-radius: 50%;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 8px;
+          color: white;
+          font-weight: 700;
+          flex-shrink: 0;
+        }
+        .kc-badges {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 5px;
+          margin-bottom: 10px;
+        }
+        .kc-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 10.5px;
+          font-weight: 600;
+          padding: 3px 8px;
+          border-radius: 20px;
+          border: 1px solid;
+          letter-spacing: 0.01em;
+        }
+        .kc-badge-dot {
+          width: 5px; height: 5px;
+          border-radius: 50%;
+          flex-shrink: 0;
+        }
+        .kc-impact {
+          background: #f8f9fc;
+          border: 1px solid #eceef5;
+          border-radius: 8px;
+          padding: 9px 11px;
+          margin-bottom: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .kc-impact-label {
+          font-size: 9px;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #9ba3ba;
+          margin-bottom: 6px;
+        }
+        .kc-impact-values {
+          display: flex;
+          gap: 16px;
+        }
+        .kc-impact-item {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          font-size: 12px;
+          font-weight: 600;
+          color: #3a3f5c;
+        }
+        .kc-impact-icon { color: #b0b7cc; }
+        .kc-err {
+          margin-bottom: 8px;
+          padding: 8px 10px;
+          background: rgba(239,68,68,0.06);
+          border: 1px solid rgba(239,68,68,0.18);
+          border-radius: 7px;
+          font-size: 11px;
+          color: #dc2626;
+        }
+        .kc-submit-btn {
+          width: 100%;
+          margin-bottom: 10px;
+          padding: 8px 12px;
+          background: linear-gradient(135deg, #4f46e5, #6366f1);
+          color: white;
+          font-size: 11.5px;
+          font-weight: 600;
+          border: none;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: opacity 0.15s, transform 0.1s;
+          letter-spacing: 0.02em;
+        }
+        .kc-submit-btn:hover:not(:disabled) {
+          opacity: 0.9;
+          transform: translateY(-1px);
+        }
+        .kc-submit-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .kc-kpis {
+          display: flex;
+          gap: 6px;
+          margin-bottom: 10px;
+          flex-wrap: wrap;
+        }
+        .kc-kpi {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 4px 8px;
+          background: #f4f5f9;
+          border-radius: 6px;
+          font-size: 11px;
+          color: #5a6080;
+          border: 1px solid transparent;
+          transition: border-color 0.12s, background 0.12s;
+        }
+        .kc-kpi:hover { background: #eceef5; border-color: #dde0ee; }
+        .kc-kpi-label { font-weight: 500; color: #9ba3ba; }
+        .kc-kpi-val { font-weight: 700; color: #1e2235; }
+        .kc-divider {
+          height: 1px;
+          background: #f0f1f7;
+          margin: 10px 0;
+        }
+        .kc-actions {
+          display: flex;
+          gap: 5px;
+          flex-wrap: wrap;
+        }
+        .kc-action-link {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 5px 9px;
+          font-size: 11px;
+          font-weight: 500;
+          color: #6b7280;
+          background: #f8f9fc;
+          border: 1px solid #eceef5;
+          border-radius: 7px;
+          text-decoration: none;
+          transition: background 0.12s, color 0.12s, border-color 0.12s;
+        }
+        .kc-action-link:hover {
+          background: #eceef5;
+          color: #1e2235;
+          border-color: #dde0ee;
+        }
+        .kc-locked-pill {
+          margin-top: 10px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 7px 10px;
+          background: rgba(245,158,11,0.07);
+          border: 1px solid rgba(245,158,11,0.2);
+          border-radius: 7px;
+          font-size: 11px;
+          font-weight: 500;
+          color: #b45309;
+        }
+        .kc-ai-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 3px 8px;
+          font-size: 9px;
+          font-weight: 700;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.1));
+          border: 1px solid rgba(99,102,241,0.2);
+          border-radius: 20px;
+          color: #6366f1;
+        }
+      `}</style>
 
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              disabled={!canArrowPrev}
-              title={!canArrowPrev ? (lockReview ? "Review locked" : "Locked") : `Move to ${prevLane}`}
-              onClick={() => prevLane && navId && canArrowPrev && onMove(navId, prevLane)}
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              disabled={!canArrowNext}
-              title={
-                status === "analysis" && nextLane === "review"
-                  ? "Use Submit for approval"
-                  : !canArrowNext
-                  ? lockReview
-                    ? "Review locked"
-                    : "Locked"
-                  : `Move to ${nextLane}`
-              }
-              onClick={() => nextLane && navId && canArrowNext && onMove(navId, nextLane)}
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-          </div>
-        </div>
+      <div
+        className={`kc-card ${lockReview ? "kc-locked" : ""} ${isDragging ? "kc-dragging" : ""}`}
+        draggable={!lockReview}
+        onDragStart={(e) => {
+          if (lockReview) return;
+          setIsDragging(true);
+          e.dataTransfer.setData("text/change-id", navId);
+          e.dataTransfer.setData("text/change-from", status);
+          e.dataTransfer.effectAllowed = "move";
+        }}
+        onDragEnd={() => setIsDragging(false)}
+      >
+        {/* Accent bar — color by status */}
+        <div
+          className="kc-accent-bar"
+          style={{
+            background:
+              status === "new" ? "linear-gradient(90deg,#94a3b8,#cbd5e1)" :
+              status === "analysis" ? "linear-gradient(90deg,#f59e0b,#fbbf24)" :
+              status === "review" ? "linear-gradient(90deg,#6366f1,#8b5cf6)" :
+              status === "in_progress" ? "linear-gradient(90deg,#3b82f6,#60a5fa)" :
+              status === "implemented" ? "linear-gradient(90deg,#10b981,#34d399)" :
+              "linear-gradient(90deg,#64748b,#94a3b8)",
+          }}
+        />
 
-        {/* Title */}
-        <Link 
-          href={href} 
-          className="block text-sm font-semibold text-gray-900 hover:text-indigo-600 transition-colors mb-2 line-clamp-2"
-          title={safeStr(item.title)}
-        >
-          {safeStr(item.title) || "Untitled change"}
-        </Link>
-
-        {!compact && (
-          <>
-            {/* Requester */}
-            <div className="text-xs text-gray-500 mb-3 truncate" title={requester}>
-              {requester}
-            </div>
-
-            {/* Badges */}
-            <div className="flex flex-wrap gap-2 mb-3">
-              {priorityLabel && (
-                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${priorityBadgeClass(priorityLabel)}`}>
-                  {priorityLabel}
-                </span>
-              )}
-              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${riskBadgeClass(level)}`} title={riskTitle}>
-                {riskLabel}
-              </span>
-            </div>
-
-            {/* AI Impact */}
-            <div className="bg-gray-50 rounded-lg p-3 mb-3">
-              <div className="text-xs font-semibold text-gray-700 mb-2">AI Impact</div>
-              <div className="flex gap-4 text-xs text-gray-600">
-                <div className="flex items-center gap-1">
-                  <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  {aiDays ? `+${aiDays} days` : "—"}
-                </div>
-                <div className="flex items-center gap-1">
-                  <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  {aiCost ? moneyGBP(aiCost) : "—"}
-                </div>
-              </div>
-            </div>
-
-            {/* Error Message */}
-            {err && (
-              <div className="mb-3 p-2 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
-                {err}
-              </div>
-            )}
-
-            {/* Submit Button */}
-            {canSubmitForApproval && (
+        <div className="kc-body">
+          {/* Header */}
+          <div className="kc-header">
+            <span className="kc-id">{displayId}</span>
+            <div className="kc-nav">
               <button
                 type="button"
-                onClick={submitForApproval}
-                disabled={busy}
-                className="w-full mb-3 px-3 py-2 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="kc-nav-btn"
+                disabled={!canArrowPrev}
+                title={!canArrowPrev ? (lockReview ? "Review locked" : "Locked") : `Move to ${prevLane}`}
+                onClick={() => prevLane && navId && canArrowPrev && onMove(navId, prevLane)}
               >
-                {busy ? "Submitting…" : "Submit for approval"}
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 19l-7-7 7-7" />
+                </svg>
               </button>
-            )}
-
-            {/* KPIs */}
-            <div className="flex flex-wrap gap-2 mb-3">
-              <MiniKpi label="WBS" value={wbsCount} />
-              <MiniKpi label="Sch" value={schCount} />
-              <MiniKpi label="Risk" value={riskCount} />
-              <MiniKpi label="AI" value={aiCount} />
+              <button
+                type="button"
+                className="kc-nav-btn"
+                disabled={!canArrowNext}
+                title={
+                  status === "analysis" && nextLane === "review"
+                    ? "Use Submit for approval"
+                    : !canArrowNext ? (lockReview ? "Review locked" : "Locked") : `Move to ${nextLane}`
+                }
+                onClick={() => nextLane && navId && canArrowNext && onMove(navId, nextLane)}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
             </div>
+          </div>
 
-            {/* Action Links */}
-            <div className="flex flex-wrap gap-2">
-              <Link 
-                href={hrefWithPanel("comment")} 
-                className="px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:text-gray-900 transition-colors"
-              >
-                Comment
-              </Link>
-              <Link 
-                href={hrefWithPanel("attach")} 
-                className="px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:text-gray-900 transition-colors"
-              >
-                Attach
-              </Link>
-              <Link 
-                href={hrefWithPanel("timeline")} 
-                className="px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:text-gray-900 transition-colors"
-              >
-                Timeline
-              </Link>
-              <Link 
-                href={hrefWithPanel("ai")} 
-                className="px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:text-gray-900 transition-colors"
-              >
-                AI
-              </Link>
-            </div>
+          {/* Title */}
+          <Link href={href} className="kc-title" title={safeStr(item.title)}>
+            {safeStr(item.title) || "Untitled change"}
+          </Link>
 
-            {/* Status Messages */}
-            {lockedMsg && (
-              <div className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                {lockedMsg}
+          {!compact && (
+            <>
+              {/* Requester */}
+              <div className="kc-requester">
+                <span className="kc-requester-icon">{requester.charAt(0).toUpperCase()}</span>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{requester}</span>
               </div>
-            )}
-          </>
-        )}
+
+              {/* Badges */}
+              <div className="kc-badges">
+                {priorityLabel && priority && (
+                  <span
+                    className="kc-badge"
+                    style={{ color: priority.color, background: priority.bg, borderColor: priority.border }}
+                  >
+                    <span className="kc-badge-dot" style={{ background: priority.color }} />
+                    {priorityLabel}
+                  </span>
+                )}
+                <span
+                  className="kc-badge"
+                  title={riskTitle}
+                  style={{ color: risk.text, background: risk.bg, borderColor: risk.border }}
+                >
+                  <span className="kc-badge-dot" style={{ background: risk.dot }} />
+                  {riskLabel}
+                </span>
+                {(aiDays > 0 || aiCost > 0) && (
+                  <span className="kc-ai-pill">
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                    AI
+                  </span>
+                )}
+              </div>
+
+              {/* AI Impact block */}
+              <div className="kc-impact">
+                <div>
+                  <div className="kc-impact-label">AI Impact</div>
+                  <div className="kc-impact-values">
+                    <div className="kc-impact-item">
+                      <svg className="kc-impact-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                      </svg>
+                      {aiDays ? `+${aiDays}d` : "—"}
+                    </div>
+                    <div className="kc-impact-item">
+                      <svg className="kc-impact-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                      </svg>
+                      {aiCost ? moneyGBP(aiCost) : "—"}
+                    </div>
+                  </div>
+                </div>
+                <div
+                  style={{
+                    width: 36, height: 36,
+                    borderRadius: "50%",
+                    background: risk.bg,
+                    border: `1.5px solid ${risk.border}`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={risk.dot} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                    <line x1="12" y1="9" x2="12" y2="13"/>
+                    <line x1="12" y1="17" x2="12.01" y2="17"/>
+                  </svg>
+                </div>
+              </div>
+
+              {/* Error */}
+              {err && <div className="kc-err">{err}</div>}
+
+              {/* Submit button */}
+              {canSubmitForApproval && (
+                <button type="button" onClick={submitForApproval} disabled={busy} className="kc-submit-btn">
+                  {busy ? "Submitting…" : "Submit for approval →"}
+                </button>
+              )}
+
+              {/* KPIs */}
+              <div className="kc-kpis">
+                <MiniKpi label="WBS" value={wbsCount} />
+                <MiniKpi label="Sch" value={schCount} />
+                <MiniKpi label="Risk" value={riskCount} />
+                <MiniKpi label="AI" value={aiCount} />
+              </div>
+
+              <div className="kc-divider" />
+
+              {/* Action links */}
+              <div className="kc-actions">
+                <Link href={hrefWithPanel("comment")} className="kc-action-link">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+                  </svg>
+                  Comment
+                </Link>
+                <Link href={hrefWithPanel("attach")} className="kc-action-link">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+                  </svg>
+                  Attach
+                </Link>
+                <Link href={hrefWithPanel("timeline")} className="kc-action-link">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                  </svg>
+                  Timeline
+                </Link>
+                <Link href={hrefWithPanel("ai")} className="kc-action-link" style={{ color: "#6366f1" }}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                  </svg>
+                  AI
+                </Link>
+              </div>
+
+              {/* Locked message */}
+              {lockedMsg && (
+                <div className="kc-locked-pill">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
+                  </svg>
+                  {lockedMsg}
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
 function MiniKpi({ label, value }: { label: string; value: number }) {
   return (
-    <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-100 rounded-full text-xs font-medium text-gray-700">
-      <span className="text-gray-500">{label}</span>
-      <span className="text-gray-900">{value}</span>
+    <div className="kc-kpi">
+      <span className="kc-kpi-label">{label}</span>
+      <span className="kc-kpi-val">{value}</span>
     </div>
   );
 }
