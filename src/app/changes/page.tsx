@@ -1,6 +1,7 @@
 ﻿// src/app/changes/page.tsx
 import "server-only";
-import { redirect } from "next/navigation";
+
+import ChangesClient from "./ChangesClient";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,26 +11,14 @@ function safeStr(x: unknown) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
-export default function ChangesAliasPage({
+export default function ChangesPage({
   searchParams,
 }: {
-  searchParams?: { project?: string | string[] };
+  searchParams?: { [k: string]: string | string[] | undefined };
 }) {
-  const raw = searchParams?.project;
-  const project =
-    typeof raw === "string"
-      ? raw
-      : Array.isArray(raw)
-      ? raw[0]
-      : "";
+  const q = safeStr(searchParams?.q).trim();
+  const priority = safeStr(searchParams?.priority).trim();
+  const stale = safeStr(searchParams?.stale).trim() === "1";
 
-  const clean = safeStr(project).trim();
-
-  // ✅ If a project is supplied → go to Kanban
-  if (clean) {
-    redirect(`/projects/${encodeURIComponent(clean)}/change`);
-  }
-
-  // ✅ Otherwise go to projects list
-  redirect("/projects");
+  return <ChangesClient initialQ={q} initialPriority={priority} initialStale={stale} />;
 }
