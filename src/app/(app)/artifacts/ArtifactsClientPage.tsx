@@ -3,7 +3,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import {
   Search,
   Loader2,
@@ -58,12 +57,9 @@ type ApiResp =
       ok: true;
       items: ArtifactRow[];
       nextCursor: string | null;
-
-      // ✅ totals computed server-side across ALL pages for the CURRENT QUERY
       totalCount?: number | null;
       activeCount?: number | null;
       activeProjectCount?: number | null;
-
       facets?: { types?: string[] };
     };
 
@@ -90,27 +86,11 @@ function safeDateMs(x?: string | null) {
   return Number.isFinite(t) ? t : 0;
 }
 
-function artifactUpdatedMs(a: ArtifactRow) {
-  return safeDateMs(a.updated_at || a.created_at || null);
-}
-
 function isWithinLastDays(a: ArtifactRow, days: number) {
-  const ms = artifactUpdatedMs(a);
+  const ms = safeDateMs(a.updated_at || a.created_at || null);
   if (!ms) return false;
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
   return ms >= cutoff;
-}
-
-function isClosedArtifactStatus(status?: string) {
-  const s = norm(status);
-  return (
-    !!s &&
-    (s.includes("closed") ||
-      s.includes("done") ||
-      s.includes("complete") ||
-      s.includes("completed") ||
-      s.includes("cancel"))
-  );
 }
 
 function isMissingEffort(a: ArtifactRow) {
@@ -119,39 +99,9 @@ function isMissingEffort(a: ArtifactRow) {
 }
 
 function isNeedsAttention(a: ArtifactRow) {
-  if (isClosedArtifactStatus(a.status)) return false;
   if (a.stalled === true) return true;
   if (isMissingEffort(a)) return true;
   return false;
-}
-
-function isInactiveProjectStatus(x?: string | null) {
-  const s = norm(x);
-  if (!s) return false;
-  if (s.includes("cancel")) return true;
-  if (s.includes("close")) return true;
-  if (s.includes("archive")) return true;
-  if (s.includes("inactive")) return true;
-  if (s.includes("complete")) return true;
-  if (s.includes("done")) return true;
-  return false;
-}
-
-function isInactiveProject(a: ArtifactRow) {
-  const p = a.project;
-  if (!p) return false;
-  return (
-    isInactiveProjectStatus(p.status) ||
-    isInactiveProjectStatus(p.state) ||
-    isInactiveProjectStatus(p.lifecycle_status) ||
-    isInactiveProjectStatus(p.lifecycle_state)
-  );
-}
-
-function isActiveArtifact(a: ArtifactRow) {
-  if (isInactiveProject(a)) return false;
-  if (isClosedArtifactStatus(a.status)) return false;
-  return true;
 }
 
 const fmtDateUk = (x?: string | null) => {
@@ -225,12 +175,9 @@ function projectRaidHref(projectId: string) {
 function displayType(type?: string) {
   if (!type) return "—";
   const t = norm(type);
-
   if (t === "wbs") return "WBS";
   if (t === "raid_log" || t === "raid") return "RAID";
   if (t === "project_charter" || t.includes("charter")) return "Project Charter";
-
-  // ✅ Fix: Change Requests label
   if (
     t === "change_requests" ||
     t === "change_request" ||
@@ -239,7 +186,6 @@ function displayType(type?: string) {
   )
     return "Change Requests";
   if (t === "change") return "Change Requests";
-
   return safeStr(type).replace(/_/g, " ").trim();
 }
 
@@ -249,7 +195,6 @@ function displayStatus(status?: string) {
   if (s === "draft") return "Draft";
   if (s.includes("review")) return "In Review";
   if (s.includes("progress")) return "In Progress";
-  if (s.includes("closed") || s.includes("done")) return "Closed";
   if (s.includes("new")) return "New";
   return safeStr(status).replace(/_/g, " ").trim();
 }
@@ -306,8 +251,6 @@ const typeConfig: Record<
     text: "text-rose-700",
     border: "border-rose-200",
   },
-
-  // ✅ Fix: explicitly support change_requests
   change_requests: {
     icon: <Sparkles className="w-3 h-3" />,
     bg: "bg-sky-50",
@@ -320,7 +263,6 @@ const typeConfig: Record<
     text: "text-sky-700",
     border: "border-sky-200",
   },
-
   default: {
     icon: <FileText className="w-3 h-3" />,
     bg: "bg-slate-50",
@@ -345,28 +287,13 @@ function TypeBadge({ type }: { type?: string }) {
   );
 }
 
-const statusConfig: Record<string, { dot: string; bg: string; text: string }> =
-  {
-    draft: { dot: "bg-slate-400", bg: "bg-slate-50", text: "text-slate-600" },
-    review: { dot: "bg-amber-400", bg: "bg-amber-50", text: "text-amber-700" },
-    progress: { dot: "bg-blue-500", bg: "bg-blue-50", text: "text-blue-700" },
-    closed: {
-      dot: "bg-emerald-500",
-      bg: "bg-emerald-50",
-      text: "text-emerald-700",
-    },
-    done: {
-      dot: "bg-emerald-500",
-      bg: "bg-emerald-50",
-      text: "text-emerald-700",
-    },
-    new: { dot: "bg-purple-500", bg: "bg-purple-50", text: "text-purple-700" },
-    default: {
-      dot: "bg-slate-300",
-      bg: "bg-slate-50",
-      text: "text-slate-500",
-    },
-  };
+const statusConfig: Record<string, { dot: string; bg: string; text: string }> = {
+  draft: { dot: "bg-slate-400", bg: "bg-slate-50", text: "text-slate-600" },
+  review: { dot: "bg-amber-400", bg: "bg-amber-50", text: "text-amber-700" },
+  progress: { dot: "bg-blue-500", bg: "bg-blue-50", text: "text-blue-700" },
+  new: { dot: "bg-purple-500", bg: "bg-purple-50", text: "text-purple-700" },
+  default: { dot: "bg-slate-300", bg: "bg-slate-50", text: "text-slate-500" },
+};
 
 function StatusBadge({ status }: { status?: string }) {
   const s = norm(status);
@@ -378,9 +305,7 @@ function StatusBadge({ status }: { status?: string }) {
     <span
       className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide ${config.bg} ${config.text}`}
     >
-      <span
-        className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${config.dot}`}
-      />
+      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${config.dot}`} />
       {displayStatus(status)}
     </span>
   );
@@ -629,9 +554,9 @@ export default function ArtifactsClientPage() {
   const [highlightId, setHighlightId] = useState<string>("");
 
   const [items, setItems] = useState<ArtifactRow[]>([]);
-
   const [allTypes, setAllTypes] = useState<string[]>([]);
 
+  // Server-computed totals — always reflect active-only data
   const [serverTotalCount, setServerTotalCount] = useState<number | null>(null);
   const [serverActiveCount, setServerActiveCount] = useState<number | null>(null);
   const [serverProjectCount, setServerProjectCount] = useState<number | null>(null);
@@ -709,14 +634,14 @@ export default function ArtifactsClientPage() {
       const txt = await r.text();
       const j = safeParseJson(txt) as ApiResp | null;
       if (!r.ok) throw new Error((j as any)?.error || `Load failed (${r.status})`);
-      if (!isOkResp(j)) throw new Error(safeStr((j as any)?.error) || "API returned invalid response");
+      if (!isOkResp(j))
+        throw new Error(safeStr((j as any)?.error) || "API returned invalid response");
 
-      const ok = j;
-      setItems(ok.items || []);
-      setCursor(ok.nextCursor ?? null);
+      setItems(j.items || []);
+      setCursor(j.nextCursor ?? null);
 
-      const incoming = (ok.facets?.types || [])
-        .concat((ok.items || []).map((x) => safeStr(x.type)))
+      const incoming = (j.facets?.types || [])
+        .concat((j.items || []).map((x) => safeStr(x.type)))
         .filter(Boolean)
         .map((t) => norm(t));
 
@@ -725,9 +650,10 @@ export default function ArtifactsClientPage() {
         return Array.from(merged).sort((a, b) => a.localeCompare(b));
       });
 
-      if (typeof ok.totalCount === "number") setServerTotalCount(ok.totalCount);
-      if (typeof ok.activeCount === "number") setServerActiveCount(ok.activeCount);
-      if (typeof ok.activeProjectCount === "number") setServerProjectCount(ok.activeProjectCount);
+      // Server returns active-only counts — use them directly
+      if (typeof j.totalCount === "number") setServerTotalCount(j.totalCount);
+      if (typeof j.activeCount === "number") setServerActiveCount(j.activeCount);
+      if (typeof j.activeProjectCount === "number") setServerProjectCount(j.activeProjectCount);
     } catch (e: any) {
       setError(e?.message || "Failed to load");
       setItems([]);
@@ -751,18 +677,18 @@ export default function ArtifactsClientPage() {
       const txt = await r.text();
       const j = safeParseJson(txt) as ApiResp | null;
       if (!r.ok) throw new Error((j as any)?.error || `Load failed (${r.status})`);
-      if (!isOkResp(j)) throw new Error(safeStr((j as any)?.error) || "API returned invalid response");
+      if (!isOkResp(j))
+        throw new Error(safeStr((j as any)?.error) || "API returned invalid response");
 
-      const ok = j;
       setItems((prev) => {
         const seen = new Set(prev.map((x) => x.id));
-        const next = (ok.items || []).filter((x) => !seen.has(x.id));
+        const next = (j.items || []).filter((x) => !seen.has(x.id));
         return [...prev, ...next];
       });
-      setCursor(ok.nextCursor ?? null);
+      setCursor(j.nextCursor ?? null);
 
-      const incoming = (ok.facets?.types || [])
-        .concat((ok.items || []).map((x) => safeStr(x.type)))
+      const incoming = (j.facets?.types || [])
+        .concat((j.items || []).map((x) => safeStr(x.type)))
         .filter(Boolean)
         .map((t) => norm(t));
 
@@ -785,20 +711,17 @@ export default function ArtifactsClientPage() {
 
   /* ---------------- Derived State ---------------- */
 
-  // Always exclude closed/cancelled projects from the UI view
-  const visibleItems = useMemo(() => (items || []).filter((a) => !isInactiveProject(a)), [items]);
-
-  // Current view (after type filter) — NOTE: search `q` is already applied server-side via apiParams
+  // Server already excludes inactive projects + closed artifacts + non-current versions.
+  // No client-side re-filtering needed — items from API are already active-only.
   const filteredItems = useMemo(() => {
     const t = norm(typeDebounced);
-    return visibleItems.filter((a) => {
+    // Only re-apply type filter client-side if needed (server does it too, but during
+    // pagination the loaded items may span multiple server pages before type filter applied)
+    return items.filter((a) => {
       if (t && norm(a.type) !== t) return false;
       return true;
     });
-  }, [visibleItems, typeDebounced]);
-
-  // Active/open artifacts within the CURRENT VIEW
-  const viewActiveItems = useMemo(() => filteredItems.filter(isActiveArtifact), [filteredItems]);
+  }, [items, typeDebounced]);
 
   const sortedItems = useMemo(() => {
     const isDefaultUpdatedDesc = sortKey === "updated" && sortDir === "desc";
@@ -850,28 +773,28 @@ export default function ArtifactsClientPage() {
   const grouped = useMemo(() => groupByProject(sortedItems), [sortedItems]);
 
   /* ----------------------------------------------------------------
-     ✅ Stats (CURRENT VIEW)
-
-     - Server counts are best when available (covers full dataset for current query)
-     - But server "activeProjectCount/activeCount" should align with current filters.
-     - Fallback uses viewActiveItems (already current view).
+     Stats — server provides active-only counts so use them directly.
+     Fallback to loaded items for "this week" and "needs attention"
+     since those require inspecting individual rows.
   ---------------------------------------------------------------- */
   const stats = useMemo(() => {
-    const hasServerCounts = serverActiveCount !== null;
+    // Total active artifacts — server count is authoritative (active-only)
+    const total = serverActiveCount ?? serverTotalCount ?? filteredItems.length;
+    const totalIsEstimate = serverActiveCount === null && serverTotalCount === null && cursor !== null;
 
-    const total = hasServerCounts ? serverActiveCount! : viewActiveItems.length;
-    const totalIsEstimate = !hasServerCounts && cursor !== null;
-
-    const thisWeek = viewActiveItems.filter((i) => isWithinLastDays(i, 7)).length;
+    // "This week" requires inspecting rows; mark as estimate if not all loaded
+    const thisWeek = filteredItems.filter((i) => isWithinLastDays(i, 7)).length;
     const thisWeekIsEstimate = cursor !== null;
 
+    // Active projects — server count is authoritative
     const projects =
       serverProjectCount !== null
         ? serverProjectCount
-        : new Set(viewActiveItems.map((i) => i.project_id)).size;
+        : new Set(filteredItems.map((i) => i.project_id)).size;
     const projectsIsEstimate = serverProjectCount === null && cursor !== null;
 
-    const needsAttentionItems = viewActiveItems.filter(isNeedsAttention);
+    // Needs attention — requires inspecting rows
+    const needsAttentionItems = filteredItems.filter(isNeedsAttention);
     const needsAttention = needsAttentionItems.length;
     const needsAttentionIsEstimate = cursor !== null;
 
@@ -879,7 +802,8 @@ export default function ArtifactsClientPage() {
     const needsEffortCount = needsAttentionItems.filter(isMissingEffort).length;
 
     let attentionSub = "";
-    if (urgent > 0 && needsEffortCount > 0) attentionSub = `${urgent} risk · ${needsEffortCount} need effort`;
+    if (urgent > 0 && needsEffortCount > 0)
+      attentionSub = `${urgent} risk · ${needsEffortCount} need effort`;
     else if (urgent > 0) attentionSub = `${urgent} stalled`;
     else if (needsEffortCount > 0) attentionSub = `${needsEffortCount} missing effort`;
     else if (needsAttention === 0 && !cursor) attentionSub = "All looking good";
@@ -895,7 +819,7 @@ export default function ArtifactsClientPage() {
       needsAttentionIsEstimate,
       attentionSub,
     };
-  }, [viewActiveItems, serverActiveCount, serverProjectCount, cursor]);
+  }, [filteredItems, serverActiveCount, serverTotalCount, serverProjectCount, cursor]);
 
   /* ---------------- Scroll to Highlight ---------------- */
 
@@ -926,7 +850,6 @@ export default function ArtifactsClientPage() {
 
   const hasActiveFilters = q || type;
 
-  // List header count: server total (current query) if available; else current list length
   const displayedCount = serverTotalCount !== null ? serverTotalCount : sortedItems.length;
   const displayedCountIsEstimate = serverTotalCount === null && cursor !== null;
 
@@ -1031,7 +954,9 @@ export default function ArtifactsClientPage() {
         >
           <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-slate-700 uppercase tracking-widest">Filter Artifacts</h3>
+              <h3 className="text-sm font-bold text-slate-700 uppercase tracking-widest">
+                Filter Artifacts
+              </h3>
               {hasActiveFilters && (
                 <button
                   onClick={() => {
@@ -1073,7 +998,11 @@ export default function ArtifactsClientPage() {
                 onClick={loadFirst}
                 className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition-colors"
               >
-                {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                {loading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Search className="h-3.5 w-3.5" />
+                )}
                 Apply
               </button>
             </div>
@@ -1086,7 +1015,9 @@ export default function ArtifactsClientPage() {
             <button
               onClick={() => setView("list")}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                view === "list" ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
+                view === "list"
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
               }`}
             >
               <ListIcon className="w-3.5 h-3.5" />
@@ -1095,7 +1026,9 @@ export default function ArtifactsClientPage() {
             <button
               onClick={() => setView("grouped")}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                view === "grouped" ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
+                view === "grouped"
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
               }`}
             >
               <LayoutGrid className="w-3.5 h-3.5" />
@@ -1105,7 +1038,7 @@ export default function ArtifactsClientPage() {
 
           <p className="text-xs font-medium text-slate-400">
             {displayedCountIsEstimate && <span className="mr-0.5">~</span>}
-            {displayedCount} artifact{displayedCount !== 1 ? "s" : ""}
+            {displayedCount} active artifact{displayedCount !== 1 ? "s" : ""}
             {cursor && (
               <>
                 <span className="text-slate-300 mx-1.5">·</span>
@@ -1136,16 +1069,40 @@ export default function ArtifactsClientPage() {
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
               <div className="grid grid-cols-12 gap-4 px-6 py-3 border-b border-slate-100 bg-slate-50/60">
                 <div className="col-span-3">
-                  <SortButton label="Project" sortKey="project" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                  <SortButton
+                    label="Project"
+                    sortKey="project"
+                    activeSortKey={sortKey}
+                    sortDir={sortDir}
+                    onToggle={toggleSort}
+                  />
                 </div>
                 <div className="col-span-4">
-                  <SortButton label="Artifact" sortKey="artifact" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                  <SortButton
+                    label="Artifact"
+                    sortKey="artifact"
+                    activeSortKey={sortKey}
+                    sortDir={sortDir}
+                    onToggle={toggleSort}
+                  />
                 </div>
                 <div className="col-span-2">
-                  <SortButton label="Type" sortKey="type" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                  <SortButton
+                    label="Type"
+                    sortKey="type"
+                    activeSortKey={sortKey}
+                    sortDir={sortDir}
+                    onToggle={toggleSort}
+                  />
                 </div>
                 <div className="col-span-2">
-                  <SortButton label="Status" sortKey="status" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                  <SortButton
+                    label="Status"
+                    sortKey="status"
+                    activeSortKey={sortKey}
+                    sortDir={sortDir}
+                    onToggle={toggleSort}
+                  />
                 </div>
                 <div className="col-span-1 flex justify-end">
                   <SortButton
@@ -1169,7 +1126,9 @@ export default function ArtifactsClientPage() {
                         rowRefs.current[a.id] = el;
                       }}
                       className={`group grid grid-cols-12 gap-4 px-6 py-3.5 transition-colors duration-100 ${
-                        isHighlighted ? "bg-blue-50/60 ring-1 ring-inset ring-blue-200" : "hover:bg-slate-50/80"
+                        isHighlighted
+                          ? "bg-blue-50/60 ring-1 ring-inset ring-blue-200"
+                          : "hover:bg-slate-50/80"
                       }`}
                     >
                       <div className="col-span-3 flex flex-col justify-center gap-0.5 min-w-0">
@@ -1179,10 +1138,15 @@ export default function ArtifactsClientPage() {
                         >
                           {projectHumanId(a)}
                         </Link>
-                        <span className="text-sm font-medium text-slate-700 truncate leading-tight">{projectTitleLabel(a)}</span>
+                        <span className="text-sm font-medium text-slate-700 truncate leading-tight">
+                          {projectTitleLabel(a)}
+                        </span>
                       </div>
                       <div className="col-span-4 flex items-center gap-2 min-w-0">
-                        <Link href={openHref} className="text-sm font-semibold text-slate-800 hover:text-blue-600 transition-colors truncate">
+                        <Link
+                          href={openHref}
+                          className="text-sm font-semibold text-slate-800 hover:text-blue-600 transition-colors truncate"
+                        >
                           {a.title}
                         </Link>
                         <AIHealthBadge artifact={a} />
@@ -1209,7 +1173,10 @@ export default function ArtifactsClientPage() {
                 const isOpen = !collapsed[g.project_id];
                 const attentionCount = g.items.filter(isNeedsAttention).length;
                 return (
-                  <div key={g.project_id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                  <div
+                    key={g.project_id}
+                    className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden"
+                  >
                     <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3 min-w-0">
                         <button
@@ -1224,8 +1191,12 @@ export default function ArtifactsClientPage() {
                         </button>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-[11px] font-bold text-blue-600 uppercase tracking-wider">{g.project_human}</span>
-                            <h2 className="text-sm font-bold text-slate-800 truncate">{g.project_title}</h2>
+                            <span className="text-[11px] font-bold text-blue-600 uppercase tracking-wider">
+                              {g.project_human}
+                            </span>
+                            <h2 className="text-sm font-bold text-slate-800 truncate">
+                              {g.project_title}
+                            </h2>
                             {attentionCount > 0 && (
                               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-600 border border-rose-200">
                                 <AlertCircle className="w-2.5 h-2.5" />
@@ -1234,7 +1205,8 @@ export default function ArtifactsClientPage() {
                             )}
                           </div>
                           <p className="text-[11px] text-slate-400 mt-0.5 font-medium">
-                            {fmtRelativeTime(g.last_updated_raw)} · {g.items.length} artifact{g.items.length !== 1 ? "s" : ""}
+                            {fmtRelativeTime(g.last_updated_raw)} · {g.items.length} artifact
+                            {g.items.length !== 1 ? "s" : ""}
                           </p>
                         </div>
                       </div>
@@ -1262,7 +1234,10 @@ export default function ArtifactsClientPage() {
                           >
                             <div className="flex items-center gap-3 min-w-0">
                               <TypeBadge type={a.type} />
-                              <Link href={buildArtifactHref(a)} className="text-sm font-semibold text-slate-800 hover:text-blue-600 transition-colors truncate">
+                              <Link
+                                href={buildArtifactHref(a)}
+                                className="text-sm font-semibold text-slate-800 hover:text-blue-600 transition-colors truncate"
+                              >
                                 {a.title}
                               </Link>
                               <AIHealthBadge artifact={a} />
@@ -1289,7 +1264,9 @@ export default function ArtifactsClientPage() {
             </div>
             <h3 className="text-base font-bold text-slate-700">No artifacts found</h3>
             <p className="text-sm text-slate-400 mt-1">
-              {hasActiveFilters ? "Try adjusting your filters or search terms." : "No active artifacts available."}
+              {hasActiveFilters
+                ? "Try adjusting your filters or search terms."
+                : "No active artifacts available."}
             </p>
             {hasActiveFilters && (
               <button

@@ -29,10 +29,6 @@ function clampInt(n: any, min: number, max: number, fallback: number) {
   return Math.max(min, Math.min(max, Math.floor(v)));
 }
 
-/**
- * Cursor strategy: offset-based
- * nextCursor is a stringified integer offset.
- */
 function parseCursor(raw: string | null) {
   const s = safeStr(raw).trim();
   if (!s) return 0;
@@ -46,11 +42,9 @@ function parseBool(raw: string | null) {
 }
 
 function escapeIlike(q: string) {
-  // escape % and _ for ilike
   return q.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
 
-/** ✅ computed href (NOT a DB column) */
 function buildArtifactHref(a: { project_id?: any; id?: any; type?: any }) {
   const pid = safeStr(a.project_id).trim();
   const aid = safeStr(a.id).trim();
@@ -67,29 +61,17 @@ function buildArtifactHref(a: { project_id?: any; id?: any; type?: any }) {
 
 /* ---------------- schema-adaptive project columns ---------------- */
 
-/**
- * Candidate project lifecycle columns (some envs may not have all of them)
- * We'll auto-remove missing ones based on Postgres 42703 errors.
- */
 const PROJECT_COL_CANDIDATES = ["status", "state", "lifecycle_status", "lifecycle_state"] as const;
 type ProjectCol = (typeof PROJECT_COL_CANDIDATES)[number];
 
-/**
- * Module cache: once we learn which columns exist, we reuse it
- * (works well in Node runtime where module may stay warm).
- */
 let projectColsResolved: ProjectCol[] | null = null;
 
 function parseMissingProjectColFromError(err: any): ProjectCol | null {
   const msg = safeStr(err?.message || "");
   const code = safeStr(err?.code || "");
 
-  // Postgres undefined_column = 42703 (often passed through by PostgREST)
   if (code && code !== "42703") return null;
 
-  // Typical messages:
-  // "column projects_1.state does not exist"
-  // "column projects.state does not exist"
   const m = msg.match(/projects(?:_1)?\.(\w+)\b/i);
   const col = (m?.[1] || "").toLowerCase();
 
@@ -98,16 +80,16 @@ function parseMissingProjectColFromError(err: any): ProjectCol | null {
 }
 
 function buildProjectsSelect(cols: ProjectCol[]) {
-  // Always include stable fields + whatever lifecycle cols exist
   const base = ["id", "title", "project_code", ...cols];
   return `projects:projects (${base.join(",")})`;
 }
 
+/**
+ * Excludes inactive projects on all queries — this is the primary filter
+ * so the page only ever shows active projects.
+ */
 function applyExcludeInactiveProjects(query: any, cols: ProjectCol[]) {
-  // matches your client-side logic
   const bad = ["%cancel%", "%close%", "%archive%", "%inactive%", "%complete%", "%done%"];
-
-  // Apply not-ilike to each existing lifecycle column
   for (const c of cols) {
     const col = `projects.${c}`;
     for (const pat of bad) query = query.not(col, "ilike", pat);
@@ -115,17 +97,16 @@ function applyExcludeInactiveProjects(query: any, cols: ProjectCol[]) {
   return query;
 }
 
+/**
+ * Excludes closed/done/cancelled artifacts — applied to ALL queries on this
+ * page so counts and data are always "active only".
+ */
 function applyExcludeClosedArtifacts(query: any) {
   const bad = ["%closed%", "%done%", "%complete%", "%completed%", "%cancel%"];
   for (const pat of bad) query = query.not("status", "ilike", pat);
   return query;
 }
 
-/**
- * Runs an async query builder with schema-adaptive retry:
- * - if query fails due to missing projects.<col>, drop that col and retry
- * - updates module cache on success
- */
 async function withProjectColsRetry<T>(
   run: (cols: ProjectCol[]) => Promise<T>,
   maxAttempts = 3
@@ -136,25 +117,16 @@ async function withProjectColsRetry<T>(
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const result = await run(cols);
-      projectColsResolved = cols; // cache success
+      projectColsResolved = cols;
       return { result, cols };
     } catch (e: any) {
       const missing = parseMissingProjectColFromError(e);
       if (!missing) throw e;
-
-      // Remove and retry
       cols = cols.filter((c) => c !== missing);
-
-      // If we’ve removed everything and still failing, stop
-      if (!cols.length) {
-        // cache empty (no lifecycle cols available)
-        projectColsResolved = [];
-      }
-      // Continue loop
+      if (!cols.length) projectColsResolved = [];
     }
   }
 
-  // If we exhausted attempts, run once more without candidates (last resort)
   const finalCols: ProjectCol[] = [];
   const result = await run(finalCols);
   projectColsResolved = finalCols;
@@ -189,10 +161,15 @@ export async function GET(req: Request) {
   const cursor = parseCursor(url.searchParams.get("cursor"));
 
   try {
-    // Run everything under schema-adaptive project cols
     const { result: payload } = await withProjectColsRetry(async (projCols) => {
       const projectsSelect = buildProjectsSelect(projCols);
 
+      /**
+       * Base query — always filters:
+       *   1. Active projects only (inactive/closed/cancelled projects excluded)
+       *   2. Active artifacts only (closed/done/cancelled artifacts excluded)
+       *   3. Current artifact version only (is_current = true)
+       */
       const makeBase = (selectOverride?: string, withCountExact = true) => {
         let query = supabase
           .from("artifacts")
@@ -216,7 +193,9 @@ export async function GET(req: Request) {
             withCountExact ? ({ count: "exact" } as any) : undefined
           )
           .order("updated_at", { ascending: false })
-          .order("created_at", { ascending: false });
+          .order("created_at", { ascending: false })
+          // ✅ Only current artifact versions
+          .eq("is_current", true);
 
         if (projectId) query = query.eq("project_id", projectId);
         if (type) query = query.eq("type", type);
@@ -228,14 +207,14 @@ export async function GET(req: Request) {
           );
         }
 
-        // optional quick filters
-        // if (missingEffortOn) query = query.or("effort.is.null,effort.eq.");
-        // if (stalledOn) query = query.eq("stalled", true);
         void missingEffortOn;
         void stalledOn;
 
-        // ✅ exclude inactive projects using available cols
+        // ✅ Always exclude inactive projects
         query = applyExcludeInactiveProjects(query, projCols);
+
+        // ✅ Always exclude closed/done/cancelled artifacts
+        query = applyExcludeClosedArtifacts(query);
 
         return query;
       };
@@ -244,13 +223,9 @@ export async function GET(req: Request) {
       const from = cursor;
       const to = cursor + limit - 1;
 
-      const pageQuery = makeBase();
-      const { data, error, count } = await pageQuery.range(from, to);
+      const { data, error, count } = await makeBase().range(from, to);
 
-      if (error) {
-        // Throw to let withProjectColsRetry inspect missing columns and retry
-        throw error;
-      }
+      if (error) throw error;
 
       const items = (data ?? []).map((r: any) => ({
         id: r.id,
@@ -271,7 +246,6 @@ export async function GET(req: Request) {
               id: r.projects.id,
               title: r.projects.title,
               project_code: r.projects.project_code,
-              // Include lifecycle cols that exist; missing ones will be undefined/null
               ...(projCols.includes("status") ? { status: r.projects.status ?? null } : {}),
               ...(projCols.includes("state") ? { state: r.projects.state ?? null } : {}),
               ...(projCols.includes("lifecycle_status") ? { lifecycle_status: r.projects.lifecycle_status ?? null } : {}),
@@ -291,29 +265,26 @@ export async function GET(req: Request) {
             );
 
       // ---------------- Totals (optional) ----------------
+      // NOTE: makeBase already excludes inactive projects, closed artifacts,
+      // and non-current versions — so all counts are "active only".
       let totalCount: number | null = null;
       let activeCount: number | null = null;
       let activeProjectCount: number | null = null;
 
       if (includeTotals) {
-        // Total count (current view)
+        // Total active artifact count for current query
         const { count: totalC, error: totalErr } = await makeBase(undefined, true).range(0, 0);
         if (totalErr) throw totalErr;
         if (typeof totalC === "number") totalCount = totalC;
 
-        // Active artifact count (exclude closed artifact statuses)
-        const { count: activeC, error: activeErr } = await applyExcludeClosedArtifacts(
-          makeBase(undefined, true)
-        ).range(0, 0);
-        if (activeErr) throw activeErr;
-        if (typeof activeC === "number") activeCount = activeC;
+        // activeCount === totalCount since makeBase already filters active-only
+        activeCount = totalCount;
 
-        // Active project count (distinct project_id across active artifacts)
+        // Active project count (distinct project_ids across all active artifacts)
         const pidSelect = `project_id, ${projectsSelect}`;
-
-        const { data: pidRows, error: pidErr } = await applyExcludeClosedArtifacts(
-          makeBase(pidSelect, false).order("project_id", { ascending: true })
-        ).range(0, 9999);
+        const { data: pidRows, error: pidErr } = await makeBase(pidSelect, false)
+          .order("project_id", { ascending: true })
+          .range(0, 9999);
 
         if (pidErr) throw pidErr;
 
@@ -335,7 +306,6 @@ export async function GET(req: Request) {
 
     return jsonOk(payload, 200, noStoreHeaders);
   } catch (e: any) {
-    // if it's a supabase/postgrest error, return meta too
     const meta =
       e && typeof e === "object"
         ? { code: (e as any).code, hint: (e as any).hint, details: (e as any).details }
