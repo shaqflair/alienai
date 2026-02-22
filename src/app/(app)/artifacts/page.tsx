@@ -1,4 +1,3 @@
-// src/app/(app)/artifacts/page.tsx
 import "server-only";
 
 import { Suspense } from "react";

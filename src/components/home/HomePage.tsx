@@ -6,111 +6,308 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { LazyMotion, domAnimation, m, AnimatePresence } from "framer-motion";
 import {
-  Bell, Sparkles, AlertTriangle, ShieldCheck, Clock3, Trophy,
-  CheckCircle2, ArrowUpRight, ArrowDownRight, Minus, Plus, CheckCheck,
-  X, CircleDot, ChevronRight, Activity, Layers, Zap, TrendingUp, MoreHorizontal,
+  Bell,
+  Sparkles,
+  AlertTriangle,
+  ShieldCheck,
+  Clock3,
+  Trophy,
+  CheckCircle2,
+  ArrowUpRight,
+  ArrowDownRight,
+  Minus,
+  Plus,
+  CheckCheck,
+  X,
+  CircleDot,
+  ChevronRight,
+  Activity,
+  Layers,
+  Zap,
+  TrendingUp,
+  MoreHorizontal,
 } from "lucide-react";
 
 type WindowDays = 7 | 14 | 30 | 60 | "all";
 
 type NotifRow = {
-  id: string; user_id: string; project_id: string | null; artifact_id: string | null;
-  type: string; title: string; body: string | null; link: string | null;
-  is_read: boolean | null; created_at: string; actor_user_id: string | null; metadata: any;
+  id: string;
+  user_id: string;
+  project_id: string | null;
+  artifact_id: string | null;
+  type: string;
+  title: string;
+  body: string | null;
+  link: string | null;
+  is_read: boolean | null;
+  created_at: string;
+  actor_user_id: string | null;
+  metadata: any;
 };
-type NotifApiResp = { ok: false; error: string } | { ok: true; unreadCount?: number; items: NotifRow[] };
+type NotifApiResp =
+  | { ok: false; error: string }
+  | { ok: true; unreadCount?: number; items: NotifRow[] };
 type BellTab = "all" | "action" | "ai" | "approvals";
 type DueItemType = "artifact" | "milestone" | "work_item" | "raid" | "change";
 type DueDigestItem = {
-  itemType: DueItemType; title: string; dueDate: string | null; status?: string | null;
-  ownerLabel?: string | null; ownerEmail?: string | null; link?: string | null; meta?: any;
+  itemType: DueItemType;
+  title: string;
+  dueDate: string | null;
+  status?: string | null;
+  ownerLabel?: string | null;
+  ownerEmail?: string | null;
+  link?: string | null;
+  meta?: any;
 };
 type ArtifactDueAi = {
-  summary: string; windowDays: number;
-  counts: { total: number; milestone: number; work_item: number; raid: number; artifact: number; change: number; };
-  dueSoon: DueDigestItem[]; recommendedMessage?: string;
+  summary: string;
+  windowDays: number;
+  counts: {
+    total: number;
+    milestone: number;
+    work_item: number;
+    raid: number;
+    artifact: number;
+    change: number;
+  };
+  dueSoon: DueDigestItem[];
+  recommendedMessage?: string;
 };
 type ArtifactDueResp =
   | { ok: false; error: string; meta?: any }
-  | { ok: true; eventType: "artifact_due"; scope?: "project" | "org"; project_id?: string;
-      project_human_id?: string | null; project_code?: string | null; project_name?: string | null;
-      model?: string; ai: ArtifactDueAi; stats?: any; };
-type Insight = { id: string; severity: "high" | "medium" | "info"; title: string; body: string; href?: string | null; };
+  | {
+      ok: true;
+      eventType: "artifact_due";
+      scope?: "project" | "org";
+      project_id?: string;
+      project_human_id?: string | null;
+      project_code?: string | null;
+      project_name?: string | null;
+      model?: string;
+      ai: ArtifactDueAi;
+      stats?: any;
+    };
+
+type Insight = {
+  id: string;
+  severity: "high" | "medium" | "info";
+  title: string;
+  body: string;
+  href?: string | null;
+};
+
 type HomeData =
   | { ok: false; error: string }
   | {
-      ok: true; user: { id: string; email?: string | null }; isExec: boolean; roles: string[];
+      ok: true;
+      user: { id: string; email?: string | null };
+      isExec: boolean;
+      roles: string[];
       projects: {
-        id: string; title: string; client_name?: string | null; project_code?: any; status?: string | null;
-        lifecycle_state?: string | null; state?: string | null; phase?: string | null;
-        is_active?: boolean | null; active?: boolean | null; deleted_at?: string | null;
-        deletedAt?: string | null; is_deleted?: boolean | null; deleted?: boolean | null;
-        is_archived?: boolean | null; archived?: boolean | null; archived_at?: string | null;
-        cancelled_at?: string | null; closed_at?: string | null;
+        id: string;
+        title: string;
+        client_name?: string | null;
+        project_code?: any;
+        status?: string | null;
+        lifecycle_state?: string | null;
+        state?: string | null;
+        phase?: string | null;
+        is_active?: boolean | null;
+        active?: boolean | null;
+        deleted_at?: string | null;
+        deletedAt?: string | null;
+        is_deleted?: boolean | null;
+        deleted?: boolean | null;
+        is_archived?: boolean | null;
+        archived?: boolean | null;
+        archived_at?: string | null;
+        cancelled_at?: string | null;
+        closed_at?: string | null;
       }[];
-      kpis: { portfolioHealth: number; openRisks: number; highRisks: number; forecastVariance: number; milestonesDue: number; openLessons: number; };
+      kpis: {
+        portfolioHealth: number;
+        openRisks: number;
+        highRisks: number;
+        forecastVariance: number;
+        milestonesDue: number;
+        openLessons: number;
+      };
       approvals: { count: number; items: any[] };
       rag: { project_id: string; title: string; rag: "G" | "A" | "R"; health: number }[];
     };
+
 type MilestonesPanel = {
-  days: number; due_count: number; overdue_count: number; on_track_count?: number; ai_high_risk_count?: number;
-  status_breakdown?: { planned?: number; in_progress?: number; at_risk?: number; completed?: number; overdue?: number; };
-  slippage?: { avg_slip_days?: number; max_slip_days?: number; };
+  days: number;
+  due_count: number;
+  overdue_count: number;
+  on_track_count?: number;
+  ai_high_risk_count?: number;
+  status_breakdown?: {
+    planned?: number;
+    in_progress?: number;
+    at_risk?: number;
+    completed?: number;
+    overdue?: number;
+  };
+  slippage?: { avg_slip_days?: number; max_slip_days?: number };
 };
+
 type RaidPanel = {
-  days: number; due_total: number; overdue_total: number;
-  risk_due?: number; issue_due?: number; dependency_due?: number; assumption_due?: number;
-  risk_overdue?: number; issue_overdue?: number; dependency_overdue?: number; assumption_overdue?: number;
-  risk_hi?: number; issue_hi?: number; dependency_hi?: number; assumption_hi?: number; overdue_hi?: number;
+  days: number;
+  due_total: number;
+  overdue_total: number;
+  risk_due?: number;
+  issue_due?: number;
+  dependency_due?: number;
+  assumption_due?: number;
+  risk_overdue?: number;
+  issue_overdue?: number;
+  dependency_overdue?: number;
+  assumption_overdue?: number;
+  risk_hi?: number;
+  issue_hi?: number;
+  dependency_hi?: number;
+  assumption_hi?: number;
+  overdue_hi?: number;
 };
+
 type SuccessStoryTop = {
-  id: string; category?: string | null; title: string; summary: string; happened_at?: string | null;
-  project_id?: string | null; project_title?: string | null; href?: string | null;
+  id: string;
+  category?: string | null;
+  title: string;
+  summary: string;
+  happened_at?: string | null;
+  project_id?: string | null;
+  project_title?: string | null;
+  href?: string | null;
 };
+
+// ✅ allow both API shapes (old flat + new nested summary)
+type SuccessStoriesBreakdown = {
+  milestones_done?: number;
+  wbs_done?: number;
+  raid_resolved?: number;
+  changes_delivered?: number;
+  lessons_positive?: number;
+};
+
 type SuccessStoriesSummary =
   | { ok: false; error: string }
   | {
-      ok: true; days: number; score: number; prev_score: number; delta: number; count: number;
-      breakdown?: { milestones_done?: number; wbs_done?: number; raid_resolved?: number; changes_delivered?: number; lessons_positive?: number; };
+      ok: true;
+      days: number;
+
+      // flat shape used by UI
+      score: number;
+      prev_score: number;
+      delta: number;
+      count: number;
+      breakdown?: SuccessStoriesBreakdown;
       top?: SuccessStoryTop[];
+
+      // tolerate v2 fields (harmless)
+      summary?: {
+        score?: number;
+        points?: number;
+        breakdown?: SuccessStoriesBreakdown;
+        top_wins?: SuccessStoryTop[];
+      };
+      meta?: any;
     };
-type PortfolioHealthDriver = { key: string; label: string; score: number; detail?: string | null; };
+
+type PortfolioHealthDriver = { key: string; label: string; score: number; detail?: string | null };
 type PortfolioHealthApi =
   | { ok: false; error: string; meta?: any }
   | {
-      ok: true; portfolio_health: number; days: 7 | 14 | 30 | 60 | "all"; windowDays?: number; projectCount: number;
+      ok: true;
+      portfolio_health: number;
+      days: 7 | 14 | 30 | 60 | "all";
+      windowDays?: number;
+      projectCount: number;
       parts: { schedule: number; raid: number; flow: number; approvals: number; activity: number };
-      drivers: PortfolioHealthDriver[]; schedule?: any; meta?: any;
+      drivers: PortfolioHealthDriver[];
+      schedule?: any;
+      meta?: any;
     };
+
 type RagLetter = "G" | "A" | "R";
 
-function safeStr(x: any) { return typeof x === "string" ? x : ""; }
-function num(x: any, fallback = 0) { const n = Number(x); return Number.isFinite(n) ? n : fallback; }
-function clamp01to100(x: any) { const n = Number(x); if (!Number.isFinite(n)) return 0; return Math.max(0, Math.min(100, Math.round(n))); }
-function looksLikeUuid(s: string) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(s || "").trim()); }
+function safeStr(x: any) {
+  return typeof x === "string" ? x : "";
+}
+function num(x: any, fallback = 0) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : fallback;
+}
+function clamp01to100(x: any) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+function looksLikeUuid(s: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(s || "").trim()
+  );
+}
 function timeAgo(iso: string) {
-  const t = new Date(iso).getTime(); const now = Date.now(); const diffMs = now - t;
+  const t = new Date(iso).getTime();
+  const now = Date.now();
+  const diffMs = now - t;
   if (!Number.isFinite(t) || diffMs < 0) return "just now";
-  const s = Math.floor(diffMs / 1000); if (s < 60) return `${s}s ago`;
-  const m2 = Math.floor(s / 60); if (m2 < 60) return `${m2}m ago`;
-  const h = Math.floor(m2 / 60); if (h < 24) return `${h}h ago`;
+  const s = Math.floor(diffMs / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m2 = Math.floor(s / 60);
+  if (m2 < 60) return `${m2}m ago`;
+  const h = Math.floor(m2 / 60);
+  if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
 }
-function groupLabel(iso: string) { const h = (Date.now() - new Date(iso).getTime()) / 36e5; if (h < 24) return "Today"; if (h < 168) return "This week"; return "Earlier"; }
-function typeLooksApproval(t: string) { const s = t.toLowerCase(); return s.includes("approval") || s.includes("approve") || s.includes("decision"); }
-function typeLooksAI(t: string) { const s = t.toLowerCase(); return s.includes("ai") || s.includes("warning") || s.includes("predict") || s.includes("slip"); }
-function typeLooksAction(t: string) { const s = t.toLowerCase(); return typeLooksApproval(s) || typeLooksAI(s) || s.includes("overdue") || s.includes("assigned") || s.includes("risk") || s.includes("issue") || s.includes("milestone") || s.includes("portfolio"); }
+function groupLabel(iso: string) {
+  const h = (Date.now() - new Date(iso).getTime()) / 36e5;
+  if (h < 24) return "Today";
+  if (h < 168) return "This week";
+  return "Earlier";
+}
+function typeLooksApproval(t: string) {
+  const s = t.toLowerCase();
+  return s.includes("approval") || s.includes("approve") || s.includes("decision");
+}
+function typeLooksAI(t: string) {
+  const s = t.toLowerCase();
+  return s.includes("ai") || s.includes("warning") || s.includes("predict") || s.includes("slip");
+}
+function typeLooksAction(t: string) {
+  const s = t.toLowerCase();
+  return (
+    typeLooksApproval(s) ||
+    typeLooksAI(s) ||
+    s.includes("overdue") ||
+    s.includes("assigned") ||
+    s.includes("risk") ||
+    s.includes("issue") ||
+    s.includes("milestone") ||
+    s.includes("portfolio")
+  );
+}
 function severityFromNotif(n: NotifRow): "high" | "medium" | "info" | "success" {
   const metaSev = safeStr(n?.metadata?.severity).toLowerCase();
-  if (["high","medium","info","success"].includes(metaSev)) return metaSev as any;
+  if (["high", "medium", "info", "success"].includes(metaSev)) return metaSev as any;
   const t = safeStr(n.type).toLowerCase();
   if (t.includes("success") || t.includes("completed") || t.includes("delivered")) return "success";
   if (t.includes("high") || t.includes("critical") || t.includes("breach")) return "high";
-  if (t.includes("warning") || t.includes("overdue") || t.includes("at_risk") || t.includes("risk") || t.includes("issue")) return "medium";
+  if (
+    t.includes("warning") ||
+    t.includes("overdue") ||
+    t.includes("at_risk") ||
+    t.includes("risk") ||
+    t.includes("issue")
+  )
+    return "medium";
   return "info";
 }
 function notifIcon(n: NotifRow) {
-  const t = safeStr(n.type).toLowerCase(); const sev = severityFromNotif(n);
+  const t = safeStr(n.type).toLowerCase();
+  const sev = severityFromNotif(n);
   if (typeLooksApproval(t)) return <ShieldCheck className="h-4 w-4" />;
   if (typeLooksAI(t)) return <Sparkles className="h-4 w-4" />;
   if (t.includes("overdue")) return <Clock3 className="h-4 w-4" />;
@@ -119,15 +316,19 @@ function notifIcon(n: NotifRow) {
   return <CircleDot className="h-4 w-4" />;
 }
 function severityChip(sev: "high" | "medium" | "info" | "success") {
-  const base = "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide";
+  const base =
+    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide";
   if (sev === "high") return `${base} text-rose-700 bg-rose-50 border-rose-200`;
   if (sev === "medium") return `${base} text-amber-700 bg-amber-50 border-amber-200`;
   if (sev === "success") return `${base} text-emerald-700 bg-emerald-50 border-emerald-200`;
   return `${base} text-indigo-700 bg-indigo-50 border-indigo-200`;
 }
 function tabMatch(tab: BellTab, n: NotifRow) {
-  if (tab === "all") return true; if (tab === "approvals") return typeLooksApproval(n.type);
-  if (tab === "ai") return typeLooksAI(n.type); if (tab === "action") return typeLooksAction(n.type); return true;
+  if (tab === "all") return true;
+  if (tab === "approvals") return typeLooksApproval(n.type);
+  if (tab === "ai") return typeLooksAI(n.type);
+  if (tab === "action") return typeLooksAction(n.type);
+  return true;
 }
 function runIdle(fn: () => void) {
   if (typeof window !== "undefined" && typeof (window as any).requestIdleCallback === "function")
@@ -135,70 +336,160 @@ function runIdle(fn: () => void) {
   return window.setTimeout(fn, 0);
 }
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> {
-  try { const r = await fetch(url, init); if (!r.ok) return null; return (await r.json().catch(() => null)) as T | null; }
-  catch { return null; }
+  try {
+    const r = await fetch(url, init);
+    if (!r.ok) return null;
+    return (await r.json().catch(() => null)) as T | null;
+  } catch {
+    return null;
+  }
 }
-function scoreToRag(score: number): RagLetter { const s = clamp01to100(score); if (s >= 70) return "G"; if (s >= 55) return "A"; return "R"; }
-function ragLabel(r: RagLetter) { return r === "G" ? "Green" : r === "A" ? "Amber" : "Red"; }
+function scoreToRag(score: number): RagLetter {
+  const s = clamp01to100(score);
+  if (s >= 70) return "G";
+  if (s >= 55) return "A";
+  return "R";
+}
+function ragLabel(r: RagLetter) {
+  return r === "G" ? "Green" : r === "A" ? "Amber" : "Red";
+}
 function ragBadgeClasses(r: RagLetter) {
   if (r === "G") return "border-emerald-300 bg-emerald-50 text-emerald-700";
   if (r === "A") return "border-amber-300 bg-amber-50 text-amber-700";
   return "border-rose-300 bg-rose-50 text-rose-700";
 }
-function ragStrokeColor(r: RagLetter) { if (r === "G") return "#10b981"; if (r === "A") return "#f59e0b"; return "#f43f5e"; }
+function ragStrokeColor(r: RagLetter) {
+  if (r === "G") return "#10b981";
+  if (r === "A") return "#f59e0b";
+  return "#f43f5e";
+}
 function trendIcon(delta: number | null | undefined) {
-  const d = Number(delta); if (!Number.isFinite(d) || d === 0) return <Minus className="h-4 w-4" />;
+  const d = Number(delta);
+  if (!Number.isFinite(d) || d === 0) return <Minus className="h-4 w-4" />;
   return d > 0 ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />;
 }
 function fmtDelta(delta: number | null | undefined, suffix = "pts") {
-  const d = Number(delta); if (!Number.isFinite(d) || d === 0) return "No change";
+  const d = Number(delta);
+  if (!Number.isFinite(d) || d === 0) return "No change";
   return `${d > 0 ? "+" : ""}${Math.round(d)} ${suffix}`;
 }
 function pickCategoryTone(cat?: string | null): "emerald" | "indigo" | "amber" | "rose" {
   const c = String(cat || "").toLowerCase();
-  if (c.includes("milestone")) return "emerald"; if (c.includes("raid") || c.includes("risk") || c.includes("issue") || c.includes("dependency")) return "amber";
-  if (c.includes("change")) return "indigo"; if (c.includes("lesson")) return "emerald"; if (c.includes("wbs")) return "indigo"; return "emerald";
+  if (c.includes("milestone")) return "emerald";
+  if (c.includes("raid") || c.includes("risk") || c.includes("issue") || c.includes("dependency")) return "amber";
+  if (c.includes("change")) return "indigo";
+  if (c.includes("lesson")) return "emerald";
+  if (c.includes("wbs")) return "indigo";
+  return "emerald";
 }
 function fixInsightHref(x: Insight, days?: WindowDays): string | undefined {
-  const title = safeStr(x?.title).toLowerCase(); const body = safeStr(x?.body).toLowerCase(); const href = safeStr(x?.href).trim();
+  const title = safeStr(x?.title).toLowerCase();
+  const body = safeStr(x?.body).toLowerCase();
+  const href = safeStr(x?.href).trim();
   const isWbs = title.includes("wbs") || body.includes("wbs") || href.includes("/wbs") || href.includes("type=wbs");
-  const isWbsEffortGaps = title.includes("wbs effort gaps") || title.includes("effort gaps") || (title.includes("wbs") && body.includes("missing") && body.includes("effort")) || (body.includes("wbs") && body.includes("missing") && body.includes("effort"));
-  if (isWbs) { const sp = new URLSearchParams(); if (typeof days === "number" && Number.isFinite(days)) sp.set("days", String(days)); if (isWbsEffortGaps) sp.set("focus", "effort"); const qs = sp.toString(); return qs ? `/wbs/stats?${qs}` : "/wbs/stats"; }
+  const isWbsEffortGaps =
+    title.includes("wbs effort gaps") ||
+    title.includes("effort gaps") ||
+    (title.includes("wbs") && body.includes("missing") && body.includes("effort")) ||
+    (body.includes("wbs") && body.includes("missing") && body.includes("effort"));
+  if (isWbs) {
+    const sp = new URLSearchParams();
+    if (typeof days === "number" && Number.isFinite(days)) sp.set("days", String(days));
+    if (isWbsEffortGaps) sp.set("focus", "effort");
+    const qs = sp.toString();
+    return qs ? `/wbs/stats?${qs}` : "/wbs/stats";
+  }
   return href || undefined;
 }
 function orderBriefingInsights(xs: Insight[]) {
   const arr = Array.isArray(xs) ? [...xs] : [];
-  arr.sort((a, b) => { const aIs = a?.id === "ai-warning" ? 0 : 1; const bIs = b?.id === "ai-warning" ? 0 : 1; if (aIs !== bIs) return aIs - bIs; return 0; });
+  arr.sort((a, b) => {
+    const aIs = a?.id === "ai-warning" ? 0 : 1;
+    const bIs = b?.id === "ai-warning" ? 0 : 1;
+    if (aIs !== bIs) return aIs - bIs;
+    return 0;
+  });
   return arr;
 }
-function calcRagAgg(rag: { project_id?: string; rag: "G" | "A" | "R"; health: number }[] | null | undefined, projects: { id: string }[] | null | undefined) {
-  const proj = Array.isArray(projects) ? projects : []; const list = Array.isArray(rag) ? rag : [];
+function calcRagAgg(
+  rag: { project_id?: string; rag: "G" | "A" | "R"; health: number }[] | null | undefined,
+  projects: { id: string }[] | null | undefined
+) {
+  const proj = Array.isArray(projects) ? projects : [];
+  const list = Array.isArray(rag) ? rag : [];
   const byPid = new Map<string, { rag: "G" | "A" | "R"; health: number }>();
-  for (const it of list) { const pid = String(it?.project_id || "").trim(); const letter = String(it?.rag || "").toUpperCase() as "G" | "A" | "R"; if (!pid || !["G","A","R"].includes(letter)) continue; byPid.set(pid, { rag: letter, health: Number(it?.health) }); }
-  let g = 0, a = 0, r = 0, scored = 0; const vals: number[] = [];
-  for (const p of proj) {
-    const pid = String((p as any)?.id || "").trim(); if (!pid) continue; const hit = byPid.get(pid); if (!hit) continue; scored++;
-    if (hit.rag === "G") g++; else if (hit.rag === "A") a++; else if (hit.rag === "R") r++;
-    const h = Number(hit.health); vals.push(Number.isFinite(h) ? clamp01to100(h) : hit.rag === "G" ? 90 : hit.rag === "A" ? 65 : 35);
+  for (const it of list) {
+    const pid = String(it?.project_id || "").trim();
+    const letter = String(it?.rag || "").toUpperCase() as "G" | "A" | "R";
+    if (!pid || !["G", "A", "R"].includes(letter)) continue;
+    byPid.set(pid, { rag: letter, health: Number(it?.health) });
   }
-  const projectsTotal = proj.length; const unscored = Math.max(0, projectsTotal - scored);
+  let g = 0,
+    a = 0,
+    r = 0,
+    scored = 0;
+  const vals: number[] = [];
+  for (const p of proj) {
+    const pid = String((p as any)?.id || "").trim();
+    if (!pid) continue;
+    const hit = byPid.get(pid);
+    if (!hit) continue;
+    scored++;
+    if (hit.rag === "G") g++;
+    else if (hit.rag === "A") a++;
+    else if (hit.rag === "R") r++;
+    const h = Number(hit.health);
+    vals.push(Number.isFinite(h) ? clamp01to100(h) : hit.rag === "G" ? 90 : hit.rag === "A" ? 65 : 35);
+  }
+  const projectsTotal = proj.length;
+  const unscored = Math.max(0, projectsTotal - scored);
   const avg = vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : 0;
   return { avgHealth: clamp01to100(avg), g, a, r, scored, unscored, projectsTotal };
 }
 function healthNarrative(score: number) {
-  if (score >= 85) return "Strong control across the portfolio."; if (score >= 70) return "Mostly healthy — watch the amber signals.";
-  if (score >= 55) return "Mixed health — prioritise red hotspots."; return "Portfolio at risk — focus on recovery actions.";
+  if (score >= 85) return "Strong control across the portfolio.";
+  if (score >= 70) return "Mostly healthy — watch the amber signals.";
+  if (score >= 55) return "Mixed health — prioritise red hotspots.";
+  return "Portfolio at risk — focus on recovery actions.";
 }
-function portfolioThresholdsTooltip() { return ["Portfolio Health thresholds:","• Strong: 85–100","• Healthy: 70–84","• Mixed: 55–69","• At Risk: 0–54","","Overall RAG from score:","• Green: ≥70","• Amber: 55–69","• Red: <55"].join("\n"); }
-function prevWindowDays(cur: 7 | 14 | 30 | 60): 7 | 14 | 30 | 60 { if (cur === 7) return 14; if (cur === 14) return 30; if (cur === 30) return 60; return 60; }
+function portfolioThresholdsTooltip() {
+  return [
+    "Portfolio Health thresholds:",
+    "• Strong: 85–100",
+    "• Healthy: 70–84",
+    "• Mixed: 55–69",
+    "• At Risk: 0–54",
+    "",
+    "Overall RAG from score:",
+    "• Green: ≥70",
+    "• Amber: 55–69",
+    "• Red: <55",
+  ].join("\n");
+}
+function prevWindowDays(cur: 7 | 14 | 30 | 60): 7 | 14 | 30 | 60 {
+  if (cur === 7) return 14;
+  if (cur === 14) return 30;
+  if (cur === 30) return 60;
+  return 60;
+}
 function projectCodeLabel(project_code: any): string {
   if (typeof project_code === "string") return project_code.trim();
   if (typeof project_code === "number" && Number.isFinite(project_code)) return String(project_code);
-  if (project_code && typeof project_code === "object") { const v = safeStr((project_code as any).project_code) || safeStr((project_code as any).code) || safeStr((project_code as any).value) || safeStr((project_code as any).id); return v.trim(); }
+  if (project_code && typeof project_code === "object") {
+    const v =
+      safeStr((project_code as any).project_code) ||
+      safeStr((project_code as any).code) ||
+      safeStr((project_code as any).value) ||
+      safeStr((project_code as any).id);
+    return v.trim();
+  }
   return "";
 }
 function dueDateLabel(iso: string | null | undefined) {
-  const s = safeStr(iso).trim(); if (!s) return "—"; const d = new Date(s); if (Number.isNaN(d.getTime())) return s;
+  const s = safeStr(iso).trim();
+  if (!s) return "—";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
   return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 }
 function dueChipTone(itemType: DueItemType) {
@@ -209,11 +500,66 @@ function dueChipTone(itemType: DueItemType) {
   return "border-gray-200 bg-gray-50 text-gray-600";
 }
 function dueTypeLabel(itemType: DueItemType) {
-  if (itemType === "milestone") return "Milestone"; if (itemType === "work_item") return "WBS";
-  if (itemType === "raid") return "RAID"; if (itemType === "change") return "Change"; return "Artifact";
+  if (itemType === "milestone") return "Milestone";
+  if (itemType === "work_item") return "WBS";
+  if (itemType === "raid") return "RAID";
+  if (itemType === "change") return "Change";
+  return "Artifact";
 }
 function isOverdue(iso: string | null | undefined) {
-  const s = safeStr(iso).trim(); if (!s) return false; const t = new Date(s).getTime(); if (!Number.isFinite(t)) return false; return t < Date.now() - 30 * 1000;
+  const s = safeStr(iso).trim();
+  if (!s) return false;
+  const t = new Date(s).getTime();
+  if (!Number.isFinite(t)) return false;
+  return t < Date.now() - 30 * 1000;
+}
+
+// ✅ success stories normalisation
+function sumSuccessBreakdown(b?: SuccessStoriesBreakdown) {
+  if (!b) return 0;
+  return (
+    num(b.milestones_done) +
+    num(b.wbs_done) +
+    num(b.raid_resolved) +
+    num(b.changes_delivered) +
+    num(b.lessons_positive)
+  );
+}
+function normalizeSuccessSummary(raw: any, days: number, prevScore: number): SuccessStoriesSummary {
+  const v1Score = Number(raw?.score);
+  const v1Ok = raw?.ok === true && Number.isFinite(v1Score);
+
+  const v2Score = Number(raw?.summary?.score);
+  const v2Ok = raw?.ok === true && Number.isFinite(v2Score);
+
+  const score = v1Ok ? clamp01to100(v1Score) : v2Ok ? clamp01to100(v2Score) : 0;
+
+  const breakdown: SuccessStoriesBreakdown | undefined = (v1Ok ? raw?.breakdown : raw?.summary?.breakdown) || undefined;
+
+  const topCandidate = v1Ok ? raw?.top : raw?.summary?.top_wins;
+  const top: SuccessStoryTop[] = Array.isArray(topCandidate) ? (topCandidate as SuccessStoryTop[]) : [];
+
+  const countFromBreakdown = sumSuccessBreakdown(breakdown);
+  const countFromMeta = num(raw?.meta?.total_wins);
+  const countFromV1 = num(raw?.count);
+
+  const count = countFromBreakdown > 0 ? countFromBreakdown : countFromMeta > 0 ? countFromMeta : countFromV1;
+
+  const prev_score = clamp01to100(prevScore);
+  const delta = score - prev_score;
+
+  return {
+    ok: true,
+    days,
+    score,
+    prev_score,
+    delta,
+    count,
+    breakdown,
+    top,
+    summary: raw?.summary,
+    meta: raw?.meta,
+  };
 }
 
 /* Bell */
@@ -234,15 +580,23 @@ function NotificationBell() {
       if (!j || !j.ok) throw new Error((j as any)?.error || "Failed");
       const list = Array.isArray(j.items) ? j.items : [];
       setItems(list);
-      const unread = typeof j.unreadCount === "number" ? j.unreadCount : list.filter((x) => x.is_read !== true).length;
+      const unread =
+        typeof j.unreadCount === "number" ? j.unreadCount : list.filter((x) => x.is_read !== true).length;
       setUnreadCount(Math.max(0, unread));
-    } catch (err) { console.error("Notifications refresh failed:", err); }
-    finally { setLoading(false); }
+    } catch (err) {
+      console.error("Notifications refresh failed:", err);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     const id = runIdle(() => refresh());
-    return () => { if (typeof window !== "undefined" && typeof (window as any).cancelIdleCallback === "function") (window as any).cancelIdleCallback(id); else window.clearTimeout(id); };
+    return () => {
+      if (typeof window !== "undefined" && typeof (window as any).cancelIdleCallback === "function")
+        (window as any).cancelIdleCallback(id);
+      else window.clearTimeout(id);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -250,14 +604,22 @@ function NotificationBell() {
     if (!open) return;
     refresh();
     pollRef.current = setInterval(refresh, 15000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); pollRef.current = null; };
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const filtered = useMemo(() => items.filter((n) => tabMatch(tab, n)), [items, tab]);
   const grouped = useMemo(() => {
     const map = new Map<string, NotifRow[]>();
-    for (const n of filtered) { const k = groupLabel(n.created_at); const arr = map.get(k) ?? []; arr.push(n); map.set(k, arr); }
+    for (const n of filtered) {
+      const k = groupLabel(n.created_at);
+      const arr = map.get(k) ?? [];
+      arr.push(n);
+      map.set(k, arr);
+    }
     return Array.from(map.entries());
   }, [filtered]);
 
@@ -265,30 +627,49 @@ function NotificationBell() {
     const wasUnread = items.some((n) => n.id === id && n.is_read !== true);
     setItems((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
     if (wasUnread) setUnreadCount((c) => Math.max(0, c - 1));
-    try { await fetch("/api/notifications/read", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }); }
-    catch { refresh(); }
+    try {
+      await fetch("/api/notifications/read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+    } catch {
+      refresh();
+    }
   }
 
   async function markAllRead() {
-    const unread = items.filter((n) => n.is_read !== true).length; if (unread <= 0) return;
-    setItems((prev) => prev.map((n) => (n.is_read === true ? n : { ...n, is_read: true }))); setUnreadCount(0);
-    try { await fetch("/api/notifications/read-all", { method: "POST" }); } catch { refresh(); }
+    const unread = items.filter((n) => n.is_read !== true).length;
+    if (unread <= 0) return;
+    setItems((prev) => prev.map((n) => (n.is_read === true ? n : { ...n, is_read: true })));
+    setUnreadCount(0);
+    try {
+      await fetch("/api/notifications/read-all", { method: "POST" });
+    } catch {
+      refresh();
+    }
   }
 
   function onClickItem(n: NotifRow) {
-    if (n.is_read !== true) markRead(n.id); setOpen(false);
-    const href = safeStr(n.link || n.metadata?.href || "").trim(); if (href) router.push(href);
+    if (n.is_read !== true) markRead(n.id);
+    setOpen(false);
+    const href = safeStr(n.link || n.metadata?.href || "").trim();
+    if (href) router.push(href);
   }
 
   return (
     <div className="relative">
-      <button type="button" onClick={() => setOpen((v) => !v)}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
         className="relative group rounded-xl border border-slate-200 bg-white p-2.5 transition-all hover:border-indigo-300 hover:bg-indigo-50/40 active:scale-95 shadow-sm"
         aria-label="Notifications"
       >
         <Bell className="h-5 w-5 text-slate-500 group-hover:text-indigo-600 transition-colors" />
         {unreadCount > 0 && (
-          <m.span initial={{ scale: 0 }} animate={{ scale: 1 }}
+          <m.span
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
             className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white ring-2 ring-white shadow-sm"
           >
             {unreadCount > 99 ? "99+" : unreadCount}
@@ -301,10 +682,15 @@ function NotificationBell() {
           <>
             <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
             <m.div
-              initial={{ opacity: 0, y: -10, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -10, scale: 0.96 }} transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              initial={{ opacity: 0, y: -10, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -10, scale: 0.96 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
               className="absolute right-0 top-full z-50 mt-3 w-[420px] overflow-hidden rounded-2xl border border-slate-200 bg-white"
-              style={{ boxShadow: "0 4px 6px -1px rgba(0,0,0,0.06), 0 20px 60px -10px rgba(0,0,0,0.14), 0 0 0 1px rgba(0,0,0,0.03)" }}
+              style={{
+                boxShadow:
+                  "0 4px 6px -1px rgba(0,0,0,0.06), 0 20px 60px -10px rgba(0,0,0,0.14), 0 0 0 1px rgba(0,0,0,0.03)",
+              }}
             >
               <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 bg-white/80">
                 <div className="flex items-center gap-3">
@@ -317,22 +703,36 @@ function NotificationBell() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={markAllRead}
-                    className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all shadow-sm">
-                    <CheckCheck className="mr-1.5 inline h-3.5 w-3.5" />Mark all read
+                  <button
+                    type="button"
+                    onClick={markAllRead}
+                    className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all shadow-sm"
+                  >
+                    <CheckCheck className="mr-1.5 inline h-3.5 w-3.5" />
+                    Mark all read
                   </button>
-                  <button type="button" onClick={() => setOpen(false)}
-                    className="h-8 w-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all shadow-sm inline-flex items-center justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    className="h-8 w-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all shadow-sm inline-flex items-center justify-center"
+                  >
                     <X className="h-4 w-4 text-slate-400" />
                   </button>
                 </div>
               </div>
               <div className="flex items-center gap-1 border-b border-slate-100 px-3 py-2.5 bg-slate-50/40">
-                {(["all","action","ai","approvals"] as BellTab[]).map((k) => {
+                {(["all", "action", "ai", "approvals"] as BellTab[]).map((k) => {
                   const label = k === "all" ? "All" : k === "action" ? "Action" : k === "ai" ? "AI" : "Approvals";
                   return (
-                    <button key={k} type="button" onClick={() => setTab(k)}
-                      className={["rounded-lg px-3 py-1.5 text-xs font-semibold transition-all", tab === k ? "bg-indigo-600 text-white shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"].join(" ")}>
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setTab(k)}
+                      className={[
+                        "rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
+                        tab === k ? "bg-indigo-600 text-white shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100",
+                      ].join(" ")}
+                    >
                       {label}
                     </button>
                   );
@@ -347,46 +747,74 @@ function NotificationBell() {
                     <div className="text-sm font-semibold text-slate-700">All caught up</div>
                     <div className="mt-1.5 text-xs text-slate-400">No new notifications.</div>
                   </div>
-                ) : grouped.map(([label, rows]) => (
-                  <div key={label}>
-                    <div className="px-5 pt-4 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</div>
-                    <div className="px-3 pb-2 space-y-1">
-                      {rows.map((n) => {
-                        const unread = n.is_read !== true; const sev = severityFromNotif(n);
-                        return (
-                          <button key={n.id} type="button" onClick={() => onClickItem(n)}
-                            className={["w-full rounded-xl px-3 py-3 text-left transition-all group",
-                              unread ? "bg-white border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/30 shadow-sm" : "hover:bg-slate-50 border border-transparent"].join(" ")}>
-                            <div className="flex items-start gap-3">
-                              <div className={["mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border",
-                                sev === "high" ? "border-rose-200 bg-rose-50 text-rose-600"
-                                : sev === "medium" ? "border-amber-200 bg-amber-50 text-amber-600"
-                                : sev === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-600"
-                                : "border-indigo-200 bg-indigo-50 text-indigo-600"].join(" ")}>
-                                {notifIcon(n)}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="truncate text-sm font-semibold text-slate-800">{n.title}</div>
-                                  <div className="shrink-0 text-[11px] text-slate-400">{timeAgo(n.created_at)}</div>
+                ) : (
+                  grouped.map(([label, rows]) => (
+                    <div key={label}>
+                      <div className="px-5 pt-4 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                        {label}
+                      </div>
+                      <div className="px-3 pb-2 space-y-1">
+                        {rows.map((n) => {
+                          const unread = n.is_read !== true;
+                          const sev = severityFromNotif(n);
+                          return (
+                            <button
+                              key={n.id}
+                              type="button"
+                              onClick={() => onClickItem(n)}
+                              className={[
+                                "w-full rounded-xl px-3 py-3 text-left transition-all group",
+                                unread
+                                  ? "bg-white border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/30 shadow-sm"
+                                  : "hover:bg-slate-50 border border-transparent",
+                              ].join(" ")}
+                            >
+                              <div className="flex items-start gap-3">
+                                <div
+                                  className={[
+                                    "mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border",
+                                    sev === "high"
+                                      ? "border-rose-200 bg-rose-50 text-rose-600"
+                                      : sev === "medium"
+                                      ? "border-amber-200 bg-amber-50 text-amber-600"
+                                      : sev === "success"
+                                      ? "border-emerald-200 bg-emerald-50 text-emerald-600"
+                                      : "border-indigo-200 bg-indigo-50 text-indigo-600",
+                                  ].join(" ")}
+                                >
+                                  {notifIcon(n)}
                                 </div>
-                                {n.body && <div className="mt-1 line-clamp-2 text-xs text-slate-500 leading-relaxed">{n.body}</div>}
-                                <div className="mt-2 flex items-center gap-2">
-                                  <span className={severityChip(sev)}>{sev}</span>
-                                  {unread && <span className="inline-flex h-1.5 w-1.5 rounded-full bg-indigo-500" />}
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="truncate text-sm font-semibold text-slate-800">{n.title}</div>
+                                    <div className="shrink-0 text-[11px] text-slate-400">{timeAgo(n.created_at)}</div>
+                                  </div>
+                                  {n.body && (
+                                    <div className="mt-1 line-clamp-2 text-xs text-slate-500 leading-relaxed">{n.body}</div>
+                                  )}
+                                  <div className="mt-2 flex items-center gap-2">
+                                    <span className={severityChip(sev)}>{sev}</span>
+                                    {unread && <span className="inline-flex h-1.5 w-1.5 rounded-full bg-indigo-500" />}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          </button>
-                        );
-                      })}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
               <div className="border-t border-slate-100 px-5 py-3.5 bg-white/50">
-                <button type="button" onClick={() => { setOpen(false); router.push("/notifications"); }}
-                  className="text-xs text-slate-500 hover:text-indigo-600 transition-colors flex items-center gap-1.5 font-semibold">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    router.push("/notifications");
+                  }}
+                  className="text-xs text-slate-500 hover:text-indigo-600 transition-colors flex items-center gap-1.5 font-semibold"
+                >
                   View all notifications <ChevronRight className="h-3 w-3" />
                 </button>
               </div>
@@ -405,7 +833,9 @@ function SkeletonAlert() {
       <div className="flex items-start gap-3">
         <div className="h-9 w-9 rounded-xl bg-slate-200 shrink-0" />
         <div className="flex-1 space-y-2.5 pt-1">
-          <div className="h-3.5 bg-slate-200 rounded w-2/5" /><div className="h-3 bg-slate-100 rounded w-full" /><div className="h-3 bg-slate-100 rounded w-3/4" />
+          <div className="h-3.5 bg-slate-200 rounded w-2/5" />
+          <div className="h-3 bg-slate-100 rounded w-full" />
+          <div className="h-3 bg-slate-100 rounded w-3/4" />
         </div>
       </div>
     </div>
@@ -413,45 +843,106 @@ function SkeletonAlert() {
 }
 
 /* ── SurfaceCard — GLOSSY GLASS ── */
-function SurfaceCard({ children, className = "", delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
+function SurfaceCard({
+  children,
+  className = "",
+  delay = 0,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  delay?: number;
+}) {
   return (
     <m.div
-      initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45, delay, ease: [0.16, 1, 0.3, 1] }}
       className={`relative overflow-hidden rounded-2xl border border-white/80 p-6 transition-all hover:shadow-xl hover:border-white ${className}`}
       style={{
-        background: "linear-gradient(145deg, rgba(255,255,255,0.97) 0%, rgba(248,250,255,0.94) 50%, rgba(240,245,255,0.92) 100%)",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.04), 0 8px 32px rgba(99,102,241,0.10), 0 24px 64px rgba(99,102,241,0.07), 0 1px 0 rgba(255,255,255,1) inset, 0 -1px 0 rgba(226,232,240,0.5) inset",
+        background:
+          "linear-gradient(145deg, rgba(255,255,255,0.97) 0%, rgba(248,250,255,0.94) 50%, rgba(240,245,255,0.92) 100%)",
+        boxShadow:
+          "0 2px 8px rgba(0,0,0,0.04), 0 8px 32px rgba(99,102,241,0.10), 0 24px 64px rgba(99,102,241,0.07), 0 1px 0 rgba(255,255,255,1) inset, 0 -1px 0 rgba(226,232,240,0.5) inset",
         backdropFilter: "blur(20px)",
       }}
     >
-      {/* Multi-layer shine */}
-      <div className="absolute top-0 left-0 right-0 h-[2px] rounded-t-2xl" style={{ background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.9) 30%, rgba(255,255,255,1) 50%, rgba(255,255,255,0.9) 70%, transparent 100%)" }} />
-      <div className="absolute top-0 left-0 right-0 h-12 rounded-t-2xl pointer-events-none" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.6) 0%, transparent 100%)" }} />
-      <div className="absolute top-2 left-4 right-4 h-6 rounded-full pointer-events-none blur-sm" style={{ background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.7) 40%, rgba(255,255,255,0.8) 60%, transparent 100%)" }} />
+      <div
+        className="absolute top-0 left-0 right-0 h-[2px] rounded-t-2xl"
+        style={{
+          background:
+            "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.9) 30%, rgba(255,255,255,1) 50%, rgba(255,255,255,0.9) 70%, transparent 100%)",
+        }}
+      />
+      <div
+        className="absolute top-0 left-0 right-0 h-12 rounded-t-2xl pointer-events-none"
+        style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.6) 0%, transparent 100%)" }}
+      />
+      <div
+        className="absolute top-2 left-4 right-4 h-6 rounded-full pointer-events-none blur-sm"
+        style={{
+          background:
+            "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.7) 40%, rgba(255,255,255,0.8) 60%, transparent 100%)",
+        }}
+      />
       <div className="relative">{children}</div>
     </m.div>
   );
 }
 
 /* ── KpiCard — GLOSSY GLASS ── */
-function KpiCard({ label, value, sub, icon, tone, onClick, extra, tooltip, metaLine, metaIcon, aiLine, rightVisual, badge, cardClassName, delay = 0 }: {
-  label: string; value: string; sub?: string; icon: React.ReactNode; tone: string;
-  onClick?: () => void; extra?: React.ReactNode; tooltip?: string; metaLine?: string;
-  metaIcon?: React.ReactNode; aiLine?: string; rightVisual?: React.ReactNode; badge?: React.ReactNode;
-  cardClassName?: string; delay?: number;
+function KpiCard({
+  label,
+  value,
+  sub,
+  icon,
+  tone,
+  onClick,
+  extra,
+  tooltip,
+  metaLine,
+  metaIcon,
+  aiLine,
+  rightVisual,
+  badge,
+  cardClassName,
+  delay = 0,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  icon: React.ReactNode;
+  tone: string;
+  onClick?: () => void;
+  extra?: React.ReactNode;
+  tooltip?: string;
+  metaLine?: string;
+  metaIcon?: React.ReactNode;
+  aiLine?: string;
+  rightVisual?: React.ReactNode;
+  badge?: React.ReactNode;
+  cardClassName?: string;
+  delay?: number;
 }) {
   const clickable = typeof onClick === "function";
   const bars: Record<string, string> = {
-    indigo: "bg-indigo-500", amber: "bg-amber-400", emerald: "bg-emerald-500",
-    rose: "bg-rose-500", slate: "bg-slate-400", cyan: "bg-cyan-500", gold: "bg-amber-400",
+    indigo: "bg-indigo-500",
+    amber: "bg-amber-400",
+    emerald: "bg-emerald-500",
+    rose: "bg-rose-500",
+    slate: "bg-slate-400",
+    cyan: "bg-cyan-500",
+    gold: "bg-amber-400",
   };
   const iconBgs: Record<string, string> = {
-    indigo: "bg-indigo-600 shadow-indigo-200", amber: "bg-amber-500 shadow-amber-200", emerald: "bg-emerald-600 shadow-emerald-200",
-    rose: "bg-rose-600 shadow-rose-200", slate: "bg-slate-600 shadow-slate-200", cyan: "bg-cyan-500 shadow-cyan-200", gold: "bg-amber-500 shadow-amber-200",
+    indigo: "bg-indigo-600 shadow-indigo-200",
+    amber: "bg-amber-500 shadow-amber-200",
+    emerald: "bg-emerald-600 shadow-emerald-200",
+    rose: "bg-rose-600 shadow-rose-200",
+    slate: "bg-slate-600 shadow-slate-200",
+    cyan: "bg-cyan-500 shadow-cyan-200",
+    gold: "bg-amber-500 shadow-amber-200",
   };
 
-  // Glass tint per tone for a subtle colored shimmer
   const glassTint: Record<string, string> = {
     indigo: "rgba(99,102,241,0.04)",
     amber: "rgba(245,158,11,0.04)",
@@ -468,28 +959,57 @@ function KpiCard({ label, value, sub, icon, tone, onClick, extra, tooltip, metaL
 
   return (
     <m.div
-      initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45, delay, ease: [0.16, 1, 0.3, 1] }}
-      className={["relative overflow-hidden rounded-2xl border border-white/80 p-6 transition-all",
+      className={[
+        "relative overflow-hidden rounded-2xl border border-white/80 p-6 transition-all",
         clickable ? "cursor-pointer hover:shadow-xl hover:border-white group" : "hover:shadow-lg",
-        cardClassName || ""].join(" ")}
+        cardClassName || "",
+      ].join(" ")}
       style={{
-        background: `linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(250,252,255,0.95) 40%, ${tint.replace("0.0", "0.0").replace("rgba", "rgba")} 100%)`,
-        boxShadow: "0 2px 8px rgba(0,0,0,0.04), 0 8px 32px rgba(99,102,241,0.10), 0 24px 64px rgba(99,102,241,0.07), 0 1px 0 rgba(255,255,255,1) inset, 0 -1px 0 rgba(226,232,240,0.5) inset",
+        background: `linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(250,252,255,0.95) 40%, ${tint
+          .replace("0.0", "0.0")
+          .replace("rgba", "rgba")} 100%)`,
+        boxShadow:
+          "0 2px 8px rgba(0,0,0,0.04), 0 8px 32px rgba(99,102,241,0.10), 0 24px 64px rgba(99,102,241,0.07), 0 1px 0 rgba(255,255,255,1) inset, 0 -1px 0 rgba(226,232,240,0.5) inset",
         backdropFilter: "blur(20px)",
       }}
-      role={clickable ? "button" : undefined} tabIndex={clickable ? 0 : undefined}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
       onClick={onClick}
-      onKeyDown={(e) => { if (!clickable) return; if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick?.(); } }}
+      onKeyDown={(e) => {
+        if (!clickable) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick?.();
+        }
+      }}
       title={tooltip || (clickable ? "Click to view details" : undefined)}
     >
-      {/* Left accent bar */}
-      <div className={`absolute left-0 top-5 bottom-5 w-[3px] rounded-r-full ${bar}`} style={{ filter: "drop-shadow(0 0 4px currentColor)" }} />
+      <div
+        className={`absolute left-0 top-5 bottom-5 w-[3px] rounded-r-full ${bar}`}
+        style={{ filter: "drop-shadow(0 0 4px currentColor)" }}
+      />
 
-      {/* Multi-layer glass shine */}
-      <div className="absolute top-0 left-0 right-0 h-[2px] rounded-t-2xl" style={{ background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.9) 30%, rgba(255,255,255,1) 50%, rgba(255,255,255,0.9) 70%, transparent 100%)" }} />
-      <div className="absolute top-0 left-0 right-0 h-14 rounded-t-2xl pointer-events-none" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.65) 0%, transparent 100%)" }} />
-      <div className="absolute top-2 left-4 right-4 h-6 rounded-full pointer-events-none blur-sm" style={{ background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.75) 40%, rgba(255,255,255,0.85) 60%, transparent 100%)" }} />
+      <div
+        className="absolute top-0 left-0 right-0 h-[2px] rounded-t-2xl"
+        style={{
+          background:
+            "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.9) 30%, rgba(255,255,255,1) 50%, rgba(255,255,255,0.9) 70%, transparent 100%)",
+        }}
+      />
+      <div
+        className="absolute top-0 left-0 right-0 h-14 rounded-t-2xl pointer-events-none"
+        style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.65) 0%, transparent 100%)" }}
+      />
+      <div
+        className="absolute top-2 left-4 right-4 h-6 rounded-full pointer-events-none blur-sm"
+        style={{
+          background:
+            "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.75) 40%, rgba(255,255,255,0.85) 60%, transparent 100%)",
+        }}
+      />
 
       <div className={["outline-none pl-4", cardClassName?.includes("flex") ? "flex flex-col h-full" : ""].join(" ")}>
         <div className="flex items-start justify-between gap-4">
@@ -497,9 +1017,18 @@ function KpiCard({ label, value, sub, icon, tone, onClick, extra, tooltip, metaL
             <div className="flex items-center gap-2 mb-2">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{label}</p>
               {badge}
-              {tooltip && <span className="text-[9px] text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded font-mono cursor-help" title={tooltip}>i</span>}
+              {tooltip && (
+                <span
+                  className="text-[9px] text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded font-mono cursor-help"
+                  title={tooltip}
+                >
+                  i
+                </span>
+              )}
             </div>
-            <p className="text-4xl font-bold text-slate-950 tracking-tight" style={{ fontFamily: "var(--font-mono, monospace)" }}>{value}</p>
+            <p className="text-4xl font-bold text-slate-950 tracking-tight" style={{ fontFamily: "var(--font-mono, monospace)" }}>
+              {value}
+            </p>
             {sub && <p className="text-xs text-slate-400 mt-1.5 line-clamp-2 font-medium">{sub}</p>}
             {metaLine && (
               <div className="mt-3 inline-flex items-center gap-2 text-xs text-slate-500 bg-slate-50/80 border border-slate-200/80 px-2.5 py-1.5 rounded-lg backdrop-blur-sm">
@@ -509,8 +1038,12 @@ function KpiCard({ label, value, sub, icon, tone, onClick, extra, tooltip, metaL
             )}
             {aiLine && <p className="mt-3 text-xs text-slate-500 line-clamp-2 leading-relaxed">{aiLine}</p>}
           </div>
-          {rightVisual ? <div className="shrink-0">{rightVisual}</div> : (
-            <div className={`shrink-0 flex items-center justify-center w-11 h-11 rounded-xl ${iconBg} text-white shadow-lg transition-transform group-hover:scale-110`}>
+          {rightVisual ? (
+            <div className="shrink-0">{rightVisual}</div>
+          ) : (
+            <div
+              className={`shrink-0 flex items-center justify-center w-11 h-11 rounded-xl ${iconBg} text-white shadow-lg transition-transform group-hover:scale-110`}
+            >
               {icon}
             </div>
           )}
@@ -523,19 +1056,34 @@ function KpiCard({ label, value, sub, icon, tone, onClick, extra, tooltip, metaL
 
 /* ── Portfolio Health Ring ── */
 function PortfolioHealthRing({ score, rag }: { score: number; rag: RagLetter }) {
-  const s = clamp01to100(score); const r = 22; const c = 2 * Math.PI * r; const dash = (s / 100) * c; const color = ragStrokeColor(rag);
+  const s = clamp01to100(score);
+  const r = 22;
+  const c = 2 * Math.PI * r;
+  const dash = (s / 100) * c;
+  const color = ragStrokeColor(rag);
   return (
     <div className="shrink-0 relative">
       <div className="h-16 w-16">
         <svg viewBox="0 0 56 56" className="h-full w-full -rotate-90">
           <circle cx="28" cy="28" r={r} stroke="#e7e5e4" strokeWidth="5" fill="none" />
-          <m.circle cx="28" cy="28" r={r} stroke={color} strokeWidth="5" fill="none" strokeLinecap="round"
-            initial={{ strokeDasharray: `0 ${c}` }} animate={{ strokeDasharray: `${dash} ${c}` }} transition={{ duration: 1.2, ease: "easeOut" }}
+          <m.circle
+            cx="28"
+            cy="28"
+            r={r}
+            stroke={color}
+            strokeWidth="5"
+            fill="none"
+            strokeLinecap="round"
+            initial={{ strokeDasharray: `0 ${c}` }}
+            animate={{ strokeDasharray: `${dash} ${c}` }}
+            transition={{ duration: 1.2, ease: "easeOut" }}
             style={{ filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.1))" }}
           />
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-sm font-bold text-slate-800" style={{ fontFamily: "var(--font-mono, monospace)" }}>{s}%</span>
+          <span className="text-sm font-bold text-slate-800" style={{ fontFamily: "var(--font-mono, monospace)" }}>
+            {s}%
+          </span>
         </div>
       </div>
     </div>
@@ -543,14 +1091,29 @@ function PortfolioHealthRing({ score, rag }: { score: number; rag: RagLetter }) 
 }
 
 /* ── Portfolio Health Drivers ── */
-function PortfolioHealthDrivers({ parts, drivers }: { parts: { schedule: number; raid: number; flow: number; approvals: number; activity: number }; drivers: PortfolioHealthDriver[]; }) {
+function PortfolioHealthDrivers({
+  parts,
+  drivers,
+}: {
+  parts: { schedule: number; raid: number; flow: number; approvals: number; activity: number };
+  drivers: PortfolioHealthDriver[];
+}) {
   const partPill = (label: string, v: number) => {
     const score = clamp01to100(v);
-    const color = score >= 85 ? "text-emerald-700 bg-emerald-50 border-emerald-200" : score >= 70 ? "text-indigo-700 bg-indigo-50 border-indigo-200" : score >= 55 ? "text-amber-700 bg-amber-50 border-amber-200" : "text-rose-700 bg-rose-50 border-rose-200";
+    const color =
+      score >= 85
+        ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+        : score >= 70
+        ? "text-indigo-700 bg-indigo-50 border-indigo-200"
+        : score >= 55
+        ? "text-amber-700 bg-amber-50 border-amber-200"
+        : "text-rose-700 bg-rose-50 border-rose-200";
     return (
       <div className={`flex items-center justify-between rounded-lg border px-3 py-2 text-xs ${color}`}>
         <span className="font-semibold">{label}</span>
-        <span className="font-bold" style={{ fontFamily: "var(--font-mono, monospace)" }}>{score}</span>
+        <span className="font-bold" style={{ fontFamily: "var(--font-mono, monospace)" }}>
+          {score}
+        </span>
       </div>
     );
   };
@@ -558,25 +1121,54 @@ function PortfolioHealthDrivers({ parts, drivers }: { parts: { schedule: number;
     <div className="space-y-2 mt-4 pt-4 border-t border-slate-100">
       <div className="text-[10px] font-bold text-slate-400 mb-3 uppercase tracking-widest">Health Drivers</div>
       <div className="grid grid-cols-2 gap-2">
-        {partPill("Schedule", num(parts?.schedule))}{partPill("RAID", num(parts?.raid))}
-        {partPill("Flow", num(parts?.flow))}{partPill("Approvals", num(parts?.approvals))}
+        {partPill("Schedule", num(parts?.schedule))}
+        {partPill("RAID", num(parts?.raid))}
+        {partPill("Flow", num(parts?.flow))}
+        {partPill("Approvals", num(parts?.approvals))}
       </div>
     </div>
   );
 }
 
 /* ── Success Story Meta ── */
-function SuccessStoryMeta({ meta, loading, displayTotal }: { meta: { milestones_completed?: number; raid_closed?: number; changes_implemented?: number; wbs_done?: number; lessons_published?: number; }; loading: boolean; displayTotal: number; }) {
-  const milestones = num(meta.milestones_completed); const raid = num(meta.raid_closed); const changes = num(meta.changes_implemented);
-  const wbs = num(meta.wbs_done); const lessons = num(meta.lessons_published); const knownSum = milestones + raid + changes + wbs + lessons;
+function SuccessStoryMeta({
+  meta,
+  loading,
+  displayTotal,
+}: {
+  meta: {
+    milestones_completed?: number;
+    raid_closed?: number;
+    changes_implemented?: number;
+    wbs_done?: number;
+    lessons_published?: number;
+  };
+  loading: boolean;
+  displayTotal: number;
+}) {
+  const milestones = num(meta.milestones_completed);
+  const raid = num(meta.raid_closed);
+  const changes = num(meta.changes_implemented);
+  const wbs = num(meta.wbs_done);
+  const lessons = num(meta.lessons_published);
+  const knownSum = milestones + raid + changes + wbs + lessons;
   const other = Math.max(0, num(displayTotal) - knownSum);
-  const stats = [{ label: "Milestones", value: milestones }, { label: "RAID", value: raid }, { label: "Changes", value: changes }, { label: "WBS", value: wbs }, { label: "Lessons", value: lessons }, { label: "Other", value: other }];
+  const stats = [
+    { label: "Milestones", value: milestones },
+    { label: "RAID", value: raid },
+    { label: "Changes", value: changes },
+    { label: "WBS", value: wbs },
+    { label: "Lessons", value: lessons },
+    { label: "Other", value: other },
+  ];
   return (
     <div className="border-t border-slate-100 pt-4">
       <div className="grid grid-cols-3 gap-2">
         {stats.map((stat) => (
           <div key={stat.label} className="text-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-            <div className="text-lg font-bold text-slate-800" style={{ fontFamily: "var(--font-mono, monospace)" }}>{loading ? "…" : stat.value}</div>
+            <div className="text-lg font-bold text-slate-800" style={{ fontFamily: "var(--font-mono, monospace)" }}>
+              {loading ? "…" : stat.value}
+            </div>
             <div className="text-[9px] uppercase tracking-widest text-slate-400 mt-0.5 font-bold">{stat.label}</div>
           </div>
         ))}
@@ -586,24 +1178,50 @@ function SuccessStoryMeta({ meta, loading, displayTotal }: { meta: { milestones_
 }
 
 /* ── AI Alert ── */
-function AiAlert({ severity, title, body, href }: { severity: "high" | "medium" | "info"; title: string; body: string; href?: string; }) {
+function AiAlert({ severity, title, body, href }: { severity: "high" | "medium" | "info"; title: string; body: string; href?: string }) {
   const cfg = {
-    high:   { wrap: "border-rose-200 bg-rose-50/80 hover:border-rose-300",   icon: "bg-rose-100 border-rose-200 text-rose-600",   pill: "bg-rose-100 border-rose-200 text-rose-700",   label: "Critical" },
-    medium: { wrap: "border-amber-200 bg-amber-50/80 hover:border-amber-300", icon: "bg-amber-100 border-amber-200 text-amber-600", pill: "bg-amber-100 border-amber-200 text-amber-700", label: "Warning" },
-    info:   { wrap: "border-indigo-100 bg-indigo-50/50 hover:border-indigo-200", icon: "bg-indigo-100 border-indigo-200 text-indigo-600", pill: "bg-indigo-100 border-indigo-200 text-indigo-700", label: "Info" },
+    high: {
+      wrap: "border-rose-200 bg-rose-50/80 hover:border-rose-300",
+      icon: "bg-rose-100 border-rose-200 text-rose-600",
+      pill: "bg-rose-100 border-rose-200 text-rose-700",
+      label: "Critical",
+    },
+    medium: {
+      wrap: "border-amber-200 bg-amber-50/80 hover:border-amber-300",
+      icon: "bg-amber-100 border-amber-200 text-amber-600",
+      pill: "bg-amber-100 border-amber-200 text-amber-700",
+      label: "Warning",
+    },
+    info: {
+      wrap: "border-indigo-100 bg-indigo-50/50 hover:border-indigo-200",
+      icon: "bg-indigo-100 border-indigo-200 text-indigo-600",
+      pill: "bg-indigo-100 border-indigo-200 text-indigo-700",
+      label: "Info",
+    },
   }[severity];
   const Icon = severity === "info" ? Sparkles : AlertTriangle;
   return (
     <div className={`group rounded-xl border p-4 transition-all ${cfg.wrap}`}>
       <div className="flex items-start gap-3">
-        <div className={`shrink-0 flex h-9 w-9 items-center justify-center rounded-xl border ${cfg.icon}`}><Icon className="h-4 w-4" /></div>
+        <div className={`shrink-0 flex h-9 w-9 items-center justify-center rounded-xl border ${cfg.icon}`}>
+          <Icon className="h-4 w-4" />
+        </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3 mb-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest ${cfg.pill}`}>{cfg.label}</span>
+              <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest ${cfg.pill}`}>
+                {cfg.label}
+              </span>
               <h4 className="font-semibold text-sm text-slate-800">{title}</h4>
             </div>
-            {href && <a href={href} className="shrink-0 text-[11px] text-indigo-600 hover:text-indigo-700 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all font-semibold">View <ArrowUpRight className="h-3 w-3" /></a>}
+            {href && (
+              <a
+                href={href}
+                className="shrink-0 text-[11px] text-indigo-600 hover:text-indigo-700 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all font-semibold"
+              >
+                View <ArrowUpRight className="h-3 w-3" />
+              </a>
+            )}
           </div>
           <p className="text-xs text-slate-500 leading-relaxed">{body}</p>
         </div>
@@ -624,7 +1242,9 @@ function MilestonesMeta({ loading, panel }: { loading: boolean; panel: Milestone
       <div className="flex items-center justify-between gap-2">
         {stats.map((stat) => (
           <div key={stat.label} className="text-center flex-1 py-2 rounded-lg bg-slate-50 border border-slate-100">
-            <div className={`text-xl font-bold ${stat.cls}`} style={{ fontFamily: "var(--font-mono, monospace)" }}>{loading ? "…" : stat.value}</div>
+            <div className={`text-xl font-bold ${stat.cls}`} style={{ fontFamily: "var(--font-mono, monospace)" }}>
+              {loading ? "…" : stat.value}
+            </div>
             <div className="text-[9px] uppercase tracking-widest text-slate-400 mt-0.5 font-bold">{stat.label}</div>
           </div>
         ))}
@@ -634,50 +1254,121 @@ function MilestonesMeta({ loading, panel }: { loading: boolean; panel: Milestone
 }
 
 /* ── RAID Meta ── */
-function RaidMeta({ loading, panel, onClickType }: { loading: boolean; panel: RaidPanel | null; onClickType: (type?: "Risk" | "Issue" | "Dependency" | "Assumption", extra?: { overdue?: boolean; hi?: boolean }) => void; }) {
-  const riskVal = num(panel?.risk_due); const issueVal = num(panel?.issue_due); const depVal = num(panel?.dependency_due); const assVal = num(panel?.assumption_due);
-  const dueTotal = num(panel?.due_total); const overdueVal = num(panel?.overdue_total); const typedSum = riskVal + issueVal + depVal + assVal; const hasTypedBreakdown = typedSum > 0;
+function RaidMeta({
+  loading,
+  panel,
+  onClickType,
+}: {
+  loading: boolean;
+  panel: RaidPanel | null;
+  onClickType: (type?: "Risk" | "Issue" | "Dependency" | "Assumption", extra?: { overdue?: boolean; hi?: boolean }) => void;
+}) {
+  const riskVal = num(panel?.risk_due);
+  const issueVal = num(panel?.issue_due);
+  const depVal = num(panel?.dependency_due);
+  const assVal = num(panel?.assumption_due);
+  const dueTotal = num(panel?.due_total);
+  const overdueVal = num(panel?.overdue_total);
+  const typedSum = riskVal + issueVal + depVal + assVal;
+  const hasTypedBreakdown = typedSum > 0;
   return (
     <div className="mt-4 pt-4 border-t border-slate-100">
       {!hasTypedBreakdown ? (
-        <button onClick={(e) => { e.stopPropagation(); onClickType(undefined, { hi: false }); }}
-          className="w-full rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300 transition-all px-3 py-3 flex items-center justify-between">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onClickType(undefined, { hi: false });
+          }}
+          className="w-full rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300 transition-all px-3 py-3 flex items-center justify-between"
+        >
           <div className="flex items-center gap-2">
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-rose-50 border border-rose-200"><AlertTriangle className="h-4 w-4 text-rose-600" /></span>
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-rose-50 border border-rose-200">
+              <AlertTriangle className="h-4 w-4 text-rose-600" />
+            </span>
             <div className="text-left">
               <div className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Due in window</div>
               <div className="text-xs text-slate-400">Type breakdown unavailable</div>
             </div>
           </div>
-          <div className="text-xl font-bold text-slate-800" style={{ fontFamily: "var(--font-mono, monospace)" }}>{loading ? "…" : dueTotal}</div>
+          <div className="text-xl font-bold text-slate-800" style={{ fontFamily: "var(--font-mono, monospace)" }}>
+            {loading ? "…" : dueTotal}
+          </div>
         </button>
       ) : (
         <div className="grid grid-cols-4 gap-2">
-          {[{ label: "Risk", value: riskVal, type: "Risk" as const, cls: "text-rose-600" }, { label: "Issue", value: issueVal, type: "Issue" as const, cls: "text-amber-600" }, { label: "Dep", value: depVal, type: "Dependency" as const, cls: "text-indigo-600" }, { label: "Assum", value: assVal, type: "Assumption" as const, cls: "text-slate-600" }].map((item) => (
-            <button key={item.label} onClick={(e) => { e.stopPropagation(); onClickType(item.type, { hi: false }); }}
-              className="text-center p-2 rounded-xl bg-slate-50 border border-slate-200 hover:bg-slate-100 hover:border-slate-300 transition-all">
-              <div className={`text-lg font-bold ${item.cls}`} style={{ fontFamily: "var(--font-mono, monospace)" }}>{loading ? "…" : item.value}</div>
+          {[
+            { label: "Risk", value: riskVal, type: "Risk" as const, cls: "text-rose-600" },
+            { label: "Issue", value: issueVal, type: "Issue" as const, cls: "text-amber-600" },
+            { label: "Dep", value: depVal, type: "Dependency" as const, cls: "text-indigo-600" },
+            { label: "Assum", value: assVal, type: "Assumption" as const, cls: "text-slate-600" },
+          ].map((item) => (
+            <button
+              key={item.label}
+              onClick={(e) => {
+                e.stopPropagation();
+                onClickType(item.type, { hi: false });
+              }}
+              className="text-center p-2 rounded-xl bg-slate-50 border border-slate-200 hover:bg-slate-100 hover:border-slate-300 transition-all"
+            >
+              <div className={`text-lg font-bold ${item.cls}`} style={{ fontFamily: "var(--font-mono, monospace)" }}>
+                {loading ? "…" : item.value}
+              </div>
               <div className="text-[9px] uppercase tracking-widest text-slate-400 mt-0.5 font-bold">{item.label}</div>
             </button>
           ))}
         </div>
       )}
-      <button onClick={(e) => { e.stopPropagation(); onClickType(undefined, { overdue: true }); }}
-        className="mt-2 w-full rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 hover:border-rose-300 transition-all px-3 py-2.5 flex items-center justify-between">
-        <div className="flex items-center gap-2"><Clock3 className="h-3.5 w-3.5 text-rose-500" /><div className="text-[9px] font-bold text-rose-600 uppercase tracking-widest">Overdue Items</div></div>
-        <div className="text-sm font-bold text-rose-700" style={{ fontFamily: "var(--font-mono, monospace)" }}>{loading ? "…" : overdueVal}</div>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onClickType(undefined, { overdue: true });
+        }}
+        className="mt-2 w-full rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 hover:border-rose-300 transition-all px-3 py-2.5 flex items-center justify-between"
+      >
+        <div className="flex items-center gap-2">
+          <Clock3 className="h-3.5 w-3.5 text-rose-500" />
+          <div className="text-[9px] font-bold text-rose-600 uppercase tracking-widest">Overdue Items</div>
+        </div>
+        <div className="text-sm font-bold text-rose-700" style={{ fontFamily: "var(--font-mono, monospace)" }}>
+          {loading ? "…" : overdueVal}
+        </div>
       </button>
     </div>
   );
 }
 
 /* ── Project Tile ── */
-function ProjectTile({ projectRef, title, subtitle = "RAID · Changes · Lessons · Reporting", projectCode, clientName }: { projectRef: string; title: string; subtitle?: string; projectCode?: string; clientName?: string; }) {
+function ProjectTile({
+  projectRef,
+  title,
+  subtitle = "RAID · Changes · Lessons · Reporting",
+  projectCode,
+  clientName,
+}: {
+  projectRef: string;
+  title: string;
+  subtitle?: string;
+  projectCode?: string;
+  clientName?: string;
+}) {
   const router = useRouter();
-  function go() { if (!projectRef) return; router.push(`/projects/${encodeURIComponent(projectRef)}`); }
-  const code = safeStr(projectCode).trim(); const client = safeStr(clientName).trim();
+  function go() {
+    if (!projectRef) return;
+    router.push(`/projects/${encodeURIComponent(projectRef)}`);
+  }
+  const code = safeStr(projectCode).trim();
+  const client = safeStr(clientName).trim();
   return (
-    <m.div role="link" tabIndex={0} onClick={go} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } }}
+    <m.div
+      role="link"
+      tabIndex={0}
+      onClick={go}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          go();
+        }
+      }}
       whileHover={{ y: -2, transition: { duration: 0.18 } }}
       className="cursor-pointer rounded-xl border border-white/80 bg-white p-5 hover:border-indigo-200 hover:shadow-lg transition-all relative overflow-hidden group"
       style={{
@@ -686,15 +1377,31 @@ function ProjectTile({ projectRef, title, subtitle = "RAID · Changes · Lessons
         backdropFilter: "blur(12px)",
       }}
     >
-      {/* Shine */}
-      <div className="absolute top-0 left-0 right-0 h-[2px] rounded-t-xl" style={{ background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.85) 40%, rgba(255,255,255,1) 50%, rgba(255,255,255,0.85) 60%, transparent 100%)" }} />
+      <div
+        className="absolute top-0 left-0 right-0 h-[2px] rounded-t-xl"
+        style={{
+          background:
+            "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.85) 40%, rgba(255,255,255,1) 50%, rgba(255,255,255,0.85) 60%, transparent 100%)",
+        }}
+      />
       <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/0 to-indigo-50/0 group-hover:from-indigo-50/50 group-hover:to-violet-50/20 transition-all duration-300 rounded-xl" />
       <div className="relative">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-2.5 flex-wrap">
-              {code && <span className="inline-flex items-center rounded-md bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-[10px] font-bold text-indigo-700 uppercase tracking-wider" style={{ fontFamily: "var(--font-mono, monospace)" }}>{code}</span>}
-              {client && <span className="inline-flex items-center rounded-md bg-slate-100 border border-slate-200 px-2 py-0.5 text-[10px] text-slate-500 font-medium">{client}</span>}
+              {code && (
+                <span
+                  className="inline-flex items-center rounded-md bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-[10px] font-bold text-indigo-700 uppercase tracking-wider"
+                  style={{ fontFamily: "var(--font-mono, monospace)" }}
+                >
+                  {code}
+                </span>
+              )}
+              {client && (
+                <span className="inline-flex items-center rounded-md bg-slate-100 border border-slate-200 px-2 py-0.5 text-[10px] text-slate-500 font-medium">
+                  {client}
+                </span>
+              )}
             </div>
             <h3 className="text-sm font-bold text-slate-800 group-hover:text-indigo-700 transition-colors truncate">{title}</h3>
             <p className="text-[11px] text-slate-400 mt-1.5 font-medium">{subtitle}</p>
@@ -717,13 +1424,15 @@ export default function HomePage({ data }: { data: HomeData }) {
   const ok = data?.ok === true;
   const isExec = ok ? data.isExec : false;
   const projects = ok ? data.projects : [];
-  const kpis = ok ? data.kpis : { portfolioHealth: 0, openRisks: 0, highRisks: 0, forecastVariance: 0, milestonesDue: 0, openLessons: 0 };
+  const kpis = ok
+    ? data.kpis
+    : { portfolioHealth: 0, openRisks: 0, highRisks: 0, forecastVariance: 0, milestonesDue: 0, openLessons: 0 };
   const approvals = ok ? data.approvals : { count: 0, items: [] };
   const rag = ok ? data.rag || [] : [];
 
   const [today, setToday] = useState<string>("");
   const [windowDays, setWindowDays] = useState<WindowDays>(30);
-  const numericWindowDays = useMemo<7|14|30|60>(() => (windowDays === "all" ? 60 : windowDays), [windowDays]);
+  const numericWindowDays = useMemo<7 | 14 | 30 | 60>(() => (windowDays === "all" ? 60 : windowDays), [windowDays]);
   const windowLabel = windowDays === "all" ? "Overall" : `${windowDays}d`;
   const windowNarr = windowDays === "all" ? "Overall (all time)" : `Last ${windowDays} days`;
 
@@ -734,122 +1443,498 @@ export default function HomePage({ data }: { data: HomeData }) {
   const [phPrevLoading, setPhPrevLoading] = useState(false);
   const [phPrevErr, setPhPrevErr] = useState("");
   const [phPrevScore, setPhPrevScore] = useState<number | null>(null);
+
   const [insights, setInsights] = useState<Insight[]>([]);
   const [insightsLoading, setInsightsLoading] = useState<boolean>(true);
   const [insightsErr, setInsightsErr] = useState<string>("");
+
   const [ssLoading, setSsLoading] = useState(false);
   const [ssErr, setSsErr] = useState("");
   const [ssSummary, setSsSummary] = useState<SuccessStoriesSummary | null>(null);
   const [ssIdx, setSsIdx] = useState(0);
+
   const [approvalItems, setApprovalItems] = useState<any[]>(Array.isArray(approvals.items) ? approvals.items : []);
   const [pendingIds, setPendingIds] = useState<Record<string, true>>({});
+
   const [milestonesDueLive, setMilestonesDueLive] = useState<number>(Number(kpis.milestonesDue || 0));
   const [milestonesDueLoading, setMilestonesDueLoading] = useState<boolean>(false);
   const [milestonesPanel, setMilestonesPanel] = useState<MilestonesPanel | null>(null);
   const [milestonesPanelLoading, setMilestonesPanelLoading] = useState<boolean>(false);
+
   const [raidPanel, setRaidPanel] = useState<RaidPanel | null>(null);
   const [raidLoading, setRaidLoading] = useState(false);
-  const [dueWindowDays, setDueWindowDays] = useState<7|14|30>(14);
+
+  const [dueWindowDays, setDueWindowDays] = useState<7 | 14 | 30>(14);
   const [dueLoading, setDueLoading] = useState(false);
   const [dueErr, setDueErr] = useState("");
   const [dueItems, setDueItems] = useState<DueDigestItem[]>([]);
-  const [dueCounts, setDueCounts] = useState<{ total: number; milestone: number; work_item: number; raid: number; artifact: number; change: number; }>({ total: 0, milestone: 0, work_item: 0, raid: 0, artifact: 0, change: 0 });
+  const [dueCounts, setDueCounts] = useState<{ total: number; milestone: number; work_item: number; raid: number; artifact: number; change: number }>({
+    total: 0,
+    milestone: 0,
+    work_item: 0,
+    raid: 0,
+    artifact: 0,
+    change: 0,
+  });
   const [dueUpdatedAt, setDueUpdatedAt] = useState<string>("");
 
-  useEffect(() => { setApprovalItems(Array.isArray(approvals.items) ? approvals.items : []); }, [ok, approvals.items]);
-  useEffect(() => { setToday(new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" })); }, []);
-  useEffect(() => { setShowPhDetails(false); }, [windowDays]);
+  useEffect(() => {
+    setApprovalItems(Array.isArray(approvals.items) ? approvals.items : []);
+  }, [ok, approvals.items]);
+  useEffect(() => {
+    setToday(new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" }));
+  }, []);
+  useEffect(() => {
+    setShowPhDetails(false);
+  }, [windowDays]);
 
   useEffect(() => {
-    if (!ok || !isExec) return; let cancelled = false;
-    runIdle(() => { (async () => { try { setPhLoading(true); setPhErr(""); const j = await fetchJson<PortfolioHealthApi>(`/api/portfolio/health?days=${windowDays}`, { cache: "no-store" }); if (!j || !j.ok) throw new Error((j as any)?.error || "Failed"); if (!cancelled) setPhData(j); } catch (e: any) { if (!cancelled) { setPhErr(e?.message || "Failed"); setPhData(null); } } finally { if (!cancelled) setPhLoading(false); } })(); });
-    return () => { cancelled = true; };
+    if (!ok || !isExec) return;
+    let cancelled = false;
+    runIdle(() => {
+      (async () => {
+        try {
+          setPhLoading(true);
+          setPhErr("");
+          const j = await fetchJson<PortfolioHealthApi>(`/api/portfolio/health?days=${windowDays}`, { cache: "no-store" });
+          if (!j || !j.ok) throw new Error((j as any)?.error || "Failed");
+          if (!cancelled) setPhData(j);
+        } catch (e: any) {
+          if (!cancelled) {
+            setPhErr(e?.message || "Failed");
+            setPhData(null);
+          }
+        } finally {
+          if (!cancelled) setPhLoading(false);
+        }
+      })();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [ok, isExec, windowDays]);
 
   useEffect(() => {
-    if (!ok || !isExec) return; const prev = prevWindowDays(numericWindowDays); let cancelled = false;
-    runIdle(() => { (async () => { try { setPhPrevLoading(true); setPhPrevErr(""); const j = await fetchJson<PortfolioHealthApi>(`/api/portfolio/health?days=${prev}`, { cache: "no-store" }); if (!j || !j.ok) throw new Error((j as any)?.error || "Failed"); if (!cancelled) setPhPrevScore(clamp01to100((j as any).portfolio_health)); } catch (e: any) { if (!cancelled) { setPhPrevErr(e?.message || "Unavail"); setPhPrevScore(null); } } finally { if (!cancelled) setPhPrevLoading(false); } })(); });
-    return () => { cancelled = true; };
+    if (!ok || !isExec) return;
+    const prev = prevWindowDays(numericWindowDays);
+    let cancelled = false;
+    runIdle(() => {
+      (async () => {
+        try {
+          setPhPrevLoading(true);
+          setPhPrevErr("");
+          const j = await fetchJson<PortfolioHealthApi>(`/api/portfolio/health?days=${prev}`, { cache: "no-store" });
+          if (!j || !j.ok) throw new Error((j as any)?.error || "Failed");
+          if (!cancelled) setPhPrevScore(clamp01to100((j as any).portfolio_health));
+        } catch (e: any) {
+          if (!cancelled) {
+            setPhPrevErr(e?.message || "Unavail");
+            setPhPrevScore(null);
+          }
+        } finally {
+          if (!cancelled) setPhPrevLoading(false);
+        }
+      })();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [ok, isExec, numericWindowDays]);
 
   useEffect(() => {
     let cancelled = false;
-    runIdle(() => { (async () => { try { setInsightsLoading(true); setInsightsErr(""); const j: any = await fetchJson(`/api/ai/briefing?days=${numericWindowDays}`, { cache: "no-store" }); if (!j?.ok) throw new Error(j?.error || "Failed"); if (!cancelled) setInsights(orderBriefingInsights(Array.isArray(j?.insights) ? j.insights as Insight[] : [])); } catch (e: any) { if (!cancelled) { setInsightsErr(e?.message || "Failed"); setInsights([]); } } finally { if (!cancelled) setInsightsLoading(false); } })(); });
-    return () => { cancelled = true; };
+    runIdle(() => {
+      (async () => {
+        try {
+          setInsightsLoading(true);
+          setInsightsErr("");
+          const j: any = await fetchJson(`/api/ai/briefing?days=${numericWindowDays}`, { cache: "no-store" });
+          if (!j?.ok) throw new Error(j?.error || "Failed");
+          if (!cancelled)
+            setInsights(orderBriefingInsights(Array.isArray(j?.insights) ? (j.insights as Insight[]) : []));
+        } catch (e: any) {
+          if (!cancelled) {
+            setInsightsErr(e?.message || "Failed");
+            setInsights([]);
+          }
+        } finally {
+          if (!cancelled) setInsightsLoading(false);
+        }
+      })();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [numericWindowDays]);
 
+  // ✅ FIX: support both summary API shapes and compute delta client-side
   useEffect(() => {
-    if (!ok || !isExec) return; let cancelled = false;
-    runIdle(() => { (async () => { try { setSsLoading(true); setSsErr(""); const j = await fetchJson<SuccessStoriesSummary>(`/api/success-stories/summary?days=${numericWindowDays}`, { cache: "no-store" }); if (!j || !j.ok) throw new Error((j as any)?.error || "Failed"); if (!cancelled) setSsSummary(j); } catch (e: any) { if (!cancelled) { setSsErr(e?.message || "Failed"); setSsSummary(null); } } finally { if (!cancelled) setSsLoading(false); } })(); });
-    return () => { cancelled = true; };
+    if (!ok || !isExec) return;
+    let cancelled = false;
+
+    const curDays = numericWindowDays;
+    const prevDays = prevWindowDays(curDays);
+
+    runIdle(() => {
+      (async () => {
+        try {
+          setSsLoading(true);
+          setSsErr("");
+
+          const [curRaw, prevRaw] = await Promise.all([
+            fetchJson<any>(`/api/success-stories/summary?days=${curDays}`, { cache: "no-store" }),
+            fetchJson<any>(`/api/success-stories/summary?days=${prevDays}`, { cache: "no-store" }),
+          ]);
+
+          if (!curRaw || curRaw?.ok !== true) throw new Error(curRaw?.error || "Failed");
+
+          const prevScore =
+            prevRaw?.ok === true
+              ? clamp01to100(Number(prevRaw?.score ?? prevRaw?.summary?.score ?? 0))
+              : 0;
+
+          const normalized = normalizeSuccessSummary(curRaw, curDays, prevScore);
+
+          if (!cancelled) setSsSummary(normalized);
+        } catch (e: any) {
+          if (!cancelled) {
+            setSsErr(e?.message || "Failed");
+            setSsSummary(null);
+          }
+        } finally {
+          if (!cancelled) setSsLoading(false);
+        }
+      })();
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [ok, isExec, numericWindowDays]);
 
   useEffect(() => setSsIdx(0), [numericWindowDays]);
   useEffect(() => {
-    if (!ok || !isExec) return; const list = ssSummary && ssSummary.ok && Array.isArray(ssSummary.top) ? ssSummary.top : [];
-    if (list.length <= 1) return; const id = window.setInterval(() => setSsIdx((i) => (i + 1) % list.length), 6500); return () => window.clearInterval(id);
+    if (!ok || !isExec) return;
+    const list = ssSummary && ssSummary.ok && Array.isArray(ssSummary.top) ? ssSummary.top : [];
+    if (list.length <= 1) return;
+    const id = window.setInterval(() => setSsIdx((i) => (i + 1) % list.length), 6500);
+    return () => window.clearInterval(id);
   }, [ok, isExec, ssSummary]);
 
   const approvalCount = approvalItems.length;
-  const byId = useMemo(() => { const m2 = new Map<string, any>(); for (const it of approvalItems) m2.set(String(it?.id || ""), it); return m2; }, [approvalItems]);
+  const byId = useMemo(() => {
+    const m2 = new Map<string, any>();
+    for (const it of approvalItems) m2.set(String(it?.id || ""), it);
+    return m2;
+  }, [approvalItems]);
 
   async function decide(taskId: string, decision: "approve" | "reject") {
-    const item = byId.get(taskId); if (!item) return;
+    const item = byId.get(taskId);
+    if (!item) return;
     const comment = decision === "reject" ? (prompt("Reason for rejection (optional):", "") ?? "") : "";
     setPendingIds((p) => ({ ...p, [taskId]: true }));
     setApprovalItems((items) => items.filter((x) => String(x?.id || "") !== taskId));
-    try { const r = await fetch("/api/approvals/decision", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approval_task_id: taskId, decision, comment }) }); const j = await r.json(); if (!j?.ok) throw new Error(j?.error || "Decision failed"); }
-    catch (e: any) { setApprovalItems((items) => { const exists = items.some((x) => String(x?.id || "") === taskId); if (exists) return items; return [item, ...items]; }); alert(e?.message || "Decision failed"); }
-    finally { setPendingIds((p) => { const next = { ...p }; delete next[taskId]; return next; }); }
+    try {
+      const r = await fetch("/api/approvals/decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approval_task_id: taskId, decision, comment }),
+      });
+      const j = await r.json();
+      if (!j?.ok) throw new Error(j?.error || "Decision failed");
+    } catch (e: any) {
+      setApprovalItems((items) => {
+        const exists = items.some((x) => String(x?.id || "") === taskId);
+        if (exists) return items;
+        return [item, ...items];
+      });
+      alert(e?.message || "Decision failed");
+    } finally {
+      setPendingIds((p) => {
+        const next = { ...p };
+        delete next[taskId];
+        return next;
+      });
+    }
   }
 
   function viewHref(item: any) {
-    const projectRef = safeStr(item?.project_code) || safeStr(item?.project_human_id) || safeStr(item?.project?.project_code) || safeStr(item?.project?.project_human_id) || safeStr(item?.project_id || item?.change?.project_id);
-    const changeId = safeStr(item?.change_id || item?.change?.id); if (projectRef && changeId) return `/projects/${encodeURIComponent(projectRef)}/change/${encodeURIComponent(changeId)}`; return "";
+    const projectRef =
+      safeStr(item?.project_code) ||
+      safeStr(item?.project_human_id) ||
+      safeStr(item?.project?.project_code) ||
+      safeStr(item?.project?.project_human_id) ||
+      safeStr(item?.project_id || item?.change?.project_id);
+    const changeId = safeStr(item?.change_id || item?.change?.id);
+    if (projectRef && changeId) return `/projects/${encodeURIComponent(projectRef)}/change/${encodeURIComponent(changeId)}`;
+    return "";
   }
 
-  const projectIdsKey = useMemo(() => { const ids = (projects || []).map((p) => String(p?.id || "")).filter(Boolean).sort(); return ids.join("|"); }, [projects]);
-  function openMilestonesDrilldown() { const sp = new URLSearchParams(); sp.set("days", String(numericWindowDays)); router.push(`/milestones?${sp.toString()}`); }
+  const projectIdsKey = useMemo(() => {
+    const ids = (projects || []).map((p) => String(p?.id || "")).filter(Boolean).sort();
+    return ids.join("|");
+  }, [projects]);
+
+  function openMilestonesDrilldown() {
+    const sp = new URLSearchParams();
+    sp.set("days", String(numericWindowDays));
+    router.push(`/milestones?${sp.toString()}`);
+  }
 
   useEffect(() => {
-    if (!ok || !isExec || !projectIdsKey) return; let cancelled = false;
-    runIdle(() => { (async () => { try { setMilestonesDueLoading(true); const pj: any = await fetchJson(`/api/portfolio/milestones-due?days=${numericWindowDays}`, { cache: "no-store" }); if (pj?.ok && typeof pj?.count === "number") { if (!cancelled) setMilestonesDueLive(Math.max(0, Number(pj.count))); return; } const ids = projectIdsKey.split("|").filter(Boolean); const results = await Promise.allSettled(ids.map(async (projectId) => { const j: any = await fetchJson(`/api/projects/${projectId}/milestones/due?days=${numericWindowDays}`, { cache: "no-store" }); if (!j?.ok) return 0; const n2 = Number(j?.count ?? 0); return Number.isFinite(n2) ? n2 : 0; })); let sum = 0; for (const res of results) if (res.status === "fulfilled") sum += res.value; if (!cancelled) setMilestonesDueLive(sum); } catch {} finally { if (!cancelled) setMilestonesDueLoading(false); } })(); });
-    return () => { cancelled = true; };
+    if (!ok || !isExec || !projectIdsKey) return;
+    let cancelled = false;
+    runIdle(() => {
+      (async () => {
+        try {
+          setMilestonesDueLoading(true);
+          const pj: any = await fetchJson(`/api/portfolio/milestones-due?days=${numericWindowDays}`, { cache: "no-store" });
+          if (pj?.ok && typeof pj?.count === "number") {
+            if (!cancelled) setMilestonesDueLive(Math.max(0, Number(pj.count)));
+            return;
+          }
+          const ids = projectIdsKey.split("|").filter(Boolean);
+          const results = await Promise.allSettled(
+            ids.map(async (projectId) => {
+              const j: any = await fetchJson(`/api/projects/${projectId}/milestones/due?days=${numericWindowDays}`, { cache: "no-store" });
+              if (!j?.ok) return 0;
+              const n2 = Number(j?.count ?? 0);
+              return Number.isFinite(n2) ? n2 : 0;
+            })
+          );
+          let sum = 0;
+          for (const res of results) if (res.status === "fulfilled") sum += res.value;
+          if (!cancelled) setMilestonesDueLive(sum);
+        } catch {
+        } finally {
+          if (!cancelled) setMilestonesDueLoading(false);
+        }
+      })();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [ok, isExec, projectIdsKey, numericWindowDays]);
 
   useEffect(() => {
-    if (!ok || !isExec || !projectIdsKey) return; let cancelled = false;
-    runIdle(() => { (async () => { try { setMilestonesPanelLoading(true); const pj: any = await fetchJson(`/api/portfolio/milestones/panel?days=${numericWindowDays}`, { cache: "no-store" }); if (pj?.ok && pj?.panel) { if (!cancelled) setMilestonesPanel(pj.panel as MilestonesPanel); return; } const ids = projectIdsKey.split("|").filter(Boolean); const results = await Promise.allSettled(ids.map(async (projectId) => { const j: any = await fetchJson(`/api/projects/${projectId}/milestones/panel?days=${numericWindowDays}`, { cache: "no-store" }); if (!j?.ok) return null; return (j.panel ?? null) as MilestonesPanel | null; })); let due=0,overdue=0,onTrack=0,aiHigh=0,planned=0,inProg=0,atRisk=0,completed=0,slipSum=0,slipCount=0,maxSlip=0; for (const res of results) { if (res.status !== "fulfilled" || !res.value) continue; const p = res.value; due+=num(p.due_count); overdue+=num(p.overdue_count); onTrack+=num(p.on_track_count); aiHigh+=num(p.ai_high_risk_count); planned+=num(p.status_breakdown?.planned); inProg+=num(p.status_breakdown?.in_progress); atRisk+=num(p.status_breakdown?.at_risk); completed+=num(p.status_breakdown?.completed); const avg=p.slippage?.avg_slip_days; const mx=p.slippage?.max_slip_days; if (Number.isFinite(Number(avg))) { slipSum+=Number(avg); slipCount+=1; } if (Number.isFinite(Number(mx))) maxSlip=Math.max(maxSlip,Number(mx)); } if (!cancelled) setMilestonesPanel({ days: numericWindowDays, due_count: due, overdue_count: overdue, on_track_count: onTrack, ai_high_risk_count: aiHigh, status_breakdown: { planned, in_progress: inProg, at_risk: atRisk, completed, overdue }, slippage: { avg_slip_days: slipCount ? Math.round((slipSum/slipCount)*10)/10 : 0, max_slip_days: maxSlip } }); } catch { if (!cancelled) setMilestonesPanel(null); } finally { if (!cancelled) setMilestonesPanelLoading(false); } })(); });
-    return () => { cancelled = true; };
+    if (!ok || !isExec || !projectIdsKey) return;
+    let cancelled = false;
+    runIdle(() => {
+      (async () => {
+        try {
+          setMilestonesPanelLoading(true);
+          const pj: any = await fetchJson(`/api/portfolio/milestones/panel?days=${numericWindowDays}`, { cache: "no-store" });
+          if (pj?.ok && pj?.panel) {
+            if (!cancelled) setMilestonesPanel(pj.panel as MilestonesPanel);
+            return;
+          }
+          const ids = projectIdsKey.split("|").filter(Boolean);
+          const results = await Promise.allSettled(
+            ids.map(async (projectId) => {
+              const j: any = await fetchJson(`/api/projects/${projectId}/milestones/panel?days=${numericWindowDays}`, { cache: "no-store" });
+              if (!j?.ok) return null;
+              return (j.panel ?? null) as MilestonesPanel | null;
+            })
+          );
+          let due = 0,
+            overdue = 0,
+            onTrack = 0,
+            aiHigh = 0,
+            planned = 0,
+            inProg = 0,
+            atRisk = 0,
+            completed = 0,
+            slipSum = 0,
+            slipCount = 0,
+            maxSlip = 0;
+          for (const res of results) {
+            if (res.status !== "fulfilled" || !res.value) continue;
+            const p = res.value;
+            due += num(p.due_count);
+            overdue += num(p.overdue_count);
+            onTrack += num(p.on_track_count);
+            aiHigh += num(p.ai_high_risk_count);
+            planned += num(p.status_breakdown?.planned);
+            inProg += num(p.status_breakdown?.in_progress);
+            atRisk += num(p.status_breakdown?.at_risk);
+            completed += num(p.status_breakdown?.completed);
+            const avg = p.slippage?.avg_slip_days;
+            const mx = p.slippage?.max_slip_days;
+            if (Number.isFinite(Number(avg))) {
+              slipSum += Number(avg);
+              slipCount += 1;
+            }
+            if (Number.isFinite(Number(mx))) maxSlip = Math.max(maxSlip, Number(mx));
+          }
+          if (!cancelled)
+            setMilestonesPanel({
+              days: numericWindowDays,
+              due_count: due,
+              overdue_count: overdue,
+              on_track_count: onTrack,
+              ai_high_risk_count: aiHigh,
+              status_breakdown: { planned, in_progress: inProg, at_risk: atRisk, completed, overdue },
+              slippage: { avg_slip_days: slipCount ? Math.round((slipSum / slipCount) * 10) / 10 : 0, max_slip_days: maxSlip },
+            });
+        } catch {
+          if (!cancelled) setMilestonesPanel(null);
+        } finally {
+          if (!cancelled) setMilestonesPanelLoading(false);
+        }
+      })();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [ok, isExec, projectIdsKey, numericWindowDays]);
 
   useEffect(() => {
-    if (!ok || !isExec) return; let cancelled = false;
-    const pickFirstFinite = (obj: any, keys: string[]) => { for (const k of keys) { const v = obj?.[k]; if (Number.isFinite(Number(v))) return num(v); } return undefined; };
+    if (!ok || !isExec) return;
+    let cancelled = false;
+    const pickFirstFinite = (obj: any, keys: string[]) => {
+      for (const k of keys) {
+        const v = obj?.[k];
+        if (Number.isFinite(Number(v))) return num(v);
+      }
+      return undefined;
+    };
     const parseType = (t: any) => String(t || "").toLowerCase().trim();
-    const parseDueIso = (row: any) => safeStr(row?.due) || safeStr(row?.due_date) || safeStr(row?.dueDate) || safeStr(row?.due_at) || safeStr(row?.dueAt) || safeStr(row?.target_date) || safeStr(row?.targetDate) || "";
-    const isRowClosed = (row: any) => { const s = String(row?.status || row?.state || "").toLowerCase(); return s.includes("closed") || s.includes("resolved") || s.includes("done") || s.includes("complete"); };
-    runIdle(() => { (async () => { try { setRaidLoading(true); const j: any = await fetchJson(`/api/portfolio/raid-panel?days=${numericWindowDays}`, { cache: "no-store" }); if (!j?.ok) return; const p = j?.panel ?? null; if (cancelled) return; if (!p) { setRaidPanel(null); return; }
-      const risk_due = pickFirstFinite(p, ["risk_due","risks_due","due_risk","due_risks","riskDue","risk_due_count"]) ?? undefined;
-      const issue_due = pickFirstFinite(p, ["issue_due","issues_due","due_issue","due_issues","issueDue","issue_due_count"]) ?? undefined;
-      const dependency_due = pickFirstFinite(p, ["dependency_due","dependencies_due","dep_due","deps_due","due_dependency","due_deps","dependencyDue"]) ?? undefined;
-      const assumption_due = pickFirstFinite(p, ["assumption_due","assumptions_due","due_assumption","due_assumptions"]) ?? undefined;
-      const overdue_total_api = num(p?.overdue_total); const due_total_api = num(p?.due_total);
-      let dRisk=0,dIssue=0,dDep=0,dAss=0,ovRisk=0,ovIssue=0,ovDep=0,ovAss=0;
-      const items = Array.isArray(p?.items) ? p.items : Array.isArray(j?.items) ? j.items : null;
-      const missingTyped = !Number.isFinite(Number(risk_due)) || !Number.isFinite(Number(issue_due)) || !Number.isFinite(Number(dependency_due)) || !Number.isFinite(Number(assumption_due));
-      if (missingTyped && Array.isArray(items) && items.length) { const now = Date.now(); const windowEnd = now + numericWindowDays * 86400_000; for (const row of items) { if (isRowClosed(row)) continue; const type = parseType(row?.type || row?.item_type || row?.raid_type); const dueIso = parseDueIso(row); const dueT = dueIso ? new Date(dueIso).getTime() : NaN; if (!Number.isFinite(dueT)) continue; const isOv = dueT < Date.now() - 30_000; const inWindow = dueT <= windowEnd; if (inWindow && !isOv) { if (type.includes("risk")) dRisk++; else if (type.includes("issue")) dIssue++; else if (type.includes("depend")) dDep++; else if (type.includes("assump")) dAss++; } if (isOv) { if (type.includes("risk")) ovRisk++; else if (type.includes("issue")) ovIssue++; else if (type.includes("depend")) ovDep++; else if (type.includes("assump")) ovAss++; } } }
-      const finalRiskDue = Number.isFinite(Number(risk_due)) ? num(risk_due) : dRisk; const finalIssueDue = Number.isFinite(Number(issue_due)) ? num(issue_due) : dIssue; const finalDepDue = Number.isFinite(Number(dependency_due)) ? num(dependency_due) : dDep; const finalAssDue = Number.isFinite(Number(assumption_due)) ? num(assumption_due) : dAss;
-      const due_total_from_types = finalRiskDue + finalIssueDue + finalDepDue + finalAssDue; const due_total = due_total_from_types > 0 ? due_total_from_types : due_total_api; const overdue_total = overdue_total_api > 0 ? overdue_total_api : ovRisk + ovIssue + ovDep + ovAss;
-      setRaidPanel({ days: num(p.days, numericWindowDays), due_total, overdue_total, risk_due: finalRiskDue, issue_due: finalIssueDue, dependency_due: finalDepDue, assumption_due: finalAssDue, risk_overdue: ovRisk || undefined, issue_overdue: ovIssue || undefined, dependency_overdue: ovDep || undefined, assumption_overdue: ovAss || undefined, risk_hi: num(p?.risk_hi), issue_hi: num(p?.issue_hi), dependency_hi: num(p?.dependency_hi), assumption_hi: num(p?.assumption_hi), overdue_hi: num(p?.overdue_hi) });
-    } catch {} finally { if (!cancelled) setRaidLoading(false); } })(); });
-    return () => { cancelled = true; };
+    const parseDueIso = (row: any) =>
+      safeStr(row?.due) ||
+      safeStr(row?.due_date) ||
+      safeStr(row?.dueDate) ||
+      safeStr(row?.due_at) ||
+      safeStr(row?.dueAt) ||
+      safeStr(row?.target_date) ||
+      safeStr(row?.targetDate) ||
+      "";
+    const isRowClosed = (row: any) => {
+      const s = String(row?.status || row?.state || "").toLowerCase();
+      return s.includes("closed") || s.includes("resolved") || s.includes("done") || s.includes("complete");
+    };
+    runIdle(() => {
+      (async () => {
+        try {
+          setRaidLoading(true);
+          const j: any = await fetchJson(`/api/portfolio/raid-panel?days=${numericWindowDays}`, { cache: "no-store" });
+          if (!j?.ok) return;
+          const p = j?.panel ?? null;
+          if (cancelled) return;
+          if (!p) {
+            setRaidPanel(null);
+            return;
+          }
+          const risk_due = pickFirstFinite(p, ["risk_due", "risks_due", "due_risk", "due_risks", "riskDue", "risk_due_count"]) ?? undefined;
+          const issue_due = pickFirstFinite(p, ["issue_due", "issues_due", "due_issue", "due_issues", "issueDue", "issue_due_count"]) ?? undefined;
+          const dependency_due =
+            pickFirstFinite(p, ["dependency_due", "dependencies_due", "dep_due", "deps_due", "due_dependency", "due_deps", "dependencyDue"]) ?? undefined;
+          const assumption_due = pickFirstFinite(p, ["assumption_due", "assumptions_due", "due_assumption", "due_assumptions"]) ?? undefined;
+          const overdue_total_api = num(p?.overdue_total);
+          const due_total_api = num(p?.due_total);
+
+          let dRisk = 0,
+            dIssue = 0,
+            dDep = 0,
+            dAss = 0,
+            ovRisk = 0,
+            ovIssue = 0,
+            ovDep = 0,
+            ovAss = 0;
+
+          const items = Array.isArray(p?.items) ? p.items : Array.isArray(j?.items) ? j.items : null;
+          const missingTyped =
+            !Number.isFinite(Number(risk_due)) ||
+            !Number.isFinite(Number(issue_due)) ||
+            !Number.isFinite(Number(dependency_due)) ||
+            !Number.isFinite(Number(assumption_due));
+
+          if (missingTyped && Array.isArray(items) && items.length) {
+            const now = Date.now();
+            const windowEnd = now + numericWindowDays * 86400_000;
+            for (const row of items) {
+              if (isRowClosed(row)) continue;
+              const type = parseType(row?.type || row?.item_type || row?.raid_type);
+              const dueIso = parseDueIso(row);
+              const dueT = dueIso ? new Date(dueIso).getTime() : NaN;
+              if (!Number.isFinite(dueT)) continue;
+              const isOv = dueT < Date.now() - 30_000;
+              const inWindow = dueT <= windowEnd;
+              if (inWindow && !isOv) {
+                if (type.includes("risk")) dRisk++;
+                else if (type.includes("issue")) dIssue++;
+                else if (type.includes("depend")) dDep++;
+                else if (type.includes("assump")) dAss++;
+              }
+              if (isOv) {
+                if (type.includes("risk")) ovRisk++;
+                else if (type.includes("issue")) ovIssue++;
+                else if (type.includes("depend")) ovDep++;
+                else if (type.includes("assump")) ovAss++;
+              }
+            }
+          }
+
+          const finalRiskDue = Number.isFinite(Number(risk_due)) ? num(risk_due) : dRisk;
+          const finalIssueDue = Number.isFinite(Number(issue_due)) ? num(issue_due) : dIssue;
+          const finalDepDue = Number.isFinite(Number(dependency_due)) ? num(dependency_due) : dDep;
+          const finalAssDue = Number.isFinite(Number(assumption_due)) ? num(assumption_due) : dAss;
+
+          const due_total_from_types = finalRiskDue + finalIssueDue + finalDepDue + finalAssDue;
+          const due_total = due_total_from_types > 0 ? due_total_from_types : due_total_api;
+          const overdue_total = overdue_total_api > 0 ? overdue_total_api : ovRisk + ovIssue + ovDep + ovAss;
+
+          setRaidPanel({
+            days: num(p.days, numericWindowDays),
+            due_total,
+            overdue_total,
+            risk_due: finalRiskDue,
+            issue_due: finalIssueDue,
+            dependency_due: finalDepDue,
+            assumption_due: finalAssDue,
+            risk_overdue: ovRisk || undefined,
+            issue_overdue: ovIssue || undefined,
+            dependency_overdue: ovDep || undefined,
+            assumption_overdue: ovAss || undefined,
+            risk_hi: num(p?.risk_hi),
+            issue_hi: num(p?.issue_hi),
+            dependency_hi: num(p?.dependency_hi),
+            assumption_hi: num(p?.assumption_hi),
+            overdue_hi: num(p?.overdue_hi),
+          });
+        } catch {
+        } finally {
+          if (!cancelled) setRaidLoading(false);
+        }
+      })();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [ok, isExec, numericWindowDays]);
 
-  const raidDueTotal = useMemo(() => { const r = num(raidPanel?.risk_due); const i = num(raidPanel?.issue_due); const d = num(raidPanel?.dependency_due); const a = num(raidPanel?.assumption_due); const sum = r + i + d + a; return sum > 0 ? sum : num(raidPanel?.due_total); }, [raidPanel]);
+  const raidDueTotal = useMemo(() => {
+    const r = num(raidPanel?.risk_due);
+    const i = num(raidPanel?.issue_due);
+    const d = num(raidPanel?.dependency_due);
+    const a = num(raidPanel?.assumption_due);
+    const sum = r + i + d + a;
+    return sum > 0 ? sum : num(raidPanel?.due_total);
+  }, [raidPanel]);
 
-  function openRaidDrilldown() { const sp = new URLSearchParams(); sp.set("days", String(numericWindowDays)); sp.set("scope", "due"); router.push(`/risks?${sp.toString()}`); }
-  function openRaid(type?: "Risk" | "Issue" | "Dependency" | "Assumption", extra?: { overdue?: boolean; hi?: boolean }) { const sp = new URLSearchParams(); sp.set("days", String(numericWindowDays)); if (type) sp.set("type", type); if (extra?.overdue) sp.set("overdue", "1"); if (extra?.hi) sp.set("severity", "hi"); router.push(`/risks?${sp.toString()}`); }
+  function openRaidDrilldown() {
+    const sp = new URLSearchParams();
+    sp.set("days", String(numericWindowDays));
+    sp.set("scope", "due");
+    router.push(`/risks?${sp.toString()}`);
+  }
+  function openRaid(type?: "Risk" | "Issue" | "Dependency" | "Assumption", extra?: { overdue?: boolean; hi?: boolean }) {
+    const sp = new URLSearchParams();
+    sp.set("days", String(numericWindowDays));
+    if (type) sp.set("type", type);
+    if (extra?.overdue) sp.set("overdue", "1");
+    if (extra?.hi) sp.set("severity", "hi");
+    router.push(`/risks?${sp.toString()}`);
+  }
 
   const topStories: SuccessStoryTop[] = ssSummary && ssSummary.ok && Array.isArray(ssSummary.top) ? ssSummary.top : [];
   const active = topStories.length ? topStories[Math.min(ssIdx, topStories.length - 1)] : null;
@@ -857,35 +1942,147 @@ export default function HomePage({ data }: { data: HomeData }) {
   const ssScore = ssSummary && ssSummary.ok ? clamp01to100(ssSummary.score) : 0;
   const ssDelta = ssSummary && ssSummary.ok && Number.isFinite(Number(ssSummary.delta)) ? Number(ssSummary.delta) : null;
   const ssBreakdown = ssSummary && ssSummary.ok ? ssSummary.breakdown : undefined;
-  const ssCountFromBreakdown = ssBreakdown ? num(ssBreakdown.milestones_done) + num(ssBreakdown.wbs_done) + num(ssBreakdown.raid_resolved) + num(ssBreakdown.changes_delivered) + num(ssBreakdown.lessons_positive) : 0;
-  const ssDisplayCount = ssCountFromBreakdown > 0 ? ssCountFromBreakdown : ssSummary && ssSummary.ok ? num(ssSummary.count, 0) : 0;
+
+  const ssCountFromBreakdown = ssBreakdown ? sumSuccessBreakdown(ssBreakdown) : 0;
+  const ssDisplayCount =
+    ssCountFromBreakdown > 0 ? ssCountFromBreakdown : ssSummary && ssSummary.ok ? num(ssSummary.count, 0) : 0;
+
   const ssValue = ssLoading ? "…" : ssErr ? "—" : `${ssDisplayCount}`;
-  const ssSub = ssLoading ? "Loading stories…" : ssErr ? "Success stories unavailable" : active ? active.title : ssDisplayCount > 0 ? `${ssDisplayCount} success stor${ssDisplayCount === 1 ? "y" : "ies"} in ${windowNarr}` : `No success stories in ${windowNarr}`;
-  const ssMetaLine = ssLoading ? `Window: ${windowLabel}` : ssErr ? "Check /api/success-stories/summary" : ssDisplayCount > 0 ? `— ${ssScore}% confidence · ${active?.project_title || "Portfolio"}` : `Window: ${windowLabel}`;
-  const ssAiLine = ssLoading ? "Analysing delivery artifacts…" : ssErr ? ssErr : active ? active.summary : "As milestones complete and risks close, Success Stories will appear automatically.";
+  const ssSub = ssLoading
+    ? "Loading stories…"
+    : ssErr
+    ? "Success stories unavailable"
+    : active
+    ? active.title
+    : ssDisplayCount > 0
+    ? `${ssDisplayCount} success stor${ssDisplayCount === 1 ? "y" : "ies"} in ${windowNarr}`
+    : `No success stories in ${windowNarr}`;
+
+  const ssMetaLine = ssLoading
+    ? `Window: ${windowLabel}`
+    : ssErr
+    ? "Check /api/success-stories/summary"
+    : ssDisplayCount > 0
+    ? `— ${ssScore}% confidence · ${active?.project_title || "Portfolio"}`
+    : `Window: ${windowLabel}`;
+
+  const ssAiLine = ssLoading
+    ? "Analysing delivery artifacts…"
+    : ssErr
+    ? ssErr
+    : active
+    ? active.summary
+    : "As milestones complete and risks close, Success Stories will appear automatically.";
+
   const ssTooltip = "Generated from delivery artifacts. Click to view all.";
 
-  function openSuccessStories() { const sp = new URLSearchParams(); sp.set("days", String(numericWindowDays)); router.push(`/success-stories?${sp.toString()}`); }
+  function openSuccessStories() {
+    const sp = new URLSearchParams();
+    sp.set("days", String(numericWindowDays));
+    router.push(`/success-stories?${sp.toString()}`);
+  }
 
   useEffect(() => {
-    if (!ok || !isExec) return; let cancelled = false;
-    runIdle(() => { (async () => { try { setDueLoading(true); setDueErr(""); const j = await fetchJson<ArtifactDueResp>("/api/ai/events", { method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", body: JSON.stringify({ eventType: "artifact_due", windowDays: dueWindowDays }) }); if (!j || !j.ok) throw new Error((j as any)?.error || "Failed"); const ai = (j as any).ai as ArtifactDueAi; const list = Array.isArray(ai?.dueSoon) ? ai.dueSoon : []; const c = ai?.counts || ({} as any); const counts = { milestone: num(c.milestone), work_item: num(c.work_item), raid: num(c.raid), artifact: num(c.artifact), change: num(c.change), total: num(c.milestone)+num(c.work_item)+num(c.raid)+num(c.artifact)+num(c.change) }; const merged = list.slice().sort((a, b) => { const at = a?.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER; const bt = b?.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER; if (at !== bt) return at - bt; return safeStr(a?.title).localeCompare(safeStr(b?.title)); }).slice(0, 30).map((x) => ({ ...x, title: safeStr(x?.title).trim() || "Untitled", link: safeStr(x?.link).trim() || null })); if (!cancelled) { setDueItems(merged); setDueCounts(counts); setDueUpdatedAt(new Date().toISOString()); } } catch (e: any) { if (!cancelled) { setDueErr(e?.message || "Failed"); setDueItems([]); setDueCounts({ total: 0, milestone: 0, work_item: 0, raid: 0, artifact: 0, change: 0 }); } } finally { if (!cancelled) setDueLoading(false); } })(); });
-    return () => { cancelled = true; };
+    if (!ok || !isExec) return;
+    let cancelled = false;
+    runIdle(() => {
+      (async () => {
+        try {
+          setDueLoading(true);
+          setDueErr("");
+          const j = await fetchJson<ArtifactDueResp>("/api/ai/events", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            cache: "no-store",
+            body: JSON.stringify({ eventType: "artifact_due", windowDays: dueWindowDays }),
+          });
+          if (!j || !j.ok) throw new Error((j as any)?.error || "Failed");
+          const ai = (j as any).ai as ArtifactDueAi;
+          const list = Array.isArray(ai?.dueSoon) ? ai.dueSoon : [];
+          const c = ai?.counts || ({} as any);
+          const counts = {
+            milestone: num(c.milestone),
+            work_item: num(c.work_item),
+            raid: num(c.raid),
+            artifact: num(c.artifact),
+            change: num(c.change),
+            total: num(c.milestone) + num(c.work_item) + num(c.raid) + num(c.artifact) + num(c.change),
+          };
+          const merged = list
+            .slice()
+            .sort((a, b) => {
+              const at = a?.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+              const bt = b?.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+              if (at !== bt) return at - bt;
+              return safeStr(a?.title).localeCompare(safeStr(b?.title));
+            })
+            .slice(0, 30)
+            .map((x) => ({ ...x, title: safeStr(x?.title).trim() || "Untitled", link: safeStr(x?.link).trim() || null }));
+          if (!cancelled) {
+            setDueItems(merged);
+            setDueCounts(counts);
+            setDueUpdatedAt(new Date().toISOString());
+          }
+        } catch (e: any) {
+          if (!cancelled) {
+            setDueErr(e?.message || "Failed");
+            setDueItems([]);
+            setDueCounts({ total: 0, milestone: 0, work_item: 0, raid: 0, artifact: 0, change: 0 });
+          }
+        } finally {
+          if (!cancelled) setDueLoading(false);
+        }
+      })();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [ok, isExec, dueWindowDays]);
 
-  function openDueItem(it: DueDigestItem) { const href = safeStr(it?.link).trim(); if (href) router.push(href); }
+  function openDueItem(it: DueDigestItem) {
+    const href = safeStr(it?.link).trim();
+    if (href) router.push(href);
+  }
 
   const activeProjects = useMemo(() => {
     const arr = Array.isArray(projects) ? [...projects] : [];
     const norm = (v: any) => String(v ?? "").toLowerCase().trim();
     const truthy = (v: any) => v === true || v === "true" || v === 1 || v === "1";
-    const isInactive = (p: any) => { if (p?.deleted_at || p?.deletedAt) return true; if (truthy(p?.is_deleted) || truthy(p?.deleted)) return true; if (truthy(p?.is_archived) || truthy(p?.archived)) return true; if (p?.archived_at) return true; if (p?.is_active === false) return true; if (p?.active === false) return true; const st = [p?.status, p?.lifecycle_state, p?.state, p?.phase].map(norm).find(Boolean) || ""; if (!st) return false; return st.includes("closed") || st.includes("cancel") || st.includes("cancell") || st.includes("deleted") || st.includes("archive") || st.includes("inactive") || st.includes("complete"); };
+    const isInactive = (p: any) => {
+      if (p?.deleted_at || p?.deletedAt) return true;
+      if (truthy(p?.is_deleted) || truthy(p?.deleted)) return true;
+      if (truthy(p?.is_archived) || truthy(p?.archived)) return true;
+      if (p?.archived_at) return true;
+      if (p?.is_active === false) return true;
+      if (p?.active === false) return true;
+      const st = [p?.status, p?.lifecycle_state, p?.state, p?.phase].map(norm).find(Boolean) || "";
+      if (!st) return false;
+      return (
+        st.includes("closed") ||
+        st.includes("cancel") ||
+        st.includes("cancell") ||
+        st.includes("deleted") ||
+        st.includes("archive") ||
+        st.includes("inactive") ||
+        st.includes("complete")
+      );
+    };
     return arr.filter((p: any) => !isInactive(p));
   }, [projects]);
 
   const sortedProjects = useMemo(() => {
     const arr = Array.isArray(activeProjects) ? [...activeProjects] : [];
-    arr.sort((a: any, b: any) => { const ac = projectCodeLabel(a?.project_code); const bc = projectCodeLabel(b?.project_code); const an = Number(ac); const bn = Number(bc); const aIsNum = Number.isFinite(an) && ac !== ""; const bIsNum = Number.isFinite(bn) && bc !== ""; if (aIsNum && bIsNum && an !== bn) return an - bn; if (ac && bc && ac !== bc) return ac.localeCompare(bc); return safeStr(a?.title).toLowerCase().localeCompare(safeStr(b?.title).toLowerCase()); });
+    arr.sort((a: any, b: any) => {
+      const ac = projectCodeLabel(a?.project_code);
+      const bc = projectCodeLabel(b?.project_code);
+      const an = Number(ac);
+      const bn = Number(bc);
+      const aIsNum = Number.isFinite(an) && ac !== "";
+      const bIsNum = Number.isFinite(bn) && bc !== "";
+      if (aIsNum && bIsNum && an !== bn) return an - bn;
+      if (ac && bc && ac !== bc) return ac.localeCompare(bc);
+      return safeStr(a?.title).toLowerCase().localeCompare(safeStr(b?.title).toLowerCase());
+    });
     return arr;
   }, [activeProjects]);
 
@@ -895,7 +2092,10 @@ export default function HomePage({ data }: { data: HomeData }) {
   const apiScore = phData?.ok ? clamp01to100(phData.portfolio_health) : null;
   const fallbackScore = ragScoredCount ? ragAgg.avgHealth : clamp01to100(kpis.portfolioHealth);
   const portfolioScore = phLoading ? null : apiScore ?? fallbackScore;
-  const phDelta = portfolioScore != null && phPrevScore != null && Number.isFinite(Number(portfolioScore)) && Number.isFinite(Number(phPrevScore)) ? Number(portfolioScore) - Number(phPrevScore) : null;
+  const phDelta =
+    portfolioScore != null && phPrevScore != null && Number.isFinite(Number(portfolioScore)) && Number.isFinite(Number(phPrevScore))
+      ? Number(portfolioScore) - Number(phPrevScore)
+      : null;
   const phMetaLine = phPrevLoading ? "Trend: loading…" : phPrevErr ? "Trend: —" : phDelta == null ? "Trend: —" : `Trend: ${fmtDelta(phDelta)}`;
   const phTooltip = portfolioThresholdsTooltip() + "\n\nTrend arrow compares current window vs the next longer window.";
   const phScoreForUi = clamp01to100(portfolioScore ?? fallbackScore);
@@ -912,7 +2112,17 @@ export default function HomePage({ data }: { data: HomeData }) {
     );
   }
 
-  const phBand = portfolioScore != null ? phScoreForUi >= 85 ? "Strong" : phScoreForUi >= 70 ? "Healthy" : phScoreForUi >= 55 ? "Mixed" : "At Risk" : "Loading";
+  const phBand =
+    portfolioScore != null
+      ? phScoreForUi >= 85
+        ? "Strong"
+        : phScoreForUi >= 70
+        ? "Healthy"
+        : phScoreForUi >= 55
+        ? "Mixed"
+        : "At Risk"
+      : "Loading";
+
   const KPI_CARD_CLASS = "h-[420px] flex flex-col";
 
   return (
@@ -930,8 +2140,10 @@ export default function HomePage({ data }: { data: HomeData }) {
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
       `}</style>
 
-      <div className="relative min-h-screen text-slate-900 selection:bg-indigo-100 selection:text-indigo-900" style={{ background: "#FFFFFF", fontFamily: "var(--font-body, 'DM Sans', sans-serif)" }}>
-        {/* Background */}
+      <div
+        className="relative min-h-screen text-slate-900 selection:bg-indigo-100 selection:text-indigo-900"
+        style={{ background: "#FFFFFF", fontFamily: "var(--font-body, 'DM Sans', sans-serif)" }}
+      >
         <div className="fixed inset-0 pointer-events-none z-0">
           <div className="absolute inset-0" style={{ background: "#F8FAFF" }} />
           <div className="absolute -top-24 -right-24 w-[640px] h-[640px] rounded-full opacity-50" style={{ background: "radial-gradient(ellipse, #ddd6fe 0%, transparent 60%)" }} />
@@ -940,7 +2152,6 @@ export default function HomePage({ data }: { data: HomeData }) {
         </div>
 
         <div className="relative mx-auto max-w-7xl px-6 py-8 z-10">
-          {/* Header */}
           <header className="mb-12">
             <m.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }} className="flex items-center justify-between">
               <div className="flex items-center gap-4">
@@ -956,17 +2167,21 @@ export default function HomePage({ data }: { data: HomeData }) {
                   <p className="text-xs text-slate-400 mt-1 tracking-wide">{today}</p>
                 </div>
               </div>
-              {/* ── All Systems Operational banner REMOVED ── */}
               <div className="flex items-center gap-3">
                 <NotificationBell />
               </div>
             </m.div>
-            <m.div initial={{ scaleX: 0, opacity: 0 }} animate={{ scaleX: 1, opacity: 1 }} transition={{ duration: 0.8, delay: 0.2, ease: [0.16, 1, 0.3, 1] }} className="mt-8 origin-left h-px" style={{ background: "linear-gradient(90deg, #6366f1 0%, #a5b4fc 50%, transparent 100%)" }} />
+            <m.div
+              initial={{ scaleX: 0, opacity: 0 }}
+              animate={{ scaleX: 1, opacity: 1 }}
+              transition={{ duration: 0.8, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              className="mt-8 origin-left h-px"
+              style={{ background: "linear-gradient(90deg, #6366f1 0%, #a5b4fc 50%, transparent 100%)" }}
+            />
           </header>
 
           {isExec ? (
             <>
-              {/* Control Bar */}
               <m.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }} className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
                 <div>
                   <div className="flex items-center gap-2.5 mb-2">
@@ -977,76 +2192,212 @@ export default function HomePage({ data }: { data: HomeData }) {
                   <p className="text-slate-400 mt-1 text-sm">Real-time portfolio intelligence</p>
                 </div>
                 <div className="flex items-center gap-1 p-1 rounded-xl bg-white border border-slate-200" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-                  {[7,14,30,60].map((d) => (
-                    <button key={d} type="button" onClick={() => setWindowDays(d as WindowDays)}
-                      className={["px-4 py-2 rounded-lg text-sm font-semibold transition-all", windowDays === d ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"].join(" ")}>
+                  {[7, 14, 30, 60].map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setWindowDays(d as WindowDays)}
+                      className={[
+                        "px-4 py-2 rounded-lg text-sm font-semibold transition-all",
+                        windowDays === d ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-800 hover:bg-slate-50",
+                      ].join(" ")}
+                    >
                       {d}d
                     </button>
                   ))}
                   <div className="w-px h-5 bg-slate-200 mx-1" />
-                  <button type="button" onClick={() => setWindowDays("all")}
-                    className={["px-4 py-2 rounded-lg text-sm font-semibold transition-all", windowDays === "all" ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"].join(" ")}>
+                  <button
+                    type="button"
+                    onClick={() => setWindowDays("all")}
+                    className={[
+                      "px-4 py-2 rounded-lg text-sm font-semibold transition-all",
+                      windowDays === "all" ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-800 hover:bg-slate-50",
+                    ].join(" ")}
+                  >
                     All Time
                   </button>
                 </div>
               </m.div>
 
-              {/* KPI Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
-                <KpiCard cardClassName={KPI_CARD_CLASS} label="Portfolio Health" value={phBand}
+                <KpiCard
+                  cardClassName={KPI_CARD_CLASS}
+                  label="Portfolio Health"
+                  value={phBand}
                   sub={`${ragAgg.g} Green · ${ragAgg.a} Amber · ${ragAgg.r} Red`}
-                  icon={<Activity className="h-5 w-5" />} tone="indigo" tooltip={phTooltip} metaLine={phMetaLine} metaIcon={trendIcon(phDelta)}
+                  icon={<Activity className="h-5 w-5" />}
+                  tone="indigo"
+                  tooltip={phTooltip}
+                  metaLine={phMetaLine}
+                  metaIcon={trendIcon(phDelta)}
                   aiLine={portfolioScore != null ? healthNarrative(portfolioScore) : "Loading..."}
                   rightVisual={<PortfolioHealthRing score={phScoreForUi} rag={phRag} />}
-                  badge={<span className={["ml-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest", ragBadgeClasses(phRag)].join(" ")}>{ragLabel(phRag)}</span>}
-                  extra={<div className="space-y-3">{phErr && <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{phErr}</div>}{phData?.ok && <button type="button" onClick={(e) => { e.stopPropagation(); setShowPhDetails((v) => !v); }} className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all flex items-center justify-center gap-2">{showPhDetails ? "Hide Details" : "View Drivers"}<ChevronRight className={`h-3 w-3 transition-transform ${showPhDetails ? "rotate-90" : ""}`} /></button>}{showPhDetails && phData?.ok && <PortfolioHealthDrivers parts={phData.parts} drivers={phData.drivers} />}</div>}
+                  badge={
+                    <span className={["ml-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest", ragBadgeClasses(phRag)].join(" ")}>
+                      {ragLabel(phRag)}
+                    </span>
+                  }
+                  extra={
+                    <div className="space-y-3">
+                      {phErr && <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{phErr}</div>}
+                      {phData?.ok && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowPhDetails((v) => !v);
+                          }}
+                          className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all flex items-center justify-center gap-2"
+                        >
+                          {showPhDetails ? "Hide Details" : "View Drivers"}
+                          <ChevronRight className={`h-3 w-3 transition-transform ${showPhDetails ? "rotate-90" : ""}`} />
+                        </button>
+                      )}
+                      {showPhDetails && phData?.ok && <PortfolioHealthDrivers parts={phData.parts} drivers={phData.drivers} />}
+                    </div>
+                  }
                   delay={0}
                 />
-                <KpiCard cardClassName={KPI_CARD_CLASS} label="Success Stories" value={ssValue} sub={ssSub}
-                  icon={<Trophy className="h-5 w-5" />} tone="amber" tooltip={ssTooltip} metaLine={ssMetaLine} metaIcon={trendIcon(ssDelta)} aiLine={ssAiLine}
+
+                <KpiCard
+                  cardClassName={KPI_CARD_CLASS}
+                  label="Success Stories"
+                  value={ssValue}
+                  sub={ssSub}
+                  icon={<Trophy className="h-5 w-5" />}
+                  tone="amber"
+                  tooltip={ssTooltip}
+                  metaLine={ssMetaLine}
+                  metaIcon={trendIcon(ssDelta)}
+                  aiLine={ssAiLine}
                   onClick={() => openSuccessStories()}
-                  extra={<div className="mt-auto pt-4">{ssSummary && ssSummary.ok ? <SuccessStoryMeta loading={ssLoading} displayTotal={ssDisplayCount} meta={{ milestones_completed: num(ssSummary.breakdown?.milestones_done), raid_closed: num(ssSummary.breakdown?.raid_resolved), changes_implemented: num(ssSummary.breakdown?.changes_delivered), wbs_done: num(ssSummary.breakdown?.wbs_done), lessons_published: num(ssSummary.breakdown?.lessons_positive) }} /> : null}<div className="mt-4"><Button variant="outline" className="w-full border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900" onClick={(e) => { e.stopPropagation(); openSuccessStories(); }}>View Summary <ArrowUpRight className="ml-2 h-4 w-4" /></Button><button type="button" onClick={(e) => { e.stopPropagation(); openSuccessStories(); }} className="mt-3 w-full text-center text-sm text-slate-400 hover:text-indigo-600 transition-colors">View all success stories <ChevronRight className="inline h-4 w-4 -mt-0.5" /></button></div></div>}
+                  extra={
+                    <div className="mt-auto pt-4">
+                      {ssSummary && ssSummary.ok ? (
+                        <SuccessStoryMeta
+                          loading={ssLoading}
+                          displayTotal={ssDisplayCount}
+                          meta={{
+                            milestones_completed: num(ssSummary.breakdown?.milestones_done),
+                            raid_closed: num(ssSummary.breakdown?.raid_resolved),
+                            changes_implemented: num(ssSummary.breakdown?.changes_delivered),
+                            wbs_done: num(ssSummary.breakdown?.wbs_done),
+                            lessons_published: num(ssSummary.breakdown?.lessons_positive),
+                          }}
+                        />
+                      ) : null}
+                      <div className="mt-4">
+                        <Button
+                          variant="outline"
+                          className="w-full border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openSuccessStories();
+                          }}
+                        >
+                          View Summary <ArrowUpRight className="ml-2 h-4 w-4" />
+                        </Button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openSuccessStories();
+                          }}
+                          className="mt-3 w-full text-center text-sm text-slate-400 hover:text-indigo-600 transition-colors"
+                        >
+                          View all success stories <ChevronRight className="inline h-4 w-4 -mt-0.5" />
+                        </button>
+                      </div>
+                    </div>
+                  }
                   delay={0.05}
                 />
-                {/* ── CHANGE 1: tone="slate" → tone="cyan" for Milestones Due ── */}
-                <KpiCard cardClassName={KPI_CARD_CLASS} label="Milestones Due" value={milestonesDueLoading ? "…" : `${milestonesDueLive}`}
+
+                <KpiCard
+                  cardClassName={KPI_CARD_CLASS}
+                  label="Milestones Due"
+                  value={milestonesDueLoading ? "…" : `${milestonesDueLive}`}
                   sub={windowDays === "all" ? "Using last 60 days" : `Next ${windowDays} days`}
-                  icon={<Clock3 className="h-5 w-5" />} tone="cyan" onClick={openMilestonesDrilldown}
-                  extra={<MilestonesMeta loading={milestonesPanelLoading} panel={milestonesPanel} />} delay={0.1}
+                  icon={<Clock3 className="h-5 w-5" />}
+                  tone="cyan"
+                  onClick={openMilestonesDrilldown}
+                  extra={<MilestonesMeta loading={milestonesPanelLoading} panel={milestonesPanel} />}
+                  delay={0.1}
                 />
-                <KpiCard cardClassName={KPI_CARD_CLASS} label="RAID — Due" value={raidLoading ? "…" : `${raidDueTotal}`}
+
+                <KpiCard
+                  cardClassName={KPI_CARD_CLASS}
+                  label="RAID — Due"
+                  value={raidLoading ? "…" : `${raidDueTotal}`}
                   sub={windowDays === "all" ? "Using last 60 days" : `Window ${windowDays}d`}
-                  icon={<AlertTriangle className="h-5 w-5" />} tone="rose" onClick={openRaidDrilldown}
-                  extra={<RaidMeta loading={raidLoading} panel={raidPanel} onClickType={openRaid} />} delay={0.15}
+                  icon={<AlertTriangle className="h-5 w-5" />}
+                  tone="rose"
+                  onClick={openRaidDrilldown}
+                  extra={<RaidMeta loading={raidLoading} panel={raidPanel} onClickType={openRaid} />}
+                  delay={0.15}
                 />
               </div>
 
-              {/* Main Grid */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 space-y-6">
                   <SurfaceCard delay={0.2}>
                     <div className="flex items-start justify-between mb-6">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-600" style={{ boxShadow: "0 4px 12px rgba(79,70,229,0.25)" }}><Sparkles className="h-5 w-5 text-white" /></div>
-                        <div><h3 className="text-lg font-bold text-slate-900">AI Daily Briefing</h3><p className="text-sm text-slate-400">Live governance signals</p></div>
+                        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-600" style={{ boxShadow: "0 4px 12px rgba(79,70,229,0.25)" }}>
+                          <Sparkles className="h-5 w-5 text-white" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-bold text-slate-900">AI Daily Briefing</h3>
+                          <p className="text-sm text-slate-400">Live governance signals</p>
+                        </div>
                       </div>
-                      <Button className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm" style={{ boxShadow: "0 2px 8px rgba(79,70,229,0.2)" }} onClick={() => router.push("/insights")}>View All</Button>
+                      <Button className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm" style={{ boxShadow: "0 2px 8px rgba(79,70,229,0.2)" }} onClick={() => router.push("/insights")}>
+                        View All
+                      </Button>
                     </div>
                     <div className="space-y-3">
-                      {insightsLoading ? (<><SkeletonAlert /><SkeletonAlert /><SkeletonAlert /></>) : insightsErr ? (<AiAlert severity="medium" title="Briefing unavailable" body={insightsErr} />) : (insights.slice(0, 4).map((x, i) => (<m.div key={`${x.id}-${x.title}`} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.35, delay: i * 0.07 }}><AiAlert severity={x.severity} title={x.title} body={x.body} href={fixInsightHref(x, windowDays)} /></m.div>)))}
+                      {insightsLoading ? (
+                        <>
+                          <SkeletonAlert />
+                          <SkeletonAlert />
+                          <SkeletonAlert />
+                        </>
+                      ) : insightsErr ? (
+                        <AiAlert severity="medium" title="Briefing unavailable" body={insightsErr} />
+                      ) : (
+                        insights.slice(0, 4).map((x, i) => (
+                          <m.div key={`${x.id}-${x.title}`} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.35, delay: i * 0.07 }}>
+                            <AiAlert severity={x.severity} title={x.title} body={x.body} href={fixInsightHref(x, windowDays)} />
+                          </m.div>
+                        ))
+                      )}
                     </div>
                   </SurfaceCard>
 
                   <SurfaceCard delay={0.25}>
                     <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-500" style={{ boxShadow: "0 4px 12px rgba(245,158,11,0.25)" }}><Clock3 className="h-5 w-5 text-white" /></div>
-                        <div><h3 className="text-lg font-bold text-slate-900">Due Soon</h3><p className="text-sm text-slate-400">Next {dueWindowDays} days</p></div>
+                        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-500" style={{ boxShadow: "0 4px 12px rgba(245,158,11,0.25)" }}>
+                          <Clock3 className="h-5 w-5 text-white" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-bold text-slate-900">Due Soon</h3>
+                          <p className="text-sm text-slate-400">Next {dueWindowDays} days</p>
+                        </div>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        {[7,14,30].map((d) => (
-                          <button key={d} type="button" onClick={() => setDueWindowDays(d as any)}
-                            className={["px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border", dueWindowDays === d ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700"].join(" ")}>
+                        {[7, 14, 30].map((d) => (
+                          <button
+                            key={d}
+                            type="button"
+                            onClick={() => setDueWindowDays(d as any)}
+                            className={[
+                              "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border",
+                              dueWindowDays === d
+                                ? "bg-amber-50 border-amber-200 text-amber-700"
+                                : "bg-white border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700",
+                            ].join(" ")}
+                          >
                             {d}d
                           </button>
                         ))}
@@ -1054,30 +2405,62 @@ export default function HomePage({ data }: { data: HomeData }) {
                     </div>
                     {dueCounts.total > 0 ? (
                       <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
-                        <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between text-[10px] text-slate-400 uppercase tracking-widest font-bold bg-slate-50/80"><span>Item</span><span>Due Date</span></div>
+                        <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between text-[10px] text-slate-400 uppercase tracking-widest font-bold bg-slate-50/80">
+                          <span>Item</span>
+                          <span>Due Date</span>
+                        </div>
                         <div className="max-h-[320px] overflow-auto divide-y divide-stone-100">
                           {dueItems.slice(0, 8).map((it, idx) => {
-                            const overdue = isOverdue(it?.dueDate); const clickable = Boolean(safeStr(it?.link).trim());
+                            const overdue = isOverdue(it?.dueDate);
+                            const clickable = Boolean(safeStr(it?.link).trim());
                             return (
-                              <m.button key={idx} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: idx * 0.04 }}
-                                type="button" onClick={() => clickable && openDueItem(it)}
-                                className={["w-full text-left px-4 py-3 flex items-center justify-between transition-colors group", clickable ? "hover:bg-slate-50 cursor-pointer" : "cursor-default", overdue ? "bg-rose-50/50" : ""].join(" ")}>
+                              <m.button
+                                key={idx}
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                transition={{ delay: idx * 0.04 }}
+                                type="button"
+                                onClick={() => clickable && openDueItem(it)}
+                                className={[
+                                  "w-full text-left px-4 py-3 flex items-center justify-between transition-colors group",
+                                  clickable ? "hover:bg-slate-50 cursor-pointer" : "cursor-default",
+                                  overdue ? "bg-rose-50/50" : "",
+                                ].join(" ")}
+                              >
                                 <div className="flex items-center gap-3 min-w-0">
-                                  <span className={["shrink-0 inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wider font-bold", dueChipTone(it.itemType)].join(" ")}>{dueTypeLabel(it.itemType)}</span>
+                                  <span className={["shrink-0 inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wider font-bold", dueChipTone(it.itemType)].join(" ")}>
+                                    {dueTypeLabel(it.itemType)}
+                                  </span>
                                   <span className="text-sm text-slate-700 truncate group-hover:text-slate-900 transition-colors">{it.title}</span>
-                                  {overdue && <span className="shrink-0 text-[10px] font-bold text-rose-700 bg-rose-100 border border-rose-200 px-1.5 py-0.5 rounded uppercase tracking-wide">Overdue</span>}
+                                  {overdue && (
+                                    <span className="shrink-0 text-[10px] font-bold text-rose-700 bg-rose-100 border border-rose-200 px-1.5 py-0.5 rounded uppercase tracking-wide">
+                                      Overdue
+                                    </span>
+                                  )}
                                 </div>
                                 <span className="text-xs text-slate-400 shrink-0 ml-4 mono">{dueDateLabel(it.dueDate)}</span>
                               </m.button>
                             );
                           })}
                         </div>
-                        {dueItems.length > 8 && <div className="px-4 py-2.5 text-center border-t border-slate-100 bg-white/80"><button onClick={() => router.push(`/milestones?days=${dueWindowDays}`)} className="text-xs text-indigo-600 hover:text-indigo-700 font-bold transition-colors">View {dueItems.length - 8} more items →</button></div>}
+                        {dueItems.length > 8 && (
+                          <div className="px-4 py-2.5 text-center border-t border-slate-100 bg-white/80">
+                            <button onClick={() => router.push(`/milestones?days=${dueWindowDays}`)} className="text-xs text-indigo-600 hover:text-indigo-700 font-bold transition-colors">
+                              View {dueItems.length - 8} more items →
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ) : dueLoading ? (
-                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-12 text-center"><div className="text-sm text-slate-400">Scanning artifacts…</div></div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-12 text-center">
+                        <div className="text-sm text-slate-400">Scanning artifacts…</div>
+                      </div>
                     ) : (
-                      <div className="text-center py-12 border border-dashed border-slate-200 rounded-xl bg-white"><CheckCircle2 className="h-8 w-8 text-slate-300 mx-auto mb-3" /><p className="text-slate-600 font-semibold">All caught up</p><p className="text-sm text-slate-400 mt-1">Nothing due in the next {dueWindowDays} days</p></div>
+                      <div className="text-center py-12 border border-dashed border-slate-200 rounded-xl bg-white">
+                        <CheckCircle2 className="h-8 w-8 text-slate-300 mx-auto mb-3" />
+                        <p className="text-slate-600 font-semibold">All caught up</p>
+                        <p className="text-sm text-slate-400 mt-1">Nothing due in the next {dueWindowDays} days</p>
+                      </div>
                     )}
                   </SurfaceCard>
                 </div>
@@ -1086,38 +2469,82 @@ export default function HomePage({ data }: { data: HomeData }) {
                   <SurfaceCard delay={0.3}>
                     <div className="flex items-center justify-between mb-5">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-600" style={{ boxShadow: "0 4px 12px rgba(5,150,105,0.2)" }}><CheckCircle2 className="h-5 w-5 text-white" /></div>
-                        <div><h3 className="text-base font-bold text-slate-900">Approvals</h3><p className="text-xs text-slate-400">{approvalCount} pending</p></div>
+                        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-600" style={{ boxShadow: "0 4px 12px rgba(5,150,105,0.2)" }}>
+                          <CheckCircle2 className="h-5 w-5 text-white" />
+                        </div>
+                        <div>
+                          <h3 className="text-base font-bold text-slate-900">Approvals</h3>
+                          <p className="text-xs text-slate-400">{approvalCount} pending</p>
+                        </div>
                       </div>
-                      {approvalCount > 0 && <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-emerald-100 border border-emerald-200 text-xs font-bold text-emerald-700">{approvalCount}</span>}
+                      {approvalCount > 0 && (
+                        <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-emerald-100 border border-emerald-200 text-xs font-bold text-emerald-700">
+                          {approvalCount}
+                        </span>
+                      )}
                     </div>
                     <div className="space-y-3">
-                      {approvalItems?.length ? approvalItems.slice(0, 4).map((t: any) => {
-                        const taskId = String(t?.id || ""); const isBusy = Boolean(pendingIds[taskId]); const title = t?.change?.title || "Change request"; const createdAt = t?.change?.created_at || t?.created_at; const href = viewHref(t);
-                        return (
-                          <m.div key={taskId} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-                            className="rounded-xl border border-slate-200 bg-white/60 p-4 hover:border-slate-300 hover:bg-slate-50 transition-all">
-                            <div className="flex items-start justify-between gap-3 mb-3">
-                              <div className="min-w-0">
-                                <div className="font-semibold text-sm text-slate-800 truncate">{title}</div>
-                                <div className="text-xs text-slate-400 mt-1 mono">{createdAt ? new Date(createdAt).toISOString().slice(0, 10) : "—"}</div>
+                      {approvalItems?.length ? (
+                        approvalItems.slice(0, 4).map((t: any) => {
+                          const taskId = String(t?.id || "");
+                          const isBusy = Boolean(pendingIds[taskId]);
+                          const title = t?.change?.title || "Change request";
+                          const createdAt = t?.change?.created_at || t?.created_at;
+                          const href = viewHref(t);
+                          return (
+                            <m.div
+                              key={taskId}
+                              initial={{ opacity: 0, y: 6 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className="rounded-xl border border-slate-200 bg-white/60 p-4 hover:border-slate-300 hover:bg-slate-50 transition-all"
+                            >
+                              <div className="flex items-start justify-between gap-3 mb-3">
+                                <div className="min-w-0">
+                                  <div className="font-semibold text-sm text-slate-800 truncate">{title}</div>
+                                  <div className="text-xs text-slate-400 mt-1 mono">{createdAt ? new Date(createdAt).toISOString().slice(0, 10) : "—"}</div>
+                                </div>
+                                {href && (
+                                  <a href={href} className="shrink-0 text-slate-400 hover:text-indigo-600 transition-colors">
+                                    <ArrowUpRight className="h-4 w-4" />
+                                  </a>
+                                )}
                               </div>
-                              {href && <a href={href} className="shrink-0 text-slate-400 hover:text-indigo-600 transition-colors"><ArrowUpRight className="h-4 w-4" /></a>}
-                            </div>
-                            <div className="flex gap-2">
-                              <Button size="sm" className="flex-1 h-8 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold" disabled={isBusy} onClick={() => decide(taskId, "approve")}>{isBusy ? "…" : "Approve"}</Button>
-                              <Button size="sm" className="flex-1 h-8 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold" disabled={isBusy} onClick={() => decide(taskId, "reject")}>{isBusy ? "…" : "Reject"}</Button>
-                            </div>
-                          </m.div>
-                        );
-                      }) : (
-                        <div className="text-center py-8 border border-dashed border-slate-200 rounded-xl bg-white/60"><CheckCheck className="h-6 w-6 text-slate-300 mx-auto mb-2" /><p className="text-sm text-slate-500 font-semibold">No approvals waiting</p></div>
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  className="flex-1 h-8 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold"
+                                  disabled={isBusy}
+                                  onClick={() => decide(taskId, "approve")}
+                                >
+                                  {isBusy ? "…" : "Approve"}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  className="flex-1 h-8 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold"
+                                  disabled={isBusy}
+                                  onClick={() => decide(taskId, "reject")}
+                                >
+                                  {isBusy ? "…" : "Reject"}
+                                </Button>
+                              </div>
+                            </m.div>
+                          );
+                        })
+                      ) : (
+                        <div className="text-center py-8 border border-dashed border-slate-200 rounded-xl bg-white/60">
+                          <CheckCheck className="h-6 w-6 text-slate-300 mx-auto mb-2" />
+                          <p className="text-sm text-slate-500 font-semibold">No approvals waiting</p>
+                        </div>
                       )}
                     </div>
                   </SurfaceCard>
 
                   <SurfaceCard delay={0.35} className="bg-gradient-to-br from-indigo-50/70 via-white to-violet-50/40 border-indigo-100">
-                    <div className="flex items-center gap-2 mb-5"><div className="h-px flex-1 bg-indigo-100" /><span className="text-[10px] text-indigo-500 uppercase tracking-widest font-bold">Quick Stats</span><div className="h-px flex-1 bg-indigo-100" /></div>
+                    <div className="flex items-center gap-2 mb-5">
+                      <div className="h-px flex-1 bg-indigo-100" />
+                      <span className="text-[10px] text-indigo-500 uppercase tracking-widest font-bold">Quick Stats</span>
+                      <div className="h-px flex-1 bg-indigo-100" />
+                    </div>
                     <div className="space-y-4">
                       {[
                         { label: "Active Projects", node: <span className="text-2xl font-bold text-slate-950 mono">{uiActiveCount}</span> },
@@ -1134,18 +2561,23 @@ export default function HomePage({ data }: { data: HomeData }) {
                 </div>
               </div>
 
-              {/* Projects */}
               <m.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.4 }} className="mt-12">
                 <div className="flex items-center justify-between mb-6">
                   <div>
-                    <div className="flex items-center gap-2.5 mb-1.5"><div className="h-4 w-0.5 rounded-full bg-indigo-400" /><span className="text-[11px] text-indigo-500 uppercase tracking-[0.18em] font-bold">Active Engagements</span></div>
+                    <div className="flex items-center gap-2.5 mb-1.5">
+                      <div className="h-4 w-0.5 rounded-full bg-indigo-400" />
+                      <span className="text-[11px] text-indigo-500 uppercase tracking-[0.18em] font-bold">Active Engagements</span>
+                    </div>
                     <h2 className="text-2xl font-bold text-slate-950">Project Overview</h2>
                   </div>
-                  <Button variant="outline" className="border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 shadow-sm">View All Projects</Button>
+                  <Button variant="outline" className="border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 shadow-sm">
+                    View All Projects
+                  </Button>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {sortedProjects.slice(0, 9).map((p: any, i) => {
-                    const code = projectCodeLabel(p.project_code); const id = String(p?.id || "").trim();
+                    const code = projectCodeLabel(p.project_code);
+                    const id = String(p?.id || "").trim();
                     return (
                       <m.div key={String(p.id || id)} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.45 + i * 0.04 }}>
                         <ProjectTile projectRef={id} title={p.title || "Project"} projectCode={code} clientName={safeStr(p.client_name)} />
@@ -1154,21 +2586,35 @@ export default function HomePage({ data }: { data: HomeData }) {
                   })}
                 </div>
                 {projects.length !== activeProjects.length && (
-                  <div className="mt-5 text-xs text-slate-400 text-center">{Math.max(0, projects.length - activeProjects.length)} closed/cancelled project{projects.length - activeProjects.length === 1 ? "" : "s"} hidden from view</div>
+                  <div className="mt-5 text-xs text-slate-400 text-center">
+                    {Math.max(0, projects.length - activeProjects.length)} closed/cancelled project{projects.length - activeProjects.length === 1 ? "" : "s"} hidden from view
+                  </div>
                 )}
               </m.div>
             </>
           ) : (
             <>
               <m.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
-                <div className="flex items-center gap-2.5 mb-2"><div className="h-4 w-0.5 rounded-full bg-indigo-400" /><span className="text-[11px] text-indigo-500 uppercase tracking-[0.18em] font-bold">Personal</span></div>
+                <div className="flex items-center gap-2.5 mb-2">
+                  <div className="h-4 w-0.5 rounded-full bg-indigo-400" />
+                  <span className="text-[11px] text-indigo-500 uppercase tracking-[0.18em] font-bold">Personal</span>
+                </div>
                 <h2 className="text-3xl font-bold text-slate-900">My Day</h2>
                 <p className="text-slate-400 mt-1">Focus and flow</p>
               </m.div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <KpiCard label="My Approvals" value={`${approvalCount}`} icon={<CheckCircle2 className="h-5 w-5" />} tone="emerald" delay={0} />
                 <KpiCard label="Open Lessons" value={`${kpis.openLessons}`} icon={<Sparkles className="h-5 w-5" />} tone="indigo" delay={0.05} />
-                <KpiCard label="RAID (Due)" value={raidLoading ? "…" : `${raidDueTotal || Number(kpis.openRisks || 0)}`} sub={`Window ${numericWindowDays}d`} icon={<AlertTriangle className="h-5 w-5" />} tone="rose" onClick={openRaidDrilldown} extra={<RaidMeta loading={raidLoading} panel={raidPanel} onClickType={openRaid} />} delay={0.1} />
+                <KpiCard
+                  label="RAID (Due)"
+                  value={raidLoading ? "…" : `${raidDueTotal || Number(kpis.openRisks || 0)}`}
+                  sub={`Window ${numericWindowDays}d`}
+                  icon={<AlertTriangle className="h-5 w-5" />}
+                  tone="rose"
+                  onClick={openRaidDrilldown}
+                  extra={<RaidMeta loading={raidLoading} panel={raidPanel} onClickType={openRaid} />}
+                  delay={0.1}
+                />
               </div>
             </>
           )}

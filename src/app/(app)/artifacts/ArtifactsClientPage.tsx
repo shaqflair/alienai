@@ -58,9 +58,12 @@ type ApiResp =
       ok: true;
       items: ArtifactRow[];
       nextCursor: string | null;
-      // ✅ API should return these totals computed server-side across ALL pages
+
+      // ✅ totals computed server-side across ALL pages for the CURRENT QUERY
       totalCount?: number | null;
       activeCount?: number | null;
+      activeProjectCount?: number | null;
+
       facets?: { types?: string[] };
     };
 
@@ -70,7 +73,8 @@ type ApiOk = Extract<ApiResp, { ok: true }>;
    Utilities
 ============================ */
 
-const safeStr = (x: any) => (typeof x === "string" ? x : x == null ? "" : String(x));
+const safeStr = (x: any) =>
+  typeof x === "string" ? x : x == null ? "" : String(x);
 const norm = (x: any) => safeStr(x).trim().toLowerCase();
 
 function looksLikeUuid(x: string) {
@@ -99,12 +103,13 @@ function isWithinLastDays(a: ArtifactRow, days: number) {
 
 function isClosedArtifactStatus(status?: string) {
   const s = norm(status);
-  return !!s && (
-    s.includes("closed") ||
-    s.includes("done") ||
-    s.includes("complete") ||
-    s.includes("completed") ||
-    s.includes("cancel")
+  return (
+    !!s &&
+    (s.includes("closed") ||
+      s.includes("done") ||
+      s.includes("complete") ||
+      s.includes("completed") ||
+      s.includes("cancel"))
   );
 }
 
@@ -153,7 +158,11 @@ const fmtDateUk = (x?: string | null) => {
   if (!x) return "—";
   const d = new Date(x);
   if (Number.isNaN(d.getTime())) return String(x);
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  return d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 };
 
 const fmtRelativeTime = (x?: string | null) => {
@@ -189,9 +198,16 @@ function buildArtifactHref(a: ArtifactRow) {
   const t = norm(a.type);
   if (!pid) return "/projects";
   if (t === "raid" || t === "raid_log") return `/projects/${pid}/raid`;
-  if (t === "change_requests" || t === "change" || t === "changes" || t.includes("change"))
+  if (
+    t === "change_requests" ||
+    t === "change_request" ||
+    t === "change" ||
+    t === "changes" ||
+    t.includes("change")
+  )
     return `/projects/${pid}/change`;
-  if (t === "lessons_learned" || t === "lessons" || t.includes("lesson")) return `/projects/${pid}/lessons`;
+  if (t === "lessons_learned" || t === "lessons" || t.includes("lesson"))
+    return `/projects/${pid}/lessons`;
   if (aid) return `/projects/${pid}/artifacts/${aid}`;
   return `/projects/${pid}/artifacts`;
 }
@@ -209,9 +225,21 @@ function projectRaidHref(projectId: string) {
 function displayType(type?: string) {
   if (!type) return "—";
   const t = norm(type);
+
   if (t === "wbs") return "WBS";
   if (t === "raid_log" || t === "raid") return "RAID";
   if (t === "project_charter" || t.includes("charter")) return "Project Charter";
+
+  // ✅ Fix: Change Requests label
+  if (
+    t === "change_requests" ||
+    t === "change_request" ||
+    t === "changes" ||
+    (t.includes("change") && t.includes("request"))
+  )
+    return "Change Requests";
+  if (t === "change") return "Change Requests";
+
   return safeStr(type).replace(/_/g, " ").trim();
 }
 
@@ -228,7 +256,11 @@ function displayStatus(status?: string) {
 
 function safeParseJson(txt: string): any {
   if (!txt) return null;
-  try { return JSON.parse(txt); } catch { return null; }
+  try {
+    return JSON.parse(txt);
+  } catch {
+    return null;
+  }
 }
 
 function isOkResp(x: any): x is ApiOk {
@@ -252,12 +284,49 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
    Type & Status Badge Configs
 ============================ */
 
-const typeConfig: Record<string, { icon: React.ReactNode; bg: string; text: string; border: string }> = {
-  charter: { icon: <FileText className="w-3 h-3" />, bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200" },
-  wbs: { icon: <Layers className="w-3 h-3" />, bg: "bg-violet-50", text: "text-violet-700", border: "border-violet-200" },
-  raid: { icon: <AlertCircle className="w-3 h-3" />, bg: "bg-rose-50", text: "text-rose-700", border: "border-rose-200" },
-  change: { icon: <Sparkles className="w-3 h-3" />, bg: "bg-sky-50", text: "text-sky-700", border: "border-sky-200" },
-  default: { icon: <FileText className="w-3 h-3" />, bg: "bg-slate-50", text: "text-slate-600", border: "border-slate-200" },
+const typeConfig: Record<
+  string,
+  { icon: React.ReactNode; bg: string; text: string; border: string }
+> = {
+  charter: {
+    icon: <FileText className="w-3 h-3" />,
+    bg: "bg-emerald-50",
+    text: "text-emerald-700",
+    border: "border-emerald-200",
+  },
+  wbs: {
+    icon: <Layers className="w-3 h-3" />,
+    bg: "bg-violet-50",
+    text: "text-violet-700",
+    border: "border-violet-200",
+  },
+  raid: {
+    icon: <AlertCircle className="w-3 h-3" />,
+    bg: "bg-rose-50",
+    text: "text-rose-700",
+    border: "border-rose-200",
+  },
+
+  // ✅ Fix: explicitly support change_requests
+  change_requests: {
+    icon: <Sparkles className="w-3 h-3" />,
+    bg: "bg-sky-50",
+    text: "text-sky-700",
+    border: "border-sky-200",
+  },
+  change: {
+    icon: <Sparkles className="w-3 h-3" />,
+    bg: "bg-sky-50",
+    text: "text-sky-700",
+    border: "border-sky-200",
+  },
+
+  default: {
+    icon: <FileText className="w-3 h-3" />,
+    bg: "bg-slate-50",
+    text: "text-slate-600",
+    border: "border-slate-200",
+  },
 };
 
 function TypeBadge({ type }: { type?: string }) {
@@ -267,22 +336,37 @@ function TypeBadge({ type }: { type?: string }) {
     typeConfig[Object.keys(typeConfig).find((k) => t.includes(k)) || "default"] ||
     typeConfig.default;
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide border ${config.bg} ${config.text} ${config.border}`}>
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide border ${config.bg} ${config.text} ${config.border}`}
+    >
       {config.icon}
       {displayType(type)}
     </span>
   );
 }
 
-const statusConfig: Record<string, { dot: string; bg: string; text: string }> = {
-  draft: { dot: "bg-slate-400", bg: "bg-slate-50", text: "text-slate-600" },
-  review: { dot: "bg-amber-400", bg: "bg-amber-50", text: "text-amber-700" },
-  progress: { dot: "bg-blue-500", bg: "bg-blue-50", text: "text-blue-700" },
-  closed: { dot: "bg-emerald-500", bg: "bg-emerald-50", text: "text-emerald-700" },
-  done: { dot: "bg-emerald-500", bg: "bg-emerald-50", text: "text-emerald-700" },
-  new: { dot: "bg-purple-500", bg: "bg-purple-50", text: "text-purple-700" },
-  default: { dot: "bg-slate-300", bg: "bg-slate-50", text: "text-slate-500" },
-};
+const statusConfig: Record<string, { dot: string; bg: string; text: string }> =
+  {
+    draft: { dot: "bg-slate-400", bg: "bg-slate-50", text: "text-slate-600" },
+    review: { dot: "bg-amber-400", bg: "bg-amber-50", text: "text-amber-700" },
+    progress: { dot: "bg-blue-500", bg: "bg-blue-50", text: "text-blue-700" },
+    closed: {
+      dot: "bg-emerald-500",
+      bg: "bg-emerald-50",
+      text: "text-emerald-700",
+    },
+    done: {
+      dot: "bg-emerald-500",
+      bg: "bg-emerald-50",
+      text: "text-emerald-700",
+    },
+    new: { dot: "bg-purple-500", bg: "bg-purple-50", text: "text-purple-700" },
+    default: {
+      dot: "bg-slate-300",
+      bg: "bg-slate-50",
+      text: "text-slate-500",
+    },
+  };
 
 function StatusBadge({ status }: { status?: string }) {
   const s = norm(status);
@@ -291,8 +375,12 @@ function StatusBadge({ status }: { status?: string }) {
     statusConfig[Object.keys(statusConfig).find((k) => s.includes(k)) || "default"] ||
     statusConfig.default;
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide ${config.bg} ${config.text}`}>
-      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${config.dot}`} />
+    <span
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide ${config.bg} ${config.text}`}
+    >
+      <span
+        className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${config.dot}`}
+      />
       {displayStatus(status)}
     </span>
   );
@@ -305,20 +393,23 @@ function AIHealthBadge({ artifact }: { artifact: ArtifactRow }) {
   if (stalled) {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-50 text-rose-600 border border-rose-200">
-        <AlertCircle className="w-3 h-3" />Risk
+        <AlertCircle className="w-3 h-3" />
+        Risk
       </span>
     );
   }
   if (missingEffort) {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-600 border border-amber-200">
-        <Clock className="w-3 h-3" />Needs Effort
+        <Clock className="w-3 h-3" />
+        Needs Effort
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-600 border border-emerald-200">
-      <CheckCircle2 className="w-3 h-3" />Healthy
+      <CheckCircle2 className="w-3 h-3" />
+      Healthy
     </span>
   );
 }
@@ -344,11 +435,25 @@ function groupByProject(items: ArtifactRow[]): ProjectGroup[] {
     const ms = safeDateMs(raw);
     const existing = map.get(pid);
     if (!existing) {
-      map.set(pid, { project_id: pid, project_human: projectHumanId(it), project_title: projectTitleLabel(it), last_updated_ms: ms, last_updated_raw: raw, items: [it] });
+      map.set(pid, {
+        project_id: pid,
+        project_human: projectHumanId(it),
+        project_title: projectTitleLabel(it),
+        last_updated_ms: ms,
+        last_updated_raw: raw,
+        items: [it],
+      });
     } else {
       existing.items.push(it);
-      if (ms > existing.last_updated_ms) { existing.last_updated_ms = ms; existing.last_updated_raw = raw; }
-      if (existing.project_title === "Project" && projectTitleLabel(it) !== "Project") existing.project_title = projectTitleLabel(it);
+      if (ms > existing.last_updated_ms) {
+        existing.last_updated_ms = ms;
+        existing.last_updated_raw = raw;
+      }
+      if (
+        existing.project_title === "Project" &&
+        projectTitleLabel(it) !== "Project"
+      )
+        existing.project_title = projectTitleLabel(it);
     }
   }
   for (const g of map.values()) {
@@ -360,8 +465,13 @@ function groupByProject(items: ArtifactRow[]): ProjectGroup[] {
     });
   }
   return Array.from(map.values()).sort((a, b) => {
-    if (b.last_updated_ms !== a.last_updated_ms) return b.last_updated_ms - a.last_updated_ms;
-    return `${a.project_human} ${a.project_title}`.localeCompare(`${b.project_human} ${b.project_title}`, undefined, { sensitivity: "base" });
+    if (b.last_updated_ms !== a.last_updated_ms)
+      return b.last_updated_ms - a.last_updated_ms;
+    return `${a.project_human} ${a.project_title}`.localeCompare(
+      `${b.project_human} ${b.project_title}`,
+      undefined,
+      { sensitivity: "base" }
+    );
   });
 }
 
@@ -381,25 +491,58 @@ function parseSort(raw: string | null): { key: SortKey; dir: SortDir } {
   return { key: "updated", dir: "desc" };
 }
 
-function sortToParam(key: SortKey, dir: SortDir) { return `${key}_${dir}`; }
+function sortToParam(key: SortKey, dir: SortDir) {
+  return `${key}_${dir}`;
+}
 
-function cmpBase(a: string, b: string) { return a.localeCompare(b, undefined, { sensitivity: "base" }); }
+function cmpBase(a: string, b: string) {
+  return a.localeCompare(b, undefined, { sensitivity: "base" });
+}
 
 /* ============================
    Stat Card Component
 ============================ */
 
-function StatCard({ label, value, sub, accent, icon, isEstimate }: {
-  label: string; value: string | number; sub?: string;
-  accent?: "blue" | "emerald" | "amber" | "rose"; icon?: React.ReactNode;
-  /** If true, shows a ~ prefix to indicate the value may be partial */
+function StatCard({
+  label,
+  value,
+  sub,
+  accent,
+  icon,
+  isEstimate,
+}: {
+  label: string;
+  value: string | number;
+  sub?: string;
+  accent?: "blue" | "emerald" | "amber" | "rose";
+  icon?: React.ReactNode;
   isEstimate?: boolean;
 }) {
   const accentMap = {
-    blue:    { iconBg: "bg-blue-100",    iconText: "text-blue-600",    bar: "bg-blue-500",    val: "text-blue-700" },
-    emerald: { iconBg: "bg-emerald-100", iconText: "text-emerald-600", bar: "bg-emerald-500", val: "text-emerald-700" },
-    amber:   { iconBg: "bg-amber-100",   iconText: "text-amber-600",   bar: "bg-amber-400",   val: "text-amber-700" },
-    rose:    { iconBg: "bg-rose-100",    iconText: "text-rose-600",    bar: "bg-rose-500",    val: "text-rose-700" },
+    blue: {
+      iconBg: "bg-blue-100",
+      iconText: "text-blue-600",
+      bar: "bg-blue-500",
+      val: "text-blue-700",
+    },
+    emerald: {
+      iconBg: "bg-emerald-100",
+      iconText: "text-emerald-600",
+      bar: "bg-emerald-500",
+      val: "text-emerald-700",
+    },
+    amber: {
+      iconBg: "bg-amber-100",
+      iconText: "text-amber-600",
+      bar: "bg-amber-400",
+      val: "text-amber-700",
+    },
+    rose: {
+      iconBg: "bg-rose-100",
+      iconText: "text-rose-600",
+      bar: "bg-rose-500",
+      val: "text-rose-700",
+    },
   };
   const c = accentMap[accent ?? "blue"];
   return (
@@ -407,7 +550,9 @@ function StatCard({ label, value, sub, accent, icon, isEstimate }: {
       <div className={`absolute top-0 left-0 right-0 h-0.5 ${c.bar}`} />
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">{label}</p>
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">
+            {label}
+          </p>
           <p className={`text-3xl font-black ${c.val} leading-none`}>
             {isEstimate && <span className="text-lg mr-0.5 opacity-60">~</span>}
             {value}
@@ -415,7 +560,9 @@ function StatCard({ label, value, sub, accent, icon, isEstimate }: {
           {sub && <p className="mt-1.5 text-xs text-slate-500 font-medium">{sub}</p>}
         </div>
         {icon && (
-          <div className={`p-2.5 rounded-xl ${c.iconBg} ${c.iconText} group-hover:scale-110 transition-transform duration-200`}>
+          <div
+            className={`p-2.5 rounded-xl ${c.iconBg} ${c.iconText} group-hover:scale-110 transition-transform duration-200`}
+          >
             {icon}
           </div>
         )}
@@ -428,20 +575,37 @@ function StatCard({ label, value, sub, accent, icon, isEstimate }: {
    Sort Header Button
 ============================ */
 
-function SortButton({ label, sortKey, activeSortKey, sortDir, onToggle, align = "left" }: {
-  label: string; sortKey: SortKey; activeSortKey: SortKey; sortDir: SortDir;
-  onToggle: (k: SortKey) => void; align?: "left" | "right";
+function SortButton({
+  label,
+  sortKey,
+  activeSortKey,
+  sortDir,
+  onToggle,
+  align = "left",
+}: {
+  label: string;
+  sortKey: SortKey;
+  activeSortKey: SortKey;
+  sortDir: SortDir;
+  onToggle: (k: SortKey) => void;
+  align?: "left" | "right";
 }) {
   const active = activeSortKey === sortKey;
   return (
-    <button type="button" onClick={() => onToggle(sortKey)}
+    <button
+      type="button"
+      onClick={() => onToggle(sortKey)}
       className={`inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest transition-colors ${
         active ? "text-slate-800" : "text-slate-400 hover:text-slate-600"
       } ${align === "right" ? "ml-auto" : ""}`}
     >
       {label}
       <span className={`transition-opacity ${active ? "opacity-100" : "opacity-0"}`}>
-        {sortDir === "asc" ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        {sortDir === "asc" ? (
+          <ChevronUp className="w-3.5 h-3.5" />
+        ) : (
+          <ChevronDown className="w-3.5 h-3.5" />
+        )}
       </span>
     </button>
   );
@@ -466,10 +630,8 @@ export default function ArtifactsClientPage() {
 
   const [items, setItems] = useState<ArtifactRow[]>([]);
 
-  // ✅ FIX 1: Stable deduplicated type list — never shrinks on load-more
   const [allTypes, setAllTypes] = useState<string[]>([]);
 
-  // ✅ FIX 2: Server-provided totals that cover ALL pages, not just loaded items
   const [serverTotalCount, setServerTotalCount] = useState<number | null>(null);
   const [serverActiveCount, setServerActiveCount] = useState<number | null>(null);
   const [serverProjectCount, setServerProjectCount] = useState<number | null>(null);
@@ -506,7 +668,10 @@ export default function ArtifactsClientPage() {
 
   /* ---------------- Sync URL ---------------- */
 
-  const urlState = useMemo(() => ({ q, type, view, sort: sortToParam(sortKey, sortDir), artifactId: highlightId }), [q, type, view, sortKey, sortDir, highlightId]);
+  const urlState = useMemo(
+    () => ({ q, type, view, sort: sortToParam(sortKey, sortDir), artifactId: highlightId }),
+    [q, type, view, sortKey, sortDir, highlightId]
+  );
   const urlStateDebounced = useDebouncedValue(urlState, 200);
 
   useEffect(() => {
@@ -530,7 +695,6 @@ export default function ArtifactsClientPage() {
     sp.set("minimal", "1");
     sp.set("serverSort", "1");
     sp.set("limit", "50");
-    // ✅ Ask API for server-side totals
     sp.set("includeTotals", "1");
     return sp.toString();
   }, [qDebounced, typeDebounced]);
@@ -551,7 +715,6 @@ export default function ArtifactsClientPage() {
       setItems(ok.items || []);
       setCursor(ok.nextCursor ?? null);
 
-      // ✅ FIX 1: Merge new types into allTypes without ever losing existing ones
       const incoming = (ok.facets?.types || [])
         .concat((ok.items || []).map((x) => safeStr(x.type)))
         .filter(Boolean)
@@ -562,15 +725,16 @@ export default function ArtifactsClientPage() {
         return Array.from(merged).sort((a, b) => a.localeCompare(b));
       });
 
-      // ✅ FIX 2: Store server-provided totals (stable, full-dataset counts)
       if (typeof ok.totalCount === "number") setServerTotalCount(ok.totalCount);
       if (typeof ok.activeCount === "number") setServerActiveCount(ok.activeCount);
-      if (typeof ok.activeProjectCount === "number") setServerProjectCount((ok as any).activeProjectCount);
-
+      if (typeof ok.activeProjectCount === "number") setServerProjectCount(ok.activeProjectCount);
     } catch (e: any) {
       setError(e?.message || "Failed to load");
       setItems([]);
       setCursor(null);
+      setServerTotalCount(null);
+      setServerActiveCount(null);
+      setServerProjectCount(null);
     } finally {
       setLoading(false);
     }
@@ -597,7 +761,6 @@ export default function ArtifactsClientPage() {
       });
       setCursor(ok.nextCursor ?? null);
 
-      // ✅ FIX 1: Merge types from new page — never replace, only add
       const incoming = (ok.facets?.types || [])
         .concat((ok.items || []).map((x) => safeStr(x.type)))
         .filter(Boolean)
@@ -607,7 +770,6 @@ export default function ArtifactsClientPage() {
         const merged = new Set([...prev, ...incoming]);
         return Array.from(merged).sort((a, b) => a.localeCompare(b));
       });
-
     } catch (e: any) {
       setError(e?.message || "Failed to load more");
     } finally {
@@ -623,9 +785,10 @@ export default function ArtifactsClientPage() {
 
   /* ---------------- Derived State ---------------- */
 
+  // Always exclude closed/cancelled projects from the UI view
   const visibleItems = useMemo(() => (items || []).filter((a) => !isInactiveProject(a)), [items]);
-  const activeItems = useMemo(() => visibleItems.filter(isActiveArtifact), [visibleItems]);
 
+  // Current view (after type filter) — NOTE: search `q` is already applied server-side via apiParams
   const filteredItems = useMemo(() => {
     const t = norm(typeDebounced);
     return visibleItems.filter((a) => {
@@ -634,14 +797,20 @@ export default function ArtifactsClientPage() {
     });
   }, [visibleItems, typeDebounced]);
 
+  // Active/open artifacts within the CURRENT VIEW
+  const viewActiveItems = useMemo(() => filteredItems.filter(isActiveArtifact), [filteredItems]);
+
   const sortedItems = useMemo(() => {
     const isDefaultUpdatedDesc = sortKey === "updated" && sortDir === "desc";
     if (isDefaultUpdatedDesc) return filteredItems;
+
     const arr = [...filteredItems];
     const mul = sortDir === "asc" ? 1 : -1;
+
     arr.sort((a, b) => {
       const aUpd = safeDateMs(a.updated_at || a.created_at);
       const bUpd = safeDateMs(b.updated_at || b.created_at);
+
       if (sortKey === "updated") {
         if (aUpd !== bUpd) return (aUpd - bUpd) * mul;
         return safeStr(a.id).localeCompare(safeStr(b.id));
@@ -674,42 +843,35 @@ export default function ArtifactsClientPage() {
       }
       return 0;
     });
+
     return arr;
   }, [filteredItems, sortKey, sortDir]);
 
   const grouped = useMemo(() => groupByProject(sortedItems), [sortedItems]);
 
   /* ----------------------------------------------------------------
-     ✅ FIX 2 & 3: Stats
+     ✅ Stats (CURRENT VIEW)
 
-     Priority order for each stat:
-       1. serverXxxCount  — returned by API, covers full dataset (best)
-       2. Computed from loaded items — only what's in memory (fallback)
-
-     When server counts are available, stat cards are STABLE and won't
-     change as more pages load. When not yet available, we compute from
-     loaded items and show a ~ prefix to signal it may be partial.
+     - Server counts are best when available (covers full dataset for current query)
+     - But server "activeProjectCount/activeCount" should align with current filters.
+     - Fallback uses viewActiveItems (already current view).
   ---------------------------------------------------------------- */
   const stats = useMemo(() => {
     const hasServerCounts = serverActiveCount !== null;
 
-    // Active artifact total
-    const total = hasServerCounts ? serverActiveCount! : activeItems.length;
-    const totalIsEstimate = !hasServerCounts && cursor !== null; // partial if more pages exist
+    const total = hasServerCounts ? serverActiveCount! : viewActiveItems.length;
+    const totalIsEstimate = !hasServerCounts && cursor !== null;
 
-    // Updated this week — can only be computed from loaded items (no server equivalent)
-    // Show ~ if not all items loaded
-    const thisWeek = activeItems.filter((i) => isWithinLastDays(i, 7)).length;
+    const thisWeek = viewActiveItems.filter((i) => isWithinLastDays(i, 7)).length;
     const thisWeekIsEstimate = cursor !== null;
 
-    // Active project count
-    const projects = serverProjectCount !== null
-      ? serverProjectCount
-      : new Set(activeItems.map((i) => i.project_id)).size;
+    const projects =
+      serverProjectCount !== null
+        ? serverProjectCount
+        : new Set(viewActiveItems.map((i) => i.project_id)).size;
     const projectsIsEstimate = serverProjectCount === null && cursor !== null;
 
-    // Needs attention — computed from loaded items only
-    const needsAttentionItems = activeItems.filter(isNeedsAttention);
+    const needsAttentionItems = viewActiveItems.filter(isNeedsAttention);
     const needsAttention = needsAttentionItems.length;
     const needsAttentionIsEstimate = cursor !== null;
 
@@ -723,13 +885,17 @@ export default function ArtifactsClientPage() {
     else if (needsAttention === 0 && !cursor) attentionSub = "All looking good";
 
     return {
-      total, totalIsEstimate,
-      thisWeek, thisWeekIsEstimate,
-      projects, projectsIsEstimate,
-      needsAttention, needsAttentionIsEstimate,
+      total,
+      totalIsEstimate,
+      thisWeek,
+      thisWeekIsEstimate,
+      projects,
+      projectsIsEstimate,
+      needsAttention,
+      needsAttentionIsEstimate,
       attentionSub,
     };
-  }, [activeItems, serverActiveCount, serverProjectCount, cursor]);
+  }, [viewActiveItems, serverActiveCount, serverProjectCount, cursor]);
 
   /* ---------------- Scroll to Highlight ---------------- */
 
@@ -737,7 +903,9 @@ export default function ArtifactsClientPage() {
     if (!highlightId) return;
     const el = rowRefs.current[highlightId];
     if (!el) return;
-    const t = window.setTimeout(() => { el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 140);
+    const t = window.setTimeout(() => {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 140);
     return () => window.clearTimeout(t);
   }, [highlightId, view, sortedItems]);
 
@@ -758,7 +926,7 @@ export default function ArtifactsClientPage() {
 
   const hasActiveFilters = q || type;
 
-  // ✅ FIX 3: Total count shown in list header — use server total if available
+  // List header count: server total (current query) if available; else current list length
   const displayedCount = serverTotalCount !== null ? serverTotalCount : sortedItems.length;
   const displayedCountIsEstimate = serverTotalCount === null && cursor !== null;
 
@@ -788,7 +956,9 @@ export default function ArtifactsClientPage() {
               <button
                 onClick={() => setShowFilters(!showFilters)}
                 className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium border transition-all duration-150 ${
-                  showFilters ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                  showFilters
+                    ? "bg-slate-900 text-white border-slate-900"
+                    : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
                 }`}
               >
                 <Filter className="w-3.5 h-3.5" />
@@ -804,7 +974,11 @@ export default function ArtifactsClientPage() {
                 disabled={loading}
                 className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium bg-white text-slate-600 border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all duration-150 disabled:opacity-50"
               >
-                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                {loading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3.5 h-3.5" />
+                )}
                 Refresh
               </button>
             </div>
@@ -850,16 +1024,24 @@ export default function ArtifactsClientPage() {
         </div>
 
         {/* ─── Expandable Filters ─── */}
-        <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showFilters ? "max-h-96 opacity-100" : "max-h-0 opacity-0 pointer-events-none"}`}>
+        <div
+          className={`overflow-hidden transition-all duration-300 ease-in-out ${
+            showFilters ? "max-h-96 opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+          }`}
+        >
           <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-bold text-slate-700 uppercase tracking-widest">Filter Artifacts</h3>
               {hasActiveFilters && (
                 <button
-                  onClick={() => { setQ(""); setType(""); }}
+                  onClick={() => {
+                    setQ("");
+                    setType("");
+                  }}
                   className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-500 hover:text-rose-600 transition-colors"
                 >
-                  <X className="w-3.5 h-3.5" />Clear all
+                  <X className="w-3.5 h-3.5" />
+                  Clear all
                 </button>
               )}
             </div>
@@ -873,7 +1055,7 @@ export default function ArtifactsClientPage() {
                   className="w-full rounded-lg bg-slate-50 border border-slate-200 pl-9 pr-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-400/15 outline-none transition-all"
                 />
               </div>
-              {/* ✅ FIX 1: Use allTypes (stable, deduplicated) not types (page-scoped) */}
+
               <select
                 value={type}
                 onChange={(e) => setType(e.target.value)}
@@ -881,9 +1063,12 @@ export default function ArtifactsClientPage() {
               >
                 <option value="">All types</option>
                 {allTypes.map((t) => (
-                  <option key={t} value={t}>{displayType(t)}</option>
+                  <option key={t} value={t}>
+                    {displayType(t)}
+                  </option>
                 ))}
               </select>
+
               <button
                 onClick={loadFirst}
                 className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition-colors"
@@ -904,7 +1089,8 @@ export default function ArtifactsClientPage() {
                 view === "list" ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
               }`}
             >
-              <ListIcon className="w-3.5 h-3.5" />List
+              <ListIcon className="w-3.5 h-3.5" />
+              List
             </button>
             <button
               onClick={() => setView("grouped")}
@@ -912,11 +1098,11 @@ export default function ArtifactsClientPage() {
                 view === "grouped" ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
               }`}
             >
-              <LayoutGrid className="w-3.5 h-3.5" />Grouped
+              <LayoutGrid className="w-3.5 h-3.5" />
+              Grouped
             </button>
           </div>
 
-          {/* ✅ FIX 3: Show stable server total, not volatile sortedItems.length */}
           <p className="text-xs font-medium text-slate-400">
             {displayedCountIsEstimate && <span className="mr-0.5">~</span>}
             {displayedCount} artifact{displayedCount !== 1 ? "s" : ""}
@@ -934,7 +1120,8 @@ export default function ArtifactsClientPage() {
         {/* ─── Error ─── */}
         {error && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 flex items-center gap-2.5 font-medium">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />{error}
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            {error}
           </div>
         )}
 
@@ -948,11 +1135,28 @@ export default function ArtifactsClientPage() {
           view === "list" ? (
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
               <div className="grid grid-cols-12 gap-4 px-6 py-3 border-b border-slate-100 bg-slate-50/60">
-                <div className="col-span-3"><SortButton label="Project" sortKey="project" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></div>
-                <div className="col-span-4"><SortButton label="Artifact" sortKey="artifact" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></div>
-                <div className="col-span-2"><SortButton label="Type" sortKey="type" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></div>
-                <div className="col-span-2"><SortButton label="Status" sortKey="status" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></div>
-                <div className="col-span-1 flex justify-end"><SortButton label="Updated" sortKey="updated" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} align="right" /></div>
+                <div className="col-span-3">
+                  <SortButton label="Project" sortKey="project" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                </div>
+                <div className="col-span-4">
+                  <SortButton label="Artifact" sortKey="artifact" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                </div>
+                <div className="col-span-2">
+                  <SortButton label="Type" sortKey="type" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                </div>
+                <div className="col-span-2">
+                  <SortButton label="Status" sortKey="status" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                </div>
+                <div className="col-span-1 flex justify-end">
+                  <SortButton
+                    label="Updated"
+                    sortKey="updated"
+                    activeSortKey={sortKey}
+                    sortDir={sortDir}
+                    onToggle={toggleSort}
+                    align="right"
+                  />
+                </div>
               </div>
               <div className="divide-y divide-slate-50">
                 {sortedItems.map((a) => {
@@ -961,13 +1165,18 @@ export default function ArtifactsClientPage() {
                   return (
                     <div
                       key={a.id}
-                      ref={(el) => { rowRefs.current[a.id] = el; }}
+                      ref={(el) => {
+                        rowRefs.current[a.id] = el;
+                      }}
                       className={`group grid grid-cols-12 gap-4 px-6 py-3.5 transition-colors duration-100 ${
                         isHighlighted ? "bg-blue-50/60 ring-1 ring-inset ring-blue-200" : "hover:bg-slate-50/80"
                       }`}
                     >
                       <div className="col-span-3 flex flex-col justify-center gap-0.5 min-w-0">
-                        <Link href={`/projects/${a.project_id}`} className="text-[11px] font-bold text-blue-600 hover:text-blue-700 hover:underline truncate">
+                        <Link
+                          href={`/projects/${a.project_id}`}
+                          className="text-[11px] font-bold text-blue-600 hover:text-blue-700 hover:underline truncate"
+                        >
                           {projectHumanId(a)}
                         </Link>
                         <span className="text-sm font-medium text-slate-700 truncate leading-tight">{projectTitleLabel(a)}</span>
@@ -978,10 +1187,16 @@ export default function ArtifactsClientPage() {
                         </Link>
                         <AIHealthBadge artifact={a} />
                       </div>
-                      <div className="col-span-2 flex items-center"><TypeBadge type={a.type} /></div>
-                      <div className="col-span-2 flex items-center"><StatusBadge status={a.status} /></div>
+                      <div className="col-span-2 flex items-center">
+                        <TypeBadge type={a.type} />
+                      </div>
+                      <div className="col-span-2 flex items-center">
+                        <StatusBadge status={a.status} />
+                      </div>
                       <div className="col-span-1 flex items-center justify-end">
-                        <span className="text-xs font-medium text-slate-400 whitespace-nowrap">{fmtRelativeTime(a.updated_at || a.created_at)}</span>
+                        <span className="text-xs font-medium text-slate-400 whitespace-nowrap">
+                          {fmtRelativeTime(a.updated_at || a.created_at)}
+                        </span>
                       </div>
                     </div>
                   );
@@ -997,8 +1212,15 @@ export default function ArtifactsClientPage() {
                   <div key={g.project_id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                     <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3 min-w-0">
-                        <button onClick={() => toggleProjectCollapse(g.project_id)} className="p-1 rounded-md hover:bg-slate-100 transition-colors flex-shrink-0">
-                          {isOpen ? <ChevronDown className="w-4 h-4 text-slate-500" /> : <ChevronRight className="w-4 h-4 text-slate-500" />}
+                        <button
+                          onClick={() => toggleProjectCollapse(g.project_id)}
+                          className="p-1 rounded-md hover:bg-slate-100 transition-colors flex-shrink-0"
+                        >
+                          {isOpen ? (
+                            <ChevronDown className="w-4 h-4 text-slate-500" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4 text-slate-500" />
+                          )}
                         </button>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -1006,7 +1228,8 @@ export default function ArtifactsClientPage() {
                             <h2 className="text-sm font-bold text-slate-800 truncate">{g.project_title}</h2>
                             {attentionCount > 0 && (
                               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-600 border border-rose-200">
-                                <AlertCircle className="w-2.5 h-2.5" />{attentionCount}
+                                <AlertCircle className="w-2.5 h-2.5" />
+                                {attentionCount}
                               </span>
                             )}
                           </div>
@@ -1016,14 +1239,27 @@ export default function ArtifactsClientPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        <Link href={projectRaidHref(g.project_id)} className="text-[11px] font-semibold text-slate-500 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 px-3 py-1.5 rounded-lg transition-all">RAID</Link>
-                        <Link href={projectChangeHref(g.project_id)} className="text-[11px] font-semibold text-slate-500 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 px-3 py-1.5 rounded-lg transition-all">Changes</Link>
+                        <Link
+                          href={projectRaidHref(g.project_id)}
+                          className="text-[11px] font-semibold text-slate-500 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 px-3 py-1.5 rounded-lg transition-all"
+                        >
+                          RAID
+                        </Link>
+                        <Link
+                          href={projectChangeHref(g.project_id)}
+                          className="text-[11px] font-semibold text-slate-500 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 px-3 py-1.5 rounded-lg transition-all"
+                        >
+                          Changes
+                        </Link>
                       </div>
                     </div>
                     {isOpen && (
                       <div className="divide-y divide-slate-50">
                         {g.items.map((a) => (
-                          <div key={a.id} className="px-5 py-3 flex items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors">
+                          <div
+                            key={a.id}
+                            className="px-5 py-3 flex items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors"
+                          >
                             <div className="flex items-center gap-3 min-w-0">
                               <TypeBadge type={a.type} />
                               <Link href={buildArtifactHref(a)} className="text-sm font-semibold text-slate-800 hover:text-blue-600 transition-colors truncate">
@@ -1033,7 +1269,9 @@ export default function ArtifactsClientPage() {
                             </div>
                             <div className="flex items-center gap-4 flex-shrink-0">
                               <StatusBadge status={a.status} />
-                              <span className="text-xs text-slate-400 font-medium w-16 text-right">{fmtRelativeTime(a.updated_at || a.created_at)}</span>
+                              <span className="text-xs text-slate-400 font-medium w-16 text-right">
+                                {fmtRelativeTime(a.updated_at || a.created_at)}
+                              </span>
                             </div>
                           </div>
                         ))}
@@ -1054,8 +1292,15 @@ export default function ArtifactsClientPage() {
               {hasActiveFilters ? "Try adjusting your filters or search terms." : "No active artifacts available."}
             </p>
             {hasActiveFilters && (
-              <button onClick={() => { setQ(""); setType(""); }} className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-700">
-                <X className="w-4 h-4" />Clear filters
+              <button
+                onClick={() => {
+                  setQ("");
+                  setType("");
+                }}
+                className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-700"
+              >
+                <X className="w-4 h-4" />
+                Clear filters
               </button>
             )}
           </div>
