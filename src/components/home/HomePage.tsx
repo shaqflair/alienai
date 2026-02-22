@@ -283,10 +283,10 @@ function NotificationBell() {
   return (
     <div className="relative">
       <button type="button" onClick={() => setOpen((v) => !v)}
-        className="relative group rounded-xl border border-stone-200 bg-white p-2.5 transition-all hover:border-indigo-300 hover:bg-indigo-50/40 active:scale-95 shadow-sm"
+        className="relative group rounded-xl border border-slate-200 bg-white p-2.5 transition-all hover:border-indigo-300 hover:bg-indigo-50/40 active:scale-95 shadow-sm"
         aria-label="Notifications"
       >
-        <Bell className="h-5 w-5 text-stone-500 group-hover:text-indigo-600 transition-colors" />
+        <Bell className="h-5 w-5 text-slate-500 group-hover:text-indigo-600 transition-colors" />
         {unreadCount > 0 && (
           <m.span initial={{ scale: 0 }} animate={{ scale: 1 }}
             className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white ring-2 ring-white shadow-sm"
@@ -303,36 +303,36 @@ function NotificationBell() {
             <m.div
               initial={{ opacity: 0, y: -10, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -10, scale: 0.96 }} transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              className="absolute right-0 top-full z-50 mt-3 w-[420px] overflow-hidden rounded-2xl border border-stone-200 bg-white"
+              className="absolute right-0 top-full z-50 mt-3 w-[420px] overflow-hidden rounded-2xl border border-slate-200 bg-white"
               style={{ boxShadow: "0 4px 6px -1px rgba(0,0,0,0.06), 0 20px 60px -10px rgba(0,0,0,0.14), 0 0 0 1px rgba(0,0,0,0.03)" }}
             >
-              <div className="flex items-center justify-between border-b border-stone-100 px-5 py-4 bg-stone-50/60">
+              <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 bg-white/80">
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 shadow-sm shadow-indigo-200">
                     <Bell className="h-4 w-4 text-white" />
                   </div>
                   <div>
-                    <div className="text-sm font-bold text-stone-900">Notifications</div>
-                    <div className="text-xs text-stone-400">{loading ? "Syncing…" : `${unreadCount} unread`}</div>
+                    <div className="text-sm font-bold text-slate-900">Notifications</div>
+                    <div className="text-xs text-slate-400">{loading ? "Syncing…" : `${unreadCount} unread`}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={markAllRead}
-                    className="h-8 rounded-lg border border-stone-200 bg-white px-3 text-xs text-stone-500 hover:text-stone-900 hover:bg-stone-50 transition-all shadow-sm">
+                    className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all shadow-sm">
                     <CheckCheck className="mr-1.5 inline h-3.5 w-3.5" />Mark all read
                   </button>
                   <button type="button" onClick={() => setOpen(false)}
-                    className="h-8 w-8 rounded-lg border border-stone-200 bg-white hover:bg-stone-50 transition-all shadow-sm inline-flex items-center justify-center">
-                    <X className="h-4 w-4 text-stone-400" />
+                    className="h-8 w-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all shadow-sm inline-flex items-center justify-center">
+                    <X className="h-4 w-4 text-slate-400" />
                   </button>
                 </div>
               </div>
-              <div className="flex items-center gap-1 border-b border-stone-100 px-3 py-2.5 bg-stone-50/30">
+              <div className="flex items-center gap-1 border-b border-slate-100 px-3 py-2.5 bg-slate-50/40">
                 {(["all","action","ai","approvals"] as BellTab[]).map((k) => {
                   const label = k === "all" ? "All" : k === "action" ? "Action" : k === "ai" ? "AI" : "Approvals";
                   return (
                     <button key={k} type="button" onClick={() => setTab(k)}
-                      className={["rounded-lg px-3 py-1.5 text-xs font-semibold transition-all", tab === k ? "bg-indigo-600 text-white shadow-sm" : "text-stone-500 hover:text-stone-700 hover:bg-stone-100"].join(" ")}>
+                      className={["rounded-lg px-3 py-1.5 text-xs font-semibold transition-all", tab === k ? "bg-indigo-600 text-white shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"].join(" ")}>
                       {label}
                     </button>
                   );
@@ -341,22 +341,22 @@ function NotificationBell() {
               <div className="max-h-[480px] overflow-auto">
                 {grouped.length === 0 ? (
                   <div className="px-4 py-14 text-center">
-                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-stone-100 border border-stone-200">
-                      <CheckCheck className="h-6 w-6 text-stone-400" />
+                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 border border-slate-200">
+                      <CheckCheck className="h-6 w-6 text-slate-400" />
                     </div>
-                    <div className="text-sm font-semibold text-stone-700">All caught up</div>
-                    <div className="mt-1.5 text-xs text-stone-400">No new notifications.</div>
+                    <div className="text-sm font-semibold text-slate-700">All caught up</div>
+                    <div className="mt-1.5 text-xs text-slate-400">No new notifications.</div>
                   </div>
                 ) : grouped.map(([label, rows]) => (
                   <div key={label}>
-                    <div className="px-5 pt-4 pb-2 text-[10px] font-bold uppercase tracking-widest text-stone-400">{label}</div>
+                    <div className="px-5 pt-4 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</div>
                     <div className="px-3 pb-2 space-y-1">
                       {rows.map((n) => {
                         const unread = n.is_read !== true; const sev = severityFromNotif(n);
                         return (
                           <button key={n.id} type="button" onClick={() => onClickItem(n)}
                             className={["w-full rounded-xl px-3 py-3 text-left transition-all group",
-                              unread ? "bg-white border border-stone-200 hover:border-indigo-200 hover:bg-indigo-50/30 shadow-sm" : "hover:bg-stone-50 border border-transparent"].join(" ")}>
+                              unread ? "bg-white border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/30 shadow-sm" : "hover:bg-slate-50 border border-transparent"].join(" ")}>
                             <div className="flex items-start gap-3">
                               <div className={["mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border",
                                 sev === "high" ? "border-rose-200 bg-rose-50 text-rose-600"
@@ -367,10 +367,10 @@ function NotificationBell() {
                               </div>
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center justify-between gap-2">
-                                  <div className="truncate text-sm font-semibold text-stone-800">{n.title}</div>
-                                  <div className="shrink-0 text-[11px] text-stone-400">{timeAgo(n.created_at)}</div>
+                                  <div className="truncate text-sm font-semibold text-slate-800">{n.title}</div>
+                                  <div className="shrink-0 text-[11px] text-slate-400">{timeAgo(n.created_at)}</div>
                                 </div>
-                                {n.body && <div className="mt-1 line-clamp-2 text-xs text-stone-500 leading-relaxed">{n.body}</div>}
+                                {n.body && <div className="mt-1 line-clamp-2 text-xs text-slate-500 leading-relaxed">{n.body}</div>}
                                 <div className="mt-2 flex items-center gap-2">
                                   <span className={severityChip(sev)}>{sev}</span>
                                   {unread && <span className="inline-flex h-1.5 w-1.5 rounded-full bg-indigo-500" />}
@@ -384,9 +384,9 @@ function NotificationBell() {
                   </div>
                 ))}
               </div>
-              <div className="border-t border-stone-100 px-5 py-3.5 bg-stone-50/40">
+              <div className="border-t border-slate-100 px-5 py-3.5 bg-white/50">
                 <button type="button" onClick={() => { setOpen(false); router.push("/notifications"); }}
-                  className="text-xs text-stone-500 hover:text-indigo-600 transition-colors flex items-center gap-1.5 font-semibold">
+                  className="text-xs text-slate-500 hover:text-indigo-600 transition-colors flex items-center gap-1.5 font-semibold">
                   View all notifications <ChevronRight className="h-3 w-3" />
                 </button>
               </div>
@@ -401,11 +401,11 @@ function NotificationBell() {
 /* ── Skeleton ── */
 function SkeletonAlert() {
   return (
-    <div className="rounded-xl border border-stone-100 bg-stone-50 p-4 animate-pulse">
+    <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 animate-pulse">
       <div className="flex items-start gap-3">
-        <div className="h-9 w-9 rounded-xl bg-stone-200 shrink-0" />
+        <div className="h-9 w-9 rounded-xl bg-slate-200 shrink-0" />
         <div className="flex-1 space-y-2.5 pt-1">
-          <div className="h-3.5 bg-stone-200 rounded w-2/5" /><div className="h-3 bg-stone-100 rounded w-full" /><div className="h-3 bg-stone-100 rounded w-3/4" />
+          <div className="h-3.5 bg-slate-200 rounded w-2/5" /><div className="h-3 bg-slate-100 rounded w-full" /><div className="h-3 bg-slate-100 rounded w-3/4" />
         </div>
       </div>
     </div>
@@ -418,8 +418,8 @@ function SurfaceCard({ children, className = "", delay = 0 }: { children: React.
     <m.div
       initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45, delay, ease: [0.16, 1, 0.3, 1] }}
-      className={`relative overflow-hidden bg-white rounded-2xl border border-stone-200/80 p-6 transition-all hover:shadow-md hover:border-stone-300 ${className}`}
-      style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05), 0 1px 0 rgba(255,255,255,0.8) inset" }}
+      className={`relative overflow-hidden bg-white rounded-2xl border border-slate-200/70 p-6 transition-all hover:shadow-md hover:border-slate-300 ${className}`}
+      style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(99,102,241,0.06), 0 1px 0 rgba(255,255,255,1) inset" }}
     >
       <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white to-transparent" />
       <div className="relative">{children}</div>
@@ -449,10 +449,10 @@ function KpiCard({ label, value, sub, icon, tone, onClick, extra, tooltip, metaL
     <m.div
       initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45, delay, ease: [0.16, 1, 0.3, 1] }}
-      className={["relative overflow-hidden bg-white rounded-2xl border border-stone-200/80 p-6 transition-all",
-        clickable ? "cursor-pointer hover:shadow-md hover:border-stone-300 group" : "hover:shadow-sm",
+      className={["relative overflow-hidden bg-white rounded-2xl border border-slate-200/70 p-6 transition-all",
+        clickable ? "cursor-pointer hover:shadow-md hover:border-slate-300 group" : "hover:shadow-sm",
         cardClassName || ""].join(" ")}
-      style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05), 0 1px 0 rgba(255,255,255,0.8) inset" }}
+      style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(99,102,241,0.06), 0 1px 0 rgba(255,255,255,1) inset" }}
       role={clickable ? "button" : undefined} tabIndex={clickable ? 0 : undefined}
       onClick={onClick}
       onKeyDown={(e) => { if (!clickable) return; if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick?.(); } }}
@@ -465,19 +465,19 @@ function KpiCard({ label, value, sub, icon, tone, onClick, extra, tooltip, metaL
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-2">
-              <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">{label}</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{label}</p>
               {badge}
-              {tooltip && <span className="text-[9px] text-stone-400 border border-stone-200 px-1.5 py-0.5 rounded font-mono cursor-help" title={tooltip}>i</span>}
+              {tooltip && <span className="text-[9px] text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded font-mono cursor-help" title={tooltip}>i</span>}
             </div>
-            <p className="text-4xl font-bold text-stone-900 tracking-tight" style={{ fontFamily: "var(--font-mono, monospace)" }}>{value}</p>
-            {sub && <p className="text-xs text-stone-400 mt-1.5 line-clamp-2 font-medium">{sub}</p>}
+            <p className="text-4xl font-bold text-slate-950 tracking-tight" style={{ fontFamily: "var(--font-mono, monospace)" }}>{value}</p>
+            {sub && <p className="text-xs text-slate-400 mt-1.5 line-clamp-2 font-medium">{sub}</p>}
             {metaLine && (
-              <div className="mt-3 inline-flex items-center gap-2 text-xs text-stone-500 bg-stone-50 border border-stone-200 px-2.5 py-1.5 rounded-lg">
-                {metaIcon && <span className="text-stone-400">{metaIcon}</span>}
+              <div className="mt-3 inline-flex items-center gap-2 text-xs text-slate-500 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-lg">
+                {metaIcon && <span className="text-slate-400">{metaIcon}</span>}
                 <span className="truncate">{metaLine}</span>
               </div>
             )}
-            {aiLine && <p className="mt-3 text-xs text-stone-500 line-clamp-2 leading-relaxed">{aiLine}</p>}
+            {aiLine && <p className="mt-3 text-xs text-slate-500 line-clamp-2 leading-relaxed">{aiLine}</p>}
           </div>
           {rightVisual ? <div className="shrink-0">{rightVisual}</div> : (
             <div className={`shrink-0 flex items-center justify-center w-11 h-11 rounded-xl ${iconBg} text-white shadow-lg transition-transform group-hover:scale-110`}>
@@ -505,7 +505,7 @@ function PortfolioHealthRing({ score, rag }: { score: number; rag: RagLetter }) 
           />
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-sm font-bold text-stone-800" style={{ fontFamily: "var(--font-mono, monospace)" }}>{s}%</span>
+          <span className="text-sm font-bold text-slate-800" style={{ fontFamily: "var(--font-mono, monospace)" }}>{s}%</span>
         </div>
       </div>
     </div>
@@ -525,8 +525,8 @@ function PortfolioHealthDrivers({ parts, drivers }: { parts: { schedule: number;
     );
   };
   return (
-    <div className="space-y-2 mt-4 pt-4 border-t border-stone-100">
-      <div className="text-[10px] font-bold text-stone-400 mb-3 uppercase tracking-widest">Health Drivers</div>
+    <div className="space-y-2 mt-4 pt-4 border-t border-slate-100">
+      <div className="text-[10px] font-bold text-slate-400 mb-3 uppercase tracking-widest">Health Drivers</div>
       <div className="grid grid-cols-2 gap-2">
         {partPill("Schedule", num(parts?.schedule))}{partPill("RAID", num(parts?.raid))}
         {partPill("Flow", num(parts?.flow))}{partPill("Approvals", num(parts?.approvals))}
@@ -542,12 +542,12 @@ function SuccessStoryMeta({ meta, loading, displayTotal }: { meta: { milestones_
   const other = Math.max(0, num(displayTotal) - knownSum);
   const stats = [{ label: "Milestones", value: milestones }, { label: "RAID", value: raid }, { label: "Changes", value: changes }, { label: "WBS", value: wbs }, { label: "Lessons", value: lessons }, { label: "Other", value: other }];
   return (
-    <div className="border-t border-stone-100 pt-4">
+    <div className="border-t border-slate-100 pt-4">
       <div className="grid grid-cols-3 gap-2">
         {stats.map((stat) => (
-          <div key={stat.label} className="text-center p-2 rounded-lg bg-stone-50 border border-stone-100">
-            <div className="text-lg font-bold text-stone-800" style={{ fontFamily: "var(--font-mono, monospace)" }}>{loading ? "…" : stat.value}</div>
-            <div className="text-[9px] uppercase tracking-widest text-stone-400 mt-0.5 font-bold">{stat.label}</div>
+          <div key={stat.label} className="text-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+            <div className="text-lg font-bold text-slate-800" style={{ fontFamily: "var(--font-mono, monospace)" }}>{loading ? "…" : stat.value}</div>
+            <div className="text-[9px] uppercase tracking-widest text-slate-400 mt-0.5 font-bold">{stat.label}</div>
           </div>
         ))}
       </div>
@@ -571,11 +571,11 @@ function AiAlert({ severity, title, body, href }: { severity: "high" | "medium" 
           <div className="flex items-start justify-between gap-3 mb-1">
             <div className="flex items-center gap-2 flex-wrap">
               <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest ${cfg.pill}`}>{cfg.label}</span>
-              <h4 className="font-semibold text-sm text-stone-800">{title}</h4>
+              <h4 className="font-semibold text-sm text-slate-800">{title}</h4>
             </div>
             {href && <a href={href} className="shrink-0 text-[11px] text-indigo-600 hover:text-indigo-700 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all font-semibold">View <ArrowUpRight className="h-3 w-3" /></a>}
           </div>
-          <p className="text-xs text-stone-500 leading-relaxed">{body}</p>
+          <p className="text-xs text-slate-500 leading-relaxed">{body}</p>
         </div>
       </div>
     </div>
@@ -585,17 +585,17 @@ function AiAlert({ severity, title, body, href }: { severity: "high" | "medium" 
 /* ── Milestones Meta ── */
 function MilestonesMeta({ loading, panel }: { loading: boolean; panel: MilestonesPanel | null }) {
   const stats = [
-    { label: "Planned", value: num(panel?.status_breakdown?.planned), cls: "text-stone-700" },
+    { label: "Planned", value: num(panel?.status_breakdown?.planned), cls: "text-slate-700" },
     { label: "At Risk", value: num(panel?.status_breakdown?.at_risk), cls: "text-amber-600" },
     { label: "Overdue", value: num(panel?.overdue_count), cls: "text-rose-600" },
   ];
   return (
-    <div className="mt-4 pt-4 border-t border-stone-100">
+    <div className="mt-4 pt-4 border-t border-slate-100">
       <div className="flex items-center justify-between gap-2">
         {stats.map((stat) => (
-          <div key={stat.label} className="text-center flex-1 py-2 rounded-lg bg-stone-50 border border-stone-100">
+          <div key={stat.label} className="text-center flex-1 py-2 rounded-lg bg-slate-50 border border-slate-100">
             <div className={`text-xl font-bold ${stat.cls}`} style={{ fontFamily: "var(--font-mono, monospace)" }}>{loading ? "…" : stat.value}</div>
-            <div className="text-[9px] uppercase tracking-widest text-stone-400 mt-0.5 font-bold">{stat.label}</div>
+            <div className="text-[9px] uppercase tracking-widest text-slate-400 mt-0.5 font-bold">{stat.label}</div>
           </div>
         ))}
       </div>
@@ -608,26 +608,26 @@ function RaidMeta({ loading, panel, onClickType }: { loading: boolean; panel: Ra
   const riskVal = num(panel?.risk_due); const issueVal = num(panel?.issue_due); const depVal = num(panel?.dependency_due); const assVal = num(panel?.assumption_due);
   const dueTotal = num(panel?.due_total); const overdueVal = num(panel?.overdue_total); const typedSum = riskVal + issueVal + depVal + assVal; const hasTypedBreakdown = typedSum > 0;
   return (
-    <div className="mt-4 pt-4 border-t border-stone-100">
+    <div className="mt-4 pt-4 border-t border-slate-100">
       {!hasTypedBreakdown ? (
         <button onClick={(e) => { e.stopPropagation(); onClickType(undefined, { hi: false }); }}
-          className="w-full rounded-xl border border-stone-200 bg-stone-50 hover:bg-stone-100 hover:border-stone-300 transition-all px-3 py-3 flex items-center justify-between">
+          className="w-full rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300 transition-all px-3 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-rose-50 border border-rose-200"><AlertTriangle className="h-4 w-4 text-rose-600" /></span>
             <div className="text-left">
-              <div className="text-[9px] font-bold text-stone-500 uppercase tracking-widest">Due in window</div>
-              <div className="text-xs text-stone-400">Type breakdown unavailable</div>
+              <div className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Due in window</div>
+              <div className="text-xs text-slate-400">Type breakdown unavailable</div>
             </div>
           </div>
-          <div className="text-xl font-bold text-stone-800" style={{ fontFamily: "var(--font-mono, monospace)" }}>{loading ? "…" : dueTotal}</div>
+          <div className="text-xl font-bold text-slate-800" style={{ fontFamily: "var(--font-mono, monospace)" }}>{loading ? "…" : dueTotal}</div>
         </button>
       ) : (
         <div className="grid grid-cols-4 gap-2">
-          {[{ label: "Risk", value: riskVal, type: "Risk" as const, cls: "text-rose-600" }, { label: "Issue", value: issueVal, type: "Issue" as const, cls: "text-amber-600" }, { label: "Dep", value: depVal, type: "Dependency" as const, cls: "text-indigo-600" }, { label: "Assum", value: assVal, type: "Assumption" as const, cls: "text-stone-600" }].map((item) => (
+          {[{ label: "Risk", value: riskVal, type: "Risk" as const, cls: "text-rose-600" }, { label: "Issue", value: issueVal, type: "Issue" as const, cls: "text-amber-600" }, { label: "Dep", value: depVal, type: "Dependency" as const, cls: "text-indigo-600" }, { label: "Assum", value: assVal, type: "Assumption" as const, cls: "text-slate-600" }].map((item) => (
             <button key={item.label} onClick={(e) => { e.stopPropagation(); onClickType(item.type, { hi: false }); }}
-              className="text-center p-2 rounded-xl bg-stone-50 border border-stone-200 hover:bg-stone-100 hover:border-stone-300 transition-all">
+              className="text-center p-2 rounded-xl bg-slate-50 border border-slate-200 hover:bg-slate-100 hover:border-slate-300 transition-all">
               <div className={`text-lg font-bold ${item.cls}`} style={{ fontFamily: "var(--font-mono, monospace)" }}>{loading ? "…" : item.value}</div>
-              <div className="text-[9px] uppercase tracking-widest text-stone-400 mt-0.5 font-bold">{item.label}</div>
+              <div className="text-[9px] uppercase tracking-widest text-slate-400 mt-0.5 font-bold">{item.label}</div>
             </button>
           ))}
         </div>
@@ -649,8 +649,8 @@ function ProjectTile({ projectRef, title, subtitle = "RAID · Changes · Lessons
   return (
     <m.div role="link" tabIndex={0} onClick={go} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } }}
       whileHover={{ y: -2, transition: { duration: 0.18 } }}
-      className="cursor-pointer rounded-xl border border-stone-200 bg-white p-5 hover:border-indigo-300 hover:shadow-md transition-colors relative overflow-hidden group"
-      style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}
+      className="cursor-pointer rounded-xl border border-slate-200 bg-white p-5 hover:border-indigo-300 hover:shadow-md transition-colors relative overflow-hidden group"
+      style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(226,232,240,0.8)" }}
     >
       <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/0 to-indigo-50/0 group-hover:from-indigo-50/50 group-hover:to-violet-50/20 transition-all duration-300 rounded-xl" />
       <div className="relative">
@@ -658,10 +658,10 @@ function ProjectTile({ projectRef, title, subtitle = "RAID · Changes · Lessons
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-2.5 flex-wrap">
               {code && <span className="inline-flex items-center rounded-md bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-[10px] font-bold text-indigo-700 uppercase tracking-wider" style={{ fontFamily: "var(--font-mono, monospace)" }}>{code}</span>}
-              {client && <span className="inline-flex items-center rounded-md bg-stone-100 border border-stone-200 px-2 py-0.5 text-[10px] text-stone-500 font-medium">{client}</span>}
+              {client && <span className="inline-flex items-center rounded-md bg-slate-100 border border-slate-200 px-2 py-0.5 text-[10px] text-slate-500 font-medium">{client}</span>}
             </div>
-            <h3 className="text-sm font-bold text-stone-800 group-hover:text-indigo-700 transition-colors truncate">{title}</h3>
-            <p className="text-[11px] text-stone-400 mt-1.5 font-medium">{subtitle}</p>
+            <h3 className="text-sm font-bold text-slate-800 group-hover:text-indigo-700 transition-colors truncate">{title}</h3>
+            <p className="text-[11px] text-slate-400 mt-1.5 font-medium">{subtitle}</p>
           </div>
           <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-all duration-200">
             <div className="h-7 w-7 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center">
@@ -867,10 +867,10 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   if (!ok) {
     return (
-      <div className="min-h-screen bg-[#F7F6F3] grid place-items-center p-10">
-        <div className="max-w-lg rounded-2xl border border-stone-200 bg-white p-10" style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.08)" }}>
-          <div className="text-2xl font-bold text-stone-900">Dashboard Error</div>
-          <div className="mt-3 text-stone-500">{(data as any).error}</div>
+      <div className="min-h-screen bg-[#F8FAFF] grid place-items-center p-10">
+        <div className="max-w-lg rounded-2xl border border-slate-200 bg-white p-10" style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.08)" }}>
+          <div className="text-2xl font-bold text-slate-950">Dashboard Error</div>
+          <div className="mt-3 text-slate-500">{(data as any).error}</div>
         </div>
       </div>
     );
@@ -883,23 +883,24 @@ export default function HomePage({ data }: { data: HomeData }) {
     <LazyMotion features={domAnimation}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap');
+        * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
         :root { --font-body: 'DM Sans', sans-serif; --font-mono: 'DM Mono', monospace; }
         html, body { font-family: var(--font-body) !important; }
         .font-mono, .mono { font-family: var(--font-mono) !important; }
         @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
-        .sk { background: linear-gradient(90deg, #e8e6e1 25%, #dcd9d4 50%, #e8e6e1 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
-        ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-track { background: #f0ede8; }
-        ::-webkit-scrollbar-thumb { background: #c8c3bb; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #a09b93; }
+        .sk { background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+        ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
       `}</style>
 
-      <div className="relative min-h-screen text-stone-900 selection:bg-indigo-100 selection:text-indigo-900" style={{ background: "#F7F6F3", fontFamily: "var(--font-body, 'DM Sans', sans-serif)" }}>
+      <div className="relative min-h-screen text-slate-900 selection:bg-indigo-100 selection:text-indigo-900" style={{ background: "#FFFFFF", fontFamily: "var(--font-body, 'DM Sans', sans-serif)" }}>
         {/* Background */}
         <div className="fixed inset-0 pointer-events-none z-0">
-          <div className="absolute inset-0" style={{ background: "#F7F6F3" }} />
-          <div className="absolute -top-24 -right-24 w-[640px] h-[640px] rounded-full opacity-50" style={{ background: "radial-gradient(ellipse, #e8e4ff 0%, transparent 65%)" }} />
-          <div className="absolute bottom-0 -left-24 w-[480px] h-[480px] rounded-full opacity-40" style={{ background: "radial-gradient(ellipse, #dcf5ef 0%, transparent 65%)" }} />
-          <div className="absolute inset-0 opacity-[0.35]" style={{ backgroundImage: "radial-gradient(circle, #bab6ad 1px, transparent 1px)", backgroundSize: "28px 28px" }} />
+          <div className="absolute inset-0" style={{ background: "#F8FAFF" }} />
+          <div className="absolute -top-24 -right-24 w-[640px] h-[640px] rounded-full opacity-50" style={{ background: "radial-gradient(ellipse, #ddd6fe 0%, transparent 60%)" }} />
+          <div className="absolute bottom-0 -left-24 w-[480px] h-[480px] rounded-full opacity-40" style={{ background: "radial-gradient(ellipse, #bbf7d0 0%, transparent 60%)" }} />
+          <div className="absolute inset-0 opacity-[0.25]" style={{ backgroundImage: "radial-gradient(circle, #c7d2fe 1px, transparent 1px)", backgroundSize: "28px 28px" }} />
         </div>
 
         <div className="relative mx-auto max-w-7xl px-6 py-8 z-10">
@@ -911,12 +912,12 @@ export default function HomePage({ data }: { data: HomeData }) {
                   <Layers className="h-5 w-5 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold tracking-tight text-stone-900 leading-none flex items-center gap-2">
+                  <h1 className="text-xl font-bold tracking-tight text-slate-900 leading-none flex items-center gap-2">
                     <span className="text-indigo-600">ΛLIΞNΛ</span>
-                    <span className="text-stone-300">·</span>
-                    <span className="text-stone-400 font-medium text-base">PM Suite</span>
+                    <span className="text-slate-300">·</span>
+                    <span className="text-slate-400 font-medium text-base">PM Suite</span>
                   </h1>
-                  <p className="text-xs text-stone-400 mt-1 tracking-wide">{today}</p>
+                  <p className="text-xs text-slate-400 mt-1 tracking-wide">{today}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -927,7 +928,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                 <NotificationBell />
               </div>
             </m.div>
-            <m.div initial={{ scaleX: 0, opacity: 0 }} animate={{ scaleX: 1, opacity: 1 }} transition={{ duration: 0.8, delay: 0.2, ease: [0.16, 1, 0.3, 1] }} className="mt-8 origin-left h-px" style={{ background: "linear-gradient(90deg, #818cf8 0%, #c7d2fe 40%, transparent 100%)" }} />
+            <m.div initial={{ scaleX: 0, opacity: 0 }} animate={{ scaleX: 1, opacity: 1 }} transition={{ duration: 0.8, delay: 0.2, ease: [0.16, 1, 0.3, 1] }} className="mt-8 origin-left h-px" style={{ background: "linear-gradient(90deg, #6366f1 0%, #a5b4fc 50%, transparent 100%)" }} />
           </header>
 
           {isExec ? (
@@ -939,19 +940,19 @@ export default function HomePage({ data }: { data: HomeData }) {
                     <div className="h-5 w-0.5 rounded-full bg-indigo-500" />
                     <span className="text-[11px] text-indigo-600 uppercase tracking-[0.18em] font-bold">Executive Command</span>
                   </div>
-                  <h2 className="text-3xl font-bold text-stone-900 tracking-tight">Portfolio Overview</h2>
-                  <p className="text-stone-400 mt-1 text-sm">Real-time portfolio intelligence</p>
+                  <h2 className="text-3xl font-bold text-slate-950 tracking-tight">Portfolio Overview</h2>
+                  <p className="text-slate-400 mt-1 text-sm">Real-time portfolio intelligence</p>
                 </div>
-                <div className="flex items-center gap-1 p-1 rounded-xl bg-white border border-stone-200" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+                <div className="flex items-center gap-1 p-1 rounded-xl bg-white border border-slate-200" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
                   {[7,14,30,60].map((d) => (
                     <button key={d} type="button" onClick={() => setWindowDays(d as WindowDays)}
-                      className={["px-4 py-2 rounded-lg text-sm font-semibold transition-all", windowDays === d ? "bg-indigo-600 text-white" : "text-stone-500 hover:text-stone-800 hover:bg-stone-50"].join(" ")}>
+                      className={["px-4 py-2 rounded-lg text-sm font-semibold transition-all", windowDays === d ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"].join(" ")}>
                       {d}d
                     </button>
                   ))}
-                  <div className="w-px h-5 bg-stone-200 mx-1" />
+                  <div className="w-px h-5 bg-slate-200 mx-1" />
                   <button type="button" onClick={() => setWindowDays("all")}
-                    className={["px-4 py-2 rounded-lg text-sm font-semibold transition-all", windowDays === "all" ? "bg-indigo-600 text-white" : "text-stone-500 hover:text-stone-800 hover:bg-stone-50"].join(" ")}>
+                    className={["px-4 py-2 rounded-lg text-sm font-semibold transition-all", windowDays === "all" ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"].join(" ")}>
                     All Time
                   </button>
                 </div>
@@ -965,13 +966,13 @@ export default function HomePage({ data }: { data: HomeData }) {
                   aiLine={portfolioScore != null ? healthNarrative(portfolioScore) : "Loading..."}
                   rightVisual={<PortfolioHealthRing score={phScoreForUi} rag={phRag} />}
                   badge={<span className={["ml-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest", ragBadgeClasses(phRag)].join(" ")}>{ragLabel(phRag)}</span>}
-                  extra={<div className="space-y-3">{phErr && <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{phErr}</div>}{phData?.ok && <button type="button" onClick={(e) => { e.stopPropagation(); setShowPhDetails((v) => !v); }} className="w-full h-9 rounded-lg border border-stone-200 bg-stone-50 text-xs text-stone-600 hover:bg-stone-100 hover:text-stone-900 transition-all flex items-center justify-center gap-2">{showPhDetails ? "Hide Details" : "View Drivers"}<ChevronRight className={`h-3 w-3 transition-transform ${showPhDetails ? "rotate-90" : ""}`} /></button>}{showPhDetails && phData?.ok && <PortfolioHealthDrivers parts={phData.parts} drivers={phData.drivers} />}</div>}
+                  extra={<div className="space-y-3">{phErr && <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{phErr}</div>}{phData?.ok && <button type="button" onClick={(e) => { e.stopPropagation(); setShowPhDetails((v) => !v); }} className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all flex items-center justify-center gap-2">{showPhDetails ? "Hide Details" : "View Drivers"}<ChevronRight className={`h-3 w-3 transition-transform ${showPhDetails ? "rotate-90" : ""}`} /></button>}{showPhDetails && phData?.ok && <PortfolioHealthDrivers parts={phData.parts} drivers={phData.drivers} />}</div>}
                   delay={0}
                 />
                 <KpiCard cardClassName={KPI_CARD_CLASS} label="Success Stories" value={ssValue} sub={ssSub}
                   icon={<Trophy className="h-5 w-5" />} tone="amber" tooltip={ssTooltip} metaLine={ssMetaLine} metaIcon={trendIcon(ssDelta)} aiLine={ssAiLine}
                   onClick={() => openSuccessStories()}
-                  extra={<div className="mt-auto pt-4">{ssSummary && ssSummary.ok ? <SuccessStoryMeta loading={ssLoading} displayTotal={ssDisplayCount} meta={{ milestones_completed: num(ssSummary.breakdown?.milestones_done), raid_closed: num(ssSummary.breakdown?.raid_resolved), changes_implemented: num(ssSummary.breakdown?.changes_delivered), wbs_done: num(ssSummary.breakdown?.wbs_done), lessons_published: num(ssSummary.breakdown?.lessons_positive) }} /> : null}<div className="mt-4"><Button variant="outline" className="w-full border-stone-200 bg-white text-stone-700 hover:bg-stone-50 hover:text-stone-900" onClick={(e) => { e.stopPropagation(); openSuccessStories(); }}>View Summary <ArrowUpRight className="ml-2 h-4 w-4" /></Button><button type="button" onClick={(e) => { e.stopPropagation(); openSuccessStories(); }} className="mt-3 w-full text-center text-sm text-stone-400 hover:text-indigo-600 transition-colors">View all success stories <ChevronRight className="inline h-4 w-4 -mt-0.5" /></button></div></div>}
+                  extra={<div className="mt-auto pt-4">{ssSummary && ssSummary.ok ? <SuccessStoryMeta loading={ssLoading} displayTotal={ssDisplayCount} meta={{ milestones_completed: num(ssSummary.breakdown?.milestones_done), raid_closed: num(ssSummary.breakdown?.raid_resolved), changes_implemented: num(ssSummary.breakdown?.changes_delivered), wbs_done: num(ssSummary.breakdown?.wbs_done), lessons_published: num(ssSummary.breakdown?.lessons_positive) }} /> : null}<div className="mt-4"><Button variant="outline" className="w-full border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900" onClick={(e) => { e.stopPropagation(); openSuccessStories(); }}>View Summary <ArrowUpRight className="ml-2 h-4 w-4" /></Button><button type="button" onClick={(e) => { e.stopPropagation(); openSuccessStories(); }} className="mt-3 w-full text-center text-sm text-slate-400 hover:text-indigo-600 transition-colors">View all success stories <ChevronRight className="inline h-4 w-4 -mt-0.5" /></button></div></div>}
                   delay={0.05}
                 />
                 <KpiCard cardClassName={KPI_CARD_CLASS} label="Milestones Due" value={milestonesDueLoading ? "…" : `${milestonesDueLive}`}
@@ -993,7 +994,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                     <div className="flex items-start justify-between mb-6">
                       <div className="flex items-center gap-3">
                         <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-600" style={{ boxShadow: "0 4px 12px rgba(79,70,229,0.25)" }}><Sparkles className="h-5 w-5 text-white" /></div>
-                        <div><h3 className="text-lg font-bold text-stone-900">AI Daily Briefing</h3><p className="text-sm text-stone-400">Live governance signals</p></div>
+                        <div><h3 className="text-lg font-bold text-slate-900">AI Daily Briefing</h3><p className="text-sm text-slate-400">Live governance signals</p></div>
                       </div>
                       <Button className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm" style={{ boxShadow: "0 2px 8px rgba(79,70,229,0.2)" }} onClick={() => router.push("/insights")}>View All</Button>
                     </div>
@@ -1006,43 +1007,43 @@ export default function HomePage({ data }: { data: HomeData }) {
                     <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
                       <div className="flex items-center gap-3">
                         <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-500" style={{ boxShadow: "0 4px 12px rgba(245,158,11,0.25)" }}><Clock3 className="h-5 w-5 text-white" /></div>
-                        <div><h3 className="text-lg font-bold text-stone-900">Due Soon</h3><p className="text-sm text-stone-400">Next {dueWindowDays} days</p></div>
+                        <div><h3 className="text-lg font-bold text-slate-900">Due Soon</h3><p className="text-sm text-slate-400">Next {dueWindowDays} days</p></div>
                       </div>
                       <div className="flex items-center gap-1.5">
                         {[7,14,30].map((d) => (
                           <button key={d} type="button" onClick={() => setDueWindowDays(d as any)}
-                            className={["px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border", dueWindowDays === d ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-white border-stone-200 text-stone-500 hover:border-stone-300 hover:text-stone-700"].join(" ")}>
+                            className={["px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border", dueWindowDays === d ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700"].join(" ")}>
                             {d}d
                           </button>
                         ))}
                       </div>
                     </div>
                     {dueCounts.total > 0 ? (
-                      <div className="rounded-xl border border-stone-200 overflow-hidden bg-white">
-                        <div className="px-4 py-2.5 border-b border-stone-100 flex items-center justify-between text-[10px] text-stone-400 uppercase tracking-widest font-bold bg-stone-50/80"><span>Item</span><span>Due Date</span></div>
+                      <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
+                        <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between text-[10px] text-slate-400 uppercase tracking-widest font-bold bg-slate-50/80"><span>Item</span><span>Due Date</span></div>
                         <div className="max-h-[320px] overflow-auto divide-y divide-stone-100">
                           {dueItems.slice(0, 8).map((it, idx) => {
                             const overdue = isOverdue(it?.dueDate); const clickable = Boolean(safeStr(it?.link).trim());
                             return (
                               <m.button key={idx} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: idx * 0.04 }}
                                 type="button" onClick={() => clickable && openDueItem(it)}
-                                className={["w-full text-left px-4 py-3 flex items-center justify-between transition-colors group", clickable ? "hover:bg-stone-50 cursor-pointer" : "cursor-default", overdue ? "bg-rose-50/50" : ""].join(" ")}>
+                                className={["w-full text-left px-4 py-3 flex items-center justify-between transition-colors group", clickable ? "hover:bg-slate-50 cursor-pointer" : "cursor-default", overdue ? "bg-rose-50/50" : ""].join(" ")}>
                                 <div className="flex items-center gap-3 min-w-0">
                                   <span className={["shrink-0 inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wider font-bold", dueChipTone(it.itemType)].join(" ")}>{dueTypeLabel(it.itemType)}</span>
-                                  <span className="text-sm text-stone-700 truncate group-hover:text-stone-900 transition-colors">{it.title}</span>
+                                  <span className="text-sm text-slate-700 truncate group-hover:text-slate-900 transition-colors">{it.title}</span>
                                   {overdue && <span className="shrink-0 text-[10px] font-bold text-rose-700 bg-rose-100 border border-rose-200 px-1.5 py-0.5 rounded uppercase tracking-wide">Overdue</span>}
                                 </div>
-                                <span className="text-xs text-stone-400 shrink-0 ml-4 mono">{dueDateLabel(it.dueDate)}</span>
+                                <span className="text-xs text-slate-400 shrink-0 ml-4 mono">{dueDateLabel(it.dueDate)}</span>
                               </m.button>
                             );
                           })}
                         </div>
-                        {dueItems.length > 8 && <div className="px-4 py-2.5 text-center border-t border-stone-100 bg-stone-50/60"><button onClick={() => router.push(`/milestones?days=${dueWindowDays}`)} className="text-xs text-indigo-600 hover:text-indigo-700 font-bold transition-colors">View {dueItems.length - 8} more items →</button></div>}
+                        {dueItems.length > 8 && <div className="px-4 py-2.5 text-center border-t border-slate-100 bg-white/80"><button onClick={() => router.push(`/milestones?days=${dueWindowDays}`)} className="text-xs text-indigo-600 hover:text-indigo-700 font-bold transition-colors">View {dueItems.length - 8} more items →</button></div>}
                       </div>
                     ) : dueLoading ? (
-                      <div className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-12 text-center"><div className="text-sm text-stone-400">Scanning artifacts…</div></div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-12 text-center"><div className="text-sm text-slate-400">Scanning artifacts…</div></div>
                     ) : (
-                      <div className="text-center py-12 border border-dashed border-stone-200 rounded-xl bg-white"><CheckCircle2 className="h-8 w-8 text-stone-300 mx-auto mb-3" /><p className="text-stone-600 font-semibold">All caught up</p><p className="text-sm text-stone-400 mt-1">Nothing due in the next {dueWindowDays} days</p></div>
+                      <div className="text-center py-12 border border-dashed border-slate-200 rounded-xl bg-white"><CheckCircle2 className="h-8 w-8 text-slate-300 mx-auto mb-3" /><p className="text-slate-600 font-semibold">All caught up</p><p className="text-sm text-slate-400 mt-1">Nothing due in the next {dueWindowDays} days</p></div>
                     )}
                   </SurfaceCard>
                 </div>
@@ -1052,7 +1053,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                     <div className="flex items-center justify-between mb-5">
                       <div className="flex items-center gap-3">
                         <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-600" style={{ boxShadow: "0 4px 12px rgba(5,150,105,0.2)" }}><CheckCircle2 className="h-5 w-5 text-white" /></div>
-                        <div><h3 className="text-base font-bold text-stone-900">Approvals</h3><p className="text-xs text-stone-400">{approvalCount} pending</p></div>
+                        <div><h3 className="text-base font-bold text-slate-900">Approvals</h3><p className="text-xs text-slate-400">{approvalCount} pending</p></div>
                       </div>
                       {approvalCount > 0 && <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-emerald-100 border border-emerald-200 text-xs font-bold text-emerald-700">{approvalCount}</span>}
                     </div>
@@ -1061,13 +1062,13 @@ export default function HomePage({ data }: { data: HomeData }) {
                         const taskId = String(t?.id || ""); const isBusy = Boolean(pendingIds[taskId]); const title = t?.change?.title || "Change request"; const createdAt = t?.change?.created_at || t?.created_at; const href = viewHref(t);
                         return (
                           <m.div key={taskId} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-                            className="rounded-xl border border-stone-200 bg-stone-50/50 p-4 hover:border-stone-300 hover:bg-stone-50 transition-all">
+                            className="rounded-xl border border-slate-200 bg-white/60 p-4 hover:border-slate-300 hover:bg-slate-50 transition-all">
                             <div className="flex items-start justify-between gap-3 mb-3">
                               <div className="min-w-0">
-                                <div className="font-semibold text-sm text-stone-800 truncate">{title}</div>
-                                <div className="text-xs text-stone-400 mt-1 mono">{createdAt ? new Date(createdAt).toISOString().slice(0, 10) : "—"}</div>
+                                <div className="font-semibold text-sm text-slate-800 truncate">{title}</div>
+                                <div className="text-xs text-slate-400 mt-1 mono">{createdAt ? new Date(createdAt).toISOString().slice(0, 10) : "—"}</div>
                               </div>
-                              {href && <a href={href} className="shrink-0 text-stone-400 hover:text-indigo-600 transition-colors"><ArrowUpRight className="h-4 w-4" /></a>}
+                              {href && <a href={href} className="shrink-0 text-slate-400 hover:text-indigo-600 transition-colors"><ArrowUpRight className="h-4 w-4" /></a>}
                             </div>
                             <div className="flex gap-2">
                               <Button size="sm" className="flex-1 h-8 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold" disabled={isBusy} onClick={() => decide(taskId, "approve")}>{isBusy ? "…" : "Approve"}</Button>
@@ -1076,7 +1077,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                           </m.div>
                         );
                       }) : (
-                        <div className="text-center py-8 border border-dashed border-stone-200 rounded-xl bg-stone-50/50"><CheckCheck className="h-6 w-6 text-stone-300 mx-auto mb-2" /><p className="text-sm text-stone-500 font-semibold">No approvals waiting</p></div>
+                        <div className="text-center py-8 border border-dashed border-slate-200 rounded-xl bg-white/60"><CheckCheck className="h-6 w-6 text-slate-300 mx-auto mb-2" /><p className="text-sm text-slate-500 font-semibold">No approvals waiting</p></div>
                       )}
                     </div>
                   </SurfaceCard>
@@ -1085,12 +1086,12 @@ export default function HomePage({ data }: { data: HomeData }) {
                     <div className="flex items-center gap-2 mb-5"><div className="h-px flex-1 bg-indigo-100" /><span className="text-[10px] text-indigo-500 uppercase tracking-widest font-bold">Quick Stats</span><div className="h-px flex-1 bg-indigo-100" /></div>
                     <div className="space-y-4">
                       {[
-                        { label: "Active Projects", node: <span className="text-2xl font-bold text-stone-900 mono">{uiActiveCount}</span> },
+                        { label: "Active Projects", node: <span className="text-2xl font-bold text-slate-950 mono">{uiActiveCount}</span> },
                         { label: "Portfolio Score", node: <span className={["text-sm font-bold px-2.5 py-1 rounded-lg border-2", ragBadgeClasses(phRag)].join(" ")}>{phScoreForUi}%</span> },
-                        { label: "Open Risks", node: <span className="text-2xl font-bold text-stone-900 mono">{kpis.openRisks}</span> },
+                        { label: "Open Risks", node: <span className="text-2xl font-bold text-slate-950 mono">{kpis.openRisks}</span> },
                       ].map((stat, i) => (
                         <m.div key={stat.label} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.4 + i * 0.05 }} className="flex items-center justify-between">
-                          <span className="text-sm text-stone-500 font-medium">{stat.label}</span>
+                          <span className="text-sm text-slate-500 font-medium">{stat.label}</span>
                           {stat.node}
                         </m.div>
                       ))}
@@ -1104,9 +1105,9 @@ export default function HomePage({ data }: { data: HomeData }) {
                 <div className="flex items-center justify-between mb-6">
                   <div>
                     <div className="flex items-center gap-2.5 mb-1.5"><div className="h-4 w-0.5 rounded-full bg-indigo-400" /><span className="text-[11px] text-indigo-500 uppercase tracking-[0.18em] font-bold">Active Engagements</span></div>
-                    <h2 className="text-2xl font-bold text-stone-900">Project Overview</h2>
+                    <h2 className="text-2xl font-bold text-slate-950">Project Overview</h2>
                   </div>
-                  <Button variant="outline" className="border-stone-200 bg-white text-stone-600 hover:bg-stone-50 hover:text-stone-900 shadow-sm">View All Projects</Button>
+                  <Button variant="outline" className="border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 shadow-sm">View All Projects</Button>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {sortedProjects.slice(0, 9).map((p: any, i) => {
@@ -1119,7 +1120,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                   })}
                 </div>
                 {projects.length !== activeProjects.length && (
-                  <div className="mt-5 text-xs text-stone-400 text-center">{Math.max(0, projects.length - activeProjects.length)} closed/cancelled project{projects.length - activeProjects.length === 1 ? "" : "s"} hidden from view</div>
+                  <div className="mt-5 text-xs text-slate-400 text-center">{Math.max(0, projects.length - activeProjects.length)} closed/cancelled project{projects.length - activeProjects.length === 1 ? "" : "s"} hidden from view</div>
                 )}
               </m.div>
             </>
@@ -1127,8 +1128,8 @@ export default function HomePage({ data }: { data: HomeData }) {
             <>
               <m.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
                 <div className="flex items-center gap-2.5 mb-2"><div className="h-4 w-0.5 rounded-full bg-indigo-400" /><span className="text-[11px] text-indigo-500 uppercase tracking-[0.18em] font-bold">Personal</span></div>
-                <h2 className="text-3xl font-bold text-stone-900">My Day</h2>
-                <p className="text-stone-400 mt-1">Focus and flow</p>
+                <h2 className="text-3xl font-bold text-slate-900">My Day</h2>
+                <p className="text-slate-400 mt-1">Focus and flow</p>
               </m.div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <KpiCard label="My Approvals" value={`${approvalCount}`} icon={<CheckCircle2 className="h-5 w-5" />} tone="emerald" delay={0} />
@@ -1143,4 +1144,3 @@ export default function HomePage({ data }: { data: HomeData }) {
     </LazyMotion>
   );
 }
-
