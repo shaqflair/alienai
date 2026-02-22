@@ -80,20 +80,36 @@ function parseMissingProjectColFromError(err: any): ProjectCol | null {
 }
 
 function buildProjectsSelect(cols: ProjectCol[]) {
-  const base = ["id", "title", "project_code", ...cols];
+  // Include deleted_at so applyExcludeInactiveProjects can filter on it
+  const base = ["id", "title", "project_code", "deleted_at", ...cols];
   return `projects:projects (${base.join(",")})`;
 }
 
 /**
- * Excludes inactive projects on all queries — this is the primary filter
- * so the page only ever shows active projects.
+ * Excludes inactive/deleted projects using exact enum values from the schema:
+ *   projects.status:           active | closed | rejected | archived | cancelled
+ *   projects.lifecycle_status: active | paused | completed | closed | cancelled
+ *   projects.deleted_at:       null = not deleted
+ *
+ * Active = status 'active' AND lifecycle_status IN ('active','paused') AND deleted_at IS NULL
+ *
+ * NOTE: `state` and `lifecycle_state` do NOT exist on this table — they are dropped
+ * by the retry logic and excluded via cols, so we only act on columns that exist.
  */
 function applyExcludeInactiveProjects(query: any, cols: ProjectCol[]) {
-  const bad = ["%cancel%", "%close%", "%archive%", "%inactive%", "%complete%", "%done%"];
-  for (const c of cols) {
-    const col = `projects.${c}`;
-    for (const pat of bad) query = query.not(col, "ilike", pat);
+  // Exclude soft-deleted projects
+  query = query.is("projects.deleted_at", null);
+
+  // status must be 'active' — closed/rejected/archived/cancelled all mean inactive
+  if (cols.includes("status")) {
+    query = query.eq("projects.status", "active");
   }
+
+  // lifecycle_status: active + paused are open; completed/closed/cancelled are done
+  if (cols.includes("lifecycle_status")) {
+    query = query.in("projects.lifecycle_status", ["active", "paused"]);
+  }
+
   return query;
 }
 
