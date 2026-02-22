@@ -3,12 +3,13 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
+import { safeStr } from "@/lib/ai/change-ai";
 
 export const runtime = "nodejs";
 
-function safeStr(x: unknown) {
-  return typeof x === "string" ? x : "";
-}
+// ---------------------------------------------------------------------------
+// Auth guard
+// ---------------------------------------------------------------------------
 
 async function requireAuthAndMembership(supabase: any, projectId: string) {
   const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -24,21 +25,26 @@ async function requireAuthAndMembership(supabase: any, projectId: string) {
 
   if (memErr) throw new Error(memErr.message);
   if (!mem) throw new Error("Not found");
-  if (mem.is_active === false) throw new Error("Forbidden");
-  if (mem.removed_at != null) throw new Error("Forbidden");
+  if (mem.is_active === false || mem.removed_at != null) throw new Error("Forbidden");
 
   return auth.user;
 }
+
+// ---------------------------------------------------------------------------
+// GET /api/change/[id]/ai-summary
+// ---------------------------------------------------------------------------
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
     const changeId = safeStr(id).trim();
-    if (!changeId) return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
+    if (!changeId) {
+      return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
+    }
 
     const supabase = await createClient();
 
-    // 1) verify change exists + get project_id
+    // 1) Verify change exists and extract project_id
     const { data: ch, error: chErr } = await supabase
       .from("change_requests")
       .select("id, project_id")
@@ -51,7 +57,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     const projectId = String((ch as any).project_id);
     await requireAuthAndMembership(supabase, projectId);
 
-    // 2) read summary from change_ai_summaries (source of truth)
+    // 2) Read AI summary (source of truth is change_ai_summaries)
     const { data: row, error } = await supabase
       .from("change_ai_summaries")
       .select("id, project_id, change_id, summary, alternatives, rationale, model, updated_at, created_at")
@@ -59,7 +65,6 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       .maybeSingle();
 
     if (error) throw new Error(error.message);
-
     if (!row) return NextResponse.json({ ok: true, item: null });
 
     return NextResponse.json({
@@ -76,6 +81,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       },
     });
   } catch (e: any) {
+    console.error("[change/ai-summary] Unhandled error:", e);
     return NextResponse.json({ ok: false, error: e?.message || "Error" }, { status: 500 });
   }
 }
