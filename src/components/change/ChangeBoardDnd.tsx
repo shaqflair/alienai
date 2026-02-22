@@ -28,10 +28,6 @@ import {
 
 import { CSS } from "@dnd-kit/utilities";
 
-/* =========================
-   Lazy UI (keeps bundle light)
-========================= */
-
 const ChangeCreateModal = dynamic(() => import("./ChangeCreateModal"), { ssr: false });
 const ChangeAiDrawer = dynamic(() => import("./ChangeAiDrawer"), { ssr: false });
 const ChangeTimeline = dynamic(() => import("./ChangeTimeline"), { ssr: false });
@@ -85,12 +81,7 @@ type LanesResponse = Record<DeliveryLane, ChangeItem[]>;
 const LANES: DeliveryLane[] = ["intake", "analysis", "review", "in_progress", "implemented", "closed"];
 
 const WIP_LIMITS: Partial<Record<DeliveryLane, number>> = {
-  intake: 99,
-  analysis: 8,
-  review: 6,
-  in_progress: 8,
-  implemented: 99,
-  closed: 99,
+  intake: 99, analysis: 8, review: 6, in_progress: 8, implemented: 99, closed: 99,
 };
 
 const dropAnimation: DropAnimation = {
@@ -102,68 +93,15 @@ const dropAnimation: DropAnimation = {
 ========================= */
 
 const LANE_CONFIG: Record<DeliveryLane, {
-  label: string;
-  color: string;
-  gradient: string;
-  bg: string;
-  textColor: string;
-  dotColor: string;
-  dropBg: string;
+  label: string; color: string; gradient: string;
+  bg: string; textColor: string; dotColor: string; dropBg: string;
 }> = {
-  intake: {
-    label: "Intake",
-    color: "#94a3b8",
-    gradient: "linear-gradient(90deg,#94a3b8,#cbd5e1)",
-    bg: "#f8f9fc",
-    textColor: "#475569",
-    dotColor: "#94a3b8",
-    dropBg: "rgba(148,163,184,0.06)",
-  },
-  analysis: {
-    label: "Analysis",
-    color: "#f59e0b",
-    gradient: "linear-gradient(90deg,#f59e0b,#fbbf24)",
-    bg: "#fffbeb",
-    textColor: "#92400e",
-    dotColor: "#f59e0b",
-    dropBg: "rgba(245,158,11,0.06)",
-  },
-  review: {
-    label: "Review",
-    color: "#6366f1",
-    gradient: "linear-gradient(90deg,#6366f1,#8b5cf6)",
-    bg: "#f5f3ff",
-    textColor: "#4338ca",
-    dotColor: "#6366f1",
-    dropBg: "rgba(99,102,241,0.06)",
-  },
-  in_progress: {
-    label: "Implementation",
-    color: "#3b82f6",
-    gradient: "linear-gradient(90deg,#3b82f6,#60a5fa)",
-    bg: "#eff6ff",
-    textColor: "#1d4ed8",
-    dotColor: "#3b82f6",
-    dropBg: "rgba(59,130,246,0.06)",
-  },
-  implemented: {
-    label: "Implemented",
-    color: "#10b981",
-    gradient: "linear-gradient(90deg,#10b981,#34d399)",
-    bg: "#f0fdf4",
-    textColor: "#065f46",
-    dotColor: "#10b981",
-    dropBg: "rgba(16,185,129,0.06)",
-  },
-  closed: {
-    label: "Closed",
-    color: "#64748b",
-    gradient: "linear-gradient(90deg,#64748b,#94a3b8)",
-    bg: "#f8fafc",
-    textColor: "#334155",
-    dotColor: "#64748b",
-    dropBg: "rgba(100,116,139,0.06)",
-  },
+  intake:      { label: "Intake",         color: "#94a3b8", gradient: "linear-gradient(90deg,#94a3b8,#cbd5e1)", bg: "#f8f9fc", textColor: "#475569", dotColor: "#94a3b8", dropBg: "rgba(148,163,184,0.06)" },
+  analysis:    { label: "Analysis",       color: "#f59e0b", gradient: "linear-gradient(90deg,#f59e0b,#fbbf24)", bg: "#fffbeb", textColor: "#92400e", dotColor: "#f59e0b", dropBg: "rgba(245,158,11,0.06)" },
+  review:      { label: "Review",         color: "#6366f1", gradient: "linear-gradient(90deg,#6366f1,#8b5cf6)", bg: "#f5f3ff", textColor: "#4338ca", dotColor: "#6366f1", dropBg: "rgba(99,102,241,0.06)" },
+  in_progress: { label: "Implementation", color: "#3b82f6", gradient: "linear-gradient(90deg,#3b82f6,#60a5fa)", bg: "#eff6ff", textColor: "#1d4ed8", dotColor: "#3b82f6", dropBg: "rgba(59,130,246,0.06)" },
+  implemented: { label: "Implemented",    color: "#10b981", gradient: "linear-gradient(90deg,#10b981,#34d399)", bg: "#f0fdf4", textColor: "#065f46", dotColor: "#10b981", dropBg: "rgba(16,185,129,0.06)" },
+  closed:      { label: "Closed",         color: "#64748b", gradient: "linear-gradient(90deg,#64748b,#94a3b8)", bg: "#f8fafc", textColor: "#334155", dotColor: "#64748b", dropBg: "rgba(100,116,139,0.06)" },
 };
 
 /* =========================
@@ -186,6 +124,11 @@ function isLocked(item: ChangeItem) {
 function isDecided(item: ChangeItem) {
   const d = safeStr(item.decision_status).trim().toLowerCase();
   return d === "approved" || d === "rejected";
+}
+
+/** Only intake and analysis are deletable draft lanes */
+function isDraftLane(lane: DeliveryLane): boolean {
+  return lane === "intake" || lane === "analysis";
 }
 
 function changeDisplay(it: ChangeItem) {
@@ -286,8 +229,15 @@ async function apiJson(url: string, init?: RequestInit) {
   return json;
 }
 
+async function apiDelete(url: string) {
+  const res = await fetch(url, { method: "DELETE" });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || (json as any)?.ok === false) throw new Error(safeStr((json as any)?.error) || `HTTP ${res.status}`);
+  return json;
+}
+
 /* =========================
-   CSS (injected once)
+   CSS
 ========================= */
 
 const BOARD_CSS = `
@@ -295,216 +245,107 @@ const BOARD_CSS = `
 
   .kb-root { font-family:'Inter',system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
 
-  /* ── Top bar ── */
-  .kb-topbar {
-    display:flex; align-items:flex-start; justify-content:space-between; gap:16px;
-    padding:20px 24px 0;
-  }
+  .kb-topbar { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:20px 24px 0; }
   .kb-title { font-size:17px; font-weight:800; color:#1a1d2e; letter-spacing:-0.02em; }
   .kb-sub { font-size:12.5px; color:#9ba3bc; margin-top:3px; font-weight:400; }
-  .kb-wip-warn {
-    margin-top:6px; font-size:11px; color:#dc2626;
-    background:rgba(220,38,38,0.06); padding:4px 8px; border-radius:6px;
-    border:1px solid rgba(220,38,38,0.15); display:inline-block;
-  }
+  .kb-wip-warn { margin-top:6px; font-size:11px; color:#dc2626; background:rgba(220,38,38,0.06); padding:4px 8px; border-radius:6px; border:1px solid rgba(220,38,38,0.15); display:inline-block; }
   .kb-actions { display:flex; gap:8px; align-items:center; flex-shrink:0; }
-  .kb-btn-primary {
-    padding:8px 16px; background:linear-gradient(135deg,#4f46e5,#6366f1);
-    color:#fff; font-size:12px; font-weight:700; border:none; border-radius:9px;
-    cursor:pointer; font-family:inherit; letter-spacing:0.02em;
-    box-shadow:0 1px 4px rgba(99,102,241,0.3);
-    transition:opacity 0.12s, transform 0.1s, box-shadow 0.12s;
-    display:flex; align-items:center; gap:6px;
-  }
+  .kb-btn-primary { padding:8px 16px; background:linear-gradient(135deg,#4f46e5,#6366f1); color:#fff; font-size:12px; font-weight:700; border:none; border-radius:9px; cursor:pointer; font-family:inherit; letter-spacing:0.02em; box-shadow:0 1px 4px rgba(99,102,241,0.3); transition:opacity 0.12s, transform 0.1s, box-shadow 0.12s; display:flex; align-items:center; gap:6px; }
   .kb-btn-primary:hover:not(:disabled) { opacity:0.9; transform:translateY(-1px); box-shadow:0 3px 10px rgba(99,102,241,0.35); }
   .kb-btn-primary:disabled { opacity:0.45; cursor:not-allowed; }
-  .kb-btn-ghost {
-    padding:7px 13px; background:#fff; border:1px solid #e4e7f0;
-    color:#5a6080; font-size:12px; font-weight:600; border-radius:9px;
-    cursor:pointer; font-family:inherit; transition:background 0.12s, border-color 0.12s, color 0.12s;
-  }
+  .kb-btn-ghost { padding:7px 13px; background:#fff; border:1px solid #e4e7f0; color:#5a6080; font-size:12px; font-weight:600; border-radius:9px; cursor:pointer; font-family:inherit; transition:background 0.12s, border-color 0.12s, color 0.12s; }
   .kb-btn-ghost:hover:not(:disabled) { background:#f4f5fa; color:#1a1d2e; border-color:#d0d5e8; }
   .kb-btn-ghost:disabled { opacity:0.4; cursor:not-allowed; }
 
-  /* ── Error banner ── */
-  .kb-err {
-    margin:12px 24px 0;
-    padding:10px 14px; border-radius:9px;
-    background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.2);
-    font-size:12.5px; color:#dc2626;
-    display:flex; align-items:center; gap:8px;
-  }
+  .kb-err { margin:12px 24px 0; padding:10px 14px; border-radius:9px; background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.2); font-size:12.5px; color:#dc2626; display:flex; align-items:center; gap:8px; }
 
-  /* ── Board scroll ── */
-  .kb-board {
-    display:flex; gap:14px; padding:18px 24px 32px;
-    overflow-x:auto; align-items:flex-start; min-height:80vh;
-  }
+  .kb-board { display:flex; gap:14px; padding:18px 24px 32px; overflow-x:auto; align-items:flex-start; min-height:80vh; }
   .kb-board::-webkit-scrollbar { height:6px; }
   .kb-board::-webkit-scrollbar-track { background:transparent; }
   .kb-board::-webkit-scrollbar-thumb { background:#d5d9ef; border-radius:3px; }
   .kb-board::-webkit-scrollbar-thumb:hover { background:#b0b7cc; }
 
-  /* ── Column ── */
-  .kb-col {
-    width:282px; min-width:282px; flex-shrink:0;
-    display:flex; flex-direction:column;
-    background:#fff; border-radius:14px; border:1px solid #e4e7f0;
-    box-shadow:0 1px 3px rgba(0,0,0,0.04);
-    overflow:hidden;
-  }
+  .kb-col { width:282px; min-width:282px; flex-shrink:0; display:flex; flex-direction:column; background:#fff; border-radius:14px; border:1px solid #e4e7f0; box-shadow:0 1px 3px rgba(0,0,0,0.04); overflow:hidden; }
   .kb-col-top { height:3px; }
-  .kb-col-head {
-    padding:11px 13px 10px;
-    border-bottom:1px solid #f0f1f8;
-    display:flex; align-items:center; gap:7px;
-  }
+  .kb-col-head { padding:11px 13px 10px; border-bottom:1px solid #f0f1f8; display:flex; align-items:center; gap:7px; }
   .kb-col-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
-  .kb-col-title {
-    font-size:10.5px; font-weight:800; letter-spacing:0.07em;
-    text-transform:uppercase; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-  }
-  .kb-col-meta { font-size:10px; color:#9ba3bc; font-weight:500; white-space:nowrap; }
-  .kb-col-count {
-    font-size:10.5px; font-weight:700; color:#9ba3bc;
-    background:#f4f5f9; border:1px solid #e8eaf0;
-    padding:2px 7px; border-radius:20px;
-  }
+  .kb-col-title { font-size:10.5px; font-weight:800; letter-spacing:0.07em; text-transform:uppercase; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .kb-col-count { font-size:10.5px; font-weight:700; color:#9ba3bc; background:#f4f5f9; border:1px solid #e8eaf0; padding:2px 7px; border-radius:20px; }
   .kb-col-wip-over { color:#dc2626 !important; background:rgba(220,38,38,0.08) !important; border-color:rgba(220,38,38,0.2) !important; }
-  .kb-col-add {
-    width:22px; height:22px; display:flex; align-items:center; justify-content:center;
-    border:1px solid #e4e7f0; border-radius:6px; background:transparent;
-    color:#9ba3bc; cursor:pointer; font-size:15px; line-height:1;
-    transition:background 0.1s, color 0.1s, border-color 0.1s;
-  }
+  .kb-col-add { width:22px; height:22px; display:flex; align-items:center; justify-content:center; border:1px solid #e4e7f0; border-radius:6px; background:transparent; color:#9ba3bc; cursor:pointer; font-size:15px; line-height:1; transition:background 0.1s, color 0.1s, border-color 0.1s; }
   .kb-col-add:hover { background:#f4f5f9; color:#1a1d2e; border-color:#d0d5e8; }
 
-  /* ── Drop zone ── */
-  .kb-drop {
-    padding:10px; display:flex; flex-direction:column; gap:8px;
-    min-height:340px; transition:background 0.15s;
-  }
+  .kb-drop { padding:10px; display:flex; flex-direction:column; gap:8px; min-height:340px; transition:background 0.15s; }
   .kb-drop.over { background:rgba(99,102,241,0.04); }
-  .kb-empty {
-    border:2px dashed #e2e5f0; border-radius:10px;
-    padding:18px 14px; text-align:center;
-    font-size:11.5px; color:#b0b7cc; font-weight:500;
-  }
+  .kb-empty { border:2px dashed #e2e5f0; border-radius:10px; padding:18px 14px; text-align:center; font-size:11.5px; color:#b0b7cc; font-weight:500; }
 
-  /* ── Card ── */
-  @keyframes kb-card-in {
-    from { opacity:0; transform:translateY(5px); }
-    to { opacity:1; transform:translateY(0); }
-  }
-  .kb-card {
-    background:#fff; border-radius:11px; border:1px solid #e4e7f0;
-    box-shadow:0 1px 2px rgba(0,0,0,0.04),0 1px 4px rgba(0,0,0,0.03);
-    transition:box-shadow 0.14s,transform 0.14s,border-color 0.14s;
-    animation:kb-card-in 0.18s ease backwards;
-    overflow:hidden; position:relative;
-  }
+  @keyframes kb-card-in { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:translateY(0)} }
+  .kb-card { background:#fff; border-radius:11px; border:1px solid #e4e7f0; box-shadow:0 1px 2px rgba(0,0,0,0.04),0 1px 4px rgba(0,0,0,0.03); transition:box-shadow 0.14s,transform 0.14s,border-color 0.14s; animation:kb-card-in 0.18s ease backwards; overflow:hidden; position:relative; }
   .kb-card:hover { box-shadow:0 4px 14px rgba(0,0,0,0.08); border-color:#d0d5e8; transform:translateY(-1px); }
   .kb-card.kb-saving { ring:1px solid rgba(99,102,241,0.3); }
   .kb-card.kb-locked { opacity:0.68; }
   .kb-card-top { height:2.5px; width:100%; }
   .kb-card-body { padding:12px 12px 11px; }
   .kb-card-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:9px; gap:8px; }
-  .kb-card-id {
-    font-family:'DM Mono',monospace; font-size:9.5px; font-weight:600;
-    letter-spacing:0.07em; color:#8b91a7;
-    background:#f4f5f9; padding:2px 7px; border-radius:5px; border:1px solid #e8eaf0;
-    flex-shrink:0;
-  }
+  .kb-card-id { font-family:'DM Mono',monospace; font-size:9.5px; font-weight:600; letter-spacing:0.07em; color:#8b91a7; background:#f4f5f9; padding:2px 7px; border-radius:5px; border:1px solid #e8eaf0; flex-shrink:0; }
   .kb-card-badges { display:flex; gap:4px; flex-wrap:wrap; flex:1; min-width:0; }
-  .kb-badge {
-    display:inline-flex; align-items:center; gap:3px;
-    font-size:10px; font-weight:600; padding:2px 6px;
-    border-radius:20px; border:1px solid; letter-spacing:0.01em; white-space:nowrap;
-  }
+  .kb-badge { display:inline-flex; align-items:center; gap:3px; font-size:10px; font-weight:600; padding:2px 6px; border-radius:20px; border:1px solid; letter-spacing:0.01em; white-space:nowrap; }
   .kb-badge-dot { width:4px; height:4px; border-radius:50%; flex-shrink:0; }
-  .kb-drag-handle {
-    width:22px; height:22px; display:flex; align-items:center; justify-content:center;
-    border-radius:5px; background:transparent; border:none;
-    color:#c4cade; cursor:grab; transition:background 0.1s, color 0.1s; flex-shrink:0;
-    padding:0;
-  }
+  .kb-drag-handle { width:22px; height:22px; display:flex; align-items:center; justify-content:center; border-radius:5px; background:transparent; border:none; color:#c4cade; cursor:grab; transition:background 0.1s, color 0.1s; flex-shrink:0; padding:0; }
   .kb-drag-handle:hover { background:#f0f1f8; color:#5a6080; }
   .kb-drag-handle:disabled { opacity:0.25; cursor:not-allowed; }
-  .kb-card-title-btn {
-    display:block; width:100%; text-align:left;
-    background:transparent; border:none; padding:0; cursor:pointer;
-    font-size:12.5px; font-weight:600; color:#1a1d2e; line-height:1.45;
-    margin-bottom:7px;
-    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
-    overflow:hidden; transition:color 0.12s; font-family:inherit;
-  }
+  .kb-card-title-btn { display:block; width:100%; text-align:left; background:transparent; border:none; padding:0; cursor:pointer; font-size:12.5px; font-weight:600; color:#1a1d2e; line-height:1.45; margin-bottom:7px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; transition:color 0.12s; font-family:inherit; }
   .kb-card-title-btn:hover:not(:disabled) { color:#4f46e5; }
   .kb-card-title-btn:disabled { cursor:not-allowed; }
-  .kb-card-meta {
-    font-size:10.5px; color:#9ba3bc; margin-bottom:8px;
-    display:flex; align-items:center; gap:5px; overflow:hidden;
-  }
-  .kb-avatar {
-    width:15px; height:15px; border-radius:50%;
-    display:flex; align-items:center; justify-content:center;
-    font-size:7.5px; font-weight:800; color:#fff; flex-shrink:0;
-  }
-  .kb-impact {
-    background:#f8f9fc; border:1px solid #eceef5; border-radius:7px;
-    padding:7px 9px; margin-bottom:8px;
-    display:flex; align-items:center; justify-content:space-between; gap:8px;
-  }
-  .kb-impact-label {
-    font-size:8.5px; font-weight:700; letter-spacing:0.09em;
-    text-transform:uppercase; color:#b0b7cc; margin-bottom:4px;
-  }
+  .kb-card-meta { font-size:10.5px; color:#9ba3bc; margin-bottom:8px; display:flex; align-items:center; gap:5px; overflow:hidden; }
+  .kb-avatar { width:15px; height:15px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:7.5px; font-weight:800; color:#fff; flex-shrink:0; }
+  .kb-impact { background:#f8f9fc; border:1px solid #eceef5; border-radius:7px; padding:7px 9px; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .kb-impact-label { font-size:8.5px; font-weight:700; letter-spacing:0.09em; text-transform:uppercase; color:#b0b7cc; margin-bottom:4px; }
   .kb-impact-vals { display:flex; gap:12px; }
-  .kb-impact-item {
-    display:flex; align-items:center; gap:4px;
-    font-size:11.5px; font-weight:700; color:#2d3152;
-  }
+  .kb-impact-item { display:flex; align-items:center; gap:4px; font-size:11.5px; font-weight:700; color:#2d3152; }
   .kb-impact-icon { color:#c4cade; }
-  .kb-risk-orb {
-    width:30px; height:30px; border-radius:50%;
-    display:flex; align-items:center; justify-content:center; flex-shrink:0;
-  }
+  .kb-risk-orb { width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
   .kb-divider { height:1px; background:#f0f1f8; margin:8px 0; }
   .kb-card-actions { display:flex; gap:4px; flex-wrap:wrap; }
-  .kb-action {
-    display:inline-flex; align-items:center; gap:3px;
-    padding:4px 8px; font-size:10.5px; font-weight:500; color:#6b7280;
-    background:#f8f9fc; border:1px solid #eceef5; border-radius:6px;
-    cursor:pointer; transition:background 0.1s, color 0.1s, border-color 0.1s;
-    font-family:inherit;
-  }
+  .kb-action { display:inline-flex; align-items:center; gap:3px; padding:4px 8px; font-size:10.5px; font-weight:500; color:#6b7280; background:#f8f9fc; border:1px solid #eceef5; border-radius:6px; cursor:pointer; transition:background 0.1s, color 0.1s, border-color 0.1s; font-family:inherit; }
   .kb-action:hover:not(:disabled) { background:#eceef5; color:#1a1d2e; border-color:#dde0ee; }
   .kb-action:disabled { opacity:0.4; cursor:not-allowed; }
   .kb-action-ai { color:#6366f1; background:rgba(99,102,241,0.05); border-color:rgba(99,102,241,0.18); }
   .kb-action-ai:hover:not(:disabled) { background:rgba(99,102,241,0.1); border-color:rgba(99,102,241,0.3); color:#4338ca; }
-  .kb-action-submit {
-    color:#b45309; background:rgba(245,158,11,0.07);
-    border-color:rgba(245,158,11,0.22); font-weight:600;
-  }
+  .kb-action-submit { color:#b45309; background:rgba(245,158,11,0.07); border-color:rgba(245,158,11,0.22); font-weight:600; }
   .kb-action-submit:hover:not(:disabled) { background:rgba(245,158,11,0.14); }
-  .kb-locked-msg {
-    margin-top:8px; padding:5px 9px;
-    background:rgba(245,158,11,0.07); border:1px solid rgba(245,158,11,0.2);
-    border-radius:6px; font-size:10.5px; font-weight:500; color:#b45309;
-    display:flex; align-items:center; gap:5px;
-  }
+  .kb-action-delete { color:#dc2626; background:rgba(220,38,38,0.06); border-color:rgba(220,38,38,0.18); }
+  .kb-action-delete:hover:not(:disabled) { background:rgba(220,38,38,0.12); color:#b91c1c; border-color:rgba(220,38,38,0.35); }
+  .kb-locked-msg { margin-top:8px; padding:5px 9px; background:rgba(245,158,11,0.07); border:1px solid rgba(245,158,11,0.2); border-radius:6px; font-size:10.5px; font-weight:500; color:#b45309; display:flex; align-items:center; gap:5px; }
 
-  /* ── Drag overlay card ── */
-  .kb-overlay-card {
-    width:270px; background:#fff; border-radius:11px;
-    border:1px solid #d0d5e8; box-shadow:0 16px 48px rgba(0,0,0,0.18);
-    transform:rotate(1.5deg); padding:12px;
-    font-family:'Inter',system-ui,sans-serif;
+  /* Delete confirm overlay on card */
+  .kb-del-confirm {
+    position:absolute; inset:0; z-index:10;
+    border-radius:11px;
+    background:rgba(10,11,18,0.92);
+    backdrop-filter:blur(6px);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:14px; gap:10px; text-align:center;
+    animation:kb-card-in 0.15s ease;
   }
-  .kb-overlay-id {
-    font-family:'DM Mono',monospace; font-size:9.5px; font-weight:600;
-    color:#8b91a7; background:#f4f5f9; padding:2px 7px;
-    border-radius:5px; border:1px solid #e8eaf0; display:inline-block; margin-bottom:7px;
+  .kb-del-icon {
+    width:34px; height:34px; border-radius:50%;
+    background:rgba(248,113,113,0.15);
+    border:1px solid rgba(248,113,113,0.35);
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
   }
+  .kb-del-title { font-size:11.5px; font-weight:700; color:#f1f3fc; }
+  .kb-del-desc { font-size:10.5px; color:#7880a0; line-height:1.5; max-width:190px; }
+  .kb-del-actions { display:flex; gap:6px; }
+  .kb-del-btn { padding:5px 13px; border-radius:7px; font-size:11px; font-weight:600; cursor:pointer; transition:all 0.12s; }
+  .kb-del-btn-cancel { border:1px solid rgba(255,255,255,0.1); background:transparent; color:#9ba3c4; }
+  .kb-del-btn-cancel:hover { background:rgba(255,255,255,0.06); }
+  .kb-del-btn-confirm { border:1px solid rgba(248,113,113,0.4); background:rgba(248,113,113,0.15); color:#f87171; }
+  .kb-del-btn-confirm:hover:not(:disabled) { background:rgba(248,113,113,0.25); }
+  .kb-del-btn-confirm:disabled { opacity:0.5; cursor:not-allowed; }
+
+  .kb-overlay-card { width:270px; background:#fff; border-radius:11px; border:1px solid #d0d5e8; box-shadow:0 16px 48px rgba(0,0,0,0.18); transform:rotate(1.5deg); padding:12px; font-family:'Inter',system-ui,sans-serif; }
+  .kb-overlay-id { font-family:'DM Mono',monospace; font-size:9.5px; font-weight:600; color:#8b91a7; background:#f4f5f9; padding:2px 7px; border-radius:5px; border:1px solid #e8eaf0; display:inline-block; margin-bottom:7px; }
   .kb-overlay-title { font-size:12.5px; font-weight:600; color:#1a1d2e; line-height:1.45; }
 `;
 
@@ -518,7 +359,7 @@ function injectCss() {
 }
 
 /* =========================
-   Droppable lane list wrapper
+   Droppable lane list
 ========================= */
 
 function LaneList({ lane, children }: { lane: DeliveryLane; children: React.ReactNode }) {
@@ -526,6 +367,47 @@ function LaneList({ lane, children }: { lane: DeliveryLane; children: React.Reac
   return (
     <div ref={setNodeRef} className={`kb-drop${isOver ? " over" : ""}`}>
       {children}
+    </div>
+  );
+}
+
+/* =========================
+   Delete confirm overlay (reusable inside card)
+========================= */
+
+function CardDeleteConfirm({
+  title,
+  onConfirm,
+  onCancel,
+  busy,
+}: {
+  title: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  busy: boolean;
+}) {
+  return (
+    <div className="kb-del-confirm">
+      <div className="kb-del-icon">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="3 6 5 6 21 6" />
+          <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+          <path d="M10 11v6M14 11v6" />
+          <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
+        </svg>
+      </div>
+      <div>
+        <div className="kb-del-title">Delete draft CR?</div>
+        <div className="kb-del-desc">"{title}" will be permanently removed.</div>
+      </div>
+      <div className="kb-del-actions">
+        <button type="button" className="kb-del-btn kb-del-btn-cancel" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+        <button type="button" className="kb-del-btn kb-del-btn-confirm" onClick={onConfirm} disabled={busy}>
+          {busy ? "Deleting…" : "Yes, delete"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -543,6 +425,7 @@ function SortableCard({
   onTimeline,
   onAttachments,
   onSubmit,
+  onDeleted,
   showSubmit,
 }: {
   lane: DeliveryLane;
@@ -553,13 +436,19 @@ function SortableCard({
   onTimeline: (it: ChangeItem) => void;
   onAttachments: (it: ChangeItem) => void;
   onSubmit: (it: ChangeItem) => void;
+  /** Called after successful delete so board can remove card */
+  onDeleted: (id: string) => void;
   showSubmit: boolean;
 }) {
   const sortableId = `card:${item.id}`;
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteErr, setDeleteErr] = useState("");
+
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: sortableId,
     data: { type: "Card", id: item.id, lane },
-    disabled: saving || isLocked(item),
+    disabled: saving || isLocked(item) || showDeleteConfirm,
   });
 
   const style = {
@@ -569,22 +458,48 @@ function SortableCard({
   };
 
   const locked = isLocked(item);
+  const canDelete = isDraftLane(lane) && !locked && !saving;
+
   const impactDays = safeNum(item.impact_analysis?.days, 0);
   const impactCost = safeNum(item.impact_analysis?.cost, 0);
   const { label: riskLabel, level: riskLevel } = riskLabelFromImpact(item.impact_analysis);
   const risk = riskConfig(riskLevel);
   const laneConf = LANE_CONFIG[lane];
   const score = safeNum(item.ai_score, 0);
-
   const requesterName = safeStr(item.requester_name).trim();
   const priConf = item.priority ? priorityConfig(item.priority) : null;
+
+  async function doDelete() {
+    if (!item.id || deleting) return;
+    setDeleting(true);
+    setDeleteErr("");
+    try {
+      await apiDelete(`/api/change/${encodeURIComponent(item.id)}`);
+      setShowDeleteConfirm(false);
+      onDeleted(item.id);
+    } catch (e: any) {
+      setDeleteErr(safeStr(e?.message) || "Delete failed");
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  }
 
   return (
     <div ref={setNodeRef} style={style} {...attributes}>
       <div className={`kb-card${locked ? " kb-locked" : ""}${saving ? " kb-saving" : ""}`}>
+        {/* Delete confirmation overlay */}
+        {showDeleteConfirm && (
+          <CardDeleteConfirm
+            title={safeStr(item.title) || changeDisplay(item)}
+            onConfirm={doDelete}
+            onCancel={() => setShowDeleteConfirm(false)}
+            busy={deleting}
+          />
+        )}
+
         <div className="kb-card-top" style={{ background: laneConf.gradient }} />
         <div className="kb-card-body">
-          {/* Head: ID + badges + drag handle */}
+          {/* Head */}
           <div className="kb-card-head">
             <span className="kb-card-id">{changeDisplay(item)}</span>
             <div className="kb-card-badges">
@@ -604,9 +519,9 @@ function SortableCard({
             <button
               type="button"
               className="kb-drag-handle"
-              disabled={locked || saving}
+              disabled={locked || saving || showDeleteConfirm}
               title={locked ? "Locked during approval" : "Drag to move"}
-              {...(!locked && !saving ? listeners : {})}
+              {...(!locked && !saving && !showDeleteConfirm ? listeners : {})}
             >
               <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor">
                 <path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zm0 6a1 1 0 11-2 0 1 1 0 012 0zm0 6a1 1 0 11-2 0 1 1 0 012 0zm10-12a1 1 0 11-2 0 1 1 0 012 0zm0 6a1 1 0 11-2 0 1 1 0 012 0zm0 6a1 1 0 11-2 0 1 1 0 012 0z" />
@@ -615,12 +530,7 @@ function SortableCard({
           </div>
 
           {/* Title */}
-          <button
-            type="button"
-            className="kb-card-title-btn"
-            onClick={() => onClick(item)}
-            disabled={saving}
-          >
+          <button type="button" className="kb-card-title-btn" onClick={() => onClick(item)} disabled={saving}>
             {safeStr(item.title) || "Untitled"}
           </button>
 
@@ -669,6 +579,13 @@ function SortableCard({
             </div>
           </div>
 
+          {/* Delete error */}
+          {deleteErr && (
+            <div style={{ marginBottom: 8, padding: "6px 8px", background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 6, fontSize: 11, color: "#dc2626" }}>
+              {deleteErr}
+            </div>
+          )}
+
           <div className="kb-divider" />
 
           {/* Actions */}
@@ -696,6 +613,27 @@ function SortableCard({
                 Submit →
               </button>
             )}
+
+            {/* Delete — only for intake / analysis */}
+            {canDelete && (
+              <button
+                type="button"
+                className="kb-action kb-action-delete"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowDeleteConfirm(true);
+                }}
+                disabled={saving || deleting}
+                title="Delete this draft change request"
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                  <path d="M10 11v6M14 11v6" />
+                </svg>
+                Delete
+              </button>
+            )}
           </div>
 
           {locked && (
@@ -717,12 +655,8 @@ function SortableCard({
 ========================= */
 
 export default function ChangeBoardDnd({
-  projectUuid,
-  artifactId,
-  projectHumanId,
-  projectLabel,
-  initialOpenChangeId,
-  initialOpenPublicId,
+  projectUuid, artifactId, projectHumanId, projectLabel,
+  initialOpenChangeId, initialOpenPublicId,
 }: {
   projectUuid: string;
   artifactId?: string | null;
@@ -740,14 +674,12 @@ export default function ChangeBoardDnd({
   const savingSeqRef = useRef<Record<string, number>>({});
   const [activeSortableId, setActiveSortableId] = useState<string | null>(null);
 
-  // Create/Edit
   const [createOpen, setCreateOpen] = useState(false);
   const [createLane, setCreateLane] = useState<DeliveryLane>("intake");
   const [editOpen, setEditOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editInitialValue, setEditInitialValue] = useState<any | null>(null);
 
-  // Drawers
   const [aiOpen, setAiOpen] = useState(false);
   const [aiChangeId, setAiChangeId] = useState<string | null>(null);
   const [timelineOpen, setTimelineOpen] = useState(false);
@@ -764,8 +696,7 @@ export default function ChangeBoardDnd({
 
   const fetchData = useCallback(async () => {
     if (!projectUuid) return;
-    setLoading(true);
-    setErr("");
+    setLoading(true); setErr("");
     try {
       const j = await apiJson(`/api/change?projectId=${encodeURIComponent(projectUuid)}&shape=lanes`, { cache: "no-store" });
       const lanes = (j as any)?.lanes as LanesResponse | undefined;
@@ -773,11 +704,9 @@ export default function ChangeBoardDnd({
       const flattened = lanes && typeof lanes === "object"
         ? LANES.flatMap((l) => (Array.isArray((lanes as any)[l]) ? (lanes as any)[l] : []))
         : list;
-      const deduped = dedupeKeepLatest(flattened).sort(sortForBoard);
-      setItems(deduped);
+      setItems(dedupeKeepLatest(flattened).sort(sortForBoard));
     } catch (e: any) {
-      setItems([]);
-      setErr(safeStr(e?.message) || "Failed to load changes");
+      setItems([]); setErr(safeStr(e?.message) || "Failed to load changes");
     } finally {
       setLoading(false);
     }
@@ -818,7 +747,11 @@ export default function ChangeBoardDnd({
   const openTimeline = useCallback((it: ChangeItem) => { setTimelineChangeId(it.id); setTimelineOpen(true); }, []);
   const openAttachments = useCallback((it: ChangeItem) => { setAttChangeId(it.id); setAttOpen(true); }, []);
 
-  // ✅ Auto-open from deep link once we have items
+  /** Remove a card from local state immediately after delete */
+  const handleCardDeleted = useCallback((deletedId: string) => {
+    setItems((prev) => prev.filter((x) => safeStr(x.id).trim() !== deletedId));
+  }, []);
+
   useEffect(() => {
     if (autoOpenDoneRef.current) return;
     if (!items.length) return;
@@ -911,7 +844,6 @@ export default function ChangeBoardDnd({
 
   return (
     <div className="kb-root">
-      {/* Top bar */}
       <div className="kb-topbar">
         <div>
           <div className="kb-title">
@@ -953,7 +885,6 @@ export default function ChangeBoardDnd({
         </div>
       )}
 
-      {/* Board */}
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="kb-board">
           {LANES.map((lane) => {
@@ -990,6 +921,7 @@ export default function ChangeBoardDnd({
                         onTimeline={openTimeline}
                         onAttachments={openAttachments}
                         onSubmit={submitForApproval}
+                        onDeleted={handleCardDeleted}
                         showSubmit={
                           safeStr(item.delivery_status).trim() === "analysis" &&
                           !isLocked(item) &&
@@ -1004,7 +936,6 @@ export default function ChangeBoardDnd({
           })}
         </div>
 
-        {/* Drag overlay */}
         <DragOverlay dropAnimation={dropAnimation}>
           {activeItem ? (
             <div className="kb-overlay-card">
@@ -1015,7 +946,6 @@ export default function ChangeBoardDnd({
         </DragOverlay>
       </DndContext>
 
-      {/* Create modal */}
       <ChangeCreateModal
         open={createOpen}
         onClose={() => { setCreateOpen(false); fetchData(); }}
@@ -1024,7 +954,6 @@ export default function ChangeBoardDnd({
         initialStatus={createLane === "intake" ? "new" : (createLane as any)}
       />
 
-      {/* Edit modal */}
       <ChangeCreateModal
         open={editOpen}
         onClose={() => { setEditOpen(false); setEditId(null); setEditInitialValue(null); fetchData(); }}
@@ -1036,10 +965,8 @@ export default function ChangeBoardDnd({
         titleOverride="Edit Change Request"
       />
 
-      {/* AI drawer */}
       <ChangeAiDrawer open={aiOpen} onClose={() => setAiOpen(false)} projectId={projectUuid} artifactId={artifactId ?? null} changeId={aiChangeId} />
 
-      {/* Timeline drawer */}
       {timelineChangeId ? (
         <ChangeTimeline
           open={timelineOpen}
@@ -1050,7 +977,6 @@ export default function ChangeBoardDnd({
         />
       ) : null}
 
-      {/* Attachments drawer */}
       {attChangeId ? (
         <AttachmentsDrawer
           open={attOpen}

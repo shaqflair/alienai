@@ -42,19 +42,16 @@ function riskLevelFromText(risk: unknown): RiskLevel {
   const t0 = safeStr(risk).trim();
   const t = t0.toLowerCase();
   if (!t) return "None";
-
   if (/\bno risk\b|\bnone identified\b|\bnone\b|\bn\/a\b|\bna\b/.test(t)) return "None";
   if (/\bcritical\b|\bsevere\b/.test(t)) return "High";
   if (/\bhigh\b/.test(t)) return "High";
   if (/\bmedium\b|\bmoderate\b|\bamber\b/.test(t)) return "Medium";
   if (/\blow\b|\bminor\b|\bnegligible\b|\bgreen\b/.test(t)) return "Low";
-
   const highWords =
-    /\bhalt\b|\bhalted\b|\bhalting\b|\bstopp?age\b|\bshutdown\b|\bproject will be halted\b|\boutage\b|\bservice down\b|\bdown\b|\bbreach\b|\bsecurity\b|\bdata loss\b|\bprivacy\b|\bregulatory\b|\bfine\b|\bpenalt(y|ies)\b|\bmajor\b|\bsev[ -]?(1|2)\b|\bcritical path\b|\brollback fails?\b|\bcatastrophic\b/;
+    /\bhalt\b|\bhalted\b|\bhalting\b|\bstopp?age\b|\bshutdown\b|\boutage\b|\bservice down\b|\bdown\b|\bbreach\b|\bsecurity\b|\bdata loss\b|\bprivacy\b|\bregulatory\b|\bfine\b|\bpenalt(y|ies)\b|\bmajor\b|\bsev[ -]?(1|2)\b|\bcritical path\b|\brollback fails?\b|\bcatastrophic\b/;
   const medWords =
     /\bdelay\b|\bslip(page)?\b|\bdegrad(e|ation)\b|\bperformance\b|\bcapacity\b|\bvendor\b|\bdependency\b|\bblocked\b|\brework\b|\btesting\b|\bintegration\b|\bapproval\b|\bcab\b|\bchange window\b|\breschedule\b/;
   const lowWords = /\bcosmetic\b|\bdocs?\b|\bcopy\b|\blabel\b|\bminor\b|\blimited\b|\blow impact\b/;
-
   if (highWords.test(t)) return "High";
   if (medWords.test(t)) return "Medium";
   if (lowWords.test(t)) return "Low";
@@ -93,6 +90,11 @@ function crHumanId(item: any) {
   return id.length > 10 ? `CR-${id.slice(0, 6).toUpperCase()}` : id.toUpperCase();
 }
 
+/** Only intake (new) and analysis are deletable drafts */
+function isDraftStatus(s: ChangeStatus) {
+  return s === "new" || s === "analysis";
+}
+
 async function patchJson(url: string, body: any) {
   const res = await fetch(url, {
     method: "PATCH",
@@ -115,6 +117,13 @@ async function postJson(url: string, body: any) {
   return json;
 }
 
+async function deleteJson(url: string) {
+  const res = await fetch(url, { method: "DELETE" });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || (json as any)?.ok === false) throw new Error(safeStr((json as any)?.error) || `HTTP ${res.status}`);
+  return json;
+}
+
 type Panel = "attach" | "comment" | "timeline" | "ai";
 
 function usePanelHref(baseHref: string) {
@@ -126,10 +135,121 @@ function usePanelHref(baseHref: string) {
   };
 }
 
+/* ── Delete confirmation mini-overlay ── */
+function DeleteConfirm({
+  title,
+  onConfirm,
+  onCancel,
+  busy,
+}: {
+  title: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  busy: boolean;
+}) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 10,
+        borderRadius: 12,
+        background: "rgba(10,11,18,0.92)",
+        backdropFilter: "blur(6px)",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "16px 14px",
+        gap: 10,
+        textAlign: "center",
+      }}
+    >
+      {/* Danger icon */}
+      <div
+        style={{
+          width: 36,
+          height: 36,
+          borderRadius: "50%",
+          background: "rgba(248,113,113,0.15)",
+          border: "1px solid rgba(248,113,113,0.35)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="3 6 5 6 21 6" />
+          <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+          <path d="M10 11v6M14 11v6" />
+          <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
+        </svg>
+      </div>
+
+      <div>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: "#f1f3fc", marginBottom: 3 }}>
+          Delete draft CR?
+        </div>
+        <div
+          style={{
+            fontSize: 10.5,
+            color: "#7880a0",
+            lineHeight: 1.5,
+            maxWidth: 200,
+            margin: "0 auto",
+          }}
+        >
+          "{title}" will be permanently removed.
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 6 }}>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          style={{
+            padding: "5px 14px",
+            borderRadius: 7,
+            border: "1px solid rgba(255,255,255,0.1)",
+            background: "transparent",
+            color: "#9ba3c4",
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={busy}
+          style={{
+            padding: "5px 14px",
+            borderRadius: 7,
+            border: "1px solid rgba(248,113,113,0.4)",
+            background: "rgba(248,113,113,0.15)",
+            color: "#f87171",
+            fontSize: 11,
+            fontWeight: 700,
+            cursor: busy ? "not-allowed" : "pointer",
+            opacity: busy ? 0.6 : 1,
+          }}
+        >
+          {busy ? "Deleting…" : "Yes, delete"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function ChangeCard({
   item,
   projectId,
   onMove,
+  onDeleted,
   isApprover,
   compact,
   returnTo,
@@ -137,6 +257,8 @@ export default function ChangeCard({
   item: ChangeItem;
   projectId: string;
   onMove: (idOrDbId: string, nextLane: ChangeStatus) => void;
+  /** Called after a successful delete so the board can remove the card */
+  onDeleted?: (id: string) => void;
   isApprover?: boolean;
   compact?: boolean;
   returnTo?: string;
@@ -194,7 +316,14 @@ export default function ChangeCard({
   const [err, setErr] = useState("");
   const [isDragging, setIsDragging] = useState(false);
 
+  // Delete state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
   const canSubmitForApproval = status === "analysis" && !!projectId && !!navId;
+
+  // Only show delete for draft lanes (intake=new, analysis) and only if we have a real DB id
+  const canDelete = isDraftStatus(status) && !!navId && !!onDeleted;
 
   async function submitForApproval() {
     if (!canSubmitForApproval || busy) return;
@@ -221,6 +350,21 @@ export default function ChangeCard({
       setErr(safeStr(e?.message) || "Submit failed");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function doDelete() {
+    if (!navId || deleting) return;
+    setDeleting(true);
+    setErr("");
+    try {
+      await deleteJson(`/api/change/${encodeURIComponent(navId)}`);
+      setShowDeleteConfirm(false);
+      if (onDeleted) onDeleted(navId);
+    } catch (e: any) {
+      setErr(safeStr(e?.message) || "Delete failed");
+      setDeleting(false);
+      setShowDeleteConfirm(false);
     }
   }
 
@@ -469,11 +613,22 @@ export default function ChangeCard({
           border-radius: 7px;
           text-decoration: none;
           transition: background 0.12s, color 0.12s, border-color 0.12s;
+          cursor: pointer;
         }
         .kc-action-link:hover {
           background: #eceef5;
           color: #1e2235;
           border-color: #dde0ee;
+        }
+        .kc-action-delete {
+          color: #dc2626;
+          background: rgba(220,38,38,0.06);
+          border-color: rgba(220,38,38,0.18);
+        }
+        .kc-action-delete:hover {
+          background: rgba(220,38,38,0.12);
+          color: #b91c1c;
+          border-color: rgba(220,38,38,0.35);
         }
         .kc-locked-pill {
           margin-top: 10px;
@@ -506,9 +661,9 @@ export default function ChangeCard({
 
       <div
         className={`kc-card ${lockReview ? "kc-locked" : ""} ${isDragging ? "kc-dragging" : ""}`}
-        draggable={!lockReview}
+        draggable={!lockReview && !showDeleteConfirm}
         onDragStart={(e) => {
-          if (lockReview) return;
+          if (lockReview || showDeleteConfirm) return;
           setIsDragging(true);
           e.dataTransfer.setData("text/change-id", navId);
           e.dataTransfer.setData("text/change-from", status);
@@ -516,7 +671,7 @@ export default function ChangeCard({
         }}
         onDragEnd={() => setIsDragging(false)}
       >
-        {/* Accent bar — color by status */}
+        {/* Accent bar */}
         <div
           className="kc-accent-bar"
           style={{
@@ -529,6 +684,16 @@ export default function ChangeCard({
               "linear-gradient(90deg,#64748b,#94a3b8)",
           }}
         />
+
+        {/* Delete confirmation overlay */}
+        {showDeleteConfirm && (
+          <DeleteConfirm
+            title={safeStr(item.title) || displayId}
+            onConfirm={doDelete}
+            onCancel={() => setShowDeleteConfirm(false)}
+            busy={deleting}
+          />
+        )}
 
         <div className="kc-body">
           {/* Header */}
@@ -580,19 +745,12 @@ export default function ChangeCard({
               {/* Badges */}
               <div className="kc-badges">
                 {priorityLabel && priority && (
-                  <span
-                    className="kc-badge"
-                    style={{ color: priority.color, background: priority.bg, borderColor: priority.border }}
-                  >
+                  <span className="kc-badge" style={{ color: priority.color, background: priority.bg, borderColor: priority.border }}>
                     <span className="kc-badge-dot" style={{ background: priority.color }} />
                     {priorityLabel}
                   </span>
                 )}
-                <span
-                  className="kc-badge"
-                  title={riskTitle}
-                  style={{ color: risk.text, background: risk.bg, borderColor: risk.border }}
-                >
+                <span className="kc-badge" title={riskTitle} style={{ color: risk.text, background: risk.bg, borderColor: risk.border }}>
                   <span className="kc-badge-dot" style={{ background: risk.dot }} />
                   {riskLabel}
                 </span>
@@ -623,15 +781,11 @@ export default function ChangeCard({
                     </div>
                   </div>
                 </div>
-                <div
-                  style={{
-                    width: 36, height: 36,
-                    borderRadius: "50%",
-                    background: risk.bg,
-                    border: `1.5px solid ${risk.border}`,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                  }}
-                >
+                <div style={{
+                  width: 36, height: 36, borderRadius: "50%",
+                  background: risk.bg, border: `1.5px solid ${risk.border}`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={risk.dot} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
                     <line x1="12" y1="9" x2="12" y2="13"/>
@@ -686,6 +840,29 @@ export default function ChangeCard({
                   </svg>
                   AI
                 </Link>
+
+                {/* Delete — only for draft lanes */}
+                {canDelete && (
+                  <button
+                    type="button"
+                    className="kc-action-link kc-action-delete"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setShowDeleteConfirm(true);
+                    }}
+                    disabled={busy || deleting}
+                    title="Delete this draft change request"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6"/>
+                      <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+                      <path d="M10 11v6M14 11v6"/>
+                      <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+                    </svg>
+                    Delete
+                  </button>
+                )}
               </div>
 
               {/* Locked message */}
