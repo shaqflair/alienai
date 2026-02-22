@@ -2385,22 +2385,40 @@ export async function POST(req: Request) {
         );
       }
 
-      // Load ALL CR fields — proper PM assessment needs justification, risks,
-      // implementation_plan, rollback_plan, not just title/description
-      const { data: cr, error: crErr } = await supabase
-        .from("change_requests")
-        .select(
-          "id, project_id, title, description, delivery_status, decision_status, priority, " +
-          "impact_analysis, risk, justification, financial, schedule, risks, dependencies, " +
-          "assumptions, implementation_plan, rollback_plan"
-        )
-        .eq("id", changeId)
-        .eq("project_id", projectUuid)
-        .maybeSingle();
+      // Try full select; if any extended column missing, fall back to core columns only.
+      // This handles deployments where justification/financial/risks etc are stored
+      // inside impact_analysis JSON rather than as real DB columns.
+      let cr: any = null;
+      {
+        const { data: d1, error: e1 } = await supabase
+          .from("change_requests")
+          .select(
+            "id, project_id, title, description, delivery_status, decision_status, priority, " +
+            "impact_analysis, justification, financial, schedule, risks, dependencies, " +
+            "assumptions, implementation_plan, rollback_plan"
+          )
+          .eq("id", changeId)
+          .eq("project_id", projectUuid)
+          .maybeSingle();
 
-      if (crErr) return jsonNoStore({ ok: false, error: crErr.message }, { status: 500 });
+        if (!e1) {
+          cr = d1;
+        } else {
+          // One or more extended columns don't exist — fall back to core columns
+          const { data: d2, error: e2 } = await supabase
+            .from("change_requests")
+            .select("id, project_id, title, description, delivery_status, decision_status, priority, impact_analysis")
+            .eq("id", changeId)
+            .eq("project_id", projectUuid)
+            .maybeSingle();
+          if (e2) return jsonNoStore({ ok: false, error: e2.message }, { status: 500 });
+          cr = d2;
+        }
+      }
+
       if (!cr) return jsonNoStore({ ok: false, error: "Change request not found" }, { status: 404 });
 
+      // impact_analysis may hold risk, days, cost and extended fields
       const impact = (cr as any)?.impact_analysis ?? {};
 
       const assessment = await buildPmImpactAssessment({
@@ -2422,7 +2440,7 @@ export async function POST(req: Request) {
         priority:           safeStr((cr as any)?.priority),
         cost:               safeNumAi(impact?.cost, 0),
         days:               safeNumAi(impact?.days, 0),
-        risk:               safeStr((cr as any)?.risk ?? impact?.risk),
+        risk:               safeStr(impact?.risk),
       });
 
       // Return flat at top level — ChangeAiDrawer.tsx parseAnalysis() picks it up directly
