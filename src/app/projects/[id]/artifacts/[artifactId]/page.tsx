@@ -220,7 +220,8 @@ export default async function ArtifactDetailPage({
     !!approvalEnabled && !!(charterMode || closureMode) && canEditByRole && isCurrent && isDraftOrCR && !effectiveLockLayout;
 
   // For other artifact types we keep the old behaviour:
-  const canSubmitNonCharter = !!approvalEnabled && !(charterMode || closureMode) && !!loaderIsEditable && !!isCurrent && !effectiveLockLayout;
+  const canSubmitNonCharter =
+    !!approvalEnabled && !(charterMode || closureMode) && !!loaderIsEditable && !!isCurrent && !effectiveLockLayout;
 
   // ---------------------------------------------------------------------------
   // ✅ NEW: get projectManagerName for charter seeding (server-side best effort)
@@ -446,10 +447,11 @@ export default async function ArtifactDetailPage({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* ✅ FIX: route Change Control to the Kanban board (NOT /changes) */}
             <Link
-              href={`/projects/${projectRefForPaths}/changes`}
+              href={`/projects/${projectRefForPaths}/change`}
               className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm"
-              title="Open Change Control (Log + Request Form)"
+              title="Open Change Control (Kanban board)"
             >
               Change Control
             </Link>
@@ -506,7 +508,10 @@ export default async function ArtifactDetailPage({
             <form action={requestChangesAction} className="border rounded-2xl p-4 space-y-2">
               <div className="font-medium">Request Changes (CR)</div>
               <textarea name="reason" rows={3} className="w-full border rounded-xl px-3 py-2 text-sm" required />
-              <button className="px-4 py-2 rounded-xl border border-gray-200 text-gray-900 text-sm hover:bg-gray-50" type="submit">
+              <button
+                className="px-4 py-2 rounded-xl border border-gray-200 text-gray-900 text-sm hover:bg-gray-50"
+                type="submit"
+              >
                 Request changes
               </button>
             </form>
@@ -520,7 +525,10 @@ export default async function ArtifactDetailPage({
                 placeholder='Type "REJECT" to confirm'
                 required
               />
-              <button className="px-4 py-2 rounded-xl border border-gray-200 text-gray-900 text-sm hover:bg-gray-50" type="submit">
+              <button
+                className="px-4 py-2 rounded-xl border border-gray-200 text-gray-900 text-sm hover:bg-gray-50"
+                type="submit"
+              >
                 Reject final
               </button>
             </form>
@@ -579,7 +587,11 @@ export default async function ArtifactDetailPage({
 
             <label className="grid gap-2">
               <span className="text-sm font-medium">Title</span>
-              <input name="title" defaultValue={String((artifact as any).title ?? "")} className="border rounded-xl px-3 py-2" />
+              <input
+                name="title"
+                defaultValue={String((artifact as any).title ?? "")}
+                className="border rounded-xl px-3 py-2"
+              />
             </label>
 
             <label className="grid gap-2">
