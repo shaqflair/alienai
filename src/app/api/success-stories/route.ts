@@ -13,14 +13,21 @@ export const revalidate = 0;
 
 function jsonOk(data: any, status = 200) {
   const res = NextResponse.json({ ok: true, ...data }, { status });
-  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
   res.headers.set("Pragma", "no-cache");
   res.headers.set("Expires", "0");
   return res;
 }
+
 function jsonErr(error: string, status = 400, meta?: any) {
   const res = NextResponse.json({ ok: false, error, meta }, { status });
-  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
   res.headers.set("Pragma", "no-cache");
   res.headers.set("Expires", "0");
   return res;
@@ -76,7 +83,9 @@ function fmtDateUK(x: any): string | null {
     const mm = Number(m[2]);
     const dd = Number(m[3]);
     if (!yyyy || !mm || !dd) return null;
-    return `${String(dd).padStart(2, "0")}/${String(mm).padStart(2, "0")}/${String(yyyy)}`;
+    return `${String(dd).padStart(2, "0")}/${String(mm).padStart(2, "0")}/${String(
+      yyyy
+    )}`;
   }
 
   const d = new Date(s);
@@ -109,7 +118,7 @@ async function requireUser(supabase: any) {
 }
 
 async function resolveActiveOrgId(supabase: any, userId: string): Promise<string | null> {
-  // ✅ Next 16: cookies() is async
+  // Next: cookies() may be async in your setup
   const cookieStore = await cookies();
   const cookieOrgId = safeStr(cookieStore.get("active_org_id")?.value).trim();
 
@@ -177,7 +186,11 @@ type Story = {
   happened_at_uk?: string | null;
 };
 
-function hrefFor(kind: "milestones" | "raid" | "change" | "lessons" | "wbs", projectRouteId: string, days: number) {
+function hrefFor(
+  kind: "milestones" | "raid" | "change" | "lessons" | "wbs",
+  projectRouteId: string,
+  days: number
+) {
   if (!projectRouteId) return null;
 
   if (kind === "wbs") return `/projects/${projectRouteId}/wbs?days=${days}`;
@@ -194,7 +207,10 @@ function hrefFor(kind: "milestones" | "raid" | "change" | "lessons" | "wbs", pro
 
 export async function GET(req: Request) {
   try {
-    const supabase = await createClient();
+    // ✅ Ensure auth cookies are bound for route handlers
+    const cookieStore = await cookies();
+    const supabase = await createClient(cookieStore as any);
+
     const user = await requireUser(supabase);
 
     const url = new URL(req.url);
@@ -222,7 +238,12 @@ export async function GET(req: Request) {
         days,
         items: [],
         projects: allowedProjects.map((p) => ({ id: p.id, title: p.title })),
-        meta: { project_count: allowedProjects.length, since_iso: sinceIso(days), scope: "org" },
+        meta: {
+          project_count: allowedProjects.length,
+          since_iso: sinceIso(days),
+          scope: "org",
+          denied_project_id: true,
+        },
       });
     }
 
@@ -238,7 +259,8 @@ export async function GET(req: Request) {
         id: `commercial_fv_${days}`,
         category: "Commercial",
         title: "Favourable Forecast Variance",
-        summary: "A positive forecast variance was recorded, indicating effective cost control and forecasting discipline.",
+        summary:
+          "A positive forecast variance was recorded, indicating effective cost control and forecasting discipline.",
         value_label: `${moneyGBP(fv)} under forecast`,
         href: "/success-stories",
         happened_at: nowIso,
@@ -332,7 +354,9 @@ export async function GET(req: Request) {
     {
       const { data: cr, error } = await supabase
         .from("change_requests")
-        .select("id, project_id, title, status, updated_at, public_id, decision_status, decision_at, delivery_status")
+        .select(
+          "id, project_id, title, status, updated_at, public_id, decision_status, decision_at, delivery_status"
+        )
         .in("project_id", scopeProjectIds)
         .gte("updated_at", since)
         .limit(500);
@@ -341,7 +365,8 @@ export async function GET(req: Request) {
         for (const c of cr || []) {
           const st = safeLower(c?.status);
           const ds = safeLower((c as any)?.delivery_status);
-          const isImplemented = st === "implemented" || st === "closed" || ds === "implemented" || ds === "closed";
+          const isImplemented =
+            st === "implemented" || st === "closed" || ds === "implemented" || ds === "closed";
           if (!isImplemented) continue;
 
           const pid = safeStr(c?.project_id).trim();
@@ -355,9 +380,14 @@ export async function GET(req: Request) {
             category: "Governance",
             title: "Change Successfully Delivered",
             summary: `${safeStr(c?.title).trim() || "Change request"} reached ${
-              safeStr(c?.status).trim() || safeStr((c as any)?.delivery_status).trim() || "implemented"
+              safeStr(c?.status).trim() ||
+              safeStr((c as any)?.delivery_status).trim() ||
+              "implemented"
             } within the selected window.`,
-            value_label: safeStr(c?.status).trim() || safeStr((c as any)?.delivery_status).trim() || "Implemented",
+            value_label:
+              safeStr(c?.status).trim() ||
+              safeStr((c as any)?.delivery_status).trim() ||
+              "Implemented",
             project_id: pid || null,
             project_title: p?.title || null,
             href: routeId ? hrefFor("change", routeId, days) : null,
@@ -446,7 +476,9 @@ export async function GET(req: Request) {
     }
 
     // Category filter
-    const filtered = category ? stories.filter((s) => safeLower(s.category) === safeLower(category)) : stories;
+    const filtered = category
+      ? stories.filter((s) => safeLower(s.category) === safeLower(category))
+      : stories;
 
     // Sort newest first (robust)
     filtered.sort((a, b) => isoDateOnly(b.happened_at).localeCompare(isoDateOnly(a.happened_at)));
@@ -466,9 +498,12 @@ export async function GET(req: Request) {
         organisation_id: orgId,
         project_count: scopeProjectIds.length,
         since_iso: since,
+        total_items: filtered.length,
       },
     });
   } catch (e: any) {
-    return jsonErr(e?.message || "Unknown error", 500);
+    const msg = e?.message || "Unknown error";
+    if (safeLower(msg) === "unauthorized") return jsonErr("Unauthorized", 401);
+    return jsonErr(msg, 500);
   }
 }
