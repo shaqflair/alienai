@@ -135,62 +135,134 @@ async function pickId(req: Request, ctx: Ctx | undefined, body: any): Promise<st
    DELETE
 ========================= */
 
-export async function DELETE(req: Request, ctx: Ctx) {
-  try {
-    // FIX: Now await the async pickId
-    const id = await pickId(req, ctx, null);
-    if (!id) return err("Missing id", { status: 400, code: "missing_id" });
-
-    // ... rest of DELETE remains the same
-  } catch (e: any) {
-    const msg = safeStr(e?.message) || "Unexpected error";
-    const status = msg === "Unauthorized" ? 401 : 500;
-    return err(msg, { status, code: status === 401 ? "unauthorized" : "server_error" });
-  }
-}
-
 /* =========================
-   GET single
+   GET (single OR project board)
 ========================= */
 
 export async function GET(req: Request, ctx: Ctx) {
   try {
-    // FIX: Now await the async pickId
+    const supabase = sb(req);
+    const user = await requireUser(supabase);
+
     const id = await pickId(req, ctx, null);
     if (!id) return err("Missing id", { status: 400, code: "missing_id" });
 
-    // ... rest of GET remains the same
-  } catch (e: any) {
-    return err(safeStr(e?.message) || "Unexpected error", { status: 500, code: "server_error" });
-  }
-}
+    // 1) Try: treat as SINGLE change_request id
+    {
+      const { data: change, error: chErr } = await supabase
+        .from(TABLE)
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
 
-/* =========================
-   UPDATE (PATCH/POST)
-========================= */
+      if (chErr) {
+        // handle missing table nicely (mis-migration / wrong env)
+        if (isMissingRelation(chErr.message)) {
+          return err("Database table missing: change_requests", {
+            status: 500,
+            code: "missing_relation",
+            extra: { table: TABLE },
+          });
+        }
+        return err(chErr.message || "Failed to load change", {
+          status: 500,
+          code: "db_error",
+        });
+      }
 
-export async function POST(req: Request, ctx: Ctx) {
-  try {
-    let body: any = {};
-    try {
-      body = await req.json();
-    } catch {
-      body = {};
+      if (change) {
+        // ✅ authorise against the project the change belongs to
+        await requireProjectRole(supabase, user.id, change.project_id, "viewer");
+
+        // keep your existing shaping/AI/approvals logic (safe to call now)
+        const normalized = normalizeImpactAnalysis(change);
+        const approvals = await getApprovalProgressForArtifact(supabase, change.id).catch(
+          () => null
+        );
+
+        return ok({
+          mode: "change",
+          item: normalized,
+          approvals,
+        });
+      }
     }
-    if (!isObj(body)) body = {};
 
-    // FIX: Now await the async pickId
-    const id = await pickId(req, ctx, body);
-    if (!id) return err("Missing id", { status: 400, code: "missing_id" });
+    // 2) Otherwise: treat as PROJECT scope (uuid project_id OR human project_code)
+    let projectId: string | null = null;
 
-    // ... rest of POST remains the same
+    // if it looks like UUID, assume it's a project id
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+      projectId = id;
+    } else {
+      // project code lookup (if you use project_code / human ids)
+      const { data: proj, error: projErr } = await supabase
+        .from("projects")
+        .select("id, project_code, title")
+        .eq("project_code", id)
+        .maybeSingle();
+
+      if (projErr) {
+        return err(projErr.message || "Failed to resolve project", {
+          status: 500,
+          code: "db_error",
+        });
+      }
+      projectId = proj?.id ?? null;
+    }
+
+    if (!projectId) {
+      return err("Not found", { status: 404, code: "not_found" });
+    }
+
+    await requireProjectRole(supabase, user.id, projectId, "viewer");
+
+    const { data: items, error: itemsErr } = await supabase
+      .from(TABLE)
+      .select("*")
+      .eq("project_id", projectId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true });
+
+    if (itemsErr) {
+      if (isMissingRelation(itemsErr.message)) {
+        return err("Database table missing: change_requests", {
+          status: 500,
+          code: "missing_relation",
+          extra: { table: TABLE },
+        });
+      }
+      return err(itemsErr.message || "Failed to load changes", {
+        status: 500,
+        code: "db_error",
+      });
+    }
+
+    // optional: compute AI fields in a safe way (don’t let it throw the whole route)
+    let withAI = items ?? [];
+    try {
+      withAI = (items ?? []).map((it: any) => {
+        try {
+          return computeChangeAIFields(it);
+        } catch {
+          return it;
+        }
+      });
+    } catch {
+      // ignore
+    }
+
+    return ok({
+      mode: "project",
+      project_id: projectId,
+      items: withAI,
+    });
   } catch (e: any) {
     const msg = safeStr(e?.message) || "Unexpected error";
     const status = msg === "Unauthorized" ? 401 : 500;
-    return err(msg, { status, code: status === 401 ? "unauthorized" : "server_error" });
+    return err(msg, {
+      status,
+      code: status === 401 ? "unauthorized" : "server_error",
+    });
   }
-}
-
-export async function PATCH(req: Request, ctx: Ctx) {
-  return POST(req, ctx);
 }
