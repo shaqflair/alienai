@@ -52,9 +52,16 @@ function buildArtifactHref(a: { project_id?: any; id?: any; type?: any }) {
 
   if (!pid) return "/projects";
   if (t === "raid" || t === "raid_log") return `/projects/${pid}/raid`;
-  if (t === "change_requests" || t === "change_request" || t === "change" || t === "changes" || t.includes("change"))
+  if (
+    t === "change_requests" ||
+    t === "change_request" ||
+    t === "change" ||
+    t === "changes" ||
+    t.includes("change")
+  )
     return `/projects/${pid}/change`;
-  if (t === "lessons_learned" || t === "lessons" || t.includes("lesson")) return `/projects/${pid}/lessons`;
+  if (t === "lessons_learned" || t === "lessons" || t.includes("lesson"))
+    return `/projects/${pid}/lessons`;
   if (aid) return `/projects/${pid}/artifacts/${aid}`;
   return `/projects/${pid}/artifacts`;
 }
@@ -69,55 +76,48 @@ let projectColsResolved: ProjectCol[] | null = null;
 function parseMissingProjectColFromError(err: any): ProjectCol | null {
   const msg = safeStr(err?.message || "");
   const code = safeStr(err?.code || "");
-
   if (code && code !== "42703") return null;
 
   const m = msg.match(/projects(?:_1)?\.(\w+)\b/i);
   const col = (m?.[1] || "").toLowerCase();
-
   if ((PROJECT_COL_CANDIDATES as readonly string[]).includes(col)) return col as ProjectCol;
   return null;
 }
 
 function buildProjectsSelect(cols: ProjectCol[]) {
-  // Include deleted_at so applyExcludeInactiveProjects can filter on it
   const base = ["id", "title", "project_code", "deleted_at", ...cols];
   return `projects:projects (${base.join(",")})`;
 }
 
-/**
- * Excludes inactive/deleted projects using exact enum values from the schema:
- *   projects.status:           active | closed | rejected | archived | cancelled
- *   projects.lifecycle_status: active | paused | completed | closed | cancelled
- *   projects.deleted_at:       null = not deleted
- *
- * "Active" matches the projects page definition:
- *   status = 'active' AND lifecycle_status = 'active' AND deleted_at IS NULL
- *
- * NOTE: paused is intentionally excluded to match the projects list count.
- */
 function applyExcludeInactiveProjects(query: any, cols: ProjectCol[]) {
-  // Exclude soft-deleted projects
+  // Always exclude soft-deleted projects
   query = query.is("projects.deleted_at", null);
 
-  // status must be 'active'
+  // We want the *Projects page definition* of “active”:
+  // - not closed/cancelled/completed/archived/rejected
+  // - and ideally status/state == 'active' where available
+  //
+  // Since schema varies, we do:
+  // - If a primary "status" or "state" exists -> require 'active'
+  // - If lifecycle exists -> require 'active'
+  //
+  // This ensures the “Active Projects” card matches the Projects list count.
+
   if (cols.includes("status")) {
     query = query.eq("projects.status", "active");
+  } else if (cols.includes("state")) {
+    query = query.eq("projects.state", "active");
   }
 
-  // lifecycle_status must be 'active' only (paused projects are excluded,
-  // matching the projects page which shows 7 active projects)
   if (cols.includes("lifecycle_status")) {
     query = query.eq("projects.lifecycle_status", "active");
+  } else if (cols.includes("lifecycle_state")) {
+    query = query.eq("projects.lifecycle_state", "active");
   }
 
   return query;
 }
 
-/**
- * Excludes closed/done/cancelled artifacts — applied to ALL queries on this
- * page so counts and data are always "active only".
- */
 function applyExcludeClosedArtifacts(query: any) {
   const bad = ["%closed%", "%done%", "%complete%", "%completed%", "%cancel%"];
   for (const pat of bad) query = query.not("status", "ilike", pat);
@@ -171,9 +171,6 @@ export async function GET(req: Request) {
   const type = safeStr(url.searchParams.get("type")).trim();
   const includeTotals = parseBool(url.searchParams.get("includeTotals"));
 
-  const missingEffortOn = parseBool(url.searchParams.get("missingEffort"));
-  const stalledOn = parseBool(url.searchParams.get("stalled"));
-
   const limit = clampInt(url.searchParams.get("limit"), 1, 100, 50);
   const cursor = parseCursor(url.searchParams.get("cursor"));
 
@@ -181,12 +178,6 @@ export async function GET(req: Request) {
     const { result: payload } = await withProjectColsRetry(async (projCols) => {
       const projectsSelect = buildProjectsSelect(projCols);
 
-      /**
-       * Base query — always filters:
-       *   1. Active projects only (inactive/closed/cancelled projects excluded)
-       *   2. Active artifacts only (closed/done/cancelled artifacts excluded)
-       *   3. Current artifact version only (is_current = true)
-       */
       const makeBase = (selectOverride?: string, withCountExact = true) => {
         let query = supabase
           .from("artifacts")
@@ -211,7 +202,6 @@ export async function GET(req: Request) {
           )
           .order("updated_at", { ascending: false })
           .order("created_at", { ascending: false })
-          // ✅ Only current artifact versions
           .eq("is_current", true);
 
         if (projectId) query = query.eq("project_id", projectId);
@@ -224,24 +214,16 @@ export async function GET(req: Request) {
           );
         }
 
-        void missingEffortOn;
-        void stalledOn;
-
-        // ✅ Always exclude inactive projects
         query = applyExcludeInactiveProjects(query, projCols);
-
-        // ✅ Always exclude closed/done/cancelled artifacts
         query = applyExcludeClosedArtifacts(query);
 
         return query;
       };
 
-      // ---------------- Page query ----------------
       const from = cursor;
       const to = cursor + limit - 1;
 
       const { data, error, count } = await makeBase().range(from, to);
-
       if (error) throw error;
 
       const items = (data ?? []).map((r: any) => ({
@@ -265,8 +247,12 @@ export async function GET(req: Request) {
               project_code: r.projects.project_code,
               ...(projCols.includes("status") ? { status: r.projects.status ?? null } : {}),
               ...(projCols.includes("state") ? { state: r.projects.state ?? null } : {}),
-              ...(projCols.includes("lifecycle_status") ? { lifecycle_status: r.projects.lifecycle_status ?? null } : {}),
-              ...(projCols.includes("lifecycle_state") ? { lifecycle_state: r.projects.lifecycle_state ?? null } : {}),
+              ...(projCols.includes("lifecycle_status")
+                ? { lifecycle_status: r.projects.lifecycle_status ?? null }
+                : {}),
+              ...(projCols.includes("lifecycle_state")
+                ? { lifecycle_state: r.projects.lifecycle_state ?? null }
+                : {}),
             }
           : null,
       }));
@@ -281,23 +267,18 @@ export async function GET(req: Request) {
               a.localeCompare(b)
             );
 
-      // ---------------- Totals (optional) ----------------
-      // NOTE: makeBase already excludes inactive projects, closed artifacts,
-      // and non-current versions — so all counts are "active only".
       let totalCount: number | null = null;
       let activeCount: number | null = null;
       let activeProjectCount: number | null = null;
 
       if (includeTotals) {
-        // Total active artifact count for current query
         const { count: totalC, error: totalErr } = await makeBase(undefined, true).range(0, 0);
         if (totalErr) throw totalErr;
         if (typeof totalC === "number") totalCount = totalC;
 
-        // activeCount === totalCount since makeBase already filters active-only
         activeCount = totalCount;
 
-        // Active project count (distinct project_ids across all active artifacts)
+        // Distinct project count across *active-only* base query
         const pidSelect = `project_id, ${projectsSelect}`;
         const { data: pidRows, error: pidErr } = await makeBase(pidSelect, false)
           .order("project_id", { ascending: true })
