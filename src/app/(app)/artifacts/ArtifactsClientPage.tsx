@@ -58,6 +58,9 @@ type ApiResp =
       ok: true;
       items: ArtifactRow[];
       nextCursor: string | null;
+      // ✅ API should return these totals computed server-side across ALL pages
+      totalCount?: number | null;
+      activeCount?: number | null;
       facets?: { types?: string[] };
     };
 
@@ -94,9 +97,6 @@ function isWithinLastDays(a: ArtifactRow, days: number) {
   return ms >= cutoff;
 }
 
-/**
- * Returns true if an artifact's own status is "closed" / "done" / "complete".
- */
 function isClosedArtifactStatus(status?: string) {
   const s = norm(status);
   return !!s && (
@@ -120,9 +120,6 @@ function isNeedsAttention(a: ArtifactRow) {
   return false;
 }
 
-/**
- * Project lifecycle filter — excludes closed/cancelled/archived/inactive projects.
- */
 function isInactiveProjectStatus(x?: string | null) {
   const s = norm(x);
   if (!s) return false;
@@ -146,11 +143,6 @@ function isInactiveProject(a: ArtifactRow) {
   );
 }
 
-/**
- * ✅ An artifact is "active" (eligible for stats) if BOTH:
- *   1. Its parent project is not inactive (closed/cancelled/archived/done)
- *   2. Its own status is not closed/done/complete/cancelled
- */
 function isActiveArtifact(a: ArtifactRow) {
   if (isInactiveProject(a)) return false;
   if (isClosedArtifactStatus(a.status)) return false;
@@ -170,7 +162,6 @@ const fmtRelativeTime = (x?: string | null) => {
   const now = new Date();
   const diff = now.getTime() - d.getTime();
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-
   if (days === 0) return "Today";
   if (days === 1) return "Yesterday";
   if (days < 7) return `${days}d ago`;
@@ -196,7 +187,6 @@ function buildArtifactHref(a: ArtifactRow) {
   const pid = safeStr(a.project_id).trim();
   const aid = safeStr(a.id).trim();
   const t = norm(a.type);
-
   if (!pid) return "/projects";
   if (t === "raid" || t === "raid_log") return `/projects/${pid}/raid`;
   if (t === "change_requests" || t === "change" || t === "changes" || t.includes("change"))
@@ -210,6 +200,7 @@ function projectChangeHref(projectId: string) {
   const pid = safeStr(projectId).trim();
   return pid ? `/projects/${pid}/change` : "/projects";
 }
+
 function projectRaidHref(projectId: string) {
   const pid = safeStr(projectId).trim();
   return pid ? `/projects/${pid}/raid` : "/projects";
@@ -237,11 +228,7 @@ function displayStatus(status?: string) {
 
 function safeParseJson(txt: string): any {
   if (!txt) return null;
-  try {
-    return JSON.parse(txt);
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(txt); } catch { return null; }
 }
 
 function isOkResp(x: any): x is ApiOk {
@@ -266,36 +253,11 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
 ============================ */
 
 const typeConfig: Record<string, { icon: React.ReactNode; bg: string; text: string; border: string }> = {
-  charter: {
-    icon: <FileText className="w-3 h-3" />,
-    bg: "bg-emerald-50",
-    text: "text-emerald-700",
-    border: "border-emerald-200",
-  },
-  wbs: {
-    icon: <Layers className="w-3 h-3" />,
-    bg: "bg-violet-50",
-    text: "text-violet-700",
-    border: "border-violet-200",
-  },
-  raid: {
-    icon: <AlertCircle className="w-3 h-3" />,
-    bg: "bg-rose-50",
-    text: "text-rose-700",
-    border: "border-rose-200",
-  },
-  change: {
-    icon: <Sparkles className="w-3 h-3" />,
-    bg: "bg-sky-50",
-    text: "text-sky-700",
-    border: "border-sky-200",
-  },
-  default: {
-    icon: <FileText className="w-3 h-3" />,
-    bg: "bg-slate-50",
-    text: "text-slate-600",
-    border: "border-slate-200",
-  },
+  charter: { icon: <FileText className="w-3 h-3" />, bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200" },
+  wbs: { icon: <Layers className="w-3 h-3" />, bg: "bg-violet-50", text: "text-violet-700", border: "border-violet-200" },
+  raid: { icon: <AlertCircle className="w-3 h-3" />, bg: "bg-rose-50", text: "text-rose-700", border: "border-rose-200" },
+  change: { icon: <Sparkles className="w-3 h-3" />, bg: "bg-sky-50", text: "text-sky-700", border: "border-sky-200" },
+  default: { icon: <FileText className="w-3 h-3" />, bg: "bg-slate-50", text: "text-slate-600", border: "border-slate-200" },
 };
 
 function TypeBadge({ type }: { type?: string }) {
@@ -304,11 +266,8 @@ function TypeBadge({ type }: { type?: string }) {
     typeConfig[t] ||
     typeConfig[Object.keys(typeConfig).find((k) => t.includes(k)) || "default"] ||
     typeConfig.default;
-
   return (
-    <span
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide border ${config.bg} ${config.text} ${config.border}`}
-    >
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide border ${config.bg} ${config.text} ${config.border}`}>
       {config.icon}
       {displayType(type)}
     </span>
@@ -331,11 +290,8 @@ function StatusBadge({ status }: { status?: string }) {
     statusConfig[s] ||
     statusConfig[Object.keys(statusConfig).find((k) => s.includes(k)) || "default"] ||
     statusConfig.default;
-
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide ${config.bg} ${config.text}`}
-    >
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide ${config.bg} ${config.text}`}>
       <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${config.dot}`} />
       {displayStatus(status)}
     </span>
@@ -346,29 +302,23 @@ function AIHealthBadge({ artifact }: { artifact: ArtifactRow }) {
   const stalled = artifact.stalled === true;
   const t = norm(artifact.type);
   const missingEffort = t === "wbs" ? !safeStr(artifact.effort).trim() : false;
-
   if (stalled) {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-50 text-rose-600 border border-rose-200">
-        <AlertCircle className="w-3 h-3" />
-        Risk
+        <AlertCircle className="w-3 h-3" />Risk
       </span>
     );
   }
-
   if (missingEffort) {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-600 border border-amber-200">
-        <Clock className="w-3 h-3" />
-        Needs Effort
+        <Clock className="w-3 h-3" />Needs Effort
       </span>
     );
   }
-
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-600 border border-emerald-200">
-      <CheckCircle2 className="w-3 h-3" />
-      Healthy
+      <CheckCircle2 className="w-3 h-3" />Healthy
     </span>
   );
 }
@@ -388,34 +338,19 @@ type ProjectGroup = {
 
 function groupByProject(items: ArtifactRow[]): ProjectGroup[] {
   const map = new Map<string, ProjectGroup>();
-
   for (const it of items) {
     const pid = safeStr(it.project_id) || "unknown";
     const raw = safeStr(it.updated_at) || safeStr(it.created_at) || "";
     const ms = safeDateMs(raw);
-
     const existing = map.get(pid);
     if (!existing) {
-      map.set(pid, {
-        project_id: pid,
-        project_human: projectHumanId(it),
-        project_title: projectTitleLabel(it),
-        last_updated_ms: ms,
-        last_updated_raw: raw,
-        items: [it],
-      });
+      map.set(pid, { project_id: pid, project_human: projectHumanId(it), project_title: projectTitleLabel(it), last_updated_ms: ms, last_updated_raw: raw, items: [it] });
     } else {
       existing.items.push(it);
-      if (ms > existing.last_updated_ms) {
-        existing.last_updated_ms = ms;
-        existing.last_updated_raw = raw;
-      }
-      if (existing.project_title === "Project" && projectTitleLabel(it) !== "Project") {
-        existing.project_title = projectTitleLabel(it);
-      }
+      if (ms > existing.last_updated_ms) { existing.last_updated_ms = ms; existing.last_updated_raw = raw; }
+      if (existing.project_title === "Project" && projectTitleLabel(it) !== "Project") existing.project_title = projectTitleLabel(it);
     }
   }
-
   for (const g of map.values()) {
     g.items.sort((a, b) => {
       const bm = safeDateMs(b.updated_at || b.created_at);
@@ -424,12 +359,9 @@ function groupByProject(items: ArtifactRow[]): ProjectGroup[] {
       return safeStr(a.id).localeCompare(safeStr(b.id));
     });
   }
-
   return Array.from(map.values()).sort((a, b) => {
     if (b.last_updated_ms !== a.last_updated_ms) return b.last_updated_ms - a.last_updated_ms;
-    return `${a.project_human} ${a.project_title}`.localeCompare(`${b.project_human} ${b.project_title}`, undefined, {
-      sensitivity: "base",
-    });
+    return `${a.project_human} ${a.project_title}`.localeCompare(`${b.project_human} ${b.project_title}`, undefined, { sensitivity: "base" });
   });
 }
 
@@ -449,69 +381,37 @@ function parseSort(raw: string | null): { key: SortKey; dir: SortDir } {
   return { key: "updated", dir: "desc" };
 }
 
-function sortToParam(key: SortKey, dir: SortDir) {
-  return `${key}_${dir}`;
-}
+function sortToParam(key: SortKey, dir: SortDir) { return `${key}_${dir}`; }
 
-function cmpBase(a: string, b: string) {
-  return a.localeCompare(b, undefined, { sensitivity: "base" });
-}
+function cmpBase(a: string, b: string) { return a.localeCompare(b, undefined, { sensitivity: "base" }); }
 
 /* ============================
    Stat Card Component
 ============================ */
 
-function StatCard({
-  label,
-  value,
-  sub,
-  accent,
-  icon,
-}: {
-  label: string;
-  value: string | number;
-  sub?: string;
-  accent?: "blue" | "emerald" | "amber" | "rose";
-  icon?: React.ReactNode;
+function StatCard({ label, value, sub, accent, icon, isEstimate }: {
+  label: string; value: string | number; sub?: string;
+  accent?: "blue" | "emerald" | "amber" | "rose"; icon?: React.ReactNode;
+  /** If true, shows a ~ prefix to indicate the value may be partial */
+  isEstimate?: boolean;
 }) {
   const accentMap = {
-    blue: {
-      iconBg: "bg-blue-100",
-      iconText: "text-blue-600",
-      bar: "bg-blue-500",
-      val: "text-blue-700",
-    },
-    emerald: {
-      iconBg: "bg-emerald-100",
-      iconText: "text-emerald-600",
-      bar: "bg-emerald-500",
-      val: "text-emerald-700",
-    },
-    amber: {
-      iconBg: "bg-amber-100",
-      iconText: "text-amber-600",
-      bar: "bg-amber-400",
-      val: "text-amber-700",
-    },
-    rose: {
-      iconBg: "bg-rose-100",
-      iconText: "text-rose-600",
-      bar: "bg-rose-500",
-      val: "text-rose-700",
-    },
+    blue:    { iconBg: "bg-blue-100",    iconText: "text-blue-600",    bar: "bg-blue-500",    val: "text-blue-700" },
+    emerald: { iconBg: "bg-emerald-100", iconText: "text-emerald-600", bar: "bg-emerald-500", val: "text-emerald-700" },
+    amber:   { iconBg: "bg-amber-100",   iconText: "text-amber-600",   bar: "bg-amber-400",   val: "text-amber-700" },
+    rose:    { iconBg: "bg-rose-100",    iconText: "text-rose-600",    bar: "bg-rose-500",    val: "text-rose-700" },
   };
-
   const c = accentMap[accent ?? "blue"];
-
   return (
     <div className="relative bg-white rounded-2xl border border-slate-100 p-5 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden group">
-      {/* Top accent line */}
       <div className={`absolute top-0 left-0 right-0 h-0.5 ${c.bar}`} />
-
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">{label}</p>
-          <p className={`text-3xl font-black ${c.val} leading-none`}>{value}</p>
+          <p className={`text-3xl font-black ${c.val} leading-none`}>
+            {isEstimate && <span className="text-lg mr-0.5 opacity-60">~</span>}
+            {value}
+          </p>
           {sub && <p className="mt-1.5 text-xs text-slate-500 font-medium">{sub}</p>}
         </div>
         {icon && (
@@ -528,26 +428,13 @@ function StatCard({
    Sort Header Button
 ============================ */
 
-function SortButton({
-  label,
-  sortKey,
-  activeSortKey,
-  sortDir,
-  onToggle,
-  align = "left",
-}: {
-  label: string;
-  sortKey: SortKey;
-  activeSortKey: SortKey;
-  sortDir: SortDir;
-  onToggle: (k: SortKey) => void;
-  align?: "left" | "right";
+function SortButton({ label, sortKey, activeSortKey, sortDir, onToggle, align = "left" }: {
+  label: string; sortKey: SortKey; activeSortKey: SortKey; sortDir: SortDir;
+  onToggle: (k: SortKey) => void; align?: "left" | "right";
 }) {
   const active = activeSortKey === sortKey;
   return (
-    <button
-      type="button"
-      onClick={() => onToggle(sortKey)}
+    <button type="button" onClick={() => onToggle(sortKey)}
       className={`inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest transition-colors ${
         active ? "text-slate-800" : "text-slate-400 hover:text-slate-600"
       } ${align === "right" ? "ml-auto" : ""}`}
@@ -568,25 +455,29 @@ export default function ArtifactsClientPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-
   const hydrated = useRef(false);
 
   const [q, setQ] = useState("");
   const [type, setType] = useState("");
   const [view, setView] = useState<"list" | "grouped">("list");
-
   const [sortKey, setSortKey] = useState<SortKey>("updated");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-
   const [highlightId, setHighlightId] = useState<string>("");
 
   const [items, setItems] = useState<ArtifactRow[]>([]);
-  const [types, setTypes] = useState<string[]>([]);
+
+  // ✅ FIX 1: Stable deduplicated type list — never shrinks on load-more
+  const [allTypes, setAllTypes] = useState<string[]>([]);
+
+  // ✅ FIX 2: Server-provided totals that cover ALL pages, not just loaded items
+  const [serverTotalCount, setServerTotalCount] = useState<number | null>(null);
+  const [serverActiveCount, setServerActiveCount] = useState<number | null>(null);
+  const [serverProjectCount, setServerProjectCount] = useState<number | null>(null);
+
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
-
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [showFilters, setShowFilters] = useState(false);
 
@@ -595,39 +486,27 @@ export default function ArtifactsClientPage() {
   const qDebounced = useDebouncedValue(q, 250);
   const typeDebounced = useDebouncedValue(type, 150);
 
-  /* ---------------- Effects ---------------- */
+  /* ---------------- Init from URL ---------------- */
 
   useEffect(() => {
     if (hydrated.current) return;
-
     const q0 = safeStr(searchParams.get("q")).trim();
     const t0 = safeStr(searchParams.get("type")).trim();
     const v0 = safeStr(searchParams.get("view")).trim();
     const { key, dir } = parseSort(searchParams.get("sort"));
     const aid0 = safeStr(searchParams.get("artifactId")).trim();
-
     if (q0) setQ(q0);
     if (t0) setType(t0);
     setView(v0 === "grouped" ? "grouped" : "list");
     setSortKey(key);
     setSortDir(dir);
-
     if (aid0 && looksLikeUuid(aid0)) setHighlightId(aid0);
-
     hydrated.current = true;
   }, [searchParams]);
 
-  const urlState = useMemo(
-    () => ({
-      q,
-      type,
-      view,
-      sort: sortToParam(sortKey, sortDir),
-      artifactId: highlightId,
-    }),
-    [q, type, view, sortKey, sortDir, highlightId]
-  );
+  /* ---------------- Sync URL ---------------- */
 
+  const urlState = useMemo(() => ({ q, type, view, sort: sortToParam(sortKey, sortDir), artifactId: highlightId }), [q, type, view, sortKey, sortDir, highlightId]);
   const urlStateDebounced = useDebouncedValue(urlState, 200);
 
   useEffect(() => {
@@ -638,10 +517,11 @@ export default function ArtifactsClientPage() {
     sp.set("view", urlStateDebounced.view);
     sp.set("sort", urlStateDebounced.sort);
     if (urlStateDebounced.artifactId) sp.set("artifactId", urlStateDebounced.artifactId);
-
     const qs = sp.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname);
   }, [urlStateDebounced, pathname, router]);
+
+  /* ---------------- API params ---------------- */
 
   const apiParams = useMemo(() => {
     const sp = new URLSearchParams();
@@ -650,6 +530,8 @@ export default function ArtifactsClientPage() {
     sp.set("minimal", "1");
     sp.set("serverSort", "1");
     sp.set("limit", "50");
+    // ✅ Ask API for server-side totals
+    sp.set("includeTotals", "1");
     return sp.toString();
   }, [qDebounced, typeDebounced]);
 
@@ -662,7 +544,6 @@ export default function ArtifactsClientPage() {
       const r = await fetch(`/api/artifacts?${apiParams}`, { cache: "no-store" });
       const txt = await r.text();
       const j = safeParseJson(txt) as ApiResp | null;
-
       if (!r.ok) throw new Error((j as any)?.error || `Load failed (${r.status})`);
       if (!isOkResp(j)) throw new Error(safeStr((j as any)?.error) || "API returned invalid response");
 
@@ -670,16 +551,26 @@ export default function ArtifactsClientPage() {
       setItems(ok.items || []);
       setCursor(ok.nextCursor ?? null);
 
-      const facet = (ok.facets?.types || []).filter(Boolean);
-      const inferred = Array.from(new Set((ok.items || []).map((x) => safeStr(x.type)).filter(Boolean))).sort((a, b) =>
-        a.localeCompare(b)
-      );
-      setTypes(facet.length ? facet : inferred);
+      // ✅ FIX 1: Merge new types into allTypes without ever losing existing ones
+      const incoming = (ok.facets?.types || [])
+        .concat((ok.items || []).map((x) => safeStr(x.type)))
+        .filter(Boolean)
+        .map((t) => norm(t));
+
+      setAllTypes((prev) => {
+        const merged = new Set([...prev, ...incoming]);
+        return Array.from(merged).sort((a, b) => a.localeCompare(b));
+      });
+
+      // ✅ FIX 2: Store server-provided totals (stable, full-dataset counts)
+      if (typeof ok.totalCount === "number") setServerTotalCount(ok.totalCount);
+      if (typeof ok.activeCount === "number") setServerActiveCount(ok.activeCount);
+      if (typeof ok.activeProjectCount === "number") setServerProjectCount((ok as any).activeProjectCount);
+
     } catch (e: any) {
       setError(e?.message || "Failed to load");
       setItems([]);
       setCursor(null);
-      setTypes([]);
     } finally {
       setLoading(false);
     }
@@ -689,15 +580,12 @@ export default function ArtifactsClientPage() {
     if (!cursor) return;
     setLoadingMore(true);
     setError("");
-
     try {
       const sp = new URLSearchParams(apiParams);
       sp.set("cursor", cursor);
-
       const r = await fetch(`/api/artifacts?${sp.toString()}`, { cache: "no-store" });
       const txt = await r.text();
       const j = safeParseJson(txt) as ApiResp | null;
-
       if (!r.ok) throw new Error((j as any)?.error || `Load failed (${r.status})`);
       if (!isOkResp(j)) throw new Error(safeStr((j as any)?.error) || "API returned invalid response");
 
@@ -708,6 +596,18 @@ export default function ArtifactsClientPage() {
         return [...prev, ...next];
       });
       setCursor(ok.nextCursor ?? null);
+
+      // ✅ FIX 1: Merge types from new page — never replace, only add
+      const incoming = (ok.facets?.types || [])
+        .concat((ok.items || []).map((x) => safeStr(x.type)))
+        .filter(Boolean)
+        .map((t) => norm(t));
+
+      setAllTypes((prev) => {
+        const merged = new Set([...prev, ...incoming]);
+        return Array.from(merged).sort((a, b) => a.localeCompare(b));
+      });
+
     } catch (e: any) {
       setError(e?.message || "Failed to load more");
     } finally {
@@ -723,16 +623,7 @@ export default function ArtifactsClientPage() {
 
   /* ---------------- Derived State ---------------- */
 
-  /**
-   * visibleItems — all artifacts from non-inactive projects (used for the table/list view).
-   * isInactiveProject already excludes closed/cancelled/archived parent projects.
-   */
   const visibleItems = useMemo(() => (items || []).filter((a) => !isInactiveProject(a)), [items]);
-
-  /**
-   * activeItems — subset of visibleItems where the artifact itself is also not closed/done/complete.
-   * Used exclusively for stats so they only count genuinely open, live work.
-   */
   const activeItems = useMemo(() => visibleItems.filter(isActiveArtifact), [visibleItems]);
 
   const filteredItems = useMemo(() => {
@@ -746,19 +637,15 @@ export default function ArtifactsClientPage() {
   const sortedItems = useMemo(() => {
     const isDefaultUpdatedDesc = sortKey === "updated" && sortDir === "desc";
     if (isDefaultUpdatedDesc) return filteredItems;
-
     const arr = [...filteredItems];
     const mul = sortDir === "asc" ? 1 : -1;
-
     arr.sort((a, b) => {
       const aUpd = safeDateMs(a.updated_at || a.created_at);
       const bUpd = safeDateMs(b.updated_at || b.created_at);
-
       if (sortKey === "updated") {
         if (aUpd !== bUpd) return (aUpd - bUpd) * mul;
         return safeStr(a.id).localeCompare(safeStr(b.id));
       }
-
       if (sortKey === "project") {
         const av = `${projectHumanId(a)} ${projectTitleLabel(a)}`;
         const bv = `${projectHumanId(b)} ${projectTitleLabel(b)}`;
@@ -767,48 +654,64 @@ export default function ArtifactsClientPage() {
         if (aUpd !== bUpd) return (aUpd - bUpd) * -1;
         return safeStr(a.id).localeCompare(safeStr(b.id));
       }
-
       if (sortKey === "artifact") {
         const c = cmpBase(safeStr(a.title), safeStr(b.title)) * mul;
         if (c) return c;
         if (aUpd !== bUpd) return (aUpd - bUpd) * -1;
         return safeStr(a.id).localeCompare(safeStr(b.id));
       }
-
       if (sortKey === "type") {
         const c = cmpBase(displayType(a.type), displayType(b.type)) * mul;
         if (c) return c;
         if (aUpd !== bUpd) return (aUpd - bUpd) * -1;
         return safeStr(a.id).localeCompare(safeStr(b.id));
       }
-
       if (sortKey === "status") {
         const c = cmpBase(displayStatus(a.status), displayStatus(b.status)) * mul;
         if (c) return c;
         if (aUpd !== bUpd) return (aUpd - bUpd) * -1;
         return safeStr(a.id).localeCompare(safeStr(b.id));
       }
-
       return 0;
     });
-
     return arr;
   }, [filteredItems, sortKey, sortDir]);
 
   const grouped = useMemo(() => groupByProject(sortedItems), [sortedItems]);
 
-  /* ---------------- Stats (active artifacts only) ------------------- */
+  /* ----------------------------------------------------------------
+     ✅ FIX 2 & 3: Stats
 
+     Priority order for each stat:
+       1. serverXxxCount  — returned by API, covers full dataset (best)
+       2. Computed from loaded items — only what's in memory (fallback)
+
+     When server counts are available, stat cards are STABLE and won't
+     change as more pages load. When not yet available, we compute from
+     loaded items and show a ~ prefix to signal it may be partial.
+  ---------------------------------------------------------------- */
   const stats = useMemo(() => {
-    // ✅ All four stat cards use activeItems — excludes:
-    //    • inactive/closed/cancelled/archived parent projects
-    //    • artifacts whose own status is closed/done/complete/cancelled
-    const total = activeItems.length;
-    const thisWeek = activeItems.filter((i) => isWithinLastDays(i, 7)).length;
-    const projects = new Set(activeItems.map((i) => i.project_id)).size;
+    const hasServerCounts = serverActiveCount !== null;
 
+    // Active artifact total
+    const total = hasServerCounts ? serverActiveCount! : activeItems.length;
+    const totalIsEstimate = !hasServerCounts && cursor !== null; // partial if more pages exist
+
+    // Updated this week — can only be computed from loaded items (no server equivalent)
+    // Show ~ if not all items loaded
+    const thisWeek = activeItems.filter((i) => isWithinLastDays(i, 7)).length;
+    const thisWeekIsEstimate = cursor !== null;
+
+    // Active project count
+    const projects = serverProjectCount !== null
+      ? serverProjectCount
+      : new Set(activeItems.map((i) => i.project_id)).size;
+    const projectsIsEstimate = serverProjectCount === null && cursor !== null;
+
+    // Needs attention — computed from loaded items only
     const needsAttentionItems = activeItems.filter(isNeedsAttention);
     const needsAttention = needsAttentionItems.length;
+    const needsAttentionIsEstimate = cursor !== null;
 
     const urgent = needsAttentionItems.filter((i) => i.stalled === true).length;
     const needsEffortCount = needsAttentionItems.filter(isMissingEffort).length;
@@ -817,10 +720,16 @@ export default function ArtifactsClientPage() {
     if (urgent > 0 && needsEffortCount > 0) attentionSub = `${urgent} risk · ${needsEffortCount} need effort`;
     else if (urgent > 0) attentionSub = `${urgent} stalled`;
     else if (needsEffortCount > 0) attentionSub = `${needsEffortCount} missing effort`;
-    else if (needsAttention === 0) attentionSub = "All looking good";
+    else if (needsAttention === 0 && !cursor) attentionSub = "All looking good";
 
-    return { total, thisWeek, projects, needsAttention, attentionSub };
-  }, [activeItems]);
+    return {
+      total, totalIsEstimate,
+      thisWeek, thisWeekIsEstimate,
+      projects, projectsIsEstimate,
+      needsAttention, needsAttentionIsEstimate,
+      attentionSub,
+    };
+  }, [activeItems, serverActiveCount, serverProjectCount, cursor]);
 
   /* ---------------- Scroll to Highlight ---------------- */
 
@@ -828,11 +737,7 @@ export default function ArtifactsClientPage() {
     if (!highlightId) return;
     const el = rowRefs.current[highlightId];
     if (!el) return;
-
-    const t = window.setTimeout(() => {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 140);
-
+    const t = window.setTimeout(() => { el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 140);
     return () => window.clearTimeout(t);
   }, [highlightId, view, sortedItems]);
 
@@ -853,6 +758,10 @@ export default function ArtifactsClientPage() {
 
   const hasActiveFilters = q || type;
 
+  // ✅ FIX 3: Total count shown in list header — use server total if available
+  const displayedCount = serverTotalCount !== null ? serverTotalCount : sortedItems.length;
+  const displayedCountIsEstimate = serverTotalCount === null && cursor !== null;
+
   /* ============================
       Render
    ============================ */
@@ -863,7 +772,6 @@ export default function ArtifactsClientPage() {
       <div className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-slate-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
         <div className="mx-auto max-w-7xl px-6">
           <div className="flex items-center justify-between h-16">
-            {/* Brand */}
             <div className="flex items-center gap-3.5">
               <div className="relative h-9 w-9">
                 <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-[#0066FF] to-[#00B8DB] shadow-lg shadow-blue-500/25" />
@@ -876,15 +784,11 @@ export default function ArtifactsClientPage() {
                 <p className="text-[11px] text-slate-400 font-medium">Project governance hub</p>
               </div>
             </div>
-
-            {/* Actions */}
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setShowFilters(!showFilters)}
                 className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium border transition-all duration-150 ${
-                  showFilters
-                    ? "bg-slate-900 text-white border-slate-900"
-                    : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                  showFilters ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
                 }`}
               >
                 <Filter className="w-3.5 h-3.5" />
@@ -895,17 +799,12 @@ export default function ArtifactsClientPage() {
                   </span>
                 )}
               </button>
-
               <button
                 onClick={loadFirst}
                 disabled={loading}
                 className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium bg-white text-slate-600 border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all duration-150 disabled:opacity-50"
               >
-                {loading ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-3.5 h-3.5" />
-                )}
+                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                 Refresh
               </button>
             </div>
@@ -915,7 +814,6 @@ export default function ArtifactsClientPage() {
 
       <div className="mx-auto max-w-7xl px-6 py-6 space-y-5">
         {/* ─── Stats Cards ─── */}
-        {/* Note: all stat values reflect ACTIVE artifacts only (not closed/cancelled projects or artifacts) */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <StatCard
             label="Active Artifacts"
@@ -923,13 +821,15 @@ export default function ArtifactsClientPage() {
             sub="Across open projects"
             accent="blue"
             icon={<Layers className="w-4 h-4" />}
+            isEstimate={stats.totalIsEstimate}
           />
           <StatCard
             label="Updated This Week"
             value={stats.thisWeek}
-            sub="Recent activity"
+            sub={stats.thisWeekIsEstimate ? "From loaded items" : "Recent activity"}
             accent="emerald"
             icon={<TrendingUp className="w-4 h-4" />}
+            isEstimate={stats.thisWeekIsEstimate}
           />
           <StatCard
             label="Active Projects"
@@ -937,6 +837,7 @@ export default function ArtifactsClientPage() {
             sub="With open artifacts"
             accent="blue"
             icon={<Folder className="w-4 h-4" />}
+            isEstimate={stats.projectsIsEstimate}
           />
           <StatCard
             label="Needs Attention"
@@ -944,15 +845,12 @@ export default function ArtifactsClientPage() {
             sub={stats.attentionSub || undefined}
             accent={stats.needsAttention > 0 ? "rose" : "emerald"}
             icon={<Activity className="w-4 h-4" />}
+            isEstimate={stats.needsAttentionIsEstimate}
           />
         </div>
 
         {/* ─── Expandable Filters ─── */}
-        <div
-          className={`overflow-hidden transition-all duration-300 ease-in-out ${
-            showFilters ? "max-h-96 opacity-100" : "max-h-0 opacity-0 pointer-events-none"
-          }`}
-        >
+        <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showFilters ? "max-h-96 opacity-100" : "max-h-0 opacity-0 pointer-events-none"}`}>
           <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-bold text-slate-700 uppercase tracking-widest">Filter Artifacts</h3>
@@ -961,12 +859,10 @@ export default function ArtifactsClientPage() {
                   onClick={() => { setQ(""); setType(""); }}
                   className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-500 hover:text-rose-600 transition-colors"
                 >
-                  <X className="w-3.5 h-3.5" />
-                  Clear all
+                  <X className="w-3.5 h-3.5" />Clear all
                 </button>
               )}
             </div>
-
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
@@ -977,20 +873,17 @@ export default function ArtifactsClientPage() {
                   className="w-full rounded-lg bg-slate-50 border border-slate-200 pl-9 pr-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-400/15 outline-none transition-all"
                 />
               </div>
-
+              {/* ✅ FIX 1: Use allTypes (stable, deduplicated) not types (page-scoped) */}
               <select
                 value={type}
                 onChange={(e) => setType(e.target.value)}
                 className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-2.5 text-sm text-slate-700 focus:bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-400/15 outline-none transition-all min-w-[160px]"
               >
                 <option value="">All types</option>
-                {types.map((t) => (
-                  <option key={t} value={t}>
-                    {displayType(t)}
-                  </option>
+                {allTypes.map((t) => (
+                  <option key={t} value={t}>{displayType(t)}</option>
                 ))}
               </select>
-
               <button
                 onClick={loadFirst}
                 className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition-colors"
@@ -1008,39 +901,40 @@ export default function ArtifactsClientPage() {
             <button
               onClick={() => setView("list")}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                view === "list"
-                  ? "bg-slate-900 text-white shadow-sm"
-                  : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
+                view === "list" ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
               }`}
             >
-              <ListIcon className="w-3.5 h-3.5" />
-              List
+              <ListIcon className="w-3.5 h-3.5" />List
             </button>
             <button
               onClick={() => setView("grouped")}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                view === "grouped"
-                  ? "bg-slate-900 text-white shadow-sm"
-                  : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
+                view === "grouped" ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
               }`}
             >
-              <LayoutGrid className="w-3.5 h-3.5" />
-              Grouped
+              <LayoutGrid className="w-3.5 h-3.5" />Grouped
             </button>
           </div>
 
+          {/* ✅ FIX 3: Show stable server total, not volatile sortedItems.length */}
           <p className="text-xs font-medium text-slate-400">
-            {sortedItems.length} artifact{sortedItems.length !== 1 ? "s" : ""}
-            {cursor && <span className="text-slate-300 mx-1.5">·</span>}
-            {cursor && <span>more available</span>}
+            {displayedCountIsEstimate && <span className="mr-0.5">~</span>}
+            {displayedCount} artifact{displayedCount !== 1 ? "s" : ""}
+            {cursor && (
+              <>
+                <span className="text-slate-300 mx-1.5">·</span>
+                <span>{sortedItems.length} loaded</span>
+                <span className="text-slate-300 mx-1.5">·</span>
+                <span>more available</span>
+              </>
+            )}
           </p>
         </div>
 
         {/* ─── Error ─── */}
         {error && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 flex items-center gap-2.5 font-medium">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-            {error}
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />{error}
           </div>
         )}
 
@@ -1052,28 +946,14 @@ export default function ArtifactsClientPage() {
           </div>
         ) : sortedItems.length ? (
           view === "list" ? (
-            /* ──── LIST VIEW ──── */
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-              {/* Header */}
               <div className="grid grid-cols-12 gap-4 px-6 py-3 border-b border-slate-100 bg-slate-50/60">
-                <div className="col-span-3">
-                  <SortButton label="Project" sortKey="project" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
-                </div>
-                <div className="col-span-4">
-                  <SortButton label="Artifact" sortKey="artifact" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
-                </div>
-                <div className="col-span-2">
-                  <SortButton label="Type" sortKey="type" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
-                </div>
-                <div className="col-span-2">
-                  <SortButton label="Status" sortKey="status" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
-                </div>
-                <div className="col-span-1 flex justify-end">
-                  <SortButton label="Updated" sortKey="updated" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} align="right" />
-                </div>
+                <div className="col-span-3"><SortButton label="Project" sortKey="project" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></div>
+                <div className="col-span-4"><SortButton label="Artifact" sortKey="artifact" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></div>
+                <div className="col-span-2"><SortButton label="Type" sortKey="type" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></div>
+                <div className="col-span-2"><SortButton label="Status" sortKey="status" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></div>
+                <div className="col-span-1 flex justify-end"><SortButton label="Updated" sortKey="updated" activeSortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} align="right" /></div>
               </div>
-
-              {/* Rows */}
               <div className="divide-y divide-slate-50">
                 {sortedItems.map((a) => {
                   const isHighlighted = !!(highlightId && a.id === highlightId);
@@ -1083,50 +963,25 @@ export default function ArtifactsClientPage() {
                       key={a.id}
                       ref={(el) => { rowRefs.current[a.id] = el; }}
                       className={`group grid grid-cols-12 gap-4 px-6 py-3.5 transition-colors duration-100 ${
-                        isHighlighted
-                          ? "bg-blue-50/60 ring-1 ring-inset ring-blue-200"
-                          : "hover:bg-slate-50/80"
+                        isHighlighted ? "bg-blue-50/60 ring-1 ring-inset ring-blue-200" : "hover:bg-slate-50/80"
                       }`}
                     >
-                      {/* Project */}
                       <div className="col-span-3 flex flex-col justify-center gap-0.5 min-w-0">
-                        <Link
-                          href={`/projects/${a.project_id}`}
-                          className="text-[11px] font-bold text-blue-600 hover:text-blue-700 hover:underline truncate"
-                        >
+                        <Link href={`/projects/${a.project_id}`} className="text-[11px] font-bold text-blue-600 hover:text-blue-700 hover:underline truncate">
                           {projectHumanId(a)}
                         </Link>
-                        <span className="text-sm font-medium text-slate-700 truncate leading-tight">
-                          {projectTitleLabel(a)}
-                        </span>
+                        <span className="text-sm font-medium text-slate-700 truncate leading-tight">{projectTitleLabel(a)}</span>
                       </div>
-
-                      {/* Artifact */}
                       <div className="col-span-4 flex items-center gap-2 min-w-0">
-                        <Link
-                          href={openHref}
-                          className="text-sm font-semibold text-slate-800 hover:text-blue-600 transition-colors truncate"
-                        >
+                        <Link href={openHref} className="text-sm font-semibold text-slate-800 hover:text-blue-600 transition-colors truncate">
                           {a.title}
                         </Link>
                         <AIHealthBadge artifact={a} />
                       </div>
-
-                      {/* Type */}
-                      <div className="col-span-2 flex items-center">
-                        <TypeBadge type={a.type} />
-                      </div>
-
-                      {/* Status */}
-                      <div className="col-span-2 flex items-center">
-                        <StatusBadge status={a.status} />
-                      </div>
-
-                      {/* Updated */}
+                      <div className="col-span-2 flex items-center"><TypeBadge type={a.type} /></div>
+                      <div className="col-span-2 flex items-center"><StatusBadge status={a.status} /></div>
                       <div className="col-span-1 flex items-center justify-end">
-                        <span className="text-xs font-medium text-slate-400 whitespace-nowrap">
-                          {fmtRelativeTime(a.updated_at || a.created_at)}
-                        </span>
+                        <span className="text-xs font-medium text-slate-400 whitespace-nowrap">{fmtRelativeTime(a.updated_at || a.created_at)}</span>
                       </div>
                     </div>
                   );
@@ -1134,39 +989,24 @@ export default function ArtifactsClientPage() {
               </div>
             </div>
           ) : (
-            /* ──── GROUPED VIEW ──── */
             <div className="space-y-4">
               {grouped.map((g) => {
                 const isOpen = !collapsed[g.project_id];
                 const attentionCount = g.items.filter(isNeedsAttention).length;
                 return (
-                  <div
-                    key={g.project_id}
-                    className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden"
-                  >
-                    {/* Group Header */}
+                  <div key={g.project_id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                     <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3 min-w-0">
-                        <button
-                          onClick={() => toggleProjectCollapse(g.project_id)}
-                          className="p-1 rounded-md hover:bg-slate-100 transition-colors flex-shrink-0"
-                        >
-                          {isOpen ? (
-                            <ChevronDown className="w-4 h-4 text-slate-500" />
-                          ) : (
-                            <ChevronRight className="w-4 h-4 text-slate-500" />
-                          )}
+                        <button onClick={() => toggleProjectCollapse(g.project_id)} className="p-1 rounded-md hover:bg-slate-100 transition-colors flex-shrink-0">
+                          {isOpen ? <ChevronDown className="w-4 h-4 text-slate-500" /> : <ChevronRight className="w-4 h-4 text-slate-500" />}
                         </button>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-[11px] font-bold text-blue-600 uppercase tracking-wider">
-                              {g.project_human}
-                            </span>
+                            <span className="text-[11px] font-bold text-blue-600 uppercase tracking-wider">{g.project_human}</span>
                             <h2 className="text-sm font-bold text-slate-800 truncate">{g.project_title}</h2>
                             {attentionCount > 0 && (
                               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-600 border border-rose-200">
-                                <AlertCircle className="w-2.5 h-2.5" />
-                                {attentionCount}
+                                <AlertCircle className="w-2.5 h-2.5" />{attentionCount}
                               </span>
                             )}
                           </div>
@@ -1175,46 +1015,25 @@ export default function ArtifactsClientPage() {
                           </p>
                         </div>
                       </div>
-
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        <Link
-                          href={projectRaidHref(g.project_id)}
-                          className="text-[11px] font-semibold text-slate-500 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 px-3 py-1.5 rounded-lg transition-all"
-                        >
-                          RAID
-                        </Link>
-                        <Link
-                          href={projectChangeHref(g.project_id)}
-                          className="text-[11px] font-semibold text-slate-500 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 px-3 py-1.5 rounded-lg transition-all"
-                        >
-                          Changes
-                        </Link>
+                        <Link href={projectRaidHref(g.project_id)} className="text-[11px] font-semibold text-slate-500 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 px-3 py-1.5 rounded-lg transition-all">RAID</Link>
+                        <Link href={projectChangeHref(g.project_id)} className="text-[11px] font-semibold text-slate-500 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 px-3 py-1.5 rounded-lg transition-all">Changes</Link>
                       </div>
                     </div>
-
-                    {/* Group Rows */}
                     {isOpen && (
                       <div className="divide-y divide-slate-50">
                         {g.items.map((a) => (
-                          <div
-                            key={a.id}
-                            className="px-5 py-3 flex items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors"
-                          >
+                          <div key={a.id} className="px-5 py-3 flex items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors">
                             <div className="flex items-center gap-3 min-w-0">
                               <TypeBadge type={a.type} />
-                              <Link
-                                href={buildArtifactHref(a)}
-                                className="text-sm font-semibold text-slate-800 hover:text-blue-600 transition-colors truncate"
-                              >
+                              <Link href={buildArtifactHref(a)} className="text-sm font-semibold text-slate-800 hover:text-blue-600 transition-colors truncate">
                                 {a.title}
                               </Link>
                               <AIHealthBadge artifact={a} />
                             </div>
                             <div className="flex items-center gap-4 flex-shrink-0">
                               <StatusBadge status={a.status} />
-                              <span className="text-xs text-slate-400 font-medium w-16 text-right">
-                                {fmtRelativeTime(a.updated_at || a.created_at)}
-                              </span>
+                              <span className="text-xs text-slate-400 font-medium w-16 text-right">{fmtRelativeTime(a.updated_at || a.created_at)}</span>
                             </div>
                           </div>
                         ))}
@@ -1226,7 +1045,6 @@ export default function ArtifactsClientPage() {
             </div>
           )
         ) : (
-          /* ──── EMPTY STATE ──── */
           <div className="bg-white rounded-2xl border border-slate-100 p-16 text-center shadow-sm">
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-slate-100 mb-4">
               <Search className="w-5 h-5 text-slate-400" />
@@ -1236,12 +1054,8 @@ export default function ArtifactsClientPage() {
               {hasActiveFilters ? "Try adjusting your filters or search terms." : "No active artifacts available."}
             </p>
             {hasActiveFilters && (
-              <button
-                onClick={() => { setQ(""); setType(""); }}
-                className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-700"
-              >
-                <X className="w-4 h-4" />
-                Clear filters
+              <button onClick={() => { setQ(""); setType(""); }} className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-700">
+                <X className="w-4 h-4" />Clear filters
               </button>
             )}
           </div>

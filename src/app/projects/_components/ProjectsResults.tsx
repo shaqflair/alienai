@@ -241,7 +241,7 @@ export default async function ProjectsResults({
           padding: 20px 24px;
           transition: all 0.18s ease;
           position: relative;
-          overflow: hidden;
+          overflow: visible;
         }
 
         .pr-card:hover {
@@ -254,13 +254,13 @@ export default async function ProjectsResults({
           content: '';
           position: absolute;
           left: 0;
-          top: 0;
-          bottom: 0;
+          top: 4px;
+          bottom: 4px;
           width: 3px;
           background: #00B8DB;
           opacity: 0;
           transition: opacity 0.18s ease;
-          border-radius: 14px 0 0 14px;
+          border-radius: 0 3px 3px 0;
         }
 
         .pr-card:hover::before {
