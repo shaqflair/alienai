@@ -412,22 +412,29 @@ function SkeletonAlert() {
   );
 }
 
-/* ── SurfaceCard ── */
+/* ── SurfaceCard — GLOSSY GLASS ── */
 function SurfaceCard({ children, className = "", delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
   return (
     <m.div
       initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45, delay, ease: [0.16, 1, 0.3, 1] }}
-      className={`relative overflow-hidden bg-white rounded-2xl border border-slate-200/70 p-6 transition-all hover:shadow-md hover:border-slate-300 ${className}`}
-      style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(99,102,241,0.06), 0 1px 0 rgba(255,255,255,1) inset" }}
+      className={`relative overflow-hidden rounded-2xl border border-white/80 p-6 transition-all hover:shadow-xl hover:border-white ${className}`}
+      style={{
+        background: "linear-gradient(145deg, rgba(255,255,255,0.97) 0%, rgba(248,250,255,0.94) 50%, rgba(240,245,255,0.92) 100%)",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.04), 0 8px 32px rgba(99,102,241,0.10), 0 24px 64px rgba(99,102,241,0.07), 0 1px 0 rgba(255,255,255,1) inset, 0 -1px 0 rgba(226,232,240,0.5) inset",
+        backdropFilter: "blur(20px)",
+      }}
     >
-      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white to-transparent" />
+      {/* Multi-layer shine */}
+      <div className="absolute top-0 left-0 right-0 h-[2px] rounded-t-2xl" style={{ background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.9) 30%, rgba(255,255,255,1) 50%, rgba(255,255,255,0.9) 70%, transparent 100%)" }} />
+      <div className="absolute top-0 left-0 right-0 h-12 rounded-t-2xl pointer-events-none" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.6) 0%, transparent 100%)" }} />
+      <div className="absolute top-2 left-4 right-4 h-6 rounded-full pointer-events-none blur-sm" style={{ background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.7) 40%, rgba(255,255,255,0.8) 60%, transparent 100%)" }} />
       <div className="relative">{children}</div>
     </m.div>
   );
 }
 
-/* ── KpiCard ── */
+/* ── KpiCard — GLOSSY GLASS ── */
 function KpiCard({ label, value, sub, icon, tone, onClick, extra, tooltip, metaLine, metaIcon, aiLine, rightVisual, badge, cardClassName, delay = 0 }: {
   label: string; value: string; sub?: string; icon: React.ReactNode; tone: string;
   onClick?: () => void; extra?: React.ReactNode; tooltip?: string; metaLine?: string;
@@ -440,26 +447,49 @@ function KpiCard({ label, value, sub, icon, tone, onClick, extra, tooltip, metaL
     rose: "bg-rose-500", slate: "bg-slate-400", cyan: "bg-cyan-500", gold: "bg-amber-400",
   };
   const iconBgs: Record<string, string> = {
-    indigo: "bg-indigo-600 shadow-indigo-100", amber: "bg-amber-500 shadow-amber-100", emerald: "bg-emerald-600 shadow-emerald-100",
-    rose: "bg-rose-600 shadow-rose-100", slate: "bg-slate-600 shadow-slate-100", cyan: "bg-cyan-600 shadow-cyan-100", gold: "bg-amber-500 shadow-amber-100",
+    indigo: "bg-indigo-600 shadow-indigo-200", amber: "bg-amber-500 shadow-amber-200", emerald: "bg-emerald-600 shadow-emerald-200",
+    rose: "bg-rose-600 shadow-rose-200", slate: "bg-slate-600 shadow-slate-200", cyan: "bg-cyan-500 shadow-cyan-200", gold: "bg-amber-500 shadow-amber-200",
   };
-  const bar = bars[tone] || bars.indigo; const iconBg = iconBgs[tone] || iconBgs.indigo;
+
+  // Glass tint per tone for a subtle colored shimmer
+  const glassTint: Record<string, string> = {
+    indigo: "rgba(99,102,241,0.04)",
+    amber: "rgba(245,158,11,0.04)",
+    emerald: "rgba(16,185,129,0.04)",
+    rose: "rgba(244,63,94,0.04)",
+    slate: "rgba(100,116,139,0.03)",
+    cyan: "rgba(6,182,212,0.06)",
+    gold: "rgba(245,158,11,0.04)",
+  };
+  const tint = glassTint[tone] || glassTint.indigo;
+
+  const bar = bars[tone] || bars.indigo;
+  const iconBg = iconBgs[tone] || iconBgs.indigo;
 
   return (
     <m.div
       initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45, delay, ease: [0.16, 1, 0.3, 1] }}
-      className={["relative overflow-hidden bg-white rounded-2xl border border-slate-200/70 p-6 transition-all",
-        clickable ? "cursor-pointer hover:shadow-md hover:border-slate-300 group" : "hover:shadow-sm",
+      className={["relative overflow-hidden rounded-2xl border border-white/80 p-6 transition-all",
+        clickable ? "cursor-pointer hover:shadow-xl hover:border-white group" : "hover:shadow-lg",
         cardClassName || ""].join(" ")}
-      style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(99,102,241,0.06), 0 1px 0 rgba(255,255,255,1) inset" }}
+      style={{
+        background: `linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(250,252,255,0.95) 40%, ${tint.replace("0.0", "0.0").replace("rgba", "rgba")} 100%)`,
+        boxShadow: "0 2px 8px rgba(0,0,0,0.04), 0 8px 32px rgba(99,102,241,0.10), 0 24px 64px rgba(99,102,241,0.07), 0 1px 0 rgba(255,255,255,1) inset, 0 -1px 0 rgba(226,232,240,0.5) inset",
+        backdropFilter: "blur(20px)",
+      }}
       role={clickable ? "button" : undefined} tabIndex={clickable ? 0 : undefined}
       onClick={onClick}
       onKeyDown={(e) => { if (!clickable) return; if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick?.(); } }}
       title={tooltip || (clickable ? "Click to view details" : undefined)}
     >
       {/* Left accent bar */}
-      <div className={`absolute left-0 top-5 bottom-5 w-[3px] rounded-r-full ${bar}`} />
+      <div className={`absolute left-0 top-5 bottom-5 w-[3px] rounded-r-full ${bar}`} style={{ filter: "drop-shadow(0 0 4px currentColor)" }} />
+
+      {/* Multi-layer glass shine */}
+      <div className="absolute top-0 left-0 right-0 h-[2px] rounded-t-2xl" style={{ background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.9) 30%, rgba(255,255,255,1) 50%, rgba(255,255,255,0.9) 70%, transparent 100%)" }} />
+      <div className="absolute top-0 left-0 right-0 h-14 rounded-t-2xl pointer-events-none" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.65) 0%, transparent 100%)" }} />
+      <div className="absolute top-2 left-4 right-4 h-6 rounded-full pointer-events-none blur-sm" style={{ background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.75) 40%, rgba(255,255,255,0.85) 60%, transparent 100%)" }} />
 
       <div className={["outline-none pl-4", cardClassName?.includes("flex") ? "flex flex-col h-full" : ""].join(" ")}>
         <div className="flex items-start justify-between gap-4">
@@ -472,7 +502,7 @@ function KpiCard({ label, value, sub, icon, tone, onClick, extra, tooltip, metaL
             <p className="text-4xl font-bold text-slate-950 tracking-tight" style={{ fontFamily: "var(--font-mono, monospace)" }}>{value}</p>
             {sub && <p className="text-xs text-slate-400 mt-1.5 line-clamp-2 font-medium">{sub}</p>}
             {metaLine && (
-              <div className="mt-3 inline-flex items-center gap-2 text-xs text-slate-500 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-lg">
+              <div className="mt-3 inline-flex items-center gap-2 text-xs text-slate-500 bg-slate-50/80 border border-slate-200/80 px-2.5 py-1.5 rounded-lg backdrop-blur-sm">
                 {metaIcon && <span className="text-slate-400">{metaIcon}</span>}
                 <span className="truncate">{metaLine}</span>
               </div>
@@ -649,9 +679,15 @@ function ProjectTile({ projectRef, title, subtitle = "RAID · Changes · Lessons
   return (
     <m.div role="link" tabIndex={0} onClick={go} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } }}
       whileHover={{ y: -2, transition: { duration: 0.18 } }}
-      className="cursor-pointer rounded-xl border border-slate-200 bg-white p-5 hover:border-indigo-300 hover:shadow-md transition-colors relative overflow-hidden group"
-      style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(226,232,240,0.8)" }}
+      className="cursor-pointer rounded-xl border border-white/80 bg-white p-5 hover:border-indigo-200 hover:shadow-lg transition-all relative overflow-hidden group"
+      style={{
+        background: "linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(248,250,255,0.95) 100%)",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.04), 0 4px 24px rgba(99,102,241,0.06), 0 1px 0 rgba(255,255,255,1) inset",
+        backdropFilter: "blur(12px)",
+      }}
     >
+      {/* Shine */}
+      <div className="absolute top-0 left-0 right-0 h-[2px] rounded-t-xl" style={{ background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.85) 40%, rgba(255,255,255,1) 50%, rgba(255,255,255,0.85) 60%, transparent 100%)" }} />
       <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/0 to-indigo-50/0 group-hover:from-indigo-50/50 group-hover:to-violet-50/20 transition-all duration-300 rounded-xl" />
       <div className="relative">
         <div className="flex items-start justify-between gap-3">
@@ -920,11 +956,8 @@ export default function HomePage({ data }: { data: HomeData }) {
                   <p className="text-xs text-slate-400 mt-1 tracking-wide">{today}</p>
                 </div>
               </div>
+              {/* ── All Systems Operational banner REMOVED ── */}
               <div className="flex items-center gap-3">
-                <div className="hidden md:flex items-center gap-2 px-3.5 py-2 rounded-full border border-emerald-200 bg-emerald-50">
-                  <div className="relative flex"><div className="h-2 w-2 rounded-full bg-emerald-500" /><div className="absolute h-2 w-2 rounded-full bg-emerald-400 animate-ping opacity-70" /></div>
-                  <span className="text-xs text-emerald-700 font-semibold">All Systems Operational</span>
-                </div>
                 <NotificationBell />
               </div>
             </m.div>
@@ -975,9 +1008,10 @@ export default function HomePage({ data }: { data: HomeData }) {
                   extra={<div className="mt-auto pt-4">{ssSummary && ssSummary.ok ? <SuccessStoryMeta loading={ssLoading} displayTotal={ssDisplayCount} meta={{ milestones_completed: num(ssSummary.breakdown?.milestones_done), raid_closed: num(ssSummary.breakdown?.raid_resolved), changes_implemented: num(ssSummary.breakdown?.changes_delivered), wbs_done: num(ssSummary.breakdown?.wbs_done), lessons_published: num(ssSummary.breakdown?.lessons_positive) }} /> : null}<div className="mt-4"><Button variant="outline" className="w-full border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900" onClick={(e) => { e.stopPropagation(); openSuccessStories(); }}>View Summary <ArrowUpRight className="ml-2 h-4 w-4" /></Button><button type="button" onClick={(e) => { e.stopPropagation(); openSuccessStories(); }} className="mt-3 w-full text-center text-sm text-slate-400 hover:text-indigo-600 transition-colors">View all success stories <ChevronRight className="inline h-4 w-4 -mt-0.5" /></button></div></div>}
                   delay={0.05}
                 />
+                {/* ── CHANGE 1: tone="slate" → tone="cyan" for Milestones Due ── */}
                 <KpiCard cardClassName={KPI_CARD_CLASS} label="Milestones Due" value={milestonesDueLoading ? "…" : `${milestonesDueLive}`}
                   sub={windowDays === "all" ? "Using last 60 days" : `Next ${windowDays} days`}
-                  icon={<Clock3 className="h-5 w-5" />} tone="slate" onClick={openMilestonesDrilldown}
+                  icon={<Clock3 className="h-5 w-5" />} tone="cyan" onClick={openMilestonesDrilldown}
                   extra={<MilestonesMeta loading={milestonesPanelLoading} panel={milestonesPanel} />} delay={0.1}
                 />
                 <KpiCard cardClassName={KPI_CARD_CLASS} label="RAID — Due" value={raidLoading ? "…" : `${raidDueTotal}`}
