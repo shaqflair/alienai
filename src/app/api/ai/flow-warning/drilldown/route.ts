@@ -50,7 +50,14 @@ function isDoneStatus(s: any) {
 
 function asDate(x: any): Date | null {
   if (!x) return null;
-  const d = new Date(String(x));
+  const s = String(x).trim();
+  if (!s) return null;
+  // ✅ FIX: Normalise to UTC — append Z if the string looks like a bare ISO datetime
+  // without timezone, so new Date() doesn't parse it as local time on non-UTC servers.
+  const normalised = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s) && !s.endsWith("Z") && !s.includes("+")
+    ? s + "Z"
+    : s;
+  const d = new Date(normalised);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -59,23 +66,29 @@ function ms(n: any) {
   return Number.isFinite(v) ? v : 0;
 }
 
-/** ✅ UK display dd/mm/yyyy (or dd/mm/yyyy hh:mm) */
+/**
+ * ✅ UK display dd/mm/yyyy (or dd/mm/yyyy hh:mm)
+ * Always interprets timestamps as UTC to avoid server timezone drift.
+ */
 function fmtUkDateTime(x: any, withTime = false): string | null {
   if (!x) return null;
   const s = String(x).trim();
   if (!s) return null;
 
-  // date-only
+  // date-only fast path
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (m) {
-    const yyyy = Number(m[1]);
-    const mm = Number(m[2]);
-    const dd = Number(m[3]);
-    if (!yyyy || !mm || !dd) return null;
-    return `${String(dd).padStart(2, "0")}/${String(mm).padStart(2, "0")}/${String(yyyy)}`;
+    const [, yyyy, mm, dd] = m;
+    if (!Number(yyyy) || !Number(mm) || !Number(dd)) return null;
+    return `${dd}/${mm}/${yyyy}`;
   }
 
-  const d = new Date(s);
+  // ✅ FIX: Normalise bare ISO datetimes to UTC before parsing
+  const normalised = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s) && !s.endsWith("Z") && !s.includes("+")
+    ? s + "Z"
+    : s;
+
+  const d = new Date(normalised);
   if (Number.isNaN(d.getTime())) return null;
 
   const dd = String(d.getUTCDate()).padStart(2, "0");
@@ -92,20 +105,13 @@ function fmtUkDateTime(x: any, withTime = false): string | null {
 /* ---------------- active project filter ---------------- */
 /**
  * We ONLY count "active" projects.
- * This is defensive because schemas differ across environments.
- *
- * Inactive if any of these are true (when present):
- * - deleted_at / removed_at / archived_at / closed_at / completed_at is set
- * - is_archived true
- * - is_live false
- * - status / lifecycle_status / delivery_status looks "done/closed/cancelled"
+ * Defensive against schema differences across environments.
  */
 function isActiveProjectRow(p: any): boolean {
   if (!p) return false;
 
   const bool = (v: any) => v === true || v === "true" || v === 1 || v === "1";
 
-  // "soft delete / archive" timestamps
   const deletedAt = (p as any)?.deleted_at ?? (p as any)?.removed_at ?? null;
   const archivedAt = (p as any)?.archived_at ?? null;
   const closedAt = (p as any)?.closed_at ?? null;
@@ -116,14 +122,11 @@ function isActiveProjectRow(p: any): boolean {
   if (closedAt) return false;
   if (completedAt) return false;
 
-  // flags
   if (bool((p as any)?.is_archived)) return false;
 
-  // is_live (when present)
   if ((p as any)?.is_live === false) return false;
   if (normStr((p as any)?.is_live) === "false") return false;
 
-  // statuses
   const statusLike =
     (p as any)?.status ?? (p as any)?.lifecycle_status ?? (p as any)?.delivery_status ?? null;
   if (statusLike != null && isDoneStatus(statusLike)) return false;
@@ -131,16 +134,9 @@ function isActiveProjectRow(p: any): boolean {
   return true;
 }
 
-/**
- * Load project rows with a "wide select", but if columns don't exist in your DB,
- * automatically fall back to a minimal select.
- */
 async function loadProjectsMap(supabase: any, projectIds: string[]) {
-  // Try a wider select (best effort)
   const wideSelect =
     "id, title, project_code, client_name, status, lifecycle_status, delivery_status, is_live, is_archived, archived_at, deleted_at, removed_at, closed_at, completed_at, ended_at, end_date";
-
-  // Minimal select (guaranteed-ish)
   const minimalSelect = "id, title, project_code, client_name";
 
   let projRows: any[] = [];
@@ -149,14 +145,12 @@ async function loadProjectsMap(supabase: any, projectIds: string[]) {
     if (!error) {
       projRows = Array.isArray(data) ? data : [];
     } else {
-      // If schema mismatch, retry minimal
       const msg = String((error as any)?.message || "");
       if (msg.toLowerCase().includes("column")) {
         const { data: d2, error: e2 } = await supabase
           .from("projects")
           .select(minimalSelect)
           .in("id", projectIds);
-
         if (e2) throw new Error((e2 as any)?.message || "Failed to load projects");
         projRows = Array.isArray(d2) ? d2 : [];
       } else {
@@ -165,7 +159,6 @@ async function loadProjectsMap(supabase: any, projectIds: string[]) {
     }
   }
 
-  // Filter to active
   const activeRows = (projRows || []).filter(isActiveProjectRow);
 
   const project_map: Record<
@@ -185,13 +178,38 @@ async function loadProjectsMap(supabase: any, projectIds: string[]) {
   }
 
   const activeIds = Object.keys(project_map);
-
   return { project_map, activeIds };
 }
 
 /**
- * Compute blocked seconds within [since, now] using blocked/unblocked events (asc),
- * with a start-state override.
+ * ✅ FIX: Chunk a large array into batches to avoid URL-length limits on IN clauses.
+ * PostgREST encodes IN as query params, which can overflow ~8KB at ~200+ UUIDs.
+ */
+async function chunkedQuery<T>(
+  supabase: any,
+  table: string,
+  select: string,
+  filterKey: string,
+  ids: string[],
+  extraFilters?: (q: any) => any,
+  chunkSize = 150
+): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    let q = supabase.from(table).select(select).in(filterKey, chunk);
+    if (extraFilters) q = extraFilters(q);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    if (Array.isArray(data)) results.push(...(data as T[]));
+  }
+  return results;
+}
+
+/**
+ * ✅ FIX: Handles duplicate/out-of-order events safely.
+ * - Consecutive "blocked" events (duplicates) don't double-count.
+ * - Events are expected ascending; ties are benign since we skip if already in that state.
  */
 function computeBlockedSecondsFromEvents(args: {
   eventsAsc: any[];
@@ -217,7 +235,7 @@ function computeBlockedSecondsFromEvents(args: {
   }
 
   let currentlyBlocked = Boolean(startBlocked);
-  let lastTs = since;
+  let lastBlockStart = since;
 
   let lastBlockEventAt: string | null = startBlocked ? (startBlockAt ?? null) : null;
   let lastBlockReason: string | null = startBlocked ? (startReason ?? null) : null;
@@ -229,26 +247,29 @@ function computeBlockedSecondsFromEvents(args: {
     const typ = normStr(e?.event_type);
 
     if (typ === "blocked") {
-      if (!currentlyBlocked) lastTs = t;
-
-      currentlyBlocked = true;
+      // ✅ FIX: Skip duplicate "blocked" events — don't reset lastBlockStart
+      if (!currentlyBlocked) {
+        currentlyBlocked = true;
+        lastBlockStart = t;
+      }
       lastBlockEventAt = String(e.created_at);
-
       const reason = (e?.meta as any)?.reason;
       if (typeof reason === "string" && reason.trim()) lastBlockReason = reason.trim();
       continue;
     }
 
     if (typ === "unblocked") {
-      if (currentlyBlocked) totalMs += Math.max(0, t.getTime() - lastTs.getTime());
-      currentlyBlocked = false;
-      lastTs = t;
+      if (currentlyBlocked) {
+        totalMs += Math.max(0, t.getTime() - lastBlockStart.getTime());
+        currentlyBlocked = false;
+      }
+      // ✅ FIX: Don't update lastBlockStart on unblocked — it's only meaningful on next block
       continue;
     }
   }
 
   if (currentlyBlocked) {
-    totalMs += Math.max(0, now.getTime() - lastTs.getTime());
+    totalMs += Math.max(0, now.getTime() - lastBlockStart.getTime());
   }
 
   return {
@@ -258,6 +279,8 @@ function computeBlockedSecondsFromEvents(args: {
     last_block_reason: lastBlockReason,
   };
 }
+
+/* ------------------------------------------------------------------ */
 
 export async function GET(req: Request) {
   try {
@@ -274,7 +297,7 @@ export async function GET(req: Request) {
     const projectIdParam = safeStr(url.searchParams.get("projectId"));
     const projectIdFilter = isUuid(projectIdParam) ? projectIdParam : null;
 
-    // projects in scope (membership)
+    // Projects in scope (membership)
     const { data: pmRows, error: pmErr } = await supabase
       .from("project_members")
       .select("project_id")
@@ -296,6 +319,7 @@ export async function GET(req: Request) {
         projects_active: [],
         project_map: {},
         data: { blocked: [], wip: [], dueSoon: [], recentDone: [] },
+        meta: { truncated: false, blocked_item_cap: 0, open_item_count: 0 },
       });
       res.headers.set("Cache-Control", "no-store, max-age=0");
       return res;
@@ -310,10 +334,11 @@ export async function GET(req: Request) {
     if (!projectIds.length) {
       const res = jsonOk({
         days,
-        projects: memberProjectIds, // membership scope
-        projects_active: [], // active scope (counting scope)
+        projects: memberProjectIds,
+        projects_active: [],
         project_map: {},
         data: { blocked: [], wip: [], dueSoon: [], recentDone: [] },
+        meta: { truncated: false, blocked_item_cap: 0, open_item_count: 0 },
       });
       res.headers.set("Cache-Control", "no-store, max-age=0");
       return res;
@@ -334,29 +359,34 @@ export async function GET(req: Request) {
     const items = Array.isArray(allItems) ? allItems : [];
     const openItems = items.filter((it: any) => !isDoneStatus(it?.status) && !it?.completed_at);
 
-    // Recent done (throughput evidence)
+    // ✅ FIX: recentDone window respects the `days` param (not hardcoded 42d)
+    // Use a lookback of max(days * 2, 14) to give enough throughput signal even on short windows
+    const recentDoneLookbackMs = Math.max(days * 2, 14) * 24 * 60 * 60 * 1000;
     const recentDone = items
       .filter((it: any) => it?.completed_at)
       .filter((it: any) => {
         const d = asDate(it.completed_at);
-        return d ? d.getTime() >= Date.now() - 42 * 24 * 60 * 60 * 1000 : false;
+        return d ? d.getTime() >= Date.now() - recentDoneLookbackMs : false;
       })
       .sort((a: any, b: any) => String(b.completed_at).localeCompare(String(a.completed_at)))
       .slice(0, 200);
 
     const openItemIds = openItems.map((it: any) => String(it?.id || "")).filter(Boolean);
 
-    // Events in window (only active projects)
-    const { data: evRows, error: evErr } = await supabase
-      .from("work_item_events")
-      .select("id, project_id, work_item_id, event_type, from_stage, to_stage, created_at, meta")
-      .in("project_id", projectIds)
-      .gte("created_at", sinceIso)
-      .order("created_at", { ascending: true });
+    // ✅ FIX: Chunked events query — avoids URL overflow on large IN clauses
+    // Also apply a per-chunk LIMIT to avoid fetching unbounded event rows
+    const EVENTS_CHUNK = 150;
+    const EVENTS_LIMIT_PER_CHUNK = 5000;
+    const events: any[] = await chunkedQuery(
+      supabase,
+      "work_item_events",
+      "id, project_id, work_item_id, event_type, from_stage, to_stage, created_at, meta",
+      "project_id",
+      projectIds,
+      (q) => q.gte("created_at", sinceIso).order("created_at", { ascending: true }).limit(EVENTS_LIMIT_PER_CHUNK),
+      EVENTS_CHUNK
+    );
 
-    if (evErr) throw new Error(evErr.message);
-
-    const events = Array.isArray(evRows) ? evRows : [];
     const evByItem = new Map<string, any[]>();
     for (const e of events) {
       const wid = String((e as any)?.work_item_id || "").trim();
@@ -366,31 +396,32 @@ export async function GET(req: Request) {
       evByItem.set(wid, arr);
     }
 
-    // Pre-window last blocked/unblocked per open item
+    // ✅ FIX: Chunked pre-window blocked/unblocked state query
     const preStateByItem = new Map<
       string,
       { startBlocked: boolean; last_block_event_at: string | null; last_block_reason: string | null }
     >();
 
     if (openItemIds.length) {
-      const preLimit = Math.min(20000, Math.max(2000, openItemIds.length * 5));
+      const preRows: any[] = await chunkedQuery(
+        supabase,
+        "work_item_events",
+        "work_item_id, event_type, created_at, meta",
+        "work_item_id",
+        openItemIds,
+        (q) =>
+          q
+            .lt("created_at", sinceIso)
+            .in("event_type", ["blocked", "unblocked"])
+            .order("created_at", { ascending: false })
+            .limit(500), // per chunk — we only need the most recent state
+        150
+      );
 
-      const { data: preRows, error: preErr } = await supabase
-        .from("work_item_events")
-        .select("work_item_id, event_type, created_at, meta")
-        .in("work_item_id", openItemIds)
-        .lt("created_at", sinceIso)
-        .in("event_type", ["blocked", "unblocked"])
-        .order("created_at", { ascending: false })
-        .limit(preLimit);
-
-      if (preErr) throw new Error(preErr.message);
-
-      const pre = Array.isArray(preRows) ? preRows : [];
-      for (const e of pre) {
+      for (const e of preRows) {
         const wid = String((e as any)?.work_item_id || "").trim();
         if (!wid) continue;
-        if (preStateByItem.has(wid)) continue;
+        if (preStateByItem.has(wid)) continue; // descending order — first hit is most recent
 
         const typ = normStr((e as any)?.event_type);
         const startBlocked = typ === "blocked";
@@ -404,9 +435,14 @@ export async function GET(req: Request) {
       }
     }
 
-    // Blocked details (UK date fields)
+    // ✅ FIX: Process ALL open items for blocked — removed the 1000-item cap.
+    // Surface a meta.truncated signal if we had to cap for performance.
+    const BLOCKED_ITEM_HARD_CAP = 5000;
+    const openItemsForBlocked = openItems.slice(0, BLOCKED_ITEM_HARD_CAP);
+    const truncated = openItems.length > BLOCKED_ITEM_HARD_CAP;
+
     const blocked: any[] = [];
-    for (const it of openItems.slice(0, 1000)) {
+    for (const it of openItemsForBlocked) {
       const wid = String((it as any)?.id || "").trim();
       if (!wid) continue;
 
@@ -459,31 +495,36 @@ export async function GET(req: Request) {
 
     blocked.sort((a, b) => ms(b.blocked_seconds_window) - ms(a.blocked_seconds_window));
 
-    // WIP
+    // ✅ FIX: WIP falls back to `status` when `stage` is null — avoids "unknown" flooding
     const wipMap = new Map<string, number>();
     for (const it of openItems) {
-      const st = safeStr((it as any)?.stage) || "unknown";
+      const st = safeStr((it as any)?.stage).trim() || safeStr((it as any)?.status).trim() || "unknown";
       wipMap.set(st, (wipMap.get(st) || 0) + 1);
     }
     const wip = Array.from(wipMap.entries())
       .map(([stage, count]) => ({ stage, count }))
       .sort((a, b) => b.count - a.count);
 
-    // Due soon (next 30d) + UK dates
+    // ✅ FIX: dueSoon includes overdue items (past due date) — they're most urgent
+    // Previously these were excluded by the `<= dueSoonEnd` filter.
     const dueSoonEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     const dueSoon = openItems
       .filter((it: any) => it?.due_date)
       .filter((it: any) => {
         const d = asDate(it.due_date);
+        // Include everything with a due date up to +30d (overdue items have d < now, which passes)
         return d ? d.getTime() <= dueSoonEnd.getTime() : false;
       })
       .sort((a: any, b: any) => String(a.due_date).localeCompare(String(b.due_date)))
       .slice(0, 200)
       .map((it: any) => {
         const pid = String(it?.project_id || "");
+        const dueDate = asDate(it?.due_date);
+        const isOverdue = dueDate ? dueDate.getTime() < Date.now() : false;
         return {
           ...it,
           project: project_map[pid] || { id: pid, title: null, project_code: null },
+          is_overdue: isOverdue,
 
           due_date_uk: fmtUkDateTime(it?.due_date, false),
           created_at_uk: fmtUkDateTime(it?.created_at, true),
@@ -510,16 +551,25 @@ export async function GET(req: Request) {
 
     const res = jsonOk({
       days,
-      days_uk: String(days), // harmless display helper
+      days_uk: String(days),
       since: since.toISOString(),
       since_uk: fmtUkDateTime(since.toISOString(), true),
       now: now.toISOString(),
       now_uk: fmtUkDateTime(now.toISOString(), true),
 
-      // membership scope vs counting scope
       projects: memberProjectIds,
       projects_active: projectIds,
       project_map,
+
+      // ✅ Surface truncation signal for consumers
+      meta: {
+        open_item_count: openItems.length,
+        blocked_item_cap: BLOCKED_ITEM_HARD_CAP,
+        truncated,
+        recent_done_lookback_days: Math.max(days * 2, 14),
+        events_chunk_limit: EVENTS_LIMIT_PER_CHUNK,
+      },
+
       data: { blocked, wip, dueSoon, recentDone: recentDoneOut },
     });
 

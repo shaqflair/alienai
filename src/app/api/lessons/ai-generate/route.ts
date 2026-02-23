@@ -1,4 +1,4 @@
-// src/app/api/lessons/ai-generate/route.ts
+﻿// src/app/api/lessons/ai-generate/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -169,7 +169,7 @@ function extractWeeklyReportSignals(cj: any): string[] {
 
   const sig: string[] = [];
   const periodLabel =
-    periodFrom && periodTo ? `${periodFrom}→${periodTo}` : periodFrom || periodTo ? `${periodFrom}${periodTo}` : "";
+    periodFrom && periodTo ? `${periodFrom}â†’${periodTo}` : periodFrom || periodTo ? `${periodFrom}${periodTo}` : "";
 
   if (periodLabel) sig.push(`Weekly period: ${periodLabel}`);
   if (headline) sig.push(`Headline: ${cut(headline, 220)}`);
@@ -313,7 +313,7 @@ async function collectSignals(sb: any, project_id: string) {
 
   const artifactSignals: ArtifactSignal[] = (arts.data ?? [])
     .map((a: any) => extractSignalsFromArtifact(a))
-    .filter((s) => s.id && s.signals.length > 0);
+    .filter((s: any) => s.id && s.signals.length > 0);
 
   const existing = await sb.from("lessons_learned").select("description").eq("project_id", project_id).limit(800);
 
@@ -369,7 +369,7 @@ Rules:
 - Include at least 1 "what_went_well" lesson even if delivery is on track.
 - category must be exactly one of: "what_went_well", "improvements", "issues".
 - Each lesson must be specific, non-duplicative, and actionable.
-- "description" should be 1–2 sentences, written as an observable outcome + what we learned.
+- "description" should be 1â€“2 sentences, written as an observable outcome + what we learned.
 - "action_for_future" MUST start with an imperative verb (e.g. "Define", "Agree", "Escalate", "Automate", "Baseline", "Document").
 - Optional fields (impact, severity, project_stage, ai_summary) may be null if not applicable.
 - Prefer lessons that reduce repeat problems: late approvals, unclear ownership, poor change control, missing acceptance criteria, weak RAID follow-up, repeated milestone at-risk status, decision latency.
@@ -422,7 +422,7 @@ async function generateLessonsWithOpenAI(prompt: string) {
                 type: "object",
                 additionalProperties: false,
 
-                // ✅ OpenAI json_schema requirement:
+                // âœ… OpenAI json_schema requirement:
                 // required MUST include every key in properties
                 required: [
                   "category",
@@ -439,7 +439,7 @@ async function generateLessonsWithOpenAI(prompt: string) {
                   description: { type: "string", minLength: 8 },
                   action_for_future: { type: "string", minLength: 6 },
 
-                  // ✅ "Optional" fields: allow null
+                  // âœ… "Optional" fields: allow null
                   impact: {
                     anyOf: [{ type: "string", enum: ["Positive", "Negative"] }, { type: "null" }],
                   },
@@ -477,7 +477,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
 
-    // ✅ accept UUID or project_code
+    // âœ… accept UUID or project_code
     const project_ref = safeStr(body.project_id || body.project_code || body.projectId);
     if (!project_ref.trim()) return jsonErr("Missing project_id or project_code", 400);
 

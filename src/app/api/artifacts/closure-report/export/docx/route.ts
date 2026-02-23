@@ -1,4 +1,4 @@
-// src/app/api/artifacts/closure-report/export/docx/route.ts
+﻿// src/app/api/artifacts/closure-report/export/docx/route.ts
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -141,7 +141,7 @@ export async function POST(req: NextRequest) {
 
       // If project_code exists on projects and editor doc is empty, use it
       const dbCode = safeStr((proj as any)?.project_code).trim();
-      if ((!projectCodeRaw || projectCodeRaw === "—") && dbCode) {
+      if ((!projectCodeRaw || projectCodeRaw === "â€”") && dbCode) {
         // toProjectCode will re-normalise
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const _pc = dbCode;
@@ -158,8 +158,8 @@ export async function POST(req: NextRequest) {
         ...(model?.meta || {}),
         projectName,
         projectCode: projectCodeRaw || projectCode,
-        clientName: clientName || "—",
-        organisationName: organisationName || "—",
+        clientName: clientName || "â€”",
+        organisationName: organisationName || "â€”",
         generatedDateTimeUk: nowUkStamp(),
       },
     };
@@ -174,13 +174,13 @@ export async function POST(req: NextRequest) {
 
     const base =
       filenameBase ||
-      (projectCode && projectCode !== "—"
+      (projectCode && projectCode !== "â€”"
         ? `Project Closure Report - ${projectCode} - ${projectName}`
         : `Project Closure Report - ${projectName}`);
 
     const filename = `${sanitizeFilename(base)} - ${yyyymmdd(new Date())}.docx`;
 
-    return new NextResponse(bytes, {
+    return new NextResponse(new Uint8Array(bytes), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

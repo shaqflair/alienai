@@ -49,18 +49,24 @@ function safeArr(x: any): any[] {
  * 3) { get_portfolio_insights: { ...json } }
  * 4) stringified JSON
  */
-function normalizeInsightsRpc(raw: any) {
+function normalizeInsightsRpc(raw: any): { data: any; missing: boolean } {
   const j = safeJson(raw);
+
+  if (!j) return { data: null, missing: true };
 
   if (Array.isArray(j) && j.length) {
     const first = j[0];
-    if (first?.get_portfolio_insights) return safeJson(first.get_portfolio_insights);
-    return safeJson(first);
+    if (first?.get_portfolio_insights) return { data: safeJson(first.get_portfolio_insights), missing: false };
+    return { data: safeJson(first), missing: false };
   }
 
-  if (j?.get_portfolio_insights) return safeJson(j.get_portfolio_insights);
+  if (j?.get_portfolio_insights) return { data: safeJson(j.get_portfolio_insights), missing: false };
 
-  return j;
+  // Treat empty object as missing data so callers can warn
+  const keys = Object.keys(j);
+  if (keys.length === 0) return { data: j, missing: true };
+
+  return { data: j, missing: false };
 }
 
 function num(x: any, fallback = 0) {
@@ -170,7 +176,7 @@ async function filterActiveProjectIds(supabase: any, projectIds: string[]) {
   try {
     const { data, error } = await supabase
       .from("projects")
-      .select("id, status, deleted_at, closed_at")
+      .select("id, status, deleted_at, closed_at, created_at")
       .in("id", ids)
       .limit(10000);
 
@@ -385,11 +391,11 @@ function calcWbsLeafStats(doc: any, days: number | null): WbsComputed {
     const isDone = isDoneStatus(row);
     const due = getDueDate(row);
 
-    // Always-pressure due buckets (NOT done)
+    // Always-pressure due buckets (NOT done, NOT overdue — overdue is its own category)
     if (!isDone && due) {
       const dueDay = startOfDayUTC(due);
       if (dueDay.getTime() < today.getTime()) {
-        // overdue contributes to "overdue" only (not in due buckets)
+        // overdue: counted separately below, not in upcoming buckets
       } else if (dueDay.getTime() <= d7.getTime()) due7++;
       else if (dueDay.getTime() <= d14.getTime()) due14++;
       else if (dueDay.getTime() <= d30.getTime()) due30++;
@@ -572,7 +578,7 @@ async function detectFirstExistingActivityTable(supabase: any, candidates: strin
   return null;
 }
 
-async function computeFeedSignals(supabase: any, projectIds: string[]): Promise<FeedSignals> {
+async function computeFeedSignals(supabase: any, projectIds: string[], projectCreatedAtMap?: Map<string, Date>): Promise<FeedSignals> {
   const empty: FeedSignals = {
     table: null,
     days: 7,
@@ -621,7 +627,19 @@ async function computeFeedSignals(supabase: any, projectIds: string[]): Promise<
   }
 
   const activeCount = activeProjects.size;
-  const staleCount = Math.max(0, projectIds.length - activeCount);
+
+  // ✅ FIX: Only count projects as stale if they're old enough to be expected to have activity.
+  // A project created in the last 7 days with no activity is not stale — it's just new.
+  const sevenDaysAgo = since7;
+  let eligibleForStaleCount = 0;
+  for (const pid of projectIds) {
+    const createdAt = projectCreatedAtMap?.get(pid);
+    if (!createdAt || createdAt.getTime() <= sevenDaysAgo.getTime()) {
+      eligibleForStaleCount++;
+    }
+  }
+
+  const staleCount = Math.max(0, eligibleForStaleCount - activeCount);
 
   return {
     table,
@@ -703,7 +721,10 @@ type FlowAgg = {
   topStage: string | null;
   topStageSharePct: number;
   topStageWip: number;
-  totalWip: number;
+  // ✅ FIX: Track top project's totalWip separately so the ratio is correct
+  topProjectTotalWip: number;
+  // ✅ FIX: Also track portfolio-wide WIP sum for executive context
+  portfolioTotalWip: number;
 
   due30Open: number;
   expectedDone30: number;
@@ -721,7 +742,8 @@ function computeFlowAgg(flow: FlowSignals): FlowAgg {
   let topStage: string | null = null;
   let topStageShare = 0;
   let topStageWip = 0;
-  let totalWip = 0;
+  let topProjectTotalWip = 0;
+  let portfolioTotalWip = 0;
 
   let due30Open = 0;
   let expectedDone30 = 0;
@@ -739,11 +761,17 @@ function computeFlowAgg(flow: FlowSignals): FlowAgg {
 
       const bn = p?.bottleneck || {};
       const share = num(bn?.top_stage_share, 0);
+      const projectTotalWip = num(bn?.total_wip, 0);
+
+      // ✅ FIX: Accumulate portfolio-wide WIP first (independent of which project wins)
+      portfolioTotalWip += projectTotalWip;
+
       if (share > topStageShare) {
         topStageShare = share;
         topStage = bn?.top_stage ? String(bn.top_stage) : null;
         topStageWip = num(bn?.top_stage_wip, 0);
-        totalWip = num(bn?.total_wip, 0);
+        // ✅ FIX: Keep the winning project's total for ratio accuracy
+        topProjectTotalWip = projectTotalWip;
       }
 
       const fc = p?.forecast || {};
@@ -768,49 +796,57 @@ function computeFlowAgg(flow: FlowSignals): FlowAgg {
     topStage,
     topStageSharePct: topStageShare,
     topStageWip,
-    totalWip,
+    topProjectTotalWip,
+    portfolioTotalWip,
     due30Open,
     expectedDone30,
     slipProbMax,
   };
 }
 
-function buildExecutiveAiWarningBody(args: { windowLabel: string; agg: FlowAgg }) {
-  const { windowLabel, agg } = args;
+/**
+ * ✅ FIX: Build executive body by consuming the already-computed warnings[] array
+ * directly, so severity and presence of signals are always in sync.
+ * Previously, warnings were computed independently of the body — causing cases
+ * where severity=high but body said "no major risks detected."
+ */
+function buildExecutiveAiWarningBody(args: { windowLabel: string; warnings: Warning[]; agg: FlowAgg }) {
+  const { windowLabel, warnings, agg } = args;
 
-  const top = [
-    {
-      kind: "blockers",
-      detail:
-        agg.blockedOpenCount > 0
-          ? `${pct(agg.blockedRatioPct)}% of open items blocked (${agg.blockedCount}/${agg.blockedOpenCount})`
-          : "",
-    },
-    {
-      kind: "bottleneck",
-      detail: agg.topStage ? `Stage "${prettyStage(agg.topStage)}" holds ${pct(agg.topStageSharePct)}% of WIP` : "",
-    },
-    {
-      kind: "throughput_forecast",
-      detail: agg.slipProbMax >= 45 ? `${clamp01to100(agg.slipProbMax)}% slip probability on upcoming commitments` : "",
-    },
-  ].filter((w) => w.detail.trim() !== "");
-
-  let body = "";
-
-  if (top.length > 0) {
-    body =
-      `• Blockers signal\n ${top.find((w) => w.kind === "blockers")?.detail || "—"}\n\n` +
-      `• Bottleneck signal\n ${top.find((w) => w.kind === "bottleneck")?.detail || "—"}\n\n` +
-      `• Slippage risk\n ${top.find((w) => w.kind === "throughput_forecast")?.detail || "—"}\n\n` +
-      `👉 Action: Reduce WIP limits and unblock upstream dependencies to restore flow.`;
-  } else {
-    body =
-      `• No major flow risks detected\n` +
-      `Delivery is currently stable.\n\n` +
-      `👉 Action: Maintain cadence and monitor early signals.`;
+  if (warnings.length === 0) {
+    return `AI Predictions & Warnings (Next ${windowLabel} Days)\n\n• No major risks detected\nDelivery is currently stable.\n\n👉 Action: Maintain cadence and monitor early signals.`;
   }
 
+  // Group into high/medium/info for executive summary
+  const highWarnings = warnings.filter((w) => w.severity === "high");
+  const mediumWarnings = warnings.filter((w) => w.severity === "medium");
+
+  const lines: string[] = [];
+
+  for (const w of highWarnings) {
+    lines.push(`🔴 ${w.title}\n   ${w.detail}`);
+  }
+  for (const w of mediumWarnings) {
+    lines.push(`🟡 ${w.title}\n   ${w.detail}`);
+  }
+
+  // Always add an action line derived from the top signal
+  const topWarning = warnings[0];
+  let action = "Review flagged items and assign owners.";
+
+  if (topWarning.kind === "blockers" || topWarning.kind === "cycle_time_outliers") {
+    action = "Escalate blockers and assign owners to at-risk items immediately.";
+  } else if (topWarning.kind === "bottleneck" || topWarning.kind === "wip_queue_expansion") {
+    action = "Reduce WIP limits and rebalance capacity to unblock downstream flow.";
+  } else if (topWarning.kind === "throughput_forecast") {
+    action = `Review delivery commitments — ${clamp01to100(agg.slipProbMax)}% slip probability on upcoming milestones.`;
+  } else if (topWarning.kind === "approvals") {
+    action = "Clear pending approvals to prevent cycle-time inflation.";
+  } else if (topWarning.kind === "wbs_quality") {
+    action = "Improve WBS effort estimates to restore forecast confidence.";
+  }
+
+  const body = lines.join("\n\n") + `\n\n👉 Action: ${action}`;
   return `AI Predictions & Warnings (Next ${windowLabel} Days)\n\n${body}`.trim();
 }
 
@@ -872,7 +908,8 @@ function buildFlowWarnings(args: {
   }
 
   // 3) Bottleneck (CFD/WIP concentration)
-  if (agg.topStage && agg.totalWip > 0) {
+  // ✅ FIX: Use topProjectTotalWip for ratio accuracy (not portfolioTotalWip)
+  if (agg.topStage && agg.topProjectTotalWip > 0) {
     const sev: Warning["severity"] = agg.topStageSharePct >= 55 ? "high" : agg.topStageSharePct >= 40 ? "medium" : "info";
 
     warnings.push({
@@ -880,24 +917,25 @@ function buildFlowWarnings(args: {
       severity: sev,
       score: 80,
       title: "Bottleneck risk (CFD/WIP concentration)",
-      detail: `Stage "${prettyStage(agg.topStage)}" holds ${pct(agg.topStageSharePct)}% of WIP (${agg.topStageWip}/${agg.totalWip}). Review WIP limits and unblock upstream flow.`,
+      detail: `Stage "${prettyStage(agg.topStage)}" holds ${pct(agg.topStageSharePct)}% of WIP (${agg.topStageWip}/${agg.topProjectTotalWip}). Review WIP limits and unblock upstream flow.`,
       evidence: {
         topStage: agg.topStage,
         topStageShare: pct(agg.topStageSharePct),
         topStageWip: agg.topStageWip,
-        totalWip: agg.totalWip,
+        topProjectTotalWip: agg.topProjectTotalWip,
+        portfolioTotalWip: agg.portfolioTotalWip,
       },
       href: href("/insights/ai-warning", { days: 30 }),
     });
 
-    if (agg.topStageSharePct >= 60 && agg.totalWip >= 10) {
+    if (agg.topStageSharePct >= 60 && agg.topProjectTotalWip >= 10) {
       warnings.push({
         kind: "wip_queue_expansion",
         severity: "high",
         score: 75,
         title: "Queue expansion in critical stage",
         detail: `WIP is heavily queued in "${prettyStage(agg.topStage)}" (${pct(agg.topStageSharePct)}% share). This typically precedes downstream milestone slip unless capacity is rebalanced.`,
-        evidence: { topStage: agg.topStage, topStageShare: pct(agg.topStageSharePct), totalWip: agg.totalWip },
+        evidence: { topStage: agg.topStage, topStageShare: pct(agg.topStageSharePct), portfolioTotalWip: agg.portfolioTotalWip },
         href: href("/insights/ai-warning", { days: 30 }),
       });
     }
@@ -929,7 +967,8 @@ function buildFlowWarnings(args: {
       title: "Approvals at risk of becoming blockers",
       detail: `${approvalsPending} approval(s) pending. Long waits inflate cycle time and increase slip probability.`,
       evidence: { approvalsPending },
-      href: href("/approvals", { days: daysParam }),
+      // ✅ FIX: /approvals may not support "all" — normalize to "60" as max
+      href: href("/approvals", { days: daysParam === "all" ? 60 : daysParam }),
     });
   }
 
@@ -1019,7 +1058,6 @@ export async function GET(req: Request) {
     }
 
     // ✅ Keep RPC for change signals and any existing aggregates you already compute there.
-    // IMPORTANT: No RAID duplication in briefing.
     const rpcDays = daysParam === "all" ? 60 : daysParam; // RPC expects number
     const { data, error } = await supabase.rpc("get_portfolio_insights", {
       p_project_ids: projectIds, // ✅ active-only
@@ -1027,17 +1065,40 @@ export async function GET(req: Request) {
     });
     if (error) throw new Error(error.message);
 
-    const panel = normalizeInsightsRpc(data) || {};
-    const cr = panel?.change_requests || {};
-    const rpcWbs = panel?.wbs || {};
+    // ✅ FIX: normalizeInsightsRpc now returns {data, missing} so we can detect empty/broken responses
+    const { data: panel, missing: rpcMissing } = normalizeInsightsRpc(data);
+    const safePanel = panel || {};
+    const cr = safePanel?.change_requests || {};
+    const rpcWbs = safePanel?.wbs || {};
 
     // ✅ WBS computed from artifacts.content_json (active-only)
     const wbsFromArtifacts = await computeWbsStatsFromArtifacts(supabase, projectIds, days);
 
+    // ✅ Build project created_at map for accurate stale detection
+    let projectCreatedAtMap: Map<string, Date> | undefined;
+    try {
+      const { data: projRows } = await supabase
+        .from("projects")
+        .select("id, created_at")
+        .in("id", projectIds)
+        .limit(10000);
+
+      if (Array.isArray(projRows)) {
+        projectCreatedAtMap = new Map<string, Date>();
+        for (const r of projRows) {
+          const id = String(r?.id || "").trim();
+          const ts = safeDate(r?.created_at);
+          if (id && ts) projectCreatedAtMap.set(id, ts);
+        }
+      }
+    } catch {
+      // Non-critical — computeFeedSignals falls back gracefully if map is undefined
+    }
+
     // ✅ Approvals + Feeds + Flow telemetry signals (active-only)
     const [approvalsPending, feeds, flow] = await Promise.all([
       computeApprovalsPending(supabase, projectIds),
-      computeFeedSignals(supabase, projectIds),
+      computeFeedSignals(supabase, projectIds, projectCreatedAtMap),
       fetchFlowWarningSignals(supabase, projectIds, 30),
     ]);
 
@@ -1092,7 +1153,9 @@ export async function GET(req: Request) {
           : "info";
 
       const agg = computeFlowAgg(flow);
-      const executiveBody = buildExecutiveAiWarningBody({ windowLabel, agg });
+
+      // ✅ FIX: Pass warnings[] into body builder so severity and content are always in sync
+      const executiveBody = buildExecutiveAiWarningBody({ windowLabel, warnings, agg });
 
       insights.push({
         id: "ai-warning",
@@ -1102,6 +1165,7 @@ export async function GET(req: Request) {
         href: href("/insights/ai-warning", { days: 30 }),
         meta: {
           window: daysParam,
+          rpc_data_missing: rpcMissing,
           flow_rpc: { ok: flow.ok, days: flow.days, error: flow.error || null },
           flow_agg: {
             blockedCount: agg.blockedCount,
@@ -1111,7 +1175,8 @@ export async function GET(req: Request) {
             topStage: agg.topStage,
             topStageSharePct: pct(agg.topStageSharePct),
             topStageWip: agg.topStageWip,
-            totalWip: agg.totalWip,
+            topProjectTotalWip: agg.topProjectTotalWip,
+            portfolioTotalWip: agg.portfolioTotalWip,
             due30Open: agg.due30Open,
             expectedDone30: Math.round(agg.expectedDone30 * 10) / 10,
             slipProbMax: clamp01to100(agg.slipProbMax),
@@ -1164,7 +1229,8 @@ export async function GET(req: Request) {
         severity: approvalsPending >= 10 ? "high" : "medium",
         title: "Pending approvals",
         body: `${approvalsPending} approval(s) are pending. Clear blockers to protect schedule and cost decisions.`,
-        href: href("/approvals", { days: daysParam }),
+        // ✅ FIX: Normalize "all" to 60 in case /approvals doesn't support it
+        href: href("/approvals", { days: daysParam === "all" ? 60 : daysParam }),
         meta: { approvalsPending },
       });
     }
@@ -1209,27 +1275,38 @@ export async function GET(req: Request) {
         });
       }
 
-      if (wbsMissingEffort === 0 && wbsStalled === 0) {
-        insights.push({
-          id: "wbs-pulse",
-          severity: wbsOverdue > 0 ? "high" : wbsDue7 + wbsDue14 > 0 ? "medium" : "info",
-          title: "WBS pulse",
-          body:
-            `Completed: ${wbsDone} • Remaining: ${wbsRemaining} • Overdue: ${wbsOverdue}. ` +
-            `Due in 7d: ${wbsDue7} • 14d: ${wbsDue14} • 30d: ${wbsDue30} • 60d: ${wbsDue60}.`,
-          href: href("/wbs/pulse", { days: daysParam }),
-          meta: {
-            wbsTotalLeaves: wbsTotal,
-            wbsDone,
-            wbsRemaining,
-            wbsOverdue,
-            wbsDue7,
-            wbsDue14,
-            wbsDue30,
-            wbsDue60,
-          },
-        });
-      }
+      // ✅ FIX: Always show WBS pulse so executives have schedule visibility regardless of problems.
+      // When there are also effort/stalled issues, pulse gives them the "where we stand" context.
+      const wbsPulseSev: Insight["severity"] =
+        wbsOverdue > 0 ? "high" : wbsDue7 + wbsDue14 > 0 ? "medium" : "info";
+
+      // ✅ FIX: Clarify that "overdue" and "upcoming" are separate buckets in the body
+      const overdueClause = wbsOverdue > 0 ? ` • ⚠️ Overdue: ${wbsOverdue}` : "";
+      const upcomingClause =
+        wbsDue7 + wbsDue14 + wbsDue30 + wbsDue60 > 0
+          ? `Upcoming: ${wbsDue7} in 7d • ${wbsDue14} in 8–14d • ${wbsDue30} in 15–30d • ${wbsDue60} in 31–60d.`
+          : "No upcoming due dates in the next 60 days.";
+
+      insights.push({
+        id: "wbs-pulse",
+        severity: wbsPulseSev,
+        title: "WBS schedule pulse",
+        body:
+          `${wbsDone} of ${wbsTotal} work package(s) done — ${wbsRemaining} remaining${overdueClause}.\n` +
+          upcomingClause,
+        // ✅ FIX: /wbs/pulse doesn't exist — route to /artifacts list view
+        href: wbsListHref({ days: daysParam }),
+        meta: {
+          wbsTotalLeaves: wbsTotal,
+          wbsDone,
+          wbsRemaining,
+          wbsOverdue,
+          wbsDue7,
+          wbsDue14,
+          wbsDue30,
+          wbsDue60,
+        },
+      });
     } else {
       insights.push({
         id: "wbs-empty",
@@ -1256,6 +1333,7 @@ export async function GET(req: Request) {
       meta: {
         days: daysParam,
         projectCount: projectIds.length, // ✅ active-only count
+        rpc_data_missing: rpcMissing,
         scope: {
           ...(scoped?.meta || {}),
           scopedIds: scopedIdsRaw.length,
@@ -1263,7 +1341,7 @@ export async function GET(req: Request) {
           active_filter_ok: activeFilter.ok,
           active_filter_error: activeFilter.error || null,
         },
-        raw: panel,
+        raw: safePanel,
         wbs_computed: wbsFromArtifacts,
         approvals_pending: approvalsPending,
         feeds,

@@ -1,26 +1,18 @@
 ﻿// src/app/(app)/change/ChangeClientPage.tsx
 "use client";
 
-import React, { useMemo } from "react";
-import { useSearchParams } from "next/navigation";
-import dynamic from "next/dynamic";
-
-const ChangeManagementBoard = dynamic(
-  () => import("@/components/change/ChangeManagementBoard"),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="p-6 text-sm text-slate-600">Loading Change Control…</div>
-    ),
-  }
-);
+import React, { useEffect, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 /**
  * Legacy Change page wrapper (client)
- * - Forces the OLD template (ChangeManagementBoard)
- * - Supports projectId passed via querystring (projectId=...) for any old links
+ * - Accepts projectId via querystring (projectId=...) for old links
+ * - Redirects to canonical project route: /projects/[id]/change
+ *
+ * We do NOT pass props to ChangeManagementBoard.
  */
 export default function ChangeClientPage() {
+  const router = useRouter();
   const sp = useSearchParams();
 
   const projectId = useMemo(() => {
@@ -33,8 +25,11 @@ export default function ChangeClientPage() {
     return String(v).trim();
   }, [sp]);
 
-  // If no projectId is available, the old board cannot load safely.
-  // We keep this minimal to avoid rendering the wrong/new template.
+  useEffect(() => {
+    if (!projectId) return;
+    router.replace(`/projects/${encodeURIComponent(projectId)}/change`);
+  }, [projectId, router]);
+
   if (!projectId) {
     return (
       <div className="p-6">
@@ -49,5 +44,5 @@ export default function ChangeClientPage() {
     );
   }
 
-  return <ChangeManagementBoard projectId={projectId} />;
+  return <div className="p-6 text-sm text-slate-600">Opening Change Control…</div>;
 }

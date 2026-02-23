@@ -337,7 +337,7 @@ function isClosureKey(k: string) {
 }
 
 function buildSchemaHint() {
-  return CHARTER_REQUIRED_SECTIONS.map((x) => ({
+  return CHARTER_REQUIRED_SECTIONS.map((x: any) => ({
     key: x.key,
     title: x.title,
     kind: x.kind,
@@ -618,7 +618,7 @@ function normalizeFullPrompt(body: any, meta: any) {
   if (userPrompt.trim()) parts.push("Additional user prompt:", userPrompt.trim(), "");
 
   // Optional extra instructions (from UI)
-  if (instructions.length) parts.push("Additional instructions:", ...instructions.map((x) => `- ${x}`), "");
+  if (instructions.length) parts.push("Additional instructions:", ...instructions.map((x: any) => `- ${x}`), "");
 
   const combined = parts.join("\n").trim();
   return combined;

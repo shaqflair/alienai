@@ -1,11 +1,12 @@
-// src/components/artifacts/ArtifactDetailClientHost.tsx
+﻿// src/components/artifacts/ArtifactDetailClientHost.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import dynamic from "next/dynamic";
 
 /**
- * ✅ Keep Charter entry as normal import.
+ * âœ… Keep Charter entry as normal import.
  * Heavy internals are already lazy-loaded inside ProjectCharterEditorFormLazy.tsx.
  */
 import ProjectCharterEditorFormLazy from "@/components/editors/ProjectCharterEditorFormLazy";
@@ -14,42 +15,42 @@ import ProjectCharterEditorFormLazy from "@/components/editors/ProjectCharterEdi
 
 const StakeholderRegisterEditor = dynamic(() => import("@/components/editors/StakeholderRegisterEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Stakeholder editor…</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading Stakeholder editorâ€¦</div>,
 });
 
 const WBSEditor = dynamic(() => import("@/components/editors/WBSEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading WBS editor…</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading WBS editorâ€¦</div>,
 });
 
 const ScheduleGanttEditor = dynamic(() => import("@/components/editors/ScheduleGanttEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Schedule editor…</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading Schedule editorâ€¦</div>,
 });
 
 const ProjectClosureReportEditor = dynamic(() => import("@/components/editors/ProjectClosureReportEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Closure Report editor…</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading Closure Report editorâ€¦</div>,
 });
 
 const ChangeManagementBoard = dynamic(() => import("@/components/change/ChangeManagementBoard"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Change Board…</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading Change Boardâ€¦</div>,
 });
 
 const WeeklyReportEditor = dynamic(() => import("@/components/editors/WeeklyReportEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Weekly Report editor…</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading Weekly Report editorâ€¦</div>,
 });
 
 const AiSuggestionsPanel = dynamic(() => import("@/components/ai/AiSuggestionsPanel"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading AI suggestions…</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading AI suggestionsâ€¦</div>,
 });
 
 const ArtifactTimeline = dynamic(() => import("@/components/artifacts/ArtifactTimeline"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading timeline…</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading timelineâ€¦</div>,
 });
 
 /* ---------------- types ---------------- */
@@ -91,7 +92,7 @@ export type ArtifactDetailClientHostProps = {
 
   // project extras (charter seeds + schedule header)
   projectTitle?: string;
-  projectManagerName?: string | null; // ✅ seed charter meta
+  projectManagerName?: string | null; // âœ… seed charter meta
   projectStartDate?: string | null;
   projectFinishDate?: string | null;
 
@@ -115,7 +116,7 @@ export type ArtifactDetailClientHostProps = {
   submitForApprovalAction?: any | null;
 
   /**
-   * ✅ Optional server action (same idea as Charter save)
+   * âœ… Optional server action (same idea as Charter save)
    * Provide this from the Server Component host.
    */
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
@@ -196,7 +197,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     </div>
   );
 
-  const shouldHidePanels = mode === "charter"; // ✅ Charter V2 has its own per-section AI; avoid duplicate global panel UX.
+  const shouldHidePanels = mode === "charter"; // âœ… Charter V2 has its own per-section AI; avoid duplicate global panel UX.
 
   return (
     <div className="space-y-6">
@@ -204,7 +205,13 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
         <section className="w-full">
           <div className="crEmbed">
             <div className="crPage">
-              <ChangeManagementBoard projectId={projectId} artifactId={artifactId} />
+              <Link
+  href={`/projects/${encodeURIComponent(projectId)}/change`}
+  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50"
+  prefetch={false}
+>
+  Open Change Control
+</Link>
             </div>
           </div>
 
@@ -269,9 +276,9 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 artifactId={artifactId}
                 initialJson={charterInitial}
                 readOnly={!isEditable}
-                lockLayout={lockLayout}
+
                 artifactVersion={artifactVersion}
-                // ✅ seed values for meta defaults
+                // âœ… seed values for meta defaults
                 projectTitle={projectTitle}
                 projectManagerName={projectManagerName ?? undefined}
                 legacyExports={effectiveLegacyExports}
@@ -293,12 +300,12 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 projectTitle={projectTitle || ""}
                 projectStartDate={projectStartDate ?? null}
                 projectFinishDate={projectFinishDate ?? null}
-                // ✅ pass through server-provided WBS JSON so schedule doesn't need to refetch
+                // âœ… pass through server-provided WBS JSON so schedule doesn't need to refetch
                 latestWbsJson={latestWbsJson ?? null}
                 wbsArtifactId={wbsArtifactId ?? null}
               />
             ) : mode === "closure" ? (
-              <ProjectClosureReportEditor projectId={projectId} artifactId={artifactId} initialJson={typedInitialJson ?? null} readOnly={!isEditable} lockLayout={lockLayout} />
+              <ProjectClosureReportEditor projectId={projectId} artifactId={artifactId} initialJson={typedInitialJson ?? null} readOnly={!isEditable} />
             ) : mode === "weekly_report" ? (
               <WeeklyReportEditor
                 projectId={projectId}
@@ -320,7 +327,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
             )}
           </section>
 
-          {/* ✅ Panels: keep for non-charter (avoid duplicate "Improve" UI on charter pages) */}
+          {/* âœ… Panels: keep for non-charter (avoid duplicate "Improve" UI on charter pages) */}
           {!shouldHidePanels && (showAI || showTimeline) ? (
             <section className="border rounded-2xl bg-white p-5 space-y-3">
               <div className="flex items-center justify-between gap-3">
@@ -370,7 +377,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
               {showTimeline && openTimeline ? <ArtifactTimeline artifactId={artifactId} titleMap={{}} limit={60} /> : null}
 
               {!openAI && !openTimeline ? (
-                <div className="text-xs text-gray-500">Tip: open panels only when you need them — keeps this page snappy.</div>
+                <div className="text-xs text-gray-500">Tip: open panels only when you need them â€” keeps this page snappy.</div>
               ) : null}
             </section>
           ) : null}
