@@ -3,13 +3,10 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { createClient as createSbJsClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
-/* ---------------- helpers ---------------- */
+/* ---------------- utils ---------------- */
 
 function safeStr(x: unknown) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
@@ -17,26 +14,8 @@ function safeStr(x: unknown) {
 function safeLower(x: unknown) {
   return safeStr(x).trim().toLowerCase();
 }
-function looksLikeUuid(s: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    String(s || "").trim()
-  );
-}
-function isMissingColumnError(errMsg: string, col: string) {
-  const m = String(errMsg || "").toLowerCase();
-  const c = col.toLowerCase();
-  return (
-    (m.includes("column") && m.includes(c) && m.includes("does not exist")) ||
-    (m.includes("unknown column") && m.includes(c)) ||
-    (m.includes("could not find") && m.includes(c))
-  );
-}
-function jsonNoStore(payload: any, init?: ResponseInit) {
-  const res = NextResponse.json(payload, init);
-  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-  res.headers.set("Pragma", "no-cache");
-  res.headers.set("Expires", "0");
-  return res;
+function uniq(arr: string[]) {
+  return Array.from(new Set(arr.filter(Boolean)));
 }
 
 function canEditRole(role: string) {
@@ -44,105 +23,18 @@ function canEditRole(role: string) {
   return r === "owner" || r === "admin" || r === "editor";
 }
 
-/* ---------------- CRON-only service role (kept for future; not used here) ---------------- */
-
-function isCronRequest(req: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-
-  const h = req.headers;
-  const direct = safeStr(h.get("x-cron-secret")).trim();
-  if (direct && direct === secret) return true;
-
-  const auth = safeStr(h.get("authorization")).trim();
-  if (auth.toLowerCase().startsWith("bearer ")) {
-    const token = auth.slice(7).trim();
-    if (token === secret) return true;
-  }
-
-  return false;
+async function requireAuth(supabase: any) {
+  const { data: auth, error: authErr } = await supabase.auth.getUser();
+  if (authErr) throw new Error(authErr.message);
+  if (!auth?.user) throw new Error("Unauthorized");
+  return auth.user;
 }
 
-function adminClientForCron(req: Request) {
-  if (!isCronRequest(req)) throw new Error("Forbidden");
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error("Missing env vars: NEXT_PUBLIC_SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY");
-  }
-  return createSbJsClient(url, key, { auth: { persistSession: false } });
-}
-
-/* ---------------- project resolver (UUID or human code) ---------------- */
-
-const HUMAN_COL_CANDIDATES = [
-  "project_code",
-  "project_human_id",
-  "human_id",
-  "code",
-  "slug",
-  "reference",
-  "ref",
-] as const;
-
-function normalizeProjectIdentifier(input: string) {
-  let v = safeStr(input).trim();
-  try {
-    v = decodeURIComponent(v);
-  } catch {}
-  v = v.trim();
-
-  // allow paths like /projects/P-00012 or "P-00012" or "00012"
-  const m = v.match(/(\d{3,})$/);
-  if (m?.[1]) return m[1];
-  return v;
-}
-
-function isNumericLike(s: string) {
-  return /^\d+$/.test(String(s || "").trim());
-}
-
-async function resolveProjectUuid(supabase: any, identifier: string): Promise<string | null> {
-  const raw = safeStr(identifier).trim();
-  if (!raw) return null;
-  if (looksLikeUuid(raw)) return raw;
-
-  const id = normalizeProjectIdentifier(raw);
-
-  for (const col of HUMAN_COL_CANDIDATES) {
-    const likelyNumeric = col === "project_code" || col === "human_id" || col === "project_human_id";
-    if (likelyNumeric && !isNumericLike(id)) continue;
-
-    const { data, error } = await supabase.from("projects").select("id").eq(col as any, id).maybeSingle();
-
-    if (error) {
-      if (isMissingColumnError(error.message, col)) continue;
-      throw new Error(error.message);
-    }
-    if (data?.id) return String(data.id);
-  }
-
-  // Try raw value for text-y columns
-  for (const col of ["slug", "reference", "ref", "code"] as const) {
-    const { data, error } = await supabase.from("projects").select("id").eq(col as any, raw).maybeSingle();
-
-    if (error) {
-      if (isMissingColumnError(error.message, col)) continue;
-      throw new Error(error.message);
-    }
-    if (data?.id) return String(data.id);
-  }
-
-  return null;
-}
-
-/* ---------------- membership gate (user context) ---------------- */
-
-async function requireProjectMembership(supabase: any, projectUuid: string, userId: string) {
+async function requireProjectMembership(supabase: any, projectId: string, userId: string) {
   const { data: mem, error: memErr } = await supabase
     .from("project_members")
     .select("role, removed_at")
-    .eq("project_id", projectUuid)
+    .eq("project_id", projectId)
     .eq("user_id", userId)
     .is("removed_at", null)
     .maybeSingle();
@@ -152,298 +44,6 @@ async function requireProjectMembership(supabase: any, projectUuid: string, user
 
   const role = safeLower((mem as any).role ?? "viewer");
   return { role, canEdit: canEditRole(role) };
-}
-
-/* =========================================================
-   POST
-   ========================================================= */
-
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json().catch(() => ({}));
-
-    const rawProject =
-      safeStr(body?.projectId).trim() ||
-      safeStr(body?.project_id).trim() ||
-      safeStr(body?.project_human_id).trim();
-
-    // artifactId is OPTIONAL now (we can derive it from ai_suggestions.artifact_id)
-    const requestedArtifactId =
-      safeStr(body?.artifactId).trim() || safeStr(body?.artifact_id).trim();
-
-    const suggestionId =
-      safeStr(body?.suggestionId).trim() || safeStr(body?.suggestion?.id).trim();
-
-    if (!rawProject || !suggestionId) {
-      return jsonNoStore(
-        { ok: false, error: "Missing projectId/project_human_id or suggestionId" },
-        { status: 400 }
-      );
-    }
-    if (!looksLikeUuid(suggestionId)) {
-      return jsonNoStore({ ok: false, error: "suggestionId must be a UUID" }, { status: 400 });
-    }
-    if (requestedArtifactId && !looksLikeUuid(requestedArtifactId)) {
-      return jsonNoStore({ ok: false, error: "artifactId must be a UUID when provided" }, { status: 400 });
-    }
-
-    // 1) Auth with session client (user context)
-    const supabase = await createClient();
-    const { data: auth, error: authErr } = await supabase.auth.getUser();
-    if (authErr) return jsonNoStore({ ok: false, error: authErr.message }, { status: 401 });
-    if (!auth?.user) return jsonNoStore({ ok: false, error: "Unauthorized" }, { status: 401 });
-
-    // 2) Resolve project UUID (supports human ID)
-    const projectUuid = await resolveProjectUuid(supabase, rawProject);
-    if (!projectUuid) {
-      return jsonNoStore({ ok: false, error: "Project not found", meta: { rawProject } }, { status: 404 });
-    }
-
-    // 3) Membership gate (DON'T rely on service role for access control)
-    const mem = await requireProjectMembership(supabase, projectUuid, auth.user.id);
-    if (!mem) return jsonNoStore({ ok: false, error: "Forbidden" }, { status: 403 });
-    if (!mem.canEdit) return jsonNoStore({ ok: false, error: "Requires editor/owner" }, { status: 403 });
-
-    // 4) Load suggestion using RLS client (do NOT trust client patch)
-    const { data: sug, error: sugErr } = await supabase
-      .from("ai_suggestions")
-      .select(
-        "id, project_id, artifact_id, section_key, target_artifact_type, suggestion_type, rationale, confidence, patch, status"
-      )
-      .eq("id", suggestionId)
-      .eq("project_id", projectUuid)
-      .maybeSingle();
-
-    if (sugErr) return jsonNoStore({ ok: false, error: sugErr.message }, { status: 500 });
-    if (!sug) return jsonNoStore({ ok: false, error: "Suggestion not found" }, { status: 404 });
-
-    // ✅ derive artifactId from suggestion if caller didn't send it
-    const sugArtifactId = safeStr((sug as any).artifact_id).trim();
-    const artifactId = requestedArtifactId || sugArtifactId;
-
-    if (!artifactId) {
-      return jsonNoStore(
-        {
-          ok: false,
-          error: "Missing artifactId (not provided and suggestion has no artifact_id)",
-          meta: { suggestionId },
-        },
-        { status: 400 }
-      );
-    }
-    if (!looksLikeUuid(artifactId)) {
-      return jsonNoStore({ ok: false, error: "Resolved artifactId is not a UUID" }, { status: 400 });
-    }
-
-    // Defensive: if suggestion specifies an artifact_id, and caller also sent one, must match
-    if (sugArtifactId && requestedArtifactId && sugArtifactId !== requestedArtifactId) {
-      return jsonNoStore({ ok: false, error: "Suggestion does not belong to this artifact" }, { status: 400 });
-    }
-
-    const sugStatus = safeLower((sug as any).status);
-
-    // ✅ Idempotent: terminal statuses return OK (no error)
-    if (sugStatus === "applied" || sugStatus === "rejected") {
-      return jsonNoStore({
-        ok: true,
-        applied: false,
-        suggestion: { id: (sug as any).id, status: (sug as any).status },
-        note: `No change (already ${safeStr((sug as any).status)})`,
-      });
-    }
-
-    // Actionable: proposed OR suggested
-    if (sugStatus !== "proposed" && sugStatus !== "suggested") {
-      return jsonNoStore(
-        { ok: false, error: `Suggestion is not actionable (status=${safeStr((sug as any).status)})` },
-        { status: 400 }
-      );
-    }
-
-    const suggestionType = safeLower((sug as any).suggestion_type);
-    const patch = (sug as any).patch ?? null;
-
-    // 5) Load target artifact (RLS) - ensure belongs to same project
-    const { data: artifact, error: artErr } = await supabase
-      .from("artifacts")
-      .select("id, project_id, type, artifact_type, content_json")
-      .eq("id", artifactId)
-      .eq("project_id", projectUuid)
-      .maybeSingle();
-
-    if (artErr) return jsonNoStore({ ok: false, error: artErr.message }, { status: 500 });
-    if (!artifact) return jsonNoStore({ ok: false, error: "Artifact not found" }, { status: 404 });
-
-    const artifactType = safeLower((artifact as any).artifact_type ?? (artifact as any).type);
-    const currentJson = (artifact as any).content_json ?? {};
-    const suggestionTargetType = safeLower((sug as any).target_artifact_type);
-
-    // Optional fast-path: add_stakeholder suggestion -> canonical table
-    // (still via RLS; if policies don't allow, you get a clear error)
-    if (suggestionType === "add_stakeholder") {
-      const payload = patch && typeof patch === "object" ? (patch.payload ?? patch.data ?? patch) : {};
-
-      const name = safeStr((payload as any)?.name).trim();
-      if (!name) {
-        return jsonNoStore({ ok: false, error: "Missing payload.name for add_stakeholder" }, { status: 400 });
-      }
-
-      const role = safeStr((payload as any)?.role).trim() || null;
-      const point_of_contact =
-        safeStr((payload as any)?.point_of_contact ?? (payload as any)?.poc).trim() || null;
-
-      const { data: created, error: cErr } = await supabase
-        .from("stakeholders")
-        .insert({
-          project_id: projectUuid,
-          artifact_id: artifactId,
-          name,
-          role,
-          point_of_contact,
-          source: safeStr((payload as any)?.source).trim() || "ai",
-        })
-        .select("id")
-        .maybeSingle();
-
-      if (cErr) return jsonNoStore({ ok: false, error: cErr.message }, { status: 500 });
-
-      const nowIso = new Date().toISOString();
-      const { error: uErr } = await supabase
-        .from("ai_suggestions")
-        .update({
-          status: "applied",
-          actioned_by: auth.user.id,
-          decided_at: nowIso,
-          rejected_at: null,
-          updated_at: nowIso,
-        })
-        .eq("id", suggestionId)
-        .eq("project_id", projectUuid);
-
-      if (uErr) {
-        return jsonNoStore(
-          {
-            ok: true,
-            applied: true,
-            stakeholderId: created?.id ?? null,
-            warning: `Failed to mark applied: ${uErr.message}`,
-          },
-          { status: 200 }
-        );
-      }
-
-      // best-effort event log
-      try {
-        await supabase.from("project_events").insert({
-          project_id: projectUuid,
-          artifact_id: artifactId,
-          section_key: null,
-          event_type: "suggestion_applied",
-          actor_user_id: auth.user.id,
-          severity: "info",
-          source: "app",
-          payload: {
-            suggestion_id: suggestionId,
-            target_artifact_type: (sug as any).target_artifact_type,
-            suggestion_type: (sug as any).suggestion_type,
-          },
-        });
-      } catch {}
-
-      return jsonNoStore({ ok: true, applied: true, stakeholderId: created?.id ?? null });
-    }
-
-    // ✅ Normalize stakeholder governance patches to the 5-column stakeholder register table shape
-    const normalizedPatch = normalizeStakeholderPatchIfNeeded({
-      artifactType,
-      suggestionTargetType,
-      patch,
-    });
-
-    // Apply patch to artifact JSON
-    const updatedJson = applySuggestionToArtifactJson(currentJson, {
-      kind: normalizedPatch?.kind ?? normalizedPatch?.type ?? null,
-      mode: normalizedPatch?.mode ?? "append",
-      rows: Array.isArray(normalizedPatch?.rows) ? normalizedPatch.rows : [],
-      bullets: typeof normalizedPatch?.bullets === "string" ? normalizedPatch.bullets : "",
-      sectionKey: (sug as any).section_key ?? null,
-    });
-
-    // 6) Save artifact JSON (RLS)
-    const { error: updErr } = await supabase
-      .from("artifacts")
-      .update({
-        content_json: updatedJson,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", artifactId)
-      .eq("project_id", projectUuid);
-
-    if (updErr) return jsonNoStore({ ok: false, error: updErr.message }, { status: 500 });
-
-    // 7) If stakeholder_register + add_rows => persist to canonical stakeholders table (RLS)
-    const persisted = await maybePersistStakeholdersFromAddRows({
-      supabase,
-      projectId: projectUuid,
-      artifactId,
-      artifactType,
-      suggestionTargetType,
-      patch: normalizedPatch,
-    });
-
-    // 8) Mark suggestion applied (RLS)
-    const nowIso = new Date().toISOString();
-    const { error: markErr } = await supabase
-      .from("ai_suggestions")
-      .update({
-        status: "applied",
-        actioned_by: auth.user.id,
-        decided_at: nowIso,
-        rejected_at: null,
-        updated_at: nowIso,
-      })
-      .eq("id", suggestionId)
-      .eq("project_id", projectUuid);
-
-    if (markErr) {
-      return jsonNoStore(
-        {
-          ok: true,
-          artifactJson: updatedJson,
-          persisted,
-          warning: `Applied changes but failed to mark suggestion applied: ${markErr.message}`,
-        },
-        { status: 200 }
-      );
-    }
-
-    // 9) Log project_event (best effort, via RLS)
-    try {
-      await supabase.from("project_events").insert({
-        project_id: projectUuid,
-        artifact_id: artifactId,
-        section_key: null,
-        event_type: "suggestion_applied",
-        actor_user_id: auth.user.id,
-        severity: "info",
-        source: "app",
-        payload: {
-          suggestion_id: suggestionId,
-          target_artifact_type: (sug as any).target_artifact_type,
-          suggestion_type: (sug as any).suggestion_type,
-        },
-      });
-    } catch {}
-
-    return jsonNoStore({
-      ok: true,
-      artifactJson: updatedJson,
-      persisted,
-      applied: { suggestionId, status: "applied" },
-    });
-  } catch (e: any) {
-    return jsonNoStore({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
-  }
 }
 
 /* =========================================================
@@ -479,8 +79,7 @@ function normalizeStakeholderPatchIfNeeded(opts: {
   if (looks5Col) return patch;
 
   // Convert 4-col governance rows: [name, role, impact, notes]
-  // → 5-col stakeholder register rows:
-  // [Stakeholder, Point of Contact, Role, Internal/External, Title/Role]
+  // → 5-col stakeholder register rows: [Stakeholder, Point of Contact, Role, Internal/External, Title/Role]
   const mapped = rows
     .map((r) => {
       const name = safeStr(r?.[0]).trim() || "TBC";
@@ -492,7 +91,7 @@ function normalizeStakeholderPatchIfNeeded(opts: {
         name, // Stakeholder
         "", // Point of Contact (unknown)
         role, // Role
-        "Internal", // default
+        "Internal", // Internal/External default
         [impact, notes].filter(Boolean).join(" — ").trim(), // Title/Role
       ];
     })
@@ -502,7 +101,7 @@ function normalizeStakeholderPatchIfNeeded(opts: {
 }
 
 /* =========================================================
-   Stakeholder persistence (canonical table) - via RLS
+   Stakeholder persistence (canonical table)
    ========================================================= */
 
 async function maybePersistStakeholdersFromAddRows(opts: {
@@ -699,10 +298,7 @@ function normalizeRows(rows: any[]) {
   if (!Array.isArray(rows)) return [];
   if (rows.length && typeof rows[0] === "object" && rows[0] && "cells" in rows[0]) return rows;
   if (rows.length && Array.isArray(rows[0])) {
-    return rows.map((cells: any[]) => ({
-      type: "data",
-      cells: cells.map((x) => String(x ?? "")),
-    }));
+    return rows.map((cells: any[]) => ({ type: "data", cells: cells.map((x) => String(x ?? "")) }));
   }
   return rows;
 }
@@ -726,5 +322,253 @@ function deepClone<T>(x: T): T {
     return JSON.parse(JSON.stringify(x));
   } catch {
     return x;
+  }
+}
+
+/* =========================================================
+   POST
+   ========================================================= */
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => ({}));
+
+    // Accept multiple caller shapes:
+    // - { id }
+    // - { suggestionId }
+    // - { suggestion: { id } }
+    // - { ids: [...] }   (batch)
+    const single =
+      safeStr(body?.id).trim() ||
+      safeStr(body?.suggestionId).trim() ||
+      safeStr(body?.suggestion?.id).trim();
+
+    const ids = uniq([
+      ...((Array.isArray(body?.ids) ? body.ids : []) as any[]).map((x) => safeStr(x).trim()),
+      ...(single ? [single] : []),
+    ]);
+
+    if (!ids.length) {
+      return NextResponse.json({ ok: false, error: "Missing suggestion id" }, { status: 400 });
+    }
+
+    // Auth (user context)
+    const supabase = await createClient();
+    const user = await requireAuth(supabase);
+
+    const applied: string[] = [];
+    const skipped: Array<{ id: string; reason: string }> = [];
+
+    for (const suggestionId of ids) {
+      // Load suggestion first (derive project/artifact)
+      const { data: sug, error: sugErr } = await supabase
+        .from("ai_suggestions")
+        .select(
+          "id, project_id, artifact_id, section_key, target_artifact_type, suggestion_type, patch, status"
+        )
+        .eq("id", suggestionId)
+        .maybeSingle();
+
+      if (sugErr) {
+        skipped.push({ id: suggestionId, reason: sugErr.message });
+        continue;
+      }
+      if (!sug) {
+        skipped.push({ id: suggestionId, reason: "Suggestion not found" });
+        continue;
+      }
+
+      const projectId = safeStr((sug as any).project_id).trim();
+      const artifactId = safeStr((sug as any).artifact_id).trim();
+
+      if (!projectId || !artifactId) {
+        skipped.push({ id: suggestionId, reason: "Suggestion missing project_id or artifact_id" });
+        continue;
+      }
+
+      // Membership gate (explicit for clear errors; RLS also enforces)
+      const mem = await requireProjectMembership(supabase, projectId, user.id);
+      if (!mem) {
+        skipped.push({ id: suggestionId, reason: "Forbidden" });
+        continue;
+      }
+      if (!mem.canEdit) {
+        skipped.push({ id: suggestionId, reason: "Requires editor/owner" });
+        continue;
+      }
+
+      const sugStatus = safeLower((sug as any).status);
+      if (sugStatus !== "proposed" && sugStatus !== "suggested") {
+        skipped.push({
+          id: suggestionId,
+          reason: `Not actionable (status=${safeStr((sug as any).status)})`,
+        });
+        continue;
+      }
+
+      const suggestionType = safeLower((sug as any).suggestion_type);
+      const patch = (sug as any).patch ?? null;
+
+      // Fast-path: add_stakeholder writes to canonical stakeholders table
+      if (suggestionType === "add_stakeholder") {
+        const payload = (patch && typeof patch === "object" ? (patch.payload ?? patch.data ?? patch) : {}) as any;
+        const name = safeStr(payload?.name).trim();
+        if (!name) {
+          skipped.push({ id: suggestionId, reason: "Missing payload.name for add_stakeholder" });
+          continue;
+        }
+
+        const role = safeStr(payload?.role).trim() || null;
+        const point_of_contact = safeStr(payload?.point_of_contact ?? payload?.poc).trim() || null;
+
+        const { error: cErr } = await supabase.from("stakeholders").insert({
+          project_id: projectId,
+          artifact_id: artifactId,
+          name,
+          role,
+          point_of_contact,
+          source: safeStr(payload?.source).trim() || "ai",
+        });
+
+        if (cErr) {
+          skipped.push({ id: suggestionId, reason: cErr.message });
+          continue;
+        }
+
+        const nowIso = new Date().toISOString();
+        const { error: uErr } = await supabase
+          .from("ai_suggestions")
+          .update({
+            status: "applied",
+            actioned_by: user.id,
+            decided_at: nowIso,
+            rejected_at: null,
+            updated_at: nowIso,
+          })
+          .eq("id", suggestionId)
+          .eq("project_id", projectId);
+
+        if (uErr) {
+          skipped.push({ id: suggestionId, reason: `Inserted stakeholder but failed to mark applied: ${uErr.message}` });
+          continue;
+        }
+
+        applied.push(suggestionId);
+        continue;
+      }
+
+      // Load target artifact
+      const { data: artifact, error: artErr } = await supabase
+        .from("artifacts")
+        .select("id, project_id, type, content_json")
+        .eq("id", artifactId)
+        .eq("project_id", projectId)
+        .maybeSingle();
+
+      if (artErr) {
+        skipped.push({ id: suggestionId, reason: artErr.message });
+        continue;
+      }
+      if (!artifact) {
+        skipped.push({ id: suggestionId, reason: "Artifact not found" });
+        continue;
+      }
+
+      const artifactType = safeLower((artifact as any).type);
+      const currentJson = (artifact as any).content_json ?? {};
+      const suggestionTargetType = safeLower((sug as any).target_artifact_type);
+
+      const normalizedPatch = normalizeStakeholderPatchIfNeeded({
+        artifactType,
+        suggestionTargetType,
+        patch,
+      });
+
+      const updatedJson = applySuggestionToArtifactJson(currentJson, {
+        kind: normalizedPatch?.kind ?? normalizedPatch?.type ?? null,
+        mode: normalizedPatch?.mode ?? "append",
+        rows: Array.isArray(normalizedPatch?.rows) ? normalizedPatch.rows : [],
+        bullets: typeof normalizedPatch?.bullets === "string" ? normalizedPatch.bullets : "",
+        sectionKey: (sug as any).section_key ?? null,
+      });
+
+      // Save artifact
+      const { error: updErr } = await supabase
+        .from("artifacts")
+        .update({
+          content_json: updatedJson,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", artifactId)
+        .eq("project_id", projectId);
+
+      if (updErr) {
+        skipped.push({ id: suggestionId, reason: updErr.message });
+        continue;
+      }
+
+      // If stakeholder_register + add_rows => persist to canonical stakeholders table
+      const persisted = await maybePersistStakeholdersFromAddRows({
+        supabase,
+        projectId,
+        artifactId,
+        artifactType,
+        suggestionTargetType,
+        patch: normalizedPatch,
+      });
+
+      // Mark suggestion applied
+      const nowIso = new Date().toISOString();
+      const { error: markErr } = await supabase
+        .from("ai_suggestions")
+        .update({
+          status: "applied",
+          actioned_by: user.id,
+          decided_at: nowIso,
+          rejected_at: null,
+          updated_at: nowIso,
+        })
+        .eq("id", suggestionId)
+        .eq("project_id", projectId);
+
+      if (markErr) {
+        skipped.push({
+          id: suggestionId,
+          reason: `Applied to artifact but failed to mark applied: ${markErr.message}`,
+        });
+        continue;
+      }
+
+      // Best-effort event log
+      try {
+        await supabase.from("project_events").insert({
+          project_id: projectId,
+          artifact_id: artifactId,
+          section_key: null,
+          event_type: "suggestion_applied",
+          actor_user_id: user.id,
+          severity: "info",
+          source: "app",
+          payload: {
+            suggestion_id: suggestionId,
+            target_artifact_type: (sug as any).target_artifact_type,
+            suggestion_type: (sug as any).suggestion_type,
+            persisted,
+          },
+        });
+      } catch {
+        // ignore
+      }
+
+      applied.push(suggestionId);
+    }
+
+    return NextResponse.json({
+      ok: true,
+      applied,
+      skipped,
+    });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
   }
 }
