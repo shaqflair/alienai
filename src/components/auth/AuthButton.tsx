@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/utils/supabase/server";
+import { createClient } from "@/utils/supabase/client";
 import { signOutAction } from "@/app/actions/auth";
 
 export default async function AuthButton() {

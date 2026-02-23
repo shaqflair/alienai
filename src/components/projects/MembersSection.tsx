@@ -1,8 +1,6 @@
 // src/components/projects/MembersSection.tsx
 import Link from "next/link";
-import { createClient } from "@/utils/supabase/server";
-
-import MembersClient, {
+import { createClient } from "@/utils/supabase/client";import MembersClient, {
   type MemberRow as ClientMemberRow,
   type InviteRow as ClientInviteRow,
   type Role,
