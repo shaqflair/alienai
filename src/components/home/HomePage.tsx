@@ -26,6 +26,11 @@ import {
   Zap,
   TrendingUp,
   MoreHorizontal,
+  Brain,
+  Flame,
+  Target,
+  Eye,
+  Shield,
 } from "lucide-react";
 
 type WindowDays = 7 | 14 | 30 | 60 | "all";
@@ -182,7 +187,6 @@ type SuccessStoryTop = {
   href?: string | null;
 };
 
-// ✅ allow both API shapes (old flat + new nested summary)
 type SuccessStoriesBreakdown = {
   milestones_done?: number;
   wbs_done?: number;
@@ -196,16 +200,12 @@ type SuccessStoriesSummary =
   | {
       ok: true;
       days: number;
-
-      // flat shape used by UI
       score: number;
       prev_score: number;
       delta: number;
       count: number;
       breakdown?: SuccessStoriesBreakdown;
       top?: SuccessStoryTop[];
-
-      // tolerate v2 fields (harmless)
       summary?: {
         score?: number;
         points?: number;
@@ -243,11 +243,6 @@ function clamp01to100(x: any) {
   const n = Number(x);
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(100, Math.round(n)));
-}
-function looksLikeUuid(s: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    String(s || "").trim()
-  );
 }
 function timeAgo(iso: string) {
   const t = new Date(iso).getTime();
@@ -424,10 +419,7 @@ function calcRagAgg(
     if (!pid || !["G", "A", "R"].includes(letter)) continue;
     byPid.set(pid, { rag: letter, health: Number(it?.health) });
   }
-  let g = 0,
-    a = 0,
-    r = 0,
-    scored = 0;
+  let g = 0, a = 0, r = 0, scored = 0;
   const vals: number[] = [];
   for (const p of proj) {
     const pid = String((p as any)?.id || "").trim();
@@ -514,7 +506,6 @@ function isOverdue(iso: string | null | undefined) {
   return t < Date.now() - 30 * 1000;
 }
 
-// ✅ success stories normalisation
 function sumSuccessBreakdown(b?: SuccessStoriesBreakdown) {
   if (!b) return 0;
   return (
@@ -528,38 +519,223 @@ function sumSuccessBreakdown(b?: SuccessStoriesBreakdown) {
 function normalizeSuccessSummary(raw: any, days: number, prevScore: number): SuccessStoriesSummary {
   const v1Score = Number(raw?.score);
   const v1Ok = raw?.ok === true && Number.isFinite(v1Score);
-
   const v2Score = Number(raw?.summary?.score);
   const v2Ok = raw?.ok === true && Number.isFinite(v2Score);
-
   const score = v1Ok ? clamp01to100(v1Score) : v2Ok ? clamp01to100(v2Score) : 0;
-
   const breakdown: SuccessStoriesBreakdown | undefined = (v1Ok ? raw?.breakdown : raw?.summary?.breakdown) || undefined;
-
   const topCandidate = v1Ok ? raw?.top : raw?.summary?.top_wins;
   const top: SuccessStoryTop[] = Array.isArray(topCandidate) ? (topCandidate as SuccessStoryTop[]) : [];
-
   const countFromBreakdown = sumSuccessBreakdown(breakdown);
   const countFromMeta = num(raw?.meta?.total_wins);
   const countFromV1 = num(raw?.count);
-
   const count = countFromBreakdown > 0 ? countFromBreakdown : countFromMeta > 0 ? countFromMeta : countFromV1;
-
   const prev_score = clamp01to100(prevScore);
   const delta = score - prev_score;
+  return { ok: true, days, score, prev_score, delta, count, breakdown, top, summary: raw?.summary, meta: raw?.meta };
+}
 
-  return {
-    ok: true,
-    days,
-    score,
-    prev_score,
-    delta,
-    count,
-    breakdown,
-    top,
-    summary: raw?.summary,
-    meta: raw?.meta,
-  };
+// ── AI Signal Pill ──
+function AiSignalPill({ text, tone }: { text: string; tone: "rose" | "amber" | "cyan" | "emerald" | "indigo" }) {
+  const styles = {
+    rose: "bg-rose-50/80 border-rose-200/60 text-rose-700",
+    amber: "bg-amber-50/80 border-amber-200/60 text-amber-700",
+    cyan: "bg-cyan-50/80 border-cyan-200/60 text-cyan-700",
+    emerald: "bg-emerald-50/80 border-emerald-200/60 text-emerald-700",
+    indigo: "bg-indigo-50/80 border-indigo-200/60 text-indigo-700",
+  }[tone];
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${styles}`}>
+      <span className="h-1 w-1 rounded-full bg-current opacity-70" />
+      {text}
+    </span>
+  );
+}
+
+// ── AI Summary Panel for Milestones ──
+function MilestonesAiSummary({
+  loading,
+  panel,
+  windowDays,
+}: {
+  loading: boolean;
+  panel: MilestonesPanel | null;
+  windowDays: number;
+}) {
+  const due = num(panel?.due_count);
+  const overdue = num(panel?.overdue_count);
+  const atRisk = num(panel?.status_breakdown?.at_risk);
+  const avgSlip = num(panel?.slippage?.avg_slip_days);
+  const maxSlip = num(panel?.slippage?.max_slip_days);
+  const onTrack = num(panel?.on_track_count);
+
+  const urgencyScore = overdue * 3 + atRisk * 2 + (due > 0 ? 1 : 0);
+  const urgencyLevel = urgencyScore >= 9 ? "critical" : urgencyScore >= 5 ? "elevated" : urgencyScore >= 2 ? "moderate" : "clear";
+
+  const signals: { text: string; tone: "rose" | "amber" | "cyan" | "emerald" | "indigo" }[] = [];
+  if (overdue > 0) signals.push({ text: `${overdue} overdue`, tone: "rose" });
+  if (atRisk > 0) signals.push({ text: `${atRisk} at risk`, tone: "amber" });
+  if (avgSlip > 3) signals.push({ text: `Avg slip ${avgSlip}d`, tone: "amber" });
+  if (onTrack > 0) signals.push({ text: `${onTrack} on track`, tone: "emerald" });
+
+  const narrative = loading
+    ? "Analysing milestone health…"
+    : !panel
+    ? "No milestone data available for this window."
+    : urgencyLevel === "critical"
+    ? `${overdue} milestones are overdue and ${atRisk} flagged at-risk. Immediate attention required — average slip is ${avgSlip} days across affected items.`
+    : urgencyLevel === "elevated"
+    ? `${due} milestones due in ${windowDays}d. With ${overdue} overdue and ${atRisk} at-risk, proactive escalation is recommended now.`
+    : urgencyLevel === "moderate"
+    ? `${due} milestones approaching in ${windowDays}d. ${onTrack > 0 ? `${onTrack} are on track.` : ""} Monitor ${atRisk > 0 ? `${atRisk} at-risk items` : "progress"} closely.`
+    : due > 0
+    ? `${due} milestones due in ${windowDays}d — all trending on track. Delivery confidence is high.`
+    : `No milestones due in the next ${windowDays} days. Schedule looks clear.`;
+
+  const urgencyConfig = {
+    critical: { bg: "from-rose-50/60 to-red-50/40", border: "border-rose-200/50", dot: "bg-rose-500", label: "Critical", labelCls: "text-rose-700 bg-rose-100 border-rose-200" },
+    elevated: { bg: "from-amber-50/60 to-orange-50/40", border: "border-amber-200/50", dot: "bg-amber-500", label: "Elevated", labelCls: "text-amber-700 bg-amber-100 border-amber-200" },
+    moderate: { bg: "from-cyan-50/40 to-blue-50/30", border: "border-cyan-200/50", dot: "bg-cyan-500", label: "Moderate", labelCls: "text-cyan-700 bg-cyan-100 border-cyan-200" },
+    clear: { bg: "from-emerald-50/40 to-teal-50/30", border: "border-emerald-200/50", dot: "bg-emerald-500", label: "On Track", labelCls: "text-emerald-700 bg-emerald-100 border-emerald-200" },
+  }[urgencyLevel];
+
+  return (
+    <div className={`relative mt-4 rounded-2xl border bg-gradient-to-br ${urgencyConfig.bg} ${urgencyConfig.border} overflow-hidden`}
+      style={{ backdropFilter: "blur(12px)" }}>
+      {/* Crystal gloss overlay */}
+      <div className="absolute inset-x-0 top-0 h-px" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.8), transparent)" }} />
+      <div className="absolute inset-x-0 top-0 h-8 rounded-t-2xl" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.4), transparent)" }} />
+      <div className="relative p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className="relative flex h-6 w-6 items-center justify-center rounded-lg bg-white/80 border border-white/60 shadow-sm">
+              <Brain className="h-3.5 w-3.5 text-slate-600" />
+              <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border border-white" style={{ background: urgencyConfig.dot === "bg-rose-500" ? "#f43f5e" : urgencyConfig.dot === "bg-amber-500" ? "#f59e0b" : urgencyConfig.dot === "bg-cyan-500" ? "#06b6d4" : "#10b981" }} />
+            </div>
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">AI Outlook</span>
+          </div>
+          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${urgencyConfig.labelCls}`}>
+            {urgencyConfig.label}
+          </span>
+        </div>
+        <p className="text-xs text-slate-600 leading-relaxed mb-3">
+          {loading ? (
+            <span className="inline-flex gap-1 items-center">
+              <span className="h-1 w-1 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: "0ms" }} />
+              <span className="h-1 w-1 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: "150ms" }} />
+              <span className="h-1 w-1 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: "300ms" }} />
+            </span>
+          ) : narrative}
+        </p>
+        {signals.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {signals.map((s, i) => <AiSignalPill key={i} text={s.text} tone={s.tone} />)}
+          </div>
+        )}
+        {maxSlip > 0 && (
+          <div className="mt-3 flex items-center gap-2 text-[10px] text-slate-400">
+            <Zap className="h-3 w-3" />
+            <span>Max slip detected: <span className="font-semibold text-slate-600">{maxSlip} days</span></span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── AI Summary Panel for RAID ──
+function RaidAiSummary({
+  loading,
+  panel,
+  windowDays,
+}: {
+  loading: boolean;
+  panel: RaidPanel | null;
+  windowDays: number;
+}) {
+  const riskDue = num(panel?.risk_due);
+  const issueDue = num(panel?.issue_due);
+  const depDue = num(panel?.dependency_due);
+  const assDue = num(panel?.assumption_due);
+  const overdue = num(panel?.overdue_total);
+  const riskHi = num(panel?.risk_hi);
+  const issueHi = num(panel?.issue_hi);
+
+  const highSeverityTotal = riskHi + issueHi;
+  const urgencyScore = overdue * 3 + highSeverityTotal * 2 + riskDue + issueDue;
+  const urgencyLevel = urgencyScore >= 12 ? "critical" : urgencyScore >= 6 ? "elevated" : urgencyScore >= 2 ? "moderate" : "clear";
+
+  const dominantType =
+    riskDue >= issueDue && riskDue >= depDue ? "risks"
+    : issueDue >= depDue ? "issues"
+    : "dependencies";
+
+  const signals: { text: string; tone: "rose" | "amber" | "cyan" | "emerald" | "indigo" }[] = [];
+  if (overdue > 0) signals.push({ text: `${overdue} overdue`, tone: "rose" });
+  if (highSeverityTotal > 0) signals.push({ text: `${highSeverityTotal} high severity`, tone: "rose" });
+  if (riskDue > 0) signals.push({ text: `${riskDue} risks`, tone: "amber" });
+  if (issueDue > 0) signals.push({ text: `${issueDue} issues`, tone: "amber" });
+  if (depDue > 0) signals.push({ text: `${depDue} deps`, tone: "indigo" });
+
+  const narrative = loading
+    ? "Scanning RAID register…"
+    : !panel
+    ? "No RAID data available for this window."
+    : urgencyLevel === "critical"
+    ? `${overdue} RAID items are overdue${highSeverityTotal > 0 ? ` and ${highSeverityTotal} are high-severity` : ""}. Escalation warranted — focus on ${dominantType} first.`
+    : urgencyLevel === "elevated"
+    ? `${riskDue + issueDue + depDue + assDue} RAID items due in ${windowDays}d. ${overdue > 0 ? `${overdue} already overdue.` : ""} ${dominantType.charAt(0).toUpperCase() + dominantType.slice(1)} are the primary concern.`
+    : urgencyLevel === "moderate"
+    ? `${riskDue + issueDue + depDue + assDue} items in the ${windowDays}d window. Review ${dominantType} and confirm ownership before deadlines arrive.`
+    : `RAID register looks clear for ${windowDays}d window. Maintain regular reviews to keep the register current.`;
+
+  const urgencyConfig = {
+    critical: { bg: "from-rose-50/60 to-red-50/40", border: "border-rose-200/50", dot: "#f43f5e", label: "Critical", labelCls: "text-rose-700 bg-rose-100 border-rose-200" },
+    elevated: { bg: "from-amber-50/60 to-orange-50/40", border: "border-amber-200/50", dot: "#f59e0b", label: "Elevated", labelCls: "text-amber-700 bg-amber-100 border-amber-200" },
+    moderate: { bg: "from-violet-50/40 to-indigo-50/30", border: "border-violet-200/50", dot: "#8b5cf6", label: "Moderate", labelCls: "text-violet-700 bg-violet-100 border-violet-200" },
+    clear: { bg: "from-emerald-50/40 to-teal-50/30", border: "border-emerald-200/50", dot: "#10b981", label: "Clear", labelCls: "text-emerald-700 bg-emerald-100 border-emerald-200" },
+  }[urgencyLevel];
+
+  return (
+    <div className={`relative mt-4 rounded-2xl border bg-gradient-to-br ${urgencyConfig.bg} ${urgencyConfig.border} overflow-hidden`}
+      style={{ backdropFilter: "blur(12px)" }}>
+      <div className="absolute inset-x-0 top-0 h-px" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.8), transparent)" }} />
+      <div className="absolute inset-x-0 top-0 h-8 rounded-t-2xl" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.4), transparent)" }} />
+      <div className="relative p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className="relative flex h-6 w-6 items-center justify-center rounded-lg bg-white/80 border border-white/60 shadow-sm">
+              <Shield className="h-3.5 w-3.5 text-slate-600" />
+              <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border border-white" style={{ background: urgencyConfig.dot }} />
+            </div>
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">AI Risk Outlook</span>
+          </div>
+          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${urgencyConfig.labelCls}`}>
+            {urgencyConfig.label}
+          </span>
+        </div>
+        <p className="text-xs text-slate-600 leading-relaxed mb-3">
+          {loading ? (
+            <span className="inline-flex gap-1 items-center">
+              <span className="h-1 w-1 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: "0ms" }} />
+              <span className="h-1 w-1 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: "150ms" }} />
+              <span className="h-1 w-1 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: "300ms" }} />
+            </span>
+          ) : narrative}
+        </p>
+        {signals.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {signals.map((s, i) => <AiSignalPill key={i} text={s.text} tone={s.tone} />)}
+          </div>
+        )}
+        {highSeverityTotal > 0 && (
+          <div className="mt-3 flex items-center gap-2 text-[10px] text-slate-400">
+            <Flame className="h-3 w-3 text-rose-400" />
+            <span><span className="font-semibold text-rose-600">{highSeverityTotal} high-severity</span> items require owner review</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /* Bell */
@@ -597,7 +773,6 @@ function NotificationBell() {
         (window as any).cancelIdleCallback(id);
       else window.clearTimeout(id);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -608,7 +783,6 @@ function NotificationBell() {
       if (pollRef.current) clearInterval(pollRef.current);
       pollRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const filtered = useMemo(() => items.filter((n) => tabMatch(tab, n)), [items, tab]);
@@ -662,7 +836,8 @@ function NotificationBell() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="relative group rounded-xl border border-slate-200 bg-white p-2.5 transition-all hover:border-indigo-300 hover:bg-indigo-50/40 active:scale-95 shadow-sm"
+        className="relative group rounded-xl border border-slate-200/80 bg-white/90 p-2.5 transition-all hover:border-indigo-300 hover:bg-indigo-50/60 active:scale-95"
+        style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06), 0 0 0 1px rgba(255,255,255,0.8) inset" }}
         aria-label="Notifications"
       >
         <Bell className="h-5 w-5 text-slate-500 group-hover:text-indigo-600 transition-colors" />
@@ -670,7 +845,8 @@ function NotificationBell() {
           <m.span
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
-            className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white ring-2 ring-white shadow-sm"
+            className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white ring-2 ring-white"
+            style={{ boxShadow: "0 2px 8px rgba(99,102,241,0.4)" }}
           >
             {unreadCount > 99 ? "99+" : unreadCount}
           </m.span>
@@ -686,15 +862,15 @@ function NotificationBell() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -10, scale: 0.96 }}
               transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              className="absolute right-0 top-full z-50 mt-3 w-[420px] overflow-hidden rounded-2xl border border-slate-200 bg-white"
+              className="absolute right-0 top-full z-50 mt-3 w-[420px] overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95"
               style={{
-                boxShadow:
-                  "0 4px 6px -1px rgba(0,0,0,0.06), 0 20px 60px -10px rgba(0,0,0,0.14), 0 0 0 1px rgba(0,0,0,0.03)",
+                backdropFilter: "blur(24px)",
+                boxShadow: "0 4px 6px -1px rgba(0,0,0,0.06), 0 20px 60px -10px rgba(0,0,0,0.14), 0 0 0 1px rgba(255,255,255,0.9) inset",
               }}
             >
-              <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 bg-white/80">
+              <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 shadow-sm shadow-indigo-200">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600" style={{ boxShadow: "0 4px 12px rgba(99,102,241,0.35)" }}>
                     <Bell className="h-4 w-4 text-white" />
                   </div>
                   <div>
@@ -706,7 +882,8 @@ function NotificationBell() {
                   <button
                     type="button"
                     onClick={markAllRead}
-                    className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all shadow-sm"
+                    className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all"
+                    style={{ boxShadow: "0 1px 2px rgba(0,0,0,0.05)" }}
                   >
                     <CheckCheck className="mr-1.5 inline h-3.5 w-3.5" />
                     Mark all read
@@ -714,13 +891,14 @@ function NotificationBell() {
                   <button
                     type="button"
                     onClick={() => setOpen(false)}
-                    className="h-8 w-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all shadow-sm inline-flex items-center justify-center"
+                    className="h-8 w-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all inline-flex items-center justify-center"
+                    style={{ boxShadow: "0 1px 2px rgba(0,0,0,0.05)" }}
                   >
                     <X className="h-4 w-4 text-slate-400" />
                   </button>
                 </div>
               </div>
-              <div className="flex items-center gap-1 border-b border-slate-100 px-3 py-2.5 bg-slate-50/40">
+              <div className="flex items-center gap-1 border-b border-slate-100 px-3 py-2.5 bg-slate-50/50">
                 {(["all", "action", "ai", "approvals"] as BellTab[]).map((k) => {
                   const label = k === "all" ? "All" : k === "action" ? "Action" : k === "ai" ? "AI" : "Approvals";
                   return (
@@ -773,12 +951,9 @@ function NotificationBell() {
                                 <div
                                   className={[
                                     "mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border",
-                                    sev === "high"
-                                      ? "border-rose-200 bg-rose-50 text-rose-600"
-                                      : sev === "medium"
-                                      ? "border-amber-200 bg-amber-50 text-amber-600"
-                                      : sev === "success"
-                                      ? "border-emerald-200 bg-emerald-50 text-emerald-600"
+                                    sev === "high" ? "border-rose-200 bg-rose-50 text-rose-600"
+                                      : sev === "medium" ? "border-amber-200 bg-amber-50 text-amber-600"
+                                      : sev === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-600"
                                       : "border-indigo-200 bg-indigo-50 text-indigo-600",
                                   ].join(" ")}
                                 >
@@ -809,10 +984,7 @@ function NotificationBell() {
               <div className="border-t border-slate-100 px-5 py-3.5 bg-white/50">
                 <button
                   type="button"
-                  onClick={() => {
-                    setOpen(false);
-                    router.push("/notifications");
-                  }}
+                  onClick={() => { setOpen(false); router.push("/notifications"); }}
                   className="text-xs text-slate-500 hover:text-indigo-600 transition-colors flex items-center gap-1.5 font-semibold"
                 >
                   View all notifications <ChevronRight className="h-3 w-3" />
@@ -842,7 +1014,7 @@ function SkeletonAlert() {
   );
 }
 
-/* ── SurfaceCard — GLOSSY GLASS ── */
+/* ── CRYSTAL SurfaceCard ── */
 function SurfaceCard({
   children,
   className = "",
@@ -857,105 +1029,46 @@ function SurfaceCard({
       initial={{ opacity: 0, y: 18 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45, delay, ease: [0.16, 1, 0.3, 1] }}
-      className={`relative overflow-hidden rounded-2xl border border-white/80 p-6 transition-all hover:shadow-xl hover:border-white ${className}`}
+      className={`relative overflow-hidden rounded-2xl p-6 transition-all ${className}`}
       style={{
-        background:
-          "linear-gradient(145deg, rgba(255,255,255,0.97) 0%, rgba(248,250,255,0.94) 50%, rgba(240,245,255,0.92) 100%)",
-        boxShadow:
-          "0 2px 8px rgba(0,0,0,0.04), 0 8px 32px rgba(99,102,241,0.10), 0 24px 64px rgba(99,102,241,0.07), 0 1px 0 rgba(255,255,255,1) inset, 0 -1px 0 rgba(226,232,240,0.5) inset",
-        backdropFilter: "blur(20px)",
+        background: "linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(248,250,255,0.96) 60%, rgba(243,246,255,0.94) 100%)",
+        border: "1px solid rgba(255,255,255,0.9)",
+        boxShadow: "0 1px 1px rgba(0,0,0,0.02), 0 4px 8px rgba(0,0,0,0.03), 0 12px 32px rgba(99,102,241,0.06), 0 32px 64px rgba(99,102,241,0.04), 0 0 0 1px rgba(226,232,240,0.6), 0 1px 0 rgba(255,255,255,1) inset",
+        backdropFilter: "blur(24px) saturate(1.8)",
       }}
     >
-      <div
-        className="absolute top-0 left-0 right-0 h-[2px] rounded-t-2xl"
-        style={{
-          background:
-            "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.9) 30%, rgba(255,255,255,1) 50%, rgba(255,255,255,0.9) 70%, transparent 100%)",
-        }}
-      />
-      <div
-        className="absolute top-0 left-0 right-0 h-12 rounded-t-2xl pointer-events-none"
-        style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.6) 0%, transparent 100%)" }}
-      />
-      <div
-        className="absolute top-2 left-4 right-4 h-6 rounded-full pointer-events-none blur-sm"
-        style={{
-          background:
-            "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.7) 40%, rgba(255,255,255,0.8) 60%, transparent 100%)",
-        }}
-      />
+      {/* Triple-layer gloss */}
+      <div className="absolute inset-0 rounded-2xl pointer-events-none" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.6) 0%, transparent 50%, rgba(255,255,255,0.1) 100%)" }} />
+      <div className="absolute top-0 inset-x-0 h-[1px] rounded-t-2xl" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,1) 30%, rgba(255,255,255,1) 70%, transparent)" }} />
+      <div className="absolute top-0 inset-x-0 h-16 rounded-t-2xl pointer-events-none" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.7) 0%, transparent 100%)" }} />
+      <div className="absolute top-1 left-4 right-4 h-4 rounded-full pointer-events-none" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.9) 40%, rgba(255,255,255,0.95) 60%, transparent)", filter: "blur(4px)" }} />
       <div className="relative">{children}</div>
     </m.div>
   );
 }
 
-/* ── KpiCard — GLOSSY GLASS ── */
+/* ── CRYSTAL KpiCard ── */
 function KpiCard({
-  label,
-  value,
-  sub,
-  icon,
-  tone,
-  onClick,
-  extra,
-  tooltip,
-  metaLine,
-  metaIcon,
-  aiLine,
-  rightVisual,
-  badge,
-  cardClassName,
-  delay = 0,
+  label, value, sub, icon, tone, onClick, extra, tooltip,
+  metaLine, metaIcon, aiLine, rightVisual, badge, cardClassName, delay = 0,
 }: {
-  label: string;
-  value: string;
-  sub?: string;
-  icon: React.ReactNode;
-  tone: string;
-  onClick?: () => void;
-  extra?: React.ReactNode;
-  tooltip?: string;
-  metaLine?: string;
-  metaIcon?: React.ReactNode;
-  aiLine?: string;
-  rightVisual?: React.ReactNode;
-  badge?: React.ReactNode;
-  cardClassName?: string;
-  delay?: number;
+  label: string; value: string; sub?: string; icon: React.ReactNode; tone: string;
+  onClick?: () => void; extra?: React.ReactNode; tooltip?: string; metaLine?: string;
+  metaIcon?: React.ReactNode; aiLine?: string; rightVisual?: React.ReactNode;
+  badge?: React.ReactNode; cardClassName?: string; delay?: number;
 }) {
   const clickable = typeof onClick === "function";
-  const bars: Record<string, string> = {
-    indigo: "bg-indigo-500",
-    amber: "bg-amber-400",
-    emerald: "bg-emerald-500",
-    rose: "bg-rose-500",
-    slate: "bg-slate-400",
-    cyan: "bg-cyan-500",
-    gold: "bg-amber-400",
-  };
-  const iconBgs: Record<string, string> = {
-    indigo: "bg-indigo-600 shadow-indigo-200",
-    amber: "bg-amber-500 shadow-amber-200",
-    emerald: "bg-emerald-600 shadow-emerald-200",
-    rose: "bg-rose-600 shadow-rose-200",
-    slate: "bg-slate-600 shadow-slate-200",
-    cyan: "bg-cyan-500 shadow-cyan-200",
-    gold: "bg-amber-500 shadow-amber-200",
-  };
 
-  const glassTint: Record<string, string> = {
-    indigo: "rgba(99,102,241,0.04)",
-    amber: "rgba(245,158,11,0.04)",
-    emerald: "rgba(16,185,129,0.04)",
-    rose: "rgba(244,63,94,0.04)",
-    slate: "rgba(100,116,139,0.03)",
-    cyan: "rgba(6,182,212,0.06)",
-    gold: "rgba(245,158,11,0.04)",
+  const accentColors: Record<string, { bar: string; glow: string; tint: string; iconBg: string; iconGlow: string }> = {
+    indigo: { bar: "#6366f1", glow: "rgba(99,102,241,0.15)", tint: "rgba(99,102,241,0.025)", iconBg: "linear-gradient(135deg,#6366f1,#4f46e5)", iconGlow: "rgba(99,102,241,0.4)" },
+    amber:  { bar: "#f59e0b", glow: "rgba(245,158,11,0.15)", tint: "rgba(245,158,11,0.025)", iconBg: "linear-gradient(135deg,#f59e0b,#d97706)", iconGlow: "rgba(245,158,11,0.4)" },
+    emerald:{ bar: "#10b981", glow: "rgba(16,185,129,0.15)", tint: "rgba(16,185,129,0.025)", iconBg: "linear-gradient(135deg,#10b981,#059669)", iconGlow: "rgba(16,185,129,0.4)" },
+    rose:   { bar: "#f43f5e", glow: "rgba(244,63,94,0.15)",  tint: "rgba(244,63,94,0.025)",  iconBg: "linear-gradient(135deg,#f43f5e,#e11d48)", iconGlow: "rgba(244,63,94,0.4)" },
+    cyan:   { bar: "#06b6d4", glow: "rgba(6,182,212,0.15)",  tint: "rgba(6,182,212,0.025)",  iconBg: "linear-gradient(135deg,#06b6d4,#0891b2)", iconGlow: "rgba(6,182,212,0.4)" },
+    slate:  { bar: "#64748b", glow: "rgba(100,116,139,0.12)",tint: "rgba(100,116,139,0.02)", iconBg: "linear-gradient(135deg,#64748b,#475569)", iconGlow: "rgba(100,116,139,0.35)" },
+    gold:   { bar: "#f59e0b", glow: "rgba(245,158,11,0.15)", tint: "rgba(245,158,11,0.025)", iconBg: "linear-gradient(135deg,#fbbf24,#f59e0b)", iconGlow: "rgba(245,158,11,0.4)" },
   };
-  const tint = glassTint[tone] || glassTint.indigo;
-
-  const bar = bars[tone] || bars.indigo;
-  const iconBg = iconBgs[tone] || iconBgs.indigo;
+  const acc = accentColors[tone] || accentColors.indigo;
 
   return (
     <m.div
@@ -963,75 +1076,53 @@ function KpiCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45, delay, ease: [0.16, 1, 0.3, 1] }}
       className={[
-        "relative overflow-hidden rounded-2xl border border-white/80 p-6 transition-all",
-        clickable ? "cursor-pointer hover:shadow-xl hover:border-white group" : "hover:shadow-lg",
+        "relative overflow-hidden rounded-2xl p-6 transition-all duration-300",
+        clickable ? "cursor-pointer group" : "",
         cardClassName || "",
       ].join(" ")}
       style={{
-        background: `linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(250,252,255,0.95) 40%, ${tint
-          .replace("0.0", "0.0")
-          .replace("rgba", "rgba")} 100%)`,
-        boxShadow:
-          "0 2px 8px rgba(0,0,0,0.04), 0 8px 32px rgba(99,102,241,0.10), 0 24px 64px rgba(99,102,241,0.07), 0 1px 0 rgba(255,255,255,1) inset, 0 -1px 0 rgba(226,232,240,0.5) inset",
-        backdropFilter: "blur(20px)",
+        background: `linear-gradient(145deg, rgba(255,255,255,0.99) 0%, rgba(250,252,255,0.97) 50%, rgba(248,250,255,0.95) 100%)`,
+        border: "1px solid rgba(255,255,255,0.95)",
+        boxShadow: `0 1px 1px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.04), 0 16px 40px ${acc.glow}, 0 40px 80px ${acc.tint}, 0 0 0 1px rgba(226,232,240,0.7), 0 1px 0 rgba(255,255,255,1) inset`,
+        backdropFilter: "blur(24px) saturate(1.8)",
       }}
       role={clickable ? "button" : undefined}
       tabIndex={clickable ? 0 : undefined}
       onClick={onClick}
-      onKeyDown={(e) => {
-        if (!clickable) return;
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onClick?.();
-        }
-      }}
+      onKeyDown={(e) => { if (!clickable) return; if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick?.(); } }}
       title={tooltip || (clickable ? "Click to view details" : undefined)}
     >
-      <div
-        className={`absolute left-0 top-5 bottom-5 w-[3px] rounded-r-full ${bar}`}
-        style={{ filter: "drop-shadow(0 0 4px currentColor)" }}
-      />
+      {/* Crystal layering */}
+      <div className="absolute inset-0 rounded-2xl pointer-events-none" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.65) 0%, transparent 60%)" }} />
+      <div className="absolute top-0 inset-x-0 h-[1px] rounded-t-2xl" style={{ background: `linear-gradient(90deg, transparent, rgba(255,255,255,1) 20%, rgba(255,255,255,1) 80%, transparent)` }} />
+      <div className="absolute top-0 inset-x-0 h-20 rounded-t-2xl pointer-events-none" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.8) 0%, transparent 100%)" }} />
+      <div className="absolute top-1 left-5 right-5 h-5 rounded-full pointer-events-none" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.95) 35%, rgba(255,255,255,1) 65%, transparent)", filter: "blur(5px)" }} />
+      {/* Hover shimmer */}
+      {clickable && (
+        <div className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
+          style={{ background: `linear-gradient(135deg, ${acc.tint.replace("0.025", "0.06")} 0%, transparent 60%)` }} />
+      )}
+      {/* Accent bar */}
+      <div className="absolute left-0 top-6 bottom-6 w-[3px] rounded-r-full"
+        style={{ background: acc.bar, boxShadow: `0 0 12px ${acc.glow}, 0 0 24px ${acc.tint}` }} />
 
-      <div
-        className="absolute top-0 left-0 right-0 h-[2px] rounded-t-2xl"
-        style={{
-          background:
-            "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.9) 30%, rgba(255,255,255,1) 50%, rgba(255,255,255,0.9) 70%, transparent 100%)",
-        }}
-      />
-      <div
-        className="absolute top-0 left-0 right-0 h-14 rounded-t-2xl pointer-events-none"
-        style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.65) 0%, transparent 100%)" }}
-      />
-      <div
-        className="absolute top-2 left-4 right-4 h-6 rounded-full pointer-events-none blur-sm"
-        style={{
-          background:
-            "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.75) 40%, rgba(255,255,255,0.85) 60%, transparent 100%)",
-        }}
-      />
-
-      <div className={["outline-none pl-4", cardClassName?.includes("flex") ? "flex flex-col h-full" : ""].join(" ")}>
+      <div className="relative pl-4 flex flex-col h-full">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 mb-2">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{label}</p>
+            <div className="flex items-center gap-2 mb-2.5">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.16em]">{label}</p>
               {badge}
               {tooltip && (
-                <span
-                  className="text-[9px] text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded font-mono cursor-help"
-                  title={tooltip}
-                >
-                  i
-                </span>
+                <span className="text-[9px] text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded font-mono cursor-help" title={tooltip}>i</span>
               )}
             </div>
-            <p className="text-4xl font-bold text-slate-950 tracking-tight" style={{ fontFamily: "var(--font-mono, monospace)" }}>
+            <p className="text-[42px] font-bold text-slate-950 tracking-tight leading-none" style={{ fontFamily: "var(--font-mono, 'DM Mono', monospace)", letterSpacing: "-0.02em" }}>
               {value}
             </p>
-            {sub && <p className="text-xs text-slate-400 mt-1.5 line-clamp-2 font-medium">{sub}</p>}
+            {sub && <p className="text-xs text-slate-400 mt-2 line-clamp-2 font-medium leading-relaxed">{sub}</p>}
             {metaLine && (
-              <div className="mt-3 inline-flex items-center gap-2 text-xs text-slate-500 bg-slate-50/80 border border-slate-200/80 px-2.5 py-1.5 rounded-lg backdrop-blur-sm">
+              <div className="mt-3.5 inline-flex items-center gap-2 text-xs text-slate-500 bg-white/70 border border-slate-200/70 px-2.5 py-1.5 rounded-lg"
+                style={{ backdropFilter: "blur(8px)", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
                 {metaIcon && <span className="text-slate-400">{metaIcon}</span>}
                 <span className="truncate">{metaLine}</span>
               </div>
@@ -1041,9 +1132,8 @@ function KpiCard({
           {rightVisual ? (
             <div className="shrink-0">{rightVisual}</div>
           ) : (
-            <div
-              className={`shrink-0 flex items-center justify-center w-11 h-11 rounded-xl ${iconBg} text-white shadow-lg transition-transform group-hover:scale-110`}
-            >
+            <div className="shrink-0 flex items-center justify-center w-12 h-12 rounded-xl text-white transition-transform duration-300 group-hover:scale-110"
+              style={{ background: acc.iconBg, boxShadow: `0 4px 12px ${acc.iconGlow}, 0 1px 0 rgba(255,255,255,0.2) inset` }}>
               {icon}
             </div>
           )}
@@ -1054,36 +1144,32 @@ function KpiCard({
   );
 }
 
-/* ── Portfolio Health Ring ── */
+/* ── CRYSTAL Portfolio Health Ring ── */
 function PortfolioHealthRing({ score, rag }: { score: number; rag: RagLetter }) {
   const s = clamp01to100(score);
   const r = 22;
   const c = 2 * Math.PI * r;
   const dash = (s / 100) * c;
   const color = ragStrokeColor(rag);
+  const glowColor = rag === "G" ? "rgba(16,185,129,0.3)" : rag === "A" ? "rgba(245,158,11,0.3)" : "rgba(244,63,94,0.3)";
   return (
     <div className="shrink-0 relative">
-      <div className="h-16 w-16">
+      <div className="h-16 w-16 relative">
+        <div className="absolute inset-0 rounded-full" style={{ boxShadow: `0 0 20px ${glowColor}` }} />
         <svg viewBox="0 0 56 56" className="h-full w-full -rotate-90">
-          <circle cx="28" cy="28" r={r} stroke="#e7e5e4" strokeWidth="5" fill="none" />
+          <circle cx="28" cy="28" r={r} stroke="#e7e5e4" strokeWidth="4.5" fill="none" opacity="0.6" />
+          <circle cx="28" cy="28" r={r} stroke="rgba(255,255,255,0.4)" strokeWidth="1" fill="none" />
           <m.circle
-            cx="28"
-            cy="28"
-            r={r}
-            stroke={color}
-            strokeWidth="5"
-            fill="none"
-            strokeLinecap="round"
+            cx="28" cy="28" r={r}
+            stroke={color} strokeWidth="4.5" fill="none" strokeLinecap="round"
             initial={{ strokeDasharray: `0 ${c}` }}
             animate={{ strokeDasharray: `${dash} ${c}` }}
-            transition={{ duration: 1.2, ease: "easeOut" }}
-            style={{ filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.1))" }}
+            transition={{ duration: 1.4, ease: [0.34, 1.56, 0.64, 1] }}
+            style={{ filter: `drop-shadow(0 0 6px ${color})` }}
           />
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-sm font-bold text-slate-800" style={{ fontFamily: "var(--font-mono, monospace)" }}>
-            {s}%
-          </span>
+          <span className="text-sm font-bold text-slate-800" style={{ fontFamily: "var(--font-mono, monospace)" }}>{s}%</span>
         </div>
       </div>
     </div>
@@ -1091,34 +1177,27 @@ function PortfolioHealthRing({ score, rag }: { score: number; rag: RagLetter }) 
 }
 
 /* ── Portfolio Health Drivers ── */
-function PortfolioHealthDrivers({
-  parts,
-  drivers,
-}: {
+function PortfolioHealthDrivers({ parts, drivers }: {
   parts: { schedule: number; raid: number; flow: number; approvals: number; activity: number };
   drivers: PortfolioHealthDriver[];
 }) {
   const partPill = (label: string, v: number) => {
     const score = clamp01to100(v);
-    const color =
-      score >= 85
-        ? "text-emerald-700 bg-emerald-50 border-emerald-200"
-        : score >= 70
-        ? "text-indigo-700 bg-indigo-50 border-indigo-200"
-        : score >= 55
-        ? "text-amber-700 bg-amber-50 border-amber-200"
-        : "text-rose-700 bg-rose-50 border-rose-200";
+    const [bg, bar] = score >= 85 ? ["bg-emerald-50 border-emerald-200 text-emerald-700", "#10b981"]
+      : score >= 70 ? ["bg-indigo-50 border-indigo-200 text-indigo-700", "#6366f1"]
+      : score >= 55 ? ["bg-amber-50 border-amber-200 text-amber-700", "#f59e0b"]
+      : ["bg-rose-50 border-rose-200 text-rose-700", "#f43f5e"];
     return (
-      <div className={`flex items-center justify-between rounded-lg border px-3 py-2 text-xs ${color}`}>
-        <span className="font-semibold">{label}</span>
-        <span className="font-bold" style={{ fontFamily: "var(--font-mono, monospace)" }}>
-          {score}
-        </span>
+      <div className={`relative overflow-hidden flex items-center justify-between rounded-xl border px-3 py-2.5 text-xs ${bg}`}
+        style={{ backdropFilter: "blur(8px)" }}>
+        <div className="absolute bottom-0 left-0 h-0.5 rounded-full" style={{ width: `${score}%`, background: bar, boxShadow: `0 0 4px ${bar}` }} />
+        <span className="font-semibold relative">{label}</span>
+        <span className="font-bold relative" style={{ fontFamily: "var(--font-mono, monospace)" }}>{score}</span>
       </div>
     );
   };
   return (
-    <div className="space-y-2 mt-4 pt-4 border-t border-slate-100">
+    <div className="space-y-2 mt-4 pt-4 border-t border-slate-100/80">
       <div className="text-[10px] font-bold text-slate-400 mb-3 uppercase tracking-widest">Health Drivers</div>
       <div className="grid grid-cols-2 gap-2">
         {partPill("Schedule", num(parts?.schedule))}
@@ -1131,20 +1210,9 @@ function PortfolioHealthDrivers({
 }
 
 /* ── Success Story Meta ── */
-function SuccessStoryMeta({
-  meta,
-  loading,
-  displayTotal,
-}: {
-  meta: {
-    milestones_completed?: number;
-    raid_closed?: number;
-    changes_implemented?: number;
-    wbs_done?: number;
-    lessons_published?: number;
-  };
-  loading: boolean;
-  displayTotal: number;
+function SuccessStoryMeta({ meta, loading, displayTotal }: {
+  meta: { milestones_completed?: number; raid_closed?: number; changes_implemented?: number; wbs_done?: number; lessons_published?: number };
+  loading: boolean; displayTotal: number;
 }) {
   const milestones = num(meta.milestones_completed);
   const raid = num(meta.raid_closed);
@@ -1162,10 +1230,11 @@ function SuccessStoryMeta({
     { label: "Other", value: other },
   ];
   return (
-    <div className="border-t border-slate-100 pt-4">
+    <div className="border-t border-slate-100/80 pt-4">
       <div className="grid grid-cols-3 gap-2">
         {stats.map((stat) => (
-          <div key={stat.label} className="text-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+          <div key={stat.label} className="text-center p-2 rounded-xl bg-white/60 border border-slate-100"
+            style={{ backdropFilter: "blur(8px)", boxShadow: "0 1px 3px rgba(0,0,0,0.03)" }}>
             <div className="text-lg font-bold text-slate-800" style={{ fontFamily: "var(--font-mono, monospace)" }}>
               {loading ? "…" : stat.value}
             </div>
@@ -1177,33 +1246,42 @@ function SuccessStoryMeta({
   );
 }
 
-/* ── AI Alert ── */
+/* ── CRYSTAL AI Alert ── */
 function AiAlert({ severity, title, body, href }: { severity: "high" | "medium" | "info"; title: string; body: string; href?: string }) {
   const cfg = {
     high: {
-      wrap: "border-rose-200 bg-rose-50/80 hover:border-rose-300",
-      icon: "bg-rose-100 border-rose-200 text-rose-600",
+      wrap: "border-rose-200/70 hover:border-rose-300",
+      bg: "linear-gradient(135deg, rgba(255,241,242,0.9) 0%, rgba(255,228,230,0.7) 100%)",
+      icon: "bg-rose-100/80 border-rose-200/60 text-rose-600",
       pill: "bg-rose-100 border-rose-200 text-rose-700",
       label: "Critical",
+      glow: "rgba(244,63,94,0.08)",
     },
     medium: {
-      wrap: "border-amber-200 bg-amber-50/80 hover:border-amber-300",
-      icon: "bg-amber-100 border-amber-200 text-amber-600",
+      wrap: "border-amber-200/70 hover:border-amber-300",
+      bg: "linear-gradient(135deg, rgba(255,251,235,0.9) 0%, rgba(254,243,199,0.7) 100%)",
+      icon: "bg-amber-100/80 border-amber-200/60 text-amber-600",
       pill: "bg-amber-100 border-amber-200 text-amber-700",
       label: "Warning",
+      glow: "rgba(245,158,11,0.08)",
     },
     info: {
-      wrap: "border-indigo-100 bg-indigo-50/50 hover:border-indigo-200",
-      icon: "bg-indigo-100 border-indigo-200 text-indigo-600",
+      wrap: "border-indigo-100/80 hover:border-indigo-200",
+      bg: "linear-gradient(135deg, rgba(238,242,255,0.85) 0%, rgba(224,231,255,0.65) 100%)",
+      icon: "bg-indigo-100/80 border-indigo-200/60 text-indigo-600",
       pill: "bg-indigo-100 border-indigo-200 text-indigo-700",
       label: "Info",
+      glow: "rgba(99,102,241,0.06)",
     },
   }[severity];
   const Icon = severity === "info" ? Sparkles : AlertTriangle;
   return (
-    <div className={`group rounded-xl border p-4 transition-all ${cfg.wrap}`}>
+    <div className={`group relative overflow-hidden rounded-xl border p-4 transition-all`}
+      style={{ background: cfg.bg, borderColor: severity === "high" ? "rgba(254,202,202,0.8)" : severity === "medium" ? "rgba(253,230,138,0.8)" : "rgba(199,210,254,0.8)", boxShadow: `0 2px 8px ${cfg.glow}, 0 1px 0 rgba(255,255,255,0.8) inset`, backdropFilter: "blur(12px)" }}>
+      <div className="absolute top-0 inset-x-0 h-px" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.9), transparent)" }} />
       <div className="flex items-start gap-3">
-        <div className={`shrink-0 flex h-9 w-9 items-center justify-center rounded-xl border ${cfg.icon}`}>
+        <div className={`shrink-0 flex h-9 w-9 items-center justify-center rounded-xl border ${cfg.icon}`}
+          style={{ boxShadow: "0 2px 6px rgba(0,0,0,0.06), 0 1px 0 rgba(255,255,255,0.8) inset" }}>
           <Icon className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
@@ -1215,10 +1293,7 @@ function AiAlert({ severity, title, body, href }: { severity: "high" | "medium" 
               <h4 className="font-semibold text-sm text-slate-800">{title}</h4>
             </div>
             {href && (
-              <a
-                href={href}
-                className="shrink-0 text-[11px] text-indigo-600 hover:text-indigo-700 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all font-semibold"
-              >
+              <a href={href} className="shrink-0 text-[11px] text-indigo-600 hover:text-indigo-700 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all font-semibold">
                 View <ArrowUpRight className="h-3 w-3" />
               </a>
             )}
@@ -1238,10 +1313,11 @@ function MilestonesMeta({ loading, panel }: { loading: boolean; panel: Milestone
     { label: "Overdue", value: num(panel?.overdue_count), cls: "text-rose-600" },
   ];
   return (
-    <div className="mt-4 pt-4 border-t border-slate-100">
+    <div className="mt-4 pt-4 border-t border-slate-100/80">
       <div className="flex items-center justify-between gap-2">
         {stats.map((stat) => (
-          <div key={stat.label} className="text-center flex-1 py-2 rounded-lg bg-slate-50 border border-slate-100">
+          <div key={stat.label} className="text-center flex-1 py-2.5 rounded-xl bg-white/60 border border-slate-100"
+            style={{ backdropFilter: "blur(8px)", boxShadow: "0 1px 3px rgba(0,0,0,0.03), 0 1px 0 rgba(255,255,255,0.9) inset" }}>
             <div className={`text-xl font-bold ${stat.cls}`} style={{ fontFamily: "var(--font-mono, monospace)" }}>
               {loading ? "…" : stat.value}
             </div>
@@ -1254,13 +1330,8 @@ function MilestonesMeta({ loading, panel }: { loading: boolean; panel: Milestone
 }
 
 /* ── RAID Meta ── */
-function RaidMeta({
-  loading,
-  panel,
-  onClickType,
-}: {
-  loading: boolean;
-  panel: RaidPanel | null;
+function RaidMeta({ loading, panel, onClickType }: {
+  loading: boolean; panel: RaidPanel | null;
   onClickType: (type?: "Risk" | "Issue" | "Dependency" | "Assumption", extra?: { overdue?: boolean; hi?: boolean }) => void;
 }) {
   const riskVal = num(panel?.risk_due);
@@ -1272,17 +1343,15 @@ function RaidMeta({
   const typedSum = riskVal + issueVal + depVal + assVal;
   const hasTypedBreakdown = typedSum > 0;
   return (
-    <div className="mt-4 pt-4 border-t border-slate-100">
+    <div className="mt-4 pt-4 border-t border-slate-100/80">
       {!hasTypedBreakdown ? (
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onClickType(undefined, { hi: false });
-          }}
-          className="w-full rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300 transition-all px-3 py-3 flex items-center justify-between"
+          onClick={(e) => { e.stopPropagation(); onClickType(undefined, { hi: false }); }}
+          className="w-full rounded-xl border border-slate-200/80 bg-white/60 hover:bg-white/90 transition-all px-3 py-3 flex items-center justify-between"
+          style={{ backdropFilter: "blur(8px)", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}
         >
           <div className="flex items-center gap-2">
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-rose-50 border border-rose-200">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-rose-50/80 border border-rose-200/60">
               <AlertTriangle className="h-4 w-4 text-rose-600" />
             </span>
             <div className="text-left">
@@ -1295,22 +1364,20 @@ function RaidMeta({
           </div>
         </button>
       ) : (
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-4 gap-1.5">
           {[
-            { label: "Risk", value: riskVal, type: "Risk" as const, cls: "text-rose-600" },
-            { label: "Issue", value: issueVal, type: "Issue" as const, cls: "text-amber-600" },
-            { label: "Dep", value: depVal, type: "Dependency" as const, cls: "text-indigo-600" },
-            { label: "Assum", value: assVal, type: "Assumption" as const, cls: "text-slate-600" },
+            { label: "Risk", value: riskVal, type: "Risk" as const, accent: "#f43f5e", bg: "rgba(254,242,242,0.8)" },
+            { label: "Issue", value: issueVal, type: "Issue" as const, accent: "#f59e0b", bg: "rgba(255,251,235,0.8)" },
+            { label: "Dep", value: depVal, type: "Dependency" as const, accent: "#6366f1", bg: "rgba(238,242,255,0.8)" },
+            { label: "Assum", value: assVal, type: "Assumption" as const, accent: "#64748b", bg: "rgba(248,250,252,0.8)" },
           ].map((item) => (
             <button
               key={item.label}
-              onClick={(e) => {
-                e.stopPropagation();
-                onClickType(item.type, { hi: false });
-              }}
-              className="text-center p-2 rounded-xl bg-slate-50 border border-slate-200 hover:bg-slate-100 hover:border-slate-300 transition-all"
+              onClick={(e) => { e.stopPropagation(); onClickType(item.type, { hi: false }); }}
+              className="text-center p-2.5 rounded-xl border border-slate-200/70 hover:border-slate-300 transition-all"
+              style={{ background: item.bg, backdropFilter: "blur(8px)", boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 1px 0 rgba(255,255,255,0.9) inset" }}
             >
-              <div className={`text-lg font-bold ${item.cls}`} style={{ fontFamily: "var(--font-mono, monospace)" }}>
+              <div className="text-lg font-bold" style={{ color: item.accent, fontFamily: "var(--font-mono, monospace)" }}>
                 {loading ? "…" : item.value}
               </div>
               <div className="text-[9px] uppercase tracking-widest text-slate-400 mt-0.5 font-bold">{item.label}</div>
@@ -1319,11 +1386,9 @@ function RaidMeta({
         </div>
       )}
       <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onClickType(undefined, { overdue: true });
-        }}
-        className="mt-2 w-full rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 hover:border-rose-300 transition-all px-3 py-2.5 flex items-center justify-between"
+        onClick={(e) => { e.stopPropagation(); onClickType(undefined, { overdue: true }); }}
+        className="mt-2 w-full rounded-xl border border-rose-200/70 hover:border-rose-300 transition-all px-3 py-2.5 flex items-center justify-between"
+        style={{ background: "linear-gradient(135deg, rgba(255,241,242,0.9), rgba(255,228,230,0.7))", backdropFilter: "blur(8px)", boxShadow: "0 1px 3px rgba(244,63,94,0.08), 0 1px 0 rgba(255,255,255,0.8) inset" }}
       >
         <div className="flex items-center gap-2">
           <Clock3 className="h-3.5 w-3.5 text-rose-500" />
@@ -1337,68 +1402,43 @@ function RaidMeta({
   );
 }
 
-/* ── Project Tile ── */
-function ProjectTile({
-  projectRef,
-  title,
-  subtitle = "RAID · Changes · Lessons · Reporting",
-  projectCode,
-  clientName,
-}: {
-  projectRef: string;
-  title: string;
-  subtitle?: string;
-  projectCode?: string;
-  clientName?: string;
+/* ── CRYSTAL Project Tile ── */
+function ProjectTile({ projectRef, title, subtitle = "RAID · Changes · Lessons · Reporting", projectCode, clientName }: {
+  projectRef: string; title: string; subtitle?: string; projectCode?: string; clientName?: string;
 }) {
   const router = useRouter();
-  function go() {
-    if (!projectRef) return;
-    router.push(`/projects/${encodeURIComponent(projectRef)}`);
-  }
+  function go() { if (!projectRef) return; router.push(`/projects/${encodeURIComponent(projectRef)}`); }
   const code = safeStr(projectCode).trim();
   const client = safeStr(clientName).trim();
   return (
     <m.div
-      role="link"
-      tabIndex={0}
+      role="link" tabIndex={0}
       onClick={go}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          go();
-        }
-      }}
-      whileHover={{ y: -2, transition: { duration: 0.18 } }}
-      className="cursor-pointer rounded-xl border border-white/80 bg-white p-5 hover:border-indigo-200 hover:shadow-lg transition-all relative overflow-hidden group"
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } }}
+      whileHover={{ y: -3, transition: { duration: 0.2 } }}
+      className="cursor-pointer rounded-xl p-5 transition-all duration-300 relative overflow-hidden group"
       style={{
-        background: "linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(248,250,255,0.95) 100%)",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.04), 0 4px 24px rgba(99,102,241,0.06), 0 1px 0 rgba(255,255,255,1) inset",
-        backdropFilter: "blur(12px)",
+        background: "linear-gradient(145deg, rgba(255,255,255,0.99) 0%, rgba(248,250,255,0.97) 100%)",
+        border: "1px solid rgba(226,232,240,0.8)",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.03), 0 4px 16px rgba(99,102,241,0.06), 0 1px 0 rgba(255,255,255,1) inset",
+        backdropFilter: "blur(16px)",
       }}
     >
-      <div
-        className="absolute top-0 left-0 right-0 h-[2px] rounded-t-xl"
-        style={{
-          background:
-            "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.85) 40%, rgba(255,255,255,1) 50%, rgba(255,255,255,0.85) 60%, transparent 100%)",
-        }}
-      />
-      <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/0 to-indigo-50/0 group-hover:from-indigo-50/50 group-hover:to-violet-50/20 transition-all duration-300 rounded-xl" />
+      <div className="absolute top-0 inset-x-0 h-px rounded-t-xl" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.95) 30%, rgba(255,255,255,1) 70%, transparent)" }} />
+      <div className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
+        style={{ background: "linear-gradient(135deg, rgba(238,242,255,0.5) 0%, rgba(224,231,255,0.3) 100%)", boxShadow: "0 4px 24px rgba(99,102,241,0.1)" }} />
       <div className="relative">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-2.5 flex-wrap">
               {code && (
-                <span
-                  className="inline-flex items-center rounded-md bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-[10px] font-bold text-indigo-700 uppercase tracking-wider"
-                  style={{ fontFamily: "var(--font-mono, monospace)" }}
-                >
+                <span className="inline-flex items-center rounded-md bg-indigo-50/80 border border-indigo-200/60 px-2 py-0.5 text-[10px] font-bold text-indigo-700 uppercase tracking-wider"
+                  style={{ fontFamily: "var(--font-mono, monospace)", backdropFilter: "blur(4px)" }}>
                   {code}
                 </span>
               )}
               {client && (
-                <span className="inline-flex items-center rounded-md bg-slate-100 border border-slate-200 px-2 py-0.5 text-[10px] text-slate-500 font-medium">
+                <span className="inline-flex items-center rounded-md bg-slate-100/70 border border-slate-200/60 px-2 py-0.5 text-[10px] text-slate-500 font-medium">
                   {client}
                 </span>
               )}
@@ -1407,12 +1447,12 @@ function ProjectTile({
             <p className="text-[11px] text-slate-400 mt-1.5 font-medium">{subtitle}</p>
           </div>
           <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-all duration-200">
-            <div className="h-7 w-7 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center">
+            <div className="h-7 w-7 rounded-lg bg-indigo-50/80 border border-indigo-200/60 flex items-center justify-center"
+              style={{ backdropFilter: "blur(4px)" }}>
               <ArrowUpRight className="h-3.5 w-3.5 text-indigo-600" />
             </div>
           </div>
         </div>
-        <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-indigo-300/0 to-transparent group-hover:via-indigo-300/50 transition-all duration-300" />
       </div>
     </m.div>
   );
@@ -1424,9 +1464,7 @@ export default function HomePage({ data }: { data: HomeData }) {
   const ok = data?.ok === true;
   const isExec = ok ? data.isExec : false;
   const projects = ok ? data.projects : [];
-  const kpis = ok
-    ? data.kpis
-    : { portfolioHealth: 0, openRisks: 0, highRisks: 0, forecastVariance: 0, milestonesDue: 0, openLessons: 0 };
+  const kpis = ok ? data.kpis : { portfolioHealth: 0, openRisks: 0, highRisks: 0, forecastVariance: 0, milestonesDue: 0, openLessons: 0 };
   const approvals = ok ? data.approvals : { count: 0, items: [] };
   const rag = ok ? data.rag || [] : [];
 
@@ -1469,24 +1507,13 @@ export default function HomePage({ data }: { data: HomeData }) {
   const [dueErr, setDueErr] = useState("");
   const [dueItems, setDueItems] = useState<DueDigestItem[]>([]);
   const [dueCounts, setDueCounts] = useState<{ total: number; milestone: number; work_item: number; raid: number; artifact: number; change: number }>({
-    total: 0,
-    milestone: 0,
-    work_item: 0,
-    raid: 0,
-    artifact: 0,
-    change: 0,
+    total: 0, milestone: 0, work_item: 0, raid: 0, artifact: 0, change: 0,
   });
   const [dueUpdatedAt, setDueUpdatedAt] = useState<string>("");
 
-  useEffect(() => {
-    setApprovalItems(Array.isArray(approvals.items) ? approvals.items : []);
-  }, [ok, approvals.items]);
-  useEffect(() => {
-    setToday(new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" }));
-  }, []);
-  useEffect(() => {
-    setShowPhDetails(false);
-  }, [windowDays]);
+  useEffect(() => { setApprovalItems(Array.isArray(approvals.items) ? approvals.items : []); }, [ok, approvals.items]);
+  useEffect(() => { setToday(new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" })); }, []);
+  useEffect(() => { setShowPhDetails(false); }, [windowDays]);
 
   useEffect(() => {
     if (!ok || !isExec) return;
@@ -1494,24 +1521,18 @@ export default function HomePage({ data }: { data: HomeData }) {
     runIdle(() => {
       (async () => {
         try {
-          setPhLoading(true);
-          setPhErr("");
+          setPhLoading(true); setPhErr("");
           const j = await fetchJson<PortfolioHealthApi>(`/api/portfolio/health?days=${windowDays}`, { cache: "no-store" });
           if (!j || !j.ok) throw new Error((j as any)?.error || "Failed");
           if (!cancelled) setPhData(j);
         } catch (e: any) {
-          if (!cancelled) {
-            setPhErr(e?.message || "Failed");
-            setPhData(null);
-          }
+          if (!cancelled) { setPhErr(e?.message || "Failed"); setPhData(null); }
         } finally {
           if (!cancelled) setPhLoading(false);
         }
       })();
     });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [ok, isExec, windowDays]);
 
   useEffect(() => {
@@ -1521,24 +1542,18 @@ export default function HomePage({ data }: { data: HomeData }) {
     runIdle(() => {
       (async () => {
         try {
-          setPhPrevLoading(true);
-          setPhPrevErr("");
+          setPhPrevLoading(true); setPhPrevErr("");
           const j = await fetchJson<PortfolioHealthApi>(`/api/portfolio/health?days=${prev}`, { cache: "no-store" });
           if (!j || !j.ok) throw new Error((j as any)?.error || "Failed");
           if (!cancelled) setPhPrevScore(clamp01to100((j as any).portfolio_health));
         } catch (e: any) {
-          if (!cancelled) {
-            setPhPrevErr(e?.message || "Unavail");
-            setPhPrevScore(null);
-          }
+          if (!cancelled) { setPhPrevErr(e?.message || "Unavail"); setPhPrevScore(null); }
         } finally {
           if (!cancelled) setPhPrevLoading(false);
         }
       })();
     });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [ok, isExec, numericWindowDays]);
 
   useEffect(() => {
@@ -1546,70 +1561,45 @@ export default function HomePage({ data }: { data: HomeData }) {
     runIdle(() => {
       (async () => {
         try {
-          setInsightsLoading(true);
-          setInsightsErr("");
+          setInsightsLoading(true); setInsightsErr("");
           const j: any = await fetchJson(`/api/ai/briefing?days=${numericWindowDays}`, { cache: "no-store" });
           if (!j?.ok) throw new Error(j?.error || "Failed");
-          if (!cancelled)
-            setInsights(orderBriefingInsights(Array.isArray(j?.insights) ? (j.insights as Insight[]) : []));
+          if (!cancelled) setInsights(orderBriefingInsights(Array.isArray(j?.insights) ? (j.insights as Insight[]) : []));
         } catch (e: any) {
-          if (!cancelled) {
-            setInsightsErr(e?.message || "Failed");
-            setInsights([]);
-          }
+          if (!cancelled) { setInsightsErr(e?.message || "Failed"); setInsights([]); }
         } finally {
           if (!cancelled) setInsightsLoading(false);
         }
       })();
     });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [numericWindowDays]);
 
-  // ✅ FIX: support both summary API shapes and compute delta client-side
   useEffect(() => {
     if (!ok || !isExec) return;
     let cancelled = false;
-
     const curDays = numericWindowDays;
     const prevDays = prevWindowDays(curDays);
-
     runIdle(() => {
       (async () => {
         try {
-          setSsLoading(true);
-          setSsErr("");
-
+          setSsLoading(true); setSsErr("");
           const [curRaw, prevRaw] = await Promise.all([
             fetchJson<any>(`/api/success-stories/summary?days=${curDays}`, { cache: "no-store" }),
             fetchJson<any>(`/api/success-stories/summary?days=${prevDays}`, { cache: "no-store" }),
           ]);
-
           if (!curRaw || curRaw?.ok !== true) throw new Error(curRaw?.error || "Failed");
-
-          const prevScore =
-            prevRaw?.ok === true
-              ? clamp01to100(Number(prevRaw?.score ?? prevRaw?.summary?.score ?? 0))
-              : 0;
-
+          const prevScore = prevRaw?.ok === true ? clamp01to100(Number(prevRaw?.score ?? prevRaw?.summary?.score ?? 0)) : 0;
           const normalized = normalizeSuccessSummary(curRaw, curDays, prevScore);
-
           if (!cancelled) setSsSummary(normalized);
         } catch (e: any) {
-          if (!cancelled) {
-            setSsErr(e?.message || "Failed");
-            setSsSummary(null);
-          }
+          if (!cancelled) { setSsErr(e?.message || "Failed"); setSsSummary(null); }
         } finally {
           if (!cancelled) setSsLoading(false);
         }
       })();
     });
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [ok, isExec, numericWindowDays]);
 
   useEffect(() => setSsIdx(0), [numericWindowDays]);
@@ -1650,20 +1640,14 @@ export default function HomePage({ data }: { data: HomeData }) {
       });
       alert(e?.message || "Decision failed");
     } finally {
-      setPendingIds((p) => {
-        const next = { ...p };
-        delete next[taskId];
-        return next;
-      });
+      setPendingIds((p) => { const next = { ...p }; delete next[taskId]; return next; });
     }
   }
 
   function viewHref(item: any) {
     const projectRef =
-      safeStr(item?.project_code) ||
-      safeStr(item?.project_human_id) ||
-      safeStr(item?.project?.project_code) ||
-      safeStr(item?.project?.project_human_id) ||
+      safeStr(item?.project_code) || safeStr(item?.project_human_id) ||
+      safeStr(item?.project?.project_code) || safeStr(item?.project?.project_human_id) ||
       safeStr(item?.project_id || item?.change?.project_id);
     const changeId = safeStr(item?.change_id || item?.change?.id);
     if (projectRef && changeId) return `/projects/${encodeURIComponent(projectRef)}/change/${encodeURIComponent(changeId)}`;
@@ -1711,9 +1695,7 @@ export default function HomePage({ data }: { data: HomeData }) {
         }
       })();
     });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [ok, isExec, projectIdsKey, numericWindowDays]);
 
   useEffect(() => {
@@ -1736,42 +1718,21 @@ export default function HomePage({ data }: { data: HomeData }) {
               return (j.panel ?? null) as MilestonesPanel | null;
             })
           );
-          let due = 0,
-            overdue = 0,
-            onTrack = 0,
-            aiHigh = 0,
-            planned = 0,
-            inProg = 0,
-            atRisk = 0,
-            completed = 0,
-            slipSum = 0,
-            slipCount = 0,
-            maxSlip = 0;
+          let due = 0, overdue = 0, onTrack = 0, aiHigh = 0, planned = 0, inProg = 0, atRisk = 0, completed = 0, slipSum = 0, slipCount = 0, maxSlip = 0;
           for (const res of results) {
             if (res.status !== "fulfilled" || !res.value) continue;
             const p = res.value;
-            due += num(p.due_count);
-            overdue += num(p.overdue_count);
-            onTrack += num(p.on_track_count);
-            aiHigh += num(p.ai_high_risk_count);
-            planned += num(p.status_breakdown?.planned);
-            inProg += num(p.status_breakdown?.in_progress);
-            atRisk += num(p.status_breakdown?.at_risk);
+            due += num(p.due_count); overdue += num(p.overdue_count); onTrack += num(p.on_track_count);
+            aiHigh += num(p.ai_high_risk_count); planned += num(p.status_breakdown?.planned);
+            inProg += num(p.status_breakdown?.in_progress); atRisk += num(p.status_breakdown?.at_risk);
             completed += num(p.status_breakdown?.completed);
-            const avg = p.slippage?.avg_slip_days;
-            const mx = p.slippage?.max_slip_days;
-            if (Number.isFinite(Number(avg))) {
-              slipSum += Number(avg);
-              slipCount += 1;
-            }
+            const avg = p.slippage?.avg_slip_days; const mx = p.slippage?.max_slip_days;
+            if (Number.isFinite(Number(avg))) { slipSum += Number(avg); slipCount += 1; }
             if (Number.isFinite(Number(mx))) maxSlip = Math.max(maxSlip, Number(mx));
           }
           if (!cancelled)
             setMilestonesPanel({
-              days: numericWindowDays,
-              due_count: due,
-              overdue_count: overdue,
-              on_track_count: onTrack,
+              days: numericWindowDays, due_count: due, overdue_count: overdue, on_track_count: onTrack,
               ai_high_risk_count: aiHigh,
               status_breakdown: { planned, in_progress: inProg, at_risk: atRisk, completed, overdue },
               slippage: { avg_slip_days: slipCount ? Math.round((slipSum / slipCount) * 10) / 10 : 0, max_slip_days: maxSlip },
@@ -1783,31 +1744,20 @@ export default function HomePage({ data }: { data: HomeData }) {
         }
       })();
     });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [ok, isExec, projectIdsKey, numericWindowDays]);
 
   useEffect(() => {
     if (!ok || !isExec) return;
     let cancelled = false;
     const pickFirstFinite = (obj: any, keys: string[]) => {
-      for (const k of keys) {
-        const v = obj?.[k];
-        if (Number.isFinite(Number(v))) return num(v);
-      }
+      for (const k of keys) { const v = obj?.[k]; if (Number.isFinite(Number(v))) return num(v); }
       return undefined;
     };
     const parseType = (t: any) => String(t || "").toLowerCase().trim();
     const parseDueIso = (row: any) =>
-      safeStr(row?.due) ||
-      safeStr(row?.due_date) ||
-      safeStr(row?.dueDate) ||
-      safeStr(row?.due_at) ||
-      safeStr(row?.dueAt) ||
-      safeStr(row?.target_date) ||
-      safeStr(row?.targetDate) ||
-      "";
+      safeStr(row?.due) || safeStr(row?.due_date) || safeStr(row?.dueDate) ||
+      safeStr(row?.due_at) || safeStr(row?.dueAt) || safeStr(row?.target_date) || safeStr(row?.targetDate) || "";
     const isRowClosed = (row: any) => {
       const s = String(row?.status || row?.state || "").toLowerCase();
       return s.includes("closed") || s.includes("resolved") || s.includes("done") || s.includes("complete");
@@ -1820,34 +1770,18 @@ export default function HomePage({ data }: { data: HomeData }) {
           if (!j?.ok) return;
           const p = j?.panel ?? null;
           if (cancelled) return;
-          if (!p) {
-            setRaidPanel(null);
-            return;
-          }
+          if (!p) { setRaidPanel(null); return; }
           const risk_due = pickFirstFinite(p, ["risk_due", "risks_due", "due_risk", "due_risks", "riskDue", "risk_due_count"]) ?? undefined;
           const issue_due = pickFirstFinite(p, ["issue_due", "issues_due", "due_issue", "due_issues", "issueDue", "issue_due_count"]) ?? undefined;
-          const dependency_due =
-            pickFirstFinite(p, ["dependency_due", "dependencies_due", "dep_due", "deps_due", "due_dependency", "due_deps", "dependencyDue"]) ?? undefined;
+          const dependency_due = pickFirstFinite(p, ["dependency_due", "dependencies_due", "dep_due", "deps_due", "due_dependency", "due_deps", "dependencyDue"]) ?? undefined;
           const assumption_due = pickFirstFinite(p, ["assumption_due", "assumptions_due", "due_assumption", "due_assumptions"]) ?? undefined;
           const overdue_total_api = num(p?.overdue_total);
           const due_total_api = num(p?.due_total);
-
-          let dRisk = 0,
-            dIssue = 0,
-            dDep = 0,
-            dAss = 0,
-            ovRisk = 0,
-            ovIssue = 0,
-            ovDep = 0,
-            ovAss = 0;
-
+          let dRisk = 0, dIssue = 0, dDep = 0, dAss = 0, ovRisk = 0, ovIssue = 0, ovDep = 0, ovAss = 0;
           const items = Array.isArray(p?.items) ? p.items : Array.isArray(j?.items) ? j.items : null;
           const missingTyped =
-            !Number.isFinite(Number(risk_due)) ||
-            !Number.isFinite(Number(issue_due)) ||
-            !Number.isFinite(Number(dependency_due)) ||
-            !Number.isFinite(Number(assumption_due));
-
+            !Number.isFinite(Number(risk_due)) || !Number.isFinite(Number(issue_due)) ||
+            !Number.isFinite(Number(dependency_due)) || !Number.isFinite(Number(assumption_due));
           if (missingTyped && Array.isArray(items) && items.length) {
             const now = Date.now();
             const windowEnd = now + numericWindowDays * 86400_000;
@@ -1873,32 +1807,20 @@ export default function HomePage({ data }: { data: HomeData }) {
               }
             }
           }
-
           const finalRiskDue = Number.isFinite(Number(risk_due)) ? num(risk_due) : dRisk;
           const finalIssueDue = Number.isFinite(Number(issue_due)) ? num(issue_due) : dIssue;
           const finalDepDue = Number.isFinite(Number(dependency_due)) ? num(dependency_due) : dDep;
           const finalAssDue = Number.isFinite(Number(assumption_due)) ? num(assumption_due) : dAss;
-
           const due_total_from_types = finalRiskDue + finalIssueDue + finalDepDue + finalAssDue;
           const due_total = due_total_from_types > 0 ? due_total_from_types : due_total_api;
           const overdue_total = overdue_total_api > 0 ? overdue_total_api : ovRisk + ovIssue + ovDep + ovAss;
-
           setRaidPanel({
-            days: num(p.days, numericWindowDays),
-            due_total,
-            overdue_total,
-            risk_due: finalRiskDue,
-            issue_due: finalIssueDue,
-            dependency_due: finalDepDue,
-            assumption_due: finalAssDue,
-            risk_overdue: ovRisk || undefined,
-            issue_overdue: ovIssue || undefined,
-            dependency_overdue: ovDep || undefined,
-            assumption_overdue: ovAss || undefined,
-            risk_hi: num(p?.risk_hi),
-            issue_hi: num(p?.issue_hi),
-            dependency_hi: num(p?.dependency_hi),
-            assumption_hi: num(p?.assumption_hi),
+            days: num(p.days, numericWindowDays), due_total, overdue_total,
+            risk_due: finalRiskDue, issue_due: finalIssueDue, dependency_due: finalDepDue, assumption_due: finalAssDue,
+            risk_overdue: ovRisk || undefined, issue_overdue: ovIssue || undefined,
+            dependency_overdue: ovDep || undefined, assumption_overdue: ovAss || undefined,
+            risk_hi: num(p?.risk_hi), issue_hi: num(p?.issue_hi),
+            dependency_hi: num(p?.dependency_hi), assumption_hi: num(p?.assumption_hi),
             overdue_hi: num(p?.overdue_hi),
           });
         } catch {
@@ -1907,9 +1829,7 @@ export default function HomePage({ data }: { data: HomeData }) {
         }
       })();
     });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [ok, isExec, numericWindowDays]);
 
   const raidDueTotal = useMemo(() => {
@@ -1936,60 +1856,13 @@ export default function HomePage({ data }: { data: HomeData }) {
     router.push(`/risks?${sp.toString()}`);
   }
 
-  const topStories: SuccessStoryTop[] = ssSummary && ssSummary.ok && Array.isArray(ssSummary.top) ? ssSummary.top : [];
-  const active = topStories.length ? topStories[Math.min(ssIdx, topStories.length - 1)] : null;
-  const ssTone = pickCategoryTone(active?.category ?? null);
-  const ssScore = ssSummary && ssSummary.ok ? clamp01to100(ssSummary.score) : 0;
-  const ssDelta = ssSummary && ssSummary.ok && Number.isFinite(Number(ssSummary.delta)) ? Number(ssSummary.delta) : null;
-  const ssBreakdown = ssSummary && ssSummary.ok ? ssSummary.breakdown : undefined;
-
-  const ssCountFromBreakdown = ssBreakdown ? sumSuccessBreakdown(ssBreakdown) : 0;
-  const ssDisplayCount =
-    ssCountFromBreakdown > 0 ? ssCountFromBreakdown : ssSummary && ssSummary.ok ? num(ssSummary.count, 0) : 0;
-
-  const ssValue = ssLoading ? "…" : ssErr ? "—" : `${ssDisplayCount}`;
-  const ssSub = ssLoading
-    ? "Loading stories…"
-    : ssErr
-    ? "Success stories unavailable"
-    : active
-    ? active.title
-    : ssDisplayCount > 0
-    ? `${ssDisplayCount} success stor${ssDisplayCount === 1 ? "y" : "ies"} in ${windowNarr}`
-    : `No success stories in ${windowNarr}`;
-
-  const ssMetaLine = ssLoading
-    ? `Window: ${windowLabel}`
-    : ssErr
-    ? "Check /api/success-stories/summary"
-    : ssDisplayCount > 0
-    ? `— ${ssScore}% confidence · ${active?.project_title || "Portfolio"}`
-    : `Window: ${windowLabel}`;
-
-  const ssAiLine = ssLoading
-    ? "Analysing delivery artifacts…"
-    : ssErr
-    ? ssErr
-    : active
-    ? active.summary
-    : "As milestones complete and risks close, Success Stories will appear automatically.";
-
-  const ssTooltip = "Generated from delivery artifacts. Click to view all.";
-
-  function openSuccessStories() {
-    const sp = new URLSearchParams();
-    sp.set("days", String(numericWindowDays));
-    router.push(`/success-stories?${sp.toString()}`);
-  }
-
   useEffect(() => {
     if (!ok || !isExec) return;
     let cancelled = false;
     runIdle(() => {
       (async () => {
         try {
-          setDueLoading(true);
-          setDueErr("");
+          setDueLoading(true); setDueErr("");
           const j = await fetchJson<ArtifactDueResp>("/api/ai/events", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -2001,28 +1874,17 @@ export default function HomePage({ data }: { data: HomeData }) {
           const list = Array.isArray(ai?.dueSoon) ? ai.dueSoon : [];
           const c = ai?.counts || ({} as any);
           const counts = {
-            milestone: num(c.milestone),
-            work_item: num(c.work_item),
-            raid: num(c.raid),
-            artifact: num(c.artifact),
-            change: num(c.change),
+            milestone: num(c.milestone), work_item: num(c.work_item), raid: num(c.raid),
+            artifact: num(c.artifact), change: num(c.change),
             total: num(c.milestone) + num(c.work_item) + num(c.raid) + num(c.artifact) + num(c.change),
           };
-          const merged = list
-            .slice()
-            .sort((a, b) => {
-              const at = a?.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-              const bt = b?.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-              if (at !== bt) return at - bt;
-              return safeStr(a?.title).localeCompare(safeStr(b?.title));
-            })
-            .slice(0, 30)
-            .map((x) => ({ ...x, title: safeStr(x?.title).trim() || "Untitled", link: safeStr(x?.link).trim() || null }));
-          if (!cancelled) {
-            setDueItems(merged);
-            setDueCounts(counts);
-            setDueUpdatedAt(new Date().toISOString());
-          }
+          const merged = list.slice().sort((a, b) => {
+            const at = a?.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+            const bt = b?.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+            if (at !== bt) return at - bt;
+            return safeStr(a?.title).localeCompare(safeStr(b?.title));
+          }).slice(0, 30).map((x) => ({ ...x, title: safeStr(x?.title).trim() || "Untitled", link: safeStr(x?.link).trim() || null }));
+          if (!cancelled) { setDueItems(merged); setDueCounts(counts); setDueUpdatedAt(new Date().toISOString()); }
         } catch (e: any) {
           if (!cancelled) {
             setDueErr(e?.message || "Failed");
@@ -2034,9 +1896,7 @@ export default function HomePage({ data }: { data: HomeData }) {
         }
       })();
     });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [ok, isExec, dueWindowDays]);
 
   function openDueItem(it: DueDigestItem) {
@@ -2058,13 +1918,8 @@ export default function HomePage({ data }: { data: HomeData }) {
       const st = [p?.status, p?.lifecycle_state, p?.state, p?.phase].map(norm).find(Boolean) || "";
       if (!st) return false;
       return (
-        st.includes("closed") ||
-        st.includes("cancel") ||
-        st.includes("cancell") ||
-        st.includes("deleted") ||
-        st.includes("archive") ||
-        st.includes("inactive") ||
-        st.includes("complete")
+        st.includes("closed") || st.includes("cancel") || st.includes("cancell") ||
+        st.includes("deleted") || st.includes("archive") || st.includes("inactive") || st.includes("complete")
       );
     };
     return arr.filter((p: any) => !isInactive(p));
@@ -2075,8 +1930,7 @@ export default function HomePage({ data }: { data: HomeData }) {
     arr.sort((a: any, b: any) => {
       const ac = projectCodeLabel(a?.project_code);
       const bc = projectCodeLabel(b?.project_code);
-      const an = Number(ac);
-      const bn = Number(bc);
+      const an = Number(ac); const bn = Number(bc);
       const aIsNum = Number.isFinite(an) && ac !== "";
       const bIsNum = Number.isFinite(bn) && bc !== "";
       if (aIsNum && bIsNum && an !== bn) return an - bn;
@@ -2088,18 +1942,33 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   const ragAgg = useMemo(() => calcRagAgg(rag, activeProjects), [rag, activeProjects]);
   const uiActiveCount = activeProjects?.length || 0;
-  const ragScoredCount = ragAgg.scored;
   const apiScore = phData?.ok ? clamp01to100(phData.portfolio_health) : null;
-  const fallbackScore = ragScoredCount ? ragAgg.avgHealth : clamp01to100(kpis.portfolioHealth);
+  const fallbackScore = ragAgg.scored ? ragAgg.avgHealth : clamp01to100(kpis.portfolioHealth);
   const portfolioScore = phLoading ? null : apiScore ?? fallbackScore;
-  const phDelta =
-    portfolioScore != null && phPrevScore != null && Number.isFinite(Number(portfolioScore)) && Number.isFinite(Number(phPrevScore))
-      ? Number(portfolioScore) - Number(phPrevScore)
-      : null;
+  const phDelta = portfolioScore != null && phPrevScore != null && Number.isFinite(Number(portfolioScore)) && Number.isFinite(Number(phPrevScore))
+    ? Number(portfolioScore) - Number(phPrevScore) : null;
   const phMetaLine = phPrevLoading ? "Trend: loading…" : phPrevErr ? "Trend: —" : phDelta == null ? "Trend: —" : `Trend: ${fmtDelta(phDelta)}`;
   const phTooltip = portfolioThresholdsTooltip() + "\n\nTrend arrow compares current window vs the next longer window.";
   const phScoreForUi = clamp01to100(portfolioScore ?? fallbackScore);
   const phRag = scoreToRag(phScoreForUi);
+
+  const topStories: SuccessStoryTop[] = ssSummary && ssSummary.ok && Array.isArray(ssSummary.top) ? ssSummary.top : [];
+  const active = topStories.length ? topStories[Math.min(ssIdx, topStories.length - 1)] : null;
+  const ssScore = ssSummary && ssSummary.ok ? clamp01to100(ssSummary.score) : 0;
+  const ssDelta = ssSummary && ssSummary.ok && Number.isFinite(Number(ssSummary.delta)) ? Number(ssSummary.delta) : null;
+  const ssBreakdown = ssSummary && ssSummary.ok ? ssSummary.breakdown : undefined;
+  const ssCountFromBreakdown = ssBreakdown ? sumSuccessBreakdown(ssBreakdown) : 0;
+  const ssDisplayCount = ssCountFromBreakdown > 0 ? ssCountFromBreakdown : ssSummary && ssSummary.ok ? num(ssSummary.count, 0) : 0;
+  const ssValue = ssLoading ? "…" : ssErr ? "—" : `${ssDisplayCount}`;
+  const ssSub = ssLoading ? "Loading stories…" : ssErr ? "Success stories unavailable" : active ? active.title : ssDisplayCount > 0 ? `${ssDisplayCount} success stor${ssDisplayCount === 1 ? "y" : "ies"} in ${windowNarr}` : `No success stories in ${windowNarr}`;
+  const ssMetaLine = ssLoading ? `Window: ${windowLabel}` : ssErr ? "Check /api/success-stories/summary" : ssDisplayCount > 0 ? `— ${ssScore}% confidence · ${active?.project_title || "Portfolio"}` : `Window: ${windowLabel}`;
+  const ssAiLine = ssLoading ? "Analysing delivery artifacts…" : ssErr ? ssErr : active ? active.summary : "As milestones complete and risks close, Success Stories will appear automatically.";
+  const ssTooltip = "Generated from delivery artifacts. Click to view all.";
+  function openSuccessStories() {
+    const sp = new URLSearchParams();
+    sp.set("days", String(numericWindowDays));
+    router.push(`/success-stories?${sp.toString()}`);
+  }
 
   if (!ok) {
     return (
@@ -2112,59 +1981,74 @@ export default function HomePage({ data }: { data: HomeData }) {
     );
   }
 
-  const phBand =
-    portfolioScore != null
-      ? phScoreForUi >= 85
-        ? "Strong"
-        : phScoreForUi >= 70
-        ? "Healthy"
-        : phScoreForUi >= 55
-        ? "Mixed"
-        : "At Risk"
-      : "Loading";
+  const phBand = portfolioScore != null
+    ? phScoreForUi >= 85 ? "Strong" : phScoreForUi >= 70 ? "Healthy" : phScoreForUi >= 55 ? "Mixed" : "At Risk"
+    : "Loading";
 
-  const KPI_CARD_CLASS = "h-[420px] flex flex-col";
+  const KPI_CARD_CLASS = "h-[460px] flex flex-col";
 
   return (
     <LazyMotion features={domAnimation}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wdth,wght@0,75..100,400..700;1,75..100,400..700&family=DM+Mono:wght@400;500&display=swap');
         * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-        :root { --font-body: 'DM Sans', sans-serif; --font-mono: 'DM Mono', monospace; }
+        :root { --font-body: 'Instrument Sans', sans-serif; --font-mono: 'DM Mono', monospace; }
         html, body { font-family: var(--font-body) !important; }
         .font-mono, .mono { font-family: var(--font-mono) !important; }
         @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
-        .sk { background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
-        ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-track { background: #f1f5f9; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .sk { background: linear-gradient(90deg, #f1f5f9 25%, #e8edf4 50%, #f1f5f9 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+        @keyframes float-slow { 0%, 100% { transform: translateY(0px) scale(1); } 50% { transform: translateY(-8px) scale(1.01); } }
+        @keyframes pulse-glow { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.9; } }
+        ::-webkit-scrollbar { width: 4px; } 
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
       `}</style>
 
       <div
         className="relative min-h-screen text-slate-900 selection:bg-indigo-100 selection:text-indigo-900"
-        style={{ background: "#FFFFFF", fontFamily: "var(--font-body, 'DM Sans', sans-serif)" }}
+        style={{ background: "#F6F8FF", fontFamily: "var(--font-body, 'Instrument Sans', sans-serif)" }}
       >
-        <div className="fixed inset-0 pointer-events-none z-0">
-          <div className="absolute inset-0" style={{ background: "#F8FAFF" }} />
-          <div className="absolute -top-24 -right-24 w-[640px] h-[640px] rounded-full opacity-50" style={{ background: "radial-gradient(ellipse, #ddd6fe 0%, transparent 60%)" }} />
-          <div className="absolute bottom-0 -left-24 w-[480px] h-[480px] rounded-full opacity-40" style={{ background: "radial-gradient(ellipse, #bbf7d0 0%, transparent 60%)" }} />
-          <div className="absolute inset-0 opacity-[0.25]" style={{ backgroundImage: "radial-gradient(circle, #c7d2fe 1px, transparent 1px)", backgroundSize: "28px 28px" }} />
+        {/* ── Background ── */}
+        <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+          <div className="absolute inset-0" style={{ background: "linear-gradient(160deg, #F0F4FF 0%, #F8F9FE 40%, #F5F7FF 100%)" }} />
+          {/* Soft orbs */}
+          <div className="absolute -top-32 -right-32 w-[700px] h-[700px] rounded-full opacity-40"
+            style={{ background: "radial-gradient(ellipse, rgba(199,210,254,0.6) 0%, transparent 65%)", animation: "float-slow 12s ease-in-out infinite" }} />
+          <div className="absolute bottom-0 -left-32 w-[550px] h-[550px] rounded-full opacity-35"
+            style={{ background: "radial-gradient(ellipse, rgba(167,243,208,0.5) 0%, transparent 65%)", animation: "float-slow 15s ease-in-out infinite reverse" }} />
+          <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-[400px] h-[400px] rounded-full opacity-20"
+            style={{ background: "radial-gradient(ellipse, rgba(251,207,232,0.4) 0%, transparent 65%)" }} />
+          {/* Dot grid */}
+          <div className="absolute inset-0 opacity-[0.18]"
+            style={{ backgroundImage: "radial-gradient(circle, rgba(99,102,241,0.35) 1px, transparent 1px)", backgroundSize: "32px 32px" }} />
+          {/* Horizontal lines */}
+          <div className="absolute inset-0 opacity-[0.04]"
+            style={{ backgroundImage: "linear-gradient(0deg, transparent calc(100% - 1px), rgba(99,102,241,0.5) calc(100% - 1px))", backgroundSize: "100% 80px" }} />
         </div>
 
         <div className="relative mx-auto max-w-7xl px-6 py-8 z-10">
+          {/* ── Header ── */}
           <header className="mb-12">
-            <m.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }} className="flex items-center justify-between">
+            <m.div
+              initial={{ opacity: 0, y: -14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+              className="flex items-center justify-between"
+            >
               <div className="flex items-center gap-4">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600" style={{ boxShadow: "0 4px 14px rgba(79,70,229,0.3)" }}>
-                  <Layers className="h-5 w-5 text-white" />
+                <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl overflow-hidden"
+                  style={{ background: "linear-gradient(135deg, #6366f1, #4f46e5)", boxShadow: "0 4px 16px rgba(99,102,241,0.35), 0 1px 0 rgba(255,255,255,0.15) inset" }}>
+                  <Layers className="h-5.5 w-5.5 text-white relative z-10" style={{ width: 22, height: 22 }} />
+                  <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.15) 0%, transparent 60%)" }} />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold tracking-tight text-slate-900 leading-none flex items-center gap-2">
-                    <span className="text-indigo-600">ΛLIΞNΛ</span>
-                    <span className="text-slate-300">·</span>
+                  <h1 className="text-xl font-bold tracking-tight text-slate-900 leading-none flex items-center gap-2.5">
+                    <span className="text-indigo-600 font-bold" style={{ letterSpacing: "-0.02em" }}>ΛLIΞNΛ</span>
+                    <span className="h-4 w-px bg-slate-200" />
                     <span className="text-slate-400 font-medium text-base">PM Suite</span>
                   </h1>
-                  <p className="text-xs text-slate-400 mt-1 tracking-wide">{today}</p>
+                  <p className="text-xs text-slate-400 mt-1 font-medium tracking-wide">{today}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -2174,33 +2058,42 @@ export default function HomePage({ data }: { data: HomeData }) {
             <m.div
               initial={{ scaleX: 0, opacity: 0 }}
               animate={{ scaleX: 1, opacity: 1 }}
-              transition={{ duration: 0.8, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              transition={{ duration: 0.9, delay: 0.25, ease: [0.16, 1, 0.3, 1] }}
               className="mt-8 origin-left h-px"
-              style={{ background: "linear-gradient(90deg, #6366f1 0%, #a5b4fc 50%, transparent 100%)" }}
+              style={{ background: "linear-gradient(90deg, #6366f1 0%, #a5b4fc 40%, rgba(199,210,254,0.4) 80%, transparent 100%)" }}
             />
           </header>
 
           {isExec ? (
             <>
-              <m.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }} className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+              {/* Section header + window toggle */}
+              <m.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.1 }}
+                className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6"
+              >
                 <div>
                   <div className="flex items-center gap-2.5 mb-2">
-                    <div className="h-5 w-0.5 rounded-full bg-indigo-500" />
-                    <span className="text-[11px] text-indigo-600 uppercase tracking-[0.18em] font-bold">Executive Command</span>
+                    <div className="h-5 w-0.5 rounded-full bg-indigo-500" style={{ boxShadow: "0 0 8px rgba(99,102,241,0.5)" }} />
+                    <span className="text-[11px] text-indigo-600 uppercase tracking-[0.2em] font-bold">Executive Command</span>
                   </div>
                   <h2 className="text-3xl font-bold text-slate-950 tracking-tight">Portfolio Overview</h2>
-                  <p className="text-slate-400 mt-1 text-sm">Real-time portfolio intelligence</p>
+                  <p className="text-slate-400 mt-1 text-sm font-medium">Real-time portfolio intelligence</p>
                 </div>
-                <div className="flex items-center gap-1 p-1 rounded-xl bg-white border border-slate-200" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+                <div className="flex items-center gap-1 p-1 rounded-xl bg-white/80 border border-white/90"
+                  style={{ backdropFilter: "blur(16px)", boxShadow: "0 2px 8px rgba(0,0,0,0.05), 0 1px 0 rgba(255,255,255,1) inset" }}>
                   {[7, 14, 30, 60].map((d) => (
                     <button
                       key={d}
                       type="button"
                       onClick={() => setWindowDays(d as WindowDays)}
-                      className={[
-                        "px-4 py-2 rounded-lg text-sm font-semibold transition-all",
-                        windowDays === d ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-800 hover:bg-slate-50",
+                      className={["px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200",
+                        windowDays === d
+                          ? "bg-indigo-600 text-white shadow-sm"
+                          : "text-slate-500 hover:text-slate-800 hover:bg-slate-50/80",
                       ].join(" ")}
+                      style={windowDays === d ? { boxShadow: "0 2px 8px rgba(99,102,241,0.3)" } : {}}
                     >
                       {d}d
                     </button>
@@ -2209,17 +2102,19 @@ export default function HomePage({ data }: { data: HomeData }) {
                   <button
                     type="button"
                     onClick={() => setWindowDays("all")}
-                    className={[
-                      "px-4 py-2 rounded-lg text-sm font-semibold transition-all",
-                      windowDays === "all" ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-800 hover:bg-slate-50",
+                    className={["px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200",
+                      windowDays === "all" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-500 hover:text-slate-800 hover:bg-slate-50/80",
                     ].join(" ")}
+                    style={windowDays === "all" ? { boxShadow: "0 2px 8px rgba(99,102,241,0.3)" } : {}}
                   >
                     All Time
                   </button>
                 </div>
               </m.div>
 
+              {/* ── KPI Cards ── */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
+                {/* Portfolio Health */}
                 <KpiCard
                   cardClassName={KPI_CARD_CLASS}
                   label="Portfolio Health"
@@ -2239,15 +2134,13 @@ export default function HomePage({ data }: { data: HomeData }) {
                   }
                   extra={
                     <div className="space-y-3">
-                      {phErr && <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{phErr}</div>}
+                      {phErr && <div className="text-xs text-rose-700 bg-rose-50/80 border border-rose-200/60 rounded-xl px-3 py-2">{phErr}</div>}
                       {phData?.ok && (
                         <button
                           type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowPhDetails((v) => !v);
-                          }}
-                          className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all flex items-center justify-center gap-2"
+                          onClick={(e) => { e.stopPropagation(); setShowPhDetails((v) => !v); }}
+                          className="w-full h-9 rounded-xl border border-slate-200/80 bg-white/60 text-xs text-slate-600 hover:bg-white/90 hover:text-slate-900 transition-all flex items-center justify-center gap-2"
+                          style={{ backdropFilter: "blur(8px)", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}
                         >
                           {showPhDetails ? "Hide Details" : "View Drivers"}
                           <ChevronRight className={`h-3 w-3 transition-transform ${showPhDetails ? "rotate-90" : ""}`} />
@@ -2259,6 +2152,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                   delay={0}
                 />
 
+                {/* Success Stories */}
                 <KpiCard
                   cardClassName={KPI_CARD_CLASS}
                   label="Success Stories"
@@ -2286,33 +2180,22 @@ export default function HomePage({ data }: { data: HomeData }) {
                           }}
                         />
                       ) : null}
-                      <div className="mt-4">
+                      <div className="mt-4 space-y-2">
                         <Button
                           variant="outline"
-                          className="w-full border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openSuccessStories();
-                          }}
+                          className="w-full border-slate-200/80 bg-white/60 text-slate-700 hover:bg-white/90 hover:text-slate-900 rounded-xl"
+                          style={{ backdropFilter: "blur(8px)", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}
+                          onClick={(e) => { e.stopPropagation(); openSuccessStories(); }}
                         >
                           View Summary <ArrowUpRight className="ml-2 h-4 w-4" />
                         </Button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openSuccessStories();
-                          }}
-                          className="mt-3 w-full text-center text-sm text-slate-400 hover:text-indigo-600 transition-colors"
-                        >
-                          View all success stories <ChevronRight className="inline h-4 w-4 -mt-0.5" />
-                        </button>
                       </div>
                     </div>
                   }
                   delay={0.05}
                 />
 
+                {/* Milestones Due — with AI Summary Panel */}
                 <KpiCard
                   cardClassName={KPI_CARD_CLASS}
                   label="Milestones Due"
@@ -2321,10 +2204,20 @@ export default function HomePage({ data }: { data: HomeData }) {
                   icon={<Clock3 className="h-5 w-5" />}
                   tone="cyan"
                   onClick={openMilestonesDrilldown}
-                  extra={<MilestonesMeta loading={milestonesPanelLoading} panel={milestonesPanel} />}
+                  extra={
+                    <div>
+                      <MilestonesMeta loading={milestonesPanelLoading} panel={milestonesPanel} />
+                      <MilestonesAiSummary
+                        loading={milestonesPanelLoading}
+                        panel={milestonesPanel}
+                        windowDays={numericWindowDays}
+                      />
+                    </div>
+                  }
                   delay={0.1}
                 />
 
+                {/* RAID — with AI Summary Panel */}
                 <KpiCard
                   cardClassName={KPI_CARD_CLASS}
                   label="RAID — Due"
@@ -2333,35 +2226,47 @@ export default function HomePage({ data }: { data: HomeData }) {
                   icon={<AlertTriangle className="h-5 w-5" />}
                   tone="rose"
                   onClick={openRaidDrilldown}
-                  extra={<RaidMeta loading={raidLoading} panel={raidPanel} onClickType={openRaid} />}
+                  extra={
+                    <div>
+                      <RaidMeta loading={raidLoading} panel={raidPanel} onClickType={openRaid} />
+                      <RaidAiSummary
+                        loading={raidLoading}
+                        panel={raidPanel}
+                        windowDays={numericWindowDays}
+                      />
+                    </div>
+                  }
                   delay={0.15}
                 />
               </div>
 
+              {/* ── Bottom Section ── */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 space-y-6">
+                  {/* AI Briefing */}
                   <SurfaceCard delay={0.2}>
                     <div className="flex items-start justify-between mb-6">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-600" style={{ boxShadow: "0 4px 12px rgba(79,70,229,0.25)" }}>
-                          <Sparkles className="h-5 w-5 text-white" />
+                        <div className="flex h-11 w-11 items-center justify-center rounded-xl text-white"
+                          style={{ background: "linear-gradient(135deg,#6366f1,#4f46e5)", boxShadow: "0 4px 14px rgba(99,102,241,0.3), 0 1px 0 rgba(255,255,255,0.15) inset" }}>
+                          <Sparkles className="h-5 w-5" />
                         </div>
                         <div>
                           <h3 className="text-lg font-bold text-slate-900">AI Daily Briefing</h3>
-                          <p className="text-sm text-slate-400">Live governance signals</p>
+                          <p className="text-sm text-slate-400 font-medium">Live governance signals</p>
                         </div>
                       </div>
-                      <Button className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm" style={{ boxShadow: "0 2px 8px rgba(79,70,229,0.2)" }} onClick={() => router.push("/insights")}>
+                      <Button
+                        className="text-white text-sm rounded-xl"
+                        style={{ background: "linear-gradient(135deg,#6366f1,#4f46e5)", boxShadow: "0 2px 10px rgba(99,102,241,0.3)" }}
+                        onClick={() => router.push("/insights")}
+                      >
                         View All
                       </Button>
                     </div>
                     <div className="space-y-3">
                       {insightsLoading ? (
-                        <>
-                          <SkeletonAlert />
-                          <SkeletonAlert />
-                          <SkeletonAlert />
-                        </>
+                        <><SkeletonAlert /><SkeletonAlert /><SkeletonAlert /></>
                       ) : insightsErr ? (
                         <AiAlert severity="medium" title="Briefing unavailable" body={insightsErr} />
                       ) : (
@@ -2374,29 +2279,27 @@ export default function HomePage({ data }: { data: HomeData }) {
                     </div>
                   </SurfaceCard>
 
+                  {/* Due Soon */}
                   <SurfaceCard delay={0.25}>
                     <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-500" style={{ boxShadow: "0 4px 12px rgba(245,158,11,0.25)" }}>
-                          <Clock3 className="h-5 w-5 text-white" />
+                        <div className="flex h-11 w-11 items-center justify-center rounded-xl text-white"
+                          style={{ background: "linear-gradient(135deg,#f59e0b,#d97706)", boxShadow: "0 4px 14px rgba(245,158,11,0.3), 0 1px 0 rgba(255,255,255,0.15) inset" }}>
+                          <Clock3 className="h-5 w-5" />
                         </div>
                         <div>
                           <h3 className="text-lg font-bold text-slate-900">Due Soon</h3>
-                          <p className="text-sm text-slate-400">Next {dueWindowDays} days</p>
+                          <p className="text-sm text-slate-400 font-medium">Next {dueWindowDays} days</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 p-1 rounded-xl bg-white/70 border border-slate-200/60"
+                        style={{ backdropFilter: "blur(8px)", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
                         {[7, 14, 30].map((d) => (
-                          <button
-                            key={d}
-                            type="button"
-                            onClick={() => setDueWindowDays(d as any)}
-                            className={[
-                              "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border",
-                              dueWindowDays === d
-                                ? "bg-amber-50 border-amber-200 text-amber-700"
-                                : "bg-white border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700",
+                          <button key={d} type="button" onClick={() => setDueWindowDays(d as any)}
+                            className={["px-3 py-1.5 rounded-lg text-xs font-semibold transition-all",
+                              dueWindowDays === d ? "bg-amber-500 text-white shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-50/80",
                             ].join(" ")}
+                            style={dueWindowDays === d ? { boxShadow: "0 2px 6px rgba(245,158,11,0.3)" } : {}}
                           >
                             {d}d
                           </button>
@@ -2404,12 +2307,13 @@ export default function HomePage({ data }: { data: HomeData }) {
                       </div>
                     </div>
                     {dueCounts.total > 0 ? (
-                      <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
-                        <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between text-[10px] text-slate-400 uppercase tracking-widest font-bold bg-slate-50/80">
+                      <div className="rounded-2xl border border-slate-200/70 overflow-hidden bg-white/60"
+                        style={{ backdropFilter: "blur(12px)", boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 1px 0 rgba(255,255,255,0.9) inset" }}>
+                        <div className="px-4 py-2.5 border-b border-slate-100/80 flex items-center justify-between text-[10px] text-slate-400 uppercase tracking-widest font-bold bg-slate-50/60">
                           <span>Item</span>
                           <span>Due Date</span>
                         </div>
-                        <div className="max-h-[320px] overflow-auto divide-y divide-stone-100">
+                        <div className="max-h-[320px] overflow-auto divide-y divide-slate-100/60">
                           {dueItems.slice(0, 8).map((it, idx) => {
                             const overdue = isOverdue(it?.dueDate);
                             const clickable = Boolean(safeStr(it?.link).trim());
@@ -2421,19 +2325,18 @@ export default function HomePage({ data }: { data: HomeData }) {
                                 transition={{ delay: idx * 0.04 }}
                                 type="button"
                                 onClick={() => clickable && openDueItem(it)}
-                                className={[
-                                  "w-full text-left px-4 py-3 flex items-center justify-between transition-colors group",
-                                  clickable ? "hover:bg-slate-50 cursor-pointer" : "cursor-default",
-                                  overdue ? "bg-rose-50/50" : "",
+                                className={["w-full text-left px-4 py-3 flex items-center justify-between transition-all group",
+                                  clickable ? "hover:bg-indigo-50/40 cursor-pointer" : "cursor-default",
+                                  overdue ? "bg-rose-50/40" : "",
                                 ].join(" ")}
                               >
                                 <div className="flex items-center gap-3 min-w-0">
-                                  <span className={["shrink-0 inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wider font-bold", dueChipTone(it.itemType)].join(" ")}>
+                                  <span className={["shrink-0 inline-flex items-center rounded-lg border px-2 py-0.5 text-[10px] uppercase tracking-wider font-bold", dueChipTone(it.itemType)].join(" ")}>
                                     {dueTypeLabel(it.itemType)}
                                   </span>
-                                  <span className="text-sm text-slate-700 truncate group-hover:text-slate-900 transition-colors">{it.title}</span>
+                                  <span className="text-sm text-slate-700 truncate group-hover:text-slate-900 transition-colors font-medium">{it.title}</span>
                                   {overdue && (
-                                    <span className="shrink-0 text-[10px] font-bold text-rose-700 bg-rose-100 border border-rose-200 px-1.5 py-0.5 rounded uppercase tracking-wide">
+                                    <span className="shrink-0 text-[10px] font-bold text-rose-700 bg-rose-50/80 border border-rose-200/60 px-1.5 py-0.5 rounded-lg uppercase tracking-wide">
                                       Overdue
                                     </span>
                                   )}
@@ -2444,41 +2347,45 @@ export default function HomePage({ data }: { data: HomeData }) {
                           })}
                         </div>
                         {dueItems.length > 8 && (
-                          <div className="px-4 py-2.5 text-center border-t border-slate-100 bg-white/80">
-                            <button onClick={() => router.push(`/milestones?days=${dueWindowDays}`)} className="text-xs text-indigo-600 hover:text-indigo-700 font-bold transition-colors">
+                          <div className="px-4 py-2.5 text-center border-t border-slate-100/80 bg-white/50">
+                            <button onClick={() => router.push(`/milestones?days=${dueWindowDays}`)}
+                              className="text-xs text-indigo-600 hover:text-indigo-700 font-bold transition-colors">
                               View {dueItems.length - 8} more items →
                             </button>
                           </div>
                         )}
                       </div>
                     ) : dueLoading ? (
-                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-12 text-center">
-                        <div className="text-sm text-slate-400">Scanning artifacts…</div>
+                      <div className="rounded-2xl border border-slate-200/60 bg-slate-50/60 px-4 py-12 text-center">
+                        <div className="text-sm text-slate-400 font-medium">Scanning artifacts…</div>
                       </div>
                     ) : (
-                      <div className="text-center py-12 border border-dashed border-slate-200 rounded-xl bg-white">
+                      <div className="text-center py-12 border border-dashed border-slate-200/70 rounded-2xl bg-white/40">
                         <CheckCircle2 className="h-8 w-8 text-slate-300 mx-auto mb-3" />
                         <p className="text-slate-600 font-semibold">All caught up</p>
-                        <p className="text-sm text-slate-400 mt-1">Nothing due in the next {dueWindowDays} days</p>
+                        <p className="text-sm text-slate-400 mt-1 font-medium">Nothing due in the next {dueWindowDays} days</p>
                       </div>
                     )}
                   </SurfaceCard>
                 </div>
 
+                {/* Right column */}
                 <div className="space-y-6">
+                  {/* Approvals */}
                   <SurfaceCard delay={0.3}>
                     <div className="flex items-center justify-between mb-5">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-600" style={{ boxShadow: "0 4px 12px rgba(5,150,105,0.2)" }}>
-                          <CheckCircle2 className="h-5 w-5 text-white" />
+                        <div className="flex h-11 w-11 items-center justify-center rounded-xl text-white"
+                          style={{ background: "linear-gradient(135deg,#10b981,#059669)", boxShadow: "0 4px 14px rgba(16,185,129,0.3), 0 1px 0 rgba(255,255,255,0.15) inset" }}>
+                          <CheckCircle2 className="h-5 w-5" />
                         </div>
                         <div>
                           <h3 className="text-base font-bold text-slate-900">Approvals</h3>
-                          <p className="text-xs text-slate-400">{approvalCount} pending</p>
+                          <p className="text-xs text-slate-400 font-medium">{approvalCount} pending</p>
                         </div>
                       </div>
                       {approvalCount > 0 && (
-                        <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-emerald-100 border border-emerald-200 text-xs font-bold text-emerald-700">
+                        <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-emerald-100/80 border border-emerald-200/60 text-xs font-bold text-emerald-700">
                           {approvalCount}
                         </span>
                       )}
@@ -2496,12 +2403,15 @@ export default function HomePage({ data }: { data: HomeData }) {
                               key={taskId}
                               initial={{ opacity: 0, y: 6 }}
                               animate={{ opacity: 1, y: 0 }}
-                              className="rounded-xl border border-slate-200 bg-white/60 p-4 hover:border-slate-300 hover:bg-slate-50 transition-all"
+                              className="rounded-xl border border-slate-200/70 bg-white/50 p-4 hover:border-slate-300 hover:bg-white/80 transition-all"
+                              style={{ backdropFilter: "blur(8px)", boxShadow: "0 1px 3px rgba(0,0,0,0.03), 0 1px 0 rgba(255,255,255,0.9) inset" }}
                             >
                               <div className="flex items-start justify-between gap-3 mb-3">
                                 <div className="min-w-0">
                                   <div className="font-semibold text-sm text-slate-800 truncate">{title}</div>
-                                  <div className="text-xs text-slate-400 mt-1 mono">{createdAt ? new Date(createdAt).toISOString().slice(0, 10) : "—"}</div>
+                                  <div className="text-xs text-slate-400 mt-1 mono font-medium">
+                                    {createdAt ? new Date(createdAt).toISOString().slice(0, 10) : "—"}
+                                  </div>
                                 </div>
                                 {href && (
                                   <a href={href} className="shrink-0 text-slate-400 hover:text-indigo-600 transition-colors">
@@ -2510,17 +2420,17 @@ export default function HomePage({ data }: { data: HomeData }) {
                                 )}
                               </div>
                               <div className="flex gap-2">
-                                <Button
-                                  size="sm"
-                                  className="flex-1 h-8 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold"
+                                <Button size="sm"
+                                  className="flex-1 h-8 rounded-xl border text-xs font-semibold transition-all"
+                                  style={{ background: "linear-gradient(135deg, rgba(236,253,245,0.9), rgba(209,250,229,0.7))", borderColor: "rgba(167,243,208,0.8)", color: "#065f46", boxShadow: "0 1px 3px rgba(16,185,129,0.1)" }}
                                   disabled={isBusy}
                                   onClick={() => decide(taskId, "approve")}
                                 >
                                   {isBusy ? "…" : "Approve"}
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  className="flex-1 h-8 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold"
+                                <Button size="sm"
+                                  className="flex-1 h-8 rounded-xl border text-xs font-semibold transition-all"
+                                  style={{ background: "linear-gradient(135deg, rgba(255,241,242,0.9), rgba(254,226,226,0.7))", borderColor: "rgba(254,202,202,0.8)", color: "#9f1239", boxShadow: "0 1px 3px rgba(244,63,94,0.1)" }}
                                   disabled={isBusy}
                                   onClick={() => decide(taskId, "reject")}
                                 >
@@ -2531,7 +2441,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                           );
                         })
                       ) : (
-                        <div className="text-center py-8 border border-dashed border-slate-200 rounded-xl bg-white/60">
+                        <div className="text-center py-8 border border-dashed border-slate-200/70 rounded-xl bg-white/40">
                           <CheckCheck className="h-6 w-6 text-slate-300 mx-auto mb-2" />
                           <p className="text-sm text-slate-500 font-semibold">No approvals waiting</p>
                         </div>
@@ -2539,19 +2449,44 @@ export default function HomePage({ data }: { data: HomeData }) {
                     </div>
                   </SurfaceCard>
 
-                  <SurfaceCard delay={0.35} className="bg-gradient-to-br from-indigo-50/70 via-white to-violet-50/40 border-indigo-100">
+                  {/* Quick Stats */}
+                  <SurfaceCard delay={0.35}>
                     <div className="flex items-center gap-2 mb-5">
-                      <div className="h-px flex-1 bg-indigo-100" />
-                      <span className="text-[10px] text-indigo-500 uppercase tracking-widest font-bold">Quick Stats</span>
-                      <div className="h-px flex-1 bg-indigo-100" />
+                      <div className="h-px flex-1 bg-gradient-to-r from-transparent to-indigo-200/60" />
+                      <span className="text-[10px] text-indigo-500 uppercase tracking-[0.18em] font-bold">Quick Stats</span>
+                      <div className="h-px flex-1 bg-gradient-to-l from-transparent to-indigo-200/60" />
                     </div>
                     <div className="space-y-4">
                       {[
-                        { label: "Active Projects", node: <span className="text-2xl font-bold text-slate-950 mono">{uiActiveCount}</span> },
-                        { label: "Portfolio Score", node: <span className={["text-sm font-bold px-2.5 py-1 rounded-lg border-2", ragBadgeClasses(phRag)].join(" ")}>{phScoreForUi}%</span> },
-                        { label: "Open Risks", node: <span className="text-2xl font-bold text-slate-950 mono">{kpis.openRisks}</span> },
+                        {
+                          label: "Active Projects",
+                          node: (
+                            <span className="text-2xl font-bold text-slate-950" style={{ fontFamily: "var(--font-mono, monospace)" }}>
+                              {uiActiveCount}
+                            </span>
+                          )
+                        },
+                        {
+                          label: "Portfolio Score",
+                          node: (
+                            <span className={["text-sm font-bold px-2.5 py-1 rounded-xl border-2", ragBadgeClasses(phRag)].join(" ")}>
+                              {phScoreForUi}%
+                            </span>
+                          )
+                        },
+                        {
+                          label: "Open Risks",
+                          node: (
+                            <span className="text-2xl font-bold text-slate-950" style={{ fontFamily: "var(--font-mono, monospace)" }}>
+                              {kpis.openRisks}
+                            </span>
+                          )
+                        },
                       ].map((stat, i) => (
-                        <m.div key={stat.label} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.4 + i * 0.05 }} className="flex items-center justify-between">
+                        <m.div key={stat.label} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: 0.4 + i * 0.05 }}
+                          className="flex items-center justify-between p-3 rounded-xl bg-white/50 border border-slate-100/80"
+                          style={{ backdropFilter: "blur(8px)", boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}>
                           <span className="text-sm text-slate-500 font-medium">{stat.label}</span>
                           {stat.node}
                         </m.div>
@@ -2561,16 +2496,19 @@ export default function HomePage({ data }: { data: HomeData }) {
                 </div>
               </div>
 
+              {/* ── Project Overview ── */}
               <m.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.4 }} className="mt-12">
                 <div className="flex items-center justify-between mb-6">
                   <div>
                     <div className="flex items-center gap-2.5 mb-1.5">
-                      <div className="h-4 w-0.5 rounded-full bg-indigo-400" />
+                      <div className="h-4 w-0.5 rounded-full bg-indigo-400" style={{ boxShadow: "0 0 6px rgba(99,102,241,0.4)" }} />
                       <span className="text-[11px] text-indigo-500 uppercase tracking-[0.18em] font-bold">Active Engagements</span>
                     </div>
                     <h2 className="text-2xl font-bold text-slate-950">Project Overview</h2>
                   </div>
-                  <Button variant="outline" className="border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 shadow-sm">
+                  <Button variant="outline"
+                    className="border-slate-200/80 bg-white/70 text-slate-600 hover:bg-white/90 hover:text-slate-900 rounded-xl"
+                    style={{ backdropFilter: "blur(8px)", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
                     View All Projects
                   </Button>
                 </div>
@@ -2586,7 +2524,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                   })}
                 </div>
                 {projects.length !== activeProjects.length && (
-                  <div className="mt-5 text-xs text-slate-400 text-center">
+                  <div className="mt-5 text-xs text-slate-400 text-center font-medium">
                     {Math.max(0, projects.length - activeProjects.length)} closed/cancelled project{projects.length - activeProjects.length === 1 ? "" : "s"} hidden from view
                   </div>
                 )}
@@ -2600,7 +2538,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                   <span className="text-[11px] text-indigo-500 uppercase tracking-[0.18em] font-bold">Personal</span>
                 </div>
                 <h2 className="text-3xl font-bold text-slate-900">My Day</h2>
-                <p className="text-slate-400 mt-1">Focus and flow</p>
+                <p className="text-slate-400 mt-1 font-medium">Focus and flow</p>
               </m.div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <KpiCard label="My Approvals" value={`${approvalCount}`} icon={<CheckCircle2 className="h-5 w-5" />} tone="emerald" delay={0} />
@@ -2612,7 +2550,12 @@ export default function HomePage({ data }: { data: HomeData }) {
                   icon={<AlertTriangle className="h-5 w-5" />}
                   tone="rose"
                   onClick={openRaidDrilldown}
-                  extra={<RaidMeta loading={raidLoading} panel={raidPanel} onClickType={openRaid} />}
+                  extra={
+                    <div>
+                      <RaidMeta loading={raidLoading} panel={raidPanel} onClickType={openRaid} />
+                      <RaidAiSummary loading={raidLoading} panel={raidPanel} windowDays={numericWindowDays} />
+                    </div>
+                  }
                   delay={0.1}
                 />
               </div>
