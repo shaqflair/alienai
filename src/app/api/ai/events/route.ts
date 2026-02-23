@@ -19,7 +19,10 @@ function safeStr(x: unknown) {
 }
 function jsonNoStore(payload: any, init?: ResponseInit) {
   const res = NextResponse.json(payload, init);
-  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
   res.headers.set("Pragma", "no-cache");
   res.headers.set("Expires", "0");
   return res;
@@ -52,7 +55,9 @@ function safeJson(x: any): any {
 }
 
 function startOfUtcDay(d: Date) {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0));
+  return new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0)
+  );
 }
 
 function endOfUtcWindow(from: Date, windowDays: number) {
@@ -70,7 +75,8 @@ function parseDueToUtcDate(value: any): Date | null {
   if (value instanceof Date && !isNaN(value.getTime())) return value;
 
   const s = safeStr(value).trim();
-  if (!s || s === "—" || s.toLowerCase() === "na" || s.toLowerCase() === "n/a") return null;
+  if (!s || s === "—" || s.toLowerCase() === "na" || s.toLowerCase() === "n/a")
+    return null;
 
   // ISO / YYYY-MM-DD / timestamps
   const isoTry = new Date(s);
@@ -113,7 +119,10 @@ function mergeBits(parts: Array<string | null | undefined>) {
 }
 
 /** prefer project_code for routes (/projects/:humanId/...) */
-function normalizeProjectHumanId(projectHumanId: string | null | undefined, fallback: string) {
+function normalizeProjectHumanId(
+  projectHumanId: string | null | undefined,
+  fallback: string
+) {
   const v = safeStr(projectHumanId).trim();
   return v || safeStr(fallback).trim();
 }
@@ -158,7 +167,13 @@ function normalizeArtifactLink(href: string | null | undefined) {
   const hashIdx = raw.indexOf("#");
   const qIdx = raw.indexOf("?");
   const cutIdx =
-    qIdx >= 0 && hashIdx >= 0 ? Math.min(qIdx, hashIdx) : qIdx >= 0 ? qIdx : hashIdx >= 0 ? hashIdx : -1;
+    qIdx >= 0 && hashIdx >= 0
+      ? Math.min(qIdx, hashIdx)
+      : qIdx >= 0
+      ? qIdx
+      : hashIdx >= 0
+      ? hashIdx
+      : -1;
 
   const path = cutIdx >= 0 ? raw.slice(0, cutIdx) : raw;
   const tail = cutIdx >= 0 ? raw.slice(cutIdx) : "";
@@ -175,12 +190,36 @@ function normalizeArtifactLink(href: string | null | undefined) {
   return `${fixedPath}${tail}`;
 }
 
-/* ---------------- admin client (service role) ---------------- */
+/* ---------------- service-role (cron only) ----------------
+   ✅ Enterprise rule:
+   - NEVER fallback to service role for user requests
+   - Service role only allowed for CRON/system calls (CRON_SECRET gated)
+------------------------------------------------------------ */
 
-function adminClientOrNull() {
+function isCronRequest(req: Request) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return false;
+
+  const h = req.headers;
+  const direct = safeStr(h.get("x-cron-secret")).trim();
+  if (direct && direct === secret) return true;
+
+  const auth = safeStr(h.get("authorization")).trim();
+  if (auth.toLowerCase().startsWith("bearer ")) {
+    const token = auth.slice(7).trim();
+    if (token === secret) return true;
+  }
+
+  return false;
+}
+
+function adminClientForCron(req: Request) {
+  if (!isCronRequest(req)) {
+    throw new Error("Forbidden");
+  }
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
+  if (!url || !key) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
   return createSbJsClient(url, key, { auth: { persistSession: false } });
 }
 
@@ -203,7 +242,12 @@ function isEmptyText(v: any) {
   return !safeStr(v).trim();
 }
 
-function normalizeCharterSections(doc: any): Array<{ key: string; title: string; bullets?: string; table?: any }> {
+function normalizeCharterSections(doc: any): Array<{
+  key: string;
+  title: string;
+  bullets?: string;
+  table?: any;
+}> {
   const d = safeJson(doc) ?? doc;
   const secs = Array.isArray(d?.sections) ? d.sections : [];
   return secs
@@ -224,7 +268,8 @@ function buildCharterRuleSuggestions(args: {
   contentJson: any;
   actorUserId: string;
 }): SuggestionInsert[] {
-  const { projectUuid, artifactId, projectName, pmName, contentJson, actorUserId } = args;
+  const { projectUuid, artifactId, projectName, pmName, contentJson, actorUserId } =
+    args;
 
   const secs = normalizeCharterSections(contentJson);
   const byKey = new Map(secs.map((s) => [safeLower(s.key), s]));
@@ -256,31 +301,33 @@ function buildCharterRuleSuggestions(args: {
             "[ASSUMPTION] Funding/budget approval path and governance cadence.",
           ].join("\n")
         : w.key === "objectives"
-          ? [
-              "Deliver agreed scope on time and within tolerance.",
-              "Improve operational outcomes (quality, cycle time, compliance) with measurable KPIs.",
-              "[TBC] Stakeholder acceptance criteria and sign-off approach.",
-            ].join("\n")
-          : w.key === "key_deliverables"
-            ? ["[TBC] Deliverable 1", "[TBC] Deliverable 2", "[TBC] Deliverable 3"].join("\n")
-            : w.key === "risks"
-              ? [
-                  "Resource constraints / SME availability — Mitigation: confirm RACI + booking plan.",
-                  "Scope creep — Mitigation: baseline scope + change control enforcement.",
-                  "Delivery dependencies not met — Mitigation: dependency log + weekly review.",
-                ].join("\n")
-              : w.key === "issues"
-                ? ["No known issues yet. [TBC]"].join("\n")
-                : w.key === "assumptions"
-                  ? [
-                      "Stakeholders are available for workshops and approvals.",
-                      "Environments and access are provisioned before build starts.",
-                      "Requirements and acceptance criteria will be signed off within agreed SLA.",
-                    ].join("\n")
-                  : [
-                      "Dependencies: upstream approvals, vendor lead times, environments, access and test data.",
-                      "External dependencies: release calendar / change windows / CAB.",
-                    ].join("\n");
+        ? [
+            "Deliver agreed scope on time and within tolerance.",
+            "Improve operational outcomes (quality, cycle time, compliance) with measurable KPIs.",
+            "[TBC] Stakeholder acceptance criteria and sign-off approach.",
+          ].join("\n")
+        : w.key === "key_deliverables"
+        ? ["[TBC] Deliverable 1", "[TBC] Deliverable 2", "[TBC] Deliverable 3"].join(
+            "\n"
+          )
+        : w.key === "risks"
+        ? [
+            "Resource constraints / SME availability — Mitigation: confirm RACI + booking plan.",
+            "Scope creep — Mitigation: baseline scope + change control enforcement.",
+            "Delivery dependencies not met — Mitigation: dependency log + weekly review.",
+          ].join("\n")
+        : w.key === "issues"
+        ? ["No known issues yet. [TBC]"].join("\n")
+        : w.key === "assumptions"
+        ? [
+            "Stakeholders are available for workshops and approvals.",
+            "Environments and access are provisioned before build starts.",
+            "Requirements and acceptance criteria will be signed off within agreed SLA.",
+          ].join("\n")
+        : [
+            "Dependencies: upstream approvals, vendor lead times, environments, access and test data.",
+            "External dependencies: release calendar / change windows / CAB.",
+          ].join("\n");
 
     suggestions.push({
       project_id: projectUuid,
@@ -300,7 +347,8 @@ function buildCharterRuleSuggestions(args: {
   const msTableRows = Array.isArray(ms?.table?.rows) ? ms!.table.rows : [];
   const hasAnyDataRow = msTableRows.some(
     (r: any) =>
-      safeLower(r?.type) === "data" && r?.cells?.some((c: any) => safeStr(c).trim())
+      safeLower(r?.type) === "data" &&
+      r?.cells?.some((c: any) => safeStr(c).trim())
   );
 
   if (!hasAnyDataRow) {
@@ -310,7 +358,8 @@ function buildCharterRuleSuggestions(args: {
       section_key: "milestones_timeline",
       target_artifact_type: "project_charter",
       suggestion_type: "add_rows",
-      rationale: "Milestones & Timeline has no data rows. Add starter milestones to structure the plan.",
+      rationale:
+        "Milestones & Timeline has no data rows. Add starter milestones to structure the plan.",
       confidence: 0.55,
       patch: {
         kind: "add_rows",
@@ -332,14 +381,18 @@ function buildCharterRuleSuggestions(args: {
   return suggestions;
 }
 
-async function insertSuggestionsDeduped(args: { supabaseAdmin: any; suggestions: SuggestionInsert[] }) {
-  const { supabaseAdmin, suggestions } = args;
+async function insertSuggestionsDeduped(args: {
+  supabase: any; // ✅ RLS-scoped client (never service role for user calls)
+  suggestions: SuggestionInsert[];
+}) {
+  const { supabase, suggestions } = args;
   if (!suggestions.length) return [];
 
   const projectId = suggestions[0].project_id;
   const artifactId = suggestions[0].artifact_id;
 
-  const { data: existing, error: exErr } = await supabaseAdmin
+  // Dedup within current "proposed" set for this artifact (RLS ensures tenant safety)
+  const { data: existing, error: exErr } = await supabase
     .from("ai_suggestions")
     .select("id, project_id, artifact_id, section_key, suggestion_type, status")
     .eq("project_id", projectId)
@@ -351,22 +404,25 @@ async function insertSuggestionsDeduped(args: { supabaseAdmin: any; suggestions:
   const seen = new Set(
     (Array.isArray(existing) ? existing : []).map(
       (x: any) =>
-        `${safeLower(x.project_id)}|${safeLower(x.artifact_id)}|${safeLower(x.section_key)}|${safeLower(
-          x.suggestion_type
-        )}`
+        `${safeLower(x.project_id)}|${safeLower(x.artifact_id)}|${safeLower(
+          x.section_key
+        )}|${safeLower(x.suggestion_type)}`
     )
   );
 
   const toInsert = suggestions.filter((s) => {
-    const k = `${safeLower(s.project_id)}|${safeLower(s.artifact_id)}|${safeLower(s.section_key)}|${safeLower(
-      s.suggestion_type
-    )}`;
+    const k = `${safeLower(s.project_id)}|${safeLower(s.artifact_id)}|${safeLower(
+      s.section_key
+    )}|${safeLower(s.suggestion_type)}`;
     return !seen.has(k);
   });
 
   if (!toInsert.length) return [];
 
-  const { data: inserted, error: insErr } = await supabaseAdmin.from("ai_suggestions").insert(toInsert).select("*");
+  const { data: inserted, error: insErr } = await supabase
+    .from("ai_suggestions")
+    .insert(toInsert)
+    .select("*");
 
   if (insErr) throw new Error(insErr.message);
 
@@ -382,7 +438,11 @@ async function requireAuth(supabase: any) {
   return auth.user;
 }
 
-async function requireProjectAccessViaOrg(supabase: any, projectUuid: string, userId: string) {
+async function requireProjectAccessViaOrg(
+  supabase: any,
+  projectUuid: string,
+  userId: string
+) {
   const { data, error } = await supabase
     .from("projects")
     .select("id, organisation_id, deleted_at")
@@ -450,7 +510,10 @@ function isNumericLike(s: string) {
   return /^\d+$/.test(String(s || "").trim());
 }
 
-async function resolveProjectUuid(supabase: any, identifier: string): Promise<string | null> {
+async function resolveProjectUuid(
+  supabase: any,
+  identifier: string
+): Promise<string | null> {
   const raw = safeStr(identifier).trim();
   if (!raw) return null;
 
@@ -459,10 +522,15 @@ async function resolveProjectUuid(supabase: any, identifier: string): Promise<st
   const id = normalizeProjectIdentifier(raw);
 
   for (const col of HUMAN_COL_CANDIDATES) {
-    const likelyNumeric = col === "project_code" || col === "human_id" || col === "project_human_id";
+    const likelyNumeric =
+      col === "project_code" || col === "human_id" || col === "project_human_id";
     if (likelyNumeric && !isNumericLike(id)) continue;
 
-    const { data, error } = await supabase.from("projects").select("id").eq(col as any, id).maybeSingle();
+    const { data, error } = await supabase
+      .from("projects")
+      .select("id")
+      .eq(col as any, id)
+      .maybeSingle();
 
     if (error) {
       if (isMissingColumnError(error.message, col)) continue;
@@ -474,7 +542,11 @@ async function resolveProjectUuid(supabase: any, identifier: string): Promise<st
   }
 
   for (const col of ["slug", "reference", "ref", "code"] as const) {
-    const { data, error } = await supabase.from("projects").select("id").eq(col as any, raw).maybeSingle();
+    const { data, error } = await supabase
+      .from("projects")
+      .select("id")
+      .eq(col as any, raw)
+      .maybeSingle();
 
     if (error) {
       if (isMissingColumnError(error.message, col)) continue;
@@ -530,7 +602,9 @@ async function loadProjectMeta(supabase: any, projectUuid: string): Promise<Proj
 
     const rows = Array.isArray(data) ? data : [];
     for (const r of roles) {
-      const hit = rows.find((x: any) => safeLower(x?.role) === safeLower(r) && x?.user_id);
+      const hit = rows.find(
+        (x: any) => safeLower(x?.role) === safeLower(r) && x?.user_id
+      );
       if (hit) return String(hit.user_id);
     }
     const first = rows.find((x: any) => x?.user_id);
@@ -608,13 +682,17 @@ function buildDraftAssistAi(input: any) {
     mergeBits([
       why ? `Driver / value: ${why}` : "",
       constraints ? `Governance / constraints: ${constraints}` : "",
-      bestTitle ? `Outcome: Deliver "${bestTitle}" with controlled risk and clear validation evidence.` : "",
+      bestTitle
+        ? `Outcome: Deliver "${bestTitle}" with controlled risk and clear validation evidence.`
+        : "",
     ]) ||
     "State why the change is required, business benefit, and risk of not proceeding.";
 
   const bestFinancial =
     financial ||
-    (costs ? `Known costs / effort: ${costs}\nBudget/PO: TBC\nCommercial notes: confirm rate card / approvals.` : "") ||
+    (costs
+      ? `Known costs / effort: ${costs}\nBudget/PO: TBC\nCommercial notes: confirm rate card / approvals.`
+      : "") ||
     "Confirm cost, resource effort, and any commercial approvals required.";
 
   const bestSchedule =
@@ -796,7 +874,8 @@ async function bulkLoadProjectManagers(supabase: any, projectIds: string[]) {
 
   for (const pid of projectIds) {
     const arr = byProject.get(pid) ?? [];
-    const pick = (role: string) => arr.find((x: any) => safeLower(x?.role) === role && x?.user_id)?.user_id;
+    const pick = (role: string) =>
+      arr.find((x: any) => safeLower(x?.role) === role && x?.user_id)?.user_id;
 
     const pm = pick("project_manager") || pick("owner") || null;
     const pmId = pm ? String(pm) : null;
@@ -1131,7 +1210,9 @@ async function buildDueDigestOrgBulk(args: {
           itemType: "change",
           title,
           dueDate: due.toISOString(),
-          status: safeStr(c?.decision_status ?? c?.delivery_status ?? c?.status ?? "review").trim() || "review",
+          status:
+            safeStr(c?.decision_status ?? c?.delivery_status ?? c?.status ?? "review").trim() ||
+            "review",
           link: linkForChanges(p.project_human_id, changeId),
           meta: {
             changeId,
@@ -1186,7 +1267,9 @@ async function buildDueDigestOrgBulk(args: {
     counts,
     dueSoon,
     recommendedMessage:
-      dueSoon.length > 0 ? "Review the due list and notify owners for items due soon." : "No reminders needed.",
+      dueSoon.length > 0
+        ? "Review the due list and notify owners for items due soon."
+        : "No reminders needed.",
   };
 }
 
@@ -1203,7 +1286,9 @@ async function loadDueArtifacts(
   try {
     const { data, error } = await supabase
       .from("v_artifact_board")
-      .select("artifact_id,id,artifact_key,title,owner_email,due_date,phase,approval_status,status,updated_at,content_json")
+      .select(
+        "artifact_id,id,artifact_key,title,owner_email,due_date,phase,approval_status,status,updated_at,content_json"
+      )
       .eq("project_id", projectUuid)
       .order("updated_at", { ascending: false })
       .limit(500);
@@ -1266,7 +1351,9 @@ async function loadDueMilestones(
       const title = safeStr(m?.milestone_name).trim() || "Milestone";
 
       const srcArtifactId = safeStr(m?.source_artifact_id).trim();
-      const link = srcArtifactId ? linkForArtifact(projectHumanId, srcArtifactId) : linkForSchedule(projectHumanId, id);
+      const link = srcArtifactId
+        ? linkForArtifact(projectHumanId, srcArtifactId)
+        : linkForSchedule(projectHumanId, id);
 
       return {
         itemType: "milestone",
@@ -1457,7 +1544,12 @@ async function loadChangesInReview(
     .filter(Boolean) as DueDigestItem[];
 }
 
-async function buildDueDigestAi(supabase: any, projectUuid: string, projectHumanId: string, windowDays: number) {
+async function buildDueDigestAi(
+  supabase: any,
+  projectUuid: string,
+  projectHumanId: string,
+  windowDays: number
+) {
   const now = new Date();
   const from = startOfUtcDay(now);
   const to = endOfUtcWindow(from, windowDays);
@@ -1699,15 +1791,29 @@ function uniq<T>(xs: T[]) {
 
 async function loadProjectDimensionsSafe(supabase: any, projectUuid: string) {
   const dimensionCols = [
-    "client_name", "client", "account_name", "programme_name", "portfolio",
-    "service_line", "business_unit", "region", "country", "sector",
-    "contract_ref", "contract_reference", "project_type",
+    "client_name",
+    "client",
+    "account_name",
+    "programme_name",
+    "portfolio",
+    "service_line",
+    "business_unit",
+    "region",
+    "country",
+    "sector",
+    "contract_ref",
+    "contract_reference",
+    "project_type",
   ] as const;
 
   let cols = ["id", "title", "project_code", "organisation_id", ...dimensionCols] as string[];
 
   while (cols.length >= 4) {
-    const { data, error } = await supabase.from("projects").select(cols.join(",")).eq("id", projectUuid).maybeSingle();
+    const { data, error } = await supabase
+      .from("projects")
+      .select(cols.join(","))
+      .eq("id", projectUuid)
+      .maybeSingle();
     if (!error) {
       const out: any = {};
       for (const k of cols) {
@@ -1765,8 +1871,207 @@ async function loadPreviousDeliveryReportSummarySafe(supabase: any, artifactId: 
     title: safeStr((data as any)?.title).trim() || null,
     prevRag: prevRag ? String(prevRag) : null,
     prevHeadline: prevHeadline ? String(prevHeadline) : null,
-    prevPeriod: prevPeriodFrom || prevPeriodTo ? { from: prevPeriodFrom || null, to: prevPeriodTo || null } : null,
+    prevPeriod:
+      prevPeriodFrom || prevPeriodTo ? { from: prevPeriodFrom || null, to: prevPeriodTo || null } : null,
   };
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   EXECUTIVE NARRATIVE BUILDER
+   Writes structured PM prose — not a mechanical count dump.
+───────────────────────────────────────────────────────────────────────────── */
+
+function buildDeliveryHeadline(
+  rag: "green" | "amber" | "red",
+  msDoneCount: number,
+  wbsDoneCount: number,
+  overdueCount: number,
+  blockerCount: number,
+  criticalSoonCount: number,
+  projName: string | null | undefined
+): string {
+  const proj = projName ? `${projName}: ` : "";
+
+  if (rag === "red") {
+    if (overdueCount === 1)
+      return `${proj}1 overdue item requires immediate action to protect delivery.`;
+    return `${proj}${overdueCount} overdue items — delivery is at risk without intervention this period.`;
+  }
+
+  if (rag === "amber") {
+    if (blockerCount > 0 && criticalSoonCount > 0)
+      return `${proj}Delivery progressing but ${blockerCount} blocker${blockerCount > 1 ? "s" : ""} and ${criticalSoonCount} critical milestone${criticalSoonCount > 1 ? "s" : ""} due soon need owner attention.`;
+    if (blockerCount > 0)
+      return `${proj}Good progress this period; ${blockerCount} active blocker${blockerCount > 1 ? "s" : ""} flagged for resolution before next report.`;
+    if (criticalSoonCount > 0)
+      return `${proj}On track overall; ${criticalSoonCount} critical milestone${criticalSoonCount > 1 ? "s are" : " is"} due soon and must remain the team's priority.`;
+    return `${proj}Delivery progressing — one or more items require monitoring to maintain schedule.`;
+  }
+
+  // green
+  const totalDone = msDoneCount + wbsDoneCount;
+  if (totalDone === 0)
+    return `${proj}Delivery on track with no overdue items or active blockers this period.`;
+  if (msDoneCount > 0 && wbsDoneCount > 0)
+    return `${proj}Strong delivery week — ${msDoneCount} milestone${msDoneCount > 1 ? "s" : ""} and ${wbsDoneCount} work item${wbsDoneCount > 1 ? "s" : ""} completed on schedule.`;
+  if (msDoneCount > 0)
+    return `${proj}${msDoneCount} milestone${msDoneCount > 1 ? "s" : ""} completed on schedule — delivery remains on track.`;
+  return `${proj}${wbsDoneCount} work item${wbsDoneCount > 1 ? "s" : ""} delivered — on track with no issues raised this period.`;
+}
+
+function buildDeliveryNarrative(args: {
+  rag: "green" | "amber" | "red";
+  fromUk: string;
+  toUk: string;
+  msDone: any[];
+  wbsDone: any[];
+  changesClosed: any[];
+  raidClosed: any[];
+  overdue: any[];
+  blockers: Array<{ text: string; link?: string | null }>;
+  dueSoon: any[];
+  criticalSoon: any[];
+  decisions: Array<{ text: string; link?: string | null }>;
+}): string {
+  const {
+    rag, fromUk, toUk,
+    msDone, wbsDone, changesClosed, raidClosed,
+    overdue, blockers, dueSoon, criticalSoon, decisions,
+  } = args;
+
+  const parts: string[] = [];
+
+  // ── Para 1: Period + delivery health ─────────────────────────────────────
+  const statusPhrase =
+    rag === "green"
+      ? "Delivery is on track"
+      : rag === "amber"
+      ? "Delivery is progressing with items requiring attention"
+      : "Delivery is at risk and requires immediate action";
+
+  parts.push(`Period covered: ${fromUk} – ${toUk}. ${statusPhrase}.`);
+
+  // ── Para 2: What was achieved ────────────────────────────────────────────
+  const achievedBits: string[] = [];
+
+  if (msDone.length > 0) {
+    const names = msDone
+      .slice(0, 3)
+      .map((m) => safeStr(m?.milestone_name).trim())
+      .filter(Boolean);
+    achievedBits.push(
+      names.length > 0
+        ? `Milestone${msDone.length > 1 ? "s" : ""} completed: ${names.join(", ")}${msDone.length > 3 ? ` (+${msDone.length - 3} more)` : ""}`
+        : `${msDone.length} milestone${msDone.length > 1 ? "s" : ""} completed`
+    );
+  }
+  if (wbsDone.length > 0) {
+    achievedBits.push(`${wbsDone.length} work item${wbsDone.length > 1 ? "s" : ""} closed`);
+  }
+  if (changesClosed.length > 0) {
+    achievedBits.push(
+      `${changesClosed.length} change request${changesClosed.length > 1 ? "s" : ""} implemented`
+    );
+  }
+  if (raidClosed.length > 0) {
+    achievedBits.push(
+      `${raidClosed.length} RAID item${raidClosed.length > 1 ? "s" : ""} resolved`
+    );
+  }
+
+  if (achievedBits.length > 0) {
+    parts.push(achievedBits.join(". ") + ".");
+  } else {
+    parts.push(
+      "No items were completed within the reporting window — work in progress carries forward to next period."
+    );
+  }
+
+  // ── Para 3: Key decisions (only if present) ───────────────────────────────
+  if (decisions.length > 0) {
+    const texts = decisions
+      .slice(0, 3)
+      .map((d) => d.text)
+      .filter(Boolean);
+    if (texts.length > 0) {
+      parts.push(`Key decisions this period: ${texts.join("; ")}.`);
+    }
+  }
+
+  // ── Para 4: Risk / blocker / overdue signal ───────────────────────────────
+  if (rag === "red" && overdue.length > 0) {
+    const labels = overdue
+      .slice(0, 3)
+      .map((x) => safeStr(x?.title).trim())
+      .filter(Boolean);
+
+    const overdueStr =
+      labels.length > 0
+        ? `Overdue: ${labels.join("; ")}${overdue.length > 3 ? ` and ${overdue.length - 3} further item${overdue.length - 3 > 1 ? "s" : ""}` : ""}.`
+        : `${overdue.length} item${overdue.length > 1 ? "s are" : " is"} overdue.`;
+
+    parts.push(
+      `${overdueStr} Revised forecasts and recovery plans must be confirmed by owners immediately. Escalation to the sponsor is recommended if plans are not in place within 48 hours.`
+    );
+  }
+
+  if (blockers.length > 0) {
+    const topBlockers = blockers
+      .slice(0, 2)
+      .map((b) => b.text)
+      .filter(Boolean);
+    const blockerStr =
+      topBlockers.length > 0
+        ? `Active blocker${topBlockers.length > 1 ? "s" : ""}: ${topBlockers.join("; ")}.`
+        : `${blockers.length} operational blocker${blockers.length > 1 ? "s" : ""} identified.`;
+
+    parts.push(
+      `${blockerStr} ${
+        blockers.length === 1
+          ? "A named resolution owner and target date must be agreed before the next report."
+          : "Each blocker requires a named resolution owner and an agreed target date."
+      }`
+    );
+  }
+
+  if (rag === "amber" && overdue.length === 0 && blockers.length === 0 && criticalSoon.length > 0) {
+    const names = criticalSoon
+      .slice(0, 2)
+      .map((x) => safeStr(x?.title).trim())
+      .filter(Boolean);
+    const label =
+      names.length > 0
+        ? names.join(", ")
+        : `${criticalSoon.length} critical milestone${criticalSoon.length > 1 ? "s" : ""}`;
+    parts.push(
+      `${label} ${criticalSoon.length > 1 ? "are" : "is"} on the critical path and due within the next reporting window. Progress must be confirmed with owners before the next weekly review.`
+    );
+  }
+
+  // ── Para 5: Forward look ──────────────────────────────────────────────────
+  const dueSoonCount = dueSoon.length;
+  if (dueSoonCount > 0) {
+    const byType: Record<string, number> = {};
+    for (const x of dueSoon) {
+      const t = safeStr(x?.itemType) || "item";
+      byType[t] = (byType[t] ?? 0) + 1;
+    }
+    const typeBits = Object.entries(byType)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 3)
+      .map(([type, count]) => `${count} ${type.replace(/_/g, " ")}${count > 1 ? "s" : ""}`)
+      .join(", ");
+
+    parts.push(
+      `Next period: ${dueSoonCount} item${dueSoonCount > 1 ? "s are" : " is"} due soon (${typeBits}). Owners should confirm readiness and surface any emerging risks ahead of next week's report.`
+    );
+  } else {
+    parts.push(
+      "No items are due in the immediate next period. Focus should remain on advancing in-progress work and clearing any open RAID items to maintain momentum."
+    );
+  }
+
+  return parts.join("\n\n");
 }
 
 async function buildDeliveryReportV1(args: {
@@ -1797,7 +2102,9 @@ async function buildDeliveryReportV1(args: {
       .limit(5000),
     supabase
       .from("raid_items")
-      .select("id,public_id,type,title,description,status,due_date,owner_label,priority,ai_status,source_artifact_id,updated_at")
+      .select(
+        "id,public_id,type,title,description,status,due_date,owner_label,priority,ai_status,source_artifact_id,updated_at"
+      )
       .eq("project_id", projectUuid)
       .limit(20000),
     supabase
@@ -1901,10 +2208,7 @@ async function buildDeliveryReportV1(args: {
       const dec = safeLower(c?.decision_status);
       const seq = c?.seq != null ? `#${c.seq}` : "";
       const text = `${dec === "approved" ? "Approved" : "Rejected"} change ${seq}: ${title}`.trim();
-      return {
-        text,
-        link: linkForChanges(projectHumanId, String(c?.id ?? "").trim()),
-      };
+      return { text, link: linkForChanges(projectHumanId, String(c?.id ?? "").trim()) };
     });
 
   const blockers = raidRows
@@ -1936,10 +2240,7 @@ async function buildDeliveryReportV1(args: {
         safeStr(r?.owner_label).trim() ? `Owner: ${safeStr(r?.owner_label).trim()}` : "",
       ].filter(Boolean);
       const publicId = safeStr(r?.public_id).trim();
-      return {
-        text: bits.join(" — "),
-        link: linkForRaid(projectHumanId, publicId || undefined),
-      };
+      return { text: bits.join(" — "), link: linkForRaid(projectHumanId, publicId || undefined) };
     });
 
   const openDueWork = dueSoon.filter((x: any) => x?.itemType === "work_item");
@@ -1947,40 +2248,24 @@ async function buildDeliveryReportV1(args: {
   const ownerList = uniq(owners).slice(0, 12);
   const resourceSummary: Array<{ text: string }> = [];
 
-  if (openDueWork.length > 0) {
-    resourceSummary.push({ text: `Open WBS items due soon: ${openDueWork.length}` });
-  }
-  if (ownerList.length > 0) {
-    resourceSummary.push({ text: `Owners with due-soon items: ${ownerList.join(", ")}` });
-  }
-  if (resourceSummary.length === 0) {
+  if (openDueWork.length > 0) resourceSummary.push({ text: `Open WBS items due soon: ${openDueWork.length}` });
+  if (ownerList.length > 0) resourceSummary.push({ text: `Owners with due-soon items: ${ownerList.join(", ")}` });
+  if (resourceSummary.length === 0)
     resourceSummary.push({ text: "No resource hotspots detected from due-soon workload." });
-  }
 
   const completed: Array<{ text: string }> = [];
-  for (const m of msDone.slice(0, 12)) {
-    completed.push({ text: `Milestone completed: ${safeStr(m?.milestone_name).trim() || "Milestone"}` });
-  }
-  for (const w of wbsDone.slice(0, 12)) {
-    completed.push({ text: `Work item completed: ${safeStr(w?.name).trim() || "WBS item"}` });
-  }
-  for (const c of changesClosed.slice(0, 8)) {
-    completed.push({ text: `Change closed/implemented: ${safeStr(c?.title).trim() || "Change request"}` });
-  }
-  for (const r of raidClosed.slice(0, 8)) {
-    completed.push({ text: `RAID closed: ${safeStr(r?.title).trim() || "RAID item"}` });
-  }
+  for (const m of msDone.slice(0, 12)) completed.push({ text: `Milestone completed: ${safeStr(m?.milestone_name).trim() || "Milestone"}` });
+  for (const w of wbsDone.slice(0, 12)) completed.push({ text: `Work item completed: ${safeStr(w?.name).trim() || "WBS item"}` });
+  for (const c of changesClosed.slice(0, 8)) completed.push({ text: `Change closed/implemented: ${safeStr(c?.title).trim() || "Change request"}` });
+  for (const r of raidClosed.slice(0, 8)) completed.push({ text: `RAID closed: ${safeStr(r?.title).trim() || "RAID item"}` });
   if (completed.length === 0) completed.push({ text: "No completed items detected for the selected period." });
 
-  const nextFocus: Array<{ text: string }> = dueSoon
-    .slice(0, 12)
-    .map((x: any) => {
-      const t = safeStr(x?.title).trim() || "Due item";
-      const kind = safeStr(x?.itemType).replace("_", " ");
-      const dueUk = x?.dueDate ? fmtUkDateFromAny(x.dueDate) : "";
-      return { text: `${kind}: ${t}${dueUk ? ` (due ${dueUk})` : ""}` };
-    });
-
+  const nextFocus: Array<{ text: string }> = dueSoon.slice(0, 12).map((x: any) => {
+    const t = safeStr(x?.title).trim() || "Due item";
+    const kind = safeStr(x?.itemType).replace("_", " ");
+    const dueUk = x?.dueDate ? fmtUkDateFromAny(x.dueDate) : "";
+    return { text: `${kind}: ${t}${dueUk ? ` (due ${dueUk})` : ""}` };
+  });
   if (nextFocus.length === 0) nextFocus.push({ text: "No due-soon items detected for next period focus." });
 
   const overdue = dueSoon.filter((x: any) => {
@@ -1990,23 +2275,35 @@ async function buildDeliveryReportV1(args: {
   });
   const criticalSoon = dueSoon.filter((x: any) => x?.itemType === "milestone" && x?.meta?.critical);
 
+  // ── RAG derivation ────────────────────────────────────────────────────────
   const rag: "green" | "amber" | "red" =
     overdue.length > 0 ? "red" : criticalSoon.length > 0 || blockers.length > 0 ? "amber" : "green";
 
-  const headline =
-    rag === "green"
-      ? "Delivery on track this period"
-      : rag === "amber"
-        ? "Delivery requires attention (blockers / critical items)"
-        : "Delivery at risk (overdue items detected)";
+  // ── Headline + Narrative (improved) ───────────────────────────────────────
+  const headline = buildDeliveryHeadline(
+    rag,
+    msDone.length,
+    wbsDone.length,
+    overdue.length,
+    blockers.length,
+    criticalSoon.length,
+    null // project name intentionally omitted from headline — it's already in the report header
+  );
 
-  const narrative = mergeBits([
-    `Period covered: ${fromUk} → ${toUk}.`,
-    `Completed: ${msDone.length} milestone(s), ${wbsDone.length} work item(s), ${changesClosed.length} change(s), ${raidClosed.length} RAID item(s).`,
-    overdue.length ? `Overdue items: ${overdue.length} (review immediately).` : "",
-    blockers.length ? `Operational blockers identified: ${blockers.length}.` : "",
-    `Next period focus items (due soon): ${dueSoon.length}.`,
-  ]);
+  const narrative = buildDeliveryNarrative({
+    rag,
+    fromUk,
+    toUk,
+    msDone,
+    wbsDone,
+    changesClosed,
+    raidClosed,
+    overdue,
+    blockers,
+    dueSoon,
+    criticalSoon,
+    decisions,
+  });
 
   const milestonesList = msRows.slice(0, 50).map((m) => ({
     name: safeStr(m?.milestone_name).trim() || "Milestone",
@@ -2043,11 +2340,7 @@ async function buildDeliveryReportV1(args: {
       key_decisions_taken: decisions.length ? decisions : [{ text: "No key decisions detected in this period." }],
       operational_blockers: blockers.length ? blockers : [{ text: "No operational blockers detected." }],
     },
-    lists: {
-      milestones: milestonesList,
-      changes: changesList,
-      raid: raidList,
-    },
+    lists: { milestones: milestonesList, changes: changesList, raid: raidList },
     metrics: {
       milestonesDone: msDone.length,
       wbsDone: wbsDone.length,
@@ -2064,13 +2357,7 @@ async function buildDeliveryReportV1(args: {
     },
   };
 
-  return {
-    report,
-    metaExtras: {
-      schedule_milestones_raw,
-      milestone_map,
-    },
-  };
+  return { report, metaExtras: { schedule_milestones_raw, milestone_map } };
 }
 
 /* ============================================================
@@ -2165,9 +2452,7 @@ export async function POST(req: Request) {
     await requireProjectAccessViaOrg(supabase, projectUuid, user.id);
 
     const meta = await loadProjectMeta(supabase, projectUuid);
-
     const projectHumanId = normalizeProjectHumanId(meta.project_human_id, rawProject);
-
     const draftId = safeStr((payload as any)?.draftId).trim() || safeStr(body?.draftId).trim() || "";
 
     /* ---------- ai_suggestions_generate ---------- */
@@ -2184,9 +2469,8 @@ export async function POST(req: Request) {
         return jsonNoStore({ ok: false, error: "artifactId is required (uuid)" }, { status: 400 });
       }
 
-      const supabaseAdmin = adminClientOrNull() ?? supabase;
-
-      const { data: art, error: artErr } = await supabaseAdmin
+      // ✅ RLS-only for user calls (no service role fallback)
+      const { data: art, error: artErr } = await supabase
         .from("artifacts")
         .select("id, project_id, type, artifact_type, content_json")
         .eq("id", artifactId)
@@ -2223,7 +2507,7 @@ export async function POST(req: Request) {
 
       let inserted: any[] = [];
       try {
-        inserted = await insertSuggestionsDeduped({ supabaseAdmin, suggestions });
+        inserted = await insertSuggestionsDeduped({ supabase, suggestions });
       } catch (e: any) {
         return jsonNoStore({
           ok: true,
@@ -2234,7 +2518,9 @@ export async function POST(req: Request) {
           generated: suggestions.length,
           inserted: 0,
           suggestionsComputed: suggestions,
-          warning: `Could not insert suggestions (check SUPABASE_SERVICE_ROLE_KEY / RLS): ${String(e?.message ?? e)}`,
+          warning: `Could not insert suggestions (RLS). Ensure ai_suggestions insert policy allows project editors. Error: ${String(
+            e?.message ?? e
+          )}`,
         });
       }
 
@@ -2342,7 +2628,7 @@ export async function POST(req: Request) {
         project_manager_name: meta.project_manager_name,
         project_manager_email: meta.project_manager_email,
         project_manager_user_id: meta.project_manager_user_id,
-        model: "delivery-report-v1",
+        model: "delivery-report-v2",
         report,
         content_json,
       });
@@ -2379,23 +2665,17 @@ export async function POST(req: Request) {
         safeStr((body as any)?.artifactId).trim();
 
       if (!changeId) {
-        return jsonNoStore(
-          { ok: false, error: "Missing changeId (payload.changeId or body.artifactId)" },
-          { status: 400 }
-        );
+        return jsonNoStore({ ok: false, error: "Missing changeId (payload.changeId or body.artifactId)" }, { status: 400 });
       }
 
-      // Try full select; if any extended column missing, fall back to core columns only.
-      // This handles deployments where justification/financial/risks etc are stored
-      // inside impact_analysis JSON rather than as real DB columns.
       let cr: any = null;
       {
         const { data: d1, error: e1 } = await supabase
           .from("change_requests")
           .select(
             "id, project_id, title, description, delivery_status, decision_status, priority, " +
-            "impact_analysis, justification, financial, schedule, risks, dependencies, " +
-            "assumptions, implementation_plan, rollback_plan"
+              "impact_analysis, justification, financial, schedule, risks, dependencies, " +
+              "assumptions, implementation_plan, rollback_plan"
           )
           .eq("id", changeId)
           .eq("project_id", projectUuid)
@@ -2404,7 +2684,6 @@ export async function POST(req: Request) {
         if (!e1) {
           cr = d1;
         } else {
-          // One or more extended columns don't exist — fall back to core columns
           const { data: d2, error: e2 } = await supabase
             .from("change_requests")
             .select("id, project_id, title, description, delivery_status, decision_status, priority, impact_analysis")
@@ -2418,56 +2697,55 @@ export async function POST(req: Request) {
 
       if (!cr) return jsonNoStore({ ok: false, error: "Change request not found" }, { status: 404 });
 
-      // impact_analysis may hold risk, days, cost and extended fields
       const impact = (cr as any)?.impact_analysis ?? {};
 
       const assessment = await buildPmImpactAssessment({
-        title:              safeStr((cr as any)?.title),
-        description:        safeStr((cr as any)?.description),
-        justification:      safeStr((cr as any)?.justification),
-        financial:          safeStr((cr as any)?.financial),
-        schedule:           safeStr((cr as any)?.schedule),
-        risks:              safeStr((cr as any)?.risks),
-        dependencies:       safeStr((cr as any)?.dependencies),
+        title: safeStr((cr as any)?.title),
+        description: safeStr((cr as any)?.description),
+        justification: safeStr((cr as any)?.justification),
+        financial: safeStr((cr as any)?.financial),
+        schedule: safeStr((cr as any)?.schedule),
+        risks: safeStr((cr as any)?.risks),
+        dependencies: safeStr((cr as any)?.dependencies),
         implementationPlan:
-          safeStr((cr as any)?.implementation_plan) ||
-          safeStr((cr as any)?.implementationPlan),
-        rollbackPlan:
-          safeStr((cr as any)?.rollback_plan) ||
-          safeStr((cr as any)?.rollbackPlan),
-        deliveryStatus:     safeStr((cr as any)?.delivery_status),
-        decisionStatus:     safeStr((cr as any)?.decision_status),
-        priority:           safeStr((cr as any)?.priority),
-        cost:               safeNumAi(impact?.cost, 0),
-        days:               safeNumAi(impact?.days, 0),
-        risk:               safeStr(impact?.risk),
+          safeStr((cr as any)?.implementation_plan) || safeStr((cr as any)?.implementationPlan),
+        rollbackPlan: safeStr((cr as any)?.rollback_plan) || safeStr((cr as any)?.rollbackPlan),
+        deliveryStatus: safeStr((cr as any)?.delivery_status),
+        decisionStatus: safeStr((cr as any)?.decision_status),
+        priority: safeStr((cr as any)?.priority),
+        cost: safeNumAi(impact?.cost, 0),
+        days: safeNumAi(impact?.days, 0),
+        risk: safeStr(impact?.risk),
       });
 
-      // Return flat at top level — ChangeAiDrawer.tsx parseAnalysis() picks it up directly
       return jsonNoStore({
         ok: true,
         eventType,
         scope: "project",
         project_id: projectUuid,
-        readiness_score:   assessment.readiness_score,
-        readiness_label:   assessment.readiness_label,
-        recommendation:    assessment.recommendation,
+        readiness_score: assessment.readiness_score,
+        readiness_label: assessment.readiness_label,
+        recommendation: assessment.recommendation,
         executive_summary: assessment.executive_summary,
-        schedule:          assessment.schedule,
-        cost:              assessment.cost,
-        risk:              assessment.risk,
-        scope:             assessment.scope,
-        governance:        assessment.governance,
-        blockers:          assessment.blockers,
-        strengths:         assessment.strengths,
-        next_actions:      assessment.next_actions,
-        model:             assessment.model,
+        schedule: assessment.schedule,
+        cost: assessment.cost,
+        risk: assessment.risk,
+        scope: assessment.scope,
+        governance: assessment.governance,
+        blockers: assessment.blockers,
+        strengths: assessment.strengths,
+        next_actions: assessment.next_actions,
+        model: assessment.model,
       });
     }
 
     /* ---------- change draft assist (and any other event types) ---------- */
     const draft =
-      payload && typeof payload === "object" ? payload : body && typeof body === "object" ? body : ({} as any);
+      payload && typeof payload === "object"
+        ? payload
+        : body && typeof body === "object"
+        ? body
+        : ({} as any);
 
     return jsonNoStore({
       ok: true,
