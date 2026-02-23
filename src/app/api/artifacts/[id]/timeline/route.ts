@@ -6,9 +6,26 @@ import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+/* ---------------- helpers ---------------- */
+
+function noStore(res: NextResponse) {
+  res.headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  return res;
+}
+
+function jsonOk(data: any, status = 200) {
+  return noStore(NextResponse.json({ ok: true, ...data }, { status }));
+}
 
 function jsonErr(error: string, status = 400, details?: any) {
-  return NextResponse.json({ ok: false, error, details }, { status });
+  return noStore(NextResponse.json({ ok: false, error, details }, { status }));
 }
 
 function safeStr(x: any) {
@@ -30,6 +47,26 @@ function clampLimit(n: number, min: number, max: number) {
 }
 
 /**
+ * Debug toggle:
+ * - Non-prod: ?debug=1 works
+ * - Prod: requires ALLOW_DEBUG_ROUTES=1 and x-aliena-debug-secret === DEBUG_ROUTE_SECRET
+ */
+function debugEnabled(req: Request, url: URL) {
+  const wants = safeStr(url.searchParams.get("debug")).trim() === "1";
+  if (!wants) return false;
+
+  const isProd = process.env.NODE_ENV === "production";
+  if (!isProd) return true;
+
+  const allowProdDebug = safeStr(process.env.ALLOW_DEBUG_ROUTES).trim() === "1";
+  if (!allowProdDebug) return false;
+
+  const expected = safeStr(process.env.DEBUG_ROUTE_SECRET).trim();
+  const got = safeStr(req.headers.get("x-aliena-debug-secret")).trim();
+  return Boolean(expected) && got === expected;
+}
+
+/**
  * GET /api/artifacts/:id/timeline?limit=60
  *
  * Access rules (kept simple + fast):
@@ -39,36 +76,41 @@ function clampLimit(n: number, min: number, max: number) {
  *
  * Includes a small debug block you can enable with ?debug=1 to confirm cookie/session wiring.
  */
-export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string }> }) {
+export async function GET(
+  req: NextRequest,
+  ctx: { params: Promise<{ id?: string }> }
+) {
   try {
     const supabase = await createClient();
 
     const { data: auth, error: authErr } = await supabase.auth.getUser();
-    if (authErr) return jsonErr("Auth error", 401, { message: authErr.message, code: authErr.code });
+    if (authErr)
+      return jsonErr("Auth error", 401, {
+        message: authErr.message,
+        code: authErr.code,
+      });
     if (!auth?.user) return jsonErr("Unauthorized", 401);
 
     const { id } = await ctx.params;
     const artifactId = safeStr(id).trim();
-    if (!artifactId || !looksLikeUuid(artifactId)) return jsonErr("Invalid artifactId", 400);
+    if (!artifactId || !looksLikeUuid(artifactId))
+      return jsonErr("Invalid artifactId", 400);
 
     const url = new URL(req.url);
     const limit = clampLimit(Number(url.searchParams.get("limit") ?? "60"), 10, 400);
-    const debug = safeStr(url.searchParams.get("debug")).trim() === "1";
+    const debug = debugEnabled(req, url);
 
     // Optional debug: confirms whether the request includes cookies/session
     if (debug) {
       const { data: sess } = await supabase.auth.getSession();
-      return NextResponse.json(
-        {
-          ok: true,
-          debug: true,
-          artifactId,
-          userId: auth.user.id,
-          hasSession: !!sess?.session,
-          accessTokenPresent: !!sess?.session?.access_token,
-        },
-        { status: 200 }
-      );
+      return jsonOk({
+        debug: true,
+        artifactId,
+        userId: auth.user.id,
+        hasSession: !!sess?.session,
+        // IMPORTANT: do NOT include tokens; only boolean presence is safe
+        accessTokenPresent: !!sess?.session?.access_token,
+      });
     }
 
     // 1) Resolve project_id (+ organisation_id) from artifact (RLS still applies)
@@ -78,14 +120,18 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
       .eq("id", artifactId)
       .maybeSingle();
 
-    if (a0Err) return jsonErr("Failed to load artifact", 500, { message: a0Err.message, code: a0Err.code });
+    if (a0Err)
+      return jsonErr("Failed to load artifact", 500, {
+        message: a0Err.message,
+        code: a0Err.code,
+      });
     if (!a0?.project_id) return jsonErr("Artifact not found", 404);
 
     const projectId = String((a0 as any).project_id);
-    const organisationId = safeStr((a0 as any)?.projects?.organisation_id).trim() || null;
+    const organisationId =
+      safeStr((a0 as any)?.projects?.organisation_id).trim() || null;
 
     // 2) Gate by project membership OR org membership
-    //    Keep both (as you requested).
     let isProjectMember = false;
     let isOrgMember = false;
 
@@ -97,7 +143,11 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
       .is("removed_at", null)
       .maybeSingle();
 
-    if (pmErr) return jsonErr("Membership check failed", 500, { message: pmErr.message, code: pmErr.code });
+    if (pmErr)
+      return jsonErr("Membership check failed", 500, {
+        message: pmErr.message,
+        code: pmErr.code,
+      });
     if (pm) isProjectMember = true;
 
     if (!isProjectMember && organisationId) {
@@ -109,7 +159,11 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
         .is("removed_at", null)
         .maybeSingle();
 
-      if (omErr) return jsonErr("Org membership check failed", 500, { message: omErr.message, code: omErr.code });
+      if (omErr)
+        return jsonErr("Org membership check failed", 500, {
+          message: omErr.message,
+          code: omErr.code,
+        });
       if (om) isOrgMember = true;
     }
 
@@ -147,13 +201,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
       .limit(limit);
 
     if (rowsErr) {
-      // This is the error you're seeing when the request hits Supabase without a valid auth context
-      // or when the SELECT policy isn't satisfied.
-      return jsonErr("Timeline query failed", 403, {
-        message: rowsErr.message,
-        code: rowsErr.code,
-        hint: rowsErr.hint,
-      });
+      // Avoid leaking details to non-debug callers; log server-side only.
+      console.error("[timeline] query failed:", rowsErr);
+      return jsonErr("Timeline query failed", 403);
     }
 
     const rows = Array.isArray(rowsRaw) ? rowsRaw : [];
@@ -191,7 +241,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
             if (email) r.actor_email = email;
           }
         } else {
-          // Fallback profiles.id (your schema suggests id may also FK -> auth.users.id)
+          // Fallback profiles.id
           const { data: p2, error: p2Err } = await supabase
             .from("profiles")
             .select("id, email, full_name")
@@ -214,14 +264,19 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id?: string
           }
         }
       } catch {
-        // If profiles is blocked by RLS or any error, just return original rows.
+        // best-effort; ignore
       }
     }
 
-    return NextResponse.json(
-      { ok: true, artifactId, projectId, organisationId, limit, isProjectMember, isOrgMember, rows },
-      { status: 200 }
-    );
+    return jsonOk({
+      artifactId,
+      projectId,
+      organisationId,
+      limit,
+      isProjectMember,
+      isOrgMember,
+      rows,
+    });
   } catch (e: any) {
     return jsonErr("Server error", 500, { message: String(e?.message ?? e) });
   }

@@ -2,65 +2,169 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
+import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-function s(x: any) {
+// ─── Utils (kept consistent with generate route) ───────────────────────────
+
+function s(x: any): string {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
-function provider() {
-  return (s(process.env.AI_PROVIDER) || "mock").trim().toLowerCase();
+function env(name: string): string {
+  const v = process.env[name];
+  return typeof v === "string" ? v.trim() : "";
 }
 
-function hasKey() {
-  // Your generate route uses WIRE_AI_API_KEY
-  return !!s(process.env.WIRE_AI_API_KEY).trim();
+function noStore() {
+  return {
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
+  };
 }
 
 function json(data: any, status = 200) {
-  const res = NextResponse.json(data, { status });
-  res.headers.set("Cache-Control", "no-store, max-age=0");
-  return res;
+  return NextResponse.json(data, { status, headers: noStore() });
 }
 
-export async function GET() {
-  const p = provider();
+/**
+ * Debug toggle:
+ * - Non-prod: ?debug=1 works
+ * - Prod: requires ALLOW_DEBUG_ROUTES=1 and x-aliena-debug-secret === DEBUG_ROUTE_SECRET
+ */
+function debugEnabled(req: Request) {
+  const url = new URL(req.url);
+  const wants = s(url.searchParams.get("debug")).trim() === "1";
+  if (!wants) return false;
 
-  // If you're in mock mode, capabilities are "on" but clearly marked as mock.
-  if (p === "mock") {
-    return json({
-      ok: true,
-      provider: "mock",
-      full: true,
-      section: true,
-      suggest: true,
-      validate: true,
-      reason: "AI_PROVIDER=mock",
-    });
+  const isProd = process.env.NODE_ENV === "production";
+  if (!isProd) return true;
+
+  const allowProdDebug = s(process.env.ALLOW_DEBUG_ROUTES).trim() === "1";
+  if (!allowProdDebug) return false;
+
+  const expected = s(process.env.DEBUG_ROUTE_SECRET).trim();
+  const got = s(req.headers.get("x-aliena-debug-secret")).trim();
+  return Boolean(expected) && got === expected;
+}
+
+// ─── Provider resolution (mirrors generate route exactly) ──────────────────
+
+function resolveProvider(): {
+  raw: string;
+  normalised: "mock" | "openai";
+  hasKey: boolean;
+  model: string;
+  temperature: number;
+} {
+  const raw = (env("AI_PROVIDER") || "mock").toLowerCase();
+  const hasKey = !!env("WIRE_AI_API_KEY") || !!env("OPENAI_API_KEY");
+  const model = env("OPENAI_MODEL") || "gpt-4.1-mini";
+  const temperature = Number(env("OPENAI_TEMPERATURE") || "0.2") || 0.2;
+
+  return {
+    raw,
+    normalised: raw === "mock" ? "mock" : "openai",
+    hasKey,
+    model: raw === "mock" ? "mock" : model,
+    temperature,
+  };
+}
+
+// ─── Capability matrix ─────────────────────────────────────────────────────
+
+type CapabilityMatrix = {
+  schema_version: 1;
+  provider: string;
+  model: string;
+  temperature: number;
+
+  full: boolean;
+  section: boolean;
+  suggest: boolean;
+  validate: boolean;
+  closure: boolean;
+  weekly: boolean;
+
+  supported_artifact_types: string[];
+  supported_section_namespaces: string[];
+
+  reason: string;
+  ready: boolean;
+
+  // Only when debug is enabled (never required by the UI)
+  debug?: {
+    hasKey: boolean;
+    normalised: "mock" | "openai";
+  };
+};
+
+function buildCapabilities(
+  provider: ReturnType<typeof resolveProvider>,
+  debugOn: boolean
+): CapabilityMatrix {
+  const isMock = provider.normalised === "mock";
+  const isReady = isMock || provider.hasKey;
+
+  const modes = {
+    full: isReady,
+    section: isReady,
+    suggest: isReady,
+    validate: isReady,
+    closure: isReady,
+    weekly: isReady,
+  };
+
+  const reason = isMock
+    ? "AI_PROVIDER=mock — responses are deterministic placeholders"
+    : !provider.hasKey
+      ? "No AI key is set — all AI generation disabled"
+      : `Live AI via ${provider.raw} (${provider.model})`;
+
+  const out: CapabilityMatrix = {
+    schema_version: 1,
+    provider: isMock ? "mock" : provider.raw,
+    model: provider.model,
+    temperature: provider.temperature,
+    ...modes,
+    supported_artifact_types: ["project_charter", "weekly_report"],
+    supported_section_namespaces: ["charter.*", "closure.*"],
+    reason,
+    ready: isReady,
+  };
+
+  if (debugOn) {
+    out.debug = { hasKey: provider.hasKey, normalised: provider.normalised };
   }
 
-  // Real providers must have a key (otherwise the UI should disable AI).
-  if (!hasKey()) {
-    return json({
-      ok: true,
-      provider: p,
-      full: false,
-      section: false,
-      suggest: false,
-      validate: false,
-      reason: "Missing WIRE_AI_API_KEY",
-    });
+  return out;
+}
+
+// ─── Handlers ──────────────────────────────────────────────────────────────
+
+export async function GET(req: Request) {
+  // Auth gate
+  try {
+    const supabase = await createClient();
+    const { data: auth, error } = await supabase.auth.getUser();
+    if (error || !auth?.user) {
+      return json({ ok: false, error: "Not authenticated" }, 401);
+    }
+  } catch {
+    return json({ ok: false, error: "Auth check failed" }, 401);
   }
 
-  // If you later add per-mode gating, do it here.
-  return json({
-    ok: true,
-    provider: p,
-    full: true,
-    section: true,
-    suggest: true,
-    validate: true,
-  });
+  const debugOn = debugEnabled(req);
+  const provider = resolveProvider();
+  const capabilities = buildCapabilities(provider, debugOn);
+
+  return json({ ok: true, capabilities });
+}
+
+export async function POST() {
+  return json({ ok: false, error: "Method not allowed. Use GET." }, 405);
 }

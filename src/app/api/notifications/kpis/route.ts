@@ -1,4 +1,6 @@
 // src/app/api/notifications/kpis/route.ts
+import "server-only";
+
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { resolveActiveProjectScope } from "@/lib/server/project-scope";
@@ -9,16 +11,27 @@ export const revalidate = 0;
 
 /* ---------------- helpers ---------------- */
 
-function ok(data: any, status = 200) {
-  const res = NextResponse.json({ ok: true, ...data }, { status });
-  res.headers.set("Cache-Control", "no-store, max-age=0");
+function noStore(res: NextResponse) {
+  res.headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
   return res;
 }
 
+function ok(data: any, status = 200) {
+  return noStore(NextResponse.json({ ok: true, ...data }, { status }));
+}
+
 function err(message: string, status = 400, meta?: any) {
-  const res = NextResponse.json({ ok: false, error: message, ...(meta ? { meta } : {}) }, { status });
-  res.headers.set("Cache-Control", "no-store, max-age=0");
-  return res;
+  return noStore(
+    NextResponse.json(
+      { ok: false, error: message, ...(meta ? { meta } : {}) },
+      { status }
+    )
+  );
 }
 
 function safeStr(x: any) {
@@ -31,9 +44,25 @@ function clampDays(x: string | null, fallback = 14): 7 | 14 | 30 | 60 {
   return Number.isFinite(n) && allowed.has(n) ? (n as any) : (fallback as any);
 }
 
-function isDebug(req: Request) {
+/**
+ * Debug toggle:
+ * - Non-prod: ?debug=1 works
+ * - Prod: requires ALLOW_DEBUG_ROUTES=1 and x-aliena-debug-secret === DEBUG_ROUTE_SECRET
+ */
+function debugEnabled(req: Request) {
   const url = new URL(req.url);
-  return safeStr(url.searchParams.get("debug")).trim() === "1";
+  const wants = safeStr(url.searchParams.get("debug")).trim() === "1";
+  if (!wants) return false;
+
+  const isProd = process.env.NODE_ENV === "production";
+  if (!isProd) return true;
+
+  const allowProdDebug = safeStr(process.env.ALLOW_DEBUG_ROUTES).trim() === "1";
+  if (!allowProdDebug) return false;
+
+  const expected = safeStr(process.env.DEBUG_ROUTE_SECRET).trim();
+  const got = safeStr(req.headers.get("x-aliena-debug-secret")).trim();
+  return Boolean(expected) && got === expected;
 }
 
 function daysAgoIso(days: number) {
@@ -45,17 +74,14 @@ function daysAgoIso(days: number) {
  * Apply scope safely.
  *
  * IMPORTANT:
- * - Your LIST route can “hydrate” project_id using artifact_id ? artifacts.project_id.
- * - KPIs route does NOT hydrate; therefore many rows may have project_id NULL.
- *
- * To keep KPIs consistent with the list:
- * - If projectIds exist: include (project_id IN projectIds) OR (project_id IS NULL)
- * - If none: keep NULL only (stable and safe)
+ * - KPIs route does NOT hydrate; many rows may have project_id NULL.
+ * - To keep KPIs consistent with list:
+ *   - If projectIds exist: include (project_id IN projectIds) OR (project_id IS NULL)
+ *   - If none: keep NULL only (stable and safe)
  */
 function applyScope(q: any, projectIds: string[]) {
   if (!projectIds.length) return q.is("project_id", null);
   const ids = projectIds.filter(Boolean).join(",");
-  // supabase/postgrest OR syntax: "a.in.(..),a.is.null"
   return q.or(`project_id.in.(${ids}),project_id.is.null`);
 }
 
@@ -91,7 +117,7 @@ async function countWithLabel(label: string, q: any, debugOn: boolean) {
 /* ---------------- handler ---------------- */
 
 export async function GET(req: Request) {
-  const debugOn = isDebug(req);
+  const debugOn = debugEnabled(req);
 
   try {
     const supabase = await createClient();
@@ -99,7 +125,7 @@ export async function GET(req: Request) {
     const { data: auth, error: authErr } = await supabase.auth.getUser();
     const userId = auth?.user?.id || null;
     if (authErr || !userId) {
-      return err("Unauthorized", 401, { authErr: authErr?.message ?? null });
+      return err("Unauthorized", 401);
     }
 
     const url = new URL(req.url);
@@ -107,7 +133,9 @@ export async function GET(req: Request) {
     const sinceIso = daysAgoIso(days);
 
     const scoped = await resolveActiveProjectScope(supabase, userId);
-    const projectIds = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
+    const projectIds = Array.isArray(scoped?.projectIds)
+      ? scoped.projectIds.filter(Boolean)
+      : [];
 
     const base = () =>
       supabase
@@ -117,10 +145,8 @@ export async function GET(req: Request) {
 
     // Build each KPI query (window + scope applied consistently)
     const qTotal = applyScope(applyWindow(base(), sinceIso), projectIds);
-
     const qUnread = applyScope(applyWindow(base().eq("is_read", false), sinceIso), projectIds);
 
-    // ? Use bucket ONLY (matches your generator; avoids fragile OR syntax)
     const qOverdueUnread = applyScope(
       applyWindow(base().eq("is_read", false).eq("bucket", "overdue"), sinceIso),
       projectIds
@@ -146,7 +172,6 @@ export async function GET(req: Request) {
       projectIds
     );
 
-    // Execute with labelled debug (so we can see exactly what fails)
     const results = await Promise.all([
       countWithLabel("total", qTotal, debugOn),
       countWithLabel("unread", qUnread, debugOn),
@@ -159,11 +184,11 @@ export async function GET(req: Request) {
 
     if (!debugOn) {
       const failed = results.find((r) => !r.ok);
-      if (failed && !failed.ok) throw new Error(failed.error || "Query failed");
+      if (failed && !failed.ok) throw new Error("Query failed");
     }
 
     const map = new Map(results.map((r) => [r.label, r.count]));
-    const payload = {
+    const payload: any = {
       days,
       kpis: {
         total: map.get("total") ?? 0,
@@ -174,22 +199,24 @@ export async function GET(req: Request) {
         aiUnread: map.get("aiUnread") ?? 0,
         risksIssuesUnread: map.get("risksIssuesUnread") ?? 0,
       },
-      ...(debugOn
-        ? {
-            meta: {
-              userId,
-              sinceIso,
-              projectCount: projectIds.length,
-              projectIds: projectIds.slice(0, 25),
-              scopeMeta: scoped?.meta ?? null,
-              perQuery: results,
-            },
-          }
-        : {}),
     };
+
+    if (debugOn) {
+      payload.meta = {
+        debug: true,
+        userId,
+        sinceIso,
+        projectCount: projectIds.length,
+        projectIds: projectIds.slice(0, 25),
+        scopeMeta: scoped?.meta ?? null,
+        perQuery: results,
+      };
+    }
 
     return ok(payload);
   } catch (e: any) {
+    console.error("[notifications/kpis] failed:", e);
+
     if (debugOn) {
       return err("Failed", 500, {
         message: String(e?.message || e),
@@ -198,6 +225,7 @@ export async function GET(req: Request) {
         code: e?.code ?? null,
       });
     }
+
     return err("Failed", 500);
   }
 }

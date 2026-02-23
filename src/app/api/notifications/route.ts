@@ -6,17 +6,31 @@ import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-function ok(data: any, status = 200) {
-  const res = NextResponse.json({ ok: true, ...data }, { status });
-  res.headers.set("Cache-Control", "no-store, max-age=0");
+/* ---------------- helpers ---------------- */
+
+function noStore(res: NextResponse) {
+  res.headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
   return res;
 }
 
+function ok(data: any, status = 200) {
+  return noStore(NextResponse.json({ ok: true, ...data }, { status }));
+}
+
 function err(message: string, status = 400, meta?: any) {
-  const res = NextResponse.json({ ok: false, error: message, ...(meta ? { meta } : {}) }, { status });
-  res.headers.set("Cache-Control", "no-store, max-age=0");
-  return res;
+  return noStore(
+    NextResponse.json(
+      { ok: false, error: message, ...(meta ? { meta } : {}) },
+      { status }
+    )
+  );
 }
 
 function clampInt(x: string | null, def: number, min: number, max: number) {
@@ -66,18 +80,28 @@ function getMetaProjectId(md: any) {
 }
 
 /**
+ * Debug toggle:
+ * - Non-prod: ?debug=1 works
+ * - Prod: requires ALLOW_DEBUG_ROUTES=1 and x-aliena-debug-secret === DEBUG_ROUTE_SECRET
+ */
+function debugEnabled(req: Request, url: URL) {
+  const wants = safeStr(url.searchParams.get("debug")).trim() === "1";
+  if (!wants) return false;
+
+  const isProd = process.env.NODE_ENV === "production";
+  if (!isProd) return true;
+
+  const allowProdDebug = safeStr(process.env.ALLOW_DEBUG_ROUTES).trim() === "1";
+  if (!allowProdDebug) return false;
+
+  const expected = safeStr(process.env.DEBUG_ROUTE_SECRET).trim();
+  const got = safeStr(req.headers.get("x-aliena-debug-secret")).trim();
+  return Boolean(expected) && got === expected;
+}
+
+/**
  * Enrich notification items so UI can show project_code + title (instead of UUID / "Project").
- *
- * Strategy:
- * 1) Determine projectId per notification using:
- *    - n.project_id
- *    - metadata.project_id / projectId / project_uuid / projectUuid
- *    - artifact_id -> artifacts.project_id
- * 2) Fetch projects for all needed IDs: (id, project_code, title)
- * 3) Merge into each row's metadata (do not overwrite if already set)
- * 4) Also return a "project_id" field populated in-memory (so UI fallbacks work)
- *
- * IMPORTANT: This does NOT write back to DB.
+ * (No DB writes; best-effort.)
  */
 async function hydrateProjectMeta(supabase: any, itemsRaw: any[] | null | undefined) {
   const list = Array.isArray(itemsRaw) ? itemsRaw : [];
@@ -103,7 +127,9 @@ async function hydrateProjectMeta(supabase: any, itemsRaw: any[] | null | undefi
   let artifactResolveMeta: any = { resolvedFromArtifacts: 0 };
 
   if (missingProjectViaArtifact.length > 0) {
-    const artifactIds = Array.from(new Set(missingProjectViaArtifact.map((x) => x.artifactId).filter(Boolean)));
+    const artifactIds = Array.from(
+      new Set(missingProjectViaArtifact.map((x) => x.artifactId).filter(Boolean))
+    );
 
     try {
       const { data: artifacts, error: artErr } = await supabase
@@ -186,7 +212,9 @@ async function hydrateProjectMeta(supabase: any, itemsRaw: any[] | null | undefi
 
   const enriched = list.map((n, idx) => {
     const pid =
-      safeStr(n?.project_id).trim() || getMetaProjectId(n?.metadata) || safeStr(needByIndex.get(idx)).trim();
+      safeStr(n?.project_id).trim() ||
+      getMetaProjectId(n?.metadata) ||
+      safeStr(needByIndex.get(idx)).trim();
 
     if (!pid) return n;
 
@@ -223,7 +251,7 @@ export async function GET(req: Request) {
   try {
     const supabase = await createClient();
     const { data: auth, error: authErr } = await supabase.auth.getUser();
-    if (authErr) return err(authErr.message, 401);
+    if (authErr) return err("Unauthorized", 401);
     if (!auth?.user) return err("Unauthorized", 401);
 
     const url = new URL(req.url);
@@ -233,7 +261,7 @@ export async function GET(req: Request) {
     const beforeRaw = url.searchParams.get("before");
     const beforeIso = toIsoOrNull(beforeRaw);
 
-    const debug = safeStr(url.searchParams.get("debug")).trim() === "1";
+    const debug = debugEnabled(req, url);
 
     let q = supabase
       .from("notifications")
@@ -265,11 +293,14 @@ export async function GET(req: Request) {
     if (beforeIso) q = q.lt("created_at", beforeIso);
 
     const { data: itemsRaw, error: listErr } = await q;
-    if (listErr) return err(listErr.message, 500);
+    if (listErr) {
+      console.error("[notifications] list failed:", listErr);
+      return err("Failed to load notifications", 500);
+    }
 
     const { items, meta: hydrateMeta } = await hydrateProjectMeta(supabase, itemsRaw);
 
-    // ✅ Robust unread count (count-only)
+    // Unread count (count-only)
     let unreadCount = 0;
     let unreadCountMode: "exact" | "fallback_rows" | "fallback_items" = "exact";
 
@@ -279,7 +310,10 @@ export async function GET(req: Request) {
       .eq("user_id", auth.user.id)
       .eq("is_read", false);
 
-    if (cntErr) return err(cntErr.message, 500);
+    if (cntErr) {
+      console.error("[notifications] unread count failed:", cntErr);
+      return err("Failed to load notifications", 500);
+    }
 
     if (typeof count === "number") {
       unreadCount = count;
@@ -291,13 +325,18 @@ export async function GET(req: Request) {
         .eq("is_read", false)
         .limit(500);
 
-      if (fbErr) return err(fbErr.message, 500);
+      if (fbErr) {
+        console.error("[notifications] unread fallback failed:", fbErr);
+        return err("Failed to load notifications", 500);
+      }
 
       unreadCount = Array.isArray(rows) ? rows.length : 0;
       unreadCountMode = "fallback_rows";
 
       if (!unreadCount) {
-        unreadCount = Array.isArray(items) ? items.filter((n: any) => n?.is_read !== true).length : 0;
+        unreadCount = Array.isArray(items)
+          ? items.filter((n: any) => n?.is_read !== true).length
+          : 0;
         unreadCountMode = "fallback_items";
       }
     }
@@ -310,6 +349,7 @@ export async function GET(req: Request) {
       ...hydrateMeta,
     };
 
+    // Debug-only meta (gated)
     if (debug) {
       const ymd = todayYmdUtc();
 
@@ -318,7 +358,10 @@ export async function GET(req: Request) {
         .select("id", { count: "exact", head: true })
         .eq("user_id", auth.user.id);
 
-      if (totalErr) return err(totalErr.message, 500);
+      if (totalErr) {
+        console.error("[notifications] debug totalForUser failed:", totalErr);
+        // still return normal payload; don't fail request
+      }
 
       const { count: overdueUnread, error: overdueErr } = await supabase
         .from("notifications")
@@ -327,10 +370,14 @@ export async function GET(req: Request) {
         .eq("is_read", false)
         .or(`bucket.eq.overdue,and(due_date.not.is.null,due_date.lt.${ymd})`);
 
-      if (overdueErr) return err(overdueErr.message, 500);
+      if (overdueErr) {
+        console.error("[notifications] debug overdueUnread failed:", overdueErr);
+        // still return normal payload; don't fail request
+      }
 
       meta = {
         ...meta,
+        debug: true,
         authUserId: auth.user.id,
         totalForUser: Number(totalForUser ?? 0),
         unreadForUser: Number(unreadCount ?? 0),
@@ -345,6 +392,7 @@ export async function GET(req: Request) {
       meta,
     });
   } catch (e: any) {
-    return err(e?.message || "Unexpected error", 500);
+    console.error("[notifications] server error:", e);
+    return err("Unexpected error", 500);
   }
 }
