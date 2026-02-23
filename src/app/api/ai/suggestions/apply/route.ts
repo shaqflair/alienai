@@ -6,6 +6,10 @@ import { createClient } from "@/utils/supabase/server";
 import { createClient as createSbJsClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+/* ---------------- helpers ---------------- */
 
 function safeStr(x: unknown) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
@@ -13,8 +17,54 @@ function safeStr(x: unknown) {
 function safeLower(x: unknown) {
   return safeStr(x).trim().toLowerCase();
 }
+function looksLikeUuid(s: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(s || "").trim()
+  );
+}
+function isMissingColumnError(errMsg: string, col: string) {
+  const m = String(errMsg || "").toLowerCase();
+  const c = col.toLowerCase();
+  return (
+    (m.includes("column") && m.includes(c) && m.includes("does not exist")) ||
+    (m.includes("unknown column") && m.includes(c)) ||
+    (m.includes("could not find") && m.includes(c))
+  );
+}
+function jsonNoStore(payload: any, init?: ResponseInit) {
+  const res = NextResponse.json(payload, init);
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  return res;
+}
 
-function adminClient() {
+function canEditRole(role: string) {
+  const r = safeLower(role);
+  return r === "owner" || r === "admin" || r === "editor";
+}
+
+/* ---------------- CRON-only service role (kept for future; not used here) ---------------- */
+
+function isCronRequest(req: Request) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return false;
+
+  const h = req.headers;
+  const direct = safeStr(h.get("x-cron-secret")).trim();
+  if (direct && direct === secret) return true;
+
+  const auth = safeStr(h.get("authorization")).trim();
+  if (auth.toLowerCase().startsWith("bearer ")) {
+    const token = auth.slice(7).trim();
+    if (token === secret) return true;
+  }
+
+  return false;
+}
+
+function adminClientForCron(req: Request) {
+  if (!isCronRequest(req)) throw new Error("Forbidden");
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
@@ -23,16 +73,76 @@ function adminClient() {
   return createSbJsClient(url, key, { auth: { persistSession: false } });
 }
 
-function canEditRole(role: string) {
-  const r = safeLower(role);
-  return r === "owner" || r === "admin" || r === "editor";
+/* ---------------- project resolver (UUID or human code) ---------------- */
+
+const HUMAN_COL_CANDIDATES = [
+  "project_code",
+  "project_human_id",
+  "human_id",
+  "code",
+  "slug",
+  "reference",
+  "ref",
+] as const;
+
+function normalizeProjectIdentifier(input: string) {
+  let v = safeStr(input).trim();
+  try {
+    v = decodeURIComponent(v);
+  } catch {}
+  v = v.trim();
+
+  // allow paths like /projects/P-00012 or "P-00012" or "00012"
+  const m = v.match(/(\d{3,})$/);
+  if (m?.[1]) return m[1];
+  return v;
 }
 
-async function requireProjectMembership(supabase: any, projectId: string, userId: string) {
+function isNumericLike(s: string) {
+  return /^\d+$/.test(String(s || "").trim());
+}
+
+async function resolveProjectUuid(supabase: any, identifier: string): Promise<string | null> {
+  const raw = safeStr(identifier).trim();
+  if (!raw) return null;
+  if (looksLikeUuid(raw)) return raw;
+
+  const id = normalizeProjectIdentifier(raw);
+
+  for (const col of HUMAN_COL_CANDIDATES) {
+    const likelyNumeric = col === "project_code" || col === "human_id" || col === "project_human_id";
+    if (likelyNumeric && !isNumericLike(id)) continue;
+
+    const { data, error } = await supabase.from("projects").select("id").eq(col as any, id).maybeSingle();
+
+    if (error) {
+      if (isMissingColumnError(error.message, col)) continue;
+      throw new Error(error.message);
+    }
+    if (data?.id) return String(data.id);
+  }
+
+  // Try raw value for text-y columns
+  for (const col of ["slug", "reference", "ref", "code"] as const) {
+    const { data, error } = await supabase.from("projects").select("id").eq(col as any, raw).maybeSingle();
+
+    if (error) {
+      if (isMissingColumnError(error.message, col)) continue;
+      throw new Error(error.message);
+    }
+    if (data?.id) return String(data.id);
+  }
+
+  return null;
+}
+
+/* ---------------- membership gate (user context) ---------------- */
+
+async function requireProjectMembership(supabase: any, projectUuid: string, userId: string) {
   const { data: mem, error: memErr } = await supabase
     .from("project_members")
     .select("role, removed_at")
-    .eq("project_id", projectId)
+    .eq("project_id", projectUuid)
     .eq("user_id", userId)
     .is("removed_at", null)
     .maybeSingle();
@@ -44,57 +154,107 @@ async function requireProjectMembership(supabase: any, projectId: string, userId
   return { role, canEdit: canEditRole(role) };
 }
 
+/* =========================================================
+   POST
+   ========================================================= */
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
 
-    const projectId = safeStr(body?.projectId).trim();
-    const artifactId = safeStr(body?.artifactId).trim();
-    const suggestionId = safeStr(body?.suggestionId).trim() || safeStr(body?.suggestion?.id).trim();
+    const rawProject =
+      safeStr(body?.projectId).trim() ||
+      safeStr(body?.project_id).trim() ||
+      safeStr(body?.project_human_id).trim();
 
-    if (!projectId || !artifactId || !suggestionId) {
-      return NextResponse.json({ ok: false, error: "Missing projectId, artifactId, or suggestionId" }, { status: 400 });
+    // artifactId is OPTIONAL now (we can derive it from ai_suggestions.artifact_id)
+    const requestedArtifactId =
+      safeStr(body?.artifactId).trim() || safeStr(body?.artifact_id).trim();
+
+    const suggestionId =
+      safeStr(body?.suggestionId).trim() || safeStr(body?.suggestion?.id).trim();
+
+    if (!rawProject || !suggestionId) {
+      return jsonNoStore(
+        { ok: false, error: "Missing projectId/project_human_id or suggestionId" },
+        { status: 400 }
+      );
+    }
+    if (!looksLikeUuid(suggestionId)) {
+      return jsonNoStore({ ok: false, error: "suggestionId must be a UUID" }, { status: 400 });
+    }
+    if (requestedArtifactId && !looksLikeUuid(requestedArtifactId)) {
+      return jsonNoStore({ ok: false, error: "artifactId must be a UUID when provided" }, { status: 400 });
     }
 
     // 1) Auth with session client (user context)
     const supabase = await createClient();
     const { data: auth, error: authErr } = await supabase.auth.getUser();
-    if (authErr) return NextResponse.json({ ok: false, error: authErr.message }, { status: 401 });
-    if (!auth?.user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    if (authErr) return jsonNoStore({ ok: false, error: authErr.message }, { status: 401 });
+    if (!auth?.user) return jsonNoStore({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-    // 1b) Membership gate (DON'T rely on admin client for access control)
-    const mem = await requireProjectMembership(supabase, projectId, auth.user.id);
-    if (!mem) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
-
-    // If you want to restrict "apply suggestion" to editors/owners only:
-    if (!mem.canEdit) {
-      return NextResponse.json({ ok: false, error: "Requires editor/owner" }, { status: 403 });
+    // 2) Resolve project UUID (supports human ID)
+    const projectUuid = await resolveProjectUuid(supabase, rawProject);
+    if (!projectUuid) {
+      return jsonNoStore({ ok: false, error: "Project not found", meta: { rawProject } }, { status: 404 });
     }
 
-    // 2) Admin client for DB writes (bypass RLS)
-    const supabaseAdmin = adminClient();
+    // 3) Membership gate (DON'T rely on service role for access control)
+    const mem = await requireProjectMembership(supabase, projectUuid, auth.user.id);
+    if (!mem) return jsonNoStore({ ok: false, error: "Forbidden" }, { status: 403 });
+    if (!mem.canEdit) return jsonNoStore({ ok: false, error: "Requires editor/owner" }, { status: 403 });
 
-    // 3) Load suggestion from DB (DO NOT trust client patch)
-    const { data: sug, error: sugErr } = await supabaseAdmin
+    // 4) Load suggestion using RLS client (do NOT trust client patch)
+    const { data: sug, error: sugErr } = await supabase
       .from("ai_suggestions")
       .select(
         "id, project_id, artifact_id, section_key, target_artifact_type, suggestion_type, rationale, confidence, patch, status"
       )
       .eq("id", suggestionId)
-      .eq("project_id", projectId)
+      .eq("project_id", projectUuid)
       .maybeSingle();
 
-    if (sugErr) return NextResponse.json({ ok: false, error: sugErr.message }, { status: 500 });
-    if (!sug) return NextResponse.json({ ok: false, error: "Suggestion not found" }, { status: 404 });
+    if (sugErr) return jsonNoStore({ ok: false, error: sugErr.message }, { status: 500 });
+    if (!sug) return jsonNoStore({ ok: false, error: "Suggestion not found" }, { status: 404 });
 
-    // Ensure suggestion belongs to artifact (defensive)
-    if (safeStr((sug as any).artifact_id).trim() && safeStr((sug as any).artifact_id).trim() !== artifactId) {
-      return NextResponse.json({ ok: false, error: "Suggestion does not belong to this artifact" }, { status: 400 });
+    // ✅ derive artifactId from suggestion if caller didn't send it
+    const sugArtifactId = safeStr((sug as any).artifact_id).trim();
+    const artifactId = requestedArtifactId || sugArtifactId;
+
+    if (!artifactId) {
+      return jsonNoStore(
+        {
+          ok: false,
+          error: "Missing artifactId (not provided and suggestion has no artifact_id)",
+          meta: { suggestionId },
+        },
+        { status: 400 }
+      );
+    }
+    if (!looksLikeUuid(artifactId)) {
+      return jsonNoStore({ ok: false, error: "Resolved artifactId is not a UUID" }, { status: 400 });
+    }
+
+    // Defensive: if suggestion specifies an artifact_id, and caller also sent one, must match
+    if (sugArtifactId && requestedArtifactId && sugArtifactId !== requestedArtifactId) {
+      return jsonNoStore({ ok: false, error: "Suggestion does not belong to this artifact" }, { status: 400 });
     }
 
     const sugStatus = safeLower((sug as any).status);
+
+    // ✅ Idempotent: terminal statuses return OK (no error)
+    if (sugStatus === "applied" || sugStatus === "rejected") {
+      return jsonNoStore({
+        ok: true,
+        applied: false,
+        suggestion: { id: (sug as any).id, status: (sug as any).status },
+        note: `No change (already ${safeStr((sug as any).status)})`,
+      });
+    }
+
+    // Actionable: proposed OR suggested
     if (sugStatus !== "proposed" && sugStatus !== "suggested") {
-      return NextResponse.json(
+      return jsonNoStore(
         { ok: false, error: `Suggestion is not actionable (status=${safeStr((sug as any).status)})` },
         { status: 400 }
       );
@@ -103,39 +263,52 @@ export async function POST(req: NextRequest) {
     const suggestionType = safeLower((sug as any).suggestion_type);
     const patch = (sug as any).patch ?? null;
 
-    // 3b) Optional fast-path: add_stakeholder suggestions that target canonical stakeholders table
-    // We support payload in either:
-    // - patch.payload
-    // - patch.data
-    // - patch (direct object)
-    if (suggestionType === "add_stakeholder") {
-      const payload = (patch && typeof patch === "object" ? (patch.payload ?? patch.data ?? patch) : {}) as any;
+    // 5) Load target artifact (RLS) - ensure belongs to same project
+    const { data: artifact, error: artErr } = await supabase
+      .from("artifacts")
+      .select("id, project_id, type, artifact_type, content_json")
+      .eq("id", artifactId)
+      .eq("project_id", projectUuid)
+      .maybeSingle();
 
-      const name = safeStr(payload?.name).trim();
+    if (artErr) return jsonNoStore({ ok: false, error: artErr.message }, { status: 500 });
+    if (!artifact) return jsonNoStore({ ok: false, error: "Artifact not found" }, { status: 404 });
+
+    const artifactType = safeLower((artifact as any).artifact_type ?? (artifact as any).type);
+    const currentJson = (artifact as any).content_json ?? {};
+    const suggestionTargetType = safeLower((sug as any).target_artifact_type);
+
+    // Optional fast-path: add_stakeholder suggestion -> canonical table
+    // (still via RLS; if policies don't allow, you get a clear error)
+    if (suggestionType === "add_stakeholder") {
+      const payload = patch && typeof patch === "object" ? (patch.payload ?? patch.data ?? patch) : {};
+
+      const name = safeStr((payload as any)?.name).trim();
       if (!name) {
-        return NextResponse.json({ ok: false, error: "Missing payload.name for add_stakeholder" }, { status: 400 });
+        return jsonNoStore({ ok: false, error: "Missing payload.name for add_stakeholder" }, { status: 400 });
       }
 
-      const role = safeStr(payload?.role).trim() || null;
-      const point_of_contact = safeStr(payload?.point_of_contact ?? payload?.poc).trim() || null;
+      const role = safeStr((payload as any)?.role).trim() || null;
+      const point_of_contact =
+        safeStr((payload as any)?.point_of_contact ?? (payload as any)?.poc).trim() || null;
 
-      const { data: created, error: cErr } = await supabaseAdmin
+      const { data: created, error: cErr } = await supabase
         .from("stakeholders")
         .insert({
-          project_id: projectId,
+          project_id: projectUuid,
           artifact_id: artifactId,
           name,
           role,
           point_of_contact,
-          source: safeStr(payload?.source).trim() || "ai",
+          source: safeStr((payload as any)?.source).trim() || "ai",
         })
         .select("id")
         .maybeSingle();
 
-      if (cErr) return NextResponse.json({ ok: false, error: cErr.message }, { status: 500 });
+      if (cErr) return jsonNoStore({ ok: false, error: cErr.message }, { status: 500 });
 
       const nowIso = new Date().toISOString();
-      const { error: uErr } = await supabaseAdmin
+      const { error: uErr } = await supabase
         .from("ai_suggestions")
         .update({
           status: "applied",
@@ -145,33 +318,40 @@ export async function POST(req: NextRequest) {
           updated_at: nowIso,
         })
         .eq("id", suggestionId)
-        .eq("project_id", projectId);
+        .eq("project_id", projectUuid);
 
       if (uErr) {
-        return NextResponse.json(
-          { ok: true, applied: true, stakeholderId: created?.id ?? null, warning: `Failed to mark applied: ${uErr.message}` },
+        return jsonNoStore(
+          {
+            ok: true,
+            applied: true,
+            stakeholderId: created?.id ?? null,
+            warning: `Failed to mark applied: ${uErr.message}`,
+          },
           { status: 200 }
         );
       }
 
-      return NextResponse.json({ ok: true, applied: true, stakeholderId: created?.id ?? null });
+      // best-effort event log
+      try {
+        await supabase.from("project_events").insert({
+          project_id: projectUuid,
+          artifact_id: artifactId,
+          section_key: null,
+          event_type: "suggestion_applied",
+          actor_user_id: auth.user.id,
+          severity: "info",
+          source: "app",
+          payload: {
+            suggestion_id: suggestionId,
+            target_artifact_type: (sug as any).target_artifact_type,
+            suggestion_type: (sug as any).suggestion_type,
+          },
+        });
+      } catch {}
+
+      return jsonNoStore({ ok: true, applied: true, stakeholderId: created?.id ?? null });
     }
-
-    // 4) Load target artifact (admin)
-    const { data: artifact, error: artErr } = await supabaseAdmin
-      .from("artifacts")
-      .select("id, project_id, type, content_json")
-      .eq("id", artifactId)
-      .eq("project_id", projectId)
-      .maybeSingle();
-
-    if (artErr) return NextResponse.json({ ok: false, error: artErr.message }, { status: 500 });
-    if (!artifact) return NextResponse.json({ ok: false, error: "Artifact not found" }, { status: 404 });
-
-    const artifactType = safeLower((artifact as any).type);
-    const currentJson = (artifact as any).content_json ?? {};
-
-    const suggestionTargetType = safeLower((sug as any).target_artifact_type);
 
     // ✅ Normalize stakeholder governance patches to the 5-column stakeholder register table shape
     const normalizedPatch = normalizeStakeholderPatchIfNeeded({
@@ -189,31 +369,31 @@ export async function POST(req: NextRequest) {
       sectionKey: (sug as any).section_key ?? null,
     });
 
-    // 5) Save artifact JSON (admin)
-    const { error: updErr } = await supabaseAdmin
+    // 6) Save artifact JSON (RLS)
+    const { error: updErr } = await supabase
       .from("artifacts")
       .update({
         content_json: updatedJson,
         updated_at: new Date().toISOString(),
       })
       .eq("id", artifactId)
-      .eq("project_id", projectId);
+      .eq("project_id", projectUuid);
 
-    if (updErr) return NextResponse.json({ ok: false, error: updErr.message }, { status: 500 });
+    if (updErr) return jsonNoStore({ ok: false, error: updErr.message }, { status: 500 });
 
-    // 6) If stakeholder_register + add_rows => persist to canonical stakeholders table
+    // 7) If stakeholder_register + add_rows => persist to canonical stakeholders table (RLS)
     const persisted = await maybePersistStakeholdersFromAddRows({
-      supabaseAdmin,
-      projectId,
+      supabase,
+      projectId: projectUuid,
       artifactId,
       artifactType,
       suggestionTargetType,
       patch: normalizedPatch,
     });
 
-    // 7) Mark suggestion applied
+    // 8) Mark suggestion applied (RLS)
     const nowIso = new Date().toISOString();
-    const { error: markErr } = await supabaseAdmin
+    const { error: markErr } = await supabase
       .from("ai_suggestions")
       .update({
         status: "applied",
@@ -223,10 +403,10 @@ export async function POST(req: NextRequest) {
         updated_at: nowIso,
       })
       .eq("id", suggestionId)
-      .eq("project_id", projectId);
+      .eq("project_id", projectUuid);
 
     if (markErr) {
-      return NextResponse.json(
+      return jsonNoStore(
         {
           ok: true,
           artifactJson: updatedJson,
@@ -237,30 +417,32 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 8) Log project_event (best effort)
-    await supabaseAdmin.from("project_events").insert({
-      project_id: projectId,
-      artifact_id: artifactId,
-      section_key: null,
-      event_type: "suggestion_applied",
-      actor_user_id: auth.user.id,
-      severity: "info",
-      source: "app",
-      payload: {
-        suggestion_id: suggestionId,
-        target_artifact_type: (sug as any).target_artifact_type,
-        suggestion_type: (sug as any).suggestion_type,
-      },
-    });
+    // 9) Log project_event (best effort, via RLS)
+    try {
+      await supabase.from("project_events").insert({
+        project_id: projectUuid,
+        artifact_id: artifactId,
+        section_key: null,
+        event_type: "suggestion_applied",
+        actor_user_id: auth.user.id,
+        severity: "info",
+        source: "app",
+        payload: {
+          suggestion_id: suggestionId,
+          target_artifact_type: (sug as any).target_artifact_type,
+          suggestion_type: (sug as any).suggestion_type,
+        },
+      });
+    } catch {}
 
-    return NextResponse.json({
+    return jsonNoStore({
       ok: true,
       artifactJson: updatedJson,
       persisted,
       applied: { suggestionId, status: "applied" },
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
+    return jsonNoStore({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
   }
 }
 
@@ -297,7 +479,8 @@ function normalizeStakeholderPatchIfNeeded(opts: {
   if (looks5Col) return patch;
 
   // Convert 4-col governance rows: [name, role, impact, notes]
-  // → 5-col stakeholder register rows: [Stakeholder, Point of Contact, Role, Internal/External, Title/Role]
+  // → 5-col stakeholder register rows:
+  // [Stakeholder, Point of Contact, Role, Internal/External, Title/Role]
   const mapped = rows
     .map((r) => {
       const name = safeStr(r?.[0]).trim() || "TBC";
@@ -309,7 +492,7 @@ function normalizeStakeholderPatchIfNeeded(opts: {
         name, // Stakeholder
         "", // Point of Contact (unknown)
         role, // Role
-        "Internal", // Internal/External default
+        "Internal", // default
         [impact, notes].filter(Boolean).join(" — ").trim(), // Title/Role
       ];
     })
@@ -319,18 +502,18 @@ function normalizeStakeholderPatchIfNeeded(opts: {
 }
 
 /* =========================================================
-   Stakeholder persistence (canonical table)
+   Stakeholder persistence (canonical table) - via RLS
    ========================================================= */
 
 async function maybePersistStakeholdersFromAddRows(opts: {
-  supabaseAdmin: any;
+  supabase: any;
   projectId: string;
   artifactId: string;
   artifactType: string;
   suggestionTargetType: string;
   patch: any;
 }): Promise<{ attempted: boolean; inserted: number; error?: string }> {
-  const { supabaseAdmin, projectId, artifactId, artifactType, suggestionTargetType, patch } = opts;
+  const { supabase, projectId, artifactId, artifactType, suggestionTargetType, patch } = opts;
 
   const isStakeholderRegisterArtifact =
     artifactType.includes("stakeholder_register") ||
@@ -373,7 +556,8 @@ async function maybePersistStakeholdersFromAddRows(opts: {
 
   // Avoid duplicates for same artifact: name+role
   const names = Array.from(new Set(inserts.map((x: any) => String(x.name))));
-  const { data: existing, error: exErr } = await supabaseAdmin
+
+  const { data: existing, error: exErr } = await supabase
     .from("stakeholders")
     .select("id, name, role")
     .eq("project_id", projectId)
@@ -387,7 +571,7 @@ async function maybePersistStakeholdersFromAddRows(opts: {
 
   if (!finalInserts.length) return { attempted: true, inserted: 0 };
 
-  const { error: insErr } = await supabaseAdmin.from("stakeholders").insert(finalInserts);
+  const { error: insErr } = await supabase.from("stakeholders").insert(finalInserts);
   if (insErr) return { attempted: true, inserted: 0, error: insErr.message };
 
   return { attempted: true, inserted: finalInserts.length };
@@ -515,7 +699,10 @@ function normalizeRows(rows: any[]) {
   if (!Array.isArray(rows)) return [];
   if (rows.length && typeof rows[0] === "object" && rows[0] && "cells" in rows[0]) return rows;
   if (rows.length && Array.isArray(rows[0])) {
-    return rows.map((cells: any[]) => ({ type: "data", cells: cells.map((x) => String(x ?? "")) }));
+    return rows.map((cells: any[]) => ({
+      type: "data",
+      cells: cells.map((x) => String(x ?? "")),
+    }));
   }
   return rows;
 }
