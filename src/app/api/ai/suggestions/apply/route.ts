@@ -326,6 +326,169 @@ function deepClone<T>(x: T): T {
 }
 
 /* =========================================================
+   Apply a single suggestion id
+   ========================================================= */
+
+async function applyOne(opts: { supabase: any; userId: string; suggestionId: string }) {
+  const { supabase, userId, suggestionId } = opts;
+
+  // Load suggestion first (derive project/artifact)
+  const { data: sug, error: sugErr } = await supabase
+    .from("ai_suggestions")
+    .select("id, project_id, artifact_id, section_key, target_artifact_type, suggestion_type, patch, status")
+    .eq("id", suggestionId)
+    .maybeSingle();
+
+  if (sugErr) return { ok: false as const, reason: sugErr.message };
+  if (!sug) return { ok: false as const, reason: "Suggestion not found" };
+
+  const projectId = safeStr((sug as any).project_id).trim();
+  const artifactId = safeStr((sug as any).artifact_id).trim();
+
+  if (!projectId || !artifactId) return { ok: false as const, reason: "Suggestion missing project_id or artifact_id" };
+
+  // Membership check for clear error (RLS also enforces)
+  const mem = await requireProjectMembership(supabase, projectId, userId);
+  if (!mem) return { ok: false as const, reason: "Forbidden" };
+  if (!mem.canEdit) return { ok: false as const, reason: "Requires editor/owner" };
+
+  const sugStatus = safeLower((sug as any).status);
+  if (sugStatus !== "proposed" && sugStatus !== "suggested") {
+    return { ok: false as const, reason: `Not actionable (status=${safeStr((sug as any).status)})` };
+  }
+
+  const suggestionType = safeLower((sug as any).suggestion_type);
+  const patch = (sug as any).patch ?? null;
+
+  // Fast-path: add_stakeholder
+  if (suggestionType === "add_stakeholder") {
+    const payload = (patch && typeof patch === "object" ? (patch.payload ?? patch.data ?? patch) : {}) as any;
+    const name = safeStr(payload?.name).trim();
+    if (!name) return { ok: false as const, reason: "Missing payload.name for add_stakeholder" };
+
+    const role = safeStr(payload?.role).trim() || null;
+    const point_of_contact = safeStr(payload?.point_of_contact ?? payload?.poc).trim() || null;
+
+    const { error: cErr } = await supabase.from("stakeholders").insert({
+      project_id: projectId,
+      artifact_id: artifactId,
+      name,
+      role,
+      point_of_contact,
+      source: safeStr(payload?.source).trim() || "ai",
+    });
+
+    if (cErr) return { ok: false as const, reason: cErr.message };
+
+    const nowIso = new Date().toISOString();
+    const { error: uErr } = await supabase
+      .from("ai_suggestions")
+      .update({
+        status: "applied",
+        actioned_by: userId,
+        decided_at: nowIso,
+        rejected_at: null,
+        updated_at: nowIso,
+      })
+      .eq("id", suggestionId)
+      .eq("project_id", projectId);
+
+    if (uErr) return { ok: false as const, reason: `Inserted stakeholder but failed to mark applied: ${uErr.message}` };
+
+    return { ok: true as const, projectId, artifactId };
+  }
+
+  // Load artifact
+  const { data: artifact, error: artErr } = await supabase
+    .from("artifacts")
+    .select("id, project_id, type, content_json")
+    .eq("id", artifactId)
+    .eq("project_id", projectId)
+    .maybeSingle();
+
+  if (artErr) return { ok: false as const, reason: artErr.message };
+  if (!artifact) return { ok: false as const, reason: "Artifact not found" };
+
+  const artifactType = safeLower((artifact as any).type);
+  const currentJson = (artifact as any).content_json ?? {};
+  const suggestionTargetType = safeLower((sug as any).target_artifact_type);
+
+  const normalizedPatch = normalizeStakeholderPatchIfNeeded({
+    artifactType,
+    suggestionTargetType,
+    patch,
+  });
+
+  const updatedJson = applySuggestionToArtifactJson(currentJson, {
+    kind: normalizedPatch?.kind ?? normalizedPatch?.type ?? null,
+    mode: normalizedPatch?.mode ?? "append",
+    rows: Array.isArray(normalizedPatch?.rows) ? normalizedPatch.rows : [],
+    bullets: typeof normalizedPatch?.bullets === "string" ? normalizedPatch.bullets : "",
+    sectionKey: (sug as any).section_key ?? null,
+  });
+
+  const { error: updErr } = await supabase
+    .from("artifacts")
+    .update({
+      content_json: updatedJson,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", artifactId)
+    .eq("project_id", projectId);
+
+  if (updErr) return { ok: false as const, reason: updErr.message };
+
+  const persisted = await maybePersistStakeholdersFromAddRows({
+    supabase,
+    projectId,
+    artifactId,
+    artifactType,
+    suggestionTargetType,
+    patch: normalizedPatch,
+  });
+
+  const nowIso = new Date().toISOString();
+  const { error: markErr } = await supabase
+    .from("ai_suggestions")
+    .update({
+      status: "applied",
+      actioned_by: userId,
+      decided_at: nowIso,
+      rejected_at: null,
+      updated_at: nowIso,
+    })
+    .eq("id", suggestionId)
+    .eq("project_id", projectId);
+
+  if (markErr) {
+    return { ok: false as const, reason: `Applied to artifact but failed to mark applied: ${markErr.message}` };
+  }
+
+  // Best-effort event log
+  try {
+    await supabase.from("project_events").insert({
+      project_id: projectId,
+      artifact_id: artifactId,
+      section_key: null,
+      event_type: "suggestion_applied",
+      actor_user_id: userId,
+      severity: "info",
+      source: "app",
+      payload: {
+        suggestion_id: suggestionId,
+        target_artifact_type: (sug as any).target_artifact_type,
+        suggestion_type: (sug as any).suggestion_type,
+        persisted,
+      },
+    });
+  } catch {
+    // ignore
+  }
+
+  return { ok: true as const, projectId, artifactId };
+}
+
+/* =========================================================
    POST
    ========================================================= */
 
@@ -333,11 +496,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
 
-    // Accept multiple caller shapes:
-    // - { id }
-    // - { suggestionId }
-    // - { suggestion: { id } }
-    // - { ids: [...] }   (batch)
+    // Accept { id } | { suggestionId } | { suggestion: { id } } | { ids: [...] }
     const single =
       safeStr(body?.id).trim() ||
       safeStr(body?.suggestionId).trim() ||
@@ -352,7 +511,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Missing suggestion id" }, { status: 400 });
     }
 
-    // Auth (user context)
     const supabase = await createClient();
     const user = await requireAuth(supabase);
 
@@ -360,214 +518,12 @@ export async function POST(req: NextRequest) {
     const skipped: Array<{ id: string; reason: string }> = [];
 
     for (const suggestionId of ids) {
-      // Load suggestion first (derive project/artifact)
-      const { data: sug, error: sugErr } = await supabase
-        .from("ai_suggestions")
-        .select(
-          "id, project_id, artifact_id, section_key, target_artifact_type, suggestion_type, patch, status"
-        )
-        .eq("id", suggestionId)
-        .maybeSingle();
-
-      if (sugErr) {
-        skipped.push({ id: suggestionId, reason: sugErr.message });
-        continue;
-      }
-      if (!sug) {
-        skipped.push({ id: suggestionId, reason: "Suggestion not found" });
-        continue;
-      }
-
-      const projectId = safeStr((sug as any).project_id).trim();
-      const artifactId = safeStr((sug as any).artifact_id).trim();
-
-      if (!projectId || !artifactId) {
-        skipped.push({ id: suggestionId, reason: "Suggestion missing project_id or artifact_id" });
-        continue;
-      }
-
-      // Membership gate (explicit for clear errors; RLS also enforces)
-      const mem = await requireProjectMembership(supabase, projectId, user.id);
-      if (!mem) {
-        skipped.push({ id: suggestionId, reason: "Forbidden" });
-        continue;
-      }
-      if (!mem.canEdit) {
-        skipped.push({ id: suggestionId, reason: "Requires editor/owner" });
-        continue;
-      }
-
-      const sugStatus = safeLower((sug as any).status);
-      if (sugStatus !== "proposed" && sugStatus !== "suggested") {
-        skipped.push({
-          id: suggestionId,
-          reason: `Not actionable (status=${safeStr((sug as any).status)})`,
-        });
-        continue;
-      }
-
-      const suggestionType = safeLower((sug as any).suggestion_type);
-      const patch = (sug as any).patch ?? null;
-
-      // Fast-path: add_stakeholder writes to canonical stakeholders table
-      if (suggestionType === "add_stakeholder") {
-        const payload = (patch && typeof patch === "object" ? (patch.payload ?? patch.data ?? patch) : {}) as any;
-        const name = safeStr(payload?.name).trim();
-        if (!name) {
-          skipped.push({ id: suggestionId, reason: "Missing payload.name for add_stakeholder" });
-          continue;
-        }
-
-        const role = safeStr(payload?.role).trim() || null;
-        const point_of_contact = safeStr(payload?.point_of_contact ?? payload?.poc).trim() || null;
-
-        const { error: cErr } = await supabase.from("stakeholders").insert({
-          project_id: projectId,
-          artifact_id: artifactId,
-          name,
-          role,
-          point_of_contact,
-          source: safeStr(payload?.source).trim() || "ai",
-        });
-
-        if (cErr) {
-          skipped.push({ id: suggestionId, reason: cErr.message });
-          continue;
-        }
-
-        const nowIso = new Date().toISOString();
-        const { error: uErr } = await supabase
-          .from("ai_suggestions")
-          .update({
-            status: "applied",
-            actioned_by: user.id,
-            decided_at: nowIso,
-            rejected_at: null,
-            updated_at: nowIso,
-          })
-          .eq("id", suggestionId)
-          .eq("project_id", projectId);
-
-        if (uErr) {
-          skipped.push({ id: suggestionId, reason: `Inserted stakeholder but failed to mark applied: ${uErr.message}` });
-          continue;
-        }
-
-        applied.push(suggestionId);
-        continue;
-      }
-
-      // Load target artifact
-      const { data: artifact, error: artErr } = await supabase
-        .from("artifacts")
-        .select("id, project_id, type, content_json")
-        .eq("id", artifactId)
-        .eq("project_id", projectId)
-        .maybeSingle();
-
-      if (artErr) {
-        skipped.push({ id: suggestionId, reason: artErr.message });
-        continue;
-      }
-      if (!artifact) {
-        skipped.push({ id: suggestionId, reason: "Artifact not found" });
-        continue;
-      }
-
-      const artifactType = safeLower((artifact as any).type);
-      const currentJson = (artifact as any).content_json ?? {};
-      const suggestionTargetType = safeLower((sug as any).target_artifact_type);
-
-      const normalizedPatch = normalizeStakeholderPatchIfNeeded({
-        artifactType,
-        suggestionTargetType,
-        patch,
-      });
-
-      const updatedJson = applySuggestionToArtifactJson(currentJson, {
-        kind: normalizedPatch?.kind ?? normalizedPatch?.type ?? null,
-        mode: normalizedPatch?.mode ?? "append",
-        rows: Array.isArray(normalizedPatch?.rows) ? normalizedPatch.rows : [],
-        bullets: typeof normalizedPatch?.bullets === "string" ? normalizedPatch.bullets : "",
-        sectionKey: (sug as any).section_key ?? null,
-      });
-
-      // Save artifact
-      const { error: updErr } = await supabase
-        .from("artifacts")
-        .update({
-          content_json: updatedJson,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", artifactId)
-        .eq("project_id", projectId);
-
-      if (updErr) {
-        skipped.push({ id: suggestionId, reason: updErr.message });
-        continue;
-      }
-
-      // If stakeholder_register + add_rows => persist to canonical stakeholders table
-      const persisted = await maybePersistStakeholdersFromAddRows({
-        supabase,
-        projectId,
-        artifactId,
-        artifactType,
-        suggestionTargetType,
-        patch: normalizedPatch,
-      });
-
-      // Mark suggestion applied
-      const nowIso = new Date().toISOString();
-      const { error: markErr } = await supabase
-        .from("ai_suggestions")
-        .update({
-          status: "applied",
-          actioned_by: user.id,
-          decided_at: nowIso,
-          rejected_at: null,
-          updated_at: nowIso,
-        })
-        .eq("id", suggestionId)
-        .eq("project_id", projectId);
-
-      if (markErr) {
-        skipped.push({
-          id: suggestionId,
-          reason: `Applied to artifact but failed to mark applied: ${markErr.message}`,
-        });
-        continue;
-      }
-
-      // Best-effort event log
-      try {
-        await supabase.from("project_events").insert({
-          project_id: projectId,
-          artifact_id: artifactId,
-          section_key: null,
-          event_type: "suggestion_applied",
-          actor_user_id: user.id,
-          severity: "info",
-          source: "app",
-          payload: {
-            suggestion_id: suggestionId,
-            target_artifact_type: (sug as any).target_artifact_type,
-            suggestion_type: (sug as any).suggestion_type,
-            persisted,
-          },
-        });
-      } catch {
-        // ignore
-      }
-
-      applied.push(suggestionId);
+      const res = await applyOne({ supabase, userId: user.id, suggestionId });
+      if (res.ok) applied.push(suggestionId);
+      else skipped.push({ id: suggestionId, reason: res.reason });
     }
 
-    return NextResponse.json({
-      ok: true,
-      applied,
-      skipped,
-    });
+    return NextResponse.json({ ok: true, applied, skipped });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
   }
