@@ -6,10 +6,12 @@ import puppeteerCore from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
 
 type ExportLessonsPdfArgs = {
+  projectRef?: string;
   supabase: any;
-  artifactId: string | null;
+  artifactId?: string | null;
   status?: string[] | null;
   filenameBase?: string | null;
+  publishedOnly?: boolean;
 };
 
 type LessonsItem = {
@@ -28,7 +30,7 @@ type LessonsItem = {
 };
 
 type LessonsExportModel = {
-  artifactId: string;
+  artifactId?: string;
   artifactTitle: string;
   projectId: string | null;
   projectTitle: string;
@@ -485,9 +487,7 @@ async function launchBrowser() {
 
   return puppeteerCore.launch({
     args: chromium.args,
-    defaultViewport: chromium.defaultViewport,
     executablePath,
-    headless: chromium.headless,
   });
 }
 

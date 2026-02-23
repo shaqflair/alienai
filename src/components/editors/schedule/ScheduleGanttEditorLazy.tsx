@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, {
   useCallback,
@@ -141,7 +141,7 @@ export default function ScheduleGanttEditorLazy({
         <div className="flex items-center gap-3">
           <div className="flex p-1 bg-slate-100 rounded-lg">
              <Button 
-                variant={viewMode === "gantt" ? "white" : "ghost"} 
+                variant={viewMode === "gantt" ? "outline" : "ghost"} 
                 size="sm" 
                 className="text-xs h-8 px-3 shadow-none"
                 onClick={() => setViewMode("gantt")}
@@ -149,7 +149,7 @@ export default function ScheduleGanttEditorLazy({
                 Gantt
              </Button>
              <Button 
-                variant={viewMode === "list" ? "white" : "ghost"} 
+                variant={viewMode === "list" ? "outline" : "ghost"} 
                 size="sm" 
                 className="text-xs h-8 px-3 shadow-none"
                 onClick={() => setViewMode("list")}

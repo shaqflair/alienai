@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
 
     const baseName = safeFilename(`Stakeholder-Register_${safeStr(meta.projectCode || "Project")}`);
 
-    return new NextResponse(pdf, {
+    return new NextResponse(pdf as unknown as BodyInit, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

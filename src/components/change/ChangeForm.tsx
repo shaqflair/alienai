@@ -1,4 +1,4 @@
-// ChangeForm.tsx
+﻿// ChangeForm.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -66,11 +66,13 @@ export type ChangeFormMode = "create" | "edit";
 
 export type ChangeFormProps = {
   mode: ChangeFormMode;
-  open: boolean;
-  titleText: string;
+  open?:  boolean;
+  titleText?:  string;
   subtitleText?: string;
 
   projectId: string;
+  projectTitle?: string;
+  projectLabel?: string;
   artifactId?: string | null;
 
   /** For edit mode: the DB uuid of the change */
@@ -78,7 +80,7 @@ export type ChangeFormProps = {
 
   initialValue?: Partial<ChangeFormValue>;
 
-  onSubmit: (payload: {
+  onSubmit?:  (payload: {
     title: string;
     requester: string;
     status: ChangeStatus;
@@ -102,7 +104,7 @@ export type ChangeFormProps = {
   /** Called after a successful delete */
   onDelete?: () => void;
 
-  onClose: () => void;
+  onClose?:  () => void;
 };
 
 /* ---------------- utils ---------------- */
@@ -611,7 +613,7 @@ function InlineAiBtn({ disabled, busy, onClick, title }: { disabled?: boolean; b
 }
 
 /* ─── Drawer (AI Interview) ─── */
-function Drawer({ open, onClose, children, title, sub }: { open: boolean; onClose: () => void; children: React.ReactNode; title: string; sub?: string }) {
+function Drawer({ open, onClose, children, title, sub }: { open?:  boolean; onClose?:  () => void; children: React.ReactNode; title: string; sub?: string }) {
   if (!open) return null;
   return (
     <div className="cf-drawer-overlay" role="dialog" aria-modal="true">
@@ -893,8 +895,8 @@ export default function ChangeForm(props: ChangeFormProps) {
         aiImpact: v.aiImpact, proposed_change, impact_analysis, files: v.files,
       };
       if (mode === "create") payload.delivery_status = uiStatusToDeliveryLane(v.status);
-      await onSubmit(payload);
-      onClose();
+      await onSubmit?.(payload);
+      onClose?.();
     } catch (e: any) {
       setError(safeStr(e?.message) || "Save failed.");
     } finally {
@@ -911,7 +913,7 @@ export default function ChangeForm(props: ChangeFormProps) {
       await apiDelete(`/api/change/${encodeURIComponent(changeId)}`);
       setConfirmDelete(false);
       if (onDelete) onDelete();
-      onClose();
+      onClose?.();
     } catch (e: any) {
       setError(safeStr(e?.message) || "Delete failed.");
       setDeleting(false);
@@ -926,7 +928,7 @@ export default function ChangeForm(props: ChangeFormProps) {
 
   return (
     <>
-      <div className="cf-overlay" onClick={(e) => { if (e.target === e.currentTarget && !confirmDelete) onClose(); }}>
+      <div className="cf-overlay" onClick={(e) => { if (e.target === e.currentTarget && !confirmDelete) onClose?.(); }}>
         <div className="cf-modal" style={{ position: "relative" }}>
 
           {/* ── Header ── */}

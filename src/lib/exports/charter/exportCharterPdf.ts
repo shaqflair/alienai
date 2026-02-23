@@ -141,7 +141,7 @@ export async function exportCharterPdf(args: {
     const pdfBuffer = await exportCharterPdfBuffer({ doc, meta });
     const filename = charterPdfFilename(meta);
 
-    return new NextResponse(toUint8(pdfBuffer), {
+    return new NextResponse(toUint8(pdfBuffer) as unknown as BodyInit, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

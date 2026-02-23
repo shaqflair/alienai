@@ -1,4 +1,4 @@
-// src/app/api/portfolio/raid-exec-summary/route.ts
+﻿// src/app/api/portfolio/raid-exec-summary/route.ts
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -194,13 +194,13 @@ async function resolveOrgName(supabase: any, userId: string) {
 }
 
 async function resolveClientNameFromProjects(supabase: any, projectIds: string[]) {
-  // Best-effort: if all projects share same client_name → show it; else "Multiple clients"
+  // Best-effort: if all projects share same client_name as string | null | undefined → show it; else "Multiple clients"
   try {
-    const { data, error } = await supabase.from("projects").select("id, client_name").in("id", projectIds).limit(2000);
+    const { data, error } = await supabase.from("projects").select("id, client_name as string | null | undefined").in("id", projectIds).limit(2000);
     if (error) return null;
 
     const names = (data || [])
-      .map((p: any) => safeStr(p?.client_name).trim())
+      .map((p: any) => safeStr(p?.client_name as string | null | undefined).trim())
       .filter(Boolean);
 
     if (!names.length) return null;
@@ -241,7 +241,7 @@ async function buildExecSummary(args: {
   ]);
 
   const org_name = dbOrg || safeStr(process.env.ORG_NAME || process.env.NEXT_PUBLIC_ORG_NAME).trim() || null;
-  const client_name = dbClient || null;
+  const client_name = (dbClient || null) as string | null
 
   // window dates
   const today = new Date();
@@ -538,7 +538,7 @@ function renderPdfHtml(summary: ExecSummary) {
   const gen = fmtUkDateTime(summary.summary.generated_at);
 
   // client primary identity
-  const clientPrimary = summary.client_name ? summary.client_name : "—";
+  const clientPrimary = summary.client_name as string | null | undefined ? summary.client_name : "—";
   const orgSecondary = summary.org_name ? summary.org_name : "—";
 
   const logoUrl =
@@ -960,7 +960,7 @@ async function renderPptxFromSummary(summary: ExecSummary) {
   const featuredScore = featured?.score ?? null;
   const pr = priorityFromScore(featuredScore);
 
-  const client = summary.client_name || "Client";
+  const client = summary.client_name as string | null | undefined || "Client";
   const org = summary.org_name || "My Organisation";
   const windowLabel = `Next ${summary.days} Days`;
 
@@ -1326,7 +1326,7 @@ export async function GET(req: NextRequest) {
     if (format === "md") {
       const lines: string[] = [];
       lines.push(`# Portfolio RAID Brief`);
-      lines.push(`Client: ${summary.client_name || "—"} • Organisation: ${summary.org_name || "—"}`);
+      lines.push(`Client: ${summary.client_name as string | null | undefined || "—"} • Organisation: ${summary.org_name || "—"}`);
       lines.push(`Generated: ${fmtUkDateTime(summary.summary.generated_at)}`);
       lines.push(``);
       lines.push(summary.summary.headline);
@@ -1360,7 +1360,7 @@ export async function GET(req: NextRequest) {
       const pptxBuf = await renderPptxFromSummary(summary);
 
       const base =
-        sanitizeFilename(summary.client_name || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
+        sanitizeFilename(summary.client_name as string | null | undefined || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
       const filename = `${base}_raid_brief_${days}d.pptx`;
 
       // FIX: Simplified Buffer conversion
@@ -1380,7 +1380,7 @@ export async function GET(req: NextRequest) {
     const pdf = await renderPdfFromHtml(html);
 
     const base =
-      sanitizeFilename(summary.client_name || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
+      sanitizeFilename(summary.client_name as string | null | undefined || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
     const filename = `${base}_raid_brief_${days}d.pdf`;
 
     // FIX: Simplified Buffer conversion

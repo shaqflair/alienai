@@ -1,4 +1,4 @@
-export function safeStr(x: unknown): string {
+﻿export function safeStr(x: unknown): string {
   if (x === null || x === undefined) return "";
   return typeof x === "string" ? x : String(x);
 }
@@ -131,4 +131,11 @@ export function indentDeliverable(level: number, text: string): string {
   const lvl = Number.isFinite(level) ? Math.max(0, Math.min(10, Math.floor(level))) : 0;
   const indent = "    ".repeat(lvl);
   return lvl > 0 ? `${indent}+ ${safeStr(text)}` : safeStr(text);
+}
+
+
+export function parseDateUTC(s: string | null | undefined): Date | null {
+  if (!s) return null;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
 }

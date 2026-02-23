@@ -1,4 +1,4 @@
-// src/lib/exports/charter/exportCharterDocxBuffer.ts
+﻿// src/lib/exports/charter/exportCharterDocxBuffer.ts
 import "server-only";
 
 import {
@@ -442,9 +442,9 @@ async function generateCharterDocx(doc: any, meta: CharterExportMeta) {
               new Paragraph({
                 children: [
                   new TextRun({ text: `Generated ${safeStr(meta.generatedDate)} • Page `, size: 18, color: "64748B" }),
-                  PageNumber.CURRENT,
+                  new TextRun({ children: [PageNumber.CURRENT] }),
                   new TextRun({ text: " of ", size: 18, color: "64748B" }),
-                  PageNumber.TOTAL_PAGES,
+                  new TextRun({ children: [PageNumber.TOTAL_PAGES] }),
                 ],
                 alignment: AlignmentType.RIGHT,
               }),

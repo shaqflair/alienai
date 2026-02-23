@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { deleteDraftArtifact } from "@/app/projects/[id]/artifacts/actions";
@@ -30,7 +30,7 @@ export default function DeleteDraftButton({
   }
 
   return (
-    <form action={deleteDraftArtifact} className="inline-flex items-center gap-2">
+    <form action={async (fd) => { await deleteDraftArtifact(fd); }} className="inline-flex items-center gap-2">
       <input type="hidden" name="projectId" value={projectId} />
       <input type="hidden" name="artifactId" value={artifactId} />
 

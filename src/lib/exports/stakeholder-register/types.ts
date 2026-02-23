@@ -15,6 +15,7 @@ export type StakeholderRegisterRow = {
 };
 
 export type StakeholderRegisterMeta = {
+  author?: string | null;
   projectId: string;
   artifactId: string;
 
@@ -27,3 +28,6 @@ export type StakeholderRegisterMeta = {
   generatedDate: string;         // "05/02/2026"
   generatedDateTime: string;     // "05/02/2026 17:01"
 };
+
+export type StakeholderExportMeta = Record<string, unknown>;
+export type StakeholderExportRow = Record<string, unknown>;

@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   OrchestratorContext,
   OrchestratorResult,
 } from "./types";
@@ -13,7 +13,7 @@ export async function runOrchestrator(
   for (const step of ORCHESTRATOR_STEPS) {
     try {
       const res = await step.run(ctx);
-      messages.push(`[${step.key}] ${res.messages.join("; ")}`);
+      messages.push(`[${step.key}] ${(res.messages ?? []).join("; ")}`);
       if (res.data) data[step.key] = res.data;
     } catch (err: any) {
       return {

@@ -1,4 +1,4 @@
-// src/components/ai/AiSuggestionCard.tsx
+﻿// src/components/ai/AiSuggestionCard.tsx
 "use client";
 
 import React, { useMemo, useState } from "react";
@@ -77,7 +77,7 @@ export default function AiSuggestionCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={statusVariant(suggestion.status)}>{statusLabel(suggestion.status)}</Badge>
+            <Badge variant={statusVariant(suggestion.status) as any}>{statusLabel(suggestion.status)}</Badge>
             {suggestion.target_artifact_type ? (
               <span className="text-xs text-muted-foreground">
                 {suggestion.target_artifact_type}

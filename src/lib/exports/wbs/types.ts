@@ -1,3 +1,4 @@
+﻿export type WbsItemRow = Record<string, unknown>;
 export type WbsNode = {
   id: string;
   parentId: string | null;
@@ -21,3 +22,5 @@ export type WbsNode = {
 export type NormalizedWbs = {
   nodes: WbsNode[];
 };
+
+export type RenderWbsXlsxArgs = Record<string, unknown>;

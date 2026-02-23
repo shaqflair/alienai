@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -2877,7 +2877,7 @@ export default function ProjectClosureReportEditor({
                       { key: "runbook_finalised", label: "Runbook / operations guide finalised" },
                     ].map(({ key, label }) => (
                       <label key={key} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: "var(--text)", cursor: isReadOnly ? "default" : "pointer" }}>
-                        <input type="checkbox" checked={doc.handover.knowledge_transfer[key as keyof typeof doc.handover.knowledge_transfer]} disabled={isReadOnly}
+                        <input type="checkbox" checked={Boolean(doc.handover.knowledge_transfer[key as keyof typeof doc.handover.knowledge_transfer])} disabled={isReadOnly}
                           onChange={(e) => setDoc((d) => ({ ...d, handover: { ...d.handover, knowledge_transfer: { ...d.handover.knowledge_transfer, [key]: e.target.checked as any } } }))} />
                         {label}
                       </label>

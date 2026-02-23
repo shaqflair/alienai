@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import {
   AlignmentType,
@@ -164,7 +164,7 @@ function para(
     bold?: boolean;
     color?: string;
     size?: number;
-    align?: AlignmentType;
+    align?: (typeof AlignmentType)[keyof typeof AlignmentType];
     spacingAfter?: number;
     spacingBefore?: number;
   }

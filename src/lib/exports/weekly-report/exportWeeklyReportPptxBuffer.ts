@@ -1,4 +1,4 @@
-// src/lib/exports/weekly-report/exportWeeklyReportPptxBuffer.ts
+﻿// src/lib/exports/weekly-report/exportWeeklyReportPptxBuffer.ts
 import "server-only";
 
 import PptxGenJS from "pptxgenjs";
@@ -291,7 +291,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
     fontSize: 10,
     color: C.iceBlue,
     align: "center",
-    valign: "mid",
+    valign: "middle",
     margin: 0,
     fontFace: "Calibri",
   });
@@ -317,7 +317,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
     bold: true,
     color: C.white,
     align: "center",
-    valign: "mid",
+    valign: "middle",
     margin: 0,
     fontFace: "Calibri",
   });
@@ -371,7 +371,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
       x: cx + 0.17 + dotR * 2 + 0.09, y: chipY + 0.06,
       w: chipW * 0.42, h: chipH - 0.1,
       fontSize: 10, bold: true, color: C.textMid,
-      fontFace: "Calibri", margin: 0, valign: "mid",
+      fontFace: "Calibri", margin: 0, valign: "middle",
     });
 
     // RAG badge (right side)
@@ -385,7 +385,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
     s.addText(ragLabel(chip.rag), {
       x: badgeInX, y: chipY + 0.07, w: badgeInW, h: chipH - 0.14,
       fontSize: 8, bold: true, color: ragText(chip.rag),
-      align: "center", valign: "mid", margin: 0, fontFace: "Calibri",
+      align: "center", valign: "middle", margin: 0, fontFace: "Calibri",
     });
   }
 
@@ -445,20 +445,20 @@ export async function exportWeeklyReportPptxBuffer(args: {
       s.addText(col.v, {
         x: mx + pad, y: pillY, w: pillW, h: pillH,
         fontSize: 13, bold: true, color: ragText(ragR),
-        align: "center", valign: "mid", margin: 0, fontFace: "Calibri",
+        align: "center", valign: "middle", margin: 0, fontFace: "Calibri",
       });
     } else if (col.isRag === null && metaCols[i].k === "LAST PERIOD RAG") {
       // no last period
       s.addText("—", {
         x: mx + pad, y: metaY + 0.33, w: col.w - pad * 2, h: 0.32,
         fontSize: 13, color: C.muted,
-        align: "center", valign: "mid", margin: 0, fontFace: "Calibri",
+        align: "center", valign: "middle", margin: 0, fontFace: "Calibri",
       });
     } else {
       s.addText(clampText(col.v, col.k === "HEADLINE STATUS" ? 68 : 44), {
         x: mx + pad, y: metaY + 0.32, w: col.w - pad * 2, h: 0.35,
         fontSize: 11.5, bold: false, color: C.text,
-        fontFace: "Calibri", margin: 0, valign: "mid",
+        fontFace: "Calibri", margin: 0, valign: "middle",
       });
     }
 
@@ -513,14 +513,14 @@ export async function exportWeeklyReportPptxBuffer(args: {
     s.addText(sectionNum, {
       x: x + 0.14, y: y + 0.07, w: 0.22, h: 0.23,
       fontSize: 9, bold: true, color: C.white,
-      align: "center", valign: "mid", margin: 0, fontFace: "Calibri",
+      align: "center", valign: "middle", margin: 0, fontFace: "Calibri",
     });
 
     // Panel title
     s.addText(title, {
       x: x + 0.44, y: y + 0.08, w: w - 0.55, h: 0.25,
       fontSize: 10, bold: true, color: C.white,
-      fontFace: "Calibri", margin: 0, valign: "mid", charSpacing: 0.3,
+      fontFace: "Calibri", margin: 0, valign: "middle", charSpacing: 0.3,
     });
 
     bodyFn();
@@ -612,12 +612,12 @@ export async function exportWeeklyReportPptxBuffer(args: {
   s.addText("M", {
     x: rightX + 0.14, y: contentTop + 0.07, w: 0.22, h: 0.23,
     fontSize: 9, bold: true, color: C.white,
-    align: "center", valign: "mid", margin: 0, fontFace: "Calibri",
+    align: "center", valign: "middle", margin: 0, fontFace: "Calibri",
   });
   s.addText("Milestones & Epics", {
     x: rightX + 0.44, y: contentTop + 0.08, w: rightW - 0.55, h: 0.25,
     fontSize: 10, bold: true, color: C.white,
-    fontFace: "Calibri", margin: 0, valign: "mid", charSpacing: 0.3,
+    fontFace: "Calibri", margin: 0, valign: "middle", charSpacing: 0.3,
   });
 
   // Sub-header row for columns
@@ -677,7 +677,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
       s.addText(clampText(cells[c], c === 0 ? 44 : 18), {
         x: rx + 0.1, y: ry + 0.05, w: cw[c] - 0.15, h: rowH - 0.08,
         fontSize: c === 0 ? 9.5 : 9, color: c === 0 ? C.text : C.textMid,
-        fontFace: "Calibri", margin: 0, valign: "mid",
+        fontFace: "Calibri", margin: 0, valign: "middle",
         bold: c === 0,
       });
       rx += cw[c];
@@ -691,7 +691,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
     s.addText(ragLabel(row.ragNow) + trendArrow(row.ragNow, row.ragLast), {
       x: rx, y: ry + 0.04, w: cw[3], h: rowH - 0.06,
       fontSize: 8.5, bold: true, align: "center", color: ragText(row.ragNow),
-      fontFace: "Calibri", margin: 0, valign: "mid",
+      fontFace: "Calibri", margin: 0, valign: "middle",
     });
     rx += cw[3];
 
@@ -704,7 +704,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
       s.addText(ragLabel(row.ragLast), {
         x: rx, y: ry + 0.04, w: cw[4], h: rowH - 0.06,
         fontSize: 8.5, bold: true, align: "center", color: ragText(row.ragLast),
-        fontFace: "Calibri", margin: 0, valign: "mid",
+        fontFace: "Calibri", margin: 0, valign: "middle",
       });
     } else {
       s.addShape(pptx.ShapeType.rect, {
@@ -714,7 +714,7 @@ export async function exportWeeklyReportPptxBuffer(args: {
       s.addText("—", {
         x: rx, y: ry + 0.04, w: cw[4], h: rowH - 0.06,
         fontSize: 9, align: "center", color: C.muted,
-        fontFace: "Calibri", margin: 0, valign: "mid",
+        fontFace: "Calibri", margin: 0, valign: "middle",
       });
     }
   }
@@ -763,12 +763,12 @@ export async function exportWeeklyReportPptxBuffer(args: {
   s.addText(`${projName}  ·  ${projCode}  ·  Period ${periodFrom} – ${periodTo}`, {
     x: sideW + 0.35, y: footerY, w: 8, h: 0.16,
     fontSize: 7, color: C.muted,
-    fontFace: "Calibri", margin: 0, valign: "mid",
+    fontFace: "Calibri", margin: 0, valign: "middle",
   });
   s.addText("CONFIDENTIAL", {
     x: W - 2.0, y: footerY, w: 1.8, h: 0.16,
     fontSize: 7, color: C.muted, align: "right",
-    fontFace: "Calibri", margin: 0, valign: "mid",
+    fontFace: "Calibri", margin: 0, valign: "middle",
   });
 
   /* ─────────────────────────────────────────────
@@ -782,6 +782,6 @@ export async function exportWeeklyReportPptxBuffer(args: {
     "Project_Status_Report.pptx"
   );
 
-  const buffer = (await pptx.write("nodebuffer")) as Buffer;
+  const buffer = (await pptx.write({ outputType: "nodebuffer" })) as Buffer;
   return { filename, buffer };
 }

@@ -1,4 +1,4 @@
-// src/components/editors/ProjectCharterEditorFormLazy.tsx
+﻿// src/components/editors/ProjectCharterEditorFormLazy.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState, useTransition } from "react";
@@ -464,7 +464,7 @@ export default function ProjectCharterEditorFormLazy({
   projectId: string;
   artifactId: string;
   initialJson: any;
-  readOnly: boolean;
+  readOnly?: boolean;
   lockLayout?: boolean;
   artifactVersion?: number;
 

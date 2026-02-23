@@ -257,7 +257,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: s
     }
 
     // 4) Delete stale rows not present anymore (for this artifact)
-    const keepList = upsertPayload.map((x) => x.source_row_id).filter(Boolean);
+    const keepList = upsertPayload.map((x: any) => x.source_row_id).filter(Boolean);
     const delRes = await deleteStaleRows(supabase, projectId, aId, keepList);
 
     if (!delRes.ok) {

@@ -1,4 +1,4 @@
-// src/lib/exports/charter/exportCharterDocx.ts
+ï»¿// src/lib/exports/charter/exportCharterDocx.ts
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -85,7 +85,7 @@ function toUkDate(value: string) {
 
 function formatCellValue(x: any) {
   const raw = safeString(x).trim();
-  if (!raw) return "—";
+  if (!raw) return "ï¿½";
   if (looksIsoDateOnly(raw) || looksIsoDateTime(raw)) return toUkDate(raw);
   return raw;
 }
@@ -96,7 +96,7 @@ function stripNumberPrefix(title: string) {
 
 function stripLeadingBullets(line: string) {
   return String(line ?? "")
-    .replace(/^\s*(?:[•\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/g, "")
+    .replace(/^\s*(?:[ï¿½\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/g, "")
     .trim();
 }
 
@@ -462,7 +462,7 @@ async function generateCharterDocx(doc: any, meta: any) {
             children: Array.from({ length: colCount }, () => "").map(
               () =>
                 new TableCell({
-                  children: [new Paragraph({ children: [new TextRun({ text: "—", size: 20, color: "94A3B8" })] })],
+                  children: [new Paragraph({ children: [new TextRun({ text: "ï¿½", size: 20, color: "94A3B8" })] })],
                   margins: { top: 60, bottom: 60, left: 100, right: 100 },
                 })
             ),
@@ -536,7 +536,7 @@ async function generateCharterDocx(doc: any, meta: any) {
               new Paragraph({
                 children: [
                   new TextRun({ text: "Project Charter", bold: true, size: 28 }),
-                  new TextRun({ text: " • " + safeString(meta.projectName), size: 24, color: "64748B" }),
+                  new TextRun({ text: " ï¿½ " + safeString(meta.projectName), size: 24, color: "64748B" }),
                 ],
               }),
             ],
@@ -548,13 +548,13 @@ async function generateCharterDocx(doc: any, meta: any) {
               new Paragraph({
                 children: [
                   new TextRun({
-                    text: `Generated ${safeString(meta.generatedDate)} • Page `,
+                    text: `Generated ${safeString(meta.generatedDate)} ï¿½ Page `,
                     size: 18,
                     color: "64748B",
                   }),
-                  PageNumber.CURRENT,
+                  new TextRun({ children: [PageNumber.CURRENT] }),
                   new TextRun({ text: " of ", size: 18, color: "64748B" }),
-                  PageNumber.TOTAL_PAGES,
+                  new TextRun({ children: [PageNumber.TOTAL_PAGES] }),
                 ],
                 alignment: AlignmentType.RIGHT,
               }),
@@ -621,21 +621,21 @@ export async function exportCharterDocx({
 
     const projectCode = projectRow?.project_code
       ? `P-${String(projectRow.project_code).padStart(5, "0")}`
-      : "—";
+      : "ï¿½";
 
-    let orgName = "—";
+    let orgName = "ï¿½";
     const orgId = projectRow?.organisation_id;
     if (orgId) {
       const { data: org } = await supabase.from("organisations").select("name").eq("id", orgId).single();
-      orgName = org?.name || "—";
+      orgName = org?.name || "ï¿½";
     }
 
     const meta = {
       projectName: (artifact as any).title || projectRow?.title || "Project",
       projectCode,
       organisationName: orgName,
-      clientName: projectRow?.client_name || "—",
-      pmName: doc?.meta?.pm_name || "—",
+      clientName: projectRow?.client_name || "ï¿½",
+      pmName: doc?.meta?.pm_name || "ï¿½",
       status: doc?.meta?.status || "Draft",
       generatedDate: formatUkDate(),
       generatedDateTime: formatUkDateTime(),

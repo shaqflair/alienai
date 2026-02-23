@@ -9,8 +9,9 @@ import { renderStakeholderRegisterPdf } from "./renderStakeholderPdf";
 export interface ExportStakeholderRegisterPdfBufferArgs {
   projectId: string;
   artifactId: string;
-  logoUrl?: string;
+  logoDataUrl?: string;
   supabase?: any;
+  logoUrl?: string | null;
 }
 
 export interface ExportStakeholderRegisterPdfBufferResult {
@@ -26,7 +27,7 @@ export interface ExportStakeholderRegisterPdfBufferResult {
 export async function exportStakeholderRegisterPdfBuffer(
   args: ExportStakeholderRegisterPdfBufferArgs
 ): Promise<ExportStakeholderRegisterPdfBufferResult> {
-  const { projectId, artifactId, logoUrl, supabase } = args;
+  const { projectId, artifactId, logoDataUrl, supabase } = args;
 
   const { meta, rows } = await loadStakeholderExportData({
     supabase,
@@ -39,7 +40,7 @@ export async function exportStakeholderRegisterPdfBuffer(
   const html = renderStakeholderRegisterHtml({
     meta,
     rows: cleanRows,
-    logoUrl,
+    logoDataUrl,
   });
 
   const pdf = await renderStakeholderRegisterPdf(html);

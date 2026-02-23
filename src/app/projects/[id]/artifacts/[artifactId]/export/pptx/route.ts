@@ -210,7 +210,7 @@ async function buildApprovalRowsFromAudit(
       role: String(a.role ?? "Approver"),
     })) ?? [];
 
-  const ids = Array.from(new Set(approverList.map((a) => a.user_id).filter(Boolean)));
+  const ids = Array.from(new Set(approverList.map((a: any) => a.user_id).filter(Boolean)));
   const { data: profiles } = ids.length
     ? await supabase.from("profiles").select("user_id, full_name, email").in("user_id", ids)
     : ({ data: [] } as any);
@@ -267,7 +267,7 @@ async function buildApprovalRowsFromAudit(
     );
   };
 
-  const rows: ApprovalRow[] = approverList.map((a) => {
+  const rows: ApprovalRow[] = approverList.map((a: any) => {
     const ev = latestByApprover.get(a.user_id);
     return {
       role: a.role || "Approver",
@@ -499,7 +499,7 @@ export async function GET(
     const fileName = `${fileNameBase || "Executive-Pack"}-${status.toUpperCase()}.pptx`;
 
     // ✅ Node runtime output
-    const buffer = (await pptx.write("nodebuffer")) as Buffer;
+    const buffer = (await pptx.write({ outputType: "nodebuffer" })) as Buffer;
 
     return new NextResponse(new Uint8Array(new Uint8Array(buffer)), {
       status: 200,

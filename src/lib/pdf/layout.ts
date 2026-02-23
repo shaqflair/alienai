@@ -1,8 +1,8 @@
-// src/lib/pdf/layout.ts
+﻿// src/lib/pdf/layout.ts
 import PDFDocument from "pdfkit";
 import type { PdfBounds } from "./chrome";
 
-export function currentBounds(doc: PDFDocument, b: PdfBounds) {
+export function currentBounds(doc: InstanceType<typeof PDFDocument>, b: PdfBounds) {
   return {
     ...b,
     y: doc.y,
@@ -15,9 +15,9 @@ export function currentBounds(doc: PDFDocument, b: PdfBounds) {
  * If not enough space, call `addPage()` and return true.
  */
 export function ensureSpace(
-  doc: PDFDocument,
+  doc: InstanceType<typeof PDFDocument>,
   needHeight: number,
-  chrome: { bounds: (doc: PDFDocument) => PdfBounds; addPage: (doc: PDFDocument) => void }
+  chrome: { bounds: (doc: InstanceType<typeof PDFDocument>) => PdfBounds; addPage: (doc: InstanceType<typeof PDFDocument>) => void }
 ): boolean {
   const b = chrome.bounds(doc);
   const remaining = b.bottom - doc.y;
@@ -35,9 +35,9 @@ export function ensureSpace(
  * - Safe pagination (no recursion)
  */
 export function drawSectionTitle(
-  doc: PDFDocument,
+  doc: InstanceType<typeof PDFDocument>,
   title: string,
-  chrome: { bounds: (doc: PDFDocument) => PdfBounds; addPage: (doc: PDFDocument) => void }
+  chrome: { bounds: (doc: InstanceType<typeof PDFDocument>) => PdfBounds; addPage: (doc: InstanceType<typeof PDFDocument>) => void }
 ) {
   // Band height + spacing below
   const bandH = 20;

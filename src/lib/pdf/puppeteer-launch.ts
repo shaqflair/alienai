@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 type PuppeteerCore = typeof import("puppeteer-core");
 
@@ -54,9 +54,6 @@ export async function launchBrowser() {
 
   // Set default viewport on first page if available
   const pages = await browser.pages();
-  if (pages.length > 0 && chromium.defaultViewport) {
-    await pages[0].setViewport(chromium.defaultViewport);
-  }
 
   return browser;
 }

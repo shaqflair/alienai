@@ -1,4 +1,4 @@
-// src/components/editors/StakeholderRegisterEditor.tsx
+﻿// src/components/editors/StakeholderRegisterEditor.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState, useTransition, useCallback } from "react";
@@ -1420,7 +1420,6 @@ async function seedFromCharter() {
                                           placeholder="Channels…"
                                           widthClassName="w-full"
                                           maxChips={isExpanded ? 5 : 2}
-                                          helpText=""
                                         />
                                       </div>
                                     </td>

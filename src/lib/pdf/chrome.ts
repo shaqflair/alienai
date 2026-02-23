@@ -1,4 +1,4 @@
-// src/lib/pdf/chrome.ts
+﻿// src/lib/pdf/chrome.ts
 import PDFDocument from "pdfkit";
 
 export type PdfBrand = {
@@ -65,7 +65,7 @@ export function createPdfChrome(opts: PdfChromeOptions) {
 
   let pageNo = 1;
 
-  function bounds(doc: PDFDocument): PdfBounds {
+  function bounds(doc: InstanceType<typeof PDFDocument>): PdfBounds {
     const left = doc.page.margins.left;
     const right = doc.page.width - doc.page.margins.right;
 
@@ -82,7 +82,7 @@ export function createPdfChrome(opts: PdfChromeOptions) {
     };
   }
 
-  function drawHeader(doc: PDFDocument) {
+  function drawHeader(doc: InstanceType<typeof PDFDocument>) {
     const left = doc.page.margins.left;
     const right = doc.page.width - doc.page.margins.right;
 
@@ -121,7 +121,7 @@ export function createPdfChrome(opts: PdfChromeOptions) {
     }
   }
 
-  function drawFooter(doc: PDFDocument) {
+  function drawFooter(doc: InstanceType<typeof PDFDocument>) {
     const left = doc.page.margins.left;
     const right = doc.page.width - doc.page.margins.right;
     const footerY = doc.page.height - doc.page.margins.bottom + 6;
@@ -158,7 +158,7 @@ export function createPdfChrome(opts: PdfChromeOptions) {
     doc.restore();
   }
 
-  function drawWatermark(doc: PDFDocument) {
+  function drawWatermark(doc: InstanceType<typeof PDFDocument>) {
     if (!watermarkText) return;
 
     const pageW = doc.page.width;
@@ -184,7 +184,7 @@ export function createPdfChrome(opts: PdfChromeOptions) {
    * Apply chrome to the CURRENT page.
    * (Assumes pageStartResetCTM already ran for this page.)
    */
-  function apply(doc: PDFDocument) {
+  function apply(doc: InstanceType<typeof PDFDocument>) {
     drawHeader(doc);
     drawFooter(doc);
     drawWatermark(doc);
@@ -200,7 +200,7 @@ export function createPdfChrome(opts: PdfChromeOptions) {
    * - resets CTM at the start of the new page (prevents mirroring)
    * - applies chrome
    */
-  function addPage(doc: PDFDocument) {
+  function addPage(doc: InstanceType<typeof PDFDocument>) {
     pageNo += 1;
     doc.addPage();
 
@@ -214,7 +214,7 @@ export function createPdfChrome(opts: PdfChromeOptions) {
    * Call once right after doc is created (page 1 exists).
    * This ensures pageNo starts at 1 and chrome is applied.
    */
-  function init(doc: PDFDocument) {
+  function init(doc: InstanceType<typeof PDFDocument>) {
     pageNo = 1;
 
     // 🔥 critical: reset CTM at the start of page 1

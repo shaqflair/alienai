@@ -6,6 +6,7 @@ import { normalizeStakeholderRows } from "./normalize";
 import { renderStakeholderRegisterDocx } from "./renderStakeholderDocx";
 
 export type ExportStakeholderRegisterDocxBufferArgs = {
+  logoUrl?: string | null;
   projectId: string;
   artifactId: string;
   supabase?: any;

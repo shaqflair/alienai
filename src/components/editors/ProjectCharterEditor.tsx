@@ -1,4 +1,4 @@
-// src/components/editors/ProjectCharterEditor.tsx
+﻿// src/components/editors/ProjectCharterEditor.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef } from "react";
@@ -495,7 +495,7 @@ export default function ProjectCharterEditor({
     if (!editor) return;
     if (lockLayout) return;
     const json = editor.getJSON();
-    if (!hasTable(json)) editor.commands.setContent(makeDefaultCharterDoc(), false);
+    if (!hasTable(json)) editor.commands.setContent(makeDefaultCharterDoc(), {});
   }, [editor, lockLayout]);
 
   // Keep editor in sync if parent swaps initialJson (e.g., after migrate/save),
@@ -516,7 +516,7 @@ export default function ProjectCharterEditor({
     if (editor.isFocused) return;
 
     try {
-      editor.commands.setContent(content, false);
+      editor.commands.setContent(content, {});
       lastAppliedSigRef.current = contentSig;
     } catch {
       // ignore
@@ -669,7 +669,7 @@ function Toolbar({
       <button
         type="button"
         className={btn}
-        onClick={() => editor.commands.setContent(makeDefaultCharterDoc(), false)}
+        onClick={() => editor.commands.setContent(makeDefaultCharterDoc(), {})}
         title="Reset to the default charter layout"
       >
         Reset Layout

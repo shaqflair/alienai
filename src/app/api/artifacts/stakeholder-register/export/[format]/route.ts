@@ -202,7 +202,7 @@ async function handle(req: NextRequest, formatParamRaw?: string) {
         safeStr((out as any)?.baseName).replace(/\.pdf$/i, "") ||
         baseNameFromMeta((out as any)?.meta, "Stakeholder-Register");
 
-      return new NextResponse(pdf, {
+      return new NextResponse(pdf as unknown as BodyInit, {
         status: 200,
         headers: {
           "Content-Type": "application/pdf",
@@ -222,7 +222,7 @@ async function handle(req: NextRequest, formatParamRaw?: string) {
         safeStr((out as any)?.baseName).replace(/\.xlsx$/i, "") ||
         baseNameFromMeta((out as any)?.meta, "Stakeholder_Register");
 
-      return new NextResponse(xlsx, {
+      return new NextResponse(xlsx as unknown as BodyInit, {
         status: 200,
         headers: {
           "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -242,7 +242,7 @@ async function handle(req: NextRequest, formatParamRaw?: string) {
       safeStr((out as any)?.baseName).replace(/\.docx$/i, "") ||
       baseNameFromMeta((out as any)?.meta, "Stakeholder_Register");
 
-    return new NextResponse(docx, {
+    return new NextResponse(docx as unknown as BodyInit, {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

@@ -1,4 +1,4 @@
-// src/app/projects/[id]/artifacts/[artifactId]/export/docx/route.ts
+﻿// src/app/projects/[id]/artifacts/[artifactId]/export/docx/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -287,6 +287,7 @@ function docHeaderFooter(args: {
     children: logoBuf
       ? [
           new ImageRun({
+            type: "png",
             data: logoBuf,
             transformation: { width: 140, height: 28 },
           }),

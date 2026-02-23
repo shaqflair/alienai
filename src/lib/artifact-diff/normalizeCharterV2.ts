@@ -1,4 +1,4 @@
-type RowObj = { type: "header" | "data"; cells: string[] };
+﻿type RowObj = { type: "header" | "data"; cells: string[] };
 
 export type CharterV2 = {
   version: 2;
@@ -42,7 +42,7 @@ function normalizeRows(rows: unknown, columns: number): RowObj[] {
   return out;
 }
 
-function normalizeSection(section: any): CharterV2["sections"][number] {
+function normalizeSection(section: any): NonNullable<CharterV2["sections"]>[number] {
   const key = asString(section?.key).trim();
   const title = typeof section?.title === "string" ? section.title : undefined;
 
@@ -86,8 +86,8 @@ export function normalizeCharterV2(input: unknown): CharterV2 | null {
   const rawSections = Array.isArray((input as any).sections) ? (input as any).sections : [];
   const sections = rawSections
     .map(normalizeSection)
-    .filter((s) => s.key.length > 0)
-    .sort((a, b) => a.key.localeCompare(b.key));
+    .filter((s: any) => s.key.length > 0)
+    .sort((a: any, b: any) => a.key.localeCompare(b.key));
 
   return { version: 2, type, meta, sections };
 }

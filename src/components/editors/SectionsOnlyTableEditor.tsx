@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React from "react";
 import ProjectCharterSectionEditor, {
@@ -32,16 +32,15 @@ export default function SectionsOnlyTableEditor(props: {
       onMetaChange={() => {
         /* no-op: meta hidden */
       }}
-      sections={props.sections}
-      onChange={props.onChange}
+      sections={props.sections as any}
+      onChange={props.onChange as any}
       readOnly={props.readOnly}
-      completenessByKey={props.completenessByKey}
+      completenessByKey={props.completenessByKey as any}
       onRegenerateSection={props.onRegenerateSection}
       onImproveSection={props.onImproveSection}
-      onApplySectionPatch={props.onApplySectionPatch}
+
       aiDisabled={props.aiDisabled}
       aiLoadingKey={props.aiLoadingKey}
-      includeContextForAI={props.includeContextForAI}
     />
   );
 }

@@ -1,4 +1,4 @@
-// src/app/settings/page.tsx
+﻿// src/app/settings/page.tsx
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
@@ -66,7 +66,7 @@ export default async function SettingsPage() {
 
   if (memErr) throw new Error(sbErrText(memErr));
 
-  const memberships = ((data ?? []) as OrgRow[])
+  const memberships = ((data ?? []) as unknown as OrgRow[])
     .map((r) => {
       if (!r.organisations) return null;
       return {

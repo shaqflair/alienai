@@ -40,7 +40,7 @@ export async function GET(req: NextRequest, ctx: any) {
 
     const { buffer, filename } = await exportChangeRequestDocxBuffer(changeId);
 
-    return new NextResponse(buffer, {
+    return new NextResponse(buffer as unknown as BodyInit, {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

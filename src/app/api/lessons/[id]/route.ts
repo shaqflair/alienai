@@ -55,7 +55,7 @@ async function requireEditor(sb: any, project_id: string) {
     .is("removed_at", null)
     .maybeSingle();
 
-  if (error) return { ok: false, error: error.message as const };
+  if (error) return { ok: false, error: error.message };
   const role = normRole(data?.role);
   const allowed = role === "owner" || role === "editor";
   if (!allowed) return { ok: false, error: "Forbidden" as const };

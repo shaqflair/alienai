@@ -1,4 +1,4 @@
-// src/app/projects/page.tsx
+﻿// src/app/projects/page.tsx
 import "server-only";
 
 import { redirect } from "next/navigation";
@@ -153,7 +153,7 @@ export default async function ProjectsPage({
     );
   }
 
-  const rows: ProjectListRow[] = ((data ?? []) as MemberProjectRow[])
+  const rows: ProjectListRow[] = ((data ?? []) as unknown as MemberProjectRow[])
     .map((r) => {
       if (!r.projects) return null;
       const pmName =

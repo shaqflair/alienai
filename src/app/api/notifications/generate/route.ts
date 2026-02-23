@@ -139,18 +139,18 @@ async function getProjectIdsForUser(params: { svc: any; userId: string }) {
     new Set((data || []).map((r: any) => safeStr(r?.project_id).trim()).filter(Boolean))
   );
 
-  return { projectIds, meta: { via: "project_members_only", projectCount: projectIds.length } };
+  return { projectIds, meta: { via: "project_members_only", projectCount: (projectIds as string[]).length } };
 }
 
 async function getProjectMetaMap(svc: any, projectIds: string[]) {
   const map = new Map<string, { project_code: string | null; project_name: string | null }>();
-  if (!projectIds.length) return map;
+  if (!(projectIds as string[]).length) return map;
 
   // Note: your "human id" is projects.project_code
   const { data, error } = await svc
     .from("projects")
     .select("id, project_code, name")
-    .in("id", projectIds);
+    .in("id", projectIds as string[]);
 
   if (error) throw error;
 
@@ -174,13 +174,13 @@ async function generateForUser(params: { svc: any; userId: string; windowDays: n
   const today = todayYmdUtc();
   const soonCutoff = addDaysYmd(today, windowDays);
 
-  if (!projectIds.length) {
+  if (!(projectIds as string[]).length) {
     const deleted = await deleteGeneratedForUser(svc, userId);
     return { userId, generated: 0, deleted, meta: { projectCount: 0, windowDays, scopeMeta } };
   }
 
   // ? One lookup: project code + name for tiles
-  const projectMeta = await getProjectMetaMap(svc, projectIds);
+  const projectMeta = await getProjectMetaMap(svc, projectIds as string[]);
   const proj = (projectId: string) =>
     projectMeta.get(projectId) ?? { project_code: null, project_name: null };
 
@@ -190,7 +190,7 @@ async function generateForUser(params: { svc: any; userId: string; windowDays: n
   const { data: milestones, error: msErr } = await svc
     .from("schedule_milestones")
     .select("id,project_id,milestone_name,end_date,status")
-    .in("project_id", projectIds)
+    .in("project_id", projectIds as string[])
     .not("end_date", "is", null);
 
   if (msErr) throw msErr;
@@ -254,7 +254,7 @@ async function generateForUser(params: { svc: any; userId: string; windowDays: n
   const { data: raid, error: raidErr } = await svc
     .from("raid_items")
     .select("id,project_id,type,title,description,due_date,status,public_id")
-    .in("project_id", projectIds)
+    .in("project_id", projectIds as string[])
     .not("due_date", "is", null);
 
   if (raidErr) throw raidErr;
@@ -328,7 +328,7 @@ async function generateForUser(params: { svc: any; userId: string; windowDays: n
   const { data: wbs, error: wbsErr } = await svc
     .from("wbs_items")
     .select("id,project_id,name,due_date,status")
-    .in("project_id", projectIds)
+    .in("project_id", projectIds as string[])
     .not("due_date", "is", null);
 
   if (wbsErr) throw wbsErr;
@@ -397,7 +397,7 @@ async function generateForUser(params: { svc: any; userId: string; windowDays: n
     generated,
     deleted,
     meta: {
-      projectCount: projectIds.length,
+      projectCount: (projectIds as string[]).length,
       windowDays,
       scopeMeta,
       rows: rows.length,

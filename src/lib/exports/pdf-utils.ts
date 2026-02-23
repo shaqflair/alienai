@@ -17,15 +17,11 @@ async function launchBrowser() {
   if (isServerless) {
     return puppeteerCore.launch({
       args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
       executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
-      ignoreHTTPSErrors: true,
     });
   }
 
   return puppeteer.launch({
-    headless: "new",
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
 }

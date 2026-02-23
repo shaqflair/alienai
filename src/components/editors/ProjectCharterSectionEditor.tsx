@@ -1,4 +1,4 @@
-// src/components/editors/ProjectCharterSectionEditor.tsx
+﻿// src/components/editors/ProjectCharterSectionEditor.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -28,6 +28,9 @@ import { format, isValid } from "date-fns";
 ========================================================= */
 
 type RowObj = { type: "header" | "data"; cells: string[] };
+export type CharterMeta = { title?: string; date?: string; version?: string; author?: string; [key: string]: any };
+export type CharterSection = { key: string; title: string; type?: string; content?: string; bullets?: string[]; table?: { columns: number; rows: RowObj[] }; [key: string]: any };
+export type ApplySectionPatch = (key: string, patch: any) => void;
 
 export type V2Section = {
   key: string;
@@ -79,7 +82,7 @@ function clampInt(n: any, min: number, max: number, fallback: number) {
   return Math.max(min, Math.min(max, Math.floor(v)));
 }
 
-function ensureHeaderRow(table: { columns: number; rows: RowObj[] }) {
+function ensureHeaderRow(table: { columns: number; rows: RowObj[] }): { columns: number; rows: RowObj[] } {
   const rows = Array.isArray(table?.rows) ? table.rows.slice() : [];
   const cols = Math.max(1, clampInt(table?.columns, 1, 24, 2));
 
@@ -378,7 +381,7 @@ export default function ProjectCharterSectionEditor({
   }
 
   function patchTable(idx: number, nextTable: { columns: number; rows: RowObj[] }) {
-    patchSection(idx, { table: ensureHeaderRow(nextTable), bullets: undefined });
+    patchSection(idx, { table: ensureHeaderRow(nextTable) as { columns: number; rows: RowObj[] }, bullets: undefined });
   }
 
   function patchBullets(idx: number, text: string) {
@@ -388,7 +391,7 @@ export default function ProjectCharterSectionEditor({
   function addTableRow(idx: number) {
     if (readOnly) return;
     const s = safeSections[idx];
-    const t = ensureHeaderRow(s?.table ?? { columns: 2, rows: [] });
+    const t = ensureHeaderRow(s?.table ?? { columns: 2, rows: [] }) as { columns: number; rows: RowObj[] };
     t.rows.push({ type: "data", cells: Array.from({ length: t.columns }, () => "") });
     patchTable(idx, t);
   }
@@ -396,7 +399,7 @@ export default function ProjectCharterSectionEditor({
   function delTableRow(idx: number, rowIndexInData: number) {
     if (readOnly) return;
     const s = safeSections[idx];
-    const t = ensureHeaderRow(s?.table ?? { columns: 2, rows: [] });
+    const t = ensureHeaderRow(s?.table ?? { columns: 2, rows: [] }) as { columns: number; rows: RowObj[] };
 
     const dataIdxs = t.rows
       .map((r, i) => ({ r, i }))
@@ -412,25 +415,25 @@ export default function ProjectCharterSectionEditor({
     const stillHasData = nextRows.some((r) => r.type === "data");
     if (!stillHasData) nextRows.push({ type: "data", cells: Array.from({ length: t.columns }, () => "") });
 
-    patchTable(idx, { columns: t.columns, rows: nextRows });
+    patchTable(idx, { columns: t.columns, rows: nextRows as RowObj[] });
   }
 
   function addColumn(idx: number) {
     if (readOnly) return;
     const s = safeSections[idx];
-    const t = ensureHeaderRow(s?.table ?? { columns: 2, rows: [] });
+    const t = ensureHeaderRow(s?.table ?? { columns: 2, rows: [] }) as { columns: number; rows: RowObj[] };
     const cols = Math.min(24, (t.columns || 2) + 1);
     const nextRows = t.rows.map((r) => ({
       ...r,
       cells: [...(r.cells ?? []), r.type === "header" ? `Column ${cols}` : ""],
     }));
-    patchTable(idx, { columns: cols, rows: nextRows });
+    patchTable(idx, { columns: cols, rows: nextRows as RowObj[] });
   }
 
   function delColumn(idx: number, colIndex: number) {
     if (readOnly) return;
     const s = safeSections[idx];
-    const t = ensureHeaderRow(s?.table ?? { columns: 2, rows: [] });
+    const t = ensureHeaderRow(s?.table ?? { columns: 2, rows: [] }) as { columns: number; rows: RowObj[] };
     if (t.columns <= 1) return;
 
     const cols = t.columns - 1;
@@ -440,7 +443,7 @@ export default function ProjectCharterSectionEditor({
       return { ...r, cells };
     });
 
-    patchTable(idx, { columns: cols, rows: nextRows });
+    patchTable(idx, { columns: cols, rows: nextRows as RowObj[] });
   }
 
   const [metaOpen, setMetaOpen] = useState(true);
@@ -782,7 +785,7 @@ export default function ProjectCharterSectionEditor({
 
                     {isTable ? (
                       <TableEditor
-                        value={ensureHeaderRow(sec.table!)}
+                        value={ensureHeaderRow(sec.table!) as { columns: number; rows: RowObj[] }}
                         readOnly={readOnly}
                         onChange={(t) => patchTable(idx, t)}
                         onAddRow={() => addTableRow(idx)}
@@ -1028,7 +1031,7 @@ function TableEditor({
   onDelRow: (dataRowIndex: number) => void;
   onDelCol: (colIndex: number) => void;
 }) {
-  const t = ensureHeaderRow(value);
+  const t = ensureHeaderRow(value) as { columns: number; rows: RowObj[] };
   const header = t.rows[0].cells;
   const dataRows = t.rows.filter((r) => r.type === "data");
 
@@ -1041,13 +1044,13 @@ function TableEditor({
   }, [header.join("|")]);
 
   function setHeader(col: number, v: string) {
-    const next = ensureHeaderRow(t);
+    const next = ensureHeaderRow(t) as { columns: number; rows: RowObj[] };
     next.rows[0].cells[col] = v;
     onChange(next);
   }
 
   function setCell(dataRowIndex: number, col: number, v: string) {
-    const next = ensureHeaderRow(t);
+    const next = ensureHeaderRow(t) as { columns: number; rows: RowObj[] };
     const dataIdxs = next.rows
       .map((r, i) => ({ r, i }))
       .filter((x) => x.r.type === "data")

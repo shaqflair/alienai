@@ -1,4 +1,4 @@
-// src/lib/exports/schedule/renderSchedulePptx.ts
+﻿// src/lib/exports/schedule/renderSchedulePptx.ts
 import PptxGenJS from "pptxgenjs";
 
 import type { TimeWindow } from "./types";
@@ -510,7 +510,6 @@ export async function renderSchedulePptx(args: RenderSchedulePptxArgs): Promise<
             h: barH,
             fill: { color: colorSet.fill },
             line: { color: strokeColor, width: 1.5 },
-            radius: 0.1,
           });
 
           // Progress fill
@@ -524,7 +523,6 @@ export async function renderSchedulePptx(args: RenderSchedulePptxArgs): Promise<
               h: barH,
               fill: { color: colorSet.progress },
               line: { color: "FFFFFF", width: 0 },
-              radius: 0.1,
             });
           }
 
@@ -577,5 +575,5 @@ export async function renderSchedulePptx(args: RenderSchedulePptxArgs): Promise<
   });
 
   const buffer = await pptx.write({ outputType: "nodebuffer" });
-  return Buffer.from(buffer);
+  return Buffer.from(buffer instanceof Blob ? await buffer.arrayBuffer() : buffer as ArrayBuffer);
 }

@@ -1,4 +1,4 @@
-// src/lib/exports/closure-report/exportClosureReportDocxBuffer.ts
+﻿// src/lib/exports/closure-report/exportClosureReportDocxBuffer.ts
 import "server-only";
 
 import {
@@ -928,9 +928,9 @@ export async function exportClosureReportDocxBuffer(model: any): Promise<Buffer>
                     size: 18,
                     color: COLORS.slate500,
                   }),
-                  PageNumber.CURRENT,
+                  new TextRun({ children: [PageNumber.CURRENT] }),
                   new TextRun({ text: " of ", size: 18, color: COLORS.slate500 }),
-                  PageNumber.TOTAL_PAGES,
+                  new TextRun({ children: [PageNumber.TOTAL_PAGES] }),
                 ],
               }),
             ],

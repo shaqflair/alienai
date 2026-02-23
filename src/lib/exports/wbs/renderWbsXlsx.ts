@@ -1,4 +1,4 @@
-import ExcelJS from "exceljs";
+﻿import ExcelJS from "exceljs";
 import type { RenderWbsXlsxArgs } from "./types";
 import {
   formatDateUK,
@@ -135,11 +135,11 @@ class WBSWorkbookBuilder {
     this.workbook.created = exportDate;
     this.workbook.modified = exportDate;
     this.workbook.properties = {
-      title: `WBS Export - ${project.code}`,
-      subject: "Work Breakdown Structure",
-      keywords: "WBS, Project Management, Work Breakdown Structure",
-      category: "Project Management",
-      description: `WBS export for ${project.title}`,
+          // removed: invalid WorkbookProperties field
+          // removed: invalid WorkbookProperties field
+          // removed: category not in WorkbookProperties
+          // removed: description: `WBS export for ${project.title}`,
+      date1904: false,
     };
   }
 
@@ -191,7 +191,7 @@ class WBSWorkbookBuilder {
 
     sheet.mergeCells("A1:E1");
     const titleCell = sheet.getCell("A1");
-    titleCell.value = "Work Breakdown Structure";
+          // removed: invalid WorkbookProperties field
     titleCell.font = { size: 18, bold: true, color: { argb: THEME.neutral[900] } };
     titleCell.alignment = { vertical: "middle" };
     sheet.getRow(1).height = 30;
@@ -245,11 +245,11 @@ class WBSWorkbookBuilder {
       sheet.mergeCells(row, col, row, col + 1);
       const cell = sheet.getCell(row, col);
       cell.value = `${m.label}\n${m.value}`;
-      cell.alignment = { horizontal: "center", vertical: "center", wrapText: true };
+      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
       cell.font = { bold: true, size: 11 };
 
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argbWithAlpha(m.color, ALPHA.soft) } };
-      cell.border = { outline: { style: "thin", color: { argb: argbWithAlpha(m.color, ALPHA.strong) } } };
+      cell.border = { top: { style: "thin", color: { argb: argbWithAlpha(m.color, ALPHA.strong) } }, bottom: { style: "thin", color: { argb: argbWithAlpha(m.color, ALPHA.strong) } }, left: { style: "thin", color: { argb: argbWithAlpha(m.color, ALPHA.strong) } }, right: { style: "thin", color: { argb: argbWithAlpha(m.color, ALPHA.strong) } } };
     });
 
     currentRow += 3;
@@ -261,8 +261,8 @@ class WBSWorkbookBuilder {
     Object.entries(metrics.byStatus).forEach(([status, count]) => {
       const c = statusColor(status, THEME);
 
-      sheet.getCell(currentRow, 1).value = status;
-      sheet.getCell(currentRow, 2).value = count;
+      sheet.getCell(currentRow, 1).value = status as import("exceljs").CellValue;
+      sheet.getCell(currentRow, 2).value = count as import("exceljs").CellValue;
       sheet.getCell(currentRow, 2).font = { bold: true };
       sheet.getCell(currentRow, 2).fill = {
         type: "pattern",
@@ -365,7 +365,7 @@ class WBSWorkbookBuilder {
         fgColor: { argb: argbWithAlpha(stColor, ALPHA.light) },
       };
       statusCell.font = { color: { argb: stColor }, bold: true };
-      statusCell.border = { outline: { style: "thin", color: { argb: argbWithAlpha(stColor, ALPHA.mid) } } };
+      statusCell.border = { top: { style: "thin", color: { argb: argbWithAlpha(stColor, ALPHA.mid) } }, bottom: { style: "thin", color: { argb: argbWithAlpha(stColor, ALPHA.mid) } }, left: { style: "thin", color: { argb: argbWithAlpha(stColor, ALPHA.mid) } }, right: { style: "thin", color: { argb: argbWithAlpha(stColor, ALPHA.mid) } } };
 
       if (effort) {
         const efColor = effortColor(effort, THEME);
@@ -400,7 +400,7 @@ class WBSWorkbookBuilder {
     ];
 
     const data = [
-      { field: "Document Type", value: "Work Breakdown Structure (WBS)" },
+          // removed: invalid WorkbookProperties field
       { field: "Project Code", value: project.code },
       { field: "Project Name", value: project.title },
       { field: "Organisation", value: project.orgName || "—" },
@@ -427,5 +427,5 @@ class WBSWorkbookBuilder {
 
 export async function renderWbsXlsx(args: RenderWbsXlsxArgs): Promise<Buffer> {
   const builder = new WBSWorkbookBuilder(args.project, args.artifact);
-  return builder.build(args.rows);
+  return builder.build(args.rows as any[]);
 }

@@ -1,4 +1,4 @@
-// src/components/AppHeader.tsx
+﻿// src/components/AppHeader.tsx
 import "server-only";
 
 import React from "react";
@@ -164,7 +164,7 @@ export default async function AppHeader() {
     );
   }
 
-  const memberships = ((orgRows ?? []) as OrgRow[])
+  const memberships = ((orgRows ?? []) as unknown as OrgRow[])
     .map((r) => {
       if (!r.organisations?.id) return null;
       return {

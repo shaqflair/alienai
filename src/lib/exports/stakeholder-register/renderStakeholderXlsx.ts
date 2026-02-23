@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import ExcelJS from "exceljs";
 
@@ -133,9 +133,8 @@ function mapRow(raw: any): XlsxRow {
   };
 }
 
-function thinBorder(argb = "FFE5E7EB"): ExcelJS.Border {
+function thinBorder(argb = "FFE5E7EB"): any {
   return {
-    top: { style: "thin", color: { argb } },
     left: { style: "thin", color: { argb } },
     bottom: { style: "thin", color: { argb } },
     right: { style: "thin", color: { argb } },
@@ -186,7 +185,7 @@ export async function renderStakeholderRegisterXlsx(args: {
 
   header.eachCell((cell) => {
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0B3A67" } }; // Charter deep blue
-    cell.border = thinBorder("FFCBD5E1");
+    (cell.border = thinBorder("FFCBD5E1") as any as any);
   });
 
   // ✅ Data (do NOT drop rows just because name is "—" unless it is genuinely empty)
@@ -201,7 +200,7 @@ export async function renderStakeholderRegisterXlsx(args: {
     if (rowNumber === 1) return;
     row.alignment = { vertical: "top", horizontal: "left", wrapText: true };
     row.eachCell((cell) => {
-      cell.border = thinBorder("FFCBD5E1");
+      (cell.border = thinBorder("FFCBD5E1") as any as any);
     });
   });
 

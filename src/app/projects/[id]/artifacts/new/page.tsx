@@ -226,7 +226,7 @@ export default async function NewArtifactPage({
       </header>
 
       <section className="border rounded-2xl bg-white p-6 space-y-4">
-        <form action={createArtifact} className="grid gap-4">
+        <form action={async (fd) => { await createArtifact(fd); }} className="grid gap-4">
           {/* ✅ always submit UUID to server action */}
           <input type="hidden" name="project_id" value={projectUuid} />
           <input type="hidden" name="project_human_id" value={projectHumanId} />

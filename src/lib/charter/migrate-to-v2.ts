@@ -1,4 +1,4 @@
-// src/lib/charter/migrate-to-v2.ts
+﻿// src/lib/charter/migrate-to-v2.ts
 
 import type { CharterV2 } from "@/lib/charter/charter-v2";
 import type { CharterMeta, CharterSection } from "@/components/editors/ProjectCharterSectionEditor";
@@ -146,8 +146,7 @@ export function migrateCharterAnyToV2(args: { raw: any; projectTitleFallback?: s
   };
 
   // Keep section titles stable even if keys differ
-  out.sections = (out.sections ?? []).map((sec: any) => ({
-    ...sec,
+  (out as any).sections = (out.sections ?? []).map((sec: any) => ({    ...sec,
     key: normKey(sec.key),
     title: String(sec.title ?? "").trim() || sec.key,
   })) as CharterSection[];

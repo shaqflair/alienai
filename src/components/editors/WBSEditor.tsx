@@ -1,4 +1,4 @@
-// src/components/editors/WBSEditor.tsx
+﻿// src/components/editors/WBSEditor.tsx
 "use client";
 
 import React, {
@@ -135,9 +135,9 @@ function normalizeInitial(initialJson: any): WbsDocV1 {
   return {
     version: 1, type: "wbs", title: "Work Breakdown Structure", due_date: "", auto_rollup: true,
     rows: [
-      { id: uuidish(), level: 0, deliverable: "Project Governance & Management", status: "in_progress", effort: "M" },
-      { id: uuidish(), level: 1, deliverable: "Project Charter", status: "done", effort: "S" },
-      { id: uuidish(), level: 1, deliverable: "Stakeholder Register", status: "in_progress", effort: "S" },
+      { id: uuidish(), level: 0, deliverable: "Project Governance & Management", status: "in_progress" as WbsStatus, effort: "M" },
+      { id: uuidish(), level: 1, deliverable: "Project Charter", status: "done" as WbsStatus, effort: "S" },
+      { id: uuidish(), level: 1, deliverable: "Stakeholder Register", status: "in_progress" as WbsStatus, effort: "S" },
     ],
   };
 }
@@ -412,15 +412,15 @@ export default function WBSEditor({
   function updateRow(id: string, patch: Partial<WbsRow>) { markDirty(); setDoc(prev => ({ ...prev, rows: (prev.rows ?? []).map(r => r.id === id ? { ...r, ...patch } : r) })); }
   function updateDoc(patch: Partial<WbsDocV1>) { markDirty(); setDoc(prev => ({ ...prev, ...patch })); }
 
-  function insertAt(index: number, row: WbsRow) { markDirty(); setDoc(prev => { const out = [...prev.rows]; out.splice(index, 0, row); return { ...prev, rows: out }; }); }
+  function insertAt(index: number, row: WbsRow) { markDirty(); setDoc(prev => { const out = [...prev.rows]; out.splice(index, 0, row); return { ...prev, rows: out as WbsRow[] }; }); }
 
   function addSibling(afterId: string) {
     markDirty();
     setDoc(prev => {
       const idx = prev.rows.findIndex(r => r.id === afterId); if (idx < 0) return prev;
       const base = prev.rows[idx];
-      const next: WbsRow = { id: uuidish(), level: base.level, deliverable: "", description: "", acceptance_criteria: "", owner: "", status: "not_started", effort: "", due_date: "", predecessor: "", tags: [] };
-      const out = [...prev.rows]; out.splice(idx + 1, 0, next); return { ...prev, rows: out };
+      const next: WbsRow = { id: uuidish(), level: base.level, deliverable: "", description: "", acceptance_criteria: "", owner: "", status: "not_started" as WbsStatus, effort: "", due_date: "", predecessor: "", tags: [] };
+      const out = [...prev.rows]; out.splice(idx + 1, 0, next); return { ...prev, rows: out as WbsRow[] };
     });
     setExpanded(p => { const n = new Set(p); n.add(afterId); return n; });
   }
@@ -431,15 +431,15 @@ export default function WBSEditor({
       const idx = prev.rows.findIndex(r => r.id === parentId); if (idx < 0) return prev;
       const parent = prev.rows[idx]; let insertIndex = idx + 1;
       for (let i = idx + 1; i < prev.rows.length; i++) { if (prev.rows[i].level <= parent.level) break; insertIndex = i + 1; }
-      const next: WbsRow = { id: uuidish(), level: clamp(parent.level + 1, 0, 10), deliverable: "", description: "", acceptance_criteria: "", owner: "", status: "not_started", effort: "", due_date: "", predecessor: "", tags: [] };
-      const out = [...prev.rows]; out.splice(insertIndex, 0, next); return { ...prev, rows: out };
+      const next: WbsRow = { id: uuidish(), level: clamp(parent.level + 1, 0, 10), deliverable: "", description: "", acceptance_criteria: "", owner: "", status: "not_started" as WbsStatus, effort: "", due_date: "", predecessor: "", tags: [] };
+      const out = [...prev.rows]; out.splice(insertIndex, 0, next); return { ...prev, rows: out as WbsRow[] };
     });
     setCollapsed(prev => { const next = new Set(prev); next.delete(parentId); return next; });
     setExpanded(p => { const n = new Set(p); n.add(parentId); return n; });
   }
 
-  function indent(id: string) { markDirty(); setDoc(prev => { const idx = prev.rows.findIndex(r => r.id === id); if (idx <= 0) return prev; const prevRow = prev.rows[idx - 1]; const cur = prev.rows[idx]; const nextLevel = clamp(cur.level + 1, 0, (prevRow.level ?? 0) + 1); const out = [...prev.rows]; out[idx] = { ...cur, level: nextLevel }; return { ...prev, rows: out }; }); }
-  function outdent(id: string) { markDirty(); setDoc(prev => { const idx = prev.rows.findIndex(r => r.id === id); if (idx < 0) return prev; const cur = prev.rows[idx]; const out = [...prev.rows]; out[idx] = { ...cur, level: clamp(cur.level - 1, 0, 10) }; return { ...prev, rows: out }; }); }
+  function indent(id: string) { markDirty(); setDoc(prev => { const idx = prev.rows.findIndex(r => r.id === id); if (idx <= 0) return prev; const prevRow = prev.rows[idx - 1]; const cur = prev.rows[idx]; const nextLevel = clamp(cur.level + 1, 0, (prevRow.level ?? 0) + 1); const out = [...prev.rows]; out[idx] = { ...cur, level: nextLevel }; return { ...prev, rows: out as WbsRow[] }; }); }
+  function outdent(id: string) { markDirty(); setDoc(prev => { const idx = prev.rows.findIndex(r => r.id === id); if (idx < 0) return prev; const cur = prev.rows[idx]; const out = [...prev.rows]; out[idx] = { ...cur, level: clamp(cur.level - 1, 0, 10) }; return { ...prev, rows: out as WbsRow[] }; }); }
 
   function removeRow(id: string) {
     markDirty();
@@ -448,7 +448,7 @@ export default function WBSEditor({
       const target = prev.rows[idx]; let end = idx + 1;
       for (let i = idx + 1; i < prev.rows.length; i++) { if (prev.rows[i].level <= target.level) break; end = i + 1; }
       const out = [...prev.rows]; out.splice(idx, end - idx);
-      const nextRows = out.length ? out : [{ id: uuidish(), level: 0, deliverable: "", effort: "", status: "not_started" }];
+      const nextRows = (out.length ? out : [{ id: uuidish(), level: 0, deliverable: "", effort: "", status: "not_started" as WbsStatus }]) as WbsRow[];
       return { ...prev, rows: nextRows };
     });
     setCollapsed(prev => { const next = new Set(prev); next.delete(id); return next; });

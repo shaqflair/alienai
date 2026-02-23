@@ -13,7 +13,7 @@ export { normalizeStakeholderRows } from "./normalize";
 
 export * from "./types";
 export * from "./utils";
-export * from "./stakeholderShared";
+// export * from "./stakeholderShared"; // removed: conflicts with ./types exports
 
 /**
  * ✅ Server-only exports live in:

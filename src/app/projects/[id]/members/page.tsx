@@ -233,7 +233,6 @@ export default async function MembersPage({
 
       <MembersClient
         projectId={projectId}
-        meUserId={myUserId}
         myRole={String(myRole)}
         members={members}
         invites={invites}

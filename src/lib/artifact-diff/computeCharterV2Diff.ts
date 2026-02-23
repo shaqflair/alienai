@@ -1,4 +1,4 @@
-import type { ArtifactDiffV1, DiffOp, SectionDiff } from "@/types/artifact-diff";
+﻿import type { ArtifactDiffV1, DiffOp, SectionDiff } from "@/types/artifact-diff";
 import { normalizeCharterV2, type CharterV2 } from "./normalizeCharterV2";
 
 function stableJson(x: unknown): string {
@@ -29,7 +29,7 @@ function pushRemove(ops: DiffOp[], path: string, before: unknown) {
 }
 
 function mapSectionsByKey(sections: CharterV2["sections"] | undefined) {
-  const m = new Map<string, { idx: number; section: CharterV2["sections"][number] }>();
+  const m = new Map<string, { idx: number; section: NonNullable<CharterV2["sections"]>[number] }>();
   const arr = sections ?? [];
   arr.forEach((s, idx) => m.set(s.key, { idx, section: s }));
   return { map: m, arr };

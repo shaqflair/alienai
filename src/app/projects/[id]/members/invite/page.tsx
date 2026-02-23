@@ -169,7 +169,6 @@ export default async function MembersSection({
       <div className="border-t p-4">
         <MembersClient
           projectId={projectId}
-          meUserId={myUserId}
           myRole={String(myRole)}
           members={members}
           invites={invites}

@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import { createClient } from "@/utils/supabase/server";
 import type { OrchestratorOptions, OrchestratorRunResult, ArtifactEventRow } from "./types";
@@ -24,7 +24,7 @@ export async function runOrchestratorOnce(opts: OrchestratorOptions = {}): Promi
   let failed = 0;
   let last_event_id: string | null = null;
 
-  for (const evt of (events ?? []) as ArtifactEventRow[]) {
+  for (const evt of (events ?? []) as unknown as ArtifactEventRow[]) {
     last_event_id = evt.id;
 
     try {

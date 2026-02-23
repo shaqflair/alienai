@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -1696,7 +1696,7 @@ export default function RaidClient({
   useEffect(() => {
     if (!editor) return;
     function sync() {
-      const el = cellRefs.current[`${editor.rowId}:${editor.col}`];
+      const el = cellRefs.current[`${editor!.rowId}:${editor!.col}`];
       if (!el) return;
       const r = el.getBoundingClientRect();
       setEditor((cur) => {

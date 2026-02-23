@@ -24,7 +24,7 @@ export async function POST(
 ) {
   const supabase = await createClient();
 
-  const projectId = safeParam(params?.id);
+  const projectId = safeParam((await params)?.id);
   if (!projectId || projectId === "undefined") {
     return NextResponse.json({ error: "Missing project id" }, { status: 400 });
   }
