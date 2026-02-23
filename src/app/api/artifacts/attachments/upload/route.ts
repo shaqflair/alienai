@@ -2,7 +2,7 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { createServiceClient } from "@/utils/supabase/service";
+import { createServiceClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
 
