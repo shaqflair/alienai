@@ -1,9 +1,20 @@
 "use client";
-import React, { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Clock3, FileText, Paperclip, User } from "lucide-react";
+
+import React, { useEffect, useState } from "react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Clock3,
+  FileText,
+  Paperclip,
+  User,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+} from "lucide-react";
 
 type AuditItem = {
-  id: number;
+  id: number | string;
   created_at: string;
   section?: string | null;
   action_label?: string | null;
@@ -12,6 +23,13 @@ type AuditItem = {
   content_json_paths?: string[] | null;
   before?: any;
   after?: any;
+
+  // approval extras (present only for kind="approval")
+  kind?: "content" | "approval";
+  action?: string | null;
+  decision?: string | null;
+  step_name?: string | null;
+  step_order?: number | null;
 };
 
 type AuditEvent = {
@@ -28,7 +46,6 @@ type AuditEvent = {
 
 function ukDateTime(iso: string) {
   const d = new Date(iso);
-  // UK format: DD MMM YYYY, HH:mm
   return d.toLocaleString("en-GB", {
     day: "2-digit",
     month: "short",
@@ -44,22 +61,31 @@ function iconForSection(section: string) {
       return <Paperclip className="h-4 w-4" />;
     case "project":
       return <FileText className="h-4 w-4" />;
+    case "approval":
+      return <CheckCircle2 className="h-4 w-4" />;
     default:
       return <Clock3 className="h-4 w-4" />;
   }
 }
 
 function humanizePath(p: string) {
-  // Turn /project/project_name into "Project ? Project name"
   const parts = p.split("/").filter(Boolean);
   if (parts.length === 0) return "Document";
   const [root, ...rest] = parts;
   const prettyRoot = root.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   const prettyRest = rest
-    .join(" ? ")
+    .join(" · ")
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
-  return prettyRest ? `${prettyRoot} ? ${prettyRest}` : prettyRoot;
+  return prettyRest ? `${prettyRoot} · ${prettyRest}` : prettyRoot;
+}
+
+function decisionIcon(decision?: string | null) {
+  const d = String(decision || "").toLowerCase();
+  if (d === "approved") return <CheckCircle2 className="h-4 w-4" />;
+  if (d === "rejected") return <XCircle className="h-4 w-4" />;
+  if (d.includes("change")) return <AlertTriangle className="h-4 w-4" />;
+  return <Clock3 className="h-4 w-4" />;
 }
 
 export function ArtifactAuditTimeline({ artifactId }: { artifactId: string }) {
@@ -72,10 +98,10 @@ export function ArtifactAuditTimeline({ artifactId }: { artifactId: string }) {
     (async () => {
       try {
         setLoading(true);
-        const res = await fetch(`/api/artifacts/audit?artifact_id=${encodeURIComponent(artifactId)}`, {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-        });
+        const res = await fetch(
+          `/api/artifacts/audit?artifact_id=${encodeURIComponent(artifactId)}`,
+          { method: "GET", headers: { "Content-Type": "application/json" } }
+        );
         const j = await res.json();
         if (!alive) return;
         if (j?.ok) setEvents(j.events || []);
@@ -150,7 +176,11 @@ export function ArtifactAuditTimeline({ artifactId }: { artifactId: string }) {
                   </div>
 
                   <div className="mt-1 text-gray-500">
-                    {isOpen ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
+                    {isOpen ? (
+                      <ChevronDown className="h-5 w-5" />
+                    ) : (
+                      <ChevronRight className="h-5 w-5" />
+                    )}
                   </div>
                 </div>
               </button>
@@ -159,21 +189,39 @@ export function ArtifactAuditTimeline({ artifactId }: { artifactId: string }) {
                 <div className="border-t border-gray-200 p-4">
                   <div className="space-y-3">
                     {e.items.map((it) => {
+                      const isApproval = it.kind === "approval" || it.section === "approval";
                       const paths = (it.content_json_paths || []).slice(0, 12);
+
                       return (
-                        <div key={it.id} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <div
+                          key={String(it.id)}
+                          className="rounded-lg border border-gray-200 bg-gray-50 p-3"
+                        >
                           <div className="flex items-center justify-between gap-3">
-                            <div className="text-sm font-medium text-gray-900">
-                              {it.action_label || "Update"}
-                              {it.summary ? <span className="ml-2 text-sm text-gray-700">— {it.summary}</span> : null}
+                            <div className="flex items-center gap-2 text-sm font-medium text-gray-900">
+                              {isApproval ? decisionIcon(it.decision) : null}
+                              <span>{it.action_label || (isApproval ? "Approval event" : "Update")}</span>
+                              {isApproval ? (
+                                <span className="rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-700">
+                                  Approval
+                                </span>
+                              ) : null}
+                              {it.summary ? (
+                                <span className="ml-1 text-sm font-normal text-gray-700">— {it.summary}</span>
+                              ) : null}
                             </div>
                             <div className="text-xs text-gray-500">{ukDateTime(it.created_at)}</div>
                           </div>
 
-                          {paths.length ? (
+                          {isApproval ? (
+                            <div className="mt-2 text-xs text-gray-700">
+                              {it.step_name ? <div>Step: {it.step_name}</div> : null}
+                              {it.decision ? <div>Decision: {it.decision}</div> : null}
+                            </div>
+                          ) : paths.length ? (
                             <div className="mt-2 space-y-1">
                               {paths.map((p, idx) => (
-                                <div key={`${it.id}-${idx}`} className="text-xs text-gray-700">
+                                <div key={`${String(it.id)}-${idx}`} className="text-xs text-gray-700">
                                   • {humanizePath(p)}
                                 </div>
                               ))}

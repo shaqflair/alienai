@@ -5,8 +5,17 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const TABLE = "change_requests";
+
+/* ---------------- headers ---------------- */
+
+const NO_STORE_HEADERS: HeadersInit = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+  Pragma: "no-cache",
+};
 
 /* ---------------- helpers ---------------- */
 
@@ -14,8 +23,15 @@ function safeStr(x: unknown) {
   return typeof x === "string" ? x.trim() : x == null ? "" : String(x).trim();
 }
 
-function jsonError(message: string, status = 400, extra?: any) {
-  return NextResponse.json({ ok: false, error: message, ...(extra ? { extra } : {}) }, { status });
+function jsonError(message: string, status = 400, extra?: any, headers?: HeadersInit) {
+  return NextResponse.json(
+    { ok: false, error: message, ...(extra ? { extra } : {}) },
+    { status, headers }
+  );
+}
+
+function jsonOk(data: any, status = 200, headers?: HeadersInit) {
+  return NextResponse.json({ ok: true, ...data }, { status, headers });
 }
 
 function clamp(s: string, max: number) {
@@ -45,7 +61,14 @@ function normalizeImpactAnalysis(body: any): any {
   return {};
 }
 
-const ALLOWED_DELIVERY = new Set(["intake", "analysis", "review", "in_progress", "implemented", "closed"]);
+const ALLOWED_DELIVERY = new Set([
+  "intake",
+  "analysis",
+  "review",
+  "in_progress",
+  "implemented",
+  "closed",
+]);
 
 function normalizeDeliveryStatus(x: unknown): string {
   const v = safeStr(x).toLowerCase();
@@ -63,7 +86,11 @@ function pickPlan(body: any) {
     safeStr(body?.implementation) ||
     "";
 
-  const rollbackPlan = safeStr(body?.rollbackPlan) || safeStr(body?.rollback_plan) || safeStr(body?.rollback) || "";
+  const rollbackPlan =
+    safeStr(body?.rollbackPlan) ||
+    safeStr(body?.rollback_plan) ||
+    safeStr(body?.rollback) ||
+    "";
 
   return {
     implementation_plan: implementationPlan ? clamp(implementationPlan, 8000) : null,
@@ -150,7 +177,9 @@ function pickReviewBy(body: any): { present: boolean; value: string | null; raw:
 }
 
 function missingColumnName(msg: string): string | null {
-  const m = String(msg || "").match(/column\s+"([^"]+)"\s+of\s+relation\s+"[^"]+"\s+does\s+not\s+exist/i);
+  const m = String(msg || "").match(
+    /column\s+"([^"]+)"\s+of\s+relation\s+"[^"]+"\s+does\s+not\s+exist/i
+  );
   return m?.[1] || null;
 }
 
@@ -182,16 +211,80 @@ function laneKey(raw: any): LaneKey {
   return "intake";
 }
 
+/* ---------------- enterprise auth/access ---------------- */
+
+async function requireAuth(supabase: any) {
+  const { data, error } = await supabase.auth.getUser();
+  if (error) throw Object.assign(new Error(error.message), { status: 401 });
+  if (!data?.user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
+  return data.user;
+}
+
+async function requireProjectMember(
+  supabase: any,
+  projectId: string,
+  userId: string,
+  minRole: "viewer" | "editor" = "viewer"
+) {
+  const pid = safeStr(projectId);
+  if (!pid) throw Object.assign(new Error("Missing projectId"), { status: 400 });
+
+  const { data, error } = await supabase
+    .from("project_members")
+    .select("role, removed_at")
+    .eq("project_id", pid)
+    .eq("user_id", userId)
+    .is("removed_at", null)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw Object.assign(new Error("Forbidden"), { status: 403 });
+
+  const role = safeStr(data.role).toLowerCase();
+  const isEditor = role === "owner" || role === "editor";
+  if (minRole === "editor" && !isEditor) {
+    throw Object.assign(new Error("Forbidden"), { status: 403 });
+  }
+
+  return { role };
+}
+
+function normalizeLinks(x: any) {
+  // ensure links is an object, not array; keep it shallow-ish
+  if (!x || typeof x !== "object" || Array.isArray(x)) return null;
+
+  // Optional: clamp number of keys to reduce abuse
+  const out: Record<string, any> = {};
+  const keys = Object.keys(x).slice(0, 50);
+  for (const k of keys) {
+    const key = safeStr(k);
+    if (!key) continue;
+    const v = (x as any)[k];
+    // allow string/number/bool/null or small objects
+    if (v == null) out[key] = null;
+    else if (typeof v === "string") out[key] = clamp(v, 1000);
+    else if (typeof v === "number" || typeof v === "boolean") out[key] = v;
+    else if (typeof v === "object" && !Array.isArray(v)) out[key] = v;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 /* ---------------- handlers ---------------- */
 
 export async function GET(req: Request) {
+  const supabase = await createClient();
+
   try {
+    const user = await requireAuth(supabase);
+
     const { searchParams } = new URL(req.url);
     const projectId = safeStr(searchParams.get("projectId"));
-    if (!projectId) return jsonError("Missing projectId", 400);
+    if (!projectId) return jsonError("Missing projectId", 400, undefined, NO_STORE_HEADERS);
+
+    // ✅ enterprise: ensure membership before reading
+    await requireProjectMember(supabase, projectId, user.id, "viewer");
 
     const shape = safeStr(searchParams.get("shape")).toLowerCase(); // "items" | "lanes"
-    const supabase = await createClient();
 
     const selectLite = [
       "id",
@@ -221,7 +314,7 @@ export async function GET(req: Request) {
       .order("updated_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false });
 
-    if (error) return jsonError(error.message, 400, error);
+    if (error) return jsonError(error.message, 400, error, NO_STORE_HEADERS);
 
     const items = (Array.isArray(data) ? data : []) as any[];
 
@@ -239,28 +332,30 @@ export async function GET(req: Request) {
         lanes[laneKey(it.delivery_status)].push(it);
       }
 
-      return NextResponse.json({ ok: true, lanes, count: items.length });
+      return jsonOk({ lanes, count: items.length }, 200, NO_STORE_HEADERS);
     }
 
-    return NextResponse.json({ ok: true, items, count: items.length });
+    return jsonOk({ items, count: items.length }, 200, NO_STORE_HEADERS);
   } catch (e: any) {
-    return jsonError(e?.message || "Server error", 500);
+    const status =
+      typeof e?.status === "number" && e.status >= 400 && e.status <= 599 ? e.status : 500;
+    return jsonError(e?.message || "Server error", status, undefined, NO_STORE_HEADERS);
   }
 }
 
 export async function POST(req: Request) {
-  try {
-    const supabase = await createClient();
+  const supabase = await createClient();
 
-    // enforce auth
-    const { data: auth, error: authErr } = await supabase.auth.getUser();
-    if (authErr) return jsonError(authErr.message, 401);
-    if (!auth?.user) return jsonError("Not authenticated", 401);
+  try {
+    const user = await requireAuth(supabase);
 
     const body = await req.json().catch(() => ({} as any));
 
     const project_id = safeStr(body?.project_id || body?.projectId);
-    if (!project_id) return jsonError("Missing project_id", 400);
+    if (!project_id) return jsonError("Missing project_id", 400, undefined, NO_STORE_HEADERS);
+
+    // ✅ enterprise: only editors/owners can create changes
+    await requireProjectMember(supabase, project_id, user.id, "editor");
 
     const artifact_id = safeStr(body?.artifact_id || body?.artifactId) || null;
 
@@ -268,19 +363,26 @@ export async function POST(req: Request) {
 
     // ✅ description is NOT NULL in your table — enforce minimum
     const description = clamp(safeStr(body?.description ?? body?.summary), 1200);
-    if (!description) return jsonError("Missing description/summary", 400);
+    if (!description) return jsonError("Missing description/summary", 400, undefined, NO_STORE_HEADERS);
 
     const plans = pickPlan(body);
     const narratives = pickNarratives(body);
 
-    // ✅ review_by (Option B)
+    // ✅ review_by
     const rb = pickReviewBy(body);
     if (rb.present && rb.raw != null && !rb.value) {
-      return jsonError("Invalid reviewBy/review_by (expected YYYY-MM-DD or DD/MM/YYYY)", 400, {
-        code: "invalid_review_by",
-      });
+      return jsonError(
+        "Invalid reviewBy/review_by (expected YYYY-MM-DD or DD/MM/YYYY)",
+        400,
+        { code: "invalid_review_by" },
+        NO_STORE_HEADERS
+      );
     }
     const review_by = rb.present ? rb.value : null;
+
+    // 🔒 requester_id must be the authenticated user (prevent impersonation)
+    const requester_name =
+      safeStr(body?.requester_name || body?.requesterName || body?.requester) || "Unknown requester";
 
     const row: any = {
       project_id,
@@ -295,15 +397,17 @@ export async function POST(req: Request) {
       status: "new",
       decision_status: "draft" as const,
 
-      delivery_status: normalizeDeliveryStatus(body?.delivery_status ?? body?.deliveryStatus ?? body?.lane ?? "intake"),
+      delivery_status: normalizeDeliveryStatus(
+        body?.delivery_status ?? body?.deliveryStatus ?? body?.lane ?? "intake"
+      ),
 
-      requester_id: safeStr(body?.requester_id || body?.requesterId) || auth.user.id,
-      requester_name: safeStr(body?.requester_name || body?.requesterName || body?.requester) || "Unknown requester",
+      requester_id: user.id,
+      requester_name: clamp(requester_name, 200),
 
       priority: normalizePriority(body?.priority),
       tags: normalizeTags(body?.tags),
 
-      links: body?.links && typeof body.links === "object" && !Array.isArray(body.links) ? body.links : null,
+      links: normalizeLinks(body?.links),
 
       implementation_plan: plans.implementation_plan,
       rollback_plan: plans.rollback_plan,
@@ -321,20 +425,30 @@ export async function POST(req: Request) {
 
     const ins = await insertWithStripRetry(supabase, row);
     if (ins.error) {
-      return jsonError(ins.error.message, 400, {
-        hint: "Insert into change_requests failed",
-        rowKeys: Object.keys(row),
-        supabase: ins.error,
-      });
+      return jsonError(
+        ins.error.message,
+        400,
+        {
+          hint: "Insert into change_requests failed",
+          rowKeys: Object.keys(row),
+          supabase: ins.error,
+        },
+        NO_STORE_HEADERS
+      );
     }
 
-    return NextResponse.json({
-      ok: true,
-      item: ins.data,
-      data: ins.data,
-      id: ins.data?.id ?? null,
-    });
+    return jsonOk(
+      {
+        item: ins.data,
+        data: ins.data,
+        id: ins.data?.id ?? null,
+      },
+      200,
+      NO_STORE_HEADERS
+    );
   } catch (e: any) {
-    return jsonError(e?.message || "Server error", 500);
+    const status =
+      typeof e?.status === "number" && e.status >= 400 && e.status <= 599 ? e.status : 500;
+    return jsonError(e?.message || "Server error", status, undefined, NO_STORE_HEADERS);
   }
 }

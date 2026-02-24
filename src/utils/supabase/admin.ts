@@ -1,22 +1,8 @@
+// src/utils/supabase/admin.ts
 import "server-only";
-import { createClient } from "@supabase/supabase-js";
 
 /**
- * Server-only admin client (service role).
- * Use ONLY in Route Handlers / Server Actions.
- * Never expose SUPABASE_SERVICE_ROLE_KEY to the browser.
+ * Backward-compatible alias for the service role client.
+ * Prefer importing createServiceClient from "@/lib/supabase/service".
  */
-export function createAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
-  if (!serviceKey) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
-
-  return createClient(url, serviceKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
+export { createServiceClient as createAdminClient } from "@/lib/supabase/service";
