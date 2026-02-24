@@ -1,0 +1,31 @@
+﻿import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
+import type { Database } from "@/types/supabase";
+
+export function createClient<T = Database>(cookieStore = cookies()) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !anon) {
+    throw new Error("Missing Supabase env: NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  }
+
+  return createServerClient<T>(url, anon, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
+      },
+      setAll(cookiesToSet) {
+        // Route handlers and Server Actions can set cookies; 
+        // Server Components may throw if attempting to set during render.
+        try {
+          cookiesToSet.forEach(({ name, value, options }) => 
+            cookieStore.set(name, value, options)
+          );
+        } catch {
+          // The Next.js middleware or route handler will handle the actual header setting
+        }
+      },
+    },
+  });
+}
