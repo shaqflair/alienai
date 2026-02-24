@@ -56,6 +56,33 @@ async function requireUser(supabase: any) {
 }
 
 /**
+ * If orgId isn't provided, pick the first active org membership for the user.
+ * This keeps the exec cockpit independent of "current project" session context.
+ */
+async function resolveOrgId(
+  supabase: any,
+  explicitOrgId: string | null,
+  userId: string
+) {
+  const orgId = norm(explicitOrgId);
+  if (orgId) return orgId;
+
+  const { data, error } = await supabase
+    .from("organisation_members")
+    .select("organisation_id, created_at")
+    .eq("user_id", userId)
+    .is("removed_at", null)
+    .order("created_at", { ascending: true })
+    .limit(1);
+
+  if (error) throw new Error(error.message);
+
+  const first = data?.[0]?.organisation_id;
+  if (!first) throw new Error("No organisation membership found");
+  return String(first);
+}
+
+/**
  * Executive visibility (your org roles):
  * - owner/admin = org-wide
  * - member      = project-scoped
@@ -83,17 +110,14 @@ export async function GET(req: Request) {
     const user = await requireUser(supabase);
 
     const url = new URL(req.url);
-    const orgId = norm(url.searchParams.get("orgId"));
+
+    // ✅ allow orgId to be omitted (auto-resolve from membership)
+    const orgId = await resolveOrgId(supabase, url.searchParams.get("orgId"), user.id);
+
     const projectId = norm(url.searchParams.get("projectId"));
     const pmId = norm(url.searchParams.get("pmId"));
     const q = norm(url.searchParams.get("q"));
     const limit = clampInt(url.searchParams.get("limit"), 1, 200, 50);
-
-    if (!orgId) {
-      return jsonErr("Missing orgId", 400, {
-        hint: "Pass ?orgId=<organisation uuid>",
-      });
-    }
 
     const exec = await isOrgExec(supabase, orgId, user.id);
 
@@ -114,6 +138,7 @@ export async function GET(req: Request) {
       if (!pmProjectIds.length) {
         return jsonOk({
           scope: exec ? "org_exec" : "project_member",
+          orgId,
           radar: { overdue: 0, warn: 0, ok: 0 },
           items: [],
         });
@@ -138,6 +163,7 @@ export async function GET(req: Request) {
       if (!memberProjectIds.length) {
         return jsonOk({
           scope: "project_member",
+          orgId,
           radar: { overdue: 0, warn: 0, ok: 0 },
           items: [],
         });
@@ -215,6 +241,7 @@ export async function GET(req: Request) {
 
     return jsonOk({
       scope: exec ? "org_exec" : "project_member",
+      orgId,
       radar: { overdue, warn, ok },
       items: items ?? [],
     });
