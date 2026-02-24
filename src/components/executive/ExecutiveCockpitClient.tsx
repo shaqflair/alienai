@@ -1,4 +1,4 @@
-﻿//src components/executive/ExecutiveCockpitClient.tsx
+﻿// src/components/executive/ExecutiveCockpitClient.tsx
 "use client";
 
 import * as React from "react";
@@ -20,8 +20,10 @@ function isErr(x: any): x is ApiErr {
 async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, {
     method: "GET",
+    credentials: "include",
     cache: "no-store",
     headers: {
+      Accept: "application/json",
       "Content-Type": "application/json",
       "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
       Pragma: "no-cache",
@@ -57,7 +59,9 @@ function StatCard(props: {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
       <div className="text-sm font-medium text-gray-700">{props.title}</div>
-      <div className="mt-2 text-3xl font-semibold text-gray-900">{props.value}</div>
+      <div className="mt-2 text-3xl font-semibold text-gray-900">
+        {props.value}
+      </div>
       {props.subtitle ? (
         <div className="mt-1 text-xs text-gray-500">{props.subtitle}</div>
       ) : null}
@@ -70,24 +74,39 @@ function StatCard(props: {
   );
 }
 
+function errPayload(msg: string): ApiErr {
+  return { error: msg };
+}
+
+function settledOrErr<T>(r: PromiseSettledResult<T>, fallbackMsg: string): T | ApiErr {
+  if (r.status === "fulfilled") return r.value as any;
+  const m =
+    (r.reason && (r.reason.message || String(r.reason))) ||
+    fallbackMsg;
+  return errPayload(m);
+}
+
 /**
  * Production-safe Executive Cockpit client
  * - SINGLE ORG mode: no orgId passed/required
- * - Uses canonical approvals endpoints under /api/executive/approvals/*
- * - Backwards compatible if caller still passes orgId (ignored)
+ * - Uses canonical executive endpoints under /api/executive/*
+ * - Each tile can fail independently (no full blank cockpit)
  */
 export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) {
   const [loading, setLoading] = React.useState(true);
 
-  const [pendingApprovals, setPendingApprovals] = React.useState<PendingApprovalsPayload | null>(
-    null
-  );
-  const [whoBlocking, setWhoBlocking] = React.useState<WhoBlockingPayload | null>(null);
-  const [slaRadar, setSlaRadar] = React.useState<SlaRadarPayload | null>(null);
-  const [riskSignals, setRiskSignals] = React.useState<RiskSignalsPayload | null>(null);
+  const [pendingApprovals, setPendingApprovals] =
+    React.useState<PendingApprovalsPayload | null>(null);
+  const [whoBlocking, setWhoBlocking] =
+    React.useState<WhoBlockingPayload | null>(null);
+  const [slaRadar, setSlaRadar] =
+    React.useState<SlaRadarPayload | null>(null);
+  const [riskSignals, setRiskSignals] =
+    React.useState<RiskSignalsPayload | null>(null);
   const [portfolioApprovals, setPortfolioApprovals] =
     React.useState<PortfolioApprovalsPayload | null>(null);
-  const [bottlenecks, setBottlenecks] = React.useState<BottlenecksPayload | null>(null);
+  const [bottlenecks, setBottlenecks] =
+    React.useState<BottlenecksPayload | null>(null);
 
   const [fatalError, setFatalError] = React.useState<string | null>(null);
 
@@ -99,32 +118,76 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       setLoading(true);
       setFatalError(null);
 
-      try {
-        const [pa, wb, sla, rs, port, bott] = await Promise.all([
-          // AI route remains canonical for pending approvals (RPC-backed)
-          fetchJson<PendingApprovalsPayload>("/api/ai/pending-approvals", ac.signal),
+      // reset last values to avoid “stale good data” hiding new errors
+      setPendingApprovals(null);
+      setWhoBlocking(null);
+      setSlaRadar(null);
+      setRiskSignals(null);
+      setPortfolioApprovals(null);
+      setBottlenecks(null);
 
-          // Executive approval namespace (src/app/api/executive/approvals/*)
-          fetchJson<WhoBlockingPayload>("/api/executive/approvals/who-blocking", ac.signal),
-          fetchJson<SlaRadarPayload>("/api/executive/approvals/sla-radar", ac.signal),
-          fetchJson<RiskSignalsPayload>("/api/executive/approvals/risk-signals", ac.signal),
-          fetchJson<PortfolioApprovalsPayload>("/api/executive/approvals/portfolio", ac.signal),
-          fetchJson<BottlenecksPayload>("/api/executive/approvals/bottlenecks", ac.signal),
+      try {
+        const [
+          paR,
+          wbR,
+          slaR,
+          rsR,
+          portR,
+          bottR,
+        ] = await Promise.allSettled([
+          // ✅ approvals namespace (exists in tree)
+          fetchJson<PendingApprovalsPayload>(
+            "/api/executive/approvals/pending?limit=200",
+            ac.signal
+          ),
+
+          // ✅ top-level exec endpoints (exist in tree)
+          fetchJson<WhoBlockingPayload>("/api/executive/who-blocking", ac.signal),
+          fetchJson<SlaRadarPayload>("/api/executive/sla-radar", ac.signal),
+          fetchJson<RiskSignalsPayload>("/api/executive/risk-signals", ac.signal),
+
+          // ✅ approvals namespace (exists in tree)
+          fetchJson<PortfolioApprovalsPayload>(
+            "/api/executive/approvals/portfolio",
+            ac.signal
+          ),
+          fetchJson<BottlenecksPayload>(
+            "/api/executive/approvals/bottlenecks",
+            ac.signal
+          ),
         ]);
 
         if (!mounted) return;
 
-        setPendingApprovals(pa);
-        setWhoBlocking(wb);
-        setSlaRadar(sla);
-        setRiskSignals(rs);
-        setPortfolioApprovals(port);
-        setBottlenecks(bott);
+        const pa = settledOrErr(paR, "Failed to load pending approvals");
+        const wb = settledOrErr(wbR, "Failed to load who-blocking");
+        const sla = settledOrErr(slaR, "Failed to load SLA radar");
+        const rs = settledOrErr(rsR, "Failed to load risk signals");
+        const port = settledOrErr(portR, "Failed to load portfolio approvals");
+        const bott = settledOrErr(bottR, "Failed to load bottlenecks");
+
+        setPendingApprovals(pa as any);
+        setWhoBlocking(wb as any);
+        setSlaRadar(sla as any);
+        setRiskSignals(rs as any);
+        setPortfolioApprovals(port as any);
+        setBottlenecks(bott as any);
+
+        // Only show fatalError if EVERYTHING failed
+        const allFailed =
+          isErr(pa) &&
+          isErr(wb) &&
+          isErr(sla) &&
+          isErr(rs) &&
+          isErr(port) &&
+          isErr(bott);
+
+        if (allFailed) {
+          setFatalError("Failed to load executive cockpit");
+        }
       } catch (e: any) {
         if (!mounted) return;
         if (e?.name === "AbortError") return;
-
-        // A single failing endpoint shouldn’t blank the cockpit; show a top-level error
         setFatalError(e?.message ?? "Failed to load executive cockpit");
       } finally {
         if (!mounted) return;
@@ -141,7 +204,9 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
   }, []);
 
   const pendingCount =
-    pendingApprovals && !isErr(pendingApprovals) ? pendingApprovals.items?.length ?? 0 : null;
+    pendingApprovals && !isErr(pendingApprovals)
+      ? pendingApprovals.items?.length ?? 0
+      : null;
 
   const whoBlockingCount =
     whoBlocking && !isErr(whoBlocking)

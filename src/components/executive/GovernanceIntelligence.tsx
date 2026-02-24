@@ -1,4 +1,4 @@
-﻿//src components/executive/GovernanceIntelligence.tsx
+﻿// src/components/executive/GovernanceIntelligence.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -9,8 +9,8 @@ type Rag = "G" | "A" | "R";
 type PendingApprovalsResp =
   | { ok: false; error: string }
   | {
-      ok: true;
-      scope: "org" | "member";
+      ok?: true; // tolerate missing ok from newer endpoints
+      scope?: "org" | "member";
       orgId?: string;
       items: any[];
     };
@@ -125,7 +125,12 @@ function toDaysFromAgeHours(ageHours: any) {
 }
 
 function pickApproverLabel(item: any) {
-  return safeStr(item?.pending_email) || safeStr(item?.approver_ref) || safeStr(item?.pending_user_id) || "—";
+  return (
+    safeStr(item?.pending_email) ||
+    safeStr(item?.approver_ref) ||
+    safeStr(item?.pending_user_id) ||
+    "—"
+  );
 }
 
 function deriveRag(overdue: number, warn: number): Rag {
@@ -135,7 +140,9 @@ function deriveRag(overdue: number, warn: number): Rag {
 }
 
 function pickSlaState(item: any): "ok" | "warn" | "overdue" {
-  const s = safeStr(item?.sla_state || item?.state || item?.rag || "").toLowerCase().trim();
+  const s = safeStr(item?.sla_state || item?.state || item?.rag || "")
+    .toLowerCase()
+    .trim();
   if (s === "overdue" || s === "breached" || s === "r") return "overdue";
   if (s === "warn" || s === "at_risk" || s === "a") return "warn";
   return "ok";
@@ -151,17 +158,37 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
 
     (async () => {
       try {
-        // Single source of truth; endpoint auto-resolves orgId (single-org mode)
-        const json = (await fetch(`/api/ai/pending-approvals?limit=200`, {
+        // ✅ canonical executive endpoint (org auto-resolved in single-org mode)
+        const r = await fetch(`/api/executive/approvals/pending?limit=200`, {
           cache: "no-store",
+          credentials: "include",
           headers: {
+            Accept: "application/json",
             "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
             Pragma: "no-cache",
           },
-        }).then((r) => r.json())) as PendingApprovalsResp;
+        });
+
+        const json = (await r.json()) as any;
 
         if (cancelled) return;
-        setResp(json);
+
+        // Tolerate either:
+        // - { ok: true, items: [...] }
+        // - { items: [...] }
+        // - { ok: false, error: "..." }
+        if (json && json.ok === false) {
+          setResp({ ok: false, error: safeStr(json.error) || "Failed to load approval intelligence" });
+          return;
+        }
+
+        const items = Array.isArray(json?.items) ? json.items : [];
+        setResp({
+          ok: true,
+          scope: json?.scope,
+          orgId: json?.orgId,
+          items,
+        });
       } catch {
         if (cancelled) return;
         setResp({ ok: false, error: "Failed to load approval intelligence" });
@@ -179,8 +206,9 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
   }, [resp]);
 
   const counts = useMemo(() => {
-    // Derive from items to avoid coupling to a specific response shape
-    if (!resp || (resp as any).ok === false) return { pending: 0, at_risk: 0, breached: 0, waiting: 0 };
+    if (!resp || (resp as any).ok === false) {
+      return { pending: 0, at_risk: 0, breached: 0, waiting: 0 };
+    }
 
     let ok = 0;
     let warn = 0;
@@ -265,7 +293,11 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
     for (const it of items) {
       const label = pickApproverLabel(it);
       const kind: UiBottleneck["kind"] =
-        it?.approver_type === "user" ? "user" : it?.approver_type === "email" ? "email" : "unknown";
+        it?.approver_type === "user"
+          ? "user"
+          : it?.approver_type === "email"
+          ? "email"
+          : "unknown";
 
       const key = `${kind}::${label}`;
       const ageDays = toDaysFromAgeHours(it?.age_hours);
@@ -304,7 +336,9 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
   }, [items]);
 
   const error =
-    resp && (resp as any).ok === false ? (resp as any).error || "Failed to load approval intelligence" : null;
+    resp && (resp as any).ok === false
+      ? (resp as any).error || "Failed to load approval intelligence"
+      : null;
 
   return (
     <CrystalCard
@@ -417,7 +451,9 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
                         )}
                       </span>
                       <div className="min-w-0">
-                        <div className="font-bold text-slate-900 truncate leading-tight">{x.label}</div>
+                        <div className="font-bold text-slate-900 truncate leading-tight">
+                          {x.label}
+                        </div>
                         <div className="text-[10px] text-slate-400 font-medium">
                           {x.pending_count} items · {x.projects_affected} projects
                         </div>
@@ -437,7 +473,9 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
               <div className="rounded-2xl border border-dashed border-slate-200 bg-white/40 px-4 py-8 text-center">
                 <AlertTriangle className="h-7 w-7 text-slate-300 mx-auto mb-2" />
                 <div className="text-sm font-semibold text-slate-600">No congestion</div>
-                <div className="text-[10px] text-slate-400 mt-1 uppercase">Approvals flow optimized</div>
+                <div className="text-[10px] text-slate-400 mt-1 uppercase">
+                  Approvals flow optimized
+                </div>
               </div>
             ) : null}
 
