@@ -57,7 +57,6 @@ async function requireUser(supabase: any) {
 
 /**
  * If orgId isn't provided, pick the first active org membership for the user.
- * This keeps the exec cockpit independent of "current project" session context.
  */
 async function resolveOrgId(
   supabase: any,
@@ -111,8 +110,11 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
 
-    // ✅ allow orgId to be omitted (auto-resolve from membership)
-    const orgId = await resolveOrgId(supabase, url.searchParams.get("orgId"), user.id);
+    const orgId = await resolveOrgId(
+      supabase,
+      url.searchParams.get("orgId"),
+      user.id
+    );
 
     const projectId = norm(url.searchParams.get("projectId"));
     const pmId = norm(url.searchParams.get("pmId"));
@@ -121,53 +123,88 @@ export async function GET(req: Request) {
 
     const exec = await isOrgExec(supabase, orgId, user.id);
 
-    // PM filter -> resolve project ids for that PM in org
-    let pmProjectIds: string[] | null = null;
-    if (pmId) {
-      const { data: pmProjects, error: pmErr } = await supabase
-        .from("projects")
-        .select("id")
-        .eq("organisation_id", orgId)
-        .eq("project_manager_id", pmId)
-        .is("deleted_at", null);
+    /* =========================================================
+       EXEC PATH (owner/admin)
+       ✅ Use SECURITY DEFINER RPC to bypass RLS blanking
+    ========================================================= */
 
-      if (pmErr) throw new Error(pmErr.message);
+    if (exec) {
+      const { data: rows, error: rpcErr } = await supabase.rpc(
+        "exec_pending_approvals",
+        {
+          p_org_id: orgId,
+          p_limit: limit,
+        }
+      );
 
-      pmProjectIds = (pmProjects ?? []).map((r: any) => r.id).filter(Boolean);
+      if (rpcErr) throw new Error(rpcErr.message);
 
-      if (!pmProjectIds.length) {
-        return jsonOk({
-          scope: exec ? "org_exec" : "project_member",
-          orgId,
-          radar: { overdue: 0, warn: 0, ok: 0 },
-          items: [],
+      const items = (rows ?? []) as any[];
+
+      let overdue = 0;
+      let warn = 0;
+      let ok = 0;
+
+      for (const it of items) {
+        const s = safeStr(it?.sla_state);
+        if (s === "overdue") overdue += 1;
+        else if (s === "warn") warn += 1;
+        else if (s === "ok") ok += 1;
+      }
+
+      // Optional client-side search filter (RPC already returns top N)
+      let filtered = items;
+      if (q) {
+        const ql = q.toLowerCase();
+        filtered = items.filter((it) => {
+          const pc = safeStr(it?.project_code).toLowerCase();
+          const pt = safeStr(it?.project_title).toLowerCase();
+          const at = safeStr(it?.artifact_title).toLowerCase();
+          return pc.includes(ql) || pt.includes(ql) || at.includes(ql);
         });
       }
+      if (projectId) filtered = filtered.filter((it) => safeStr(it?.project_id) === projectId);
+
+      // NOTE: pmId filtering could be done by expanding RPC later.
+      // For now keep it simple (exec radar is portfolio-wide).
+      if (pmId) {
+        // fallback: filter by projects table (requires RLS, so don’t do it here)
+        // We return unfiltered exec list; UI can filter via project selector.
+      }
+
+      return jsonOk({
+        scope: "org_exec",
+        orgId,
+        radar: { overdue, warn, ok },
+        items: filtered,
+      });
     }
 
-    // Non-exec users -> restrict to active project memberships
-    let memberProjectIds: string[] | null = null;
-    if (!exec) {
-      const { data: memberships, error: memErr } = await supabase
-        .from("project_members")
-        .select("project_id")
-        .eq("user_id", user.id)
-        .is("removed_at", null);
+    /* =========================================================
+       MEMBER PATH (project member)
+       - restrict to active project memberships
+       - uses the view under normal RLS rules
+    ========================================================= */
 
-      if (memErr) throw new Error(memErr.message);
+    const { data: memberships, error: memErr } = await supabase
+      .from("project_members")
+      .select("project_id")
+      .eq("user_id", user.id)
+      .is("removed_at", null);
 
-      memberProjectIds = (memberships ?? [])
-        .map((r: any) => r.project_id)
-        .filter(Boolean);
+    if (memErr) throw new Error(memErr.message);
 
-      if (!memberProjectIds.length) {
-        return jsonOk({
-          scope: "project_member",
-          orgId,
-          radar: { overdue: 0, warn: 0, ok: 0 },
-          items: [],
-        });
-      }
+    const memberProjectIds = (memberships ?? [])
+      .map((r: any) => r.project_id)
+      .filter(Boolean);
+
+    if (!memberProjectIds.length) {
+      return jsonOk({
+        scope: "project_member",
+        orgId,
+        radar: { overdue: 0, warn: 0, ok: 0 },
+        items: [],
+      });
     }
 
     const base = () =>
@@ -202,11 +239,9 @@ export async function GET(req: Request) {
         .eq("organisation_id", orgId);
 
     const applyFilters = (qb: any) => {
-      let out = qb;
+      let out = qb.in("project_id", memberProjectIds);
 
       if (projectId) out = out.eq("project_id", projectId);
-      if (pmProjectIds) out = out.in("project_id", pmProjectIds);
-      if (memberProjectIds) out = out.in("project_id", memberProjectIds);
 
       if (q) {
         const like = `%${q.replace(/%/g, "\\%").replace(/_/g, "\\_")}%`;
@@ -240,7 +275,7 @@ export async function GET(req: Request) {
     if (itemsErr) throw new Error(itemsErr.message);
 
     return jsonOk({
-      scope: exec ? "org_exec" : "project_member",
+      scope: "project_member",
       orgId,
       radar: { overdue, warn, ok },
       items: items ?? [],
