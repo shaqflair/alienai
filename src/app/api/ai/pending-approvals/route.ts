@@ -1,4 +1,5 @@
-﻿import "server-only";
+﻿// src/app/api/ai/pending-approvals/route.ts
+import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -55,8 +56,9 @@ async function requireUser(supabase: any) {
 }
 
 /**
- * Executive visibility:
- * - Organisation-level roles (typical): owner / executive / pmo
+ * Executive visibility (your org roles):
+ * - owner/admin = org-wide
+ * - member      = project-scoped
  */
 async function isOrgExec(supabase: any, orgId: string, userId: string) {
   const { data, error } = await supabase
@@ -71,7 +73,6 @@ async function isOrgExec(supabase: any, orgId: string, userId: string) {
 
   const role = safeStr(data?.role).toLowerCase();
   return role === "owner" || role === "admin";
-}
 }
 
 /* ---------------- GET ---------------- */
@@ -96,6 +97,7 @@ export async function GET(req: Request) {
 
     const exec = await isOrgExec(supabase, orgId, user.id);
 
+    // PM filter -> resolve project ids for that PM in org
     let pmProjectIds: string[] | null = null;
     if (pmId) {
       const { data: pmProjects, error: pmErr } = await supabase
@@ -106,6 +108,7 @@ export async function GET(req: Request) {
         .is("deleted_at", null);
 
       if (pmErr) throw new Error(pmErr.message);
+
       pmProjectIds = (pmProjects ?? []).map((r: any) => r.id).filter(Boolean);
 
       if (!pmProjectIds.length) {
@@ -117,6 +120,7 @@ export async function GET(req: Request) {
       }
     }
 
+    // Non-exec users -> restrict to active project memberships
     let memberProjectIds: string[] | null = null;
     if (!exec) {
       const { data: memberships, error: memErr } = await supabase
@@ -126,7 +130,10 @@ export async function GET(req: Request) {
         .is("removed_at", null);
 
       if (memErr) throw new Error(memErr.message);
-      memberProjectIds = (memberships ?? []).map((r: any) => r.project_id).filter(Boolean);
+
+      memberProjectIds = (memberships ?? [])
+        .map((r: any) => r.project_id)
+        .filter(Boolean);
 
       if (!memberProjectIds.length) {
         return jsonOk({
@@ -169,22 +176,27 @@ export async function GET(req: Request) {
         .eq("organisation_id", orgId);
 
     const applyFilters = (qb: any) => {
-      if (projectId) qb = qb.eq("project_id", projectId);
-      if (pmProjectIds) qb = qb.in("project_id", pmProjectIds);
-      if (memberProjectIds) qb = qb.in("project_id", memberProjectIds);
+      let out = qb;
+
+      if (projectId) out = out.eq("project_id", projectId);
+      if (pmProjectIds) out = out.in("project_id", pmProjectIds);
+      if (memberProjectIds) out = out.in("project_id", memberProjectIds);
+
       if (q) {
         const like = `%${q.replace(/%/g, "\\%").replace(/_/g, "\\_")}%`;
-        qb = qb.or(
+        out = out.or(
           `project_code.ilike.${like},project_title.ilike.${like},artifact_title.ilike.${like}`
         );
       }
-      return qb;
+
+      return out;
     };
 
     const countState = async (state: "overdue" | "warn" | "ok") => {
       const { count, error } = await applyFilters(base())
         .eq("sla_state", state)
         .select("artifact_id", { count: "exact", head: true });
+
       if (error) throw new Error(error.message);
       return count ?? 0;
     };
