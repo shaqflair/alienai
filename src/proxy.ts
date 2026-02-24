@@ -2,6 +2,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
+/** Fast allowlist for paths that never need auth cookie refresh */
 function isStaticAssetPath(pathname: string) {
   if (pathname.startsWith("/_next/")) return true;
 
@@ -10,14 +11,16 @@ function isStaticAssetPath(pathname: string) {
     pathname === "/robots.txt" ||
     pathname === "/sitemap.xml" ||
     pathname === "/manifest.json"
-  ) return true;
+  )
+    return true;
 
   if (
     pathname.startsWith("/assets/") ||
     pathname.startsWith("/images/") ||
     pathname.startsWith("/icons/") ||
     pathname.startsWith("/fonts/")
-  ) return true;
+  )
+    return true;
 
   const lower = pathname.toLowerCase();
   return (
@@ -30,6 +33,7 @@ function isStaticAssetPath(pathname: string) {
     lower.endsWith(".ico") ||
     lower.endsWith(".css") ||
     lower.endsWith(".js") ||
+    lower.endsWith(".mjs") ||
     lower.endsWith(".map") ||
     lower.endsWith(".txt") ||
     lower.endsWith(".xml") ||
@@ -43,6 +47,22 @@ function isStaticAssetPath(pathname: string) {
   );
 }
 
+/** Conservative check: only refresh for typical page navigations */
+function shouldRefreshSession(req: NextRequest) {
+  // Only GET/HEAD should ever matter here
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+
+  // Next prefetches can be very chatty; skip for perf
+  // (header used by Next Router for prefetch)
+  if (req.headers.get("x-middleware-prefetch") === "1") return false;
+
+  // If Accept header doesn't include HTML, likely an asset/data request
+  const accept = (req.headers.get("accept") || "").toLowerCase();
+  if (accept && !accept.includes("text/html") && !accept.includes("*/*")) return false;
+
+  return true;
+}
+
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -51,10 +71,15 @@ export async function proxy(req: NextRequest) {
     return NextResponse.next({ request: { headers: req.headers } });
   }
 
+  // ✅ Skip non-page-like requests for perf
+  if (!shouldRefreshSession(req)) {
+    return NextResponse.next({ request: { headers: req.headers } });
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  // ✅ Never crash if env vars are missing (prevents 500/MIDDLEWARE_INVOCATION_FAILED)
+  // ✅ Never crash if env vars are missing (prevents 500 / invocation failures)
   if (!supabaseUrl || !supabaseAnonKey) {
     if (process.env.NODE_ENV !== "production") {
       console.warn("[proxy] Supabase env missing; skipping session refresh");
@@ -62,8 +87,13 @@ export async function proxy(req: NextRequest) {
     return NextResponse.next({ request: { headers: req.headers } });
   }
 
-  if (process.env.NODE_ENV === "production" && supabaseUrl.startsWith("http://")) {
-    console.warn("[proxy] Supabase URL is http in production; cookies may be insecure");
+  if (
+    process.env.NODE_ENV === "production" &&
+    supabaseUrl.startsWith("http://")
+  ) {
+    console.warn(
+      "[proxy] Supabase URL is http in production; cookies may be insecure"
+    );
   }
 
   const res = NextResponse.next({ request: { headers: req.headers } });
@@ -80,7 +110,7 @@ export async function proxy(req: NextRequest) {
       },
     });
 
-    // 🔑 Refreshes session cookies for server components
+    // 🔑 Refresh session cookies for server components
     await supabase.auth.getUser();
   } catch {
     if (process.env.NODE_ENV !== "production") {
@@ -93,7 +123,7 @@ export async function proxy(req: NextRequest) {
 
 export const config = {
   matcher: [
-    // ✅ exclude /api for perf & reduced side effects
-    "/((?!_next/static|_next/image|favicon.ico|api/).*)",
+    // ✅ Exclude: /api, all Next internals, and common public files
+    "/((?!api/|_next/|favicon.ico|robots.txt|sitemap.xml|manifest.json).*)",
   ],
 };
