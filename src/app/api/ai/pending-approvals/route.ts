@@ -128,57 +128,42 @@ export async function GET(req: Request) {
        ✅ Use SECURITY DEFINER RPC to bypass RLS blanking
     ========================================================= */
 
-    if (exec) {
-      const { data: rows, error: rpcErr } = await supabase.rpc(
-        "exec_pending_approvals",
-        {
-          p_org_id: orgId,
-          p_limit: limit,
-        }
-      );
-
-      if (rpcErr) throw new Error(rpcErr.message);
-
-      const items = (rows ?? []) as any[];
-
-      let overdue = 0;
-      let warn = 0;
-      let ok = 0;
-
-      for (const it of items) {
-        const s = safeStr(it?.sla_state);
-        if (s === "overdue") overdue += 1;
-        else if (s === "warn") warn += 1;
-        else if (s === "ok") ok += 1;
-      }
-
-      // Optional client-side search filter (RPC already returns top N)
-      let filtered = items;
-      if (q) {
-        const ql = q.toLowerCase();
-        filtered = items.filter((it) => {
-          const pc = safeStr(it?.project_code).toLowerCase();
-          const pt = safeStr(it?.project_title).toLowerCase();
-          const at = safeStr(it?.artifact_title).toLowerCase();
-          return pc.includes(ql) || pt.includes(ql) || at.includes(ql);
-        });
-      }
-      if (projectId) filtered = filtered.filter((it) => safeStr(it?.project_id) === projectId);
-
-      // NOTE: pmId filtering could be done by expanding RPC later.
-      // For now keep it simple (exec radar is portfolio-wide).
-      if (pmId) {
-        // fallback: filter by projects table (requires RLS, so don’t do it here)
-        // We return unfiltered exec list; UI can filter via project selector.
-      }
-
-      return jsonOk({
-        scope: "org_exec",
-        orgId,
-        radar: { overdue, warn, ok },
-        items: filtered,
-      });
+if (exec) {
+  const { data: rows, error: rpcErr } = await supabase.rpc(
+    "exec_pending_approvals",
+    {
+      p_org_id: orgId,
+      p_limit: limit,
     }
+  );
+
+  if (rpcErr) throw new Error(rpcErr.message);
+
+  const items = (rows ?? []) as any[];
+
+  let overdue = 0;
+  let warn = 0;
+  let ok = 0;
+
+  for (const it of items) {
+    const s = safeStr(it?.sla_state);
+    if (s === "overdue") overdue += 1;
+    else if (s === "warn") warn += 1;
+    else if (s === "ok") ok += 1;
+  }
+
+  return jsonOk({
+    scope: "org_exec",
+    orgId,
+    radar: { overdue, warn, ok },
+    items,
+    debug: {
+      exec,
+      orgId,
+      rpcCount: items.length,
+    },
+  });
+}
 
     /* =========================================================
        MEMBER PATH (project member)
