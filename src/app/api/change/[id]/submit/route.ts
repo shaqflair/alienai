@@ -2,6 +2,7 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import {
   sb,
   requireUser,
@@ -207,6 +208,110 @@ async function ensureArtifactIdForChangeRequest(supabase: any, cr: any): Promise
 }
 
 /* =========================================================
+   Approval timeline helpers (best-effort)
+========================================================= */
+
+/** Best-effort: get a nice actor name for timeline */
+async function resolveActorName(supabase: any, userId: string, fallbackEmail?: string | null) {
+  try {
+    const { data } = await supabase
+      .from("profiles")
+      .select("full_name, display_name, name, email")
+      .eq("id", userId)
+      .maybeSingle();
+
+    const n =
+      safeStr((data as any)?.full_name).trim() ||
+      safeStr((data as any)?.display_name).trim() ||
+      safeStr((data as any)?.name).trim();
+    if (n) return n;
+
+    const em = safeStr((data as any)?.email).trim() || safeStr(fallbackEmail).trim();
+    return em || null;
+  } catch {
+    const em = safeStr(fallbackEmail).trim();
+    return em || null;
+  }
+}
+
+/**
+ * ✅ Approval timeline event into approval_events
+ * Best-effort; never blocks.
+ */
+async function insertApprovalEvent(
+  supabase: any,
+  row: {
+    organisation_id?: string | null;
+    project_id: string;
+    artifact_id?: string | null;
+    change_id?: string | null;
+    step_id?: string | null;
+    action_type: string;
+    actor_user_id?: string | null;
+    actor_name?: string | null;
+    actor_role?: string | null;
+    comment?: string | null;
+    meta?: any;
+  }
+) {
+  try {
+    const payloadObj = row.meta && typeof row.meta === "object" ? row.meta : {};
+    const ins = await supabase.from("approval_events").insert({
+      organisation_id: row.organisation_id ?? null,
+      project_id: row.project_id,
+      artifact_id: row.artifact_id ?? null,
+      change_id: row.change_id ?? null,
+      step_id: row.step_id ?? null,
+      action_type: safeStr(row.action_type).trim() || "unknown",
+      actor_user_id: row.actor_user_id ?? null,
+      actor_name: row.actor_name ?? null,
+      actor_role: row.actor_role ?? null,
+      comment: row.comment ?? null,
+      meta: payloadObj,
+    });
+
+    if (ins?.error) {
+      const msg = safeStr(ins.error.message);
+      if (!isMissingRelation(msg)) {
+        // swallow
+      }
+    }
+  } catch {
+    // swallow
+  }
+}
+
+/** Best-effort: show “waiting for step X / approvers” on submit */
+async function getFirstPendingStepSummary(
+  supabase: any,
+  chainId: string
+): Promise<{ step_id: string | null; step_order: number | null; name: string | null } | null> {
+  const cid = safeStr(chainId).trim();
+  if (!cid) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from("artifact_approval_steps")
+      .select("id, step_order, name, status")
+      .eq("chain_id", cid)
+      .order("step_order", { ascending: true })
+      .limit(1);
+
+    if (error) return null;
+    const row = Array.isArray(data) ? data[0] : null;
+    if (!row) return null;
+
+    return {
+      step_id: row?.id ? String(row.id) : null,
+      step_order: row?.step_order == null ? null : Number(row.step_order),
+      name: row?.name ? String(row.name) : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/* =========================================================
    Org-driven approvals: rules -> chain + steps + approvers
 ========================================================= */
 
@@ -311,7 +416,6 @@ async function expandGroupMembersToUserIds(supabase: any, groupId: string): Prom
       .map((r: any) => (r?.user_id ? String(r.user_id) : ""))
       .filter(Boolean);
 
-    // de-dupe
     return Array.from(new Set(ids));
   } catch {
     return [];
@@ -522,7 +626,6 @@ async function createChainAndStepsFromRules(
   const stepIdByOrder = new Map<number, string>();
   for (const s of insertedSteps as any[]) stepIdByOrder.set(Number(s.step_order), String(s.id));
 
-  // Build approver rows (collect all user_ids first so we can map -> organisation_members.id)
   const pendingApproversByStep: { stepId: string; userId: string }[] = [];
 
   for (const stepNo of stepNumbers) {
@@ -542,7 +645,6 @@ async function createChainAndStepsFromRules(
     }
   }
 
-  // De-dupe at (step,user)
   const pairSeen = new Set<string>();
   const pairs = pendingApproversByStep.filter((p) => {
     const k = `${p.stepId}::${p.userId}`;
@@ -557,24 +659,21 @@ async function createChainAndStepsFromRules(
     );
   }
 
-  // Canonical mapping: user_id -> organisation_members.id
   const memberIdByUserId = await mapUserIdsToOrgMemberIds(
     supabase,
     organisationId,
     pairs.map((p) => p.userId)
   );
 
-  // Compose rows preferring approver_member_id
   const approverRowsPreferred: any[] = pairs.map((p) => ({
     step_id: p.stepId,
     approver_type: "user",
-    approver_member_id: memberIdByUserId.get(p.userId) ?? null, // canonical
-    approver_ref: p.userId, // fallback
+    approver_member_id: memberIdByUserId.get(p.userId) ?? null,
+    approver_ref: p.userId,
     required: true,
     active: true,
   }));
 
-  // Insert with member_id when possible; if column missing, fallback
   const try1 = await supabase.from("artifact_step_approvers").insert(approverRowsPreferred);
 
   if (try1.error) {
@@ -585,7 +684,6 @@ async function createChainAndStepsFromRules(
       throw new Error(`Failed to insert artifact_step_approvers. (${msg})`);
     }
 
-    // fallback: legacy-only shape
     const legacyRows = pairs.map((p) => ({
       step_id: p.stepId,
       approver_type: "user",
@@ -621,6 +719,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
 
     const supabase = await sb();
     const user = await requireUser(supabase);
+
+    const requestId = getRequestId(req);
 
     type ChangeRow = {
       id: string;
@@ -701,6 +801,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       return jsonErr("Project has no organisation_id. Configure organisation_id on the project first.", 409);
     }
 
+    const actorEmail = safeStr((user as any)?.email ?? "").trim() || null;
+    const actorName = await resolveActorName(supabase, user.id, actorEmail);
+
     const amount = await loadImpactCostForChange(supabase, changeId);
 
     await supersedeExistingArtifactChain(supabase, artifactId);
@@ -713,6 +816,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       amount,
       artifactType: "change",
     });
+
+    // best-effort: first step summary (for timeline)
+    const firstStep = await getFirstPendingStepSummary(supabase, chainId);
 
     await updateArtifactSubmitted(supabase, artifactId, chainId, user.id, now);
     await tryAttachApprovalChainIdToChange(supabase, changeId, chainId);
@@ -777,6 +883,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
             approval_chain_artifact_type: chosenType,
             amount,
             submitted_at: now,
+            request_id: requestId,
           },
         } as any
       );
@@ -799,6 +906,34 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         amount,
         at: now,
         sla_start: true,
+        sla_started_at: now,
+        request_id: requestId,
+      },
+    });
+
+    // ✅ Approval timeline (submitted)
+    await insertApprovalEvent(supabase, {
+      organisation_id: organisationId,
+      project_id: projectId,
+      artifact_id: artifactId,
+      change_id: changeId,
+      step_id: firstStep?.step_id ?? null,
+      action_type: "submitted",
+      actor_user_id: user.id,
+      actor_name: actorName,
+      actor_role: safeStr(role),
+      comment: null,
+      meta: {
+        at: now,
+        request_id: requestId,
+        approval_chain_id: chainId,
+        artifact_type: chosenType,
+        amount,
+        from_lane: deliveryStatusMissing ? null : (fromLane || null),
+        to_lane: deliveryMissingOnUpdate ? null : toLane,
+        delivery_status_missing: deliveryMissingOnUpdate || deliveryStatusMissing,
+        first_step: firstStep,
+        source: "submit_route",
         sla_started_at: now,
       },
     });

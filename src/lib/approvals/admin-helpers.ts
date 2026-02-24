@@ -70,3 +70,33 @@ export async function requireApprovalsWriter(supabase: any, organisationId: stri
 
   return true;
 }
+
+/* =========================================================
+   Profiles loader (needed by /api/approvals/resolve)
+   - Returns Record keyed by user_id (NOT a Map)
+   - Uses "profiles" table (typical Supabase app schema)
+========================================================= */
+
+export async function loadProfilesByUserIds(
+  supabase: any,
+  userIds: string[]
+): Promise<Record<string, any>> {
+  const ids = Array.from(new Set((userIds || []).map((x) => safeStr(x).trim()).filter(Boolean)));
+  if (!ids.length) return {};
+
+  // Adjust select fields to whatever you store. Keep permissive.
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, full_name, name, email, avatar_url")
+    .in("id", ids);
+
+  if (error) throw new Error(error.message);
+
+  const out: Record<string, any> = {};
+  for (const row of data ?? []) {
+    const id = safeStr((row as any)?.id).trim();
+    if (!id) continue;
+    out[id] = row;
+  }
+  return out;
+}

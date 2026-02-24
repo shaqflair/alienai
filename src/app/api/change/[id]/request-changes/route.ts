@@ -2,6 +2,7 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import {
   sb,
   requireUser,
@@ -50,6 +51,10 @@ function hasDeliveryStatusMissingColumn(errMsg: string) {
 function hasArtifactIdMissingColumn(errMsg: string) {
   return hasMissingColumn(errMsg, "artifact_id");
 }
+function isMissingRelation(errMsg: string) {
+  const m = (errMsg || "").toLowerCase();
+  return m.includes("does not exist") && m.includes("relation");
+}
 
 function normalizeLane(v: unknown) {
   const x = safeStr(v).trim().toLowerCase();
@@ -57,6 +62,108 @@ function normalizeLane(v: unknown) {
   if (x === "in-progress" || x === "in progress") return "in_progress";
   if (x === "new") return "intake";
   return x;
+}
+
+function pickHeader(req: Request, key: string) {
+  try {
+    return req.headers.get(key) ?? req.headers.get(key.toLowerCase()) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function getRequestId(req: Request) {
+  const h =
+    safeStr(pickHeader(req, "x-request-id")).trim() ||
+    safeStr(pickHeader(req, "x-vercel-id")).trim() ||
+    safeStr(pickHeader(req, "x-amzn-trace-id")).trim();
+  return h || randomUUID();
+}
+
+/** Best-effort: resolve organisation_id for project */
+async function resolveOrganisationIdForProject(supabase: any, projectId: string): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from("projects")
+      .select("organisation_id")
+      .eq("id", projectId)
+      .maybeSingle();
+    if (error) return null;
+    const orgId = safeStr(data?.organisation_id).trim();
+    return orgId || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Best-effort: get a nice actor name for timeline */
+async function resolveActorName(supabase: any, userId: string, fallbackEmail?: string | null) {
+  try {
+    const { data } = await supabase
+      .from("profiles")
+      .select("full_name, display_name, name, email")
+      .eq("id", userId)
+      .maybeSingle();
+
+    const n =
+      safeStr((data as any)?.full_name).trim() ||
+      safeStr((data as any)?.display_name).trim() ||
+      safeStr((data as any)?.name).trim();
+    if (n) return n;
+
+    const em = safeStr((data as any)?.email).trim() || safeStr(fallbackEmail).trim();
+    return em || null;
+  } catch {
+    const em = safeStr(fallbackEmail).trim();
+    return em || null;
+  }
+}
+
+/**
+ * ✅ Approval timeline event into approval_events
+ * Best-effort; never blocks.
+ */
+async function insertApprovalEvent(
+  supabase: any,
+  row: {
+    organisation_id?: string | null;
+    project_id: string;
+    artifact_id?: string | null;
+    change_id?: string | null;
+    step_id?: string | null;
+    action_type: string;
+    actor_user_id?: string | null;
+    actor_name?: string | null;
+    actor_role?: string | null;
+    comment?: string | null;
+    meta?: any;
+  }
+) {
+  try {
+    const payloadObj = row.meta && typeof row.meta === "object" ? row.meta : {};
+    const ins = await supabase.from("approval_events").insert({
+      organisation_id: row.organisation_id ?? null,
+      project_id: row.project_id,
+      artifact_id: row.artifact_id ?? null,
+      change_id: row.change_id ?? null,
+      step_id: row.step_id ?? null,
+      action_type: safeStr(row.action_type).trim() || "unknown",
+      actor_user_id: row.actor_user_id ?? null,
+      actor_name: row.actor_name ?? null,
+      actor_role: row.actor_role ?? null,
+      comment: row.comment ?? null,
+      meta: payloadObj,
+    });
+
+    if (ins?.error) {
+      const msg = safeStr(ins.error.message);
+      if (!isMissingRelation(msg)) {
+        // swallow
+      }
+    }
+  } catch {
+    // swallow
+  }
 }
 
 async function insertTimelineEvent(
@@ -138,6 +245,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const supabase = await sb();
     const user = await requireUser(supabase);
 
+    const requestId = getRequestId(req);
+
     const id = safeStr((await ctx.params).id).trim();
     if (!id) return jsonErr("Missing id", 400);
 
@@ -208,6 +317,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       return jsonErr("Missing artifact_id (Change Requests artifact). Create/backfill the project artifact first.", 409);
     }
 
+    // best-effort org + actor name for timeline
+    const organisationId = await resolveOrganisationIdForProject(supabase, projectId);
+    const actorEmail = safeStr((user as any)?.email ?? "").trim() || null;
+    const actorName = await resolveActorName(supabase, user.id, actorEmail);
+
     const now = new Date().toISOString();
     const toLane = "analysis";
 
@@ -266,6 +380,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
             decision_status: { from: "submitted", to: "rework" },
             to_lane: "delivery_status" in patch ? toLane : null,
             delivery_status_missing: !("delivery_status" in patch),
+            request_id: requestId,
           },
         } as any
       );
@@ -286,6 +401,31 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         decision_status: { from: "submitted", to: "rework" },
         to_lane: "delivery_status" in patch ? toLane : null,
         at: now,
+        request_id: requestId,
+      },
+    });
+
+    // ✅ Approval timeline (final “requested changes” decision)
+    await insertApprovalEvent(supabase, {
+      organisation_id: organisationId,
+      project_id: projectId,
+      artifact_id: artifactId,
+      change_id: id,
+      step_id: null,
+      action_type: "requested_changes_final",
+      actor_user_id: user.id,
+      actor_name: actorName,
+      actor_role: safeStr(role),
+      comment: note || null,
+      meta: {
+        at: now,
+        request_id: requestId,
+        lifecycle: { from: lifecycle || null, to: "analysis" },
+        decision_status: { from: "submitted", to: "rework" },
+        from_lane: deliveryStatusMissing ? null : fromLane,
+        to_lane: "delivery_status" in patch ? toLane : null,
+        delivery_status_missing: !("delivery_status" in patch),
+        source: "request_changes_route",
       },
     });
 
@@ -315,6 +455,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         change_id: id,
         action: "request_changes",
         decision_status: "rework",
+        request_id: requestId,
       },
     });
 

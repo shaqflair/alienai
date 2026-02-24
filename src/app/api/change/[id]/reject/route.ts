@@ -90,6 +90,93 @@ function getUserAgent(req: Request): string | null {
   return ua || null;
 }
 
+/** Best-effort: resolve organisation_id for project */
+async function resolveOrganisationIdForProject(supabase: any, projectId: string): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from("projects")
+      .select("organisation_id")
+      .eq("id", projectId)
+      .maybeSingle();
+
+    if (error) return null;
+    const orgId = safeStr(data?.organisation_id).trim();
+    return orgId || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Best-effort: get a nice actor name for timeline */
+async function resolveActorName(supabase: any, userId: string, fallbackEmail?: string | null) {
+  try {
+    const { data } = await supabase
+      .from("profiles")
+      .select("full_name, display_name, name, email")
+      .eq("id", userId)
+      .maybeSingle();
+
+    const n =
+      safeStr((data as any)?.full_name).trim() ||
+      safeStr((data as any)?.display_name).trim() ||
+      safeStr((data as any)?.name).trim();
+    if (n) return n;
+
+    const em = safeStr((data as any)?.email).trim() || safeStr(fallbackEmail).trim();
+    return em || null;
+  } catch {
+    const em = safeStr(fallbackEmail).trim();
+    return em || null;
+  }
+}
+
+/**
+ * ✅ Approval timeline event into approval_events
+ * Best-effort; never blocks.
+ */
+async function insertApprovalEvent(
+  supabase: any,
+  row: {
+    organisation_id?: string | null;
+    project_id: string;
+    artifact_id?: string | null;
+    change_id?: string | null;
+    step_id?: string | null;
+    action_type: string;
+    actor_user_id?: string | null;
+    actor_name?: string | null;
+    actor_role?: string | null;
+    comment?: string | null;
+    meta?: any;
+  }
+) {
+  try {
+    const payloadObj = row.meta && typeof row.meta === "object" ? row.meta : {};
+    const ins = await supabase.from("approval_events").insert({
+      organisation_id: row.organisation_id ?? null,
+      project_id: row.project_id,
+      artifact_id: row.artifact_id ?? null,
+      change_id: row.change_id ?? null,
+      step_id: row.step_id ?? null,
+      action_type: safeStr(row.action_type).trim() || "unknown",
+      actor_user_id: row.actor_user_id ?? null,
+      actor_name: row.actor_name ?? null,
+      actor_role: row.actor_role ?? null,
+      comment: row.comment ?? null,
+      meta: payloadObj,
+    });
+
+    if (ins?.error) {
+      const msg = safeStr(ins.error.message);
+      if (!isMissingRelation(msg)) {
+        // swallow
+      }
+    }
+  } catch {
+    // swallow
+  }
+}
+
 async function logApprovalAudit(
   supabase: any,
   req: Request,
@@ -272,6 +359,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const role = await requireProjectRole(supabase, projectId, user.id);
     if (!role) return jsonErr("Forbidden", 403);
 
+    // best-effort org + actor name for timeline
+    const organisationId = await resolveOrganisationIdForProject(supabase, projectId);
+    const actorEmail = safeStr((user as any)?.email ?? "").trim() || null;
+    const actorName = await resolveActorName(supabase, user.id, actorEmail);
+
     const govStatus = safeStr(cr?.status).trim().toLowerCase();
     const fromLane = normalizeLane(cr?.delivery_status) || null;
     const decisionStatus = safeStr(cr?.decision_status).trim().toLowerCase();
@@ -325,7 +417,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     }
 
     const effectiveApproverUserId = onBehalfOf ?? user.id;
-    const actorEmail = safeStr((user as any)?.email ?? "").trim() || null;
+    const actorRoleLabel = onBehalfOf ? "delegate_approver" : "approver";
 
     // Record rejected decision (idempotent)
     await recordArtifactApprovalDecision({
@@ -338,7 +430,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       reason: note || null,
     });
 
-    // Recompute (will typically reject chain immediately if maxRejections=0)
+    // Recompute
     const state = await recomputeApprovalState({
       supabase,
       artifactId,
@@ -349,7 +441,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const now = new Date().toISOString();
     const toLane = "analysis";
 
-    // --- AUDIT: step rejected (always log after decision insert) ---
+    // --- AUDIT: step rejected ---
     await logApprovalAudit(supabase, req, {
       request_id: requestId,
       project_id: projectId,
@@ -372,6 +464,34 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
           order: pending.stepOrder ?? null,
           name: pending.stepName ?? null,
         },
+        chain_status: state.chainStatus,
+        step_status: state.stepStatus,
+      },
+    });
+
+    // --- TIMELINE: rejected step ---
+    await insertApprovalEvent(supabase, {
+      organisation_id: organisationId,
+      project_id: projectId,
+      artifact_id: artifactId,
+      change_id: id,
+      step_id: pending.stepId,
+      action_type: "rejected_step",
+      actor_user_id: user.id,
+      actor_name: actorName,
+      actor_role: actorRoleLabel,
+      comment: note || null,
+      meta: {
+        at: now,
+        request_id: requestId,
+        chain_id: pending.chainId,
+        step: {
+          id: pending.stepId,
+          order: pending.stepOrder ?? null,
+          name: pending.stepName ?? null,
+        },
+        delegated_for: onBehalfOf || null,
+        effective_approver: effectiveApproverUserId,
         chain_status: state.chainStatus,
         step_status: state.stepStatus,
       },
@@ -427,6 +547,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
             chain_status: state.chainStatus,
             effective_approver: effectiveApproverUserId,
             delivery_status_missing: !("delivery_status" in patch),
+            request_id: requestId,
           },
         } as any);
       } catch {}
@@ -473,6 +594,30 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         },
       });
 
+      // --- TIMELINE: final rejected ---
+      await insertApprovalEvent(supabase, {
+        organisation_id: organisationId,
+        project_id: projectId,
+        artifact_id: artifactId,
+        change_id: id,
+        step_id: pending.stepId,
+        action_type: "rejected_final",
+        actor_user_id: user.id,
+        actor_name: actorName,
+        actor_role: safeStr(patch?.decision_role).trim() || (onBehalfOf ? "delegate_final" : "chain_final"),
+        comment: note || null,
+        meta: {
+          at: now,
+          request_id: requestId,
+          chain_id: pending.chainId,
+          step_id: pending.stepId,
+          delegated_for: onBehalfOf || null,
+          effective_approver: effectiveApproverUserId,
+          delivery_status: "delivery_status" in patch ? toLane : null,
+          decision_status: "rejected",
+        },
+      });
+
       await emitAiEvent(req, {
         projectId,
         artifactId,
@@ -509,6 +654,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
           to_lane: toLane,
           chain_status: state.chainStatus,
           effective_approver: effectiveApproverUserId,
+          request_id: requestId,
         },
       } as any);
     } catch {}
@@ -552,6 +698,30 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
         delivery_status: toLane,
         chain_id: pending.chainId,
         step_id: pending.stepId,
+      },
+    });
+
+    // --- TIMELINE: final rejected ---
+    await insertApprovalEvent(supabase, {
+      organisation_id: organisationId,
+      project_id: projectId,
+      artifact_id: artifactId,
+      change_id: id,
+      step_id: pending.stepId,
+      action_type: "rejected_final",
+      actor_user_id: user.id,
+      actor_name: actorName,
+      actor_role: safeStr(patch?.decision_role).trim() || (onBehalfOf ? "delegate_final" : "chain_final"),
+      comment: note || null,
+      meta: {
+        at: now,
+        request_id: requestId,
+        chain_id: pending.chainId,
+        step_id: pending.stepId,
+        delegated_for: onBehalfOf || null,
+        effective_approver: effectiveApproverUserId,
+        delivery_status: toLane,
+        decision_status: "rejected",
       },
     });
 
