@@ -3,16 +3,13 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
+import { requireApprovalsWriter, requireOrgMember, safeStr } from "@/lib/approvals/admin-helpers";
 
 function jsonOk(data: any, status = 200) {
   return NextResponse.json({ ok: true, ...data }, { status });
 }
 function jsonErr(error: string, status = 400) {
   return NextResponse.json({ ok: false, error }, { status });
-}
-
-function safeStr(x: unknown) {
-  return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
 async function requireAuth(sb: any) {
@@ -23,7 +20,6 @@ async function requireAuth(sb: any) {
 }
 
 async function getOrgIdFromProject(sb: any, projectId: string) {
-  // support both spellings if you ever had legacy
   const first = await sb.from("projects").select("organisation_id").eq("id", projectId).maybeSingle();
   if (!first.error) {
     const orgId = safeStr((first.data as any)?.organisation_id).trim();
@@ -31,7 +27,6 @@ async function getOrgIdFromProject(sb: any, projectId: string) {
     return orgId;
   }
 
-  // fallback for legacy schema
   const second = await sb.from("projects").select("organization_id").eq("id", projectId).maybeSingle();
   if (second.error) throw new Error(second.error.message);
   const orgId = safeStr((second.data as any)?.organization_id).trim();
@@ -39,29 +34,10 @@ async function getOrgIdFromProject(sb: any, projectId: string) {
   return orgId;
 }
 
-async function requireOrgAdmin(sb: any, orgId: string, userId: string) {
-  const { data, error } = await sb
-    .from("organisation_members")
-    .select("role")
-    .eq("organisation_id", orgId)
-    .eq("user_id", userId);
-
-  if (error) throw new Error(error.message);
-  const role = String((data?.[0] as any)?.role ?? "").toLowerCase();
-  if (role !== "admin") throw new Error("Admin only");
-}
-
-/**
- * Delegations (org-scoped)
- * Table: public.approver_delegations
- * Columns:
- *  - organisation_id, from_user_id, to_user_id, starts_at, ends_at, reason, is_active, created_by, created_at
- */
-
 export async function GET(req: Request) {
   try {
     const sb = await createClient();
-    await requireAuth(sb);
+    const user = await requireAuth(sb);
 
     const url = new URL(req.url);
     const projectId = safeStr(url.searchParams.get("projectId")).trim();
@@ -70,6 +46,9 @@ export async function GET(req: Request) {
     if (!projectId) return jsonErr("Missing projectId", 400);
 
     const orgId = await getOrgIdFromProject(sb, projectId);
+
+    // ✅ Read = org member
+    await requireOrgMember(sb, orgId, user.id);
 
     let q = sb
       .from("approver_delegations")
@@ -85,7 +64,11 @@ export async function GET(req: Request) {
     return jsonOk({ organisation_id: orgId, items: data ?? [] });
   } catch (e: any) {
     const msg = String(e?.message || e || "Error");
-    const s = msg.toLowerCase().includes("unauthorized") ? 401 : 400;
+    const s = msg.toLowerCase().includes("unauthorized")
+      ? 401
+      : msg.toLowerCase().includes("forbidden")
+      ? 403
+      : 400;
     return jsonErr(msg, s);
   }
 }
@@ -100,7 +83,9 @@ export async function POST(req: Request) {
     if (!projectId) return jsonErr("Missing projectId", 400);
 
     const orgId = await getOrgIdFromProject(sb, projectId);
-    await requireOrgAdmin(sb, orgId, user.id);
+
+    // ✅ Write = PLATFORM ADMIN ONLY (enterprise mode B)
+    await requireApprovalsWriter(sb, orgId, user.id);
 
     const from_user_id = safeStr(body?.from_user_id).trim();
     const to_user_id = safeStr(body?.to_user_id).trim();
@@ -132,7 +117,7 @@ export async function POST(req: Request) {
     const msg = String(e?.message || e || "Error");
     const s = msg.toLowerCase().includes("unauthorized")
       ? 401
-      : msg.toLowerCase().includes("admin only") || msg.toLowerCase().includes("forbidden")
+      : msg.toLowerCase().includes("forbidden")
       ? 403
       : 400;
     return jsonErr(msg, s);
@@ -152,9 +137,10 @@ export async function DELETE(req: Request) {
     if (!id) return jsonErr("Missing id", 400);
 
     const orgId = await getOrgIdFromProject(sb, projectId);
-    await requireOrgAdmin(sb, orgId, user.id);
 
-    // ✅ soft-disable (matches table design)
+    // ✅ Write = PLATFORM ADMIN ONLY (enterprise mode B)
+    await requireApprovalsWriter(sb, orgId, user.id);
+
     const { error } = await sb
       .from("approver_delegations")
       .update({ is_active: false })
@@ -167,7 +153,7 @@ export async function DELETE(req: Request) {
     const msg = String(e?.message || e || "Error");
     const s = msg.toLowerCase().includes("unauthorized")
       ? 401
-      : msg.toLowerCase().includes("admin only") || msg.toLowerCase().includes("forbidden")
+      : msg.toLowerCase().includes("forbidden")
       ? 403
       : 400;
     return jsonErr(msg, s);

@@ -1,5 +1,9 @@
+// src/lib/approvals/admin-helpers.ts
 import "server-only";
+
 import { createClient } from "@/utils/supabase/server";
+
+export const runtime = "nodejs";
 
 export function safeStr(x: unknown) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
@@ -16,112 +20,53 @@ export async function requireAuth(supabase: any) {
   return data.user;
 }
 
-/**
- * ✅ org membership guard
- * NOTE: organisation_members does NOT have is_active in your schema,
- * so we only read "role".
- */
-export async function requireOrgMember(supabase: any, orgId: string, userId: string) {
+export async function requireOrgMember(supabase: any, organisationId: string, userId: string) {
   const { data, error } = await supabase
     .from("organisation_members")
     .select("role")
-    .eq("organisation_id", orgId)
+    .eq("organisation_id", organisationId)
     .eq("user_id", userId)
     .maybeSingle();
 
   if (error) throw new Error(error.message);
   if (!data) throw new Error("Forbidden");
-
-  return data;
+  return { role: String((data as any)?.role ?? "").toLowerCase() || "member" };
 }
-
-export async function requireOrgAdmin(supabase: any, orgId: string, userId: string) {
-  const mem = await requireOrgMember(supabase, orgId, userId);
-  const role = String((mem as any)?.role ?? "").toLowerCase();
-  if (role !== "admin") throw new Error("Forbidden");
-  return mem;
-}
-
-/* -------------------------------------------------------------------------------------------------
- * Profiles loader (needed by /api/approvals/org-users and /api/approvals/resolve)
- * ------------------------------------------------------------------------------------------------- */
-
-function looksMissingColumn(err: any) {
-  const msg = String(err?.message || err || "").toLowerCase();
-  return msg.includes("column") && msg.includes("does not exist");
-}
-
-export type ProfileLite = {
-  id: string;
-  email?: string | null;
-  full_name?: string | null;
-  avatar_url?: string | null;
-};
 
 /**
- * Loads profile rows for a list of auth user IDs.
- * Works with either:
- *  - profiles.id = auth.users.id   (common)
- *  - profiles.user_id = auth.users.id (alternate)
- *
- * Returns a map keyed by user id.
+ * Legacy: org admin check (still useful elsewhere),
+ * but NOT used for approvals writes in enterprise mode (B).
  */
-export async function loadProfilesByUserIds(
-  supabase: any,
-  userIds: string[]
-): Promise<Record<string, ProfileLite>> {
-  const ids = Array.from(new Set((userIds || []).map(safeStr).filter(Boolean)));
-  if (!ids.length) return {};
+export async function requireOrgAdmin(supabase: any, organisationId: string, userId: string) {
+  const { role } = await requireOrgMember(supabase, organisationId, userId);
+  if (role !== "admin") throw new Error("Forbidden");
+  return { role };
+}
 
-  // Attempt #1: profiles.id IN (...)
-  {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id, email, full_name, avatar_url")
-      .in("id", ids);
+export async function requirePlatformAdmin(supabase: any, userId: string) {
+  const { data, error } = await supabase
+    .from("platform_admins")
+    .select("user_id")
+    .eq("user_id", userId)
+    .maybeSingle();
 
-    if (!error) {
-      const out: Record<string, ProfileLite> = {};
-      for (const p of data || []) {
-        const id = safeStr((p as any)?.id);
-        if (!id) continue;
-        out[id] = {
-          id,
-          email: (p as any)?.email ?? null,
-          full_name: (p as any)?.full_name ?? null,
-          avatar_url: (p as any)?.avatar_url ?? null,
-        };
-      }
-      return out;
-    }
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("Forbidden");
+  return true;
+}
 
-    // If it's NOT a schema mismatch, surface the error
-    if (!looksMissingColumn(error) && !String(error.message || "").toLowerCase().includes("id")) {
-      throw new Error(error.message);
-    }
-    // else fall through to try profiles.user_id
-  }
+/**
+ * ✅ ENTERPRISE MODE (B)
+ * Approvals configuration is writable by platform admins only.
+ *
+ * Optional extra safety: also require org membership so platform admins
+ * must at least be members of the org they are changing.
+ */
+export async function requireApprovalsWriter(supabase: any, organisationId: string, userId: string) {
+  await requirePlatformAdmin(supabase, userId);
 
-  // Attempt #2: profiles.user_id IN (...)
-  {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("user_id, email, full_name, avatar_url")
-      .in("user_id", ids);
+  // Optional but recommended: prevent “global admin editing random org” unless they’re a member.
+  await requireOrgMember(supabase, organisationId, userId);
 
-    if (error) throw new Error(error.message);
-
-    const out: Record<string, ProfileLite> = {};
-    for (const p of data || []) {
-      const id = safeStr((p as any)?.user_id);
-      if (!id) continue;
-      out[id] = {
-        id,
-        email: (p as any)?.email ?? null,
-        full_name: (p as any)?.full_name ?? null,
-        avatar_url: (p as any)?.avatar_url ?? null,
-      };
-    }
-    return out;
-  }
+  return true;
 }

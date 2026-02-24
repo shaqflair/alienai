@@ -7,6 +7,7 @@ import { createClient } from "@/utils/supabase/server";
 
 // ✅ approvals admin panel (client component)
 import OrgApprovalsAdminPanel from "@/components/approvals/OrgApprovalsAdminPanel";
+import { isPlatformAdmin } from "@/lib/server/isPlatformAdmin";
 
 function safeParam(x: unknown) {
   return typeof x === "string" ? x : "";
@@ -22,7 +23,7 @@ function isUuid(x: string) {
   );
 }
 
-async function requireAdmin(sb: any, organisationId: string, userId: string) {
+async function requireOrgAdmin(sb: any, organisationId: string, userId: string) {
   const { data, error } = await sb
     .from("organisation_members")
     .select("role")
@@ -81,13 +82,15 @@ export default async function OrgSettingsPage({
     .maybeSingle();
 
   if (orgErr) {
-    // If you prefer, you can render a friendly "Access denied" screen here.
     throw orgErr;
   }
   if (!org) return notFound();
 
-  // Role check (admin can rename/delete + can edit approvals)
-  const { ok: isAdmin, role } = await requireAdmin(sb, organisationId, userId);
+  // Org admin check (rename/delete)
+  const { ok: isOrgAdmin, role } = await requireOrgAdmin(sb, organisationId, userId);
+
+  // Platform admin check (approvals editing)
+  const platformAdmin = await isPlatformAdmin();
 
   // Count members (non-fatal if blocked)
   const { count: memberCount, error: countErr } = await sb
@@ -111,7 +114,7 @@ export default async function OrgSettingsPage({
     if (authErr) throw authErr;
     if (!auth?.user) redirect("/login");
 
-    const check = await requireAdmin(sb, organisationId, auth.user.id);
+    const check = await requireOrgAdmin(sb, organisationId, auth.user.id);
     if (!check.ok) throw new Error("Admin permission required");
 
     const { error } = await sb.from("organisations").update({ name }).eq("id", organisationId);
@@ -131,7 +134,7 @@ export default async function OrgSettingsPage({
     if (authErr) throw authErr;
     if (!auth?.user) redirect("/login");
 
-    const check = await requireAdmin(sb, organisationId, auth.user.id);
+    const check = await requireOrgAdmin(sb, organisationId, auth.user.id);
     if (!check.ok) throw new Error("Admin permission required");
 
     const { error } = await sb.from("organisations").delete().eq("id", organisationId);
@@ -147,8 +150,13 @@ export default async function OrgSettingsPage({
           <h1 className="text-xl font-semibold">Organisation settings</h1>
           <p className="text-sm text-gray-600">
             Org: <span className="font-medium">{org.name}</span>
-            <span className="ml-2 text-xs text-gray-500">• Your role: {String(role ?? me.role ?? "member")}</span>
+            <span className="ml-2 text-xs text-gray-500">
+              • Your role: {String(role ?? me.role ?? "member")}
+            </span>
             <span className="ml-2 text-xs text-gray-500">• Members: {memberCount ?? "—"}</span>
+            <span className="ml-2 text-xs text-gray-500">
+              • Platform admin: {platformAdmin ? "Yes" : "No"}
+            </span>
           </p>
         </div>
 
@@ -187,7 +195,8 @@ export default async function OrgSettingsPage({
             <OrgApprovalsAdminPanel
               organisationId={organisationId}
               organisationName={String(org.name ?? "")}
-              isAdmin={!!isAdmin}
+              // ✅ approvals editing is PLATFORM admin
+              isAdmin={!!platformAdmin}
             />
           ) : (
             <div className="space-y-6">
@@ -198,7 +207,7 @@ export default async function OrgSettingsPage({
                   Update the organisation name shown in the header dropdown.
                 </div>
 
-                {isAdmin ? (
+                {isOrgAdmin ? (
                   <form action={renameAction} className="flex flex-wrap gap-2">
                     <input
                       name="name"
@@ -224,7 +233,7 @@ export default async function OrgSettingsPage({
                   affected if they are linked via <code className="text-xs">organisation_id</code>.
                 </div>
 
-                {isAdmin ? (
+                {isOrgAdmin ? (
                   <form action={deleteAction} className="space-y-3">
                     <div className="text-sm">
                       Type <code className="text-xs">DELETE</code> to confirm:

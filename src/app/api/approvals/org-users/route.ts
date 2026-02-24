@@ -1,3 +1,4 @@
+// src/app/api/approvals/org-users/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { sb, requireAuth, requireOrgMember, safeStr } from "@/lib/approvals/admin-helpers";
@@ -17,20 +18,37 @@ function err(msg: string, status = 400) {
   return NextResponse.json({ ok: false, error: msg }, { status });
 }
 
+async function getOrgIdFromProject(supabase: any, projectId: string) {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("organisation_id")
+    .eq("id", projectId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  const orgId = safeStr((data as any)?.organisation_id).trim();
+  if (!orgId) throw new Error("Project has no organisation_id");
+  return orgId;
+}
+
 export async function GET(req: Request) {
   try {
     const supabase = await sb();
     const user = await requireAuth(supabase);
 
     const url = new URL(req.url);
-    const organisationId = safeStr(url.searchParams.get("orgId")).trim();
+
+    const orgIdParam = safeStr(url.searchParams.get("orgId")).trim();
+    const projectId = safeStr(url.searchParams.get("projectId")).trim();
     const limit = Math.max(1, Math.min(200, Number(url.searchParams.get("limit") || "50") || 50));
 
-    if (!organisationId) return err("Missing orgId", 400);
+    const organisationId = orgIdParam || (projectId ? await getOrgIdFromProject(supabase, projectId) : "");
+
+    if (!organisationId) return err("Missing orgId or projectId", 400);
 
     await requireOrgMember(supabase, organisationId, user.id);
 
-    // 1) get org members
+    // 1) org members
     const { data: memRows, error: memErr } = await supabase
       .from("organisation_members")
       .select("user_id")
@@ -43,9 +61,9 @@ export async function GET(req: Request) {
       .map((r: any) => safeStr(r?.user_id).trim())
       .filter(Boolean);
 
-    if (!userIds.length) return ok({ users: [] });
+    if (!userIds.length) return ok({ organisation_id: organisationId, users: [] });
 
-    // 2) fetch lightweight profiles (adjust table/columns if your schema differs)
+    // 2) profiles (adjust columns if needed)
     const { data: profRows, error: profErr } = await supabase
       .from("profiles")
       .select("user_id, full_name, email")
@@ -53,7 +71,6 @@ export async function GET(req: Request) {
 
     if (profErr) throw new Error(profErr.message);
 
-    // ✅ IMPORTANT: real Map so `.get()` is callable
     const profByUser = new Map<string, ProfileLite>();
     for (const p of (profRows ?? []) as any[]) {
       const uid = safeStr(p?.user_id).trim();
@@ -74,7 +91,7 @@ export async function GET(req: Request) {
       };
     });
 
-    return ok({ users: items });
+    return ok({ organisation_id: organisationId, users: items });
   } catch (e: any) {
     const msg = String(e?.message || e || "Error");
     const s = msg.toLowerCase().includes("unauthorized")

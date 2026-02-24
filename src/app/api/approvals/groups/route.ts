@@ -1,6 +1,13 @@
+// src/app/api/approvals/groups/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
-import { sb, requireAuth, requireOrgAdmin, requireOrgMember, safeStr } from "@/lib/approvals/admin-helpers";
+import {
+  sb,
+  requireAuth,
+  requireOrgMember,
+  requireApprovalsWriter,
+  safeStr,
+} from "@/lib/approvals/admin-helpers";
 
 export const runtime = "nodejs";
 
@@ -16,7 +23,6 @@ const ALLOWED_ARTIFACT_TYPES = new Set(["project_charter", "change", "project_cl
 function normArtifactType(x: any) {
   const v = safeStr(x).trim().toLowerCase();
   if (!v) return "";
-  // allow legacy aliases (optional, but helps reduce drift)
   if (v === "change_request" || v === "change_requests") return "change";
   return v;
 }
@@ -33,15 +39,18 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
     const organisationId = safeStr(url.searchParams.get("orgId")).trim();
-    const artifactTypeRaw = url.searchParams.get("artifactType");
-    const artifactType = normArtifactType(artifactTypeRaw);
+    const artifactType = normArtifactType(url.searchParams.get("artifactType"));
 
     if (!organisationId) return err("Missing orgId", 400);
+
+    // ✅ Read = org member
     await requireOrgMember(supabase, organisationId, user.id);
 
-    // ✅ only allow current supported types (or empty = all)
     if (!validateArtifactTypeOrEmpty(artifactType)) {
-      return err(`Unsupported artifactType. Allowed: project_charter, change, project_closure_report`, 400);
+      return err(
+        `Unsupported artifactType. Allowed: project_charter, change, project_closure_report`,
+        400
+      );
     }
 
     let q = supabase.from("approval_groups").select("*").eq("organisation_id", organisationId);
@@ -51,7 +60,10 @@ export async function GET(req: Request) {
     const { data, error } = await q;
     if (error) throw new Error(error.message);
 
-    const groups = (data ?? []).filter((g: any) => ("is_active" in g ? g.is_active !== false : true));
+    const groups = (data ?? []).filter((g: any) =>
+      "is_active" in g ? g.is_active !== false : true
+    );
+
     return ok({ groups });
   } catch (e: any) {
     const msg = String(e?.message || e || "Error");
@@ -77,11 +89,15 @@ export async function POST(req: Request) {
     if (!organisationId) return err("Missing orgId", 400);
     if (!artifactType) return err("Missing artifactType", 400);
     if (!ALLOWED_ARTIFACT_TYPES.has(artifactType)) {
-      return err(`Unsupported artifactType. Allowed: project_charter, change, project_closure_report`, 400);
+      return err(
+        `Unsupported artifactType. Allowed: project_charter, change, project_closure_report`,
+        400
+      );
     }
     if (!name) return err("Missing name", 400);
 
-    await requireOrgAdmin(supabase, organisationId, user.id);
+    // ✅ Write = PLATFORM ADMIN ONLY (enterprise mode B)
+    await requireApprovalsWriter(supabase, organisationId, user.id);
 
     const { data, error } = await supabase
       .from("approval_groups")
@@ -122,7 +138,8 @@ export async function PATCH(req: Request) {
     if (!organisationId) return err("Missing orgId", 400);
     if (!id) return err("Missing id", 400);
 
-    await requireOrgAdmin(supabase, organisationId, user.id);
+    // ✅ Write = PLATFORM ADMIN ONLY (enterprise mode B)
+    await requireApprovalsWriter(supabase, organisationId, user.id);
 
     const patch: any = {};
     if (name) patch.name = name;
@@ -161,7 +178,8 @@ export async function DELETE(req: Request) {
     if (!organisationId) return err("Missing orgId", 400);
     if (!id) return err("Missing id", 400);
 
-    await requireOrgAdmin(supabase, organisationId, user.id);
+    // ✅ Write = PLATFORM ADMIN ONLY (enterprise mode B)
+    await requireApprovalsWriter(supabase, organisationId, user.id);
 
     const { error } = await supabase
       .from("approval_groups")

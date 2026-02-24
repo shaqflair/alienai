@@ -1,6 +1,13 @@
+// src/app/api/approvals/rules/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
-import { sb, requireAuth, requireOrgAdmin, requireOrgMember, safeStr } from "@/lib/approvals/admin-helpers";
+import {
+  sb,
+  requireAuth,
+  requireOrgMember,
+  requireApprovalsWriter,
+  safeStr,
+} from "@/lib/approvals/admin-helpers";
 
 export const runtime = "nodejs";
 
@@ -52,6 +59,7 @@ export async function GET(req: Request) {
     const typeErr = assertAllowedArtifactType(artifactType);
     if (typeErr) return err(typeErr, 400);
 
+    // ✅ Read = org member
     await requireOrgMember(supabase, organisationId, user.id);
 
     const { data, error } = await supabase
@@ -64,8 +72,6 @@ export async function GET(req: Request) {
       .order("min_amount", { ascending: true });
 
     if (error) throw new Error(error.message);
-
-    // ✅ IMPORTANT: UI expects { rules: [...] }
     return ok({ rules: data ?? [] });
   } catch (e: any) {
     const msg = String(e?.message || e || "Error");
@@ -100,13 +106,16 @@ export async function POST(req: Request) {
     if (!organisationId) return err("Missing orgId", 400);
     if (typeErr) return err(typeErr, 400);
 
-    await requireOrgAdmin(supabase, organisationId, user.id);
+    // ✅ Write = PLATFORM ADMIN ONLY (enterprise mode B)
+    await requireApprovalsWriter(supabase, organisationId, user.id);
 
-    const targetOk = (approverUserId && !approvalGroupId) || (!approverUserId && approvalGroupId);
+    const targetOk =
+      (approverUserId && !approvalGroupId) || (!approverUserId && approvalGroupId);
     if (!targetOk) return err("Provide either approver_user_id OR approval_group_id", 400);
 
     if (minAmount == null || minAmount < 0) return err("min_amount must be >= 0", 400);
-    if (maxAmount != null && maxAmount < minAmount) return err("max_amount must be >= min_amount", 400);
+    if (maxAmount != null && maxAmount < minAmount)
+      return err("max_amount must be >= min_amount", 400);
     if (!Number.isFinite(step) || step < 1) return err("step must be >= 1", 400);
 
     const { data, error } = await supabase
@@ -151,11 +160,11 @@ export async function PATCH(req: Request) {
     if (!organisationId) return err("Missing orgId", 400);
     if (!id) return err("Missing id", 400);
 
-    await requireOrgAdmin(supabase, organisationId, user.id);
+    // ✅ Write = PLATFORM ADMIN ONLY (enterprise mode B)
+    await requireApprovalsWriter(supabase, organisationId, user.id);
 
     const patch: any = {};
 
-    // Do NOT allow changing artifact_type here (keeps rules stable + avoids bypassing allowed types)
     if (body?.approval_role != null) patch.approval_role = safeStr(body.approval_role).trim();
     if (body?.step != null) {
       const v = safeNum(body.step) ?? 1;
@@ -178,7 +187,8 @@ export async function PATCH(req: Request) {
     const approverUserId = safeStr(body?.approver_user_id).trim();
     const approvalGroupId = safeStr(body?.approval_group_id).trim();
     if (approverUserId || approvalGroupId) {
-      const targetOk = (approverUserId && !approvalGroupId) || (!approverUserId && approvalGroupId);
+      const targetOk =
+        (approverUserId && !approvalGroupId) || (!approverUserId && approvalGroupId);
       if (!targetOk) return err("Provide either approver_user_id OR approval_group_id", 400);
       patch.approver_user_id = approverUserId || null;
       patch.approval_group_id = approvalGroupId || null;
@@ -194,13 +204,12 @@ export async function PATCH(req: Request) {
 
     if (error) throw new Error(error.message);
 
-    // Optional safety: ensure returned rule is in allowed set (in case older data exists)
     const returnedType = normalizeArtifactType((data as any)?.artifact_type);
     if (returnedType && !ALLOWED_RULE_ARTIFACT_TYPES.has(returnedType)) {
       return err(
-        `This rule's artifact_type (${returnedType}) is not enabled yet. Allowed: ${Array.from(ALLOWED_RULE_ARTIFACT_TYPES).join(
-          ", "
-        )}`,
+        `This rule's artifact_type (${returnedType}) is not enabled yet. Allowed: ${Array.from(
+          ALLOWED_RULE_ARTIFACT_TYPES
+        ).join(", ")}`,
         409
       );
     }
@@ -229,7 +238,8 @@ export async function DELETE(req: Request) {
     if (!organisationId) return err("Missing orgId", 400);
     if (!id) return err("Missing id", 400);
 
-    await requireOrgAdmin(supabase, organisationId, user.id);
+    // ✅ Write = PLATFORM ADMIN ONLY (enterprise mode B)
+    await requireApprovalsWriter(supabase, organisationId, user.id);
 
     const { error } = await supabase
       .from("artifact_approver_rules")

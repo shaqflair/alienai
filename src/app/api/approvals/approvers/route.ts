@@ -1,16 +1,15 @@
+// src/app/api/approvals/approvers/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import {
   sb,
   requireAuth,
-  requireOrgAdmin,
   requireOrgMember,
+  requireApprovalsWriter,
   safeStr,
 } from "@/lib/approvals/admin-helpers";
 
 export const runtime = "nodejs";
-
-/* ───────────────────────────────────────────── */
 
 function ok(data: any, status = 200) {
   return NextResponse.json({ ok: true, ...data }, { status });
@@ -23,10 +22,6 @@ function normEmail(x: unknown) {
   return safeStr(x).trim().toLowerCase();
 }
 
-/* ───────────────────────────────────────────── */
-/* GET: list approvers */
-/* ───────────────────────────────────────────── */
-
 export async function GET(req: Request) {
   try {
     const supabase = await sb();
@@ -38,13 +33,12 @@ export async function GET(req: Request) {
 
     if (!organisationId) return err("Missing orgId", 400);
 
+    // ✅ Read = org member
     await requireOrgMember(supabase, organisationId, user.id);
 
     const { data: rows, error } = await supabase
       .from("organisation_approvers")
-      .select(
-        "id, organisation_id, email, name, approver_role, department, user_id, is_active, created_at"
-      )
+      .select("id, organisation_id, email, name, approver_role, department, user_id, is_active, created_at")
       .eq("organisation_id", organisationId)
       .order("created_at", { ascending: false });
 
@@ -89,17 +83,12 @@ export async function GET(req: Request) {
   }
 }
 
-/* ───────────────────────────────────────────── */
-/* POST: add/update approver */
-/* ───────────────────────────────────────────── */
-
 export async function POST(req: Request) {
   try {
     const supabase = await sb();
     const user = await requireAuth(supabase);
 
     const body = await req.json().catch(() => ({}));
-
     const organisationId = safeStr(body?.orgId).trim();
     const email = normEmail(body?.email);
     const name = safeStr(body?.name).trim();
@@ -109,7 +98,8 @@ export async function POST(req: Request) {
     if (!organisationId) return err("Missing orgId", 400);
     if (!email) return err("Missing email", 400);
 
-    await requireOrgAdmin(supabase, organisationId, user.id);
+    // ✅ Write = PLATFORM ADMIN ONLY (enterprise mode B)
+    await requireApprovalsWriter(supabase, organisationId, user.id);
 
     const { data, error } = await supabase
       .from("organisation_approvers")
@@ -125,13 +115,10 @@ export async function POST(req: Request) {
         },
         { onConflict: "organisation_id,email" }
       )
-      .select(
-        "id, organisation_id, email, name, approver_role, department, user_id, is_active, created_at"
-      )
+      .select("id, organisation_id, email, name, approver_role, department, user_id, is_active, created_at")
       .single();
 
     if (error) throw new Error(error.message);
-
     return ok({ approver: data }, 201);
   } catch (e: any) {
     const msg = String(e?.message || e || "Error");
@@ -144,39 +131,26 @@ export async function POST(req: Request) {
   }
 }
 
-/* ───────────────────────────────────────────── */
-/* DELETE: remove approver */
-/* ───────────────────────────────────────────── */
-
 export async function DELETE(req: Request) {
   try {
     const supabase = await sb();
     const user = await requireAuth(supabase);
 
     const url = new URL(req.url);
-
     const organisationId = safeStr(url.searchParams.get("orgId")).trim();
     const approverId = safeStr(url.searchParams.get("id")).trim();
-
-    // ✅ FIX: null-safe email parsing (build error fix)
     const email = normEmail(safeStr(url.searchParams.get("email")));
 
     if (!organisationId) return err("Missing orgId", 400);
     if (!approverId && !email) return err("Missing id or email", 400);
 
-    await requireOrgAdmin(supabase, organisationId, user.id);
+    // ✅ Write = PLATFORM ADMIN ONLY (enterprise mode B)
+    await requireApprovalsWriter(supabase, organisationId, user.id);
 
-    const q = supabase
-      .from("organisation_approvers")
-      .delete()
-      .eq("organisation_id", organisationId);
-
-    const { error } = approverId
-      ? await q.eq("id", approverId)
-      : await q.eq("email", email);
+    const q = supabase.from("organisation_approvers").delete().eq("organisation_id", organisationId);
+    const { error } = approverId ? await q.eq("id", approverId) : await q.eq("email", email);
 
     if (error) throw new Error(error.message);
-
     return ok({ removed: true });
   } catch (e: any) {
     const msg = String(e?.message || e || "Error");

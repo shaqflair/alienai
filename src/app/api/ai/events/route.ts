@@ -8,7 +8,7 @@ import { buildPmImpactAssessment, safeNum as safeNumAi } from "@/lib/ai/change-a
 
 export const runtime = "nodejs";
 
-// âœ… prevent cross-user caching (dashboard KPI bleed)
+// ✅ prevent cross-user caching (dashboard KPI bleed)
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -75,7 +75,7 @@ function parseDueToUtcDate(value: any): Date | null {
   if (value instanceof Date && !isNaN(value.getTime())) return value;
 
   const s = safeStr(value).trim();
-  if (!s || s === "â€”" || s.toLowerCase() === "na" || s.toLowerCase() === "n/a")
+  if (!s || s === "—" || s.toLowerCase() === "na" || s.toLowerCase() === "n/a")
     return null;
 
   // ISO / YYYY-MM-DD / timestamps
@@ -191,7 +191,7 @@ function normalizeArtifactLink(href: string | null | undefined) {
 }
 
 /* ---------------- service-role (cron only) ----------------
-   âœ… Enterprise rule:
+   ✅ Enterprise rule:
    - NEVER fallback to service role for user requests
    - Service role only allowed for CRON/system calls (CRON_SECRET gated)
 ------------------------------------------------------------ */
@@ -312,9 +312,9 @@ function buildCharterRuleSuggestions(args: {
           )
         : w.key === "risks"
         ? [
-            "Resource constraints / SME availability â€” Mitigation: confirm RACI + booking plan.",
-            "Scope creep â€” Mitigation: baseline scope + change control enforcement.",
-            "Delivery dependencies not met â€” Mitigation: dependency log + weekly review.",
+            "Resource constraints / SME availability — Mitigation: confirm RACI + booking plan.",
+            "Scope creep — Mitigation: baseline scope + change control enforcement.",
+            "Delivery dependencies not met — Mitigation: dependency log + weekly review.",
           ].join("\n")
         : w.key === "issues"
         ? ["No known issues yet. [TBC]"].join("\n")
@@ -382,7 +382,7 @@ function buildCharterRuleSuggestions(args: {
 }
 
 async function insertSuggestionsDeduped(args: {
-  supabase: any; // âœ… RLS-scoped client (never service role for user calls)
+  supabase: any; // ✅ RLS-scoped client (never service role for user calls)
   suggestions: SuggestionInsert[];
 }) {
   const { supabase, suggestions } = args;
@@ -699,7 +699,7 @@ function buildDraftAssistAi(input: any) {
     schedule ||
     mergeBits([
       when ? `Target window/milestone: ${when}` : "",
-      "Plan: design â†’ approvals â†’ implement â†’ validate â†’ handover/close.",
+      "Plan: design → approvals → implement → validate → handover/close.",
       "Dependencies: confirm CAB/Change window and sequencing with release calendar.",
     ]) ||
     "Outline target window, milestones, and sequencing.";
@@ -761,7 +761,7 @@ function buildDraftAssistAi(input: any) {
     assumptions: bestAssumptions,
     implementation: bestImplementation,
     rollback: bestRollback,
-    impact: { days: 1, cost: 0, risk: "Medium â€” validate in change window" },
+    impact: { days: 1, cost: 0, risk: "Medium — validate in change window" },
   };
 }
 
@@ -1876,10 +1876,10 @@ async function loadPreviousDeliveryReportSummarySafe(supabase: any, artifactId: 
   };
 }
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+/* ─────────────────────────────────────────────────────────────────────────────
    EXECUTIVE NARRATIVE BUILDER
-   Writes structured PM prose â€” not a mechanical count dump.
-â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+   Writes structured PM prose — not a mechanical count dump.
+───────────────────────────────────────────────────────────────────────────── */
 
 function buildDeliveryHeadline(
   rag: "green" | "amber" | "red",
@@ -1895,7 +1895,7 @@ function buildDeliveryHeadline(
   if (rag === "red") {
     if (overdueCount === 1)
       return `${proj}1 overdue item requires immediate action to protect delivery.`;
-    return `${proj}${overdueCount} overdue items â€” delivery is at risk without intervention this period.`;
+    return `${proj}${overdueCount} overdue items — delivery is at risk without intervention this period.`;
   }
 
   if (rag === "amber") {
@@ -1905,7 +1905,7 @@ function buildDeliveryHeadline(
       return `${proj}Good progress this period; ${blockerCount} active blocker${blockerCount > 1 ? "s" : ""} flagged for resolution before next report.`;
     if (criticalSoonCount > 0)
       return `${proj}On track overall; ${criticalSoonCount} critical milestone${criticalSoonCount > 1 ? "s are" : " is"} due soon and must remain the team's priority.`;
-    return `${proj}Delivery progressing â€” one or more items require monitoring to maintain schedule.`;
+    return `${proj}Delivery progressing — one or more items require monitoring to maintain schedule.`;
   }
 
   // green
@@ -1913,10 +1913,10 @@ function buildDeliveryHeadline(
   if (totalDone === 0)
     return `${proj}Delivery on track with no overdue items or active blockers this period.`;
   if (msDoneCount > 0 && wbsDoneCount > 0)
-    return `${proj}Strong delivery week â€” ${msDoneCount} milestone${msDoneCount > 1 ? "s" : ""} and ${wbsDoneCount} work item${wbsDoneCount > 1 ? "s" : ""} completed on schedule.`;
+    return `${proj}Strong delivery week — ${msDoneCount} milestone${msDoneCount > 1 ? "s" : ""} and ${wbsDoneCount} work item${wbsDoneCount > 1 ? "s" : ""} completed on schedule.`;
   if (msDoneCount > 0)
-    return `${proj}${msDoneCount} milestone${msDoneCount > 1 ? "s" : ""} completed on schedule â€” delivery remains on track.`;
-  return `${proj}${wbsDoneCount} work item${wbsDoneCount > 1 ? "s" : ""} delivered â€” on track with no issues raised this period.`;
+    return `${proj}${msDoneCount} milestone${msDoneCount > 1 ? "s" : ""} completed on schedule — delivery remains on track.`;
+  return `${proj}${wbsDoneCount} work item${wbsDoneCount > 1 ? "s" : ""} delivered — on track with no issues raised this period.`;
 }
 
 function buildDeliveryNarrative(args: {
@@ -1941,7 +1941,7 @@ function buildDeliveryNarrative(args: {
 
   const parts: string[] = [];
 
-  // â”€â”€ Para 1: Period + delivery health â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Para 1: Period + delivery health ──────────────────────────────────────
   const statusPhrase =
     rag === "green"
       ? "Delivery is on track"
@@ -1949,9 +1949,9 @@ function buildDeliveryNarrative(args: {
       ? "Delivery is progressing with items requiring attention"
       : "Delivery is at risk and requires immediate action";
 
-  parts.push(`Period covered: ${fromUk} â€“ ${toUk}. ${statusPhrase}.`);
+  parts.push(`Period covered: ${fromUk} — ${toUk}. ${statusPhrase}.`);
 
-  // â”€â”€ Para 2: What was achieved â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Para 2: What was achieved ────────────────────────────────────────────
   const achievedBits: string[] = [];
 
   if (msDone.length > 0) {
@@ -1983,11 +1983,11 @@ function buildDeliveryNarrative(args: {
     parts.push(achievedBits.join(". ") + ".");
   } else {
     parts.push(
-      "No items were completed within the reporting window â€” work in progress carries forward to next period."
+      "No items were completed within the reporting window — work in progress carries forward to next period."
     );
   }
 
-  // â”€â”€ Para 3: Key decisions (only if present) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Para 3: Key decisions (only if present) ───────────────────────────────
   if (decisions.length > 0) {
     const texts = decisions
       .slice(0, 3)
@@ -1998,7 +1998,7 @@ function buildDeliveryNarrative(args: {
     }
   }
 
-  // â”€â”€ Para 4: Risk / blocker / overdue signal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Para 4: Risk / blocker / overdue signal ───────────────────────────────
   if (rag === "red" && overdue.length > 0) {
     const labels = overdue
       .slice(0, 3)
@@ -2048,7 +2048,7 @@ function buildDeliveryNarrative(args: {
     );
   }
 
-  // â”€â”€ Para 5: Forward look â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Para 5: Forward look ─────────────────────────────────────────────────
   const dueSoonCount = dueSoon.length;
   if (dueSoonCount > 0) {
     const byType: Record<string, number> = {};
@@ -2240,7 +2240,7 @@ async function buildDeliveryReportV1(args: {
         safeStr(r?.owner_label).trim() ? `Owner: ${safeStr(r?.owner_label).trim()}` : "",
       ].filter(Boolean);
       const publicId = safeStr(r?.public_id).trim();
-      return { text: bits.join(" â€” "), link: linkForRaid(projectHumanId, publicId || undefined) };
+      return { text: bits.join(" — "), link: linkForRaid(projectHumanId, publicId || undefined) };
     });
 
   const openDueWork = dueSoon.filter((x: any) => x?.itemType === "work_item");
@@ -2275,11 +2275,11 @@ async function buildDeliveryReportV1(args: {
   });
   const criticalSoon = dueSoon.filter((x: any) => x?.itemType === "milestone" && x?.meta?.critical);
 
-  // â”€â”€ RAG derivation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── RAG derivation ────────────────────────────────────────────────────────
   const rag: "green" | "amber" | "red" =
     overdue.length > 0 ? "red" : criticalSoon.length > 0 || blockers.length > 0 ? "amber" : "green";
 
-  // â”€â”€ Headline + Narrative (improved) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Headline + Narrative (improved) ───────────────────────────────────────
   const headline = buildDeliveryHeadline(
     rag,
     msDone.length,
@@ -2287,7 +2287,7 @@ async function buildDeliveryReportV1(args: {
     overdue.length,
     blockers.length,
     criticalSoon.length,
-    null // project name intentionally omitted from headline â€” it's already in the report header
+    null // project name intentionally omitted from headline — it's already in the report header
   );
 
   const narrative = buildDeliveryNarrative({
@@ -2469,7 +2469,7 @@ export async function POST(req: Request) {
         return jsonNoStore({ ok: false, error: "artifactId is required (uuid)" }, { status: 400 });
       }
 
-      // âœ… RLS-only for user calls (no service role fallback)
+      // ✅ RLS-only for user calls (no service role fallback)
       const { data: art, error: artErr } = await supabase
         .from("artifacts")
         .select("id, project_id, type, artifact_type, content_json")

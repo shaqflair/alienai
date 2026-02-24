@@ -1,3 +1,4 @@
+// src/components/approvals/HolidayCoverPanel.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -7,8 +8,6 @@ type Member = {
   full_name?: string;
   email?: string;
   role?: string;
-
-  // some APIs may send this (your snippet used it)
   label?: string;
 };
 
@@ -30,7 +29,9 @@ function clean(x: any) {
 function fmt(x: string) {
   try {
     const d = new Date(x);
-    return Number.isNaN(d.getTime()) ? x : d.toISOString().replace("T", " ").replace("Z", " UTC");
+    return Number.isNaN(d.getTime())
+      ? x
+      : d.toISOString().replace("T", " ").replace("Z", " UTC");
   } catch {
     return x;
   }
@@ -46,7 +47,13 @@ function pickMembers(json: any): Member[] {
 }
 
 function memberLabel(m: Member) {
-  return clean(m.label) || clean(m.full_name) || clean(m.email) || clean(m.user_id) || "Member";
+  return (
+    clean(m.label) ||
+    clean(m.full_name) ||
+    clean(m.email) ||
+    clean(m.user_id) ||
+    "Member"
+  );
 }
 
 function isBadId(x: string) {
@@ -54,7 +61,19 @@ function isBadId(x: string) {
   return !v || v === "null" || v === "undefined";
 }
 
-export default function HolidayCoverPanel({ projectId }: { projectId: string }) {
+function authHintFromStatus(status: number) {
+  if (status === 401) return "You are not signed in.";
+  if (status === 403) return "Platform admin permission required.";
+  return "";
+}
+
+export default function HolidayCoverPanel({
+  projectId,
+  canEdit = false,
+}: {
+  projectId: string;
+  canEdit?: boolean;
+}) {
   const [members, setMembers] = useState<Member[]>([]);
   const [items, setItems] = useState<Delegation[]>([]);
   const [err, setErr] = useState("");
@@ -77,21 +96,27 @@ export default function HolidayCoverPanel({ projectId }: { projectId: string }) 
 
     setLoading(true);
     try {
-      // members (existing route)
-      const mRes = await fetch(`/api/approvals/org-users?projectId=${encodeURIComponent(projectId)}`);
+      // ✅ org users (route supports projectId OR orgId; we use projectId here)
+      const mRes = await fetch(
+        `/api/approvals/org-users?projectId=${encodeURIComponent(projectId)}`
+      );
       const mJson = await mRes.json().catch(() => ({}));
       if (!mRes.ok || !mJson?.ok) {
-        setErr(mJson?.error || "Failed to load members");
+        const hint = authHintFromStatus(mRes.status);
+        setErr((mJson?.error || "Failed to load members") + (hint ? ` (${hint})` : ""));
         setMembers([]);
       } else {
         setMembers(pickMembers(mJson));
       }
 
-      // delegations (existing route)
-      const dRes = await fetch(`/api/approvals/delegations?projectId=${encodeURIComponent(projectId)}`);
+      // delegations
+      const dRes = await fetch(
+        `/api/approvals/delegations?projectId=${encodeURIComponent(projectId)}`
+      );
       const dJson = await dRes.json().catch(() => ({}));
       if (!dRes.ok || !dJson?.ok) {
-        setErr((prev) => prev || dJson?.error || "Failed to load holiday cover");
+        const hint = authHintFromStatus(dRes.status);
+        setErr((prev) => prev || (dJson?.error || "Failed to load holiday cover") + (hint ? ` (${hint})` : ""));
         setItems([]);
       } else {
         setItems(dJson.items || []);
@@ -123,9 +148,24 @@ export default function HolidayCoverPanel({ projectId }: { projectId: string }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [members.length]);
 
+  const saveDisabled =
+    !canEdit ||
+    !fromUserId ||
+    !toUserId ||
+    !startsAt ||
+    !endsAt ||
+    clean(fromUserId) === clean(toUserId);
+
   async function save() {
     setErr("");
+
+    if (!canEdit) {
+      setErr("Read-only: platform admin permission required to manage holiday cover.");
+      return;
+    }
+
     if (!clean(fromUserId) || !clean(toUserId) || !clean(startsAt) || !clean(endsAt)) return;
+
     if (clean(fromUserId) === clean(toUserId)) {
       setErr("Delegate from and cover person must be different.");
       return;
@@ -147,7 +187,8 @@ export default function HolidayCoverPanel({ projectId }: { projectId: string }) 
 
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) {
-        setErr(json?.error || "Failed to save holiday cover");
+        const hint = authHintFromStatus(res.status);
+        setErr((json?.error || "Failed to save holiday cover") + (hint ? ` (${hint})` : ""));
         return;
       }
 
@@ -164,14 +205,24 @@ export default function HolidayCoverPanel({ projectId }: { projectId: string }) 
 
   async function remove(id: string) {
     setErr("");
+
+    if (!canEdit) {
+      setErr("Read-only: platform admin permission required to manage holiday cover.");
+      return;
+    }
+
     try {
       const res = await fetch(
         `/api/approvals/delegations?projectId=${encodeURIComponent(projectId)}&id=${encodeURIComponent(id)}`,
         { method: "DELETE" }
       );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) setErr(json?.error || "Failed to remove");
-      else await load();
+      if (!res.ok || !json?.ok) {
+        const hint = authHintFromStatus(res.status);
+        setErr((json?.error || "Failed to remove") + (hint ? ` (${hint})` : ""));
+      } else {
+        await load();
+      }
     } catch (e: any) {
       setErr(String(e?.message || e || "Failed to remove"));
     }
@@ -182,10 +233,26 @@ export default function HolidayCoverPanel({ projectId }: { projectId: string }) 
       <div className="p-4 flex items-start justify-between gap-3">
         <div>
           <div className="text-base font-semibold">Holiday cover</div>
-          <div className="text-sm text-gray-600">Admins can delegate approvals for a date range.</div>
+          <div className="text-sm text-gray-600">
+            Delegate approvals for a date range.
+          </div>
+
+          {!canEdit ? (
+            <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+              Read-only: holiday cover can only be edited by a <b>platform admin</b>.
+            </div>
+          ) : (
+            <div className="mt-2 text-xs text-emerald-700">Admin mode</div>
+          )}
+
           {loading ? <div className="mt-1 text-xs text-gray-500">Loading…</div> : null}
         </div>
-        <button onClick={load} className="text-sm underline hover:opacity-80" type="button">
+
+        <button
+          onClick={load}
+          className="text-sm underline hover:opacity-80"
+          type="button"
+        >
           Refresh
         </button>
       </div>
@@ -196,9 +263,10 @@ export default function HolidayCoverPanel({ projectId }: { projectId: string }) 
         <label className="grid gap-1">
           <span className="text-xs text-gray-600">Delegate from</span>
           <select
-            className="rounded border px-3 py-2 text-sm"
+            className="rounded border px-3 py-2 text-sm disabled:opacity-50"
             value={fromUserId}
             onChange={(e) => setFromUserId(e.target.value)}
+            disabled={!canEdit}
           >
             <option value="">Select member…</option>
             {members.map((m) => (
@@ -212,9 +280,10 @@ export default function HolidayCoverPanel({ projectId }: { projectId: string }) 
         <label className="grid gap-1">
           <span className="text-xs text-gray-600">Cover person</span>
           <select
-            className="rounded border px-3 py-2 text-sm"
+            className="rounded border px-3 py-2 text-sm disabled:opacity-50"
             value={toUserId}
             onChange={(e) => setToUserId(e.target.value)}
+            disabled={!canEdit}
           >
             <option value="">Select member…</option>
             {members.map((m) => (
@@ -228,50 +297,58 @@ export default function HolidayCoverPanel({ projectId }: { projectId: string }) 
         <label className="grid gap-1">
           <span className="text-xs text-gray-600">Starts (ISO)</span>
           <input
-            className="rounded border px-3 py-2 text-sm"
+            className="rounded border px-3 py-2 text-sm disabled:opacity-50"
             placeholder="2026-01-10T00:00:00Z"
             value={startsAt}
             onChange={(e) => setStartsAt(e.target.value)}
+            disabled={!canEdit}
           />
         </label>
 
         <label className="grid gap-1">
           <span className="text-xs text-gray-600">Ends (ISO)</span>
           <input
-            className="rounded border px-3 py-2 text-sm"
+            className="rounded border px-3 py-2 text-sm disabled:opacity-50"
             placeholder="2026-01-20T00:00:00Z"
             value={endsAt}
             onChange={(e) => setEndsAt(e.target.value)}
+            disabled={!canEdit}
           />
         </label>
 
         <label className="grid gap-1 md:col-span-2">
           <span className="text-xs text-gray-600">Reason (optional)</span>
           <input
-            className="rounded border px-3 py-2 text-sm"
+            className="rounded border px-3 py-2 text-sm disabled:opacity-50"
             placeholder="Annual leave, sick cover, etc."
             value={reason}
             onChange={(e) => setReason(e.target.value)}
+            disabled={!canEdit}
           />
         </label>
 
         <div className="md:col-span-2">
           <button
             onClick={save}
-            disabled={!fromUserId || !toUserId || !startsAt || !endsAt || fromUserId === toUserId}
+            disabled={saveDisabled}
             className="rounded border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
             type="button"
+            title={!canEdit ? "Platform admin only" : undefined}
           >
             Save holiday cover
           </button>
-          {fromUserId && toUserId && fromUserId === toUserId ? (
-            <div className="mt-1 text-xs text-amber-700">Delegate from and cover person must be different.</div>
+
+          {fromUserId && toUserId && clean(fromUserId) === clean(toUserId) ? (
+            <div className="mt-1 text-xs text-amber-700">
+              Delegate from and cover person must be different.
+            </div>
           ) : null}
         </div>
       </div>
 
       <div className="border-t p-4 space-y-2">
         <div className="font-medium">Current cover rules</div>
+
         {!items.length ? (
           <div className="text-sm text-gray-600">No holiday cover set.</div>
         ) : (
@@ -284,10 +361,18 @@ export default function HolidayCoverPanel({ projectId }: { projectId: string }) 
                     <span className="font-medium">{label(d.to_user_id)}</span>
                   </div>
                   <div className="text-xs text-gray-600">
-                    {fmt(d.starts_at)} → {fmt(d.ends_at)} {d.reason ? `· ${d.reason}` : ""}
+                    {fmt(d.starts_at)} → {fmt(d.ends_at)}{" "}
+                    {d.reason ? `· ${d.reason}` : ""}
                   </div>
                 </div>
-                <button onClick={() => remove(d.id)} className="text-xs underline hover:opacity-80" type="button">
+
+                <button
+                  onClick={() => remove(d.id)}
+                  className="text-xs underline hover:opacity-80 disabled:opacity-50"
+                  type="button"
+                  disabled={!canEdit}
+                  title={!canEdit ? "Platform admin only" : undefined}
+                >
                   Remove
                 </button>
               </div>

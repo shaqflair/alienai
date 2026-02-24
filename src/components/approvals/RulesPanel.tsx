@@ -68,12 +68,20 @@ function approverLabel(a: any) {
   return meta ? `${main} · ${meta}` : main;
 }
 
+function authHintFromStatus(status: number) {
+  if (status === 401) return "You are not signed in.";
+  if (status === 403) return "Platform admin permission required.";
+  return "";
+}
+
 export default function RulesPanel({
   orgId,
   artifactType = "change",
+  canEdit = false,
 }: {
   orgId: string;
   artifactType?: string;
+  canEdit?: boolean;
 }) {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
@@ -111,9 +119,18 @@ export default function RulesPanel({
       const gJson = await gRes.json().catch(() => ({}));
       const aJson = await aRes.json().catch(() => ({}));
 
-      if (!rRes.ok || !rJson?.ok) throw new Error(rJson?.error || "Failed to load rules");
-      if (!gRes.ok || !gJson?.ok) throw new Error(gJson?.error || "Failed to load groups");
-      if (!aRes.ok || !aJson?.ok) throw new Error(aJson?.error || "Failed to load approvers");
+      if (!rRes.ok || !rJson?.ok) {
+        const hint = authHintFromStatus(rRes.status);
+        throw new Error((rJson?.error || "Failed to load rules") + (hint ? ` (${hint})` : ""));
+      }
+      if (!gRes.ok || !gJson?.ok) {
+        const hint = authHintFromStatus(gRes.status);
+        throw new Error((gJson?.error || "Failed to load groups") + (hint ? ` (${hint})` : ""));
+      }
+      if (!aRes.ok || !aJson?.ok) {
+        const hint = authHintFromStatus(aRes.status);
+        throw new Error((aJson?.error || "Failed to load approvers") + (hint ? ` (${hint})` : ""));
+      }
 
       // ✅ API returns { rules: [...] }
       setRules((rJson.rules ?? []) as Rule[]);
@@ -193,7 +210,6 @@ export default function RulesPanel({
     });
 
     setUserId((prev) => {
-      // if pickedApproverId changes, we'll set userId below in the onChange handler too
       return prev || firstUserId;
     });
 
@@ -203,6 +219,11 @@ export default function RulesPanel({
   async function addRule() {
     setErr("");
     if (!safeOrgId) return;
+
+    if (!canEdit) {
+      setErr("Read-only: platform admin permission required to modify rules.");
+      return;
+    }
 
     const stepNo = Math.max(1, safeNum(step || 1, 1));
     const minNo = Math.max(0, safeNum(min || 0, 0));
@@ -243,7 +264,8 @@ export default function RulesPanel({
 
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json?.ok) {
-      setErr(json?.error || "Failed to add rule");
+      const hint = authHintFromStatus(res.status);
+      setErr((json?.error || "Failed to add rule") + (hint ? ` (${hint})` : ""));
       return;
     }
 
@@ -251,6 +273,14 @@ export default function RulesPanel({
   }
 
   async function removeRule(id: string) {
+    setErr("");
+    if (!safeOrgId) return;
+
+    if (!canEdit) {
+      setErr("Read-only: platform admin permission required to modify rules.");
+      return;
+    }
+
     const okConfirm = window.confirm("Disable this rule?");
     if (!okConfirm) return;
 
@@ -261,7 +291,8 @@ export default function RulesPanel({
     const res = await fetch(url.toString(), { method: "DELETE" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json?.ok) {
-      setErr(json?.error || "Failed to delete rule");
+      const hint = authHintFromStatus(res.status);
+      setErr((json?.error || "Failed to delete rule") + (hint ? ` (${hint})` : ""));
       return;
     }
 
@@ -288,8 +319,17 @@ export default function RulesPanel({
     return a ? approverLabel(a) : "Approver";
   }
 
+  const addDisabled =
+    !safeOrgId || !canEdit || (targetMode === "group" ? !clean(groupId) : !clean(userId));
+
   return (
     <div className="space-y-3">
+      {!canEdit ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          Read-only: approvals rules can only be edited by a <b>platform admin</b>.
+        </div>
+      ) : null}
+
       {err ? <div className="text-sm text-red-600">{err}</div> : null}
       {loading ? <div className="text-sm text-gray-600">Loading…</div> : null}
 
@@ -300,36 +340,40 @@ export default function RulesPanel({
           <label className="text-xs text-gray-600">
             Step
             <input
-              className="block border rounded-md px-2 py-1 text-sm"
+              className="block border rounded-md px-2 py-1 text-sm disabled:opacity-50"
               value={step}
               onChange={(e) => setStep(e.target.value)}
+              disabled={!canEdit}
             />
           </label>
 
           <label className="text-xs text-gray-600">
             Role label
             <input
-              className="block border rounded-md px-2 py-1 text-sm"
+              className="block border rounded-md px-2 py-1 text-sm disabled:opacity-50"
               value={role}
               onChange={(e) => setRole(e.target.value)}
+              disabled={!canEdit}
             />
           </label>
 
           <label className="text-xs text-gray-600">
             Min amount
             <input
-              className="block border rounded-md px-2 py-1 text-sm"
+              className="block border rounded-md px-2 py-1 text-sm disabled:opacity-50"
               value={min}
               onChange={(e) => setMin(e.target.value)}
+              disabled={!canEdit}
             />
           </label>
 
           <label className="text-xs text-gray-600">
             Max amount (blank=∞)
             <input
-              className="block border rounded-md px-2 py-1 text-sm"
+              className="block border rounded-md px-2 py-1 text-sm disabled:opacity-50"
               value={max}
               onChange={(e) => setMax(e.target.value)}
+              disabled={!canEdit}
             />
           </label>
         </div>
@@ -338,9 +382,10 @@ export default function RulesPanel({
           <label className="text-xs text-gray-600">
             Target type
             <select
-              className="block border rounded-md px-2 py-1 text-sm"
+              className="block border rounded-md px-2 py-1 text-sm disabled:opacity-50"
               value={targetMode}
               onChange={(e) => setTargetMode(e.target.value as any)}
+              disabled={!canEdit}
             >
               <option value="group">Group</option>
               <option value="user">User</option>
@@ -351,9 +396,10 @@ export default function RulesPanel({
             <label className="text-xs text-gray-600">
               Group
               <select
-                className="block border rounded-md px-2 py-1 text-sm w-[320px]"
+                className="block border rounded-md px-2 py-1 text-sm w-[320px] disabled:opacity-50"
                 value={groupId}
                 onChange={(e) => setGroupId(e.target.value)}
+                disabled={!canEdit}
               >
                 {groups.length === 0 ? (
                   <option value="">No groups yet</option>
@@ -371,16 +417,17 @@ export default function RulesPanel({
               <label className="text-xs text-gray-600">
                 Search approvers
                 <input
-                  className="block border rounded-md px-2 py-1 text-sm w-[320px]"
+                  className="block border rounded-md px-2 py-1 text-sm w-[320px] disabled:opacity-50"
                   value={userPickQ}
                   onChange={(e) => setUserPickQ(e.target.value)}
+                  disabled={!canEdit}
                 />
               </label>
 
               <label className="text-xs text-gray-600">
                 Select approver
                 <select
-                  className="block border rounded-md px-2 py-1 text-sm w-[320px]"
+                  className="block border rounded-md px-2 py-1 text-sm w-[320px] disabled:opacity-50"
                   value={pickedApproverId}
                   onChange={(e) => {
                     const id = e.target.value;
@@ -388,6 +435,7 @@ export default function RulesPanel({
                     const a = (orgApprovers ?? []).find((x) => String(x.id) === String(id));
                     setUserId(clean(a?.user_id));
                   }}
+                  disabled={!canEdit}
                 >
                   {filteredLinkableApprovers.length === 0 ? (
                     <option value="">No linked approvers found</option>
@@ -413,7 +461,8 @@ export default function RulesPanel({
             className="border rounded-md px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
             type="button"
             onClick={addRule}
-            disabled={!safeOrgId || (targetMode === "group" ? !clean(groupId) : !clean(userId))}
+            disabled={addDisabled}
+            title={!canEdit ? "Platform admin only" : undefined}
           >
             Add
           </button>
@@ -447,9 +496,11 @@ export default function RulesPanel({
                 </div>
 
                 <button
-                  className="border rounded-md px-3 py-1.5 text-sm hover:bg-gray-50"
+                  className="border rounded-md px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
                   type="button"
                   onClick={() => removeRule(r.id)}
+                  disabled={!canEdit}
+                  title={!canEdit ? "Platform admin only" : undefined}
                 >
                   Disable
                 </button>

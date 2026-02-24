@@ -48,7 +48,8 @@ export default function OrgApprovalsAdminPanel({
   const orgId = cleanOrgId(organisationId);
 
   const [tab, setTab] = useState<"approvers" | "groups" | "rules">("rules");
-  const [artifactType, setArtifactType] = useState<ArtifactKey>("project_charter");
+  const [artifactType, setArtifactType] =
+    useState<ArtifactKey>("project_charter");
 
   // ✅ If orgId becomes available later, keep the artifactType valid (and reset if needed)
   useEffect(() => {
@@ -57,6 +58,8 @@ export default function OrgApprovalsAdminPanel({
     if (!allowed.has(artifactType)) setArtifactType("project_charter");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
+
+  const canEdit = !!isAdmin;
 
   return (
     <section className="rounded-xl border bg-white">
@@ -67,10 +70,15 @@ export default function OrgApprovalsAdminPanel({
             Configure approvers + groups + rules per artifact type.
           </div>
           <div className="mt-1 text-xs text-gray-500">
-            Client: <span className="font-medium">{organisationName || "—"}</span>
-            {!isAdmin ? (
-              <span className="ml-2 text-amber-700">Read-only (admin only)</span>
-            ) : null}
+            Client:{" "}
+            <span className="font-medium">{organisationName || "—"}</span>
+            {!canEdit ? (
+              <span className="ml-2 text-amber-700">
+                Read-only (platform admin only)
+              </span>
+            ) : (
+              <span className="ml-2 text-emerald-700">Admin mode</span>
+            )}
           </div>
         </div>
 
@@ -123,14 +131,15 @@ export default function OrgApprovalsAdminPanel({
             Missing organisationId (got:{" "}
             <span className="font-mono">{String(organisationId)}</span>).
             <br />
-            Set an active organisation or ensure the page passes organisationId correctly.
+            Set an active organisation or ensure the page passes organisationId
+            correctly.
           </div>
         ) : tab === "approvers" ? (
-          <ApproversTab orgId={orgId} canEdit={isAdmin} />
+          <ApproversTab orgId={orgId} canEdit={canEdit} />
         ) : tab === "groups" ? (
-          <GroupsTab orgId={orgId} artifactType={artifactType} canEdit={isAdmin} />
+          <GroupsTab orgId={orgId} artifactType={artifactType} canEdit={canEdit} />
         ) : (
-          <RulesPanel orgId={orgId} artifactType={artifactType} />
+          <RulesPanel orgId={orgId} artifactType={artifactType} canEdit={canEdit} />
         )}
       </div>
     </section>
@@ -152,10 +161,13 @@ function ApproversTab({ orgId, canEdit }: { orgId: string; canEdit: boolean }) {
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/approvals/approvers?orgId=${encodeURIComponent(orgId)}&q=${encodeURIComponent(q)}`
+        `/api/approvals/approvers?orgId=${encodeURIComponent(orgId)}&q=${encodeURIComponent(
+          q
+        )}`
       );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to load approvers");
+      if (!res.ok || !json?.ok)
+        throw new Error(json?.error || "Failed to load approvers");
       setApprovers(json.approvers ?? []);
     } catch (e: any) {
       setErr(String(e?.message || e || "Error"));
@@ -296,12 +308,16 @@ function ApproversTab({ orgId, canEdit }: { orgId: string; canEdit: boolean }) {
 
       <div className="divide-y border rounded-lg">
         {approvers.length === 0 ? (
-          <div className="p-3 text-sm text-gray-600">No organisation approvers yet.</div>
+          <div className="p-3 text-sm text-gray-600">
+            No organisation approvers yet.
+          </div>
         ) : (
           approvers.map((a) => (
             <div key={a.id} className="p-3 flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="font-medium truncate">{a.label || a.email || a.name || a.id}</div>
+                <div className="font-medium truncate">
+                  {a.label || a.email || a.name || a.id}
+                </div>
                 <div className="text-[11px] text-gray-500 truncate">
                   {a.user_id ? (
                     <span className="text-emerald-700">Linked user</span>
@@ -352,12 +368,13 @@ function GroupsTab({
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/approvals/groups?orgId=${encodeURIComponent(orgId)}&artifactType=${encodeURIComponent(
-          artifactType
-        )}`
+        `/api/approvals/groups?orgId=${encodeURIComponent(
+          orgId
+        )}&artifactType=${encodeURIComponent(artifactType)}`
       );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to load groups");
+      if (!res.ok || !json?.ok)
+        throw new Error(json?.error || "Failed to load groups");
       setGroups(json.groups ?? []);
       setSelected((prev) => prev || (json.groups?.[0]?.id ?? ""));
     } catch (e: any) {
@@ -425,7 +442,9 @@ function GroupsTab({
           <div className="p-3 border-b text-sm font-semibold">Groups</div>
           <div className="divide-y">
             {groups.length === 0 ? (
-              <div className="p-3 text-sm text-gray-600">No groups for this artifact type.</div>
+              <div className="p-3 text-sm text-gray-600">
+                No groups for this artifact type.
+              </div>
             ) : (
               groups.map((g) => (
                 <button
@@ -471,7 +490,8 @@ function GroupMembersPanel({
   const [approverId, setApproverId] = useState("");
 
   const memberKey = useMemo(() => {
-    return (m: any) => String(m?.approver_id || m?.user_id || m?.email || m?.label || "");
+    return (m: any) =>
+      String(m?.approver_id || m?.user_id || m?.email || m?.label || "");
   }, []);
 
   async function loadMembers() {
@@ -482,9 +502,12 @@ function GroupMembersPanel({
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/approvals/groups/members?groupId=${encodeURIComponent(groupId)}`);
+      const res = await fetch(
+        `/api/approvals/groups/members?groupId=${encodeURIComponent(groupId)}`
+      );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to load members");
+      if (!res.ok || !json?.ok)
+        throw new Error(json?.error || "Failed to load members");
       setMembers(json.members ?? []);
     } catch (e: any) {
       setErr(String(e?.message || e || "Error"));
@@ -497,14 +520,17 @@ function GroupMembersPanel({
   async function loadApprovers() {
     try {
       const res = await fetch(
-        `/api/approvals/approvers?orgId=${encodeURIComponent(orgId)}&q=${encodeURIComponent(q)}`
+        `/api/approvals/approvers?orgId=${encodeURIComponent(
+          orgId
+        )}&q=${encodeURIComponent(q)}`
       );
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) return;
       const items = json.approvers ?? [];
       setApprovers(items);
       setApproverId((prev) => {
-        if (prev && items.some((a: any) => String(a.id) === String(prev))) return prev;
+        if (prev && items.some((a: any) => String(a.id) === String(prev)))
+          return prev;
         return items?.[0]?.id ?? "";
       });
     } catch {
@@ -614,13 +640,19 @@ function GroupMembersPanel({
               <div className="p-3 text-sm text-gray-600">No members.</div>
             ) : (
               members.map((m: any) => {
-                const key = memberKey(m) || `m_${String(m?.created_at || "")}_${Math.random()}`;
+                const key =
+                  memberKey(m) ||
+                  `m_${String(m?.created_at || "")}_${Math.random()}`;
                 return (
                   <div key={key} className="p-3 flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="font-medium truncate">{m.email || m.label || m.name || "Member"}</div>
+                      <div className="font-medium truncate">
+                        {m.email || m.label || m.name || "Member"}
+                      </div>
                       <div className="text-xs text-gray-600 truncate">
-                        {m.department ? <span className="mr-2">Dept: {m.department}</span> : null}
+                        {m.department ? (
+                          <span className="mr-2">Dept: {m.department}</span>
+                        ) : null}
                         {m.approver_role ? <span>Role: {m.approver_role}</span> : null}
                       </div>
                     </div>

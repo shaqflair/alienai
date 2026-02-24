@@ -1,3 +1,4 @@
+// src/app/api/approvals/decision/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -11,10 +12,12 @@ function jsonErr(error: string, status = 400) {
   return NextResponse.json({ ok: false, error }, { status });
 }
 function safeStr(x: any) {
-  return typeof x === "string" ? x : "";
+  return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 function isUuid(x: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test((x || "").trim());
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    (x || "").trim()
+  );
 }
 
 type Body = {
@@ -23,11 +26,24 @@ type Body = {
   comment?: string | null;
 };
 
-type DecisionStatus = "draft" | "analysis" | "review" | "submitted" | "approved" | "rejected" | "rework";
+type DecisionStatus =
+  | "draft"
+  | "analysis"
+  | "review"
+  | "submitted"
+  | "approved"
+  | "rejected"
+  | "rework";
 
-async function bestEffortEvent(supabase: any, row: any, userId: string, newStatus: string, comment: string) {
-  const projectId = safeStr(row?.project_id);
-  const changeId = safeStr(row?.change_id);
+async function bestEffortEvent(
+  supabase: any,
+  row: any,
+  userId: string,
+  newStatus: string,
+  comment: string
+) {
+  const projectId = safeStr(row?.project_id).trim();
+  const changeId = safeStr(row?.change_id).trim();
 
   // change_events
   try {
@@ -66,6 +82,34 @@ async function bestEffortEvent(supabase: any, row: any, userId: string, newStatu
   }
 }
 
+/**
+ * ✅ Harden: ensure approver is still a member of the org that owns this project.
+ * (Best-effort, but blocks if clearly not a member.)
+ */
+async function requireOrgMemberForProject(supabase: any, projectId: string, userId: string) {
+  if (!projectId) return;
+
+  const { data: proj, error: pErr } = await supabase
+    .from("projects")
+    .select("organisation_id")
+    .eq("id", projectId)
+    .maybeSingle();
+
+  if (pErr) throw new Error(pErr.message);
+  const orgId = safeStr((proj as any)?.organisation_id).trim();
+  if (!orgId) return;
+
+  const { data: mem, error: mErr } = await supabase
+    .from("organisation_members")
+    .select("user_id")
+    .eq("organisation_id", orgId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (mErr) throw new Error(mErr.message);
+  if (!mem) throw new Error("Forbidden");
+}
+
 export async function POST(req: Request) {
   try {
     const supabase = await createClient();
@@ -83,7 +127,8 @@ export async function POST(req: Request) {
     const comment = safeStr(body?.comment).trim();
 
     if (!isUuid(approval_task_id)) return jsonErr("Invalid approval_task_id", 400);
-    if (decisionRaw !== "approve" && decisionRaw !== "reject") return jsonErr("Invalid decision", 400);
+    if (decisionRaw !== "approve" && decisionRaw !== "reject")
+      return jsonErr("Invalid decision", 400);
 
     const decidedAt = new Date().toISOString();
     const newStatus = decisionRaw === "approve" ? "approved" : "rejected";
@@ -106,23 +151,31 @@ export async function POST(req: Request) {
     if (upErr) return jsonErr(upErr.message || "Decision failed", 400);
     if (!updated) return jsonErr("Approval not found or already decided", 404);
 
-    // audit (best effort)
-    await bestEffortEvent(supabase, updated, user.id, newStatus, comment);
-
     const changeId = safeStr((updated as any).change_id).trim();
     const projectId = safeStr((updated as any).project_id).trim();
 
+    // ✅ Harden membership boundary
+    try {
+      await requireOrgMemberForProject(supabase, projectId, user.id);
+    } catch (e: any) {
+      const msg = String(e?.message || e || "Forbidden");
+      if (msg.toLowerCase().includes("forbidden")) return jsonErr("Forbidden", 403);
+      return jsonErr(msg, 400);
+    }
+
+    // audit (best effort)
+    await bestEffortEvent(supabase, updated, user.id, newStatus, comment);
+
+    // If we can't compute aggregates safely, still return success for the decision itself.
+    if (!changeId) return jsonOk({ updated, decision: newStatus, aggregateUpdated: false });
+
     // 2) Recompute overall approval state for the change
-    //    - any rejected => rejected
-    //    - none pending and at least 1 approved => approved
-    //    - else => still in review/submitted
     const { data: approvals, error: aErr } = await supabase
       .from("change_approvals")
       .select("status")
       .eq("change_id", changeId);
 
     if (aErr) {
-      // Even if this fails, the decision itself succeeded.
       return jsonOk({ updated, decision: newStatus, aggregateUpdated: false });
     }
 
@@ -132,21 +185,12 @@ export async function POST(req: Request) {
     const anyApproved = statuses.includes("approved");
 
     let desiredDecision: DecisionStatus | null = null;
-    let desiredLane: string | null = null;
 
-    if (anyRejected) {
-      desiredDecision = "rejected";
-      desiredLane = "analysis"; // bounce back for rework
-    } else if (!anyPending && anyApproved) {
-      desiredDecision = "approved";
-      desiredLane = "in_progress"; // auto-move as per your PATCH approve action
-    } else {
-      // still waiting on others
-      desiredDecision = "review";
-      desiredLane = null; // keep whatever lane is currently on the change (usually review)
-    }
+    if (anyRejected) desiredDecision = "rejected";
+    else if (!anyPending && anyApproved) desiredDecision = "approved";
+    else desiredDecision = "review";
 
-    // 3) Apply aggregate result to change_requests (best effort, but usually should succeed)
+    // 3) Apply aggregate result to change_requests
     let aggregateUpdated = false;
 
     if (desiredDecision) {
@@ -158,13 +202,13 @@ export async function POST(req: Request) {
         updated_at: decidedAt,
       };
 
-      // Only force lane when final
       if (desiredDecision === "approved") {
         patch.delivery_status = "in_progress";
         patch.status = "in_progress";
         patch.approval_date = decidedAt;
         patch.approver_id = user.id;
       }
+
       if (desiredDecision === "rejected") {
         patch.delivery_status = "analysis";
         patch.status = "analysis";
@@ -172,17 +216,21 @@ export async function POST(req: Request) {
       }
 
       const { error: crErr } = await supabase.from("change_requests").update(patch).eq("id", changeId);
-
       if (!crErr) aggregateUpdated = true;
 
-      // timeline event for the change outcome (best effort)
+      // timeline event for final outcome (best effort)
       try {
-        if (aggregateUpdated && projectId && changeId && (desiredDecision === "approved" || desiredDecision === "rejected")) {
+        if (
+          aggregateUpdated &&
+          projectId &&
+          changeId &&
+          (desiredDecision === "approved" || desiredDecision === "rejected")
+        ) {
           await supabase.from("change_events").insert({
             project_id: projectId,
             change_id: changeId,
             event_type: "status_changed",
-            from_status: desiredDecision === "approved" ? "review" : "review",
+            from_status: "review",
             to_status: desiredDecision === "approved" ? "in_progress" : "analysis",
             actor_user_id: user.id,
             actor_role: safeStr((updated as any)?.approval_role) || null,
@@ -195,7 +243,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // 4) Return
     return jsonOk({
       decision: newStatus,
       updated,

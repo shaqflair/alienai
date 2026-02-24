@@ -1,7 +1,14 @@
+// src/app/api/approvals/groups/members/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
-import { sb, requireAuth, requireOrgAdmin, requireOrgMember, safeStr } from "@/lib/approvals/admin-helpers";
+import {
+  sb,
+  requireAuth,
+  requireOrgMember,
+  requireApprovalsWriter,
+  safeStr,
+} from "@/lib/approvals/admin-helpers";
 
 export const runtime = "nodejs";
 
@@ -11,16 +18,6 @@ function ok(data: any, status = 200) {
 function err(msg: string, status = 400) {
   return NextResponse.json({ ok: false, error: msg }, { status });
 }
-
-/**
- * For now we only support org approvals for:
- * - project_charter
- * - change
- * - project_closure_report
- *
- * NOTE: membership operations are group-scoped and do not create rules,
- * but we still keep the route strict + safe.
- */
 
 export async function GET(req: Request) {
   try {
@@ -50,10 +47,13 @@ export async function GET(req: Request) {
 
     if (error) throw new Error(error.message);
 
-    const userIds = Array.from(new Set((rows ?? []).map((r: any) => safeStr(r.user_id)).filter(Boolean)));
-    const approverIds = Array.from(new Set((rows ?? []).map((r: any) => safeStr(r.approver_id)).filter(Boolean)));
+    const userIds = Array.from(
+      new Set((rows ?? []).map((r: any) => safeStr(r.user_id)).filter(Boolean))
+    );
+    const approverIds = Array.from(
+      new Set((rows ?? []).map((r: any) => safeStr(r.approver_id)).filter(Boolean))
+    );
 
-    // profiles (for direct user_id memberships)
     let profiles: any[] = [];
     if (userIds.length) {
       const { data: pData, error: pErr } = await supabase
@@ -62,9 +62,10 @@ export async function GET(req: Request) {
         .in("user_id", userIds);
       if (!pErr) profiles = pData ?? [];
     }
-    const profileByUser = new Map<string, any>((profiles ?? []).map((p: any) => [safeStr(p.user_id), p]));
+    const profileByUser = new Map<string, any>(
+      (profiles ?? []).map((p: any) => [safeStr(p.user_id), p])
+    );
 
-    // organisation_approvers (for approver_id memberships)
     let approvers: any[] = [];
     if (approverIds.length) {
       const { data: aData, error: aErr } = await supabase
@@ -73,13 +74,14 @@ export async function GET(req: Request) {
         .in("id", approverIds);
       if (!aErr) approvers = aData ?? [];
     }
-    const approverById = new Map<string, any>((approvers ?? []).map((a: any) => [safeStr(a.id), a]));
+    const approverById = new Map<string, any>(
+      (approvers ?? []).map((a: any) => [safeStr(a.id), a])
+    );
 
     const members = (rows ?? []).map((r: any) => {
       const uid = safeStr(r.user_id);
       const aid = safeStr(r.approver_id);
 
-      // Preferred membership: via organisation_approvers
       if (aid) {
         const a = approverById.get(aid);
         const email = safeStr(a?.email).trim();
@@ -89,7 +91,7 @@ export async function GET(req: Request) {
 
         return {
           approver_id: aid,
-          user_id: safeStr(a?.user_id) || null, // linked auth user id (may be null if not linked)
+          user_id: safeStr(a?.user_id) || null,
           email: email || null,
           name: name || null,
           approver_role: role || null,
@@ -99,7 +101,6 @@ export async function GET(req: Request) {
         };
       }
 
-      // Legacy membership: direct user_id
       const p = profileByUser.get(uid);
       const email = safeStr(p?.email).trim();
       const name = safeStr(p?.full_name).trim();
@@ -117,14 +118,13 @@ export async function GET(req: Request) {
     });
 
     members.sort((a: any, b: any) =>
-      String(a.label || "").toLowerCase().localeCompare(String(b.label || "").toLowerCase())
+      String(a.label || "")
+        .toLowerCase()
+        .localeCompare(String(b.label || "").toLowerCase())
     );
 
     return ok({ members });
   } catch (e: any) {
-    // ✅ IMPORTANT FIX:
-    // Never do `ok(...) && err(...)` (it will always return err()).
-    // Keep UI stable: return ok with empty list and include error message.
     const msg = String(e?.message || e || "Error");
     return NextResponse.json({ ok: true, members: [], error: msg }, { status: 200 });
   }
@@ -145,7 +145,8 @@ export async function POST(req: Request) {
     if (!groupId) return err("Missing groupId", 400);
     if (!approverId && !userId) return err("Missing approverId or userId", 400);
 
-    await requireOrgAdmin(supabase, orgId, user.id);
+    // ✅ Write = PLATFORM ADMIN ONLY (enterprise mode B)
+    await requireApprovalsWriter(supabase, orgId, user.id);
 
     const { data: group, error: gErr } = await supabase
       .from("approval_groups")
@@ -177,7 +178,12 @@ export async function POST(req: Request) {
     if (approverId) row.approver_id = approverId;
     else row.user_id = userId;
 
-    const { data, error } = await supabase.from("approval_group_members").insert(row).select("*").single();
+    const { data, error } = await supabase
+      .from("approval_group_members")
+      .insert(row)
+      .select("*")
+      .single();
+
     if (error) throw new Error(error.message);
 
     return ok({ member: data }, 201);
@@ -215,7 +221,9 @@ export async function DELETE(req: Request) {
     if (!group) return err("Group not found", 404);
 
     const orgId = safeStr((group as any).organisation_id).trim();
-    await requireOrgAdmin(supabase, orgId, user.id);
+
+    // ✅ Write = PLATFORM ADMIN ONLY (enterprise mode B)
+    await requireApprovalsWriter(supabase, orgId, user.id);
 
     let q = supabase.from("approval_group_members").delete().eq("group_id", groupId);
     q = approverId ? q.eq("approver_id", approverId) : q.eq("user_id", userId);

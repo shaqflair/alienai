@@ -1,3 +1,4 @@
+//src/app/api/approvals/inbox/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
