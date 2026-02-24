@@ -3,6 +3,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import GovernanceIntelligence from "@/components/executive/GovernanceIntelligence";
 import { Button } from "@/components/ui/button";
 import { LazyMotion, domAnimation, m, AnimatePresence } from "framer-motion";
 import {
@@ -2238,6 +2239,11 @@ export default function HomePage({ data }: { data: HomeData }) {
                   }
                   delay={0.15}
                 />
+              </div>
+
+              {/* ── Governance Intelligence (Phase 2B) ── */}
+              <div className="mb-10">
+                <GovernanceIntelligence days={numericWindowDays} />
               </div>
 
               {/* ── Bottom Section ── */}
