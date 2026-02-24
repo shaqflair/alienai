@@ -1,13 +1,8 @@
-﻿"use client";
+﻿//src components/executive/GovernanceIntelligence.tsx
+"use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  ShieldCheck,
-  Users,
-  Layers,
-  ArrowUpRight,
-} from "lucide-react";
+import { AlertTriangle, ShieldCheck, Users, Layers, ArrowUpRight } from "lucide-react";
 
 type Rag = "G" | "A" | "R";
 
@@ -15,9 +10,8 @@ type PendingApprovalsResp =
   | { ok: false; error: string }
   | {
       ok: true;
-      scope: "org_exec" | "project_member";
+      scope: "org" | "member";
       orgId?: string;
-      radar: { overdue: number; warn: number; ok: number };
       items: any[];
     };
 
@@ -131,18 +125,20 @@ function toDaysFromAgeHours(ageHours: any) {
 }
 
 function pickApproverLabel(item: any) {
-  return (
-    safeStr(item?.pending_email) ||
-    safeStr(item?.approver_ref) ||
-    safeStr(item?.pending_user_id) ||
-    "—"
-  );
+  return safeStr(item?.pending_email) || safeStr(item?.approver_ref) || safeStr(item?.pending_user_id) || "—";
 }
 
 function deriveRag(overdue: number, warn: number): Rag {
   if (overdue > 0) return "R";
   if (warn > 0) return "A";
   return "G";
+}
+
+function pickSlaState(item: any): "ok" | "warn" | "overdue" {
+  const s = safeStr(item?.sla_state || item?.state || item?.rag || "").toLowerCase().trim();
+  if (s === "overdue" || s === "breached" || s === "r") return "overdue";
+  if (s === "warn" || s === "at_risk" || s === "a") return "warn";
+  return "ok";
 }
 
 export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 30 | 60 }) {
@@ -155,9 +151,13 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
 
     (async () => {
       try {
-        // ✅ single source of truth; endpoint auto-resolves orgId
+        // Single source of truth; endpoint auto-resolves orgId (single-org mode)
         const json = (await fetch(`/api/ai/pending-approvals?limit=200`, {
           cache: "no-store",
+          headers: {
+            "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+            Pragma: "no-cache",
+          },
         }).then((r) => r.json())) as PendingApprovalsResp;
 
         if (cancelled) return;
@@ -174,20 +174,32 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
   }, [days]);
 
   const items = useMemo(() => {
-    if (!resp || !(resp as any).ok) return [];
+    if (!resp || (resp as any).ok === false) return [];
     return ((resp as any).items || []) as any[];
   }, [resp]);
 
   const counts = useMemo(() => {
-    if (!resp || !(resp as any).ok) return { pending: 0, at_risk: 0, breached: 0, waiting: 0 };
-    const r = (resp as any).radar || { overdue: 0, warn: 0, ok: 0 };
+    // Derive from items to avoid coupling to a specific response shape
+    if (!resp || (resp as any).ok === false) return { pending: 0, at_risk: 0, breached: 0, waiting: 0 };
+
+    let ok = 0;
+    let warn = 0;
+    let overdue = 0;
+
+    for (const it of items) {
+      const st = pickSlaState(it);
+      if (st === "overdue") overdue += 1;
+      else if (st === "warn") warn += 1;
+      else ok += 1;
+    }
+
     return {
-      waiting: safeNum(r.ok),
-      at_risk: safeNum(r.warn),
-      breached: safeNum(r.overdue),
-      pending: safeNum(r.ok) + safeNum(r.warn) + safeNum(r.overdue),
+      waiting: ok,
+      at_risk: warn,
+      breached: overdue,
+      pending: ok + warn + overdue,
     };
-  }, [resp]);
+  }, [resp, items]);
 
   const projects: UiProject[] = useMemo(() => {
     const map = new Map<string, UiProject>();
@@ -196,7 +208,7 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
       const pid = safeStr(it?.project_id);
       if (!pid) continue;
 
-      const state = safeStr(it?.sla_state); // 'ok' | 'warn' | 'overdue'
+      const state = pickSlaState(it);
       const ageDays = toDaysFromAgeHours(it?.age_hours);
 
       let p = map.get(pid);
@@ -219,10 +231,8 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
       else if (state === "warn") p.counts.warn += 1;
       else p.counts.ok += 1;
 
-      // prefer worst case for the project tile
       p.days_waiting = Math.max(p.days_waiting, ageDays);
 
-      // keep a stable label if already set; otherwise fill
       if (!p.approver_label || p.approver_label === "—") {
         p.approver_label = pickApproverLabel(it);
       }
@@ -236,7 +246,6 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
       rag: deriveRag(p.counts.overdue, p.counts.warn),
     }));
 
-    // order: worst first, then most waiting
     list.sort((a, b) => {
       const aw = a.counts.overdue > 0 ? 2 : a.counts.warn > 0 ? 1 : 0;
       const bw = b.counts.overdue > 0 ? 2 : b.counts.warn > 0 ? 1 : 0;
@@ -248,7 +257,10 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
   }, [items]);
 
   const bottlenecks: UiBottleneck[] = useMemo(() => {
-    const map = new Map<string, { kind: UiBottleneck["kind"]; label: string; ages: number[]; projects: Set<string>; count: number }>();
+    const map = new Map<
+      string,
+      { kind: UiBottleneck["kind"]; label: string; ages: number[]; projects: Set<string>; count: number }
+    >();
 
     for (const it of items) {
       const label = pickApproverLabel(it);
@@ -283,7 +295,6 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
       };
     });
 
-    // sort by worst congestion: count desc then max wait desc
     out.sort((a, b) => {
       if (b.pending_count !== a.pending_count) return b.pending_count - a.pending_count;
       return b.max_wait_days - a.max_wait_days;
@@ -332,8 +343,7 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
                 className="rounded-2xl border border-slate-200/70 bg-white/60 p-4 hover:bg-white/85 transition-all"
                 style={{
                   backdropFilter: "blur(10px)",
-                  boxShadow:
-                    "0 1px 3px rgba(0,0,0,0.04), 0 1px 0 rgba(255,255,255,0.9) inset",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 1px 0 rgba(255,255,255,0.9) inset",
                 }}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -361,19 +371,13 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
                     <div className="mt-1 text-xs text-slate-500">
                       <span className="font-semibold text-slate-700">{x.stage || "Approval"}</span>{" "}
                       · <span className="text-slate-400 text-[10px]">by</span>{" "}
-                      <span className="font-semibold text-slate-600">
-                        {x.approver_label || "—"}
-                      </span>
+                      <span className="font-semibold text-slate-600">{x.approver_label || "—"}</span>
                     </div>
                   </div>
 
                   <div className="shrink-0 text-right">
-                    <div className="text-[11px] font-bold text-slate-700">
-                      {x.days_waiting}d
-                    </div>
-                    <div className="text-[10px] text-slate-400 uppercase font-medium">
-                      wait
-                    </div>
+                    <div className="text-[11px] font-bold text-slate-700">{x.days_waiting}d</div>
+                    <div className="text-[10px] text-slate-400 uppercase font-medium">wait</div>
                   </div>
                 </div>
               </div>
@@ -399,8 +403,7 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
                 className="rounded-2xl border border-slate-200/70 bg-white/60 px-4 py-3"
                 style={{
                   backdropFilter: "blur(10px)",
-                  boxShadow:
-                    "0 1px 3px rgba(0,0,0,0.04), 0 1px 0 rgba(255,255,255,0.9) inset",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 1px 0 rgba(255,255,255,0.9) inset",
                 }}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -414,9 +417,7 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
                         )}
                       </span>
                       <div className="min-w-0">
-                        <div className="font-bold text-slate-900 truncate leading-tight">
-                          {x.label}
-                        </div>
+                        <div className="font-bold text-slate-900 truncate leading-tight">{x.label}</div>
                         <div className="text-[10px] text-slate-400 font-medium">
                           {x.pending_count} items · {x.projects_affected} projects
                         </div>
@@ -425,12 +426,8 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
                   </div>
 
                   <div className="shrink-0 text-right">
-                    <div className="text-[11px] font-bold text-indigo-600">
-                      {x.avg_wait_days}d
-                    </div>
-                    <div className="text-[10px] text-slate-400 uppercase font-medium">
-                      avg
-                    </div>
+                    <div className="text-[11px] font-bold text-indigo-600">{x.avg_wait_days}d</div>
+                    <div className="text-[10px] text-slate-400 uppercase font-medium">avg</div>
                   </div>
                 </div>
               </div>
@@ -439,12 +436,8 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
             {!bottlenecks.length && !loading ? (
               <div className="rounded-2xl border border-dashed border-slate-200 bg-white/40 px-4 py-8 text-center">
                 <AlertTriangle className="h-7 w-7 text-slate-300 mx-auto mb-2" />
-                <div className="text-sm font-semibold text-slate-600">
-                  No congestion
-                </div>
-                <div className="text-[10px] text-slate-400 mt-1 uppercase">
-                  Approvals flow optimized
-                </div>
+                <div className="text-sm font-semibold text-slate-600">No congestion</div>
+                <div className="text-[10px] text-slate-400 mt-1 uppercase">Approvals flow optimized</div>
               </div>
             ) : null}
 

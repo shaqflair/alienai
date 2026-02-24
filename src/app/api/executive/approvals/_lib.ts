@@ -1,4 +1,5 @@
-﻿import "server-only";
+﻿// src/app/api/executive/approvals/_lib.ts
+import "server-only";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
@@ -18,19 +19,26 @@ export async function requireUser(supabase: any) {
   return data.user;
 }
 
+/**
+ * SINGLE-ORG MODE
+ * Resolve org from profiles.active_organisation_id.
+ * Kept name orgIdsForUser() for backwards compatibility with existing endpoints.
+ */
 export async function orgIdsForUser(userId: string) {
   const supabase = await createClient();
+
   const { data, error } = await supabase
-    .from("organisation_members")
-    .select("organisation_id")
-    .eq("user_id", userId);
+    .from("profiles")
+    .select("active_organisation_id")
+    .eq("user_id", userId)
+    .maybeSingle();
 
   if (error) throw new Error(error.message);
-  const ids = (data || [])
-    .map((r: any) => safeStr(r?.organisation_id).trim())
-    .filter(Boolean);
 
-  return Array.from(new Set(ids));
+  const orgId = safeStr(data?.active_organisation_id).trim();
+  if (!orgId) return [];
+
+  return [orgId];
 }
 
 export function clampDays(v: string | null): 7 | 14 | 30 | 60 {
@@ -45,7 +53,9 @@ export function riskState(nowMs: number, slaDueIso?: string | null) {
   if (!s) return { state: "ok" as const, rag: "G" as const, hoursToBreach: null as number | null };
 
   const due = new Date(s).getTime();
-  if (!Number.isFinite(due)) return { state: "ok" as const, rag: "G" as const, hoursToBreach: null as number | null };
+  if (!Number.isFinite(due)) {
+    return { state: "ok" as const, rag: "G" as const, hoursToBreach: null as number | null };
+  }
 
   const diffHrs = Math.round((due - nowMs) / 36e5);
 

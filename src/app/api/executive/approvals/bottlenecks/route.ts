@@ -1,4 +1,5 @@
-﻿import "server-only";
+﻿// src/app/api/executive/approvals/bottlenecks/route.ts
+import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { clampDays, orgIdsForUser, requireUser, safeStr, num } from "../_lib";
@@ -9,12 +10,16 @@ export const revalidate = 0;
 
 function jsonOk(data: any, status = 200) {
   const res = NextResponse.json({ ok: true, ...data }, { status });
-  res.headers.set("Cache-Control", "no-store");
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
   return res;
 }
 function jsonErr(error: string, status = 400, meta?: any) {
   const res = NextResponse.json({ ok: false, error, meta }, { status });
-  res.headers.set("Cache-Control", "no-store");
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
   return res;
 }
 
@@ -26,21 +31,32 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const days = clampDays(url.searchParams.get("days"));
 
+    // Single-org mode: orgIdsForUser returns [profiles.active_organisation_id] (or [])
     const orgIds = await orgIdsForUser(user.id);
     if (!orgIds.length) return jsonOk({ days, items: [] });
 
-    // Prefer exec_approval_bottlenecks if it exists + has rows
-    const { data: cached } = await supabase
+    const orgId = safeStr(orgIds[0]).trim();
+    if (!orgId) return jsonOk({ days, items: [] });
+
+    // Prefer exec_approval_bottlenecks cache if present + has rows
+    const { data: cached, error: cachedErr } = await supabase
       .from("exec_approval_bottlenecks")
       .select("*")
-      .in("org_id", orgIds)
+      .eq("org_id", orgId)
       .limit(200);
 
-    if (Array.isArray(cached) && cached.length) {
+    // If table missing, Supabase returns an error. We treat that as "no cache available".
+    if (!cachedErr && Array.isArray(cached) && cached.length) {
       const items = cached
         .map((r: any) => ({
           kind: safeStr(r?.kind || r?.approver_kind || "group"),
-          label: safeStr(r?.label || r?.approver_label || r?.group_name || r?.user_name || "Unknown"),
+          label: safeStr(
+            r?.label ||
+              r?.approver_label ||
+              r?.group_name ||
+              r?.user_name ||
+              "Unknown"
+          ),
           pending_count: num(r?.pending_count ?? r?.count),
           projects_affected: num(r?.projects_affected ?? r?.project_count),
           avg_wait_days: num(r?.avg_wait_days ?? r?.avg_days ?? r?.avg_wait),
@@ -49,17 +65,18 @@ export async function GET(req: Request) {
         .sort((a, b) => b.pending_count - a.pending_count)
         .slice(0, 25);
 
-      return jsonOk({ days, source: "cache", items });
+      return jsonOk({ days, orgId, source: "cache", items });
     }
 
-    // Fallback: compute from v_pending_artifact_approvals
-    const { data: rows } = await supabase
+    // Fallback: compute from v_pending_artifact_approvals (org-scoped)
+    const { data: rows, error: rowsErr } = await supabase
       .from("v_pending_artifact_approvals")
       .select("*")
-      .in("org_id", orgIds)
+      .eq("org_id", orgId)
       .limit(5000);
 
-    const list = Array.isArray(rows) ? rows : [];
+    // If view missing, return empty rather than hard-fail (prevents cockpit blanking)
+    const list = !rowsErr && Array.isArray(rows) ? rows : [];
     const by = new Map<string, any>();
 
     for (const r of list) {
@@ -108,7 +125,7 @@ export async function GET(req: Request) {
       .sort((a, b) => b.pending_count - a.pending_count)
       .slice(0, 25);
 
-    return jsonOk({ days, source: "live", items });
+    return jsonOk({ days, orgId, source: "live", items });
   } catch (e: any) {
     return jsonErr(e?.message || "Failed", 500);
   }
