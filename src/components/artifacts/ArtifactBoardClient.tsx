@@ -179,7 +179,20 @@ function canonType(x: any): string {
   if (!raw) return "";
   const t = raw.replace(/\s+/g, " ").replace(/[\/]+/g, " / ").replace(/[_-]+/g, "_").trim();
 
-  if (["weekly_report", "weekly report", "weekly_status", "weekly status", "weekly_update", "weekly update", "delivery_report", "delivery report", "status_report", "status report"].includes(t))
+  if (
+    [
+      "weekly_report",
+      "weekly report",
+      "weekly_status",
+      "weekly status",
+      "weekly_update",
+      "weekly update",
+      "delivery_report",
+      "delivery report",
+      "status_report",
+      "status report",
+    ].includes(t)
+  )
     return "WEEKLY_REPORT";
   if (t === "status_dashboard" || t === "status dashboard") return "PROJECT_CLOSURE_REPORT";
   if (t.includes("charter") || t === "pid") return "PROJECT_CHARTER";
@@ -195,12 +208,22 @@ function canonType(x: any): string {
 
 function phaseForCanonType(typeKey: string): Phase {
   switch (typeKey) {
-    case "PROJECT_CHARTER": return "Initiating";
-    case "STAKEHOLDER_REGISTER": case "WBS": case "SCHEDULE": return "Planning";
-    case "WEEKLY_REPORT": return "Executing";
-    case "RAID": case "CHANGE_REQUESTS": return "Monitoring & Controlling";
-    case "LESSONS_LEARNED": case "PROJECT_CLOSURE_REPORT": return "Closing";
-    default: return "Planning";
+    case "PROJECT_CHARTER":
+      return "Initiating";
+    case "STAKEHOLDER_REGISTER":
+    case "WBS":
+    case "SCHEDULE":
+      return "Planning";
+    case "WEEKLY_REPORT":
+      return "Executing";
+    case "RAID":
+    case "CHANGE_REQUESTS":
+      return "Monitoring & Controlling";
+    case "LESSONS_LEARNED":
+    case "PROJECT_CLOSURE_REPORT":
+      return "Closing";
+    default:
+      return "Planning";
   }
 }
 
@@ -239,16 +262,50 @@ function applyCurrentFallback(rows: ArtifactBoardRow[]) {
 }
 
 /* =========================================================
+   Virtual/module rows (Change/RAID)
+========================================================= */
+
+function rowTypeKey(row: ArtifactBoardRow) {
+  return safeStr(row.typeKey || canonType(row.artifactType) || row.artifactType).trim().toUpperCase();
+}
+
+function isVirtualRow(row: ArtifactBoardRow) {
+  const id = safeStr(row.id).trim();
+  // virtual ids like "__change__" OR anything that isn't a UUID
+  return id.startsWith("__") || !looksLikeUuid(id);
+}
+
+function rowHref(projectRef: string, projectUuid: string, row: ArtifactBoardRow) {
+  const tk = rowTypeKey(row);
+  if (tk === "CHANGE_REQUESTS" || tk === "CHANGE" || tk === "CHANGE_REQUEST") return `/projects/${projectRef}/change`;
+  if (tk === "RAID" || tk === "RAID_LOG") return `/projects/${projectRef}/raid`;
+  // default: artifact detail
+  const id = safeStr(row.id).trim();
+  return `/projects/${projectRef}/artifacts/${id}`;
+}
+
+function rowOpensArtifactDetail(row: ArtifactBoardRow) {
+  // if it's a module row, it doesn't open /artifacts/:id
+  const tk = rowTypeKey(row);
+  if (tk === "CHANGE_REQUESTS" || tk === "CHANGE" || tk === "CHANGE_REQUEST") return false;
+  if (tk === "RAID" || tk === "RAID_LOG") return false;
+  return true;
+}
+
+/* =========================================================
    Phase & Status Config
 ========================================================= */
 
-const PHASE_CONFIG: Record<Phase, {
-  icon: React.ElementType;
-  color: string;
-  bg: string;
-  label: string;
-  order: number;
-}> = {
+const PHASE_CONFIG: Record<
+  Phase,
+  {
+    icon: React.ElementType;
+    color: string;
+    bg: string;
+    label: string;
+    order: number;
+  }
+> = {
   Initiating: { icon: Target, color: "#D97706", bg: "#FFFBEB", label: "Initiate", order: 0 },
   Planning: { icon: GitBranch, color: "#2563EB", bg: "#EFF6FF", label: "Plan", order: 1 },
   Executing: { icon: Zap, color: "#7C3AED", bg: "#F5F3FF", label: "Execute", order: 2 },
@@ -292,10 +349,7 @@ function ProgressBar({ value, color }: { value: number; color: string }) {
 function StatusBadge({ status }: { status: UiStatus }) {
   const s = STATUS_STYLES[status];
   return (
-    <span
-      className="inline-flex items-center gap-1.5 px-2 py-[3px] rounded-md text-[12px] font-medium"
-      style={{ color: s.color, background: s.bg }}
-    >
+    <span className="inline-flex items-center gap-1.5 px-2 py-[3px] rounded-md text-[12px] font-medium" style={{ color: s.color, background: s.bg }}>
       <span className="w-[6px] h-[6px] rounded-full" style={{ background: s.dot }} />
       {status}
     </span>
@@ -306,10 +360,7 @@ function PhaseBadge({ phase }: { phase: Phase }) {
   const cfg = PHASE_CONFIG[phase];
   const Icon = cfg.icon;
   return (
-    <span
-      className="inline-flex items-center gap-1.5 px-2 py-[3px] rounded-md text-[12px] font-medium"
-      style={{ color: cfg.color, background: cfg.bg }}
-    >
+    <span className="inline-flex items-center gap-1.5 px-2 py-[3px] rounded-md text-[12px] font-medium" style={{ color: cfg.color, background: cfg.bg }}>
       <Icon className="h-3 w-3" />
       {cfg.label}
     </span>
@@ -339,10 +390,7 @@ function AvatarChip({ email, name }: { email: string; name?: string }) {
 
 function TagPill({ children, color, bg }: { children: React.ReactNode; color: string; bg: string }) {
   return (
-    <span
-      className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded text-[10px] font-semibold uppercase tracking-wide"
-      style={{ color, background: bg }}
-    >
+    <span className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded text-[10px] font-semibold uppercase tracking-wide" style={{ color, background: bg }}>
       {children}
     </span>
   );
@@ -356,6 +404,7 @@ const COL_TEMPLATE = "minmax(260px, 2fr) 180px 140px 130px 120px 100px";
 
 function ArtifactTableRow({
   row,
+  projectRef,
   projectUuid,
   onOpen,
   onMakeCurrent,
@@ -366,8 +415,9 @@ function ArtifactTableRow({
   deletingId,
 }: {
   row: ArtifactBoardRow;
+  projectRef: string;
   projectUuid: string;
-  onOpen: (id: string) => void;
+  onOpen: (row: ArtifactBoardRow) => void;
   onMakeCurrent: (id: string) => void;
   makingCurrentId: string;
   onClone: (id: string) => void;
@@ -379,17 +429,27 @@ function ArtifactTableRow({
   const isMaking = makingCurrentId === row.id;
   const isCloning = cloningId === row.id;
   const isDeleting = deletingId === row.id;
+
+  const virtual = isVirtualRow(row);
+  const opensArtifact = rowOpensArtifactDetail(row);
+
   const canDelete =
+    !virtual &&
     row.canDeleteDraft !== false &&
     row.status === "Draft" &&
     !row.isBaseline &&
     !row.isLocked &&
     !row.deletedAt;
+
+  const canClone = !virtual;
+  const canMakeCurrent = !virtual && opensArtifact;
+
   const phaseCfg = PHASE_CONFIG[row.phase];
+  const openHref = rowHref(projectRef, projectUuid, row);
 
   return (
     <div
-      onClick={() => onOpen(row.id)}
+      onClick={() => onOpen(row)}
       className="notion-row group relative grid items-center cursor-pointer"
       style={{
         gridTemplateColumns: COL_TEMPLATE,
@@ -402,14 +462,22 @@ function ArtifactTableRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="text-[13px] font-medium text-[#111827] truncate">{row.title || row.artifactType}</span>
+
             {isCurrent && (
               <TagPill color="#059669" bg="#ECFDF5">
                 <CheckCircle2 className="h-2.5 w-2.5" /> live
               </TagPill>
             )}
+
             {row.isBaseline && (
               <TagPill color="#6B7280" bg="#F3F4F6">
                 <Shield className="h-2.5 w-2.5" /> baseline
+              </TagPill>
+            )}
+
+            {virtual && (
+              <TagPill color="#6B7280" bg="#F3F4F6">
+                module
               </TagPill>
             )}
           </div>
@@ -442,27 +510,40 @@ function ArtifactTableRow({
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
           {!isCurrent && (
             <button
-              onClick={(e) => { e.stopPropagation(); onMakeCurrent(row.id); }}
-              disabled={isMaking || !projectUuid || !looksLikeUuid(projectUuid)}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!canMakeCurrent) return;
+                onMakeCurrent(row.id);
+              }}
+              disabled={isMaking || !canMakeCurrent || !projectUuid || !looksLikeUuid(projectUuid)}
               className="p-1 rounded hover:bg-emerald-50 transition-colors disabled:opacity-30"
               style={{ color: "#059669" }}
-              title="Set as current"
+              title={canMakeCurrent ? "Set as current" : "Not available for modules"}
             >
               {isMaking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
             </button>
           )}
+
           <button
-            onClick={(e) => { e.stopPropagation(); onClone(row.id); }}
-            disabled={isCloning || !projectUuid || !looksLikeUuid(projectUuid)}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!canClone) return;
+              onClone(row.id);
+            }}
+            disabled={isCloning || !canClone || !projectUuid || !looksLikeUuid(projectUuid)}
             className="p-1 rounded hover:bg-blue-50 transition-colors disabled:opacity-30"
             style={{ color: "#2563EB" }}
-            title="Clone"
+            title={canClone ? "Clone" : "Not available for modules"}
           >
             {isCloning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
+
           {canDelete && (
             <button
-              onClick={(e) => { e.stopPropagation(); onDelete(row.id); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(row.id);
+              }}
               disabled={isDeleting || !projectUuid || !looksLikeUuid(projectUuid)}
               className="p-1 rounded hover:bg-red-50 transition-colors disabled:opacity-30"
               style={{ color: "#DC2626" }}
@@ -471,14 +552,16 @@ function ArtifactTableRow({
               <Trash2 className="h-3.5 w-3.5" />
             </button>
           )}
-          <button
-            onClick={(e) => { e.stopPropagation(); onOpen(row.id); }}
+
+          <Link
+            href={openHref}
+            onClick={(e) => e.stopPropagation()}
             className="p-1 rounded hover:bg-gray-100 transition-colors"
             style={{ color: "#6B7280" }}
             title="Open"
           >
             <ArrowUpRight className="h-3.5 w-3.5" />
-          </button>
+          </Link>
         </div>
       </div>
     </div>
@@ -527,10 +610,7 @@ function InlineFilterBar({
     <div className="mb-1">
       {/* Search row */}
       <div className="flex items-center gap-2 px-1 py-2">
-        <div
-          className="flex items-center gap-2 flex-1 px-3 py-[7px] rounded-lg border transition-colors"
-          style={{ borderColor: "#E5E7EB", background: "#FAFAFA" }}
-        >
+        <div className="flex items-center gap-2 flex-1 px-3 py-[7px] rounded-lg border transition-colors" style={{ borderColor: "#E5E7EB", background: "#FAFAFA" }}>
           <Search className="h-4 w-4 text-[#9CA3AF] shrink-0" />
           <input
             ref={inputRef}
@@ -631,10 +711,7 @@ function InlineFilterBar({
           {activeCount > 0 && (
             <>
               <div className="w-px h-5 bg-[#E5E7EB]" />
-              <button
-                onClick={clearAll}
-                className="text-[12px] font-medium text-[#9CA3AF] hover:text-[#6B7280] transition-colors"
-              >
+              <button onClick={clearAll} className="text-[12px] font-medium text-[#9CA3AF] hover:text-[#6B7280] transition-colors">
                 Clear all
               </button>
             </>
@@ -661,11 +738,23 @@ function StatsRow({ rows }: { rows: ArtifactBoardRow[] }) {
 
   return (
     <div className="flex items-center gap-5 text-[12px] text-[#9CA3AF]">
-      <span><b className="text-[#374151] font-semibold">{stats.total}</b> total</span>
-      <span><b className="text-emerald-600 font-semibold">{stats.approved}</b> approved</span>
-      <span><b className="text-blue-600 font-semibold">{stats.inReview}</b> in review</span>
-      {stats.blocked > 0 && <span><b className="text-red-600 font-semibold">{stats.blocked}</b> blocked</span>}
-      <span><b className="text-violet-600 font-semibold">{stats.avgProgress}%</b> avg progress</span>
+      <span>
+        <b className="text-[#374151] font-semibold">{stats.total}</b> total
+      </span>
+      <span>
+        <b className="text-emerald-600 font-semibold">{stats.approved}</b> approved
+      </span>
+      <span>
+        <b className="text-blue-600 font-semibold">{stats.inReview}</b> in review
+      </span>
+      {stats.blocked > 0 && (
+        <span>
+          <b className="text-red-600 font-semibold">{stats.blocked}</b> blocked
+        </span>
+      )}
+      <span>
+        <b className="text-violet-600 font-semibold">{stats.avgProgress}%</b> avg progress
+      </span>
     </div>
   );
 }
@@ -700,7 +789,11 @@ function AiPanel({
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (open) { setLoading(false); setResult(null); setError(""); }
+    if (open) {
+      setLoading(false);
+      setResult(null);
+      setError("");
+    }
   }, [open]);
 
   useEffect(() => {
@@ -712,23 +805,34 @@ function AiPanel({
   }, [open, onClose]);
 
   async function runCheck() {
-    if (!projectUuid || !looksLikeUuid(projectUuid)) { setError("Invalid project UUID"); return; }
-    setLoading(true); setError("");
+    if (!projectUuid || !looksLikeUuid(projectUuid)) {
+      setError("Invalid project UUID");
+      return;
+    }
+    setLoading(true);
+    setError("");
     try {
       const res = await fetch("/api/ai/events", {
-        method: "POST", credentials: "include",
+        method: "POST",
+        credentials: "include",
         headers: { "content-type": "application/json", accept: "application/json" },
         body: JSON.stringify({ eventType: "artifact_due", windowDays: 14, project_id: projectUuid, project_human_id: projectCode }),
       });
       const text = await res.text();
       let data: any = null;
-      try { data = text ? JSON.parse(text) : null; } catch {}
-      if (!res.ok) { throw new Error(data?.error || data?.message || `Request failed (${res.status})`); }
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {}
+      if (!res.ok) {
+        throw new Error(data?.error || data?.message || `Request failed (${res.status})`);
+      }
       setResult(data);
     } catch (e: any) {
       setError(e?.message || "AI request failed");
       setResult((prev: any) => prev ?? { ai: { dueSoon: [] } });
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }
 
   if (!open) return null;
@@ -765,7 +869,11 @@ function AiPanel({
               <div>
                 <div className="font-medium">Scan failed</div>
                 <div className="text-[12px] opacity-80">{error}</div>
-                <button onClick={runCheck} disabled={loading} className="mt-2 px-3 py-1 rounded-md text-[12px] font-medium bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50">
+                <button
+                  onClick={runCheck}
+                  disabled={loading}
+                  className="mt-2 px-3 py-1 rounded-md text-[12px] font-medium bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
+                >
                   {loading ? "Retrying..." : "Retry"}
                 </button>
               </div>
@@ -775,12 +883,17 @@ function AiPanel({
               <Clock className="h-8 w-8 mx-auto mb-3 text-violet-400" />
               <p className="text-[13px] text-[#6B7280] mb-4">Check what&apos;s due in the next 14 days</p>
               <button
-                onClick={runCheck} disabled={loading}
+                onClick={runCheck}
+                disabled={loading}
                 className="px-4 py-2 rounded-lg text-[13px] font-medium text-white bg-violet-600 hover:bg-violet-700 transition-colors disabled:opacity-50"
               >
                 {loading ? (
-                  <span className="flex items-center gap-2"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Scanning...</span>
-                ) : "Scan Due Dates"}
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Scanning...
+                  </span>
+                ) : (
+                  "Scan Due Dates"
+                )}
               </button>
             </div>
           ) : items.length === 0 ? (
@@ -811,7 +924,10 @@ function AiPanel({
                       <Calendar className="h-3 w-3" /> {fmtUkDateOnly(item.dueDate)}
                     </div>
                     <div className="flex gap-2">
-                      <Link href={href} className="flex-1 px-3 py-1.5 rounded-md text-center text-[11px] font-medium bg-[#F9FAFB] border border-[#E5E7EB] text-[#374151] hover:bg-[#F3F4F6] transition-colors">
+                      <Link
+                        href={href}
+                        className="flex-1 px-3 py-1.5 rounded-md text-center text-[11px] font-medium bg-[#F9FAFB] border border-[#E5E7EB] text-[#374151] hover:bg-[#F3F4F6] transition-colors"
+                      >
                         Open
                       </Link>
                       <button
@@ -829,7 +945,11 @@ function AiPanel({
         </div>
 
         <div className="px-4 py-2.5 border-t border-[#F1F5F9]">
-          <button onClick={runCheck} disabled={loading} className="w-full py-1.5 rounded-lg text-[12px] font-medium text-[#6B7280] bg-[#F9FAFB] border border-[#E5E7EB] hover:bg-[#F3F4F6] transition-colors disabled:opacity-50">
+          <button
+            onClick={runCheck}
+            disabled={loading}
+            className="w-full py-1.5 rounded-lg text-[12px] font-medium text-[#6B7280] bg-[#F9FAFB] border border-[#E5E7EB] hover:bg-[#F3F4F6] transition-colors disabled:opacity-50"
+          >
             {loading ? "Scanning..." : "Rescan"}
           </button>
         </div>
@@ -913,7 +1033,11 @@ export default function ArtifactBoardClient(props: {
     [phaseSet]
   );
 
-  const clearAll = () => { setSearch(""); setStatusSet(new Set()); setPhaseSet(new Set()); };
+  const clearAll = () => {
+    setSearch("");
+    setStatusSet(new Set());
+    setPhaseSet(new Set());
+  };
 
   const filteredRows = useMemo(() => {
     const q = safeLower(search);
@@ -928,7 +1052,7 @@ export default function ArtifactBoardClient(props: {
     });
   }, [baseRows, search, statusSet, phaseSet]);
 
-  // Sort: current first, then baseline, then original order
+  // Sort: phase order, then current, then baseline, then original order
   const sortedRows = useMemo(() => {
     return [...filteredRows].sort((a, b) => {
       const phaseA = PHASE_CONFIG[a.phase]?.order ?? 99;
@@ -951,16 +1075,29 @@ export default function ArtifactBoardClient(props: {
   const [makingCurrentId, setMakingCurrentId] = useState("");
   const [actionError, setActionError] = useState("");
 
-  const openArtifact = useCallback(
-    (id: string) => {
-      const ref = projectHumanId || projectCode || projectUuid;
-      router.push(`/projects/${ref}/artifacts/${id}`);
+  const projectRef = useMemo(() => {
+    const ref = projectHumanId || projectCode || projectUuid;
+    return safeStr(ref).trim();
+  }, [projectHumanId, projectCode, projectUuid]);
+
+  const openRow = useCallback(
+    (row: ArtifactBoardRow) => {
+      const href = rowHref(projectRef, projectUuid, row);
+      router.push(href);
     },
-    [projectHumanId, projectCode, projectUuid, router]
+    [projectRef, projectUuid, router]
   );
 
   const handleClone = async (id: string) => {
-    if (!projectUuid || !looksLikeUuid(projectUuid)) { setActionError("Invalid project UUID"); return; }
+    if (!projectUuid || !looksLikeUuid(projectUuid)) {
+      setActionError("Invalid project UUID");
+      return;
+    }
+    if (!looksLikeUuid(id)) {
+      setActionError("Cannot clone a module row");
+      return;
+    }
+
     setCloningId(id);
     try {
       const fd = new FormData();
@@ -968,16 +1105,20 @@ export default function ArtifactBoardClient(props: {
       fd.set("artifactId", id);
       const res = await cloneArtifactAction(fd);
       if (res?.ok && res?.newArtifactId) {
-        const ref = projectHumanId || projectCode || projectUuid;
-        router.push(`/projects/${ref}/artifacts/${res.newArtifactId}`);
+        router.push(`/projects/${projectRef}/artifacts/${res.newArtifactId}`);
       }
-    } catch (e: any) { setActionError(e.message); }
-    finally { setCloningId(""); }
+    } catch (e: any) {
+      setActionError(e.message);
+    } finally {
+      setCloningId("");
+    }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this draft?")) return;
     if (!projectUuid || !looksLikeUuid(projectUuid)) return;
+    if (!looksLikeUuid(id)) return;
+
     setDeletingId(id);
     try {
       const fd = new FormData();
@@ -985,18 +1126,26 @@ export default function ArtifactBoardClient(props: {
       fd.set("artifactId", id);
       await deleteDraftArtifactAction(fd);
       router.refresh();
-    } catch (e: any) { setActionError(e.message); }
-    finally { setDeletingId(""); }
+    } catch (e: any) {
+      setActionError(e.message);
+    } finally {
+      setDeletingId("");
+    }
   };
 
   const handleMakeCurrent = async (id: string) => {
     if (!projectUuid || !looksLikeUuid(projectUuid)) return;
+    if (!looksLikeUuid(id)) return;
+
     setMakingCurrentId(id);
     try {
       await setArtifactCurrentAction({ projectId: projectUuid, artifactId: id });
       router.refresh();
-    } catch (e: any) { setActionError(e.message); }
-    finally { setMakingCurrentId(""); }
+    } catch (e: any) {
+      setActionError(e.message);
+    } finally {
+      setMakingCurrentId("");
+    }
   };
 
   return (
@@ -1005,12 +1154,22 @@ export default function ArtifactBoardClient(props: {
         @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 
         @keyframes notionFadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
         }
         @keyframes notionSlideUp {
-          from { opacity: 0; transform: translateY(8px); }
-          to { opacity: 1; transform: translateY(0); }
+          from {
+            opacity: 0;
+            transform: translateY(8px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
         }
 
         .notion-board * {
@@ -1018,13 +1177,23 @@ export default function ArtifactBoardClient(props: {
         }
 
         .notion-row:hover {
-          background: #FAFAFA !important;
+          background: #fafafa !important;
         }
 
-        .notion-board ::-webkit-scrollbar { width: 6px; height: 6px; }
-        .notion-board ::-webkit-scrollbar-track { background: transparent; }
-        .notion-board ::-webkit-scrollbar-thumb { background: #E5E7EB; border-radius: 3px; }
-        .notion-board ::-webkit-scrollbar-thumb:hover { background: #D1D5DB; }
+        .notion-board ::-webkit-scrollbar {
+          width: 6px;
+          height: 6px;
+        }
+        .notion-board ::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .notion-board ::-webkit-scrollbar-thumb {
+          background: #e5e7eb;
+          border-radius: 3px;
+        }
+        .notion-board ::-webkit-scrollbar-thumb:hover {
+          background: #d1d5db;
+        }
       `}</style>
 
       <div className="notion-board min-h-screen bg-white" style={{ WebkitFontSmoothing: "antialiased" }}>
@@ -1102,15 +1271,9 @@ export default function ArtifactBoardClient(props: {
               </p>
             </div>
           ) : (
-            <div
-              className="rounded-lg border border-[#E5E7EB] overflow-hidden overflow-x-auto"
-              style={{ background: "#FFFFFF" }}
-            >
+            <div className="rounded-lg border border-[#E5E7EB] overflow-hidden overflow-x-auto" style={{ background: "#FFFFFF" }}>
               {/* Column Header */}
-              <div
-                className="grid items-center sticky top-0 bg-[#F9FAFB] border-b border-[#E5E7EB] z-10"
-                style={{ gridTemplateColumns: COL_TEMPLATE, minHeight: 36 }}
-              >
+              <div className="grid items-center sticky top-0 bg-[#F9FAFB] border-b border-[#E5E7EB] z-10" style={{ gridTemplateColumns: COL_TEMPLATE, minHeight: 36 }}>
                 <span className="px-3 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Name</span>
                 <span className="px-3 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Owner</span>
                 <span className="px-3 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Phase</span>
@@ -1122,10 +1285,11 @@ export default function ArtifactBoardClient(props: {
               {/* Rows */}
               {sortedRows.map((row) => (
                 <ArtifactTableRow
-                  key={row.id}
+                  key={`${row.id}:${rowTypeKey(row)}`}
                   row={row}
+                  projectRef={projectRef}
                   projectUuid={projectUuid}
-                  onOpen={openArtifact}
+                  onOpen={openRow}
                   onMakeCurrent={handleMakeCurrent}
                   makingCurrentId={makingCurrentId}
                   onClone={handleClone}
@@ -1147,14 +1311,7 @@ export default function ArtifactBoardClient(props: {
         </main>
 
         {/* AI Panel */}
-        <AiPanel
-          open={aiOpen}
-          onClose={() => setAiOpen(false)}
-          projectUuid={projectUuid}
-          projectCode={projectCode || projectHumanId}
-          projectName={projectName}
-          projectHumanId={projectHumanId}
-        />
+        <AiPanel open={aiOpen} onClose={() => setAiOpen(false)} projectUuid={projectUuid} projectCode={projectCode || projectHumanId} projectName={projectName} projectHumanId={projectHumanId} />
       </div>
     </>
   );

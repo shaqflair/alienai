@@ -92,7 +92,10 @@ function extractDigitsAsNumber(input: string): number | null {
  * - else → digits → projects.project_code = <number>
  * - else → optional fallbacks to slug/reference columns (best-effort + tolerant)
  */
-async function resolveProject(supabase: any, identifier: string): Promise<{
+async function resolveProject(
+  supabase: any,
+  identifier: string
+): Promise<{
   projectUuid: string | null;
   project: any | null;
   projectHumanId: string;
@@ -117,7 +120,6 @@ async function resolveProject(supabase: any, identifier: string): Promise<{
       .maybeSingle();
 
     if (error) {
-      // 22P02 shouldn't happen here (numeric), but tolerate anyway
       if (isInvalidInputSyntaxError(error)) {
         return { projectUuid: null, project: null, projectHumanId: "" };
       }
@@ -177,10 +179,21 @@ function canonType(x: any) {
 
   if (t === "status_dashboard" || t === "status dashboard") return "PROJECT_CLOSURE_REPORT";
 
-  if (t === "project_charter" || t === "project charter" || t === "charter" || t === "projectcharter" || t === "pid")
+  if (
+    t === "project_charter" ||
+    t === "project charter" ||
+    t === "charter" ||
+    t === "projectcharter" ||
+    t === "pid"
+  )
     return "PROJECT_CHARTER";
 
-  if (t === "stakeholder_register" || t === "stakeholder register" || t === "stakeholders" || t === "stakeholder")
+  if (
+    t === "stakeholder_register" ||
+    t === "stakeholder register" ||
+    t === "stakeholders" ||
+    t === "stakeholder"
+  )
     return "STAKEHOLDER_REGISTER";
 
   if (t === "wbs" || t === "work breakdown structure" || t === "work_breakdown_structure") return "WBS";
@@ -206,7 +219,8 @@ function canonType(x: any) {
   )
     return "CHANGE_REQUESTS";
 
-  if (t === "raid" || t === "raid_log" || t === "raid log" || t === "raid_register" || t === "raid register") return "RAID";
+  if (t === "raid" || t === "raid_log" || t === "raid log" || t === "raid_register" || t === "raid register")
+    return "RAID";
 
   if (
     t === "lessons_learned" ||
@@ -315,6 +329,10 @@ type ArtifactBoardRowWithActions = ArtifactBoardRow & {
   approvalStatus?: string;
   isLocked?: boolean;
   deletedAt?: string | null;
+
+  // optional: used by board client if it supports it
+  href?: string;
+  isVirtual?: boolean;
 };
 
 function canDeleteDraftFromArtifact(a: any): boolean {
@@ -479,7 +497,7 @@ export default async function ArtifactsPage({
     for (const d of drafts.slice(0, 2)) pushOnce(d);
   }
 
-  const rows: ArtifactBoardRowWithActions[] = picked
+  const rowsFromArtifacts: ArtifactBoardRowWithActions[] = picked
     .filter((a) => safeStr(a?.id).trim())
     .map((a) => {
       const id = safeStr(a.id).trim();
@@ -507,8 +525,37 @@ export default async function ArtifactsPage({
         isLocked,
         deletedAt: (a as any)?.deleted_at ?? null,
       };
-    })
-    .sort((a, b) => {
+    });
+
+  // ✅ Inject Change Requests as a virtual row if no artifact row exists
+  const hasChangeArtifact = rowsFromArtifacts.some((r) => r.artifactType === "CHANGE_REQUESTS");
+  const changeVirtualRow: ArtifactBoardRowWithActions | null = hasChangeArtifact
+    ? null
+    : {
+        // IMPORTANT: not a real artifact id
+        id: "__change__",
+        artifactType: "CHANGE_REQUESTS",
+        title: "Change Requests",
+        ownerEmail: "",
+        ownerName: undefined,
+        progress: 20,
+        status: "Draft",
+        phase: "Monitoring & Controlling",
+        due: dueDisplay,
+        isBaseline: false,
+
+        canDeleteDraft: false,
+        canClone: false,
+        approvalStatus: "draft",
+        isLocked: false,
+        deletedAt: null,
+
+        href: `/projects/${projectUuid}/change`,
+        isVirtual: true,
+      };
+
+  const rows: ArtifactBoardRowWithActions[] = [...rowsFromArtifacts, ...(changeVirtualRow ? [changeVirtualRow] : [])].sort(
+    (a, b) => {
       const pr = phaseRank(a.phase) - phaseRank(b.phase);
       if (pr !== 0) return pr;
 
@@ -516,7 +563,8 @@ export default async function ArtifactsPage({
       if (tr !== 0) return tr;
 
       return a.title.localeCompare(b.title);
-    });
+    }
+  );
 
   return (
     <ArtifactBoardClient
