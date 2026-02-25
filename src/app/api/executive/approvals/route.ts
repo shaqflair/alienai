@@ -1,8 +1,8 @@
-﻿import "server-only";
+﻿// src/app/api/executive/approvals/route.ts
+import "server-only";
 
 import { NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
-import { resolveActiveOrgScope } from "@/lib/server/org-scope"; // adjust if your helper name differs
+import { sb, requireAuth, safeStr } from "@/lib/approvals/admin-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,15 +22,11 @@ function noStoreJson(data: unknown, init?: ResponseInit) {
   });
 }
 
-function jsonOk(data: any, status = 200) {
+function ok(data: any, status = 200) {
   return noStoreJson({ ok: true, ...data }, { status });
 }
-function jsonErr(error: string, status = 400, meta?: any) {
-  return noStoreJson({ ok: false, error, meta }, { status });
-}
-
-function safeStr(x: unknown) {
-  return typeof x === "string" ? x : x == null ? "" : String(x);
+function err(msg: string, status = 400, meta?: any) {
+  return noStoreJson({ ok: false, error: msg, ...(meta ? { meta } : {}) }, { status });
 }
 
 function parseIntClamp(v: string | null, def: number, min: number, max: number) {
@@ -39,37 +35,53 @@ function parseIntClamp(v: string | null, def: number, min: number, max: number) 
   return Math.max(min, Math.min(max, n));
 }
 
+async function resolveOrgIdForUser(supabase: any, userId: string, requestedOrgId: string | null) {
+  // If caller supplies orgId, verify membership and use it
+  const reqOrg = safeStr(requestedOrgId).trim();
+  if (reqOrg) {
+    const m = await supabase
+      .from("organisation_members")
+      .select("organisation_id")
+      .eq("organisation_id", reqOrg)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (m.error) throw new Error(m.error.message);
+    if (!m.data) throw new Error("Forbidden: not a member of requested org");
+    return { orgId: reqOrg, scope: "org:param" as const };
+  }
+
+  // Single-org fallback: first org membership
+  const mem = await supabase
+    .from("organisation_members")
+    .select("organisation_id")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (mem.error) throw new Error(mem.error.message);
+  if (!mem.data?.organisation_id) throw new Error("No organisation membership");
+  return { orgId: String(mem.data.organisation_id), scope: "org:first-membership" as const };
+}
+
 /* ---------------- route ---------------- */
 
 /**
- * GET /api/executive/approvals?limit=50
- *
- * Returns org-scoped approval intelligence for Executive Cockpit:
- * - counts: waiting / at_risk / breached
- * - items: lightweight top bottlenecks list
- *
- * Notes:
- * - This is a LIVE aggregation (no cron dependency).
- * - “at_risk” and “breached” are computed from due_at if present.
+ * GET /api/executive/approvals?limit=50&orgId=...
+ * Returns org-scoped approval counts + top items (live, no cron dependency).
  */
 export async function GET(req: Request) {
   try {
-    const supabase = await createClient();
-
-    const { data: u, error: ue } = await supabase.auth.getUser();
-    if (ue || !u?.user) return jsonErr("Unauthorized", 401);
-
-    // org scope (must exist in your codebase)
-    // If your helper name/path is different, tell me and I’ll adjust.
-    const scope = await resolveActiveOrgScope(supabase);
-    if (!scope?.org_id) return jsonErr("No active organisation scope", 400);
+    const supabase = await sb();
+    const user = await requireAuth(supabase);
 
     const url = new URL(req.url);
     const limit = parseIntClamp(url.searchParams.get("limit"), 50, 1, 200);
+    const orgIdParam = url.searchParams.get("orgId");
 
-    // ----- Live pending approvals for this org -----
-    // We join steps -> artifacts -> projects to filter by org_id.
-    // We keep selection small to avoid heavy payloads.
+    const { orgId, scope } = await resolveOrgIdForUser(supabase, user.id, orgIdParam);
+
+    // Live pending approvals joined to org via artifacts->projects
     const { data: steps, error } = await supabase
       .from("artifact_approval_steps")
       .select(
@@ -91,25 +103,21 @@ export async function GET(req: Request) {
           projects:project_id (
             id,
             name,
-            org_id
+            organisation_id
           )
         )
       `
       )
       .eq("step_status", "pending")
-      .eq("artifacts.projects.org_id", scope.org_id) // relies on PostgREST embedded filter support
+      .eq("artifacts.projects.organisation_id", orgId)
       .order("due_at", { ascending: true, nullsFirst: false })
       .limit(limit);
 
-    if (error) return jsonErr("Failed to load approvals", 500, { error });
+    if (error) return err("Failed to load approvals", 500, { error });
 
     const now = Date.now();
     const DAY = 24 * 60 * 60 * 1000;
 
-    // Risk rules (tunable):
-    // - breached: due_at < now
-    // - at_risk: due_at within next 3 days
-    // - waiting: everything pending
     let waiting = 0;
     let at_risk = 0;
     let breached = 0;
@@ -133,31 +141,35 @@ export async function GET(req: Request) {
           step_id: s.id,
           artifact_id: s.artifact_id,
           step_order: s.step_order,
-          step_name: safeStr(s.name),
+          step_name: safeStr(s.name).trim(),
           due_at: s.due_at ?? null,
           risk: isBreached ? "breached" : isAtRisk ? "at_risk" : "waiting",
           artifact: art
             ? {
                 id: art.id,
-                title: safeStr(art.title),
-                artifact_type: safeStr(art.artifact_type),
+                title: safeStr(art.title).trim(),
+                artifact_type: safeStr(art.artifact_type).trim(),
               }
             : null,
           project: proj
             ? {
                 id: proj.id,
-                name: safeStr(proj.name),
+                name: safeStr(proj.name).trim(),
               }
             : null,
         };
       }) ?? [];
 
-    return jsonOk({
-      org_id: scope.org_id,
+    return ok({
+      orgId,
+      scope,
       counts: { waiting, at_risk, breached },
       items,
     });
   } catch (e: any) {
-    return jsonErr("Server error", 500, { message: e?.message ?? String(e) });
+    const msg = String(e?.message || e || "Error");
+    const lc = msg.toLowerCase();
+    const status = lc.includes("unauthorized") ? 401 : lc.includes("forbidden") ? 403 : 400;
+    return err(msg, status);
   }
 }
