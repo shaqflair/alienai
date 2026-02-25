@@ -1,4 +1,4 @@
-﻿// src/app/api/executive/bottlenecks/route.ts
+// src/app/api/executive/approvals/bottlenecks/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";

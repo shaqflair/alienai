@@ -1,4 +1,4 @@
-Ôªø// src/components/executive/ExecutiveCockpitClient.tsx
+// src/components/executive/ExecutiveCockpitClient.tsx
 "use client";
 
 import * as React from "react";
@@ -118,7 +118,7 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       setLoading(true);
       setFatalError(null);
 
-      // reset last values to avoid ‚Äústale good data‚Äù hiding new errors
+      // reset last values to avoid ìstale good dataî hiding new errors
       setPendingApprovals(null);
       setWhoBlocking(null);
       setSlaRadar(null);
@@ -135,18 +135,18 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
           portR,
           bottR,
         ] = await Promise.allSettled([
-          // ‚úÖ approvals namespace (exists in tree)
+          // ? approvals namespace (exists in tree)
           fetchJson<PendingApprovalsPayload>(
             "/api/executive/approvals/pending?limit=200",
             ac.signal
           ),
 
-          // ‚úÖ top-level exec endpoints (exist in tree)
-          fetchJson<WhoBlockingPayload>("/api/executive/who-blocking", ac.signal),
-          fetchJson<SlaRadarPayload>("/api/executive/sla-radar", ac.signal),
-          fetchJson<RiskSignalsPayload>("/api/executive/risk-signals", ac.signal),
+          // ? top-level exec endpoints (exist in tree)
+          fetchJson<WhoBlockingPayload>("/api/executive/approvals/who-blocking", ac.signal),
+          fetchJson<SlaRadarPayload>("/api/executive/approvals/sla-radar", ac.signal),
+          fetchJson<RiskSignalsPayload>("/api/executive/approvals/risk-signals", ac.signal),
 
-          // ‚úÖ approvals namespace (exists in tree)
+          // ? approvals namespace (exists in tree)
           fetchJson<PortfolioApprovalsPayload>(
             "/api/executive/approvals/portfolio",
             ac.signal
@@ -257,7 +257,7 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard
           title="Pending approvals"
-          value={loading ? "‚Ä¶" : pendingCount ?? 0}
+          value={loading ? "Ö" : pendingCount ?? 0}
           subtitle={
             pendingApprovals && !isErr(pendingApprovals) && pendingApprovals.scope
               ? `Scope: ${pendingApprovals.scope}`
@@ -271,26 +271,26 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
         />
 
         <StatCard
-          title="Who‚Äôs blocking"
-          value={loading ? "‚Ä¶" : whoBlockingCount ?? 0}
+          title="Whoís blocking"
+          value={loading ? "Ö" : whoBlockingCount ?? 0}
           error={whoBlocking && isErr(whoBlocking) ? whoBlocking.message ?? whoBlocking.error : null}
         />
 
         <StatCard
           title="SLA radar"
-          value={loading ? "‚Ä¶" : slaCount ?? 0}
+          value={loading ? "Ö" : slaCount ?? 0}
           error={slaRadar && isErr(slaRadar) ? slaRadar.message ?? slaRadar.error : null}
         />
 
         <StatCard
           title="Risk signals"
-          value={loading ? "‚Ä¶" : riskCount ?? 0}
+          value={loading ? "Ö" : riskCount ?? 0}
           error={riskSignals && isErr(riskSignals) ? riskSignals.message ?? riskSignals.error : null}
         />
 
         <StatCard
           title="Portfolio approvals"
-          value={loading ? "‚Ä¶" : portfolioApprovalsCount ?? 0}
+          value={loading ? "Ö" : portfolioApprovalsCount ?? 0}
           error={
             portfolioApprovals && isErr(portfolioApprovals)
               ? portfolioApprovals.message ?? portfolioApprovals.error
@@ -300,7 +300,7 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
 
         <StatCard
           title="Bottlenecks"
-          value={loading ? "‚Ä¶" : bottlenecksCount ?? 0}
+          value={loading ? "Ö" : bottlenecksCount ?? 0}
           error={bottlenecks && isErr(bottlenecks) ? bottlenecks.message ?? bottlenecks.error : null}
         />
       </div>

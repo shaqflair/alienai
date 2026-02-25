@@ -1,4 +1,4 @@
-﻿// src/app/api/executive/risk-signals/route.ts
+// src/app/api/executive/approvals/risk-signals/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";

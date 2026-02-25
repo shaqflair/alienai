@@ -1,4 +1,4 @@
-﻿// src/app/api/executive/who-blocking/route.ts
+// src/app/api/executive/approvals/who-blocking/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";

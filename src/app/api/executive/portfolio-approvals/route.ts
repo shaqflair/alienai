@@ -1,4 +1,4 @@
-﻿// src/app/api/executive/portfolio-approvals/route.ts
+// src/app/api/executive/approvals/portfolio/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
