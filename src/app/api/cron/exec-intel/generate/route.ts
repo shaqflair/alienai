@@ -45,7 +45,6 @@ function requireCronSecret(req: Request) {
 }
 
 function pickStepTitle(step: any) {
-  // tolerate schema drift
   return (
     safeStr(step?.title) ||
     safeStr(step?.name) ||
@@ -65,7 +64,7 @@ function pickStageKey(step: any) {
   return v.trim() || null;
 }
 
-export async function POST(req: Request) {
+async function handler(req: Request) {
   try {
     requireCronSecret(req);
     const supabase = await createClient();
@@ -76,7 +75,7 @@ export async function POST(req: Request) {
     const riskCutoff = new Date(now.getTime() + windowRiskDays * 86400_000);
 
     /**
-     * 1) Pull pending steps (schema-safe: select("*"))
+     * 1) Pull pending steps
      */
     const { data: artifactSteps, error: artErr } = await supabase
       .from("artifact_approval_steps")
@@ -87,7 +86,7 @@ export async function POST(req: Request) {
     if (artErr) throw artErr;
 
     /**
-     * 2) Decisions (guard: if anything marked decided, exclude)
+     * 2) Decisions (exclude already-decided steps)
      */
     const { data: artDecisions, error: decErr } = await supabase
       .from("artifact_approval_decisions")
@@ -98,7 +97,8 @@ export async function POST(req: Request) {
 
     const decidedAtByStep = new Map<string, string>();
     for (const d of artDecisions ?? []) {
-      if (d?.step_id && d?.decided_at) decidedAtByStep.set(String(d.step_id), String(d.decided_at));
+      if (d?.step_id && d?.decided_at)
+        decidedAtByStep.set(String(d.step_id), String(d.decided_at));
     }
 
     const pendingSteps = (artifactSteps ?? []).filter((s: any) => {
@@ -108,15 +108,16 @@ export async function POST(req: Request) {
     });
 
     /**
-     * 3) Load artifacts for titles/types/project_id (don’t rely on step schema)
+     * 3) Load artifacts
      */
     const artifactIds = Array.from(
-      new Set(pendingSteps.map((s: any) => safeStr(s?.artifact_id)).filter(Boolean))
+      new Set(
+        pendingSteps.map((s: any) => safeStr(s?.artifact_id)).filter(Boolean)
+      )
     );
 
     const artifactsById = new Map<string, any>();
     if (artifactIds.length) {
-      // chunk to avoid URL limits
       const chunkSize = 200;
       for (let i = 0; i < artifactIds.length; i += chunkSize) {
         const chunk = artifactIds.slice(i, i + chunkSize);
@@ -126,25 +127,30 @@ export async function POST(req: Request) {
           .in("id", chunk)
           .limit(5000);
         if (aErr) throw aErr;
-        for (const a of arts ?? []) artifactsById.set(String((a as any).id), a);
+        for (const a of arts ?? [])
+          artifactsById.set(String((a as any).id), a);
       }
     }
 
     /**
-     * 4) Project metadata
+     * 4) Project metadata — including organisation_id
      */
     const { data: projects, error: projErr } = await supabase
       .from("projects")
-      .select("id, project_code, title")
+      .select("id, project_code, title, organisation_id")
       .limit(5000);
 
     if (projErr) throw projErr;
 
-    const projectMeta = new Map<string, { code: string; title: string }>();
+    const projectMeta = new Map<
+      string,
+      { code: string; title: string; org_id: string | null }
+    >();
     for (const p of projects ?? []) {
       projectMeta.set(String((p as any).id), {
         code: safeStr((p as any).project_code),
         title: safeStr((p as any).title),
+        org_id: safeStr((p as any).organisation_id) || null,
       });
     }
 
@@ -159,14 +165,17 @@ export async function POST(req: Request) {
     if (grpErr) throw grpErr;
 
     const groupName = new Map<string, string>();
-    for (const g of groups ?? []) groupName.set(String((g as any).id), safeStr((g as any).name));
+    for (const g of groups ?? [])
+      groupName.set(String((g as any).id), safeStr((g as any).name));
 
     /**
      * 6) SLA config
      */
     const { data: slaCfg, error: slaErr } = await supabase
       .from("approval_sla_config")
-      .select("project_id, artifact_type, stage_key, sla_hours, warn_hours, breach_grace_hours, is_active")
+      .select(
+        "project_id, artifact_type, stage_key, sla_hours, warn_hours, breach_grace_hours, is_active"
+      )
       .eq("is_active", true)
       .limit(5000);
 
@@ -219,19 +228,22 @@ export async function POST(req: Request) {
 
       const art = aid ? artifactsById.get(aid) : null;
 
-      // project_id may be missing on step; prefer artifact.project_id
-      const pid = safeStr(art?.project_id) || safeStr(s?.project_id) || null;
+      const pid =
+        safeStr(art?.project_id) || safeStr(s?.project_id) || null;
       if (!pid) continue;
 
       const pm = projectMeta.get(pid) ?? null;
 
-      const artifactType = safeStr(art?.artifact_type) || null;
+      const artifactType =
+        safeStr(art?.artifact_type) ||
+        safeStr(s?.artifact_type) ||
+        null;
       const stageKey = pickStageKey(s);
 
+      // FIX: use pending_since first (correct column on artifact_approval_steps)
       const submittedAtIso =
-        safeStr(s?.submitted_at) ||
+        safeStr(s?.pending_since) ||
         safeStr(s?.created_at) ||
-        safeStr(s?.started_at) ||
         null;
 
       const dueAtIso =
@@ -250,20 +262,38 @@ export async function POST(req: Request) {
       });
 
       const derivedDueAt =
-        dueAt || (submittedAt ? new Date(submittedAt.getTime() + sla.sla_hours * 3600_000) : null);
+        dueAt ||
+        (submittedAt
+          ? new Date(submittedAt.getTime() + sla.sla_hours * 3600_000)
+          : null);
 
-      const hoursToDue = derivedDueAt ? hoursBetween(now, derivedDueAt) : null;
-      const hoursOverdue = derivedDueAt && now > derivedDueAt ? hoursBetween(derivedDueAt, now) : null;
+      const hoursToDue = derivedDueAt
+        ? hoursBetween(now, derivedDueAt)
+        : null;
+      const hoursOverdue =
+        derivedDueAt && now > derivedDueAt
+          ? hoursBetween(derivedDueAt, now)
+          : null;
 
-      let slaStatus: "ok" | "at_risk" | "breached" | "overdue_undecided" | "unknown" = "unknown";
+      let slaStatus:
+        | "ok"
+        | "at_risk"
+        | "breached"
+        | "overdue_undecided"
+        | "unknown" = "unknown";
 
       if (derivedDueAt) {
-        const warnAt = new Date(derivedDueAt.getTime() - sla.warn_hours * 3600_000);
-        const breachAt = new Date(derivedDueAt.getTime() + sla.grace_hours * 3600_000);
+        const warnAt = new Date(
+          derivedDueAt.getTime() - sla.warn_hours * 3600_000
+        );
+        const breachAt = new Date(
+          derivedDueAt.getTime() + sla.grace_hours * 3600_000
+        );
 
         if (now > breachAt) slaStatus = "overdue_undecided";
         else if (now >= derivedDueAt) slaStatus = "breached";
-        else if (now >= warnAt || derivedDueAt <= riskCutoff) slaStatus = "at_risk";
+        else if (now >= warnAt || derivedDueAt <= riskCutoff)
+          slaStatus = "at_risk";
         else slaStatus = "ok";
       }
 
@@ -277,6 +307,9 @@ export async function POST(req: Request) {
         : "Unassigned";
 
       cacheRows.push({
+        // FIX: organisation_id now included
+        organisation_id: pm?.org_id ?? null,
+
         project_id: pid,
         project_code: pm?.code ?? null,
         project_title: pm?.title ?? null,
@@ -300,7 +333,10 @@ export async function POST(req: Request) {
         hours_to_due: hoursToDue,
         hours_overdue: hoursOverdue,
 
-        meta: { source: "artifact_approval_steps", sla_hours: sla.sla_hours },
+        meta: {
+          source: "artifact_approval_steps",
+          sla_hours: sla.sla_hours,
+        },
         computed_at: nowIso,
       });
     }
@@ -331,7 +367,15 @@ export async function POST(req: Request) {
 
     const byApprover = new Map<
       string,
-      { label: string; userId: string | null; groupId: string | null; open: number; breached: number; atRisk: number; maxOverdue: number }
+      {
+        label: string;
+        userId: string | null;
+        groupId: string | null;
+        open: number;
+        breached: number;
+        atRisk: number;
+        maxOverdue: number;
+      }
     >();
 
     for (const r of cacheRows) {
@@ -341,19 +385,22 @@ export async function POST(req: Request) {
         ? `G:${r.approver_group_id}`
         : `X:unassigned`;
 
-      const cur =
-        byApprover.get(key) || {
-          label: r.approver_label,
-          userId: r.approver_user_id,
-          groupId: r.approver_group_id,
-          open: 0,
-          breached: 0,
-          atRisk: 0,
-          maxOverdue: 0,
-        };
+      const cur = byApprover.get(key) || {
+        label: r.approver_label,
+        userId: r.approver_user_id,
+        groupId: r.approver_group_id,
+        open: 0,
+        breached: 0,
+        atRisk: 0,
+        maxOverdue: 0,
+      };
 
       cur.open++;
-      if (r.sla_status === "breached" || r.sla_status === "overdue_undecided") cur.breached++;
+      if (
+        r.sla_status === "breached" ||
+        r.sla_status === "overdue_undecided"
+      )
+        cur.breached++;
       if (r.sla_status === "at_risk") cur.atRisk++;
       cur.maxOverdue = Math.max(cur.maxOverdue, safeNum(r.hours_overdue));
       byApprover.set(key, cur);
@@ -371,19 +418,34 @@ export async function POST(req: Request) {
     }));
 
     if (bottleneckRows.length) {
-      const { error } = await supabase.from("exec_approval_bottlenecks").insert(bottleneckRows);
+      const { error } = await supabase
+        .from("exec_approval_bottlenecks")
+        .insert(bottleneckRows);
       if (error) throw error;
     }
 
-    // optional refresh, don’t fail cron if RPC missing
+    // Optional: refresh intel view — don't fail cron if RPC missing
     try {
       await supabase.rpc("exec_refresh_intel");
     } catch {
       // ignore
     }
 
-    return jsonOk({ cache: cacheRows.length, bottlenecks: bottleneckRows.length });
+    return jsonOk({
+      cache: cacheRows.length,
+      bottlenecks: bottleneckRows.length,
+    });
   } catch (e: any) {
-    return jsonErr("Exec intel generation failed", 500, { message: e?.message ?? String(e) });
+    return jsonErr("Exec intel generation failed", 500, {
+      message: e?.message ?? String(e),
+    });
   }
+}
+
+// POST for manual/API calls, GET for Vercel Cron
+export async function POST(req: Request) {
+  return handler(req);
+}
+export async function GET(req: Request) {
+  return handler(req);
 }
