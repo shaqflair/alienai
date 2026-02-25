@@ -1,13 +1,17 @@
-﻿// src/components/executive/GovernanceIntelligence.tsx — REBUILT v2
-// Fixes applied:
-//   ✅ days prop wired to endpoint (?days=N)
-//   ✅ Animated entry matching HomePage crystal system
-//   ✅ Heatmap severity-weighted — bar width, count badge, visual heat per project
-//   ✅ Duplicate fetch eliminated — accepts optional approvalItems prop from parent
-//   ✅ Crystal pushed further: ambient orbs, shimmer highlights, stagger animations
-//   ✅ Bottleneck tiles show trend bars + heat gradient
-//   ✅ Loading skeleton matches final layout (no CLS)
-//   ✅ Empty state polished with micro-animation
+﻿// src/components/executive/GovernanceIntelligence.tsx — REBUILT v3
+// Fixes applied on top of v2:
+//   ✅ FIX-GI1: Field names corrected to match exec_approval_cache schema
+//              sla_state       → sla_status
+//              age_hours       → hours_to_due ?? hours_overdue
+//              pending_email   → approver_label
+//              pending_user_id → approver_user_id
+//   ✅ FIX-GI2: normaliseItem() helper centralises all field mapping —
+//              works for both exec_approval_cache rows (full) and
+//              approval_steps direct fallback rows (sparse)
+//   ✅ FIX-GI3: toDaysWaiting() uses hours_to_due / hours_overdue correctly —
+//              hours_to_due is positive when not yet due (time remaining)
+//              hours_overdue is positive when past due (time elapsed since due)
+//              age = hours_overdue when overdue, else submitted_at age
 
 "use client";
 
@@ -65,29 +69,111 @@ function safeNum(x: any): number {
   const n = Number(x);
   return Number.isFinite(n) ? n : 0;
 }
-function toDaysFromAgeHours(ageHours: any) {
-  return Math.max(0, Math.round(safeNum(ageHours) / 24));
+
+/**
+ * ✅ FIX-GI2: Central field normaliser.
+ * Maps exec_approval_cache column names (and sparse approval_steps fallback)
+ * to a consistent shape used throughout this component.
+ *
+ * exec_approval_cache columns  →  normalised name used below
+ * ──────────────────────────────────────────────────────────
+ * sla_status                   →  _sla_status
+ * hours_to_due                 →  _hours_to_due
+ * hours_overdue                →  _hours_overdue
+ * approver_label               →  _approver_label
+ * approver_user_id             →  _approver_user_id
+ * stage_key                    →  _stage   (primary)
+ * step_title                   →  _stage   (fallback)
+ * project_code                 →  project_code  ✅ already matches
+ * project_title                →  project_title ✅ already matches
+ * submitted_at                 →  _submitted_at
+ */
+function normaliseItem(raw: any) {
+  return {
+    ...raw,
+    // ✅ FIX-GI1: sla_state → sla_status
+    _sla_status: safeStr(raw?.sla_status || raw?.sla_state || raw?.state || raw?.rag),
+    // ✅ FIX-GI1: hours_to_due / hours_overdue (replaces age_hours)
+    _hours_to_due: raw?.hours_to_due != null ? safeNum(raw.hours_to_due) : null,
+    _hours_overdue: raw?.hours_overdue != null ? safeNum(raw.hours_overdue) : null,
+    // ✅ FIX-GI1: approver_label (replaces pending_email)
+    _approver_label:
+      safeStr(raw?.approver_label) ||
+      safeStr(raw?.pending_email) ||
+      safeStr(raw?.approver_ref) ||
+      safeStr(raw?.approver_user_id) ||
+      safeStr(raw?.pending_user_id) ||
+      "",
+    // ✅ FIX-GI1: approver_user_id (replaces pending_user_id)
+    _approver_user_id:
+      safeStr(raw?.approver_user_id) ||
+      safeStr(raw?.pending_user_id) ||
+      "",
+    // stage — stage_key is primary in cache, step_name / step_title as fallbacks
+    _stage:
+      safeStr(raw?.stage_key) ||
+      safeStr(raw?.step_title) ||
+      safeStr(raw?.step_name) ||
+      "",
+    // submitted_at for age calculation when hours fields are absent
+    _submitted_at: raw?.submitted_at ?? raw?.created_at ?? null,
+  };
 }
-function pickApproverLabel(item: any) {
-  return (
-    safeStr(item?.pending_email) ||
-    safeStr(item?.approver_ref) ||
-    safeStr(item?.pending_user_id) ||
-    "—"
-  );
+
+/**
+ * ✅ FIX-GI3: Derive days waiting from normalised item.
+ *
+ * exec_approval_cache semantics:
+ *   hours_overdue > 0  → item is past its due_at  → use hours_overdue for age
+ *   hours_to_due  > 0  → item is not yet due       → use submitted_at elapsed time instead
+ *
+ * Fallback: compute elapsed days from submitted_at if both hour fields are null
+ * (sparse approval_steps direct rows).
+ */
+function toDaysWaiting(item: ReturnType<typeof normaliseItem>): number {
+  // Overdue: use overdue hours directly
+  if (item._hours_overdue != null && item._hours_overdue > 0) {
+    return Math.max(0, Math.round(item._hours_overdue / 24));
+  }
+  // Not yet due but we have submitted_at: compute elapsed from submission
+  if (item._submitted_at) {
+    const submitted = new Date(String(item._submitted_at)).getTime();
+    if (Number.isFinite(submitted)) {
+      const elapsedHours = (Date.now() - submitted) / (1000 * 60 * 60);
+      return Math.max(0, Math.round(elapsedHours / 24));
+    }
+  }
+  // Last resort: hours_to_due is negative when overdue in some schemas
+  if (item._hours_to_due != null && item._hours_to_due < 0) {
+    return Math.max(0, Math.round(-item._hours_to_due / 24));
+  }
+  return 0;
 }
+
+/**
+ * ✅ FIX-GI1: pickSlaState now reads _sla_status (normalised field).
+ * exec_approval_cache sla_status values: 'ok' | 'warn' | 'overdue' | 'breached' | 'unknown'
+ */
+function pickSlaState(item: ReturnType<typeof normaliseItem>): "ok" | "warn" | "overdue" {
+  const s = safeStr(item._sla_status).toLowerCase().trim();
+  if (s === "overdue" || s === "breached" || s === "r") return "overdue";
+  if (s === "warn" || s === "at_risk" || s === "a") return "warn";
+  // If hours_overdue is set and positive → treat as overdue regardless of sla_status label
+  if (item._hours_overdue != null && item._hours_overdue > 0) return "overdue";
+  return "ok";
+}
+
+/**
+ * ✅ FIX-GI1: pickApproverLabel now reads _approver_label (normalised field).
+ */
+function pickApproverLabel(item: ReturnType<typeof normaliseItem>): string {
+  return item._approver_label || "—";
+}
+
 function deriveRag(overdue: number, warn: number): Rag {
   if (overdue > 0) return "R";
   if (warn > 0) return "A";
   return "G";
-}
-function pickSlaState(item: any): "ok" | "warn" | "overdue" {
-  const s = safeStr(item?.sla_state || item?.state || item?.rag || "")
-    .toLowerCase()
-    .trim();
-  if (s === "overdue" || s === "breached" || s === "r") return "overdue";
-  if (s === "warn" || s === "at_risk" || s === "a") return "warn";
-  return "ok";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -152,7 +238,6 @@ function ProjectHeatTile({ project, index }: { project: UiProject; index: number
   const warnW    = (project.counts.warn    / total) * 100;
   const okW      = (project.counts.ok      / total) * 100;
 
-  // Severity score for heat tinting the card background
   const heatScore = (project.counts.overdue * 3 + project.counts.warn * 1.5) / total;
   const cardBg = heatScore >= 2
     ? "linear-gradient(135deg, rgba(255,241,242,0.92) 0%, rgba(255,255,255,0.82) 100%)"
@@ -172,25 +257,19 @@ function ProjectHeatTile({ project, index }: { project: UiProject; index: number
         boxShadow: `0 1px 3px rgba(0,0,0,0.04), 0 4px 12px ${rc.glow}, 0 1px 0 rgba(255,255,255,0.9) inset`,
       }}
     >
-      {/* Top gloss */}
       <div className="absolute inset-x-0 top-0 h-px" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.95), transparent)" }} />
-
-      {/* Accent line — colored by RAG */}
       <div className={`absolute left-0 top-4 bottom-4 w-[3px] rounded-r-full ${rc.bar}`}
         style={{ boxShadow: `0 0 10px ${rc.glow}` }} />
 
       <div className="pl-3">
-        {/* Header row */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap mb-1.5">
-              {/* RAG badge */}
               <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold tracking-widest uppercase ${rc.badge}`}
                 style={{ backdropFilter: "blur(8px)" }}>
                 <span className="h-1.5 w-1.5 rounded-full mr-1.5" style={{ background: rc.dot }} />
                 {rc.label}
               </span>
-              {/* Project code */}
               {project.project_code && (
                 <span className="inline-flex items-center rounded-md border border-indigo-200/60 bg-indigo-50/80 px-2 py-0.5 text-[9px] font-bold text-indigo-700 uppercase tracking-wider"
                   style={{ fontFamily: "var(--font-mono, monospace)", backdropFilter: "blur(4px)" }}>
@@ -209,7 +288,6 @@ function ProjectHeatTile({ project, index }: { project: UiProject; index: number
             </div>
           </div>
 
-          {/* Days waiting */}
           <div className="shrink-0 text-right">
             <div className={`text-base font-bold ${project.counts.overdue > 0 ? "text-rose-600" : project.counts.warn > 0 ? "text-amber-600" : "text-slate-700"}`}
               style={{ fontFamily: "var(--font-mono, monospace)" }}>
@@ -219,7 +297,6 @@ function ProjectHeatTile({ project, index }: { project: UiProject; index: number
           </div>
         </div>
 
-        {/* Severity heat bar */}
         <div className="mt-3">
           <div className="flex items-center justify-between mb-1.5 text-[9px] text-slate-400 font-bold uppercase tracking-widest">
             <span>{project.counts.total} item{project.counts.total !== 1 ? "s" : ""}</span>
@@ -229,7 +306,6 @@ function ProjectHeatTile({ project, index }: { project: UiProject; index: number
               {project.counts.ok      > 0 && <span className="text-emerald-500">{project.counts.ok} ok</span>}
             </div>
           </div>
-          {/* Segmented heat bar */}
           <div className="h-1.5 w-full rounded-full overflow-hidden flex bg-slate-100/80">
             {project.counts.overdue > 0 && (
               <m.div initial={{ width: 0 }} animate={{ width: `${overdueW}%` }} transition={{ duration: 0.8, delay: index * 0.055 + 0.2 }}
@@ -279,10 +355,7 @@ function BottleneckTile({ bottleneck, maxCount, index }: {
         boxShadow: `0 1px 3px rgba(0,0,0,0.04), 0 4px 12px ${heatCfg.glow}, 0 1px 0 rgba(255,255,255,0.88) inset`,
       }}
     >
-      {/* Top gloss */}
       <div className="absolute inset-x-0 top-0 h-px" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.92), transparent)" }} />
-
-      {/* Fill bar behind content */}
       <m.div
         initial={{ width: 0 }}
         animate={{ width: `${widthPct}%` }}
@@ -293,8 +366,7 @@ function BottleneckTile({ bottleneck, maxCount, index }: {
 
       <div className="relative flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
-          {/* Kind icon */}
-          <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-200/70 bg-white/80`}
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-200/70 bg-white/80"
             style={{ backdropFilter: "blur(8px)", boxShadow: "0 1px 4px rgba(0,0,0,0.06), 0 1px 0 rgba(255,255,255,0.9) inset" }}>
             {bottleneck.kind === "user"
               ? <Users className="h-3.5 w-3.5 text-slate-600" />
@@ -321,7 +393,6 @@ function BottleneckTile({ bottleneck, maxCount, index }: {
         </div>
       </div>
 
-      {/* Max wait badge — only for high heat */}
       {heatLevel === "high" && (
         <div className="relative mt-2 flex items-center gap-1.5 text-[10px] text-rose-600 font-semibold">
           <Flame className="h-3 w-3" />
@@ -387,7 +458,7 @@ export default function GovernanceIntelligence({
   approvalItems: parentItems,
 }: {
   days?: 7 | 14 | 30 | 60;
-  /** ✅ FIX: Accept items from parent to avoid duplicate fetch */
+  /** Accept items from parent to avoid duplicate fetch */
   approvalItems?: any[];
 }) {
   const [resp, setResp] = useState<PendingApprovalsResp | null>(null);
@@ -396,7 +467,6 @@ export default function GovernanceIntelligence({
   const loading = !resp;
 
   useEffect(() => {
-    // ✅ FIX: If parent already has data, skip fetch entirely
     if (parentItems !== undefined) {
       setResp({ ok: true, items: parentItems });
       return;
@@ -407,7 +477,6 @@ export default function GovernanceIntelligence({
 
     (async () => {
       try {
-        // ✅ FIX: days param now sent to endpoint
         const r = await fetch(
           `/api/executive/approvals/pending?limit=200&days=${days}`,
           {
@@ -437,10 +506,12 @@ export default function GovernanceIntelligence({
     return () => { cancelled = true; };
   }, [days, parentItems]);
 
-  // ── Derive items ──
+  // ── Normalise raw items → consistent field names ──
+  // ✅ FIX-GI2: all downstream code works on normalised items only
   const items = useMemo(() => {
     if (!resp || (resp as any).ok === false) return [];
-    return ((resp as any).items || []) as any[];
+    const raw = ((resp as any).items || []) as any[];
+    return raw.map(normaliseItem);
   }, [resp]);
 
   // ── Summary counts ──
@@ -462,7 +533,9 @@ export default function GovernanceIntelligence({
       const pid = safeStr(it?.project_id);
       if (!pid) continue;
       const state = pickSlaState(it);
-      const ageDays = toDaysFromAgeHours(it?.age_hours);
+      // ✅ FIX-GI3: use corrected days-waiting helper
+      const ageDays = toDaysWaiting(it);
+
       let p = map.get(pid);
       if (!p) {
         p = {
@@ -470,7 +543,9 @@ export default function GovernanceIntelligence({
           project_code: it?.project_code ?? null,
           project_title: it?.project_title ?? null,
           rag: "G",
-          stage: it?.stage_key ?? it?.step_name ?? null,
+          // ✅ FIX-GI1: use normalised _stage field
+          stage: it._stage || null,
+          // ✅ FIX-GI1: use normalised approver label
           approver_label: pickApproverLabel(it),
           days_waiting: ageDays,
           counts: { ok: 0, warn: 0, overdue: 0, total: 0 },
@@ -483,7 +558,7 @@ export default function GovernanceIntelligence({
       else p.counts.ok++;
       p.days_waiting = Math.max(p.days_waiting, ageDays);
       if (!p.approver_label || p.approver_label === "—") p.approver_label = pickApproverLabel(it);
-      if (!p.stage) p.stage = it?.stage_key ?? it?.step_name ?? null;
+      if (!p.stage) p.stage = it._stage || null;
     }
     const list = Array.from(map.values()).map(p => ({ ...p, rag: deriveRag(p.counts.overdue, p.counts.warn) }));
     list.sort((a, b) => {
@@ -501,11 +576,13 @@ export default function GovernanceIntelligence({
     for (const it of items) {
       const label = pickApproverLabel(it);
       if (label === "—") continue;
+      // ✅ FIX-GI1: approver_type field is unchanged in cache schema
       const kind: UiBottleneck["kind"] =
         it?.approver_type === "user" ? "user" :
         it?.approver_type === "email" ? "email" : "unknown";
       const key = `${kind}::${label}`;
-      const ageDays = toDaysFromAgeHours(it?.age_hours);
+      // ✅ FIX-GI3: corrected days waiting
+      const ageDays = toDaysWaiting(it);
       const pid = safeStr(it?.project_id);
       let b = map.get(key);
       if (!b) { b = { kind, label, ages: [], projects: new Set(), count: 0 }; map.set(key, b); }
@@ -554,16 +631,13 @@ export default function GovernanceIntelligence({
         <div className="absolute top-0 inset-x-0 h-[1px] rounded-t-2xl" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,1) 28%, rgba(255,255,255,1) 72%, transparent)" }} />
         <div className="absolute top-0 inset-x-0 h-20 rounded-t-2xl pointer-events-none" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.72) 0%, transparent 100%)" }} />
         <div className="absolute top-1 left-4 right-4 h-5 rounded-full pointer-events-none" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.92) 38%, rgba(255,255,255,0.98) 62%, transparent)", filter: "blur(5px)" }} />
-        {/* Ambient orb — bottom right */}
         <div className="absolute -bottom-20 -right-20 w-64 h-64 rounded-full pointer-events-none" style={{ background: "radial-gradient(ellipse, rgba(99,102,241,0.055) 0%, transparent 65%)", filter: "blur(2px)" }} />
-        {/* Ambient orb — top left */}
         <div className="absolute -top-10 -left-10 w-48 h-48 rounded-full pointer-events-none" style={{ background: "radial-gradient(ellipse, rgba(16,185,129,0.04) 0%, transparent 65%)" }} />
 
         <div className="relative">
           {/* ── Card Header ── */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div className="flex items-center gap-3">
-              {/* Icon */}
               <div className="flex h-11 w-11 items-center justify-center rounded-xl text-white"
                 style={{ background: "linear-gradient(135deg,#6366f1,#4f46e5)", boxShadow: "0 4px 16px rgba(99,102,241,0.38), 0 1px 0 rgba(255,255,255,0.22) inset" }}>
                 <ShieldCheck className="h-5 w-5" />
@@ -578,7 +652,6 @@ export default function GovernanceIntelligence({
               </div>
             </div>
 
-            {/* Status pills */}
             <div className="flex items-center gap-2 flex-wrap">
               <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/80 bg-white/72 px-3 py-1.5 text-[11px] font-semibold text-slate-600"
                 style={{ backdropFilter: "blur(10px)", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>

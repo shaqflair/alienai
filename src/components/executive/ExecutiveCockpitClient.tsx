@@ -1,6 +1,16 @@
 ﻿// src/components/executive/ExecutiveCockpitClient.tsx
 // Rebuilt: signal-rich cockpit tiles with crystal design system.
 // All tiles degrade gracefully to a count if structured data is not present.
+//
+// Fixes applied:
+//   ✅ FIX-ECC1: URL paths corrected — three endpoints were missing /approvals/ prefix
+//              /api/executive/who-blocking   → /api/executive/approvals/who-blocking
+//              /api/executive/sla-radar      → /api/executive/approvals/sla-radar
+//              /api/executive/risk-signals   → /api/executive/approvals/risk-signals
+//   ✅ FIX-ECC2: SlaRadarBody reads item.breached / item.at_risk (route returns booleans, not sla_state)
+//   ✅ FIX-ECC3: PendingApprovalsBody reads sla_status || sla_state (cache column is sla_status)
+//   ✅ FIX-ECC4: MicroList age derived from submitted_at/created_at (age_hours doesn't exist on cache rows)
+
 "use client";
 
 import * as React from "react";
@@ -87,6 +97,13 @@ function timeAgo(iso: string) {
   if (d < 3600) return `${Math.floor(d / 60)}m ago`;
   if (d < 86400) return `${Math.floor(d / 3600)}h ago`;
   return `${Math.floor(d / 86400)}d ago`;
+}
+
+// ✅ FIX-ECC4: derive display age from submitted_at or created_at
+function ageFromItem(it: any): string {
+  const ts = it?.submitted_at ?? it?.created_at ?? null;
+  if (!ts) return "";
+  return timeAgo(safeStr(ts));
 }
 
 // --- DESIGN SYSTEM -----------------------------------------------------------
@@ -231,6 +248,7 @@ function MicroList({ items, tone, labelKey = "title", subKey, ageKey }: {
   tone: ToneKey;
   labelKey?: string;
   subKey?: string;
+  // ✅ FIX-ECC4: ageKey is now optional — if omitted, age is derived from submitted_at/created_at
   ageKey?: string;
 }) {
   const acc = TONES[tone];
@@ -240,7 +258,10 @@ function MicroList({ items, tone, labelKey = "title", subKey, ageKey }: {
       {items.slice(0, 3).map((it, i) => {
         const label = safeStr(it?.[labelKey] || it?.title || it?.name || it?.label || it?.project_title || "---");
         const sub   = subKey ? safeStr(it?.[subKey]) : "";
-        const age   = ageKey ? safeStr(it?.[ageKey]) : (it?.created_at ? timeAgo(it.created_at) : "");
+        // ✅ FIX-ECC4: use explicit ageKey if provided, otherwise derive from timestamp fields
+        const age   = ageKey
+          ? safeStr(it?.[ageKey])
+          : ageFromItem(it);
         return (
           <m.div key={i}
             initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
@@ -305,8 +326,17 @@ function SeverityBar({ items }: { items: any[] }) {
 // --- TILE BODIES --------------------------------------------------------------
 
 function SlaRadarBody({ items }: { items: any[] }) {
-  const breached = items.filter(it => /breach|overdue|r/.test(safeStr(it?.sla_state || it?.state || "").toLowerCase())).length;
-  const atRisk   = items.filter(it => /warn|at_risk|a/.test(safeStr(it?.sla_state || it?.state || "").toLowerCase())).length;
+  // ✅ FIX-ECC2: sla-radar route returns item.breached / item.at_risk booleans, not sla_state/sla_status
+  // Also accept sla_status / sla_state as fallback for any other data sources
+  const breached = items.filter(it =>
+    it?.breached === true ||
+    /breach|overdue|r/.test(safeStr(it?.sla_status || it?.sla_state || it?.state || "").toLowerCase())
+  ).length;
+  const atRisk = items.filter(it =>
+    it?.at_risk === true ||
+    /warn|at_risk|a/.test(safeStr(it?.sla_status || it?.sla_state || it?.state || "").toLowerCase())
+  ).length;
+
   return (
     <div>
       <div className="flex items-center gap-2 mt-3">
@@ -382,7 +412,7 @@ function PortfolioApprovalsBody({ items }: { items: any[] }) {
   const byProject = new Map<string, { title: string; count: number }>();
   for (const it of items) {
     const pid   = safeStr(it?.project_id || it?.project?.id || "unknown");
-    const title = safeStr(it?.project_title || it?.project?.title || it?.change?.project_title || pid);
+    const title = safeStr(it?.project_title || it?.project_name || it?.project?.title || it?.change?.project_title || pid);
     const p = byProject.get(pid) || { title, count: 0 };
     p.count++;
     byProject.set(pid, p);
@@ -448,8 +478,9 @@ function BottlenecksBody({ items }: { items: any[] }) {
 }
 
 function PendingApprovalsBody({ items }: { items: any[] }) {
+  // ✅ FIX-ECC3: exec_approval_cache uses sla_status not sla_state; check both for safety
   const overdue = items.filter(it =>
-    /breach|overdue/.test(safeStr(it?.sla_state || it?.state || "").toLowerCase())
+    /breach|overdue/.test(safeStr(it?.sla_status || it?.sla_state || it?.state || "").toLowerCase())
   ).length;
   return (
     <div>
@@ -460,7 +491,8 @@ function PendingApprovalsBody({ items }: { items: any[] }) {
           </span>
         </div>
       )}
-      <MicroList items={items} tone="emerald" labelKey="project_title" subKey="stage_key" ageKey="age_hours" />
+      {/* ✅ FIX-ECC4: no ageKey — MicroList derives age from submitted_at/created_at automatically */}
+      <MicroList items={items} tone="emerald" labelKey="project_title" subKey="stage_key" />
     </div>
   );
 }
@@ -544,12 +576,13 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
 
     try {
       const [paR, wbR, slaR, rsR, portR, bottR] = await Promise.allSettled([
-        fetchJson<Payload>("/api/executive/approvals/pending?limit=200", signal),
-        fetchJson<Payload>("/api/executive/who-blocking",                signal),
-        fetchJson<Payload>("/api/executive/sla-radar",                   signal),
-        fetchJson<Payload>("/api/executive/risk-signals",                signal),
-        fetchJson<Payload>("/api/executive/approvals/portfolio",         signal),
-        fetchJson<Payload>("/api/executive/approvals/bottlenecks",       signal),
+        fetchJson<Payload>("/api/executive/approvals/pending?limit=200",      signal),
+        // ✅ FIX-ECC1: corrected paths — were missing /approvals/ prefix
+        fetchJson<Payload>("/api/executive/approvals/who-blocking",           signal),
+        fetchJson<Payload>("/api/executive/approvals/sla-radar",              signal),
+        fetchJson<Payload>("/api/executive/approvals/risk-signals",           signal),
+        fetchJson<Payload>("/api/executive/approvals/portfolio",              signal),
+        fetchJson<Payload>("/api/executive/approvals/bottlenecks",            signal),
       ]);
 
       const pa   = settledOrErr(paR,   "Failed to load pending approvals");

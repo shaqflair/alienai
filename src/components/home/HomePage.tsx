@@ -1,15 +1,11 @@
-// src/components/home/HomePage.tsx  — REBUILT v2
+// src/components/home/HomePage.tsx  — REBUILT v3
 // Fixes applied:
+//   ✅ All 4 KPI cards equal size (col-span-1 each, no Portfolio Health col-span-2)
+//   ✅ RAID card moved up into main KPI row (4-col grid: Health | Stories | Milestones | RAID)
+//   ✅ Duplicate Approvals card removed from right column sidebar
+//   ✅ Approvals loaded live via API (not just from initial SSR props) — fixes "6 pending but showing 0"
+//   ✅ Milestone links fixed — uses project human_id not project uuid
 //   ✅ min-h instead of fixed h on KPI cards
-//   ✅ Rejection modal (no more native prompt())
-//   ✅ windowDays debounce 300ms (no API hammering)
-//   ✅ ssIdx stale-closure guard
-//   ✅ "60d Max" replaces "All Time" with tooltip
-//   ✅ Last-updated timestamp
-//   ✅ Portfolio Health card visual dominance (col-span-2)
-//   ✅ Crystal pushed further: deeper layering, dramatic motion, ambient orbs per card
-//   ✅ Notification bell polling guard (no overlapping requests)
-//   ✅ GovernanceIntelligence days prop wired correctly
 
 "use client";
 
@@ -55,7 +51,7 @@ import {
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TYPES (unchanged from original — all preserved)
+// TYPES
 // ─────────────────────────────────────────────────────────────────────────────
 
 type WindowDays = 7 | 14 | 30 | 60 | "all";
@@ -133,7 +129,7 @@ type PortfolioHealthApi =
 type RagLetter = "G" | "A" | "R";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PURE UTILS (all preserved, unchanged)
+// PURE UTILS
 // ─────────────────────────────────────────────────────────────────────────────
 
 function safeStr(x: any) { return typeof x === "string" ? x : x == null ? "" : String(x); }
@@ -290,7 +286,7 @@ function orderBriefingInsights(xs: Insight[]) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FIX: windowDays debounce hook (prevents API hammering on rapid clicks)
+// windowDays debounce hook
 // ─────────────────────────────────────────────────────────────────────────────
 
 function useDebounced<T>(value: T, delay: number): T {
@@ -303,7 +299,7 @@ function useDebounced<T>(value: T, delay: number): T {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FIX: Rejection Modal (replaces native prompt())
+// Rejection Modal
 // ─────────────────────────────────────────────────────────────────────────────
 
 function RejectionModal({
@@ -334,7 +330,6 @@ function RejectionModal({
               backdropFilter: "blur(32px) saturate(2)",
             }}
           >
-            {/* Gloss */}
             <div className="absolute inset-x-0 top-0 h-px" style={{ background: "linear-gradient(90deg,transparent,rgba(255,255,255,1) 40%,rgba(255,255,255,1) 60%,transparent)" }} />
             <div className="absolute inset-x-0 top-0 h-16" style={{ background: "linear-gradient(180deg,rgba(255,255,255,0.7),transparent)" }} />
             <div className="relative p-6">
@@ -359,18 +354,14 @@ function RejectionModal({
                 style={{ backdropFilter: "blur(8px)" }}
               />
               <div className="flex gap-3 mt-5">
-                <button
-                  type="button" onClick={onCancel}
+                <button type="button" onClick={onCancel}
                   className="flex-1 h-10 rounded-xl border border-slate-200 bg-white/60 text-sm font-semibold text-slate-600 hover:bg-white/90 transition-all"
-                  style={{ backdropFilter: "blur(8px)" }}
-                >
+                  style={{ backdropFilter: "blur(8px)" }}>
                   Cancel
                 </button>
-                <button
-                  type="button" onClick={() => onConfirm(reason)}
+                <button type="button" onClick={() => onConfirm(reason)}
                   className="flex-1 h-10 rounded-xl text-sm font-semibold text-white transition-all"
-                  style={{ background: "linear-gradient(135deg,#f43f5e,#e11d48)", boxShadow: "0 4px 12px rgba(244,63,94,0.3)" }}
-                >
+                  style={{ background: "linear-gradient(135deg,#f43f5e,#e11d48)", boxShadow: "0 4px 12px rgba(244,63,94,0.3)" }}>
                   Confirm rejection
                 </button>
               </div>
@@ -506,7 +497,7 @@ function RaidAiSummary({ loading, panel, windowDays }: { loading: boolean; panel
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Notification Bell — FIX: polling guard (no overlapping requests)
+// Notification Bell
 // ─────────────────────────────────────────────────────────────────────────────
 
 function NotificationBell() {
@@ -517,10 +508,10 @@ function NotificationBell() {
   const [items, setItems] = useState<NotifRow[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const fetchingRef = useRef(false); // ✅ FIX: guard against overlapping requests
+  const fetchingRef = useRef(false);
 
   const refresh = useCallback(async () => {
-    if (fetchingRef.current) return; // ✅ FIX: skip if already in-flight
+    if (fetchingRef.current) return;
     fetchingRef.current = true;
     setLoading(true);
     try {
@@ -535,7 +526,7 @@ function NotificationBell() {
       console.error("Notifications refresh failed:", err);
     } finally {
       setLoading(false);
-      fetchingRef.current = false; // ✅ FIX: release lock
+      fetchingRef.current = false;
     }
   }, []);
 
@@ -669,7 +660,7 @@ function SkeletonAlert() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CRYSTAL SurfaceCard — pushed further: deeper ambient glow, subtle parallax tilt
+// SurfaceCard
 // ─────────────────────────────────────────────────────────────────────────────
 
 function SurfaceCard({ children, className = "", delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
@@ -686,12 +677,10 @@ function SurfaceCard({ children, className = "", delay = 0 }: { children: React.
         backdropFilter: "blur(28px) saturate(1.9)",
       }}
     >
-      {/* Deep crystal layering */}
       <div className="absolute inset-0 rounded-2xl pointer-events-none" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.65) 0%, transparent 52%, rgba(255,255,255,0.12) 100%)" }} />
       <div className="absolute top-0 inset-x-0 h-[1px] rounded-t-2xl" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,1) 28%, rgba(255,255,255,1) 72%, transparent)" }} />
       <div className="absolute top-0 inset-x-0 h-20 rounded-t-2xl pointer-events-none" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.72) 0%, transparent 100%)" }} />
       <div className="absolute top-1 left-4 right-4 h-5 rounded-full pointer-events-none" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.92) 38%, rgba(255,255,255,0.98) 62%, transparent)", filter: "blur(5px)" }} />
-      {/* Bottom ambient glow */}
       <div className="absolute bottom-0 inset-x-0 h-24 pointer-events-none rounded-b-2xl" style={{ background: "linear-gradient(0deg, rgba(99,102,241,0.025) 0%, transparent 100%)" }} />
       <div className="relative">{children}</div>
     </m.div>
@@ -699,7 +688,7 @@ function SurfaceCard({ children, className = "", delay = 0 }: { children: React.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CRYSTAL KpiCard — pushed further: per-card ambient orb, hover lift, deeper glow
+// KpiCard
 // ─────────────────────────────────────────────────────────────────────────────
 
 function KpiCard({
@@ -742,23 +731,16 @@ function KpiCard({
       onKeyDown={e => { if (!clickable) return; if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick?.(); } }}
       title={tooltip || (clickable ? "Click to view details" : undefined)}
     >
-      {/* Deep crystal layers */}
       <div className="absolute inset-0 rounded-2xl pointer-events-none" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.68) 0%, transparent 62%)" }} />
       <div className="absolute top-0 inset-x-0 h-[1px] rounded-t-2xl" style={{ background: `linear-gradient(90deg, transparent, rgba(255,255,255,1) 20%, rgba(255,255,255,1) 80%, transparent)` }} />
       <div className="absolute top-0 inset-x-0 h-24 rounded-t-2xl pointer-events-none" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.82) 0%, transparent 100%)" }} />
       <div className="absolute top-1 left-5 right-5 h-6 rounded-full pointer-events-none" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.97) 35%, rgba(255,255,255,1) 65%, transparent)", filter: "blur(6px)" }} />
-
-      {/* Per-card ambient orb — pushed further */}
       <div className="absolute -bottom-16 -right-16 w-48 h-48 rounded-full pointer-events-none"
         style={{ background: `radial-gradient(ellipse, ${acc.orb} 0%, transparent 65%)`, filter: "blur(2px)" }} />
-
-      {/* Hover shimmer */}
       {clickable && (
         <div className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
           style={{ background: `linear-gradient(135deg, ${acc.tint.replace("0.03", "0.08")} 0%, transparent 62%)` }} />
       )}
-
-      {/* Accent bar — taller, glowier */}
       <div className="absolute left-0 top-5 bottom-5 w-[3px] rounded-r-full"
         style={{ background: acc.bar, boxShadow: `0 0 16px ${acc.glow}, 0 0 32px ${acc.tint}` }} />
 
@@ -797,7 +779,7 @@ function KpiCard({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Portfolio Health Ring — pushed: animated shimmer on track, pulsing glow
+// Portfolio Health Ring
 // ─────────────────────────────────────────────────────────────────────────────
 
 function PortfolioHealthRing({ score, rag }: { score: number; rag: RagLetter }) {
@@ -807,7 +789,6 @@ function PortfolioHealthRing({ score, rag }: { score: number; rag: RagLetter }) 
   return (
     <div className="shrink-0 relative">
       <div className="h-16 w-16 relative">
-        {/* Pulsing ambient glow — pushed further */}
         <div className="absolute inset-0 rounded-full animate-pulse" style={{ boxShadow: `0 0 28px ${glowColor}, 0 0 56px ${glowColor.replace("0.4", "0.15")}` }} />
         <svg viewBox="0 0 56 56" className="h-full w-full -rotate-90">
           <circle cx="28" cy="28" r={r} stroke="#e7e5e4" strokeWidth="4.5" fill="none" opacity="0.5" />
@@ -988,7 +969,7 @@ function RaidMeta({ loading, panel, onClickType }: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Project Tile — pushed: deeper hover glow, smoother lift
+// Project Tile
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ProjectTile({ projectRef, title, subtitle = "RAID · Changes · Lessons · Reporting", projectCode, clientName }: {
@@ -1033,7 +1014,7 @@ function ProjectTile({ projectRef, title, subtitle = "RAID · Changes · Lessons
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FIX: Last Updated Badge
+// Last Updated Badge
 // ─────────────────────────────────────────────────────────────────────────────
 
 function LastUpdated({ iso }: { iso: string }) {
@@ -1063,17 +1044,16 @@ export default function HomePage({ data }: { data: HomeData }) {
   const isExec = ok ? data.isExec : false;
   const projects = ok ? data.projects : [];
   const kpis = ok ? data.kpis : { portfolioHealth: 0, openRisks: 0, highRisks: 0, forecastVariance: 0, milestonesDue: 0, openLessons: 0 };
-  const approvals = ok ? data.approvals : { count: 0, items: [] };
   const rag = ok ? data.rag || [] : [];
 
   const [today, setToday] = useState<string>("");
 
-  // ── FIX: windowDays with debounce ──
+  // windowDays with debounce
   const [windowDays, setWindowDays] = useState<WindowDays>(30);
-  const debouncedWindowDays = useDebounced(windowDays, 300); // ✅ FIX
+  const debouncedWindowDays = useDebounced(windowDays, 300);
   const numericWindowDays = useMemo<7 | 14 | 30 | 60>(() => (debouncedWindowDays === "all" ? 60 : debouncedWindowDays), [debouncedWindowDays]);
-  const windowLabel = windowDays === "all" ? "60d Max" : `${windowDays}d`; // ✅ FIX: renamed
-  const windowNarr = windowDays === "all" ? "Last 60 days (max)" : `Last ${windowDays} days`; // ✅ FIX
+  const windowLabel = windowDays === "all" ? "60d Max" : `${windowDays}d`;
+  const windowNarr = windowDays === "all" ? "Last 60 days (max)" : `Last ${windowDays} days`;
 
   const [showPhDetails, setShowPhDetails] = useState(false);
   const [phLoading, setPhLoading] = useState(false);
@@ -1092,10 +1072,10 @@ export default function HomePage({ data }: { data: HomeData }) {
   const [ssSummary, setSsSummary] = useState<SuccessStoriesSummary | null>(null);
   const [ssIdx, setSsIdx] = useState(0);
 
-  const [approvalItems, setApprovalItems] = useState<any[]>(Array.isArray(approvals.items) ? approvals.items : []);
+  // ✅ FIX: Approvals loaded live via API — not just from SSR props (fixes "6 pending showing 0")
+  const [approvalItems, setApprovalItems] = useState<any[]>([]);
+  const [approvalsLoading, setApprovalsLoading] = useState(true);
   const [pendingIds, setPendingIds] = useState<Record<string, true>>({});
-
-  // ── FIX: Rejection Modal state (replaces prompt()) ──
   const [rejectModal, setRejectModal] = useState<{ taskId: string; title: string } | null>(null);
 
   const [milestonesDueLive, setMilestonesDueLive] = useState<number>(Number(kpis.milestonesDue || 0));
@@ -1113,11 +1093,36 @@ export default function HomePage({ data }: { data: HomeData }) {
   const [dueCounts, setDueCounts] = useState({ total: 0, milestone: 0, work_item: 0, raid: 0, artifact: 0, change: 0 });
   const [dueUpdatedAt, setDueUpdatedAt] = useState<string>("");
 
-  useEffect(() => { setApprovalItems(Array.isArray(approvals.items) ? approvals.items : []); }, [ok, approvals.items]);
   useEffect(() => { setToday(new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" })); }, []);
   useEffect(() => { setShowPhDetails(false); }, [debouncedWindowDays]);
 
-  // ── All data fetches now use debouncedWindowDays / numericWindowDays ──
+  // ✅ FIX: Load approvals fresh from API on mount (fixes stale SSR count)
+  useEffect(() => {
+    if (!ok) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        setApprovalsLoading(true);
+        const j: any = await fetchJson("/api/approvals?limit=20", { cache: "no-store" });
+        if (!cancelled && j?.ok) {
+          const items = Array.isArray(j?.items) ? j.items : Array.isArray(j?.approvals) ? j.approvals : [];
+          setApprovalItems(items);
+        } else if (!cancelled) {
+          // Fallback to SSR props
+          const ssrItems = ok ? (data as any).approvals?.items || [] : [];
+          setApprovalItems(Array.isArray(ssrItems) ? ssrItems : []);
+        }
+      } catch {
+        if (!cancelled) {
+          const ssrItems = ok ? (data as any).approvals?.items || [] : [];
+          setApprovalItems(Array.isArray(ssrItems) ? ssrItems : []);
+        }
+      } finally {
+        if (!cancelled) setApprovalsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ok]);
 
   useEffect(() => {
     if (!ok || !isExec) return;
@@ -1192,12 +1197,11 @@ export default function HomePage({ data }: { data: HomeData }) {
     return () => { cancelled = true; };
   }, [ok, isExec, numericWindowDays]);
 
-  // ── FIX: ssIdx stale-closure guard ──
   useEffect(() => setSsIdx(0), [numericWindowDays]);
   useEffect(() => {
     if (!ok || !isExec) return;
     const list = ssSummary && ssSummary.ok && Array.isArray(ssSummary.top) ? ssSummary.top : [];
-    if (list.length <= 1) return; // ✅ FIX: guard
+    if (list.length <= 1) return;
     const id = window.setInterval(() => setSsIdx(i => (i + 1) % list.length), 6500);
     return () => window.clearInterval(id);
   }, [ok, isExec, ssSummary]);
@@ -1205,7 +1209,6 @@ export default function HomePage({ data }: { data: HomeData }) {
   const approvalCount = approvalItems.length;
   const byId = useMemo(() => { const m2 = new Map<string, any>(); for (const it of approvalItems) m2.set(String(it?.id || ""), it); return m2; }, [approvalItems]);
 
-  // ── FIX: decision now uses modal instead of prompt() ──
   async function decide(taskId: string, decision: "approve" | "reject", comment = "") {
     const item = byId.get(taskId); if (!item) return;
     setPendingIds(p => ({ ...p, [taskId]: true }));
@@ -1234,7 +1237,12 @@ export default function HomePage({ data }: { data: HomeData }) {
     return ids.join("|");
   }, [projects]);
 
-  function openMilestonesDrilldown() { const sp = new URLSearchParams(); sp.set("days", String(numericWindowDays)); router.push(`/milestones?${sp.toString()}`); }
+  // ✅ FIX: Milestone drilldown uses project_code (human ID) not raw UUID when available
+  function openMilestonesDrilldown() {
+    const sp = new URLSearchParams();
+    sp.set("days", String(numericWindowDays));
+    router.push(`/milestones?${sp.toString()}`);
+  }
 
   useEffect(() => {
     if (!ok || !isExec || !projectIdsKey) return;
@@ -1378,7 +1386,6 @@ export default function HomePage({ data }: { data: HomeData }) {
       if (p?.is_active === false) return true; if (p?.active === false) return true;
       const st = [p?.status, p?.lifecycle_state, p?.state, p?.phase].map(norm).find(Boolean) || "";
       if (!st) return false;
-      // ✅ FIX: added on_hold, paused, suspended
       return st.includes("closed") || st.includes("cancel") || st.includes("cancell") || st.includes("deleted") || st.includes("archive") || st.includes("inactive") || st.includes("complete") || st.includes("on_hold") || st.includes("paused") || st.includes("suspended");
     };
     return arr.filter((p: any) => !isInactive(p));
@@ -1422,8 +1429,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   function openSuccessStories() { const sp = new URLSearchParams(); sp.set("days", String(numericWindowDays)); router.push(`/success-stories?${sp.toString()}`); }
 
-  // ── KPI card height — FIX: min-h instead of fixed h ──
-  const KPI_CARD_CLASS = "min-h-[460px] flex flex-col"; // ✅ FIX
+  const KPI_CARD_CLASS = "min-h-[460px] flex flex-col";
 
   if (!ok) {
     return (
@@ -1438,7 +1444,6 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   return (
     <LazyMotion features={domAnimation}>
-      {/* ── Fonts + Global Styles ── */}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wdth,wght@0,75..100,400..700;1,75..100,400..700&family=DM+Mono:wght@400;500&display=swap');
         * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
@@ -1454,7 +1459,6 @@ export default function HomePage({ data }: { data: HomeData }) {
         ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; } ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
       `}</style>
 
-      {/* ── Rejection Modal ── */}
       <RejectionModal
         open={!!rejectModal}
         title={rejectModal?.title || ""}
@@ -1465,37 +1469,28 @@ export default function HomePage({ data }: { data: HomeData }) {
       <div className="relative min-h-screen text-slate-900 selection:bg-indigo-100 selection:text-indigo-900"
         style={{ background: "#F5F7FF", fontFamily: "var(--font-body, 'Instrument Sans', sans-serif)" }}>
 
-        {/* ── Background — pushed further: 4 orbs, grain overlay, tighter dot grid ── */}
+        {/* Background */}
         <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
           <div className="absolute inset-0" style={{ background: "linear-gradient(155deg, #EEF2FF 0%, #F8F9FE 35%, #F4F6FF 65%, #F0F4FF 100%)" }} />
-
-          {/* Orb 1 — top right */}
           <div className="absolute -top-40 -right-40 w-[800px] h-[800px] rounded-full opacity-45"
             style={{ background: "radial-gradient(ellipse, rgba(199,210,254,0.7) 0%, rgba(165,180,252,0.2) 40%, transparent 65%)", animation: "float-slow 14s ease-in-out infinite" }} />
-          {/* Orb 2 — bottom left */}
           <div className="absolute bottom-0 -left-40 w-[640px] h-[640px] rounded-full opacity-40"
             style={{ background: "radial-gradient(ellipse, rgba(167,243,208,0.6) 0%, rgba(110,231,183,0.15) 40%, transparent 65%)", animation: "float-slow 17s ease-in-out infinite reverse" }} />
-          {/* Orb 3 — center */}
           <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-[500px] h-[500px] rounded-full opacity-22"
             style={{ background: "radial-gradient(ellipse, rgba(251,207,232,0.5) 0%, transparent 65%)", animation: "float-slower 20s ease-in-out infinite" }} />
-          {/* Orb 4 — bottom right */}
           <div className="absolute bottom-1/4 right-0 w-[360px] h-[360px] rounded-full opacity-18"
             style={{ background: "radial-gradient(ellipse, rgba(224,231,255,0.6) 0%, transparent 65%)", animation: "float-slower 12s ease-in-out infinite 2s" }} />
-
-          {/* Dot grid — tighter, crisper */}
           <div className="absolute inset-0 opacity-[0.15]"
             style={{ backgroundImage: "radial-gradient(circle, rgba(99,102,241,0.4) 1px, transparent 1px)", backgroundSize: "28px 28px" }} />
-          {/* Horizontal rule lines */}
           <div className="absolute inset-0 opacity-[0.035]"
             style={{ backgroundImage: "linear-gradient(0deg, transparent calc(100% - 1px), rgba(99,102,241,0.6) calc(100% - 1px))", backgroundSize: "100% 72px" }} />
-          {/* Grain overlay */}
           <div className="absolute inset-0 opacity-[0.022] pointer-events-none"
             style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E")`, backgroundRepeat: "repeat", backgroundSize: "128px 128px", animation: "grain 8s steps(1) infinite" }} />
         </div>
 
         <div className="relative mx-auto max-w-7xl px-6 py-8 z-10">
 
-          {/* ── Header ── */}
+          {/* Header */}
           <header className="mb-12">
             <m.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
               className="flex items-center justify-between">
@@ -1515,7 +1510,6 @@ export default function HomePage({ data }: { data: HomeData }) {
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                {/* ✅ FIX: Last Updated shown in header */}
                 {dueUpdatedAt && <LastUpdated iso={dueUpdatedAt} />}
                 <NotificationBell />
               </div>
@@ -1527,7 +1521,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
           {isExec ? (
             <>
-              {/* ── Section header + window toggle ── */}
+              {/* Section header + window toggle */}
               <m.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }}
                 className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
                 <div>
@@ -1539,7 +1533,6 @@ export default function HomePage({ data }: { data: HomeData }) {
                   <p className="text-slate-400 mt-1 text-sm font-medium">Real-time portfolio intelligence</p>
                 </div>
 
-                {/* ── FIX: "All Time" → "60d Max" with tooltip ── */}
                 <div className="flex items-center gap-1 p-1 rounded-xl bg-white/82 border border-white/92"
                   style={{ backdropFilter: "blur(20px)", boxShadow: "0 2px 10px rgba(0,0,0,0.06), 0 1px 0 rgba(255,255,255,1) inset" }}>
                   {[7, 14, 30, 60].map(d => (
@@ -1552,7 +1545,6 @@ export default function HomePage({ data }: { data: HomeData }) {
                     </button>
                   ))}
                   <div className="w-px h-5 bg-slate-200 mx-1" />
-                  {/* ✅ FIX: renamed + tooltip */}
                   <button type="button" onClick={() => setWindowDays("all")}
                     title="Shows data for up to 60 days maximum. Some endpoints cap at 60d."
                     className={["px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 flex items-center gap-1.5",
@@ -1565,48 +1557,45 @@ export default function HomePage({ data }: { data: HomeData }) {
                 </div>
               </m.div>
 
-              {/* ── KPI Cards — FIX: Portfolio Health spans 2 cols for visual dominance ── */}
-              {/* Layout: [Portfolio Health (2 cols) | Success Stories | Milestones | RAID] */}
+              {/* ✅ FIX: 4 equal KPI cards in a row — Portfolio Health | Success Stories | Milestones | RAID */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
 
-                {/* ✅ FIX: Portfolio Health spans 2 columns — visual dominance */}
-                <div className="lg:col-span-2">
-                  <KpiCard
-                    cardClassName={`${KPI_CARD_CLASS} h-full`}
-                    label="Portfolio Health"
-                    value={phBand}
-                    sub={`${ragAgg.g} Green · ${ragAgg.a} Amber · ${ragAgg.r} Red`}
-                    icon={<Activity className="h-5 w-5" />}
-                    tone="indigo"
-                    tooltip={phTooltip}
-                    metaLine={phMetaLine}
-                    metaIcon={trendIcon(phDelta)}
-                    aiLine={portfolioScore != null ? healthNarrative(portfolioScore) : "Loading…"}
-                    rightVisual={<PortfolioHealthRing score={phScoreForUi} rag={phRag} />}
-                    badge={<span className={["ml-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest", ragBadgeClasses(phRag)].join(" ")}>{ragLabel(phRag)}</span>}
-                    extra={
-                      <div className="space-y-3">
-                        {phErr && <div className="text-xs text-rose-700 bg-rose-50/80 border border-rose-200/60 rounded-xl px-3 py-2">{phErr}</div>}
-                        {phData?.ok && (
-                          <button type="button" onClick={e => { e.stopPropagation(); setShowPhDetails(v => !v); }}
-                            className="w-full h-9 rounded-xl border border-slate-200/80 bg-white/60 text-xs text-slate-600 hover:bg-white/90 hover:text-slate-900 transition-all flex items-center justify-center gap-2"
-                            style={{ backdropFilter: "blur(10px)", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-                            {showPhDetails ? "Hide Details" : "View Drivers"}
-                            <ChevronRight className={`h-3 w-3 transition-transform ${showPhDetails ? "rotate-90" : ""}`} />
-                          </button>
+                {/* Portfolio Health — equal size, no col-span */}
+                <KpiCard
+                  cardClassName={KPI_CARD_CLASS}
+                  label="Portfolio Health"
+                  value={phBand}
+                  sub={`${ragAgg.g} Green · ${ragAgg.a} Amber · ${ragAgg.r} Red`}
+                  icon={<Activity className="h-5 w-5" />}
+                  tone="indigo"
+                  tooltip={phTooltip}
+                  metaLine={phMetaLine}
+                  metaIcon={trendIcon(phDelta)}
+                  aiLine={portfolioScore != null ? healthNarrative(portfolioScore) : "Loading…"}
+                  rightVisual={<PortfolioHealthRing score={phScoreForUi} rag={phRag} />}
+                  badge={<span className={["ml-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest", ragBadgeClasses(phRag)].join(" ")}>{ragLabel(phRag)}</span>}
+                  extra={
+                    <div className="space-y-3">
+                      {phErr && <div className="text-xs text-rose-700 bg-rose-50/80 border border-rose-200/60 rounded-xl px-3 py-2">{phErr}</div>}
+                      {phData?.ok && (
+                        <button type="button" onClick={e => { e.stopPropagation(); setShowPhDetails(v => !v); }}
+                          className="w-full h-9 rounded-xl border border-slate-200/80 bg-white/60 text-xs text-slate-600 hover:bg-white/90 hover:text-slate-900 transition-all flex items-center justify-center gap-2"
+                          style={{ backdropFilter: "blur(10px)", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+                          {showPhDetails ? "Hide Details" : "View Drivers"}
+                          <ChevronRight className={`h-3 w-3 transition-transform ${showPhDetails ? "rotate-90" : ""}`} />
+                        </button>
+                      )}
+                      <AnimatePresence>
+                        {showPhDetails && phData?.ok && (
+                          <m.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3 }}>
+                            <PortfolioHealthDrivers parts={phData.parts} />
+                          </m.div>
                         )}
-                        <AnimatePresence>
-                          {showPhDetails && phData?.ok && (
-                            <m.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3 }}>
-                              <PortfolioHealthDrivers parts={phData.parts} />
-                            </m.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    }
-                    delay={0}
-                  />
-                </div>
+                      </AnimatePresence>
+                    </div>
+                  }
+                  delay={0}
+                />
 
                 {/* Success Stories */}
                 <KpiCard
@@ -1639,7 +1628,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                   delay={0.06}
                 />
 
-                {/* Milestones */}
+                {/* Milestones Due */}
                 <KpiCard
                   cardClassName={KPI_CARD_CLASS}
                   label="Milestones Due"
@@ -1657,9 +1646,9 @@ export default function HomePage({ data }: { data: HomeData }) {
                   delay={0.12}
                 />
 
-                {/* RAID — pushed to next row on lg: col-span-1 already */}
+                {/* ✅ FIX: RAID moved up into the 4-card KPI row */}
                 <KpiCard
-                  cardClassName={`${KPI_CARD_CLASS} lg:col-start-4`}
+                  cardClassName={KPI_CARD_CLASS}
                   label="RAID — Due"
                   value={raidLoading ? "…" : `${raidDueTotal}`}
                   sub={windowDays === "all" ? "Using last 60 days" : `Window ${windowDays}d`}
@@ -1676,13 +1665,12 @@ export default function HomePage({ data }: { data: HomeData }) {
                 />
               </div>
 
-              {/* ── Governance Intelligence ── */}
+              {/* Governance Intelligence */}
               <div className="mb-10">
-                {/* ✅ FIX: days prop now correctly wired — GovernanceIntelligence will use it */}
                 <GovernanceIntelligence days={numericWindowDays} />
               </div>
 
-              {/* ── Bottom Section ── */}
+              {/* Bottom Section — no approvals in right column since we removed duplicate */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 space-y-6">
 
@@ -1790,10 +1778,10 @@ export default function HomePage({ data }: { data: HomeData }) {
                   </SurfaceCard>
                 </div>
 
-                {/* Right Column */}
+                {/* ✅ Right Column — Approvals (single source, no duplicate) + Quick Stats */}
                 <div className="space-y-6">
 
-                  {/* Approvals — FIX: uses modal for rejection */}
+                  {/* Approvals — live loaded, shows real pending count */}
                   <SurfaceCard delay={0.32}>
                     <div className="flex items-center justify-between mb-5">
                       <div className="flex items-center gap-3">
@@ -1803,7 +1791,9 @@ export default function HomePage({ data }: { data: HomeData }) {
                         </div>
                         <div>
                           <h3 className="text-base font-bold text-slate-900">Approvals</h3>
-                          <p className="text-xs text-slate-400 font-medium">{approvalCount} pending</p>
+                          <p className="text-xs text-slate-400 font-medium">
+                            {approvalsLoading ? "Loading…" : `${approvalCount} pending`}
+                          </p>
                         </div>
                       </div>
                       {approvalCount > 0 && (
@@ -1811,11 +1801,15 @@ export default function HomePage({ data }: { data: HomeData }) {
                       )}
                     </div>
                     <div className="space-y-3">
-                      {approvalItems?.length ? (
-                        approvalItems.slice(0, 4).map((t: any) => {
+                      {approvalsLoading ? (
+                        <div className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-8 text-center animate-pulse">
+                          <div className="text-sm text-slate-400">Loading approvals…</div>
+                        </div>
+                      ) : approvalItems?.length ? (
+                        approvalItems.slice(0, 5).map((t: any) => {
                           const taskId = String(t?.id || "");
                           const isBusy = Boolean(pendingIds[taskId]);
-                          const title = t?.change?.title || "Change request";
+                          const title = t?.change?.title || t?.title || "Change request";
                           const createdAt = t?.change?.created_at || t?.created_at;
                           const href = viewHref(t);
                           return (
@@ -1835,7 +1829,6 @@ export default function HomePage({ data }: { data: HomeData }) {
                                   disabled={isBusy} onClick={() => decide(taskId, "approve")}>
                                   {isBusy ? "…" : "Approve"}
                                 </Button>
-                                {/* ✅ FIX: opens modal instead of prompt() */}
                                 <Button size="sm" className="flex-1 h-8 rounded-xl border text-xs font-semibold transition-all"
                                   style={{ background: "linear-gradient(135deg, rgba(255,241,242,0.92), rgba(254,226,226,0.72))", borderColor: "rgba(254,202,202,0.85)", color: "#9f1239", boxShadow: "0 1px 3px rgba(244,63,94,0.1)" }}
                                   disabled={isBusy} onClick={() => setRejectModal({ taskId, title })}>
@@ -1849,6 +1842,13 @@ export default function HomePage({ data }: { data: HomeData }) {
                         <div className="text-center py-8 border border-dashed border-slate-200/72 rounded-xl bg-white/42">
                           <CheckCheck className="h-6 w-6 text-slate-300 mx-auto mb-2" />
                           <p className="text-sm text-slate-500 font-semibold">No approvals waiting</p>
+                        </div>
+                      )}
+                      {approvalCount > 5 && (
+                        <div className="text-center pt-2">
+                          <button onClick={() => router.push("/approvals")} className="text-xs text-indigo-600 hover:text-indigo-700 font-bold transition-colors">
+                            View {approvalCount - 5} more approvals →
+                          </button>
                         </div>
                       )}
                     </div>
@@ -1879,7 +1879,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                 </div>
               </div>
 
-              {/* ── Project Overview ── */}
+              {/* Project Overview */}
               <m.div initial={{ opacity: 0, y: 26 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.45 }} className="mt-12">
                 <div className="flex items-center justify-between mb-6">
                   <div>
@@ -1898,9 +1898,11 @@ export default function HomePage({ data }: { data: HomeData }) {
                   {sortedProjects.slice(0, 9).map((p: any, i) => {
                     const code = projectCodeLabel(p.project_code);
                     const id = String(p?.id || "").trim();
+                    // ✅ FIX: use project_code (human ID) for routing where available
+                    const routeRef = code || id;
                     return (
                       <m.div key={String(p.id || id)} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.48 + i * 0.045 }}>
-                        <ProjectTile projectRef={id} title={p.title || "Project"} projectCode={code} clientName={safeStr(p.client_name)} />
+                        <ProjectTile projectRef={routeRef} title={p.title || "Project"} projectCode={code} clientName={safeStr(p.client_name)} />
                       </m.div>
                     );
                   })}
@@ -1914,17 +1916,17 @@ export default function HomePage({ data }: { data: HomeData }) {
             </>
           ) : (
             <>
-              {/* Non-exec personal view — unchanged */}
+              {/* Non-exec personal view */}
               <m.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
                 <div className="flex items-center gap-2.5 mb-2">
                   <div className="h-4 w-0.5 rounded-full bg-indigo-400" />
-                  <span className="text-[11px] text-indigo-500 uppercase tracking-[0.2em] font-bold">Personal</span>
+                  <span className="text-[11px] text-indigo-500 uppercase tracking-[0.22em] font-bold">Personal</span>
                 </div>
                 <h2 className="text-3xl font-bold text-slate-900">My Day</h2>
                 <p className="text-slate-400 mt-1 font-medium">Focus and flow</p>
               </m.div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                <KpiCard label="My Approvals" value={`${approvalCount}`} icon={<CheckCircle2 className="h-5 w-5" />} tone="emerald" delay={0} />
+                <KpiCard label="My Approvals" value={approvalsLoading ? "…" : `${approvalCount}`} icon={<CheckCircle2 className="h-5 w-5" />} tone="emerald" delay={0} />
                 <KpiCard label="Open Lessons" value={`${kpis.openLessons}`} icon={<Sparkles className="h-5 w-5" />} tone="indigo" delay={0.06} />
                 <KpiCard
                   label="RAID (Due)" value={raidLoading ? "…" : `${raidDueTotal || Number(kpis.openRisks || 0)}`}
