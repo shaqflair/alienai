@@ -2,7 +2,7 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
+import { createAdminClient } from "@/utils/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,7 +67,7 @@ function pickStageKey(step: any) {
 async function handler(req: Request) {
   try {
     requireCronSecret(req);
-    const supabase = await createClient();
+    const supabase = await createAdminClient();
 
     const now = new Date();
     const nowIso = now.toISOString();
