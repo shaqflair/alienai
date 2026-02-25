@@ -1,64 +1,73 @@
-// src/components/executive/ExecutiveCockpitClient.tsx — REBUILT v2
-// Rebuilt from plain StatCard stubs to signal-rich cockpit tiles.
-//
-// Architecture recommendation: These 6 endpoints should ideally return rich
-// structured data. The tile components below handle both "rich" and "count-only"
-// responses gracefully — showing as much as the API provides.
-//
-// Recommended endpoint response shapes (add to your API docs):
-//   pending approvals: { items: [...], scope, orgId }     — rich
-//   who-blocking:      { items: [{name, count, ...}], ... } — rich
-//   sla-radar:         { items: [{project, ...}], ... }    — rich
-//   risk-signals:      { items: [{severity, title, ...}] } — rich
-//   portfolio approvals: { items: [...] }                  — rich
-//   bottlenecks:       { items: [{label, count, ...}] }    — rich
-//
-// All tiles degrade gracefully to a count if structured data isn't present.
-
+ï»¿// src/components/executive/ExecutiveCockpitClient.tsx
+// Rebuilt: signal-rich cockpit tiles with crystal design system.
+// All tiles degrade gracefully to a count if structured data is not present.
 "use client";
 
 import * as React from "react";
 import {
-  ShieldCheck, AlertTriangle, Activity, Clock3,
-  Users, Layers, TrendingUp, CheckCircle2, ArrowUpRight,
-  Zap, Eye, Flame, Brain, RefreshCw, ChevronRight,
-  Target, BarChart2, CheckCheck, X,
+  AlertTriangle, CheckCircle2, ArrowUpRight,
+  Users, Layers, RefreshCw, ChevronRight,
+  Target, BarChart2, CheckCheck, Flame, Clock3,
 } from "lucide-react";
 import { LazyMotion, domAnimation, m, AnimatePresence } from "framer-motion";
 
-// -----------------------------------------------------------------------------
-// TYPES
-// -----------------------------------------------------------------------------
+// --- TYPES --------------------------------------------------------------------
 
 type ApiOk<T> = { ok?: boolean; orgId?: string; org_id?: string; scope?: string } & T;
 type ApiErr = { ok?: boolean; error: string; message?: string };
-type Payload = ApiOk<{ items?: any[]; pending?: any[]; data?: any; blockers?: any[]; breaches?: any[]; signals?: any[] }> | ApiErr;
+type Payload = ApiOk<{
+  items?: any[]; pending?: any[]; data?: any;
+  blockers?: any[]; breaches?: any[]; signals?: any[];
+}> | ApiErr;
 
 function isErr(x: any): x is ApiErr {
   return !!x && typeof x === "object" && typeof x.error === "string";
 }
+
 async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, {
-    method: "GET", credentials: "include", cache: "no-store",
-    headers: { Accept: "application/json", "Content-Type": "application/json", "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate", Pragma: "no-cache" },
+    method: "GET",
+    credentials: "include",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      Pragma: "no-cache",
+    },
     signal,
   });
   const text = await res.text();
   let json: any = null;
   try { json = text ? JSON.parse(text) : null; } catch {}
-  if (!res.ok) throw new Error((json && (json.message || json.error)) || text.slice(0, 200) || `Request failed (${res.status})`);
+  if (!res.ok) {
+    throw new Error(
+      (json && (json.message || json.error)) ||
+      text.slice(0, 200) ||
+      `Request failed (${res.status})`
+    );
+  }
   return json as T;
 }
+
 function errPayload(msg: string): ApiErr { return { error: msg }; }
+
 function settledOrErr<T>(r: PromiseSettledResult<T>, fallbackMsg: string): T | ApiErr {
   if (r.status === "fulfilled") return r.value as any;
   return errPayload((r.reason?.message || String(r.reason)) || fallbackMsg);
 }
+
 function extractList(payload: any, preferredKeys: string[] = ["items"]): any[] {
   if (!payload || typeof payload !== "object") return [];
-  for (const k of preferredKeys) { const v = (payload as any)[k]; if (Array.isArray(v)) return v; }
+  for (const k of preferredKeys) {
+    const v = (payload as any)[k];
+    if (Array.isArray(v)) return v;
+  }
   const candidates = ["items", "pending", "rows", "blockers", "breaches", "signals"];
-  for (const k of candidates) { const v = (payload as any)[k]; if (Array.isArray(v)) return v; }
+  for (const k of candidates) {
+    const v = (payload as any)[k];
+    if (Array.isArray(v)) return v;
+  }
   const data = (payload as any).data;
   if (Array.isArray(data)) return data;
   if (data && typeof data === "object") {
@@ -67,8 +76,10 @@ function extractList(payload: any, preferredKeys: string[] = ["items"]): any[] {
   }
   return [];
 }
+
 function safeStr(x: any) { return typeof x === "string" ? x : x == null ? "" : String(x); }
 function safeNum(x: any, fb = 0) { const n = Number(x); return Number.isFinite(n) ? n : fb; }
+
 function timeAgo(iso: string) {
   if (!iso) return "";
   const d = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -78,9 +89,7 @@ function timeAgo(iso: string) {
   return `${Math.floor(d / 86400)}d ago`;
 }
 
-// -----------------------------------------------------------------------------
-// DESIGN SYSTEM — crystal tile
-// -----------------------------------------------------------------------------
+// --- DESIGN SYSTEM -----------------------------------------------------------
 
 type ToneKey = "indigo" | "amber" | "emerald" | "rose" | "cyan" | "slate";
 
@@ -97,9 +106,7 @@ const TONES: Record<ToneKey, {
   slate:   { iconBg: "linear-gradient(135deg,#64748b,#475569)", iconGlow: "rgba(100,116,139,0.38)", orb: "rgba(100,116,139,0.05)", bar: "#64748b", glow: "rgba(100,116,139,0.14)", tint: "rgba(100,116,139,0.025)", badge: "bg-slate-50 border-slate-200 text-slate-700",  listDot: "bg-slate-400"   },
 };
 
-// -----------------------------------------------------------------------------
-// SKELETON
-// -----------------------------------------------------------------------------
+// --- SKELETON -----------------------------------------------------------------
 
 function TileSkeleton({ delay = 0 }: { delay?: number }) {
   return (
@@ -126,9 +133,7 @@ function TileSkeleton({ delay = 0 }: { delay?: number }) {
   );
 }
 
-// -----------------------------------------------------------------------------
-// BASE COCKPIT TILE — crystal design with ambient orb
-// -----------------------------------------------------------------------------
+// --- COCKPIT TILE -------------------------------------------------------------
 
 function CockpitTile({
   label, count, icon, tone, error, children, href, delay = 0,
@@ -158,19 +163,18 @@ function CockpitTile({
         backdropFilter: "blur(28px) saturate(1.9)",
       }}
     >
-      {/* Crystal layers */}
-      <div className="absolute inset-0 rounded-2xl pointer-events-none" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.68) 0%, transparent 62%)" }} />
-      <div className="absolute top-0 inset-x-0 h-[1px] rounded-t-2xl" style={{ background: `linear-gradient(90deg, transparent, rgba(255,255,255,1) 20%, rgba(255,255,255,1) 80%, transparent)` }} />
-      <div className="absolute top-0 inset-x-0 h-24 rounded-t-2xl pointer-events-none" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.82) 0%, transparent 100%)" }} />
-      {/* Ambient orb */}
+      <div className="absolute inset-0 rounded-2xl pointer-events-none"
+        style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.68) 0%, transparent 62%)" }} />
+      <div className="absolute top-0 inset-x-0 h-[1px] rounded-t-2xl"
+        style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,1) 20%, rgba(255,255,255,1) 80%, transparent)" }} />
+      <div className="absolute top-0 inset-x-0 h-24 rounded-t-2xl pointer-events-none"
+        style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.82) 0%, transparent 100%)" }} />
       <div className="absolute -bottom-12 -right-12 w-40 h-40 rounded-full pointer-events-none"
         style={{ background: `radial-gradient(ellipse, ${acc.orb} 0%, transparent 65%)`, filter: "blur(2px)" }} />
-      {/* Accent bar */}
       <div className="absolute left-0 top-5 bottom-5 w-[3px] rounded-r-full"
         style={{ background: acc.bar, boxShadow: `0 0 14px ${acc.glow}` }} />
 
       <div className="relative pl-4 p-5 flex flex-col h-full">
-        {/* Header */}
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="flex-1 min-w-0">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.18em] mb-2">{label}</p>
@@ -181,12 +185,15 @@ function CockpitTile({
               </div>
             ) : (
               <div className="flex items-end gap-3">
-                <p className="text-[38px] font-bold text-slate-950 leading-none tracking-tight"
-                  style={{ fontFamily: "var(--font-mono, 'DM Mono', monospace)", letterSpacing: "-0.025em" }}>
+                <p
+                  className="text-[38px] font-bold text-slate-950 leading-none tracking-tight"
+                  style={{ fontFamily: "var(--font-mono, 'DM Mono', monospace)", letterSpacing: "-0.025em" }}
+                >
                   {count === null ? (
                     <span className="inline-flex gap-1 items-center pb-2">
                       {[0, 120, 240].map(d => (
-                        <span key={d} className="h-1.5 w-1.5 rounded-full bg-slate-300 animate-bounce" style={{ animationDelay: `${d}ms` }} />
+                        <span key={d} className="h-1.5 w-1.5 rounded-full bg-slate-300 animate-bounce"
+                          style={{ animationDelay: `${d}ms` }} />
                       ))}
                     </span>
                   ) : count}
@@ -194,20 +201,16 @@ function CockpitTile({
               </div>
             )}
           </div>
-          <div className="shrink-0 flex items-center justify-center w-11 h-11 rounded-xl text-white"
-            style={{ background: acc.iconBg, boxShadow: `0 4px 16px ${acc.iconGlow}, 0 1px 0 rgba(255,255,255,0.22) inset` }}>
+          <div
+            className="shrink-0 flex items-center justify-center w-11 h-11 rounded-xl text-white"
+            style={{ background: acc.iconBg, boxShadow: `0 4px 16px ${acc.iconGlow}, 0 1px 0 rgba(255,255,255,0.22) inset` }}
+          >
             {icon}
           </div>
         </div>
 
-        {/* Body content */}
-        {hasData && children && (
-          <div className="mt-auto">
-            {children}
-          </div>
-        )}
+        {hasData && children && <div className="mt-auto">{children}</div>}
 
-        {/* CTA */}
         {href && hasData && (
           <a href={href}
             className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider transition-colors"
@@ -221,9 +224,7 @@ function CockpitTile({
   );
 }
 
-// -----------------------------------------------------------------------------
-// MICRO LIST — top N items from a payload
-// -----------------------------------------------------------------------------
+// --- MICRO LIST ---------------------------------------------------------------
 
 function MicroList({ items, tone, labelKey = "title", subKey, ageKey }: {
   items: any[];
@@ -237,19 +238,25 @@ function MicroList({ items, tone, labelKey = "title", subKey, ageKey }: {
   return (
     <div className="space-y-1.5 mt-3 pt-3 border-t border-slate-100/80">
       {items.slice(0, 3).map((it, i) => {
-        const label = safeStr(it?.[labelKey] || it?.title || it?.name || it?.label || it?.project_title || "—");
+        const label = safeStr(it?.[labelKey] || it?.title || it?.name || it?.label || it?.project_title || "---");
         const sub   = subKey ? safeStr(it?.[subKey]) : "";
         const age   = ageKey ? safeStr(it?.[ageKey]) : (it?.created_at ? timeAgo(it.created_at) : "");
         return (
-          <m.div key={i} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 + i * 0.06 }}
+          <m.div key={i}
+            initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.1 + i * 0.06 }}
             className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 bg-white/52 border border-slate-100/70 hover:bg-white/80 transition-all"
-            style={{ backdropFilter: "blur(8px)", boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}>
+            style={{ backdropFilter: "blur(8px)", boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}
+          >
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${acc.listDot}`} />
             <div className="min-w-0 flex-1">
               <div className="text-xs font-semibold text-slate-800 truncate">{label}</div>
               {sub && <div className="text-[10px] text-slate-400 truncate">{sub}</div>}
             </div>
-            {age && <div className="shrink-0 text-[10px] text-slate-400 font-medium" style={{ fontFamily: "var(--font-mono, monospace)" }}>{age}</div>}
+            {age && (
+              <div className="shrink-0 text-[10px] text-slate-400 font-medium"
+                style={{ fontFamily: "var(--font-mono, monospace)" }}>{age}</div>
+            )}
           </m.div>
         );
       })}
@@ -257,51 +264,49 @@ function MicroList({ items, tone, labelKey = "title", subKey, ageKey }: {
   );
 }
 
-// -----------------------------------------------------------------------------
-// SEVERITY BREAKDOWN BAR — for risk signals, SLA radar, etc.
-// -----------------------------------------------------------------------------
+// --- SEVERITY BAR -------------------------------------------------------------
 
 function SeverityBar({ items }: { items: any[] }) {
   if (!items.length) return null;
-  const high   = items.filter(it => safeStr(it?.severity || it?.level || it?.rag || "").toLowerCase().match(/high|red|r/)).length;
-  const medium = items.filter(it => safeStr(it?.severity || it?.level || it?.rag || "").toLowerCase().match(/med|amber|a|warn/)).length;
+  const high   = items.filter(it => /high|red|r/.test(safeStr(it?.severity || it?.level || it?.rag || "").toLowerCase())).length;
+  const medium = items.filter(it => /med|amber|a|warn/.test(safeStr(it?.severity || it?.level || it?.rag || "").toLowerCase())).length;
   const low    = items.length - high - medium;
   const total  = items.length;
 
   return (
     <div className="mt-3 pt-3 border-t border-slate-100/80">
-      {/* Segmented bar */}
       <div className="h-1.5 w-full rounded-full overflow-hidden flex bg-slate-100/80 mb-2">
         {high > 0 && (
-          <m.div initial={{ width: 0 }} animate={{ width: `${(high / total) * 100}%` }} transition={{ duration: 0.7, delay: 0.2 }}
-            className="h-full bg-rose-400 rounded-l-full" style={{ boxShadow: "0 0 6px rgba(244,63,94,0.35)" }} />
+          <m.div initial={{ width: 0 }} animate={{ width: `${(high / total) * 100}%` }}
+            transition={{ duration: 0.7, delay: 0.2 }}
+            className="h-full bg-rose-400 rounded-l-full"
+            style={{ boxShadow: "0 0 6px rgba(244,63,94,0.35)" }} />
         )}
         {medium > 0 && (
-          <m.div initial={{ width: 0 }} animate={{ width: `${(medium / total) * 100}%` }} transition={{ duration: 0.7, delay: 0.3 }}
+          <m.div initial={{ width: 0 }} animate={{ width: `${(medium / total) * 100}%` }}
+            transition={{ duration: 0.7, delay: 0.3 }}
             className="h-full bg-amber-400" />
         )}
         {low > 0 && (
-          <m.div initial={{ width: 0 }} animate={{ width: `${(low / total) * 100}%` }} transition={{ duration: 0.7, delay: 0.4 }}
+          <m.div initial={{ width: 0 }} animate={{ width: `${(low / total) * 100}%` }}
+            transition={{ duration: 0.7, delay: 0.4 }}
             className="h-full bg-emerald-400 rounded-r-full" />
         )}
       </div>
       <div className="flex items-center gap-3 text-[10px] font-semibold">
-        {high   > 0 && <span className="text-rose-600">   {high} critical</span>}
-        {medium > 0 && <span className="text-amber-600">  {medium} medium</span>}
+        {high   > 0 && <span className="text-rose-600">{high} critical</span>}
+        {medium > 0 && <span className="text-amber-600">{medium} medium</span>}
         {low    > 0 && <span className="text-emerald-600">{low} low</span>}
       </div>
     </div>
   );
 }
 
-// -----------------------------------------------------------------------------
-// SLA RADAR TILE BODY
-// -----------------------------------------------------------------------------
+// --- TILE BODIES --------------------------------------------------------------
 
 function SlaRadarBody({ items }: { items: any[] }) {
-  const breached  = items.filter(it => safeStr(it?.sla_state || it?.state || "").toLowerCase().match(/breach|overdue|r/)).length;
-  const atRisk    = items.filter(it => safeStr(it?.sla_state || it?.state || "").toLowerCase().match(/warn|at_risk|a/)).length;
-
+  const breached = items.filter(it => /breach|overdue|r/.test(safeStr(it?.sla_state || it?.state || "").toLowerCase())).length;
+  const atRisk   = items.filter(it => /warn|at_risk|a/.test(safeStr(it?.sla_state || it?.state || "").toLowerCase())).length;
   return (
     <div>
       <div className="flex items-center gap-2 mt-3">
@@ -326,26 +331,22 @@ function SlaRadarBody({ items }: { items: any[] }) {
   );
 }
 
-// -----------------------------------------------------------------------------
-// WHO-BLOCKING TILE BODY
-// -----------------------------------------------------------------------------
-
 function WhoBlockingBody({ items }: { items: any[] }) {
-  // Items may be { name, count, projects_affected, max_wait_days, ... }
-  // or raw approval items — handle both
   const structured = items.some(it => typeof it?.count === "number" || typeof it?.pending_count === "number");
-
   if (structured) {
     return (
       <div className="mt-3 pt-3 border-t border-slate-100/80 space-y-2">
         {items.slice(0, 3).map((it, i) => {
-          const name = safeStr(it?.name || it?.label || it?.email || it?.user || "—");
-          const count = safeNum(it?.count || it?.pending_count);
+          const name    = safeStr(it?.name || it?.label || it?.email || it?.user || "---");
+          const count   = safeNum(it?.count || it?.pending_count);
           const maxWait = safeNum(it?.max_wait_days || it?.max_age_days || 0);
           return (
-            <m.div key={i} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 + i * 0.06 }}
+            <m.div key={i}
+              initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.1 + i * 0.06 }}
               className="flex items-center justify-between gap-2 rounded-xl px-3 py-2 bg-white/52 border border-slate-100/70"
-              style={{ backdropFilter: "blur(8px)" }}>
+              style={{ backdropFilter: "blur(8px)" }}
+            >
               <div className="flex items-center gap-2 min-w-0">
                 <div className="h-6 w-6 rounded-lg bg-amber-50/80 border border-amber-200/60 flex items-center justify-center shrink-0">
                   <Users className="h-3 w-3 text-amber-600" />
@@ -365,13 +366,8 @@ function WhoBlockingBody({ items }: { items: any[] }) {
       </div>
     );
   }
-
   return <MicroList items={items} tone="amber" labelKey="name" />;
 }
-
-// -----------------------------------------------------------------------------
-// RISK SIGNALS TILE BODY
-// -----------------------------------------------------------------------------
 
 function RiskSignalsBody({ items }: { items: any[] }) {
   return (
@@ -382,15 +378,10 @@ function RiskSignalsBody({ items }: { items: any[] }) {
   );
 }
 
-// -----------------------------------------------------------------------------
-// PORTFOLIO APPROVALS TILE BODY
-// -----------------------------------------------------------------------------
-
 function PortfolioApprovalsBody({ items }: { items: any[] }) {
-  // Group by project
   const byProject = new Map<string, { title: string; count: number }>();
   for (const it of items) {
-    const pid = safeStr(it?.project_id || it?.project?.id || "unknown");
+    const pid   = safeStr(it?.project_id || it?.project?.id || "unknown");
     const title = safeStr(it?.project_title || it?.project?.title || it?.change?.project_title || pid);
     const p = byProject.get(pid) || { title, count: 0 };
     p.count++;
@@ -403,9 +394,12 @@ function PortfolioApprovalsBody({ items }: { items: any[] }) {
   return (
     <div className="mt-3 pt-3 border-t border-slate-100/80 space-y-1.5">
       {projectList.slice(0, 3).map((p, i) => (
-        <m.div key={p.pid} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 + i * 0.06 }}
+        <m.div key={p.pid}
+          initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.1 + i * 0.06 }}
           className="flex items-center justify-between gap-2 rounded-xl px-2.5 py-2 bg-white/52 border border-slate-100/70"
-          style={{ backdropFilter: "blur(8px)" }}>
+          style={{ backdropFilter: "blur(8px)" }}
+        >
           <div className="flex items-center gap-2 min-w-0">
             <span className="h-1.5 w-1.5 rounded-full bg-indigo-400 shrink-0" />
             <span className="text-xs font-semibold text-slate-800 truncate">{p.title}</span>
@@ -420,25 +414,23 @@ function PortfolioApprovalsBody({ items }: { items: any[] }) {
   );
 }
 
-// -----------------------------------------------------------------------------
-// BOTTLENECKS TILE BODY
-// -----------------------------------------------------------------------------
-
 function BottlenecksBody({ items }: { items: any[] }) {
   const maxCount = items.length ? Math.max(...items.map(it => safeNum(it?.pending_count || it?.count || 1))) : 1;
-
   return (
     <div className="mt-3 pt-3 border-t border-slate-100/80 space-y-2">
       {items.slice(0, 3).map((it, i) => {
-        const label = safeStr(it?.label || it?.name || it?.email || "—");
-        const count = safeNum(it?.pending_count || it?.count || 0);
+        const label    = safeStr(it?.label || it?.name || it?.email || "---");
+        const count    = safeNum(it?.pending_count || it?.count || 0);
         const widthPct = Math.max(8, (count / maxCount) * 100);
         return (
-          <m.div key={i} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 + i * 0.06 }}
+          <m.div key={i}
+            initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.1 + i * 0.06 }}
             className="relative overflow-hidden rounded-xl px-3 py-2 border border-slate-100/70 bg-white/52"
-            style={{ backdropFilter: "blur(8px)" }}>
-            {/* Fill bar */}
-            <m.div initial={{ width: 0 }} animate={{ width: `${widthPct}%` }} transition={{ duration: 0.7, delay: 0.15 + i * 0.07 }}
+            style={{ backdropFilter: "blur(8px)" }}
+          >
+            <m.div initial={{ width: 0 }} animate={{ width: `${widthPct}%` }}
+              transition={{ duration: 0.7, delay: 0.15 + i * 0.07 }}
               className="absolute left-0 top-0 bottom-0 rounded-l-xl opacity-[0.08] bg-slate-600" />
             <div className="relative flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
@@ -455,16 +447,10 @@ function BottlenecksBody({ items }: { items: any[] }) {
   );
 }
 
-// -----------------------------------------------------------------------------
-// PENDING APPROVALS TILE BODY
-// -----------------------------------------------------------------------------
-
 function PendingApprovalsBody({ items }: { items: any[] }) {
-  const overdue = items.filter(it => {
-    const s = safeStr(it?.sla_state || it?.state || "").toLowerCase();
-    return s.match(/breach|overdue/);
-  }).length;
-
+  const overdue = items.filter(it =>
+    /breach|overdue/.test(safeStr(it?.sla_state || it?.state || "").toLowerCase())
+  ).length;
   return (
     <div>
       {overdue > 0 && (
@@ -479,9 +465,7 @@ function PendingApprovalsBody({ items }: { items: any[] }) {
   );
 }
 
-// -----------------------------------------------------------------------------
-// HEADER — with last-refreshed timestamp
-// -----------------------------------------------------------------------------
+// --- HEADER -------------------------------------------------------------------
 
 function CockpitHeader({ loading, onRefresh, lastRefreshed }: {
   loading: boolean;
@@ -500,8 +484,10 @@ function CockpitHeader({ loading, onRefresh, lastRefreshed }: {
     <div className="mb-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
       <div>
         <div className="flex items-center gap-3 mb-2">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl text-white"
-            style={{ background: "linear-gradient(135deg,#6366f1,#4f46e5)", boxShadow: "0 4px 16px rgba(99,102,241,0.38), 0 1px 0 rgba(255,255,255,0.22) inset" }}>
+          <div
+            className="flex h-11 w-11 items-center justify-center rounded-xl text-white"
+            style={{ background: "linear-gradient(135deg,#6366f1,#4f46e5)", boxShadow: "0 4px 16px rgba(99,102,241,0.38), 0 1px 0 rgba(255,255,255,0.22) inset" }}
+          >
             <BarChart2 className="h-5 w-5" />
           </div>
           <div>
@@ -509,9 +495,7 @@ function CockpitHeader({ loading, onRefresh, lastRefreshed }: {
             <h2 className="text-lg font-bold text-slate-950 leading-tight">Executive Cockpit</h2>
           </div>
         </div>
-        <p className="text-sm text-slate-400 font-medium">
-          Org-scoped governance signals — single-org mode
-        </p>
+        <p className="text-sm text-slate-400 font-medium">Org-scoped governance signals</p>
       </div>
 
       <div className="flex items-center gap-3">
@@ -521,32 +505,32 @@ function CockpitHeader({ loading, onRefresh, lastRefreshed }: {
             Updated {label}
           </div>
         )}
-        <button type="button" onClick={onRefresh} disabled={loading}
+        <button
+          type="button" onClick={onRefresh} disabled={loading}
           className="flex items-center gap-2 rounded-xl border border-slate-200/80 bg-white/72 px-4 py-2.5 text-sm text-slate-600 hover:bg-white/92 hover:text-slate-900 transition-all disabled:opacity-50"
-          style={{ backdropFilter: "blur(10px)", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+          style={{ backdropFilter: "blur(10px)", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}
+        >
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          {loading ? "Refreshing…" : "Refresh"}
+          {loading ? "Refreshing..." : "Refresh"}
         </button>
       </div>
     </div>
   );
 }
 
-// -----------------------------------------------------------------------------
-// MAIN EXPORT
-// -----------------------------------------------------------------------------
+// --- MAIN EXPORT --------------------------------------------------------------
 
 export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) {
   const [loading, setLoading] = React.useState(true);
   const [lastRefreshed, setLastRefreshed] = React.useState("");
 
-  const [pendingApprovals, setPendingApprovals] = React.useState<Payload | null>(null);
-  const [whoBlocking,      setWhoBlocking]      = React.useState<Payload | null>(null);
-  const [slaRadar,         setSlaRadar]         = React.useState<Payload | null>(null);
-  const [riskSignals,      setRiskSignals]      = React.useState<Payload | null>(null);
+  const [pendingApprovals,   setPendingApprovals]   = React.useState<Payload | null>(null);
+  const [whoBlocking,        setWhoBlocking]        = React.useState<Payload | null>(null);
+  const [slaRadar,           setSlaRadar]           = React.useState<Payload | null>(null);
+  const [riskSignals,        setRiskSignals]        = React.useState<Payload | null>(null);
   const [portfolioApprovals, setPortfolioApprovals] = React.useState<Payload | null>(null);
-  const [bottlenecks,      setBottlenecks]      = React.useState<Payload | null>(null);
-  const [fatalError,       setFatalError]       = React.useState<string | null>(null);
+  const [bottlenecks,        setBottlenecks]        = React.useState<Payload | null>(null);
+  const [fatalError,         setFatalError]         = React.useState<string | null>(null);
 
   const load = React.useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -561,9 +545,9 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
     try {
       const [paR, wbR, slaR, rsR, portR, bottR] = await Promise.allSettled([
         fetchJson<Payload>("/api/executive/approvals/pending?limit=200", signal),
-        fetchJson<Payload>("/api/executive/approvals/who-blocking",                signal),
-        fetchJson<Payload>("/api/executive/approvals/sla-radar",                   signal),
-        fetchJson<Payload>("/api/executive/approvals/risk-signals",                signal),
+        fetchJson<Payload>("/api/executive/who-blocking",                signal),
+        fetchJson<Payload>("/api/executive/sla-radar",                   signal),
+        fetchJson<Payload>("/api/executive/risk-signals",                signal),
         fetchJson<Payload>("/api/executive/approvals/portfolio",         signal),
         fetchJson<Payload>("/api/executive/approvals/bottlenecks",       signal),
       ]);
@@ -598,7 +582,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
     return () => ac.abort();
   }, [load]);
 
-  // -- Derive counts + item lists --
   function getCount(p: Payload | null): number | null {
     if (!p) return null;
     if (isErr(p)) return null;
@@ -609,14 +592,14 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
     return extractList(p, keys);
   }
   function getError(p: Payload | null): string | null {
-    if (p && isErr(p)) return p.message ?? p.error;
+    if (p && isErr(p)) return (p as ApiErr).message ?? (p as ApiErr).error;
     return null;
   }
 
-  const paItems   = getItems(pendingApprovals, ["items", "pending"]);
-  const wbItems   = getItems(whoBlocking,      ["items", "blockers"]);
-  const slaItems  = getItems(slaRadar,         ["items", "breaches"]);
-  const rsItems   = getItems(riskSignals,       ["items", "signals"]);
+  const paItems   = getItems(pendingApprovals,   ["items", "pending"]);
+  const wbItems   = getItems(whoBlocking,         ["items", "blockers"]);
+  const slaItems  = getItems(slaRadar,            ["items", "breaches"]);
+  const rsItems   = getItems(riskSignals,          ["items", "signals"]);
   const portItems = getItems(portfolioApprovals);
   const bottItems = getItems(bottlenecks);
 
@@ -628,7 +611,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       tone: "emerald" as ToneKey,
       count: getCount(pendingApprovals),
       error: getError(pendingApprovals),
-      items: paItems,
       href: "/approvals",
       body: paItems.length ? <PendingApprovalsBody items={paItems} /> : null,
       scope: (pendingApprovals as any)?.scope,
@@ -640,7 +622,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       tone: "amber" as ToneKey,
       count: getCount(whoBlocking),
       error: getError(whoBlocking),
-      items: wbItems,
       href: "/approvals/bottlenecks",
       body: wbItems.length ? <WhoBlockingBody items={wbItems} /> : null,
     },
@@ -651,7 +632,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       tone: "cyan" as ToneKey,
       count: getCount(slaRadar),
       error: getError(slaRadar),
-      items: slaItems,
       href: "/sla",
       body: slaItems.length ? <SlaRadarBody items={slaItems} /> : null,
     },
@@ -662,7 +642,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       tone: "rose" as ToneKey,
       count: getCount(riskSignals),
       error: getError(riskSignals),
-      items: rsItems,
       href: "/risks",
       body: rsItems.length ? <RiskSignalsBody items={rsItems} /> : null,
     },
@@ -673,7 +652,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       tone: "indigo" as ToneKey,
       count: getCount(portfolioApprovals),
       error: getError(portfolioApprovals),
-      items: portItems,
       href: "/approvals/portfolio",
       body: portItems.length ? <PortfolioApprovalsBody items={portItems} /> : null,
       scope: (portfolioApprovals as any)?.scope,
@@ -685,7 +663,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       tone: "slate" as ToneKey,
       count: getCount(bottlenecks),
       error: getError(bottlenecks),
-      items: bottItems,
       href: "/approvals/bottlenecks",
       body: bottItems.length ? <BottlenecksBody items={bottItems} /> : null,
     },
@@ -696,12 +673,13 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       <div className="w-full">
         <CockpitHeader loading={loading} onRefresh={() => load()} lastRefreshed={lastRefreshed} />
 
-        {/* Fatal error */}
         <AnimatePresence>
           {fatalError && (
-            <m.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            <m.div
+              initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
               className="mb-6 rounded-2xl border border-rose-200/80 bg-rose-50/82 p-4 flex items-start gap-3"
-              style={{ backdropFilter: "blur(10px)" }}>
+              style={{ backdropFilter: "blur(10px)" }}
+            >
               <AlertTriangle className="h-5 w-5 text-rose-600 mt-0.5 shrink-0" />
               <div>
                 <div className="text-sm font-bold text-rose-800 mb-1">Cockpit Error</div>
@@ -711,7 +689,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
           )}
         </AnimatePresence>
 
-        {/* Tiles grid */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {loading
             ? Array.from({ length: 6 }).map((_, i) => <TileSkeleton key={i} delay={i * 0.055} />)
@@ -727,9 +704,9 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
                   delay={i * 0.055}
                 >
                   {tile.body}
-                  {tile.scope && (
+                  {(tile as any).scope && (
                     <div className="mt-2 text-[10px] text-slate-400 font-medium uppercase tracking-wider">
-                      Scope: {tile.scope}
+                      Scope: {(tile as any).scope}
                     </div>
                   )}
                 </CockpitTile>
@@ -737,7 +714,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
           }
         </div>
 
-        {/* Summary bar */}
         {!loading && !fatalError && (
           <m.div
             initial={{ opacity: 0, y: 10 }}
@@ -750,12 +726,13 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
               {tiles.map(t => (
                 <div key={t.id} className="flex items-center gap-1.5">
                   <span className={`h-2 w-2 rounded-full ${TONES[t.tone].listDot}`} />
-                  <span className="font-semibold text-slate-800">{t.count ?? "—"}</span>
+                  <span className="font-semibold text-slate-800">{t.count ?? "---"}</span>
                   <span className="font-medium text-[12px]">{t.label.split(" ").pop()}</span>
                 </div>
               ))}
             </div>
-            <a href="/approvals" className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 transition-colors uppercase tracking-wider">
+            <a href="/approvals"
+              className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 transition-colors uppercase tracking-wider">
               Approvals Centre <ChevronRight className="h-3.5 w-3.5" />
             </a>
           </m.div>
