@@ -1,89 +1,58 @@
+// src/app/actions/org-admin.ts
 "use server";
 
-import { redirect } from "next/navigation";
+import "server-only";
 import { createClient } from "@/utils/supabase/server";
 
-type OrgRole = "owner" | "admin" | "member"; // align with DB (recommended)
+export type OrgRole = "owner" | "admin" | "member";
 
-function sbErrText(e: any) {
-  if (!e) return "Unknown error";
-  if (typeof e === "string") return e;
-  if (e instanceof Error) return e.message;
-  if (typeof e?.message === "string") return e.message; // Supabase/PostgREST
-  try {
-    return JSON.stringify(e);
-  } catch {
-    return String(e);
-  }
+function normRole(x: any): OrgRole {
+  const r = String(x ?? "").trim().toLowerCase();
+  if (r === "owner" || r === "admin" || r === "member") return r;
+  return "member";
 }
 
-async function requireUser() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-    error: authErr,
-  } = await supabase.auth.getUser();
+/**
+ * Returns your active role in the org, or null if not a current member.
+ */
+export async function getMyOrgRole(organisationId: string): Promise<OrgRole | null> {
+  const sb = await createClient();
+  const { data: auth, error: authErr } = await sb.auth.getUser();
+  if (authErr) throw authErr;
+  if (!auth?.user) return null;
 
-  if (authErr) throw new Error(sbErrText(authErr));
-  if (!user) redirect("/login");
-  return { supabase, user };
-}
-
-async function requireOrgAdmin(supabase: any, userId: string, organisationId: string) {
-  const { data, error } = await supabase
+  const { data, error } = await sb
     .from("organisation_members")
-    .select("role")
+    .select("role, removed_at")
     .eq("organisation_id", organisationId)
-    .eq("user_id", userId)
+    .eq("user_id", auth.user.id)
+    .is("removed_at", null)
     .maybeSingle();
 
-  if (error) throw new Error(sbErrText(error));
+  if (error) throw error;
+  if (!data) return null;
 
-  const role = (String(data?.role ?? "").trim().toLowerCase() as OrgRole) || "member";
-  if (!(role === "owner" || role === "admin")) {
-    throw new Error("Admin permission required");
+  return normRole(data.role);
+}
+
+/**
+ * Throws if the current user is not owner/admin of the org.
+ */
+export async function requireOrgAdmin(organisationId: string) {
+  const role = await getMyOrgRole(organisationId);
+  if (!role) throw new Error("Not a member of this organisation");
+  if (!(role === "owner" || role === "admin")) throw new Error("Admin permission required");
+  return { role };
+}
+
+/**
+ * Convenience boolean check.
+ */
+export async function isOrgAdmin(organisationId: string): Promise<boolean> {
+  try {
+    await requireOrgAdmin(organisationId);
+    return true;
+  } catch {
+    return false;
   }
-}
-
-export async function createOrganisation(formData: FormData) {
-  const name = String(formData.get("name") ?? "").trim();
-  if (!name) return;
-
-  const { supabase, user } = await requireUser();
-
-  // 1) create org
-  const { data: org, error } = await supabase
-    .from("organisations")
-    .insert({ name, created_by: user.id })
-    .select("id")
-    .single();
-
-  if (error) throw new Error(sbErrText(error));
-  if (!org?.id) throw new Error("Failed to create organisation (missing id).");
-
-  // 2) ensure creator is OWNER member (recommended)
-  const { error: memErr } = await supabase.from("organisation_members").insert({
-    organisation_id: org.id,
-    user_id: user.id,
-    role: "owner",
-  });
-
-  if (memErr) throw new Error(sbErrText(memErr));
-}
-
-export async function renameOrganisation(formData: FormData) {
-  const organisationId = String(formData.get("org_id") ?? formData.get("organisation_id") ?? "").trim();
-  const name = String(formData.get("name") ?? "").trim();
-  if (!organisationId || !name) return;
-
-  const { supabase, user } = await requireUser();
-  await requireOrgAdmin(supabase, user.id, organisationId);
-
-  const { error } = await supabase.from("organisations").update({ name }).eq("id", organisationId);
-  if (error) throw new Error(sbErrText(error));
-}
-
-export async function inviteToOrganisation(_: FormData) {
-  // Keep this as a normal Error (already safe)
-  throw new Error("Invites are currently disabled. Use direct member add instead.");
 }

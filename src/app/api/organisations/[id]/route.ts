@@ -4,42 +4,58 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+function noStoreJson(payload: any, status = 200) {
+  const res = NextResponse.json(payload, { status });
+  res.headers.set("Cache-Control", "no-store");
+  return res;
+}
 
 function ok(data: any, status = 200) {
-  return NextResponse.json({ ok: true, ...data }, { status });
+  return noStoreJson({ ok: true, ...data }, status);
 }
 function err(error: string, status = 400) {
-  return NextResponse.json({ ok: false, error }, { status });
+  return noStoreJson({ ok: false, error }, status);
 }
 
-async function requireAdmin(sb: any, userId: string, organisationId: string) {
+async function requireOrgOwnerOrAdmin(sb: any, userId: string, organisationId: string) {
   const { data, error } = await sb
     .from("organisation_members")
-    .select("role")
+    .select("role, removed_at")
     .eq("organisation_id", organisationId)
     .eq("user_id", userId)
+    .is("removed_at", null)
     .maybeSingle();
 
   if (error) throw new Error(error.message);
-  if (!data || String(data.role) !== "admin") throw new Error("Admin permission required");
+
+  const role = String(data?.role || "").toLowerCase();
+  if (!(role === "owner" || role === "admin")) {
+    throw new Error("Admin permission required");
+  }
 }
 
-export async function DELETE(_: Request, { params }: { params: Promise<{ id: string }>}) {
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
   const sb = await createClient();
   const { data: auth } = await sb.auth.getUser();
   if (!auth?.user) return err("Not authenticated", 401);
 
-  // FIX: Await the params Promise to get the id (Line 31)
   const resolvedParams = await params;
-  const organisationId = resolvedParams.id;
+  const organisationId = String(resolvedParams?.id || "").trim();
+  if (!organisationId) return err("Missing organisation id", 400);
 
   try {
-    await requireAdmin(sb, auth.user.id, organisationId);
+    await requireOrgOwnerOrAdmin(sb, auth.user.id, organisationId);
   } catch (e: any) {
     return err(e?.message || "Forbidden", 403);
   }
 
-  // cascade will remove memberships/invites
+  // Cascade will remove memberships/invites
   const { error } = await sb.from("organisations").delete().eq("id", organisationId);
   if (error) return err(error.message, 400);
 

@@ -1,15 +1,34 @@
-﻿// src/components/executive/GovernanceIntelligence.tsx
+﻿// src/components/executive/GovernanceIntelligence.tsx — REBUILT v2
+// Fixes applied:
+//   ✅ days prop wired to endpoint (?days=N)
+//   ✅ Animated entry matching HomePage crystal system
+//   ✅ Heatmap severity-weighted — bar width, count badge, visual heat per project
+//   ✅ Duplicate fetch eliminated — accepts optional approvalItems prop from parent
+//   ✅ Crystal pushed further: ambient orbs, shimmer highlights, stagger animations
+//   ✅ Bottleneck tiles show trend bars + heat gradient
+//   ✅ Loading skeleton matches final layout (no CLS)
+//   ✅ Empty state polished with micro-animation
+
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ShieldCheck, Users, Layers, ArrowUpRight } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ShieldCheck, Users, Layers, ArrowUpRight, AlertTriangle,
+  Clock3, CheckCircle2, Zap, TrendingUp, Activity, Brain,
+  ChevronRight, Target, Eye, Flame,
+} from "lucide-react";
+import { LazyMotion, domAnimation, m, AnimatePresence } from "framer-motion";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────────────────────
 
 type Rag = "G" | "A" | "R";
 
 type PendingApprovalsResp =
   | { ok: false; error: string }
   | {
-      ok?: true; // tolerate missing ok from newer endpoints
+      ok?: true;
       scope?: "org" | "member";
       orgId?: string;
       items: any[];
@@ -35,81 +54,9 @@ type UiBottleneck = {
   max_wait_days: number;
 };
 
-function ragBadge(r: Rag) {
-  if (r === "G") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (r === "A") return "border-amber-200 bg-amber-50 text-amber-700";
-  return "border-rose-200 bg-rose-50 text-rose-700";
-}
-
-function CrystalCard({
-  title,
-  icon,
-  children,
-  right,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-  right?: React.ReactNode;
-}) {
-  return (
-    <div
-      className="relative overflow-hidden rounded-2xl border border-white/90 p-6"
-      style={{
-        background:
-          "linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(248,250,255,0.96) 60%, rgba(243,246,255,0.94) 100%)",
-        boxShadow:
-          "0 1px 1px rgba(0,0,0,0.02), 0 4px 8px rgba(0,0,0,0.03), 0 12px 32px rgba(99,102,241,0.06), 0 0 0 1px rgba(226,232,240,0.6), 0 1px 0 rgba(255,255,255,1) inset",
-        backdropFilter: "blur(24px) saturate(1.8)",
-      }}
-    >
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background:
-            "linear-gradient(135deg, rgba(255,255,255,0.6) 0%, transparent 55%, rgba(255,255,255,0.12) 100%)",
-        }}
-      />
-      <div
-        className="absolute inset-x-0 top-0 h-px"
-        style={{
-          background:
-            "linear-gradient(90deg, transparent, rgba(255,255,255,0.95), transparent)",
-        }}
-      />
-      <div
-        className="absolute inset-x-0 top-0 h-14"
-        style={{
-          background: "linear-gradient(180deg, rgba(255,255,255,0.75), transparent)",
-        }}
-      />
-
-      <div className="relative flex items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div
-            className="flex h-11 w-11 items-center justify-center rounded-xl text-white"
-            style={{
-              background: "linear-gradient(135deg,#6366f1,#4f46e5)",
-              boxShadow:
-                "0 4px 14px rgba(99,102,241,0.28), 0 1px 0 rgba(255,255,255,0.15) inset",
-            }}
-          >
-            {icon}
-          </div>
-          <div>
-            <div className="text-[11px] uppercase tracking-[0.18em] font-bold text-indigo-600">
-              Governance Intelligence
-            </div>
-            <div className="text-lg font-bold text-slate-950">{title}</div>
-          </div>
-        </div>
-        {right}
-      </div>
-
-      <div className="relative mt-6">{children}</div>
-    </div>
-  );
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// UTILS
+// ─────────────────────────────────────────────────────────────────────────────
 
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
@@ -118,12 +65,9 @@ function safeNum(x: any): number {
   const n = Number(x);
   return Number.isFinite(n) ? n : 0;
 }
-
 function toDaysFromAgeHours(ageHours: any) {
-  const h = safeNum(ageHours);
-  return Math.max(0, Math.round(h / 24));
+  return Math.max(0, Math.round(safeNum(ageHours) / 24));
 }
-
 function pickApproverLabel(item: any) {
   return (
     safeStr(item?.pending_email) ||
@@ -132,13 +76,11 @@ function pickApproverLabel(item: any) {
     "—"
   );
 }
-
 function deriveRag(overdue: number, warn: number): Rag {
   if (overdue > 0) return "R";
   if (warn > 0) return "A";
   return "G";
 }
-
 function pickSlaState(item: any): "ok" | "warn" | "overdue" {
   const s = safeStr(item?.sla_state || item?.state || item?.rag || "")
     .toLowerCase()
@@ -148,97 +90,379 @@ function pickSlaState(item: any): "ok" | "warn" | "overdue" {
   return "ok";
 }
 
-export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 30 | 60 }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// DESIGN TOKENS — RAG
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ragConfig(r: Rag) {
+  if (r === "G") return {
+    badge: "border-emerald-300/80 bg-emerald-50/90 text-emerald-700",
+    bar:   "bg-emerald-400",
+    glow:  "rgba(16,185,129,0.22)",
+    label: "GREEN",
+    dot:   "#10b981",
+  };
+  if (r === "A") return {
+    badge: "border-amber-300/80 bg-amber-50/90 text-amber-700",
+    bar:   "bg-amber-400",
+    glow:  "rgba(245,158,11,0.22)",
+    label: "AMBER",
+    dot:   "#f59e0b",
+  };
+  return {
+    badge: "border-rose-300/80 bg-rose-50/90 text-rose-700",
+    bar:   "bg-rose-400",
+    glow:  "rgba(244,63,94,0.22)",
+    label: "RED",
+    dot:   "#f43f5e",
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SKELETON — matches final card layout to prevent CLS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SkeletonCard() {
+  return (
+    <div className="h-full animate-pulse space-y-3">
+      {[1, 2, 3, 4].map(i => (
+        <div key={i} className="h-20 rounded-2xl bg-slate-100/70" />
+      ))}
+    </div>
+  );
+}
+function SkeletonBottleneck() {
+  return (
+    <div className="animate-pulse space-y-2.5">
+      {[1, 2, 3].map(i => (
+        <div key={i} className="h-16 rounded-2xl bg-slate-100/70" />
+      ))}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROJECT HEAT TILE — severity-weighted visual heat bar
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ProjectHeatTile({ project, index }: { project: UiProject; index: number }) {
+  const rc = ragConfig(project.rag);
+  const total = Math.max(1, project.counts.total);
+  const overdueW = (project.counts.overdue / total) * 100;
+  const warnW    = (project.counts.warn    / total) * 100;
+  const okW      = (project.counts.ok      / total) * 100;
+
+  // Severity score for heat tinting the card background
+  const heatScore = (project.counts.overdue * 3 + project.counts.warn * 1.5) / total;
+  const cardBg = heatScore >= 2
+    ? "linear-gradient(135deg, rgba(255,241,242,0.92) 0%, rgba(255,255,255,0.82) 100%)"
+    : heatScore >= 0.8
+    ? "linear-gradient(135deg, rgba(255,251,235,0.92) 0%, rgba(255,255,255,0.82) 100%)"
+    : "linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(248,250,255,0.88) 100%)";
+
+  return (
+    <m.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.38, delay: index * 0.055, ease: [0.16, 1, 0.3, 1] }}
+      className="group relative overflow-hidden rounded-2xl border border-slate-200/70 p-4 hover:border-slate-300/80 transition-all duration-300"
+      style={{
+        background: cardBg,
+        backdropFilter: "blur(14px)",
+        boxShadow: `0 1px 3px rgba(0,0,0,0.04), 0 4px 12px ${rc.glow}, 0 1px 0 rgba(255,255,255,0.9) inset`,
+      }}
+    >
+      {/* Top gloss */}
+      <div className="absolute inset-x-0 top-0 h-px" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.95), transparent)" }} />
+
+      {/* Accent line — colored by RAG */}
+      <div className={`absolute left-0 top-4 bottom-4 w-[3px] rounded-r-full ${rc.bar}`}
+        style={{ boxShadow: `0 0 10px ${rc.glow}` }} />
+
+      <div className="pl-3">
+        {/* Header row */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap mb-1.5">
+              {/* RAG badge */}
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold tracking-widest uppercase ${rc.badge}`}
+                style={{ backdropFilter: "blur(8px)" }}>
+                <span className="h-1.5 w-1.5 rounded-full mr-1.5" style={{ background: rc.dot }} />
+                {rc.label}
+              </span>
+              {/* Project code */}
+              {project.project_code && (
+                <span className="inline-flex items-center rounded-md border border-indigo-200/60 bg-indigo-50/80 px-2 py-0.5 text-[9px] font-bold text-indigo-700 uppercase tracking-wider"
+                  style={{ fontFamily: "var(--font-mono, monospace)", backdropFilter: "blur(4px)" }}>
+                  {project.project_code}
+                </span>
+              )}
+            </div>
+            <div className="font-bold text-sm text-slate-900 truncate group-hover:text-indigo-700 transition-colors">
+              {project.project_title || "Project"}
+            </div>
+            <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-500">
+              <span className="font-semibold text-slate-700">{project.stage || "Pending approval"}</span>
+              <span className="text-slate-300">·</span>
+              <span className="text-slate-400 text-[10px]">by</span>
+              <span className="font-semibold text-slate-600 truncate max-w-[100px]">{project.approver_label || "—"}</span>
+            </div>
+          </div>
+
+          {/* Days waiting */}
+          <div className="shrink-0 text-right">
+            <div className={`text-base font-bold ${project.counts.overdue > 0 ? "text-rose-600" : project.counts.warn > 0 ? "text-amber-600" : "text-slate-700"}`}
+              style={{ fontFamily: "var(--font-mono, monospace)" }}>
+              {project.days_waiting}d
+            </div>
+            <div className="text-[9px] text-slate-400 uppercase font-bold tracking-wide">waiting</div>
+          </div>
+        </div>
+
+        {/* Severity heat bar */}
+        <div className="mt-3">
+          <div className="flex items-center justify-between mb-1.5 text-[9px] text-slate-400 font-bold uppercase tracking-widest">
+            <span>{project.counts.total} item{project.counts.total !== 1 ? "s" : ""}</span>
+            <div className="flex items-center gap-2">
+              {project.counts.overdue > 0 && <span className="text-rose-500">{project.counts.overdue} overdue</span>}
+              {project.counts.warn    > 0 && <span className="text-amber-500">{project.counts.warn} at risk</span>}
+              {project.counts.ok      > 0 && <span className="text-emerald-500">{project.counts.ok} ok</span>}
+            </div>
+          </div>
+          {/* Segmented heat bar */}
+          <div className="h-1.5 w-full rounded-full overflow-hidden flex bg-slate-100/80">
+            {project.counts.overdue > 0 && (
+              <m.div initial={{ width: 0 }} animate={{ width: `${overdueW}%` }} transition={{ duration: 0.8, delay: index * 0.055 + 0.2 }}
+                className="h-full bg-rose-400 rounded-l-full" style={{ boxShadow: "0 0 6px rgba(244,63,94,0.4)" }} />
+            )}
+            {project.counts.warn > 0 && (
+              <m.div initial={{ width: 0 }} animate={{ width: `${warnW}%` }} transition={{ duration: 0.8, delay: index * 0.055 + 0.3 }}
+                className="h-full bg-amber-400" />
+            )}
+            {project.counts.ok > 0 && (
+              <m.div initial={{ width: 0 }} animate={{ width: `${okW}%` }} transition={{ duration: 0.8, delay: index * 0.055 + 0.4 }}
+                className="h-full bg-emerald-400 rounded-r-full" />
+            )}
+          </div>
+        </div>
+      </div>
+    </m.div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BOTTLENECK TILE — heat gradient + trend bar
+// ─────────────────────────────────────────────────────────────────────────────
+
+function BottleneckTile({ bottleneck, maxCount, index }: {
+  bottleneck: UiBottleneck;
+  maxCount: number;
+  index: number;
+}) {
+  const widthPct = maxCount > 0 ? Math.max(8, (bottleneck.pending_count / maxCount) * 100) : 8;
+  const heatLevel = bottleneck.max_wait_days > 14 ? "high" : bottleneck.max_wait_days > 7 ? "medium" : "low";
+  const heatCfg = {
+    high:   { bg: "rgba(255,241,242,0.88)", border: "border-rose-200/70",   bar: "#f43f5e", text: "text-rose-600",  glow: "rgba(244,63,94,0.12)" },
+    medium: { bg: "rgba(255,251,235,0.88)", border: "border-amber-200/70",  bar: "#f59e0b", text: "text-amber-600", glow: "rgba(245,158,11,0.10)" },
+    low:    { bg: "rgba(248,250,255,0.88)", border: "border-slate-200/70",  bar: "#6366f1", text: "text-indigo-600", glow: "rgba(99,102,241,0.08)" },
+  }[heatLevel];
+
+  return (
+    <m.div
+      initial={{ opacity: 0, x: 14 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.38, delay: index * 0.07, ease: [0.16, 1, 0.3, 1] }}
+      className={`relative overflow-hidden rounded-2xl border ${heatCfg.border} p-3.5`}
+      style={{
+        background: heatCfg.bg,
+        backdropFilter: "blur(14px)",
+        boxShadow: `0 1px 3px rgba(0,0,0,0.04), 0 4px 12px ${heatCfg.glow}, 0 1px 0 rgba(255,255,255,0.88) inset`,
+      }}
+    >
+      {/* Top gloss */}
+      <div className="absolute inset-x-0 top-0 h-px" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.92), transparent)" }} />
+
+      {/* Fill bar behind content */}
+      <m.div
+        initial={{ width: 0 }}
+        animate={{ width: `${widthPct}%` }}
+        transition={{ duration: 0.9, delay: index * 0.07 + 0.15, ease: [0.34, 1.56, 0.64, 1] }}
+        className="absolute left-0 top-0 bottom-0 rounded-l-2xl pointer-events-none opacity-[0.07]"
+        style={{ background: heatCfg.bar }}
+      />
+
+      <div className="relative flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          {/* Kind icon */}
+          <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-200/70 bg-white/80`}
+            style={{ backdropFilter: "blur(8px)", boxShadow: "0 1px 4px rgba(0,0,0,0.06), 0 1px 0 rgba(255,255,255,0.9) inset" }}>
+            {bottleneck.kind === "user"
+              ? <Users className="h-3.5 w-3.5 text-slate-600" />
+              : <Layers className="h-3.5 w-3.5 text-slate-600" />
+            }
+          </div>
+          <div className="min-w-0">
+            <div className="font-bold text-sm text-slate-900 truncate leading-tight">
+              {bottleneck.label}
+            </div>
+            <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-400 font-medium">
+              <span>{bottleneck.pending_count} item{bottleneck.pending_count !== 1 ? "s" : ""}</span>
+              <span className="text-slate-200">·</span>
+              <span>{bottleneck.projects_affected} project{bottleneck.projects_affected !== 1 ? "s" : ""}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="shrink-0 text-right">
+          <div className={`text-sm font-bold ${heatCfg.text}`} style={{ fontFamily: "var(--font-mono, monospace)" }}>
+            {bottleneck.avg_wait_days}d
+          </div>
+          <div className="text-[9px] text-slate-400 uppercase font-bold tracking-wide">avg wait</div>
+        </div>
+      </div>
+
+      {/* Max wait badge — only for high heat */}
+      {heatLevel === "high" && (
+        <div className="relative mt-2 flex items-center gap-1.5 text-[10px] text-rose-600 font-semibold">
+          <Flame className="h-3 w-3" />
+          <span>Max wait: {bottleneck.max_wait_days}d</span>
+        </div>
+      )}
+    </m.div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI RISK SUMMARY PILL
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AiRiskSummary({ counts, loading }: {
+  counts: { pending: number; at_risk: number; breached: number; waiting: number };
+  loading: boolean;
+}) {
+  const urgency = counts.breached >= 3 ? "critical"
+    : counts.breached > 0 || counts.at_risk >= 3 ? "elevated"
+    : counts.at_risk > 0 ? "moderate"
+    : "clear";
+
+  const cfg = {
+    critical: { bg: "from-rose-50/80 to-red-50/60",   border: "border-rose-200/60",   dot: "#f43f5e", label: "Critical", lc: "text-rose-700 bg-rose-100 border-rose-200",   narrative: `${counts.breached} approval${counts.breached !== 1 ? "s" : ""} have breached SLA. Immediate escalation required.` },
+    elevated: { bg: "from-amber-50/80 to-orange-50/60", border: "border-amber-200/60", dot: "#f59e0b", label: "Elevated", lc: "text-amber-700 bg-amber-100 border-amber-200", narrative: `${counts.breached > 0 ? `${counts.breached} breached, ` : ""}${counts.at_risk} at risk. Proactive outreach to approvers recommended.` },
+    moderate: { bg: "from-cyan-50/60 to-blue-50/40",   border: "border-cyan-200/60",   dot: "#06b6d4", label: "Moderate", lc: "text-cyan-700 bg-cyan-100 border-cyan-200",   narrative: `${counts.at_risk} approval${counts.at_risk !== 1 ? "s" : ""} approaching SLA threshold. Monitor closely.` },
+    clear:    { bg: "from-emerald-50/60 to-teal-50/40", border: "border-emerald-200/60", dot: "#10b981", label: "On Track", lc: "text-emerald-700 bg-emerald-100 border-emerald-200", narrative: counts.pending > 0 ? `${counts.pending} approval${counts.pending !== 1 ? "s" : ""} in queue — all within SLA.` : "No approvals pending. Governance flow is clear." },
+  }[urgency];
+
+  return (
+    <div className={`relative overflow-hidden rounded-2xl border bg-gradient-to-br ${cfg.bg} ${cfg.border} p-4 mb-5`}
+      style={{ backdropFilter: "blur(16px)" }}>
+      <div className="absolute inset-x-0 top-0 h-px" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.9), transparent)" }} />
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <div className="relative flex h-6 w-6 items-center justify-center rounded-lg bg-white/80 border border-white/60 shadow-sm">
+            <Brain className="h-3.5 w-3.5 text-slate-600" />
+            <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border border-white" style={{ background: cfg.dot }} />
+          </div>
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">AI Governance Outlook</span>
+        </div>
+        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest ${cfg.lc}`}>
+          {cfg.label}
+        </span>
+      </div>
+      <p className="text-xs text-slate-600 leading-relaxed">
+        {loading
+          ? <span className="inline-flex gap-1 items-center">{[0,150,300].map(d => <span key={d} className="h-1 w-1 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: `${d}ms` }} />)}</span>
+          : cfg.narrative
+        }
+      </p>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+export default function GovernanceIntelligence({
+  days = 30,
+  approvalItems: parentItems,
+}: {
+  days?: 7 | 14 | 30 | 60;
+  /** ✅ FIX: Accept items from parent to avoid duplicate fetch */
+  approvalItems?: any[];
+}) {
   const [resp, setResp] = useState<PendingApprovalsResp | null>(null);
+  const fetchedRef = useRef(false);
 
   const loading = !resp;
 
   useEffect(() => {
+    // ✅ FIX: If parent already has data, skip fetch entirely
+    if (parentItems !== undefined) {
+      setResp({ ok: true, items: parentItems });
+      return;
+    }
+
     let cancelled = false;
+    fetchedRef.current = false;
 
     (async () => {
       try {
-        // ✅ canonical executive endpoint (org auto-resolved in single-org mode)
-        const r = await fetch(`/api/executive/approvals/pending?limit=200`, {
-          cache: "no-store",
-          credentials: "include",
-          headers: {
-            Accept: "application/json",
-            "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-            Pragma: "no-cache",
-          },
-        });
-
-        const json = (await r.json()) as any;
-
+        // ✅ FIX: days param now sent to endpoint
+        const r = await fetch(
+          `/api/executive/approvals/pending?limit=200&days=${days}`,
+          {
+            cache: "no-store",
+            credentials: "include",
+            headers: {
+              Accept: "application/json",
+              "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+              Pragma: "no-cache",
+            },
+          }
+        );
+        const json = await r.json().catch(() => ({})) as any;
         if (cancelled) return;
 
-        // Tolerate either:
-        // - { ok: true, items: [...] }
-        // - { items: [...] }
-        // - { ok: false, error: "..." }
-        if (json && json.ok === false) {
+        if (json?.ok === false) {
           setResp({ ok: false, error: safeStr(json.error) || "Failed to load approval intelligence" });
           return;
         }
-
         const items = Array.isArray(json?.items) ? json.items : [];
-        setResp({
-          ok: true,
-          scope: json?.scope,
-          orgId: json?.orgId,
-          items,
-        });
+        setResp({ ok: true, scope: json?.scope, orgId: json?.orgId, items });
       } catch {
-        if (cancelled) return;
-        setResp({ ok: false, error: "Failed to load approval intelligence" });
+        if (!cancelled) setResp({ ok: false, error: "Failed to load approval intelligence" });
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [days]);
+    return () => { cancelled = true; };
+  }, [days, parentItems]);
 
+  // ── Derive items ──
   const items = useMemo(() => {
     if (!resp || (resp as any).ok === false) return [];
     return ((resp as any).items || []) as any[];
   }, [resp]);
 
+  // ── Summary counts ──
   const counts = useMemo(() => {
-    if (!resp || (resp as any).ok === false) {
-      return { pending: 0, at_risk: 0, breached: 0, waiting: 0 };
-    }
-
-    let ok = 0;
-    let warn = 0;
-    let overdue = 0;
-
+    let ok = 0, warn = 0, overdue = 0;
     for (const it of items) {
       const st = pickSlaState(it);
-      if (st === "overdue") overdue += 1;
-      else if (st === "warn") warn += 1;
-      else ok += 1;
+      if (st === "overdue") overdue++;
+      else if (st === "warn") warn++;
+      else ok++;
     }
+    return { waiting: ok, at_risk: warn, breached: overdue, pending: ok + warn + overdue };
+  }, [items]);
 
-    return {
-      waiting: ok,
-      at_risk: warn,
-      breached: overdue,
-      pending: ok + warn + overdue,
-    };
-  }, [resp, items]);
-
+  // ── Projects ──
   const projects: UiProject[] = useMemo(() => {
     const map = new Map<string, UiProject>();
-
     for (const it of items) {
       const pid = safeStr(it?.project_id);
       if (!pid) continue;
-
       const state = pickSlaState(it);
       const ageDays = toDaysFromAgeHours(it?.age_hours);
-
       let p = map.get(pid);
       if (!p) {
         p = {
@@ -253,242 +477,227 @@ export default function GovernanceIntelligence({ days = 30 }: { days?: 7 | 14 | 
         };
         map.set(pid, p);
       }
-
-      p.counts.total += 1;
-      if (state === "overdue") p.counts.overdue += 1;
-      else if (state === "warn") p.counts.warn += 1;
-      else p.counts.ok += 1;
-
+      p.counts.total++;
+      if (state === "overdue") p.counts.overdue++;
+      else if (state === "warn") p.counts.warn++;
+      else p.counts.ok++;
       p.days_waiting = Math.max(p.days_waiting, ageDays);
-
-      if (!p.approver_label || p.approver_label === "—") {
-        p.approver_label = pickApproverLabel(it);
-      }
-      if (!p.stage) {
-        p.stage = it?.stage_key ?? it?.step_name ?? null;
-      }
+      if (!p.approver_label || p.approver_label === "—") p.approver_label = pickApproverLabel(it);
+      if (!p.stage) p.stage = it?.stage_key ?? it?.step_name ?? null;
     }
-
-    const list = Array.from(map.values()).map((p) => ({
-      ...p,
-      rag: deriveRag(p.counts.overdue, p.counts.warn),
-    }));
-
+    const list = Array.from(map.values()).map(p => ({ ...p, rag: deriveRag(p.counts.overdue, p.counts.warn) }));
     list.sort((a, b) => {
       const aw = a.counts.overdue > 0 ? 2 : a.counts.warn > 0 ? 1 : 0;
       const bw = b.counts.overdue > 0 ? 2 : b.counts.warn > 0 ? 1 : 0;
       if (bw !== aw) return bw - aw;
       return b.days_waiting - a.days_waiting;
     });
-
     return list;
   }, [items]);
 
+  // ── Bottlenecks ──
   const bottlenecks: UiBottleneck[] = useMemo(() => {
-    const map = new Map<
-      string,
-      { kind: UiBottleneck["kind"]; label: string; ages: number[]; projects: Set<string>; count: number }
-    >();
-
+    const map = new Map<string, { kind: UiBottleneck["kind"]; label: string; ages: number[]; projects: Set<string>; count: number }>();
     for (const it of items) {
       const label = pickApproverLabel(it);
+      if (label === "—") continue;
       const kind: UiBottleneck["kind"] =
-        it?.approver_type === "user"
-          ? "user"
-          : it?.approver_type === "email"
-          ? "email"
-          : "unknown";
-
+        it?.approver_type === "user" ? "user" :
+        it?.approver_type === "email" ? "email" : "unknown";
       const key = `${kind}::${label}`;
       const ageDays = toDaysFromAgeHours(it?.age_hours);
       const pid = safeStr(it?.project_id);
-
       let b = map.get(key);
-      if (!b) {
-        b = { kind, label, ages: [], projects: new Set<string>(), count: 0 };
-        map.set(key, b);
-      }
-      b.count += 1;
+      if (!b) { b = { kind, label, ages: [], projects: new Set(), count: 0 }; map.set(key, b); }
+      b.count++;
       b.ages.push(ageDays);
       if (pid) b.projects.add(pid);
     }
-
-    const out: UiBottleneck[] = Array.from(map.values()).map((x) => {
+    const out: UiBottleneck[] = Array.from(map.values()).map(x => {
       const max = x.ages.length ? Math.max(...x.ages) : 0;
       const avg = x.ages.length ? x.ages.reduce((a, n) => a + n, 0) / x.ages.length : 0;
-
       return {
-        kind: x.kind,
-        label: x.label,
-        pending_count: x.count,
+        kind: x.kind, label: x.label, pending_count: x.count,
         projects_affected: x.projects.size,
         avg_wait_days: Math.round(avg * 10) / 10,
         max_wait_days: max,
       };
     });
-
-    out.sort((a, b) => {
-      if (b.pending_count !== a.pending_count) return b.pending_count - a.pending_count;
-      return b.max_wait_days - a.max_wait_days;
-    });
-
+    out.sort((a, b) => b.pending_count !== a.pending_count ? b.pending_count - a.pending_count : b.max_wait_days - a.max_wait_days);
     return out;
   }, [items]);
 
-  const error =
-    resp && (resp as any).ok === false
-      ? (resp as any).error || "Failed to load approval intelligence"
-      : null;
+  const maxBottleneckCount = bottlenecks.length ? Math.max(...bottlenecks.map(b => b.pending_count)) : 1;
+
+  const error = resp && (resp as any).ok === false
+    ? (resp as any).error || "Failed to load approval intelligence"
+    : null;
+
+  const dayLabel = `${days}d`;
 
   return (
-    <CrystalCard
-      title="Approvals — Portfolio Control"
-      icon={<ShieldCheck className="h-5 w-5" />}
-      right={
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/70 px-3 py-1 text-xs font-semibold text-slate-600">
-            {loading ? "Loading…" : `${counts.pending} waiting`}
-          </span>
-          <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
-            {loading ? "…" : `${counts.at_risk} at risk`}
-          </span>
-          <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700">
-            {loading ? "…" : `${counts.breached} breached`}
-          </span>
-        </div>
-      }
-    >
-      {error ? (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {error}
-        </div>
-      ) : null}
+    <LazyMotion features={domAnimation}>
+      <m.div
+        initial={{ opacity: 0, y: 22 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+        className="relative overflow-hidden rounded-2xl p-6"
+        style={{
+          background: "linear-gradient(145deg, rgba(255,255,255,0.99) 0%, rgba(248,250,255,0.97) 55%, rgba(243,246,255,0.95) 100%)",
+          border: "1px solid rgba(255,255,255,0.92)",
+          boxShadow: "0 1px 1px rgba(0,0,0,0.02), 0 4px 8px rgba(0,0,0,0.03), 0 12px 32px rgba(99,102,241,0.07), 0 40px 80px rgba(99,102,241,0.04), 0 0 0 1px rgba(226,232,240,0.65), 0 1px 0 rgba(255,255,255,1) inset",
+          backdropFilter: "blur(28px) saturate(1.9)",
+        }}
+      >
+        {/* Crystal layers */}
+        <div className="absolute inset-0 rounded-2xl pointer-events-none" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.65) 0%, transparent 52%, rgba(255,255,255,0.12) 100%)" }} />
+        <div className="absolute top-0 inset-x-0 h-[1px] rounded-t-2xl" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,1) 28%, rgba(255,255,255,1) 72%, transparent)" }} />
+        <div className="absolute top-0 inset-x-0 h-20 rounded-t-2xl pointer-events-none" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.72) 0%, transparent 100%)" }} />
+        <div className="absolute top-1 left-4 right-4 h-5 rounded-full pointer-events-none" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.92) 38%, rgba(255,255,255,0.98) 62%, transparent)", filter: "blur(5px)" }} />
+        {/* Ambient orb — bottom right */}
+        <div className="absolute -bottom-20 -right-20 w-64 h-64 rounded-full pointer-events-none" style={{ background: "radial-gradient(ellipse, rgba(99,102,241,0.055) 0%, transparent 65%)", filter: "blur(2px)" }} />
+        {/* Ambient orb — top left */}
+        <div className="absolute -top-10 -left-10 w-48 h-48 rounded-full pointer-events-none" style={{ background: "radial-gradient(ellipse, rgba(16,185,129,0.04) 0%, transparent 65%)" }} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div className="lg:col-span-2">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">
-            Portfolio approval heatmap
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {projects.slice(0, 8).map((x, idx) => (
-              <div
-                key={`${x.project_id}-${idx}`}
-                className="rounded-2xl border border-slate-200/70 bg-white/60 p-4 hover:bg-white/85 transition-all"
-                style={{
-                  backdropFilter: "blur(10px)",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 1px 0 rgba(255,255,255,0.9) inset",
-                }}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span
-                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${ragBadge(
-                          x.rag
-                        )}`}
-                      >
-                        {x.rag === "G" ? "GREEN" : x.rag === "A" ? "AMBER" : "RED"}
-                      </span>
-
-                      {x.project_code ? (
-                        <span className="inline-flex items-center rounded-md bg-indigo-50/80 border border-indigo-200/60 px-2 py-0.5 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">
-                          {x.project_code}
-                        </span>
-                      ) : null}
-                    </div>
-
-                    <div className="mt-2 font-bold text-slate-900 truncate">
-                      {x.project_title || "Project"}
-                    </div>
-
-                    <div className="mt-1 text-xs text-slate-500">
-                      <span className="font-semibold text-slate-700">{x.stage || "Approval"}</span>{" "}
-                      · <span className="text-slate-400 text-[10px]">by</span>{" "}
-                      <span className="font-semibold text-slate-600">{x.approver_label || "—"}</span>
-                    </div>
-                  </div>
-
-                  <div className="shrink-0 text-right">
-                    <div className="text-[11px] font-bold text-slate-700">{x.days_waiting}d</div>
-                    <div className="text-[10px] text-slate-400 uppercase font-medium">wait</div>
-                  </div>
-                </div>
+        <div className="relative">
+          {/* ── Card Header ── */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <div className="flex items-center gap-3">
+              {/* Icon */}
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl text-white"
+                style={{ background: "linear-gradient(135deg,#6366f1,#4f46e5)", boxShadow: "0 4px 16px rgba(99,102,241,0.38), 0 1px 0 rgba(255,255,255,0.22) inset" }}>
+                <ShieldCheck className="h-5 w-5" />
               </div>
-            ))}
-          </div>
-
-          {projects.length > 8 ? (
-            <div className="mt-4 text-[11px] text-slate-400 font-medium italic">
-              Showing 8 of {projects.length} stalled tracks
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.2em] font-bold text-indigo-600 mb-0.5">
+                  Governance Intelligence
+                </div>
+                <h2 className="text-lg font-bold text-slate-950 leading-tight">
+                  Approvals — Portfolio Control
+                </h2>
+              </div>
             </div>
-          ) : null}
-        </div>
 
-        <div>
-          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">
-            Process Bottlenecks
+            {/* Status pills */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/80 bg-white/72 px-3 py-1.5 text-[11px] font-semibold text-slate-600"
+                style={{ backdropFilter: "blur(10px)", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+                <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                {loading ? "—" : `${counts.pending} waiting`}
+              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200/80 bg-amber-50/82 px-3 py-1.5 text-[11px] font-bold text-amber-700"
+                style={{ backdropFilter: "blur(10px)" }}>
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                {loading ? "—" : `${counts.at_risk} at risk`}
+              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200/80 bg-rose-50/82 px-3 py-1.5 text-[11px] font-bold text-rose-700"
+                style={{ backdropFilter: "blur(10px)" }}>
+                <span className="h-1.5 w-1.5 rounded-full bg-rose-400 animate-pulse" />
+                {loading ? "—" : `${counts.breached} breached`}
+              </span>
+              <span className="inline-flex items-center rounded-full border border-slate-200/60 bg-slate-100/60 px-2.5 py-1.5 text-[10px] font-semibold text-slate-500"
+                style={{ backdropFilter: "blur(8px)" }}>
+                {dayLabel}
+              </span>
+            </div>
           </div>
 
-          <div className="space-y-2">
-            {bottlenecks.slice(0, 6).map((x, idx) => (
-              <div
-                key={`${x.label}-${idx}`}
-                className="rounded-2xl border border-slate-200/70 bg-white/60 px-4 py-3"
-                style={{
-                  backdropFilter: "blur(10px)",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 1px 0 rgba(255,255,255,0.9) inset",
-                }}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-xl bg-slate-50 border border-slate-200 shadow-sm">
-                        {x.kind === "user" ? (
-                          <Users className="h-4 w-4 text-slate-600" />
-                        ) : (
-                          <Layers className="h-4 w-4 text-slate-600" />
-                        )}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="font-bold text-slate-900 truncate leading-tight">
-                          {x.label}
-                        </div>
-                        <div className="text-[10px] text-slate-400 font-medium">
-                          {x.pending_count} items · {x.projects_affected} projects
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+          {/* Error state */}
+          {error && (
+            <div className="mb-5 rounded-2xl border border-rose-200/70 bg-rose-50/72 px-4 py-3 text-sm text-rose-700"
+              style={{ backdropFilter: "blur(10px)" }}>
+              <AlertTriangle className="inline h-4 w-4 mr-2 -mt-0.5" />{error}
+            </div>
+          )}
 
-                  <div className="shrink-0 text-right">
-                    <div className="text-[11px] font-bold text-indigo-600">{x.avg_wait_days}d</div>
-                    <div className="text-[10px] text-slate-400 uppercase font-medium">avg</div>
-                  </div>
+          {/* AI Summary */}
+          <AiRiskSummary counts={counts} loading={loading} />
+
+          {/* ── Main Grid: Heatmap + Bottlenecks ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            {/* Left: Portfolio Approval Heatmap */}
+            <div className="lg:col-span-2">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="h-3 w-0.5 rounded-full bg-indigo-400" style={{ boxShadow: "0 0 6px rgba(99,102,241,0.5)" }} />
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Portfolio Approval Heatmap</span>
                 </div>
+                {projects.length > 0 && (
+                  <span className="text-[10px] text-slate-400 font-medium">{projects.length} stalled track{projects.length !== 1 ? "s" : ""}</span>
+                )}
               </div>
-            ))}
 
-            {!bottlenecks.length && !loading ? (
-              <div className="rounded-2xl border border-dashed border-slate-200 bg-white/40 px-4 py-8 text-center">
-                <AlertTriangle className="h-7 w-7 text-slate-300 mx-auto mb-2" />
-                <div className="text-sm font-semibold text-slate-600">No congestion</div>
-                <div className="text-[10px] text-slate-400 mt-1 uppercase">
-                  Approvals flow optimized
+              {loading ? (
+                <SkeletonCard />
+              ) : projects.length === 0 ? (
+                <m.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                  className="rounded-2xl border border-dashed border-slate-200/80 bg-white/40 px-6 py-14 text-center"
+                  style={{ backdropFilter: "blur(10px)" }}>
+                  <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50/80 border border-emerald-200/60"
+                    style={{ boxShadow: "0 4px 16px rgba(16,185,129,0.15)" }}>
+                    <CheckCircle2 className="h-7 w-7 text-emerald-500" />
+                  </div>
+                  <div className="text-sm font-bold text-slate-700">No stalled approvals</div>
+                  <div className="text-xs text-slate-400 mt-1.5 font-medium uppercase tracking-wider">Portfolio flow is clear</div>
+                </m.div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {projects.slice(0, 8).map((p, i) => (
+                    <ProjectHeatTile key={`${p.project_id}-${i}`} project={p} index={i} />
+                  ))}
                 </div>
-              </div>
-            ) : null}
+              )}
 
-            <a
-              href="/approvals"
-              className="group inline-flex items-center gap-2 text-[11px] font-bold text-indigo-600 hover:text-indigo-700 transition-colors mt-4 uppercase tracking-wider"
-            >
-              Control Center{" "}
-              <ArrowUpRight className="h-3 w-3 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-            </a>
+              {projects.length > 8 && (
+                <m.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}
+                  className="mt-4 text-[11px] text-slate-400 font-medium italic">
+                  +{projects.length - 8} more stalled tracks not shown
+                </m.div>
+              )}
+            </div>
+
+            {/* Right: Process Bottlenecks */}
+            <div>
+              <div className="flex items-center gap-2 mb-4">
+                <div className="h-3 w-0.5 rounded-full bg-rose-400" style={{ boxShadow: "0 0 6px rgba(244,63,94,0.4)" }} />
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Process Bottlenecks</span>
+              </div>
+
+              {loading ? (
+                <SkeletonBottleneck />
+              ) : bottlenecks.length === 0 ? (
+                <m.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                  className="rounded-2xl border border-dashed border-slate-200/80 bg-white/40 px-5 py-10 text-center"
+                  style={{ backdropFilter: "blur(10px)" }}>
+                  <Activity className="h-6 w-6 text-slate-300 mx-auto mb-2" />
+                  <div className="text-sm font-semibold text-slate-600">No congestion</div>
+                  <div className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider">Approvals flowing freely</div>
+                </m.div>
+              ) : (
+                <div className="space-y-2.5">
+                  {bottlenecks.slice(0, 6).map((b, i) => (
+                    <BottleneckTile key={`${b.label}-${i}`} bottleneck={b} maxCount={maxBottleneckCount} index={i} />
+                  ))}
+                </div>
+              )}
+
+              {/* CTA */}
+              <m.a
+                href="/approvals"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.5 }}
+                className="group mt-5 inline-flex items-center gap-2 rounded-xl border border-indigo-200/60 bg-indigo-50/60 px-4 py-2.5 text-xs font-bold text-indigo-600 hover:bg-indigo-50/90 hover:text-indigo-700 transition-all"
+                style={{ backdropFilter: "blur(8px)", boxShadow: "0 1px 4px rgba(99,102,241,0.10)" }}>
+                <Eye className="h-3.5 w-3.5" />
+                Control Center
+                <ArrowUpRight className="h-3 w-3 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+              </m.a>
+            </div>
           </div>
         </div>
-      </div>
-    </CrystalCard>
+      </m.div>
+    </LazyMotion>
   );
 }

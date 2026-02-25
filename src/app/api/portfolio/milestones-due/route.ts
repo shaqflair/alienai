@@ -1,6 +1,9 @@
-﻿// src/app/api/ai/schedule-milestones/count/route.ts
-import "server-only";
+﻿// src/app/api/portfolio/milestones-due/route.ts/count/route.ts — REBUILT v2
+// Fixes:
+//   ✅ FIX-SMC1: clampDays now handles "all" → 60 (was silently falling back to 30)
+//   ✅ FIX-SMC2: milestones-due/route.ts is an exact duplicate of this file — both fixed here
 
+import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { resolveActiveProjectScope } from "@/lib/server/project-scope";
@@ -9,12 +12,11 @@ export const runtime = "nodejs";
 
 /* ---------------- helpers ---------------- */
 
-/**
- * Ensures the 'days' query parameter is within allowed thresholds
- * to maintain consistent reporting buckets.
- */
+// ✅ FIX-SMC1: intercept "all" before Number() conversion
 function clampDays(x: string | null, fallback = 30): 7 | 14 | 30 | 60 {
-  const n = Number(x);
+  const s = String(x ?? "").trim().toLowerCase();
+  if (s === "all") return 60; // normalise "all" → broadest meaningful window
+  const n = Number(s);
   const allowed = new Set([7, 14, 30, 60]);
   return Number.isFinite(n) && allowed.has(n) ? (n as any) : (fallback as any);
 }
@@ -40,14 +42,13 @@ export async function GET(req: Request) {
     const supabase = await createClient();
     const url = new URL(req.url);
 
+    // ✅ FIX-SMC1: handles "all" → 60
     const days = clampDays(url.searchParams.get("days"), 30);
 
     const { data: auth, error: authErr } = await supabase.auth.getUser();
     const userId = auth?.user?.id || null;
-
     if (authErr || !userId) return err("Not authenticated", 401);
 
-    // ✅ ACTIVE + ACCESSIBLE projects only (prevents counting closed/deleted projects)
     const scoped = await resolveActiveProjectScope(supabase, userId);
     const projectIds = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
 
@@ -55,7 +56,6 @@ export async function GET(req: Request) {
       return ok({ days, count: 0, meta: { scope: scoped?.meta ?? null } });
     }
 
-    // ✅ Single RPC call for portfolio totals: efficient multi-project aggregation
     const { data, error } = await supabase.rpc("get_schedule_milestones_kpis_portfolio", {
       p_project_ids: projectIds,
       p_window_days: days,
@@ -68,8 +68,6 @@ export async function GET(req: Request) {
     const planned = num(row?.planned);
     const atRisk = num(row?.at_risk);
     const overdue = num(row?.overdue);
-
-    // ✅ Count should represent total milestones in-window (not just "planned")
     const count = planned + atRisk + overdue;
 
     return ok({

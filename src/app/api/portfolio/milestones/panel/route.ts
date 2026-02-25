@@ -1,6 +1,9 @@
-﻿// src/app/api/ai/schedule-milestones/kpis/route.ts
-import "server-only";
+﻿// src/app/api/portfolio/milestones/panel/route.ts — REBUILT v2
+// Fixes:
+//   ✅ FIX-SMK1: clampDays now handles "all" → 60 (was silently falling back to 30)
+//               HomePage sends ?days=all → was returning 30d data with no indication
 
+import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { resolveActiveProjectScope } from "@/lib/server/project-scope";
@@ -9,8 +12,11 @@ export const runtime = "nodejs";
 
 /* ---------------- helpers ---------------- */
 
+// ✅ FIX-SMK1: intercept "all" before Number() conversion
 function clampDays(x: string | null, fallback = 30): 7 | 14 | 30 | 60 {
-  const n = Number(x);
+  const s = String(x ?? "").trim().toLowerCase();
+  if (s === "all") return 60; // normalise "all" → broadest meaningful window
+  const n = Number(s);
   const allowed = new Set([7, 14, 30, 60]);
   return Number.isFinite(n) && allowed.has(n) ? (n as any) : (fallback as any);
 }
@@ -47,27 +53,20 @@ export async function GET(req: Request) {
     const supabase = await createClient();
     const url = new URL(req.url);
 
+    // ✅ FIX-SMK1: handles "all" → 60
     const days = clampDays(url.searchParams.get("days"), 30);
 
     const { data: auth, error: authErr } = await supabase.auth.getUser();
     const userId = auth?.user?.id || null;
     if (authErr || !userId) return err("Not authenticated", 401);
 
-    // ✅ ACTIVE + ACCESSIBLE projects only
     const scoped = await resolveActiveProjectScope(supabase, userId);
     const projectIds = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
 
-    // Return zeroed schema if no active projects in scope
     if (!projectIds.length) {
-      return ok({
-        days,
-        panel: emptyPanel(days),
-        count: 0,
-        meta: { scope: scoped?.meta ?? null },
-      });
+      return ok({ days, panel: emptyPanel(days), count: 0, meta: { scope: scoped?.meta ?? null } });
     }
 
-    // RPC call for aggregated portfolio metrics
     const { data, error } = await supabase.rpc("get_schedule_milestones_kpis_portfolio", {
       p_project_ids: projectIds,
       p_window_days: days,
@@ -84,7 +83,6 @@ export async function GET(req: Request) {
     const slip_avg_days = num(row?.slip_avg_days);
     const slip_max_days = num(row?.slip_max_days);
 
-    // ✅ “Due count” should represent total items in the window (planned + at risk + overdue)
     const due_count = planned + at_risk + overdue;
 
     const panel = {
@@ -92,15 +90,8 @@ export async function GET(req: Request) {
       due_count,
       overdue_count: overdue,
       ai_high_risk_count: ai_high_risk,
-      status_breakdown: {
-        planned,
-        at_risk,
-        overdue,
-      },
-      slippage: {
-        avg_slip_days: slip_avg_days,
-        max_slip_days: slip_max_days,
-      },
+      status_breakdown: { planned, at_risk, overdue },
+      slippage: { avg_slip_days: slip_avg_days, max_slip_days: slip_max_days },
     };
 
     return ok({
