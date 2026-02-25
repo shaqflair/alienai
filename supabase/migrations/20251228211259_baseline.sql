@@ -1,0 +1,3 @@
+﻿-- Baseline migration placeholder
+-- Remote migration history contains 20251228211259 as applied.
+-- This file intentionally contains no SQL because the schema already exists on the remote database.
