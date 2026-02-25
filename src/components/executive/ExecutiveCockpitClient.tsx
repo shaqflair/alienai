@@ -1,16 +1,17 @@
-﻿"use client";
+﻿// src/components/executive/ExecutiveCockpitClient.tsx
+"use client";
 
 import * as React from "react";
 
-type ApiOk<T> = { orgId?: string; scope?: string } & T;
-type ApiErr = { error: string; message?: string };
+type ApiOk<T> = { ok?: boolean; orgId?: string; org_id?: string; scope?: string } & T;
+type ApiErr = { ok?: boolean; error: string; message?: string };
 
-type PendingApprovalsPayload = ApiOk<{ items: any[] }> | ApiErr;
-type WhoBlockingPayload = ApiOk<{ items?: any[]; blockers?: any[] }> | ApiErr;
-type SlaRadarPayload = ApiOk<{ items?: any[]; breaches?: any[] }> | ApiErr;
-type RiskSignalsPayload = ApiOk<{ items?: any[]; signals?: any[] }> | ApiErr;
-type PortfolioApprovalsPayload = ApiOk<{ items?: any[] }> | ApiErr;
-type BottlenecksPayload = ApiOk<{ items?: any[] }> | ApiErr;
+type PendingApprovalsPayload = ApiOk<{ items?: any[]; pending?: any[]; data?: any }> | ApiErr;
+type WhoBlockingPayload = ApiOk<{ items?: any[]; blockers?: any[]; data?: any }> | ApiErr;
+type SlaRadarPayload = ApiOk<{ items?: any[]; breaches?: any[]; data?: any }> | ApiErr;
+type RiskSignalsPayload = ApiOk<{ items?: any[]; signals?: any[]; data?: any }> | ApiErr;
+type PortfolioApprovalsPayload = ApiOk<{ items?: any[]; data?: any }> | ApiErr;
+type BottlenecksPayload = ApiOk<{ items?: any[]; data?: any }> | ApiErr;
 
 function isErr(x: any): x is ApiErr {
   return !!x && typeof x === "object" && typeof x.error === "string";
@@ -49,6 +50,62 @@ async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   return json as T;
 }
 
+function errPayload(msg: string): ApiErr {
+  return { error: msg };
+}
+
+function settledOrErr<T>(
+  r: PromiseSettledResult<T>,
+  fallbackMsg: string
+): T | ApiErr {
+  if (r.status === "fulfilled") return r.value as any;
+  const m = (r.reason && (r.reason.message || String(r.reason))) || fallbackMsg;
+  return errPayload(m);
+}
+
+/**
+ * Extract an array from a payload that may use different common shapes.
+ * Supports:
+ * - { items: [] }
+ * - { pending: [] }
+ * - { data: { items: [] } }
+ * - { data: { pending: [] } }
+ * - { data: [] }
+ * - { rows: [] }
+ */
+function extractList(payload: any, preferredKeys: string[] = ["items"]): any[] {
+  if (!payload || typeof payload !== "object") return [];
+
+  // direct keys first
+  for (const k of preferredKeys) {
+    const v = (payload as any)[k];
+    if (Array.isArray(v)) return v;
+  }
+
+  // common alternates
+  const directCandidates = ["items", "pending", "rows", "blockers", "breaches", "signals"];
+  for (const k of directCandidates) {
+    const v = (payload as any)[k];
+    if (Array.isArray(v)) return v;
+  }
+
+  // nested under data
+  const data = (payload as any).data;
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === "object") {
+    for (const k of preferredKeys) {
+      const v = (data as any)[k];
+      if (Array.isArray(v)) return v;
+    }
+    for (const k of directCandidates) {
+      const v = (data as any)[k];
+      if (Array.isArray(v)) return v;
+    }
+  }
+
+  return [];
+}
+
 function StatCard(props: {
   title: string;
   value: React.ReactNode;
@@ -73,18 +130,6 @@ function StatCard(props: {
   );
 }
 
-function errPayload(msg: string): ApiErr {
-  return { error: msg };
-}
-
-function settledOrErr<T>(r: PromiseSettledResult<T>, fallbackMsg: string): T | ApiErr {
-  if (r.status === "fulfilled") return r.value as any;
-  const m =
-    (r.reason && (r.reason.message || String(r.reason))) ||
-    fallbackMsg;
-  return errPayload(m);
-}
-
 /**
  * Production-safe Executive Cockpit client
  * - SINGLE ORG mode: no orgId passed/required
@@ -98,8 +143,7 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
     React.useState<PendingApprovalsPayload | null>(null);
   const [whoBlocking, setWhoBlocking] =
     React.useState<WhoBlockingPayload | null>(null);
-  const [slaRadar, setSlaRadar] =
-    React.useState<SlaRadarPayload | null>(null);
+  const [slaRadar, setSlaRadar] = React.useState<SlaRadarPayload | null>(null);
   const [riskSignals, setRiskSignals] =
     React.useState<RiskSignalsPayload | null>(null);
   const [portfolioApprovals, setPortfolioApprovals] =
@@ -117,7 +161,7 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       setLoading(true);
       setFatalError(null);
 
-      // reset last values to avoid “stale good data” hiding new errors
+      // reset last values to avoid stale good data hiding new errors
       setPendingApprovals(null);
       setWhoBlocking(null);
       setSlaRadar(null);
@@ -126,35 +170,24 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       setBottlenecks(null);
 
       try {
-        const [
-          paR,
-          wbR,
-          slaR,
-          rsR,
-          portR,
-          bottR,
-        ] = await Promise.allSettled([
-          // ✅ approvals namespace (exists in tree)
-          fetchJson<PendingApprovalsPayload>(
-            "/api/executive/approvals/pending?limit=200",
-            ac.signal
-          ),
-
-          // ✅ top-level exec endpoints (exist in tree)
-          fetchJson<WhoBlockingPayload>("/api/executive/who-blocking", ac.signal),
-          fetchJson<SlaRadarPayload>("/api/executive/sla-radar", ac.signal),
-          fetchJson<RiskSignalsPayload>("/api/executive/risk-signals", ac.signal),
-
-          // ✅ approvals namespace (exists in tree)
-          fetchJson<PortfolioApprovalsPayload>(
-            "/api/executive/approvals/portfolio",
-            ac.signal
-          ),
-          fetchJson<BottlenecksPayload>(
-            "/api/executive/approvals/bottlenecks",
-            ac.signal
-          ),
-        ]);
+        const [paR, wbR, slaR, rsR, portR, bottR] =
+          await Promise.allSettled([
+            fetchJson<PendingApprovalsPayload>(
+              "/api/executive/approvals/pending?limit=200",
+              ac.signal
+            ),
+            fetchJson<WhoBlockingPayload>("/api/executive/who-blocking", ac.signal),
+            fetchJson<SlaRadarPayload>("/api/executive/sla-radar", ac.signal),
+            fetchJson<RiskSignalsPayload>("/api/executive/risk-signals", ac.signal),
+            fetchJson<PortfolioApprovalsPayload>(
+              "/api/executive/approvals/portfolio",
+              ac.signal
+            ),
+            fetchJson<BottlenecksPayload>(
+              "/api/executive/approvals/bottlenecks",
+              ac.signal
+            ),
+          ]);
 
         if (!mounted) return;
 
@@ -174,16 +207,9 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
 
         // Only show fatalError if EVERYTHING failed
         const allFailed =
-          isErr(pa) &&
-          isErr(wb) &&
-          isErr(sla) &&
-          isErr(rs) &&
-          isErr(port) &&
-          isErr(bott);
+          isErr(pa) && isErr(wb) && isErr(sla) && isErr(rs) && isErr(port) && isErr(bott);
 
-        if (allFailed) {
-          setFatalError("Failed to load executive cockpit");
-        }
+        if (allFailed) setFatalError("Failed to load executive cockpit");
       } catch (e: any) {
         if (!mounted) return;
         if (e?.name === "AbortError") return;
@@ -204,38 +230,42 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
 
   const pendingCount =
     pendingApprovals && !isErr(pendingApprovals)
-      ? pendingApprovals.items?.length ?? 0
+      ? extractList(pendingApprovals, ["items", "pending"]).length
       : null;
 
   const whoBlockingCount =
     whoBlocking && !isErr(whoBlocking)
-      ? whoBlocking.items?.length ?? whoBlocking.blockers?.length ?? 0
+      ? extractList(whoBlocking, ["items", "blockers"]).length
       : null;
 
   const slaCount =
     slaRadar && !isErr(slaRadar)
-      ? slaRadar.items?.length ?? slaRadar.breaches?.length ?? 0
+      ? extractList(slaRadar, ["items", "breaches"]).length
       : null;
 
   const riskCount =
     riskSignals && !isErr(riskSignals)
-      ? riskSignals.items?.length ?? riskSignals.signals?.length ?? 0
+      ? extractList(riskSignals, ["items", "signals"]).length
       : null;
 
   const portfolioApprovalsCount =
     portfolioApprovals && !isErr(portfolioApprovals)
-      ? portfolioApprovals.items?.length ?? 0
+      ? extractList(portfolioApprovals, ["items"]).length
       : null;
 
   const bottlenecksCount =
-    bottlenecks && !isErr(bottlenecks) ? bottlenecks.items?.length ?? 0 : null;
+    bottlenecks && !isErr(bottlenecks)
+      ? extractList(bottlenecks, ["items"]).length
+      : null;
 
   return (
     <div className="w-full">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-gray-900">Executive Cockpit</h1>
-          <p className="text-sm text-gray-500">Live org-scoped signals (single-org mode).</p>
+          <p className="text-sm text-gray-500">
+            Live org-scoped signals (single-org mode).
+          </p>
         </div>
 
         <button
@@ -256,10 +286,10 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard
           title="Pending approvals"
-          value={loading ? "…" : pendingCount ?? 0}
+          value={loading ? "..." : pendingCount ?? 0}
           subtitle={
-            pendingApprovals && !isErr(pendingApprovals) && pendingApprovals.scope
-              ? `Scope: ${pendingApprovals.scope}`
+            pendingApprovals && !isErr(pendingApprovals) && (pendingApprovals as any).scope
+              ? `Scope: ${(pendingApprovals as any).scope}`
               : undefined
           }
           error={
@@ -270,26 +300,36 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
         />
 
         <StatCard
-          title="Who’s blocking"
-          value={loading ? "…" : whoBlockingCount ?? 0}
-          error={whoBlocking && isErr(whoBlocking) ? whoBlocking.message ?? whoBlocking.error : null}
+          title="Who's blocking"
+          value={loading ? "..." : whoBlockingCount ?? 0}
+          error={
+            whoBlocking && isErr(whoBlocking)
+              ? whoBlocking.message ?? whoBlocking.error
+              : null
+          }
         />
 
         <StatCard
           title="SLA radar"
-          value={loading ? "…" : slaCount ?? 0}
-          error={slaRadar && isErr(slaRadar) ? slaRadar.message ?? slaRadar.error : null}
+          value={loading ? "..." : slaCount ?? 0}
+          error={
+            slaRadar && isErr(slaRadar) ? slaRadar.message ?? slaRadar.error : null
+          }
         />
 
         <StatCard
           title="Risk signals"
-          value={loading ? "…" : riskCount ?? 0}
-          error={riskSignals && isErr(riskSignals) ? riskSignals.message ?? riskSignals.error : null}
+          value={loading ? "..." : riskCount ?? 0}
+          error={
+            riskSignals && isErr(riskSignals)
+              ? riskSignals.message ?? riskSignals.error
+              : null
+          }
         />
 
         <StatCard
           title="Portfolio approvals"
-          value={loading ? "…" : portfolioApprovalsCount ?? 0}
+          value={loading ? "..." : portfolioApprovalsCount ?? 0}
           error={
             portfolioApprovals && isErr(portfolioApprovals)
               ? portfolioApprovals.message ?? portfolioApprovals.error
@@ -299,8 +339,12 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
 
         <StatCard
           title="Bottlenecks"
-          value={loading ? "…" : bottlenecksCount ?? 0}
-          error={bottlenecks && isErr(bottlenecks) ? bottlenecks.message ?? bottlenecks.error : null}
+          value={loading ? "..." : bottlenecksCount ?? 0}
+          error={
+            bottlenecks && isErr(bottlenecks)
+              ? bottlenecks.message ?? bottlenecks.error
+              : null
+          }
         />
       </div>
     </div>
