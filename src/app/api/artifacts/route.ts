@@ -11,11 +11,13 @@ export const revalidate = 0;
 /* ---------------- helpers ---------------- */
 
 function jsonOk(data: any, status = 200, headers?: HeadersInit) {
-  return NextResponse.json({ ok: true, ...data }, { status, headers });
+  const res = NextResponse.json({ ok: true, ...data }, { status, headers });
+  return res;
 }
 
 function jsonErr(error: string, status = 400, meta?: any, headers?: HeadersInit) {
-  return NextResponse.json({ ok: false, error, meta }, { status, headers });
+  const res = NextResponse.json({ ok: false, error, meta }, { status, headers });
+  return res;
 }
 
 function safeStr(x: any) {
@@ -45,6 +47,7 @@ function parseBool(raw: string | null) {
 }
 
 function escapeIlike(q: string) {
+  // PostgREST ilike pattern escaping
   return q.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
 
@@ -65,7 +68,34 @@ function buildArtifactHref(a: { project_id?: any; id?: any; type?: any }) {
 
 type ProjectRel = "projects_active" | "projects_live" | "projects";
 
-function selectForRel(rel: ProjectRel) {
+function selectForRel(rel: ProjectRel, minimal: boolean) {
+  // minimal = used by list page; keep payload lean
+  // Note: include project join because we rely on live-project filters
+  if (minimal) {
+    return `
+      id,
+      project_id,
+      title,
+      type,
+      status,
+      approval_status,
+      is_current,
+      version,
+      root_artifact_id,
+      parent_artifact_id,
+      created_at,
+      updated_at,
+      project:${rel}!inner(
+        id,
+        title,
+        project_code,
+        deleted_at,
+        lifecycle_status,
+        status
+      )
+    `;
+  }
+
   return `
     id,
     project_id,
@@ -83,6 +113,20 @@ function selectForRel(rel: ProjectRel) {
       id,
       title,
       project_code,
+      deleted_at,
+      lifecycle_status,
+      status
+    )
+  `;
+}
+
+function selectProjectJoinOnly(rel: ProjectRel) {
+  // Used for totals queries where we must still join projects to apply project.* filters
+  return `
+    id,
+    project_id,
+    project:${rel}!inner(
+      id,
       deleted_at,
       lifecycle_status,
       status
@@ -119,13 +163,11 @@ async function requireProjectMember(supabase: any, projectId: string, userId: st
 
   if (error) throw error;
   if (!data) throw Object.assign(new Error("Forbidden"), { status: 403 });
-
   return data;
 }
 
 async function listAccessibleProjectIds(supabase: any, userId: string) {
-  // Enterprise-safe scoping: route-level access scope (defense in depth)
-  // Note: we keep this reasonably sized; if you expect > 10k memberships, we’ll switch to server-side RPC.
+  // Keep bounded; if you expect huge memberships, swap to RPC.
   const { data, error } = await supabase
     .from("project_members")
     .select("project_id")
@@ -169,12 +211,13 @@ export async function GET(req: Request) {
 
   try {
     const user = await requireAuth(supabase);
-
     const url = new URL(req.url);
 
     const projectIdRaw = safeStr(url.searchParams.get("projectId")).trim();
     const q = safeStr(url.searchParams.get("q")).trim();
     const type = safeStr(url.searchParams.get("type")).trim();
+
+    const minimal = parseBool(url.searchParams.get("minimal"));
     const includeTotals = parseBool(url.searchParams.get("includeTotals"));
 
     const limit = clampInt(url.searchParams.get("limit"), 1, 100, 50);
@@ -186,14 +229,13 @@ export async function GET(req: Request) {
     // 🔒 Enterprise scoping:
     // - if projectId provided → must be a member of that project
     // - else → restrict to the user’s project memberships
-    let scopedProjectIds: string[] | null = null;
+    let scopedProjectIds: string[] = [];
 
     if (projectIdRaw) {
       await requireProjectMember(supabase, projectIdRaw, user.id);
       scopedProjectIds = [projectIdRaw];
     } else {
-      const ids = await listAccessibleProjectIds(supabase, user.id);
-      scopedProjectIds = ids;
+      scopedProjectIds = await listAccessibleProjectIds(supabase, user.id);
     }
 
     async function runWithRel(rel: ProjectRel) {
@@ -209,24 +251,22 @@ export async function GET(req: Request) {
         };
       }
 
-      // Base query
+      /* -------- list query -------- */
+
       let query = supabase
         .from("artifacts")
-        .select(selectForRel(rel), { count: "exact" })
+        .select(selectForRel(rel, minimal), { count: "exact" })
         .order("updated_at", { ascending: false })
         .order("created_at", { ascending: false })
         .eq("is_current", true)
         .is("deleted_at", null);
 
-      // Apply live-project filters
+      // Apply live-project filters (requires project join -> ensured in select)
       query = applyLiveProjectFilters(query);
 
       // Apply access scope
-      if (scopedProjectIds.length === 1) {
-        query = query.eq("project_id", scopedProjectIds[0]);
-      } else {
-        query = query.in("project_id", scopedProjectIds);
-      }
+      if (scopedProjectIds.length === 1) query = query.eq("project_id", scopedProjectIds[0]);
+      else query = query.in("project_id", scopedProjectIds);
 
       // Optional type filter
       if (type) query = query.eq("type", type);
@@ -276,7 +316,8 @@ export async function GET(req: Request) {
               (a, b) => a.localeCompare(b)
             );
 
-      // Totals (enterprise-safe: computed inside the same access scope + same live filters)
+      /* -------- totals (FIXED: must also join projects to use project.* filters) -------- */
+
       let totalCount: number | null = null;
       let activeCount: number | null = null;
       let activeProjectCount: number | null = null;
@@ -285,17 +326,15 @@ export async function GET(req: Request) {
         // Count within same scope/filters (but without pagination)
         let countQuery = supabase
           .from("artifacts")
-          .select("id", { count: "exact", head: true })
+          // join projects so applyLiveProjectFilters works
+          .select(selectProjectJoinOnly(rel), { count: "exact", head: true })
           .eq("is_current", true)
           .is("deleted_at", null);
 
         countQuery = applyLiveProjectFilters(countQuery);
 
-        if (scopedProjectIds.length === 1) {
-          countQuery = countQuery.eq("project_id", scopedProjectIds[0]);
-        } else {
-          countQuery = countQuery.in("project_id", scopedProjectIds);
-        }
+        if (scopedProjectIds.length === 1) countQuery = countQuery.eq("project_id", scopedProjectIds[0]);
+        else countQuery = countQuery.in("project_id", scopedProjectIds);
 
         if (type) countQuery = countQuery.eq("type", type);
 
@@ -313,21 +352,17 @@ export async function GET(req: Request) {
         activeCount = totalCount;
 
         // Active project count (projects that have at least one matching artifact, within scope)
-        // This is still scoped + live-filtered. If you want "all live projects regardless of artifacts",
-        // we should compute from projects table instead.
         let pidQuery = supabase
           .from("artifacts")
+          // join projects so applyLiveProjectFilters works
           .select(`project_id, project:${rel}!inner(id, deleted_at, lifecycle_status, status)`)
           .eq("is_current", true)
           .is("deleted_at", null);
 
         pidQuery = applyLiveProjectFilters(pidQuery);
 
-        if (scopedProjectIds.length === 1) {
-          pidQuery = pidQuery.eq("project_id", scopedProjectIds[0]);
-        } else {
-          pidQuery = pidQuery.in("project_id", scopedProjectIds);
-        }
+        if (scopedProjectIds.length === 1) pidQuery = pidQuery.eq("project_id", scopedProjectIds[0]);
+        else pidQuery = pidQuery.in("project_id", scopedProjectIds);
 
         if (type) pidQuery = pidQuery.eq("type", type);
 
@@ -338,6 +373,7 @@ export async function GET(req: Request) {
           );
         }
 
+        // bounded – we only need distinct pids
         const { data: pidRows, error: pidErr } = await pidQuery.limit(5000);
         if (pidErr) throw pidErr;
 
@@ -376,10 +412,22 @@ export async function GET(req: Request) {
     const status =
       typeof e?.status === "number" && e.status >= 400 && e.status <= 599 ? e.status : 500;
 
+    // Log real error server-side for Vercel logs
+    // (safe: no user secrets here)
+    console.error("[api/artifacts] failed", e);
+
     const meta =
-      e && typeof e === "object"
-        ? { code: (e as any).code, hint: (e as any).hint, details: (e as any).details }
-        : undefined;
+      process.env.NODE_ENV === "development"
+        ? {
+            status,
+            code: (e as any)?.code,
+            hint: (e as any)?.hint,
+            details: (e as any)?.details,
+            message: (e as any)?.message,
+          }
+        : {
+            code: (e as any)?.code,
+          };
 
     return jsonErr(e?.message || "Unknown error", status, meta, noStoreHeaders);
   }
