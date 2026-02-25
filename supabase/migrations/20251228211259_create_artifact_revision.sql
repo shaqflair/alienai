@@ -1,4 +1,4 @@
-﻿create or replace function public.create_artifact_revision(
+create or replace function public.create_artifact_revision(
   p_project_id uuid,
   p_artifact_id uuid,
   p_title text,
