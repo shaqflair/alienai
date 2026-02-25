@@ -1,8 +1,11 @@
 ﻿// src/app/settings/page.tsx
+import "server-only";
+
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
-import { createOrganisation, inviteToOrganisation, renameOrganisation } from "@/app/actions/org-admin";
+import { createOrganisation } from "@/app/actions/org-admin";
 
 type Role = "owner" | "admin" | "member";
 
@@ -37,6 +40,10 @@ function roleBadge(role: Role) {
   return { label: "Member", cls: "bg-yellow-50 border-yellow-200" };
 }
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function SettingsPage() {
   const supabase = await createClient();
 
@@ -62,13 +69,14 @@ export default async function SettingsPage() {
       )
     `
     )
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .is("removed_at", null);
 
   if (memErr) throw new Error(sbErrText(memErr));
 
   const memberships = ((data ?? []) as unknown as OrgRow[])
     .map((r) => {
-      if (!r.organisations) return null;
+      if (!r.organisations?.id) return null;
       return {
         orgId: r.organisations.id,
         orgName: r.organisations.name,
@@ -79,7 +87,6 @@ export default async function SettingsPage() {
 
   const active = memberships.find((m) => m.orgId === activeOrgId) ?? memberships[0] ?? null;
   const myRole = active?.role ?? null;
-  const isOwnerOrAdmin = myRole === "owner" || myRole === "admin";
 
   return (
     <main className="mx-auto max-w-3xl p-6 space-y-6">
@@ -116,27 +123,54 @@ export default async function SettingsPage() {
                     <div className="text-xs opacity-60 font-mono">org_id: {m.orgId}</div>
                   </div>
 
-                  {!isActive ? (
-                    <form method="post" action="/api/active-org">
-                      <input type="hidden" name="org_id" value={m.orgId} />
-                      <input type="hidden" name="next" value="/settings" />
-                      <button className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50" type="submit">
-                        Set active
-                      </button>
-                    </form>
-                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    {!isActive ? (
+                      <form method="post" action="/api/active-org">
+                        <input type="hidden" name="org_id" value={m.orgId} />
+                        <input type="hidden" name="next" value="/settings" />
+                        <button className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50" type="submit">
+                          Set active
+                        </button>
+                      </form>
+                    ) : null}
+
+                    <Link
+                      href={`/organisations/${m.orgId}/members`}
+                      className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
+                    >
+                      Members
+                    </Link>
+
+                    <Link
+                      href={`/organisations/${m.orgId}/settings?tab=settings`}
+                      className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
+                    >
+                      Settings
+                    </Link>
+
+                    <Link
+                      href={`/organisations/${m.orgId}/settings?tab=approvals`}
+                      className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
+                      title="Configure organisation approvals"
+                    >
+                      Approvals
+                    </Link>
+                  </div>
                 </div>
               );
             })}
           </div>
         )}
 
-        <div className="text-xs opacity-60">Admin/Owner settings appear only if you have access on the active org.</div>
+        <div className="text-xs opacity-60">
+          Governance actions (transfer ownership / leave org) live in <b>Organisation settings</b>.
+        </div>
       </section>
 
       <section className="rounded-lg border bg-white p-5 space-y-3">
         <div className="text-sm font-medium">Active organisation</div>
-        <div className="flex items-center gap-2">
+
+        <div className="flex flex-wrap items-center gap-2">
           <div className="text-sm">{active?.orgName ?? "No organisation selected"}</div>
           {myRole ? (
             <span className={`text-xs rounded border px-2 py-0.5 ${roleBadge(myRole).cls}`}>
@@ -144,71 +178,53 @@ export default async function SettingsPage() {
             </span>
           ) : null}
         </div>
+
+        {active ? (
+          <div className="flex flex-wrap gap-2 pt-2">
+            <Link
+              href={`/organisations/${active.orgId}/members`}
+              className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
+            >
+              Members
+            </Link>
+            <Link
+              href={`/organisations/${active.orgId}/settings?tab=settings`}
+              className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
+            >
+              Organisation settings
+            </Link>
+            <Link
+              href={`/organisations/${active.orgId}/settings?tab=approvals`}
+              className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
+            >
+              Approvals
+            </Link>
+          </div>
+        ) : null}
       </section>
 
-      <section className="rounded-lg border bg-white p-5 space-y-5">
-        <h2 className="text-lg font-medium">Organisation management</h2>
+      {/* Creating an org should not depend on being admin/owner of an active org */}
+      <section className="rounded-lg border bg-white p-5 space-y-4">
+        <h2 className="text-lg font-medium">Create organisation</h2>
 
-        {!active ? (
-          <div className="text-sm text-gray-700">Select an active organisation first.</div>
-        ) : !isOwnerOrAdmin ? (
-          <div className="text-sm text-gray-700">You don’t have Admin/Owner access for the active organisation.</div>
-        ) : (
-          <>
-            <form action={createOrganisation} className="space-y-2">
-              <div className="text-sm font-medium">Create new organisation</div>
-              <div className="flex gap-2">
-                <input
-                  name="name"
-                  placeholder="e.g. Vodafone UK"
-                  className="flex-1 rounded-md border px-3 py-2 text-sm"
-                  required
-                />
-                <button className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50" type="submit">
-                  Create
-                </button>
-              </div>
-            </form>
+        <form action={createOrganisation} className="space-y-2">
+          <div className="text-sm font-medium">New organisation</div>
+          <div className="flex gap-2">
+            <input
+              name="name"
+              placeholder="e.g. Vodafone UK"
+              className="flex-1 rounded-md border px-3 py-2 text-sm"
+              required
+            />
+            <button className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50" type="submit">
+              Create
+            </button>
+          </div>
+        </form>
 
-            <form action={renameOrganisation} className="space-y-2">
-              <div className="text-sm font-medium">Rename active organisation</div>
-              <input type="hidden" name="org_id" value={active.orgId} />
-              <div className="flex gap-2">
-                <input
-                  name="name"
-                  defaultValue={active.orgName}
-                  className="flex-1 rounded-md border px-3 py-2 text-sm"
-                  required
-                />
-                <button className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50" type="submit">
-                  Save
-                </button>
-              </div>
-            </form>
-
-            <form action={inviteToOrganisation} className="space-y-2">
-              <div className="text-sm font-medium">Invite member</div>
-              <input type="hidden" name="org_id" value={active.orgId} />
-              <div className="grid gap-2 sm:grid-cols-[1fr_160px_120px]">
-                <input
-                  name="email"
-                  type="email"
-                  placeholder="person@company.com"
-                  className="rounded-md border px-3 py-2 text-sm"
-                  required
-                />
-                <select name="role" defaultValue="member" className="rounded-md border px-3 py-2 text-sm">
-                  <option value="member">Member</option>
-                  <option value="admin">Admin</option>
-                </select>
-                <button className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50" type="submit">
-                  Invite
-                </button>
-              </div>
-              <div className="text-xs opacity-60">Invites are currently disabled in code; this will error until enabled.</div>
-            </form>
-          </>
-        )}
+        <div className="text-xs opacity-60">
+          After creating, use the org’s <b>Settings</b> page for governance and membership management.
+        </div>
       </section>
     </main>
   );

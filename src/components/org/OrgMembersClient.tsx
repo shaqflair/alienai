@@ -82,6 +82,10 @@ function isEmailLike(v: string) {
   return s.includes("@") && s.includes(".");
 }
 
+function roleRank(r: OrgRole) {
+  return r === "owner" ? 0 : r === "admin" ? 1 : 2;
+}
+
 export default function OrgMembersClient(props: {
   organisationId: string;
   myRole: OrgRole;
@@ -95,9 +99,10 @@ export default function OrgMembersClient(props: {
   const manage = props.myRole === "admin" || props.myRole === "owner";
 
   const sortedMembers = useMemo(() => {
-    const rank = (r: OrgRole) => (r === "owner" ? 0 : r === "admin" ? 1 : 2);
-    return [...(props.members ?? [])].sort((a, b) => rank(a.role) - rank(b.role));
+    return [...(props.members ?? [])].sort((a, b) => roleRank(a.role) - roleRank(b.role));
   }, [props.members]);
+
+  const owner = useMemo(() => sortedMembers.find((m) => m.role === "owner") ?? null, [sortedMembers]);
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"member" | "admin">("member");
@@ -108,23 +113,25 @@ export default function OrgMembersClient(props: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const j = await r.json();
+    const j = await r.json().catch(() => ({}));
     if (!j?.ok) throw new Error(j?.error || "Request failed");
     return j;
   }
+
   async function apiPatch(url: string, body: any) {
     const r = await fetch(url, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const j = await r.json();
+    const j = await r.json().catch(() => ({}));
     if (!j?.ok) throw new Error(j?.error || "Request failed");
     return j;
   }
+
   async function apiDelete(url: string) {
     const r = await fetch(url, { method: "DELETE" });
-    const j = await r.json();
+    const j = await r.json().catch(() => ({}));
     if (!j?.ok) throw new Error(j?.error || "Request failed");
     return j;
   }
@@ -147,11 +154,22 @@ export default function OrgMembersClient(props: {
 
   return (
     <div className="space-y-8 text-gray-900">
-      {err ? (
-        <div className="rounded border bg-red-50 p-3 text-sm text-red-700">
-          {err}
+      {err ? <div className="rounded border bg-red-50 p-3 text-sm text-red-700">{err}</div> : null}
+
+      {/* Governance hint */}
+      <div className="rounded border bg-white p-4 text-sm text-gray-700">
+        <div className="font-medium mb-1">Single-owner governance</div>
+        <div className="text-xs text-gray-500">
+          The <b>owner</b> cannot be removed or demoted here. Ownership transfer happens in{" "}
+          <b>Organisation settings → Governance</b>.
         </div>
-      ) : null}
+        {owner ? (
+          <div className="mt-2 text-sm">
+            <span className="text-gray-500">Current owner:</span>{" "}
+            <span className="font-medium">{owner.full_name || owner.email || owner.user_id}</span>
+          </div>
+        ) : null}
+      </div>
 
       {/* Invite */}
       {manage ? (
@@ -208,9 +226,7 @@ export default function OrgMembersClient(props: {
             </button>
           </div>
 
-          <div className="text-xs text-gray-500">
-            Invites produce a shareable link. Email sending can come later.
-          </div>
+          <div className="text-xs text-gray-500">Invites produce a shareable link. Email sending can come later.</div>
         </div>
       ) : (
         <div className="rounded border bg-white p-4 text-sm text-gray-600">
@@ -238,15 +254,12 @@ export default function OrgMembersClient(props: {
             <tbody>
               {sortedMembers.map((m) => {
                 const isOwner = m.role === "owner";
+
                 return (
                   <tr key={m.user_id} className="border-b last:border-b-0">
                     <td className="py-2 pr-3">
-                      <div className="font-medium">
-                        {m.full_name || m.email || m.user_id}
-                      </div>
-                      {m.email ? (
-                        <div className="text-xs text-gray-500">{m.email}</div>
-                      ) : null}
+                      <div className="font-medium">{m.full_name || m.email || m.user_id}</div>
+                      {m.email ? <div className="text-xs text-gray-500">{m.email}</div> : null}
                     </td>
 
                     <td className="py-2 pr-3">
@@ -256,13 +269,15 @@ export default function OrgMembersClient(props: {
                           value={m.role}
                           disabled={pending}
                           onChange={(e) => {
+                            const nextRole = e.target.value as "member" | "admin";
+
                             setErr("");
                             startTransition(async () => {
                               try {
                                 await apiPatch("/api/organisation-members", {
                                   organisation_id: props.organisationId,
                                   user_id: m.user_id,
-                                  role: e.target.value,
+                                  role: nextRole,
                                 });
                                 router.refresh();
                               } catch (e: any) {
@@ -271,6 +286,7 @@ export default function OrgMembersClient(props: {
                             });
                           }}
                         >
+                          {/* owner is intentionally NOT available here */}
                           <option value="member">member</option>
                           <option value="admin">admin</option>
                         </select>
@@ -288,6 +304,7 @@ export default function OrgMembersClient(props: {
                             setErr("");
                             startTransition(async () => {
                               try {
+                                // Backend should soft-remove (removed_at = now()).
                                 await apiDelete(
                                   `/api/organisation-members?organisationId=${encodeURIComponent(
                                     props.organisationId
@@ -324,10 +341,7 @@ export default function OrgMembersClient(props: {
       <div className="rounded border bg-white p-4">
         <div className="mb-3 flex items-center justify-between">
           <div className="font-medium">Invites</div>
-          <Pill>
-            {(props.invites ?? []).filter((i) => i.status === "pending").length}{" "}
-            pending
-          </Pill>
+          <Pill>{(props.invites ?? []).filter((i) => i.status === "pending").length} pending</Pill>
         </div>
 
         <div className="overflow-auto">
@@ -359,13 +373,10 @@ export default function OrgMembersClient(props: {
                         <input
                           readOnly
                           className="w-[320px] rounded border bg-white px-2 py-1 text-xs text-gray-900"
-                          value={`${
-                            typeof window !== "undefined"
-                              ? window.location.origin
-                              : ""
-                          }${invitePath(inv.token)}`}
+                          value={`${typeof window !== "undefined" ? window.location.origin : ""}${invitePath(inv.token)}`}
                         />
                         <button
+                          type="button"
                           className="rounded border px-2 py-1 text-sm hover:bg-gray-50"
                           onClick={() => copyInvite(inv.token)}
                         >

@@ -1,4 +1,6 @@
 // src/app/organisations/[orgId]/members/page.tsx
+import "server-only";
+
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
@@ -6,6 +8,12 @@ import OrgMembersClient from "@/components/org/OrgMembersClient";
 
 function safeParam(x: unknown) {
   return typeof x === "string" ? x : "";
+}
+
+function isUuid(x: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    (x || "").trim()
+  );
 }
 
 type OrgRole = "owner" | "admin" | "member";
@@ -21,13 +29,13 @@ export default async function OrgMembersPage({
 }) {
   const p = await params;
   const organisationId = safeParam(p?.orgId);
-  if (!organisationId) return notFound();
+  if (!organisationId || !isUuid(organisationId)) return notFound();
 
   const sb = await createClient();
   const { data: auth } = await sb.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // my membership
+  // my membership (active only)
   const { data: me } = await sb
     .from("organisation_members")
     .select("role, removed_at")
@@ -36,7 +44,6 @@ export default async function OrgMembersPage({
     .is("removed_at", null)
     .maybeSingle();
 
-  // not a member => truly not found
   if (!me) return notFound();
 
   const myRole = (String(me.role || "").toLowerCase() as OrgRole) || "member";
@@ -84,10 +91,7 @@ export default async function OrgMembersPage({
   // Owner/Admin: enrich names/emails from profiles
   const membersUi = canManage
     ? await (async () => {
-        const userIds = (members ?? [])
-          .map((m: any) => m.user_id)
-          .filter(Boolean);
-
+        const userIds = (members ?? []).map((m: any) => m.user_id).filter(Boolean);
         const profilesById = new Map<string, any>();
 
         if (userIds.length) {
@@ -129,15 +133,13 @@ export default async function OrgMembersPage({
           <h1 className="text-xl font-semibold">Organisation members</h1>
           <p className="text-sm text-gray-600">
             Org: <span className="font-medium">{org.name}</span>
-            <span className="ml-2 text-xs text-gray-500">
-              • Your role: {myRole}
-            </span>
+            <span className="ml-2 text-xs text-gray-500">• Your role: {myRole}</span>
           </p>
         </div>
 
         <div className="flex gap-2">
           <Link
-            href={`/organisations/${organisationId}/settings`}
+            href={`/organisations/${organisationId}/settings?tab=settings`}
             className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50"
           >
             Settings
