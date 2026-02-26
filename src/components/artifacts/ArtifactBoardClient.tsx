@@ -181,24 +181,25 @@ function canonType(x: any): string {
 
   if (
     [
-      "weekly_report",
-      "weekly report",
-      "weekly_status",
-      "weekly status",
-      "weekly_update",
-      "weekly update",
-      "delivery_report",
-      "delivery report",
-      "status_report",
-      "status report",
+      "weekly_report", "weekly report", "weekly_status", "weekly status",
+      "weekly_update", "weekly update", "delivery_report", "delivery report",
+      "status_report", "status report",
     ].includes(t)
-  )
-    return "WEEKLY_REPORT";
+  ) return "WEEKLY_REPORT";
+
   if (t === "status_dashboard" || t === "status dashboard") return "PROJECT_CLOSURE_REPORT";
   if (t.includes("charter") || t === "pid") return "PROJECT_CHARTER";
   if (t.includes("stakeholder")) return "STAKEHOLDER_REGISTER";
   if (t === "wbs" || t.includes("work breakdown")) return "WBS";
   if (t.includes("schedule") || t.includes("roadmap") || t.includes("gantt")) return "SCHEDULE";
+
+  // ✅ FINANCIAL_PLAN — must be before "change" check (no overlap risk, but ordered for clarity)
+  if (
+    t === "financial_plan" || t === "financial plan" ||
+    t === "financial" || t === "budget_plan" ||
+    t === "budget plan" || t === "financials"
+  ) return "FINANCIAL_PLAN";
+
   if (t.includes("change")) return "CHANGE_REQUESTS";
   if (t.includes("raid")) return "RAID";
   if (t.includes("lessons") || t.includes("retro")) return "LESSONS_LEARNED";
@@ -213,6 +214,7 @@ function phaseForCanonType(typeKey: string): Phase {
     case "STAKEHOLDER_REGISTER":
     case "WBS":
     case "SCHEDULE":
+    case "FINANCIAL_PLAN":          // ✅ NEW
       return "Planning";
     case "WEEKLY_REPORT":
       return "Executing";
@@ -262,7 +264,7 @@ function applyCurrentFallback(rows: ArtifactBoardRow[]) {
 }
 
 /* =========================================================
-   Virtual/module rows (Change/RAID)
+   Virtual/module rows
 ========================================================= */
 
 function rowTypeKey(row: ArtifactBoardRow) {
@@ -271,7 +273,6 @@ function rowTypeKey(row: ArtifactBoardRow) {
 
 function isVirtualRow(row: ArtifactBoardRow) {
   const id = safeStr(row.id).trim();
-  // virtual ids like "__change__" OR anything that isn't a UUID
   return id.startsWith("__") || !looksLikeUuid(id);
 }
 
@@ -279,13 +280,13 @@ function rowHref(projectRef: string, projectUuid: string, row: ArtifactBoardRow)
   const tk = rowTypeKey(row);
   if (tk === "CHANGE_REQUESTS" || tk === "CHANGE" || tk === "CHANGE_REQUEST") return `/projects/${projectRef}/change`;
   if (tk === "RAID" || tk === "RAID_LOG") return `/projects/${projectRef}/raid`;
-  // default: artifact detail
+  // ✅ Financial plan virtual row → new artifact page
   const id = safeStr(row.id).trim();
+  if (id === "__financial_plan__") return `/projects/${projectRef}/artifacts/new?type=financial_plan`;
   return `/projects/${projectRef}/artifacts/${id}`;
 }
 
 function rowOpensArtifactDetail(row: ArtifactBoardRow) {
-  // if it's a module row, it doesn't open /artifacts/:id
   const tk = rowTypeKey(row);
   if (tk === "CHANGE_REQUESTS" || tk === "CHANGE" || tk === "CHANGE_REQUEST") return false;
   if (tk === "RAID" || tk === "RAID_LOG") return false;
@@ -298,33 +299,26 @@ function rowOpensArtifactDetail(row: ArtifactBoardRow) {
 
 const PHASE_CONFIG: Record<
   Phase,
-  {
-    icon: React.ElementType;
-    color: string;
-    bg: string;
-    label: string;
-    order: number;
-  }
+  { icon: React.ElementType; color: string; bg: string; label: string; order: number }
 > = {
-  Initiating: { icon: Target, color: "#D97706", bg: "#FFFBEB", label: "Initiate", order: 0 },
-  Planning: { icon: GitBranch, color: "#2563EB", bg: "#EFF6FF", label: "Plan", order: 1 },
-  Executing: { icon: Zap, color: "#7C3AED", bg: "#F5F3FF", label: "Execute", order: 2 },
-  "Monitoring & Controlling": { icon: BarChart3, color: "#0891B2", bg: "#ECFEFF", label: "Monitor", order: 3 },
-  Closing: { icon: Flag, color: "#059669", bg: "#ECFDF5", label: "Close", order: 4 },
+  Initiating:               { icon: Target,    color: "#D97706", bg: "#FFFBEB", label: "Initiate", order: 0 },
+  Planning:                 { icon: GitBranch, color: "#2563EB", bg: "#EFF6FF", label: "Plan",     order: 1 },
+  Executing:                { icon: Zap,       color: "#7C3AED", bg: "#F5F3FF", label: "Execute",  order: 2 },
+  "Monitoring & Controlling": { icon: BarChart3, color: "#0891B2", bg: "#ECFEFF", label: "Monitor",  order: 3 },
+  Closing:                  { icon: Flag,      color: "#059669", bg: "#ECFDF5", label: "Close",    order: 4 },
 };
 
 const STATUS_STYLES: Record<UiStatus, { color: string; bg: string; dot: string }> = {
-  Draft: { color: "#6B7280", bg: "#F3F4F6", dot: "#9CA3AF" },
+  Draft:       { color: "#6B7280", bg: "#F3F4F6", dot: "#9CA3AF" },
   "In review": { color: "#2563EB", bg: "#EFF6FF", dot: "#3B82F6" },
-  Approved: { color: "#059669", bg: "#ECFDF5", dot: "#10B981" },
-  Blocked: { color: "#DC2626", bg: "#FEF2F2", dot: "#EF4444" },
+  Approved:    { color: "#059669", bg: "#ECFDF5", dot: "#10B981" },
+  Blocked:     { color: "#DC2626", bg: "#FEF2F2", dot: "#EF4444" },
 };
 
 /* =========================================================
    Notion-style Spreadsheet Components
 ========================================================= */
 
-/** Thin progress bar (Notion-style, no arc) */
 function ProgressBar({ value, color }: { value: number; color: string }) {
   const v = clampPct(value);
   return (
@@ -332,11 +326,7 @@ function ProgressBar({ value, color }: { value: number; color: string }) {
       <div className="flex-1 h-[5px] rounded-full overflow-hidden" style={{ background: "#F1F5F9" }}>
         <div
           className="h-full rounded-full"
-          style={{
-            width: `${v}%`,
-            background: color,
-            transition: "width 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
-          }}
+          style={{ width: `${v}%`, background: color, transition: "width 0.6s cubic-bezier(0.4, 0, 0.2, 1)" }}
         />
       </div>
       <span className="text-[12px] tabular-nums font-medium" style={{ color: "#94A3B8", minWidth: 30, textAlign: "right" }}>
@@ -371,15 +361,11 @@ function AvatarChip({ email, name }: { email: string; name?: string }) {
   const initials = initialsFromEmail(email);
   const displayName = name || email.split("@")[0] || "Unassigned";
   const hue = email ? email.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 360 : 220;
-
   return (
     <div className="flex items-center gap-2 min-w-0">
       <div
         className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-semibold shrink-0"
-        style={{
-          background: `hsl(${hue}, 55%, 92%)`,
-          color: `hsl(${hue}, 60%, 35%)`,
-        }}
+        style={{ background: `hsl(${hue}, 55%, 92%)`, color: `hsl(${hue}, 60%, 35%)` }}
       >
         {initials}
       </div>
@@ -403,27 +389,13 @@ function TagPill({ children, color, bg }: { children: React.ReactNode; color: st
 const COL_TEMPLATE = "minmax(260px, 2fr) 180px 140px 130px 120px 100px";
 
 function ArtifactTableRow({
-  row,
-  projectRef,
-  projectUuid,
-  onOpen,
-  onMakeCurrent,
-  makingCurrentId,
-  onClone,
-  cloningId,
-  onDelete,
-  deletingId,
+  row, projectRef, projectUuid, onOpen, onMakeCurrent, makingCurrentId, onClone, cloningId, onDelete, deletingId,
 }: {
-  row: ArtifactBoardRow;
-  projectRef: string;
-  projectUuid: string;
+  row: ArtifactBoardRow; projectRef: string; projectUuid: string;
   onOpen: (row: ArtifactBoardRow) => void;
-  onMakeCurrent: (id: string) => void;
-  makingCurrentId: string;
-  onClone: (id: string) => void;
-  cloningId: string;
-  onDelete: (id: string) => void;
-  deletingId: string;
+  onMakeCurrent: (id: string) => void; makingCurrentId: string;
+  onClone: (id: string) => void; cloningId: string;
+  onDelete: (id: string) => void; deletingId: string;
 }) {
   const isCurrent = booly(row.isCurrent);
   const isMaking = makingCurrentId === row.id;
@@ -433,14 +405,7 @@ function ArtifactTableRow({
   const virtual = isVirtualRow(row);
   const opensArtifact = rowOpensArtifactDetail(row);
 
-  const canDelete =
-    !virtual &&
-    row.canDeleteDraft !== false &&
-    row.status === "Draft" &&
-    !row.isBaseline &&
-    !row.isLocked &&
-    !row.deletedAt;
-
+  const canDelete = !virtual && row.canDeleteDraft !== false && row.status === "Draft" && !row.isBaseline && !row.isLocked && !row.deletedAt;
   const canClone = !virtual;
   const canMakeCurrent = !virtual && opensArtifact;
 
@@ -451,30 +416,22 @@ function ArtifactTableRow({
     <div
       onClick={() => onOpen(row)}
       className="notion-row group relative grid items-center cursor-pointer"
-      style={{
-        gridTemplateColumns: COL_TEMPLATE,
-        borderBottom: "1px solid #F1F5F9",
-        minHeight: 44,
-      }}
+      style={{ gridTemplateColumns: COL_TEMPLATE, borderBottom: "1px solid #F1F5F9", minHeight: 44 }}
     >
-      {/* Name cell */}
       <div className="flex items-center gap-2 px-3 py-2.5 min-w-0 h-full" style={{ borderRight: "1px solid #F8FAFC" }}>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="text-[13px] font-medium text-[#111827] truncate">{row.title || row.artifactType}</span>
-
             {isCurrent && (
               <TagPill color="#059669" bg="#ECFDF5">
                 <CheckCircle2 className="h-2.5 w-2.5" /> live
               </TagPill>
             )}
-
             {row.isBaseline && (
               <TagPill color="#6B7280" bg="#F3F4F6">
                 <Shield className="h-2.5 w-2.5" /> baseline
               </TagPill>
             )}
-
             {virtual && (
               <TagPill color="#6B7280" bg="#F3F4F6">
                 module
@@ -485,36 +442,27 @@ function ArtifactTableRow({
         </div>
       </div>
 
-      {/* Owner cell */}
       <div className="px-3 py-2.5 h-full flex items-center" style={{ borderRight: "1px solid #F8FAFC" }}>
         <AvatarChip email={row.ownerEmail} name={row.ownerName} />
       </div>
 
-      {/* Phase cell */}
       <div className="px-3 py-2.5 h-full flex items-center" style={{ borderRight: "1px solid #F8FAFC" }}>
         <PhaseBadge phase={row.phase} />
       </div>
 
-      {/* Status cell */}
       <div className="px-3 py-2.5 h-full flex items-center" style={{ borderRight: "1px solid #F8FAFC" }}>
         <StatusBadge status={row.status} />
       </div>
 
-      {/* Progress cell */}
       <div className="px-3 py-2.5 h-full flex items-center" style={{ borderRight: "1px solid #F8FAFC" }}>
         <ProgressBar value={row.progress} color={phaseCfg.color} />
       </div>
 
-      {/* Actions cell */}
       <div className="px-2 py-2.5 h-full flex items-center justify-end gap-0.5">
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
           {!isCurrent && (
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!canMakeCurrent) return;
-                onMakeCurrent(row.id);
-              }}
+              onClick={(e) => { e.stopPropagation(); if (!canMakeCurrent) return; onMakeCurrent(row.id); }}
               disabled={isMaking || !canMakeCurrent || !projectUuid || !looksLikeUuid(projectUuid)}
               className="p-1 rounded hover:bg-emerald-50 transition-colors disabled:opacity-30"
               style={{ color: "#059669" }}
@@ -523,13 +471,8 @@ function ArtifactTableRow({
               {isMaking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
             </button>
           )}
-
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (!canClone) return;
-              onClone(row.id);
-            }}
+            onClick={(e) => { e.stopPropagation(); if (!canClone) return; onClone(row.id); }}
             disabled={isCloning || !canClone || !projectUuid || !looksLikeUuid(projectUuid)}
             className="p-1 rounded hover:bg-blue-50 transition-colors disabled:opacity-30"
             style={{ color: "#2563EB" }}
@@ -537,13 +480,9 @@ function ArtifactTableRow({
           >
             {isCloning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
-
           {canDelete && (
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(row.id);
-              }}
+              onClick={(e) => { e.stopPropagation(); onDelete(row.id); }}
               disabled={isDeleting || !projectUuid || !looksLikeUuid(projectUuid)}
               className="p-1 rounded hover:bg-red-50 transition-colors disabled:opacity-30"
               style={{ color: "#DC2626" }}
@@ -552,7 +491,6 @@ function ArtifactTableRow({
               <Trash2 className="h-3.5 w-3.5" />
             </button>
           )}
-
           <Link
             href={openHref}
             onClick={(e) => e.stopPropagation()}
@@ -569,38 +507,23 @@ function ArtifactTableRow({
 }
 
 /* =========================================================
-   Search / Filter Bar (inline, Notion-style)
+   Search / Filter Bar
 ========================================================= */
 
 function InlineFilterBar({
-  search,
-  setSearch,
-  statusSet,
-  toggleStatus,
-  phaseSet,
-  togglePhase,
-  clearAll,
-  activeCount,
+  search, setSearch, statusSet, toggleStatus, phaseSet, togglePhase, clearAll, activeCount,
 }: {
-  search: string;
-  setSearch: (v: string) => void;
-  statusSet: Set<UiStatus>;
-  toggleStatus: (s: UiStatus) => void;
-  phaseSet: Set<Phase>;
-  togglePhase: (p: Phase) => void;
-  clearAll: () => void;
-  activeCount: number;
+  search: string; setSearch: (v: string) => void;
+  statusSet: Set<UiStatus>; toggleStatus: (s: UiStatus) => void;
+  phaseSet: Set<Phase>; togglePhase: (p: Phase) => void;
+  clearAll: () => void; activeCount: number;
 }) {
   const [showFilters, setShowFilters] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Global ⌘K to focus
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        inputRef.current?.focus();
-      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); inputRef.current?.focus(); }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -608,7 +531,6 @@ function InlineFilterBar({
 
   return (
     <div className="mb-1">
-      {/* Search row */}
       <div className="flex items-center gap-2 px-1 py-2">
         <div className="flex items-center gap-2 flex-1 px-3 py-[7px] rounded-lg border transition-colors" style={{ borderColor: "#E5E7EB", background: "#FAFAFA" }}>
           <Search className="h-4 w-4 text-[#9CA3AF] shrink-0" />
@@ -617,15 +539,7 @@ function InlineFilterBar({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                if (search) {
-                  setSearch("");
-                } else {
-                  (e.target as HTMLInputElement).blur();
-                }
-              }
-            }}
+            onKeyDown={(e) => { if (e.key === "Escape") { if (search) setSearch(""); else (e.target as HTMLInputElement).blur(); } }}
             placeholder="Filter artifacts..."
             className="flex-1 bg-transparent text-[13px] outline-none text-[#111827] placeholder:text-[#9CA3AF]"
           />
@@ -634,11 +548,8 @@ function InlineFilterBar({
               <X className="h-3 w-3 text-[#6B7280]" />
             </button>
           )}
-          <kbd className="hidden sm:inline text-[10px] text-[#9CA3AF] border border-[#E5E7EB] rounded px-1.5 py-0.5 bg-white font-mono">
-            ⌘K
-          </kbd>
+          <kbd className="hidden sm:inline text-[10px] text-[#9CA3AF] border border-[#E5E7EB] rounded px-1.5 py-0.5 bg-white font-mono">⌘K</kbd>
         </div>
-
         <button
           onClick={() => setShowFilters((v) => !v)}
           className="flex items-center gap-1.5 px-3 py-[7px] rounded-lg border text-[13px] font-medium transition-colors"
@@ -651,15 +562,12 @@ function InlineFilterBar({
           <Filter className="h-3.5 w-3.5" />
           Filter
           {activeCount > 0 && (
-            <span className="text-[11px] font-semibold bg-blue-600 text-white rounded-full w-4 h-4 flex items-center justify-center">
-              {activeCount}
-            </span>
+            <span className="text-[11px] font-semibold bg-blue-600 text-white rounded-full w-4 h-4 flex items-center justify-center">{activeCount}</span>
           )}
           <ChevronDown className={`h-3 w-3 transition-transform ${showFilters ? "rotate-180" : ""}`} />
         </button>
       </div>
 
-      {/* Filter pills */}
       {showFilters && (
         <div className="px-1 pb-3 flex flex-wrap items-center gap-4 animate-[notionFadeIn_0.15s_ease-out]">
           <div className="flex items-center gap-1.5">
@@ -668,52 +576,33 @@ function InlineFilterBar({
               const active = statusSet.has(status);
               const s = STATUS_STYLES[status];
               return (
-                <button
-                  key={status}
-                  onClick={() => toggleStatus(status)}
+                <button key={status} onClick={() => toggleStatus(status)}
                   className="px-2 py-1 rounded-md text-[12px] font-medium transition-all"
-                  style={{
-                    background: active ? s.bg : "transparent",
-                    color: active ? s.color : "#9CA3AF",
-                    border: `1px solid ${active ? s.bg : "#E5E7EB"}`,
-                  }}
-                >
+                  style={{ background: active ? s.bg : "transparent", color: active ? s.color : "#9CA3AF", border: `1px solid ${active ? s.bg : "#E5E7EB"}` }}>
                   {status}
                 </button>
               );
             })}
           </div>
-
           <div className="w-px h-5 bg-[#E5E7EB]" />
-
           <div className="flex items-center gap-1.5">
             <span className="text-[11px] font-medium text-[#9CA3AF] uppercase tracking-wider">Phase</span>
             {(["Initiating", "Planning", "Executing", "Monitoring & Controlling", "Closing"] as Phase[]).map((phase) => {
               const active = phaseSet.has(phase);
               const cfg = PHASE_CONFIG[phase];
               return (
-                <button
-                  key={phase}
-                  onClick={() => togglePhase(phase)}
+                <button key={phase} onClick={() => togglePhase(phase)}
                   className="px-2 py-1 rounded-md text-[12px] font-medium transition-all"
-                  style={{
-                    background: active ? cfg.bg : "transparent",
-                    color: active ? cfg.color : "#9CA3AF",
-                    border: `1px solid ${active ? cfg.bg : "#E5E7EB"}`,
-                  }}
-                >
+                  style={{ background: active ? cfg.bg : "transparent", color: active ? cfg.color : "#9CA3AF", border: `1px solid ${active ? cfg.bg : "#E5E7EB"}` }}>
                   {cfg.label}
                 </button>
               );
             })}
           </div>
-
           {activeCount > 0 && (
             <>
               <div className="w-px h-5 bg-[#E5E7EB]" />
-              <button onClick={clearAll} className="text-[12px] font-medium text-[#9CA3AF] hover:text-[#6B7280] transition-colors">
-                Clear all
-              </button>
+              <button onClick={clearAll} className="text-[12px] font-medium text-[#9CA3AF] hover:text-[#6B7280] transition-colors">Clear all</button>
             </>
           )}
         </div>
@@ -723,7 +612,7 @@ function InlineFilterBar({
 }
 
 /* =========================================================
-   Stats Row (compact, Notion-style)
+   Stats Row
 ========================================================= */
 
 function StatsRow({ rows }: { rows: ArtifactBoardRow[] }) {
@@ -738,29 +627,17 @@ function StatsRow({ rows }: { rows: ArtifactBoardRow[] }) {
 
   return (
     <div className="flex items-center gap-5 text-[12px] text-[#9CA3AF]">
-      <span>
-        <b className="text-[#374151] font-semibold">{stats.total}</b> total
-      </span>
-      <span>
-        <b className="text-emerald-600 font-semibold">{stats.approved}</b> approved
-      </span>
-      <span>
-        <b className="text-blue-600 font-semibold">{stats.inReview}</b> in review
-      </span>
-      {stats.blocked > 0 && (
-        <span>
-          <b className="text-red-600 font-semibold">{stats.blocked}</b> blocked
-        </span>
-      )}
-      <span>
-        <b className="text-violet-600 font-semibold">{stats.avgProgress}%</b> avg progress
-      </span>
+      <span><b className="text-[#374151] font-semibold">{stats.total}</b> total</span>
+      <span><b className="text-emerald-600 font-semibold">{stats.approved}</b> approved</span>
+      <span><b className="text-blue-600 font-semibold">{stats.inReview}</b> in review</span>
+      {stats.blocked > 0 && <span><b className="text-red-600 font-semibold">{stats.blocked}</b> blocked</span>}
+      <span><b className="text-violet-600 font-semibold">{stats.avgProgress}%</b> avg progress</span>
     </div>
   );
 }
 
 /* =========================================================
-   AI Panel (preserved, restyled)
+   AI Panel
 ========================================================= */
 
 function daysUntil(iso: string) {
@@ -770,45 +647,25 @@ function daysUntil(iso: string) {
 }
 
 function AiPanel({
-  open,
-  onClose,
-  projectUuid,
-  projectCode,
-  projectName,
-  projectHumanId,
+  open, onClose, projectUuid, projectCode, projectName, projectHumanId,
 }: {
-  open: boolean;
-  onClose: () => void;
-  projectUuid: string;
-  projectCode: string;
-  projectName: string;
-  projectHumanId: string;
+  open: boolean; onClose: () => void;
+  projectUuid: string; projectCode: string; projectName: string; projectHumanId: string;
 }) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    if (open) {
-      setLoading(false);
-      setResult(null);
-      setError("");
-    }
-  }, [open]);
+  useEffect(() => { if (open) { setLoading(false); setResult(null); setError(""); } }, [open]);
 
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && open) onClose();
-    }
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape" && open) onClose(); }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
   async function runCheck() {
-    if (!projectUuid || !looksLikeUuid(projectUuid)) {
-      setError("Invalid project UUID");
-      return;
-    }
+    if (!projectUuid || !looksLikeUuid(projectUuid)) { setError("Invalid project UUID"); return; }
     setLoading(true);
     setError("");
     try {
@@ -820,12 +677,8 @@ function AiPanel({
       });
       const text = await res.text();
       let data: any = null;
-      try {
-        data = text ? JSON.parse(text) : null;
-      } catch {}
-      if (!res.ok) {
-        throw new Error(data?.error || data?.message || `Request failed (${res.status})`);
-      }
+      try { data = text ? JSON.parse(text) : null; } catch {}
+      if (!res.ok) throw new Error(data?.error || data?.message || `Request failed (${res.status})`);
       setResult(data);
     } catch (e: any) {
       setError(e?.message || "AI request failed");
@@ -846,7 +699,6 @@ function AiPanel({
         className="relative w-full max-w-md max-h-[70vh] rounded-xl overflow-hidden flex flex-col bg-white animate-[notionSlideUp_0.2s_ease-out]"
         style={{ border: "1px solid #E5E7EB", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.15)" }}
       >
-        {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[#F1F5F9]">
           <div className="flex items-center gap-2">
             <div className="h-6 w-6 rounded-md bg-violet-100 flex items-center justify-center">
@@ -869,11 +721,7 @@ function AiPanel({
               <div>
                 <div className="font-medium">Scan failed</div>
                 <div className="text-[12px] opacity-80">{error}</div>
-                <button
-                  onClick={runCheck}
-                  disabled={loading}
-                  className="mt-2 px-3 py-1 rounded-md text-[12px] font-medium bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
-                >
+                <button onClick={runCheck} disabled={loading} className="mt-2 px-3 py-1 rounded-md text-[12px] font-medium bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50">
                   {loading ? "Retrying..." : "Retry"}
                 </button>
               </div>
@@ -882,18 +730,8 @@ function AiPanel({
             <div className="text-center py-10">
               <Clock className="h-8 w-8 mx-auto mb-3 text-violet-400" />
               <p className="text-[13px] text-[#6B7280] mb-4">Check what&apos;s due in the next 14 days</p>
-              <button
-                onClick={runCheck}
-                disabled={loading}
-                className="px-4 py-2 rounded-lg text-[13px] font-medium text-white bg-violet-600 hover:bg-violet-700 transition-colors disabled:opacity-50"
-              >
-                {loading ? (
-                  <span className="flex items-center gap-2">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Scanning...
-                  </span>
-                ) : (
-                  "Scan Due Dates"
-                )}
+              <button onClick={runCheck} disabled={loading} className="px-4 py-2 rounded-lg text-[13px] font-medium text-white bg-violet-600 hover:bg-violet-700 transition-colors disabled:opacity-50">
+                {loading ? <span className="flex items-center gap-2"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Scanning...</span> : "Scan Due Dates"}
               </button>
             </div>
           ) : items.length === 0 ? (
@@ -924,16 +762,11 @@ function AiPanel({
                       <Calendar className="h-3 w-3" /> {fmtUkDateOnly(item.dueDate)}
                     </div>
                     <div className="flex gap-2">
-                      <Link
-                        href={href}
-                        className="flex-1 px-3 py-1.5 rounded-md text-center text-[11px] font-medium bg-[#F9FAFB] border border-[#E5E7EB] text-[#374151] hover:bg-[#F3F4F6] transition-colors"
-                      >
+                      <Link href={href} className="flex-1 px-3 py-1.5 rounded-md text-center text-[11px] font-medium bg-[#F9FAFB] border border-[#E5E7EB] text-[#374151] hover:bg-[#F3F4F6] transition-colors">
                         Open
                       </Link>
-                      <button
-                        onClick={() => navigator.clipboard.writeText(`Reminder: ${item.title} due ${fmtUkDateOnly(item.dueDate)}`)}
-                        className="px-3 py-1.5 rounded-md text-[11px] font-medium text-white bg-violet-600 hover:bg-violet-700 transition-colors"
-                      >
+                      <button onClick={() => navigator.clipboard.writeText(`Reminder: ${item.title} due ${fmtUkDateOnly(item.dueDate)}`)}
+                        className="px-3 py-1.5 rounded-md text-[11px] font-medium text-white bg-violet-600 hover:bg-violet-700 transition-colors">
                         Copy
                       </button>
                     </div>
@@ -945,11 +778,8 @@ function AiPanel({
         </div>
 
         <div className="px-4 py-2.5 border-t border-[#F1F5F9]">
-          <button
-            onClick={runCheck}
-            disabled={loading}
-            className="w-full py-1.5 rounded-lg text-[12px] font-medium text-[#6B7280] bg-[#F9FAFB] border border-[#E5E7EB] hover:bg-[#F3F4F6] transition-colors disabled:opacity-50"
-          >
+          <button onClick={runCheck} disabled={loading}
+            className="w-full py-1.5 rounded-lg text-[12px] font-medium text-[#6B7280] bg-[#F9FAFB] border border-[#E5E7EB] hover:bg-[#F3F4F6] transition-colors disabled:opacity-50">
             {loading ? "Scanning..." : "Rescan"}
           </button>
         </div>
@@ -991,25 +821,20 @@ export default function ArtifactBoardClient(props: {
     if (!arts.length) return [];
 
     return applyCurrentFallback(
-      arts
-        .map(
-          (a, i) =>
-            ({
-              id: safeStr(a?.id),
-              artifactType: canonType(a?.type) || safeStr(a?.type) || "Artifact",
-              title: safeStr(a?.title) || "Untitled",
-              ownerEmail: safeStr(a?.ownerEmail ?? a?.owner_email ?? ""),
-              ownerName: safeStr(a?.ownerName ?? a?.owner_name ?? ""),
-              progress: progressForArtifactLike(a),
-              status: statusForArtifactLike(a),
-              phase: phaseForCanonType(canonType(a?.type)),
-              isBaseline: !!a?.is_baseline,
-              isCurrent: booly(a?.is_current ?? a?.isCurrent),
-              typeKey: canonType(a?.type),
-              __idx: i,
-            }) as ArtifactBoardRow
-        )
-        .filter((r) => r.id)
+      arts.map((a, i) => ({
+        id: safeStr(a?.id),
+        artifactType: canonType(a?.type) || safeStr(a?.type) || "Artifact",
+        title: safeStr(a?.title) || "Untitled",
+        ownerEmail: safeStr(a?.ownerEmail ?? a?.owner_email ?? ""),
+        ownerName: safeStr(a?.ownerName ?? a?.owner_name ?? ""),
+        progress: progressForArtifactLike(a),
+        status: statusForArtifactLike(a),
+        phase: phaseForCanonType(canonType(a?.type)),
+        isBaseline: !!a?.is_baseline,
+        isCurrent: booly(a?.is_current ?? a?.isCurrent),
+        typeKey: canonType(a?.type),
+        __idx: i,
+      }) as ArtifactBoardRow).filter((r) => r.id)
     );
   }, [props.rows, props.artifacts]);
 
@@ -1024,20 +849,13 @@ export default function ArtifactBoardClient(props: {
     setStatusSet(next);
   };
 
-  const togglePhase = useCallback(
-    (p: Phase) => {
-      const next = new Set(phaseSet);
-      next.has(p) ? next.delete(p) : next.add(p);
-      setPhaseSet(next);
-    },
-    [phaseSet]
-  );
+  const togglePhase = useCallback((p: Phase) => {
+    const next = new Set(phaseSet);
+    next.has(p) ? next.delete(p) : next.add(p);
+    setPhaseSet(next);
+  }, [phaseSet]);
 
-  const clearAll = () => {
-    setSearch("");
-    setStatusSet(new Set());
-    setPhaseSet(new Set());
-  };
+  const clearAll = () => { setSearch(""); setStatusSet(new Set()); setPhaseSet(new Set()); };
 
   const filteredRows = useMemo(() => {
     const q = safeLower(search);
@@ -1052,7 +870,6 @@ export default function ArtifactBoardClient(props: {
     });
   }, [baseRows, search, statusSet, phaseSet]);
 
-  // Sort: phase order, then current, then baseline, then original order
   const sortedRows = useMemo(() => {
     return [...filteredRows].sort((a, b) => {
       const phaseA = PHASE_CONFIG[a.phase]?.order ?? 99;
@@ -1075,50 +892,30 @@ export default function ArtifactBoardClient(props: {
   const [makingCurrentId, setMakingCurrentId] = useState("");
   const [actionError, setActionError] = useState("");
 
-  const projectRef = useMemo(() => {
-    const ref = projectHumanId || projectCode || projectUuid;
-    return safeStr(ref).trim();
-  }, [projectHumanId, projectCode, projectUuid]);
+  const projectRef = useMemo(() => safeStr(projectHumanId || projectCode || projectUuid).trim(), [projectHumanId, projectCode, projectUuid]);
 
-  const openRow = useCallback(
-    (row: ArtifactBoardRow) => {
-      const href = rowHref(projectRef, projectUuid, row);
-      router.push(href);
-    },
-    [projectRef, projectUuid, router]
-  );
+  const openRow = useCallback((row: ArtifactBoardRow) => {
+    router.push(rowHref(projectRef, projectUuid, row));
+  }, [projectRef, projectUuid, router]);
 
   const handleClone = async (id: string) => {
-    if (!projectUuid || !looksLikeUuid(projectUuid)) {
-      setActionError("Invalid project UUID");
-      return;
-    }
-    if (!looksLikeUuid(id)) {
-      setActionError("Cannot clone a module row");
-      return;
-    }
-
+    if (!projectUuid || !looksLikeUuid(projectUuid)) { setActionError("Invalid project UUID"); return; }
+    if (!looksLikeUuid(id)) { setActionError("Cannot clone a module row"); return; }
     setCloningId(id);
     try {
       const fd = new FormData();
       fd.set("projectId", projectUuid);
       fd.set("artifactId", id);
       const res = await cloneArtifactAction(fd);
-      if (res?.ok && res?.newArtifactId) {
-        router.push(`/projects/${projectRef}/artifacts/${res.newArtifactId}`);
-      }
-    } catch (e: any) {
-      setActionError(e.message);
-    } finally {
-      setCloningId("");
-    }
+      if (res?.ok && res?.newArtifactId) router.push(`/projects/${projectRef}/artifacts/${res.newArtifactId}`);
+    } catch (e: any) { setActionError(e.message); }
+    finally { setCloningId(""); }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this draft?")) return;
     if (!projectUuid || !looksLikeUuid(projectUuid)) return;
     if (!looksLikeUuid(id)) return;
-
     setDeletingId(id);
     try {
       const fd = new FormData();
@@ -1126,78 +923,36 @@ export default function ArtifactBoardClient(props: {
       fd.set("artifactId", id);
       await deleteDraftArtifactAction(fd);
       router.refresh();
-    } catch (e: any) {
-      setActionError(e.message);
-    } finally {
-      setDeletingId("");
-    }
+    } catch (e: any) { setActionError(e.message); }
+    finally { setDeletingId(""); }
   };
 
   const handleMakeCurrent = async (id: string) => {
     if (!projectUuid || !looksLikeUuid(projectUuid)) return;
     if (!looksLikeUuid(id)) return;
-
     setMakingCurrentId(id);
     try {
       await setArtifactCurrentAction({ projectId: projectUuid, artifactId: id });
       router.refresh();
-    } catch (e: any) {
-      setActionError(e.message);
-    } finally {
-      setMakingCurrentId("");
-    }
+    } catch (e: any) { setActionError(e.message); }
+    finally { setMakingCurrentId(""); }
   };
 
   return (
     <>
       <style jsx global>{`
         @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
-
-        @keyframes notionFadeIn {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
-        }
-        @keyframes notionSlideUp {
-          from {
-            opacity: 0;
-            transform: translateY(8px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        .notion-board * {
-          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        }
-
-        .notion-row:hover {
-          background: #fafafa !important;
-        }
-
-        .notion-board ::-webkit-scrollbar {
-          width: 6px;
-          height: 6px;
-        }
-        .notion-board ::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        .notion-board ::-webkit-scrollbar-thumb {
-          background: #e5e7eb;
-          border-radius: 3px;
-        }
-        .notion-board ::-webkit-scrollbar-thumb:hover {
-          background: #d1d5db;
-        }
+        @keyframes notionFadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes notionSlideUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .notion-board * { font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+        .notion-row:hover { background: #fafafa !important; }
+        .notion-board ::-webkit-scrollbar { width: 6px; height: 6px; }
+        .notion-board ::-webkit-scrollbar-track { background: transparent; }
+        .notion-board ::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 3px; }
+        .notion-board ::-webkit-scrollbar-thumb:hover { background: #d1d5db; }
       `}</style>
 
       <div className="notion-board min-h-screen bg-white" style={{ WebkitFontSmoothing: "antialiased" }}>
-        {/* Header */}
         <header className="sticky top-0 z-40 bg-white border-b border-[#F1F5F9]">
           <div className="max-w-[1320px] mx-auto px-6">
             <div className="flex items-center justify-between py-4">
@@ -1210,14 +965,11 @@ export default function ArtifactBoardClient(props: {
                   <div className="flex items-center gap-1.5">
                     <span className="text-[12px] text-[#9CA3AF]">{projectName || "Project"}</span>
                     {projectCode && (
-                      <span className="text-[11px] font-mono text-[#9CA3AF] bg-[#F9FAFB] border border-[#F1F5F9] px-1.5 py-0.5 rounded">
-                        {projectCode}
-                      </span>
+                      <span className="text-[11px] font-mono text-[#9CA3AF] bg-[#F9FAFB] border border-[#F1F5F9] px-1.5 py-0.5 rounded">{projectCode}</span>
                     )}
                   </div>
                 </div>
               </div>
-
               <div className="flex items-center gap-2">
                 <StatsRow rows={filteredRows} />
                 <div className="w-px h-5 bg-[#E5E7EB] mx-1 hidden md:block" />
@@ -1234,7 +986,6 @@ export default function ArtifactBoardClient(props: {
           </div>
         </header>
 
-        {/* Error bar */}
         {actionError && (
           <div className="max-w-[1320px] mx-auto px-6 pt-3 relative z-10">
             <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-[13px] bg-red-50 text-red-700 border border-red-100 animate-[notionSlideUp_0.15s_ease-out]">
@@ -1247,21 +998,14 @@ export default function ArtifactBoardClient(props: {
           </div>
         )}
 
-        {/* Content */}
         <main className="max-w-[1320px] mx-auto px-6 py-4 relative z-10">
-          {/* Inline Filter Bar */}
           <InlineFilterBar
-            search={search}
-            setSearch={setSearch}
-            statusSet={statusSet}
-            toggleStatus={toggleStatus}
-            phaseSet={phaseSet}
-            togglePhase={togglePhase}
-            clearAll={clearAll}
-            activeCount={activeFiltersCount}
+            search={search} setSearch={setSearch}
+            statusSet={statusSet} toggleStatus={toggleStatus}
+            phaseSet={phaseSet} togglePhase={togglePhase}
+            clearAll={clearAll} activeCount={activeFiltersCount}
           />
 
-          {/* Spreadsheet */}
           {sortedRows.length === 0 ? (
             <div className="text-center py-20 animate-[notionFadeIn_0.3s_ease-out]">
               <Layers className="h-8 w-8 mx-auto mb-3 text-[#D1D5DB]" />
@@ -1272,7 +1016,6 @@ export default function ArtifactBoardClient(props: {
             </div>
           ) : (
             <div className="rounded-lg border border-[#E5E7EB] overflow-hidden overflow-x-auto" style={{ background: "#FFFFFF" }}>
-              {/* Column Header */}
               <div className="grid items-center sticky top-0 bg-[#F9FAFB] border-b border-[#E5E7EB] z-10" style={{ gridTemplateColumns: COL_TEMPLATE, minHeight: 36 }}>
                 <span className="px-3 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Name</span>
                 <span className="px-3 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Owner</span>
@@ -1282,24 +1025,15 @@ export default function ArtifactBoardClient(props: {
                 <span className="px-3 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider"></span>
               </div>
 
-              {/* Rows */}
               {sortedRows.map((row) => (
                 <ArtifactTableRow
                   key={`${row.id}:${rowTypeKey(row)}`}
-                  row={row}
-                  projectRef={projectRef}
-                  projectUuid={projectUuid}
-                  onOpen={openRow}
-                  onMakeCurrent={handleMakeCurrent}
-                  makingCurrentId={makingCurrentId}
-                  onClone={handleClone}
-                  cloningId={cloningId}
-                  onDelete={handleDelete}
-                  deletingId={deletingId}
+                  row={row} projectRef={projectRef} projectUuid={projectUuid}
+                  onOpen={openRow} onMakeCurrent={handleMakeCurrent} makingCurrentId={makingCurrentId}
+                  onClone={handleClone} cloningId={cloningId} onDelete={handleDelete} deletingId={deletingId}
                 />
               ))}
 
-              {/* Footer count */}
               <div className="px-3 py-2 bg-[#F9FAFB] border-t border-[#E5E7EB]">
                 <span className="text-[11px] text-[#9CA3AF]">
                   {sortedRows.length} artifact{sortedRows.length !== 1 ? "s" : ""}
@@ -1310,8 +1044,11 @@ export default function ArtifactBoardClient(props: {
           )}
         </main>
 
-        {/* AI Panel */}
-        <AiPanel open={aiOpen} onClose={() => setAiOpen(false)} projectUuid={projectUuid} projectCode={projectCode || projectHumanId} projectName={projectName} projectHumanId={projectHumanId} />
+        <AiPanel
+          open={aiOpen} onClose={() => setAiOpen(false)}
+          projectUuid={projectUuid} projectCode={projectCode || projectHumanId}
+          projectName={projectName} projectHumanId={projectHumanId}
+        />
       </div>
     </>
   );
