@@ -1,153 +1,75 @@
-﻿import "server-only";
-
+﻿// src/app/(app)/governance/[slug]/page.tsx
+import "server-only";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { createClient } from "@/utils/supabase/server";
+
+/**
+ * Replace this with your real source (DB, MDX, etc.)
+ * For now this makes the page NOT blank and proves routing works.
+ */
+const ARTICLES: Record<
+  string,
+  { title: string; description?: string; body: string }
+> = {
+  "change-management": {
+    title: "Change Management",
+    description: "How change requests are raised, reviewed, approved, and audited.",
+    body: `This is a placeholder. Replace with real content.`,
+  },
+  "risk-management": {
+    title: "Risk Management",
+    description: "How risks are logged, assessed, mitigated, and escalated.",
+    body: `This is a placeholder. Replace with real content.`,
+  },
+};
+
+type PageProps = { params: { slug: string } };
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-/* ---------------- helpers ---------------- */
+export default async function GovernanceArticlePage({ params }: PageProps) {
+  const slug = decodeURIComponent(params?.slug || "").trim();
+  if (!slug) notFound();
 
-function safeStr(x: unknown) {
-  return typeof x === "string" ? x : x == null ? "" : String(x);
-}
+  const article = ARTICLES[slug];
 
-function normSlug(x: unknown) {
-  const raw = safeStr(x).trim();
-  if (!raw) return "";
-  try {
-    return decodeURIComponent(raw).trim().toLowerCase();
-  } catch {
-    return raw.toLowerCase();
+  // If you prefer your current “article not found” UI, render that instead of notFound()
+  if (!article) {
+    return (
+      <div className="mx-auto max-w-3xl px-6 py-16">
+        <h1 className="text-2xl font-semibold">Governance article not found</h1>
+        <p className="mt-2 text-sm opacity-70">This guidance page doesn’t exist.</p>
+        <Link
+          href="/governance"
+          className="mt-6 inline-flex rounded-md border px-4 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
+        >
+          Back to Governance Hub
+        </Link>
+      </div>
+    );
   }
-}
-
-/* ---------------- page ---------------- */
-
-export default async function GovernanceArticlePage({
-  params,
-}: {
-  params: { slug: string };
-}) {
-  const slug = normSlug(params?.slug);
-
-  if (!slug) return notFound();
-
-  const supabase = await createClient();
-
-  const { data: article, error } = await supabase
-    .from("governance_articles")
-    .select("id,slug,title,summary,content,category,updated_at,is_published")
-    .eq("slug", slug)
-    .eq("is_published", true)
-    .maybeSingle();
-
-  // Don't silently convert real errors into "not found"
-  if (error) {
-    if (process.env.NODE_ENV === "development") {
-      // eslint-disable-next-line no-console
-      console.error("Governance article fetch failed:", { slug, error });
-    }
-    throw error;
-  }
-
-  if (!article) return notFound();
-
-  // Prev/Next based on published title ordering (stable + simple)
-  const { data: allSlugs, error: listErr } = await supabase
-    .from("governance_articles")
-    .select("slug,title")
-    .eq("is_published", true)
-    .order("title", { ascending: true });
-
-  if (listErr) {
-    if (process.env.NODE_ENV === "development") {
-      // eslint-disable-next-line no-console
-      console.error("Governance prev/next list failed:", { listErr });
-    }
-  }
-
-  const items = Array.isArray(allSlugs) ? allSlugs : [];
-  const idx = items.findIndex((x) => normSlug(x?.slug) === slug);
-  const prev = idx > 0 ? items[idx - 1] : null;
-  const next = idx >= 0 && idx < items.length - 1 ? items[idx + 1] : null;
-
-  // Render content:
-  // - If `content` is structured JSON: render sections
-  // - Else treat as paragraphs split by blank lines
-  let sections:
-    | Array<{ heading?: string; body?: string[]; bullets?: string[] }>
-    | null = null;
-
-  if (article?.content && typeof article.content === "object") {
-    const c: any = article.content;
-    if (Array.isArray(c?.sections)) sections = c.sections;
-  }
-
-  const fallbackParagraphs =
-    sections == null
-      ? safeStr(article.content)
-          .split(/\n{2,}/g)
-          .map((p) => p.trim())
-          .filter(Boolean)
-      : [];
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
-      <Link href="/governance" className="text-sm text-neutral-500 hover:text-neutral-900">
-        ← Back to Governance Hub
-      </Link>
-
-      <h1 className="mt-4 text-2xl font-semibold">{article.title}</h1>
-      {article.summary ? <p className="mt-2 text-neutral-600">{article.summary}</p> : null}
-
-      <div className="mt-8 space-y-8">
-        {sections ? (
-          sections.map((s, i) => (
-            <section key={i}>
-              {s?.heading ? <h2 className="text-lg font-semibold">{s.heading}</h2> : null}
-
-              {Array.isArray(s?.body)
-                ? s.body.map((p, idx2) => (
-                    <p key={idx2} className="mt-2 text-sm text-neutral-700">
-                      {p}
-                    </p>
-                  ))
-                : null}
-
-              {Array.isArray(s?.bullets) && s.bullets.length ? (
-                <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-neutral-700">
-                  {s.bullets.map((b, idx3) => (
-                    <li key={idx3}>{b}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </section>
-          ))
-        ) : (
-          <section>
-            {fallbackParagraphs.map((p, idx4) => (
-              <p key={idx4} className="mt-2 text-sm text-neutral-700">
-                {p}
-              </p>
-            ))}
-          </section>
-        )}
+    <div className="mx-auto max-w-3xl px-6 py-12">
+      <div className="mb-8">
+        <Link
+          href="/governance"
+          className="text-sm opacity-70 hover:opacity-100"
+        >
+          ← Back to Governance Hub
+        </Link>
       </div>
 
-      <div className="mt-12 flex justify-between text-sm">
-        {prev ? (
-          <Link href={`/governance/${encodeURIComponent(prev.slug)}`}>← {prev.title}</Link>
-        ) : (
-          <div />
-        )}
+      <h1 className="text-3xl font-semibold">{article.title}</h1>
+      {article.description ? (
+        <p className="mt-2 text-base opacity-70">{article.description}</p>
+      ) : null}
 
-        {next ? (
-          <Link href={`/governance/${encodeURIComponent(next.slug)}`}>{next.title} →</Link>
-        ) : null}
-      </div>
+      <article className="prose prose-neutral dark:prose-invert mt-8 max-w-none">
+        <p>{article.body}</p>
+      </article>
     </div>
   );
 }
