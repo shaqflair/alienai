@@ -12,14 +12,20 @@ export const revalidate = 0;
 
 function jsonOk(data: any, status = 200) {
   const res = NextResponse.json({ ok: true, ...data }, { status });
-  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
   res.headers.set("Pragma", "no-cache");
   res.headers.set("Expires", "0");
   return res;
 }
 function jsonErr(error: string, status = 400, meta?: any) {
   const res = NextResponse.json({ ok: false, error, meta }, { status });
-  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
   res.headers.set("Pragma", "no-cache");
   res.headers.set("Expires", "0");
   return res;
@@ -47,11 +53,20 @@ async function myProjectIdsInOrg(supabase: any, userId: string, orgId: string) {
     .is("removed_at", null)
     .eq("projects.organisation_id", orgId);
   if (error) throw new Error(error.message);
-  return (data || []).map((r: any) => safeStr(r?.project_id).trim()).filter(Boolean);
+  return (data || [])
+    .map((r: any) => safeStr(r?.project_id).trim())
+    .filter(Boolean);
 }
 
 function pickProjectId(row: any): string {
-  return safeStr(row?.project_id || row?.projectId || row?.project_uuid || row?.projectUuid || row?.project || "").trim();
+  return safeStr(
+    row?.project_id ||
+      row?.projectId ||
+      row?.project_uuid ||
+      row?.projectUuid ||
+      row?.project ||
+      ""
+  ).trim();
 }
 
 function safeIso(v: any): string | null {
@@ -74,8 +89,16 @@ function isHighSeverityOrPriority(x: any) {
 
 // ✅ NEW: skip items whose joined project is in a closed/cancelled/archived state
 const CLOSED_PROJECT_STATUSES = [
-  "closed", "cancelled", "canceled", "deleted", "archived",
-  "completed", "inactive", "on_hold", "paused", "suspended",
+  "closed",
+  "cancelled",
+  "canceled",
+  "deleted",
+  "archived",
+  "completed",
+  "inactive",
+  "on_hold",
+  "paused",
+  "suspended",
 ];
 
 function isClosedProject(row: any): boolean {
@@ -85,14 +108,17 @@ function isClosedProject(row: any): boolean {
   if (proj.deleted_at) return true;
   if (proj.archived_at) return true;
   if (proj.cancelled_at) return true;
-  const st = safeStr(proj.status ?? proj.lifecycle_state ?? proj.state).toLowerCase().trim();
-  return CLOSED_PROJECT_STATUSES.some(s => st.includes(s));
+  const st = safeStr(proj.status ?? proj.lifecycle_state ?? proj.state)
+    .toLowerCase()
+    .trim();
+  return CLOSED_PROJECT_STATUSES.some((s) => st.includes(s));
 }
 
 export async function GET() {
   try {
     const supabase = await createClient();
-    const _auth = await requireUser(supabase); const user = (_auth as any)?.user ?? _auth;
+    const _auth = await requireUser(supabase);
+    const user = (_auth as any)?.user ?? _auth;
 
     const orgIds = await orgIdsForUser(user.id);
     const orgId = safeStr(orgIds[0]).trim();
@@ -130,7 +156,6 @@ export async function GET() {
     }
 
     if (items.length === 0) {
-
       // ── 1. Risks ─────────────────────────────────────────────────────────────
       // ✅ Added: deleted_at, status, lifecycle_state to project select + .is("projects.deleted_at", null)
       {
@@ -140,12 +165,12 @@ export async function GET() {
             "id, title, severity, status, updated_at, project_id, owner_id, projects!inner(id, organisation_id, name, deleted_at, status, lifecycle_state)"
           )
           .eq("projects.organisation_id", orgId)
-          .is("projects.deleted_at", null)  // ✅ exclude deleted projects at DB level
+          .is("projects.deleted_at", null) // ✅ exclude deleted projects at DB level
           .limit(200);
 
         if (!error && Array.isArray(data)) {
           for (const r of data) {
-            if (isClosedProject(r)) continue;          // ✅ skip closed/cancelled
+            if (isClosedProject(r)) continue; // ✅ skip closed/cancelled
             if (!isOpenStatus(r?.status)) continue;
             if (!isHighSeverityOrPriority(r?.severity)) continue;
             items.push({
@@ -172,12 +197,12 @@ export async function GET() {
             "id, title, severity, status, started_at, updated_at, project_id, commander_id, projects!inner(id, organisation_id, name, deleted_at, status, lifecycle_state)"
           )
           .eq("projects.organisation_id", orgId)
-          .is("projects.deleted_at", null)  // ✅
+          .is("projects.deleted_at", null) // ✅
           .limit(200);
 
         if (!error && Array.isArray(data)) {
           for (const r of data) {
-            if (isClosedProject(r)) continue;          // ✅
+            if (isClosedProject(r)) continue; // ✅
             if (!isOpenStatus(r?.status)) continue;
             if (!isHighSeverityOrPriority(r?.severity)) continue;
             items.push({
@@ -205,13 +230,13 @@ export async function GET() {
             "id, title, status, due_at, updated_at, project_id, assignee_id, blocked_by, projects!inner(id, organisation_id, name, deleted_at, status, lifecycle_state)"
           )
           .eq("projects.organisation_id", orgId)
-          .is("projects.deleted_at", null)  // ✅
+          .is("projects.deleted_at", null) // ✅
           .in("status", ["blocked"])
           .limit(200);
 
         if (!error && Array.isArray(data)) {
           for (const t of data) {
-            if (isClosedProject(t)) continue;          // ✅
+            if (isClosedProject(t)) continue; // ✅
             items.push({
               type: "task",
               id: t.id,
@@ -237,15 +262,16 @@ export async function GET() {
             "id, title, status, priority, due_at, sla_due_at, updated_at, project_id, assignee_id, projects!inner(id, organisation_id, name, deleted_at, status, lifecycle_state)"
           )
           .eq("projects.organisation_id", orgId)
-          .is("projects.deleted_at", null)  // ✅
+          .is("projects.deleted_at", null) // ✅
           .limit(200);
 
         if (!error && Array.isArray(data)) {
           const now = Date.now();
           for (const t of data) {
-            if (isClosedProject(t)) continue;          // ✅
+            if (isClosedProject(t)) continue; // ✅
             const status = safeStr(t?.status).toLowerCase().trim();
-            if (["done", "closed", "completed", "resolved"].includes(status)) continue;
+            if (["done", "closed", "completed", "resolved"].includes(status))
+              continue;
             const pr = safeStr(t?.priority).toLowerCase().trim();
             if (!isHighSeverityOrPriority(pr)) continue;
             const dueIso = safeIso((t as any).sla_due_at ?? (t as any).due_at);
@@ -279,7 +305,13 @@ export async function GET() {
     });
 
     // Sort: incidents/risks first; newest updates first
-    const typeRank: Record<string, number> = { incident: 0, risk: 1, ticket: 2, task: 3, signal: 4 };
+    const typeRank: Record<string, number> = {
+      incident: 0,
+      risk: 1,
+      ticket: 2,
+      task: 3,
+      signal: 4,
+    };
     deduped.sort((a, b) => {
       const ar = typeRank[safeStr(a?.type)] ?? 9;
       const br = typeRank[safeStr(b?.type)] ?? 9;
@@ -302,9 +334,6 @@ export async function GET() {
   } catch (e: any) {
     const msg = safeStr(e?.message) || "Failed";
     const status = msg.toLowerCase().includes("unauthorized") ? 401 : 500;
-    return jsonErr(msg, status);
-  }
-}: 500;
     return jsonErr(msg, status);
   }
 }
