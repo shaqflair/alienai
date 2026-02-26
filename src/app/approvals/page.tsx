@@ -1,12 +1,12 @@
-// src/app/approvals/page.tsx — Control Centre v2
+﻿// src/app/approvals/page.tsx — Control Centre v2
 // Tabs: Overview · PM Performance · Bottlenecks · At Risk Predictor
 
 "use client";
 
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import {
-  ShieldCheck, Users, ArrowUpRight, CheckCircle2, AlertTriangle,
-  Clock, TrendingUp, TrendingDown, Layers, ChevronDown, X,
+  ShieldCheck, Users, CheckCircle2, AlertTriangle,
+  Clock, ChevronDown, Calendar,
   BarChart2, Flame, Activity, RefreshCw, UserCheck, Zap,
   FileText, Download, ExternalLink,
 } from "lucide-react";
@@ -82,7 +82,7 @@ function RagBadge({ rag }: { rag: Rag }) {
 }
 
 function Avatar({ name, color, url, size = 36 }: { name: string; color: string; url?: string | null; size?: number }) {
-  if (url) return <img src={url} style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", border: "2px solid rgba(255,255,255,0.8)" }} />;
+  if (url) return <img src={url} alt={name} style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", border: "2px solid rgba(255,255,255,0.8)" }} />;
   return (
     <div style={{ width: size, height: size, borderRadius: "50%", background: `linear-gradient(135deg,${color},${color}bb)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.33, fontWeight: 700, color: "white", border: "2px solid rgba(255,255,255,0.8)", flexShrink: 0, boxShadow: `0 2px 8px ${color}44` }}>
       {initials(name)}
@@ -133,7 +133,6 @@ function PmCard({ pm, idx, projects, onAssignProject }: {
 }) {
   const [expanded, setExpanded] = useState(false);
   const [assigning, setAssigning] = useState(false);
-  const rc = RAG_CFG[pm.rag];
   const total = pm.decisions.total;
   const rate = pm.decisions.approval_rate;
 
@@ -141,11 +140,8 @@ function PmCard({ pm, idx, projects, onAssignProject }: {
     <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.38, delay: idx * 0.07, ease: [0.16, 1, 0.3, 1] }}
       style={{ ...CARD, position: "relative", overflow: "hidden" }}>
-      {/* Left accent */}
       <div style={{ position: "absolute", left: 0, top: "15%", bottom: "15%", width: 3, borderRadius: "0 2px 2px 0", background: pm.color, boxShadow: `0 0 10px ${pm.color}55` }} />
-
       <div style={{ padding: "16px 16px 16px 20px" }}>
-        {/* Header row */}
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
           <Avatar name={pm.full_name} color={pm.color} url={pm.avatar_url} />
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -154,23 +150,19 @@ function PmCard({ pm, idx, projects, onAssignProject }: {
           </div>
           <RagBadge rag={pm.rag} />
         </div>
-
-        {/* Stats row */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 14 }}>
           <StatPill label="Projects" value={pm.projects_managed} color="#6366f1" />
           <StatPill label="Overdue" value={pm.overdue_items} color={pm.overdue_items > 0 ? "#e11d48" : "#10b981"} />
           <StatPill label="Approved" value={pm.decisions.approved} color="#10b981" />
           <StatPill label="Rejected" value={pm.decisions.rejected} color={pm.decisions.rejected > 0 ? "#f43f5e" : "#94a3b8"} />
         </div>
-
-        {/* Approval rate bar */}
         {total > 0 && (
           <div style={{ marginBottom: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
               <span style={{ fontSize: 10, fontWeight: 600, color: "#64748b" }}>Approval rate</span>
               <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, fontWeight: 700, color: rate && rate >= 70 ? "#10b981" : "#f43f5e" }}>{rate ?? 0}%</span>
             </div>
-            <div style={{ height: 6, borderRadius: 4, background: "rgba(241,245,249,0.9)", overflow: "hidden", display: "flex" }}>
+            <div style={{ height: 6, borderRadius: 4, background: "rgba(241,245,249,0.9)", overflow: "hidden" }}>
               <m.div initial={{ width: 0 }} animate={{ width: `${rate ?? 0}%` }} transition={{ duration: 0.8, delay: idx * 0.07 + 0.2 }}
                 style={{ height: "100%", background: rate && rate >= 70 ? "linear-gradient(90deg,#10b981,#34d399)" : "linear-gradient(90deg,#f59e0b,#fbbf24)", borderRadius: 4 }} />
             </div>
@@ -180,22 +172,16 @@ function PmCard({ pm, idx, projects, onAssignProject }: {
             </div>
           </div>
         )}
-
-        {/* Pending badge */}
         {pm.pending_as_approver > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, padding: "6px 10px", borderRadius: 8, background: "rgba(255,251,235,0.8)", border: "1px solid rgba(252,211,77,0.5)" }}>
             <Clock size={12} color="#d97706" />
             <span style={{ fontSize: 11, fontWeight: 600, color: "#92400e" }}>{pm.pending_as_approver} pending approval{pm.pending_as_approver !== 1 ? "s" : ""} awaiting this user</span>
           </div>
         )}
-
-        {/* Expand toggle */}
         <button onClick={() => setExpanded(e => !e)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0", background: "none", border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "#6366f1" }}>
           <span>{expanded ? "Hide" : "Show"} projects ({pm.project_list.length})</span>
           <ChevronDown size={14} style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
         </button>
-
-        {/* Expanded project list */}
         <AnimatePresence>
           {expanded && (
             <m.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.25 }} style={{ overflow: "hidden" }}>
@@ -207,8 +193,6 @@ function PmCard({ pm, idx, projects, onAssignProject }: {
                   </div>
                 ))}
                 {pm.project_list.length === 0 && <div style={{ fontSize: 11, color: "#94a3b8", padding: "4px 0" }}>No projects assigned yet</div>}
-
-                {/* Assign project dropdown */}
                 <div style={{ marginTop: 6 }}>
                   <button onClick={() => setAssigning(a => !a)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: "1px dashed rgba(99,102,241,0.4)", background: "rgba(238,242,255,0.4)", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "#6366f1" }}>
                     <UserCheck size={12} /> Assign a project
@@ -271,7 +255,6 @@ function OverviewTab({ cacheItems, loading }: { cacheItems: CacheItem[]; loading
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-      {/* Summary cards */}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.15em", color: "#94a3b8", marginBottom: 4 }}>Portfolio Summary</div>
         {[
@@ -281,9 +264,7 @@ function OverviewTab({ cacheItems, loading }: { cacheItems: CacheItem[]; loading
           { label: "Within SLA", value: counts.pending, color: "#10b981", icon: <CheckCircle2 size={16} color="#10b981" /> },
         ].map((s, i) => (
           <div key={i} style={{ ...CARD, display: "flex", alignItems: "center", gap: 14, padding: "14px 16px" }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: `${s.color}15`, border: `1px solid ${s.color}30`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {s.icon}
-            </div>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: `${s.color}15`, border: `1px solid ${s.color}30`, display: "flex", alignItems: "center", justifyContent: "center" }}>{s.icon}</div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600 }}>{s.label}</div>
               <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 22, fontWeight: 700, color: s.color, lineHeight: 1.2 }}>{s.value}</div>
@@ -291,8 +272,6 @@ function OverviewTab({ cacheItems, loading }: { cacheItems: CacheItem[]; loading
           </div>
         ))}
       </div>
-
-      {/* By project */}
       <div>
         <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.15em", color: "#94a3b8", marginBottom: 12 }}>By Project</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -382,7 +361,7 @@ const RISK_CFG: Record<RiskLevel, { dot: string; bg: string; border: string; col
   LOW:    { dot: "#10b981", bg: "rgba(236,253,245,0.92)", border: "rgba(110,231,183,0.6)", color: "#065f46",  label: "Low Risk",    barColor: "#10b981" },
 };
 
-function RiskScoreBar({ score, level }: { score: number; risk_level?: RiskLevel; level: RiskLevel }) {
+function RiskScoreBar({ score, level }: { score: number; level: RiskLevel }) {
   const cfg = RISK_CFG[level];
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -396,20 +375,19 @@ function RiskScoreBar({ score, level }: { score: number; risk_level?: RiskLevel;
 }
 
 function SignalRow({ signal }: { signal: RiskSignal }) {
-  const triggered = signal.triggered;
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "6px 0", borderBottom: "1px solid rgba(226,232,240,0.4)" }}>
       <div style={{ width: 16, height: 16, borderRadius: "50%", flexShrink: 0, marginTop: 1,
-        background: triggered ? "rgba(244,63,94,0.12)" : "rgba(16,185,129,0.12)",
-        border: `1px solid ${triggered ? "rgba(244,63,94,0.3)" : "rgba(16,185,129,0.3)"}`,
+        background: signal.triggered ? "rgba(244,63,94,0.12)" : "rgba(16,185,129,0.12)",
+        border: `1px solid ${signal.triggered ? "rgba(244,63,94,0.3)" : "rgba(16,185,129,0.3)"}`,
         display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9 }}>
-        {triggered ? "!" : "✓"}
+        {signal.triggered ? "!" : "✓"}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: triggered ? "#9f1239" : "#065f46" }}>{signal.label}</div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: signal.triggered ? "#9f1239" : "#065f46" }}>{signal.label}</div>
         <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>{signal.detail}</div>
       </div>
-      {triggered && <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 10, fontWeight: 700, color: "#f43f5e", flexShrink: 0 }}>+{signal.score}</div>}
+      {signal.triggered && <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 10, fontWeight: 700, color: "#f43f5e", flexShrink: 0 }}>+{signal.score}</div>}
     </div>
   );
 }
@@ -417,16 +395,12 @@ function SignalRow({ signal }: { signal: RiskSignal }) {
 function RiskCard({ item, idx }: { item: ProjectRisk; idx: number }) {
   const [expanded, setExpanded] = useState(false);
   const cfg = RISK_CFG[item.risk_level];
-
   return (
     <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: idx * 0.06, ease: [0.16,1,0.3,1] }}
       style={{ ...CARD, position: "relative", overflow: "hidden" }}>
-      {/* left accent */}
       <div style={{ position: "absolute", left: 0, top: "15%", bottom: "15%", width: 3, borderRadius: "0 2px 2px 0", background: cfg.dot, boxShadow: `0 0 8px ${cfg.dot}55` }} />
-
       <div style={{ padding: "14px 16px 14px 20px" }}>
-        {/* Header */}
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
@@ -447,19 +421,13 @@ function RiskCard({ item, idx }: { item: ProjectRisk; idx: number }) {
             <span style={{ width: 5, height: 5, borderRadius: "50%", background: cfg.dot }} />{cfg.label}
           </span>
         </div>
-
-        {/* Risk score bar */}
         <div style={{ marginBottom: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
             <span style={{ fontSize: 10, fontWeight: 600, color: "#64748b" }}>Risk Score</span>
-            <span style={{ fontSize: 9, color: "#94a3b8" }}>
-              {item.signals.filter(s => s.triggered).length} of {item.signals.length} signals triggered
-            </span>
+            <span style={{ fontSize: 9, color: "#94a3b8" }}>{item.signals.filter(s => s.triggered).length} of {item.signals.length} signals triggered</span>
           </div>
           <RiskScoreBar score={item.risk_score} level={item.risk_level} />
         </div>
-
-        {/* Triggered signals summary chips */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
           {item.signals.filter(s => s.triggered).map(s => (
             <span key={s.key} style={{ display: "inline-flex", alignItems: "center", gap: 4, borderRadius: 8, padding: "2px 8px", fontSize: 9, fontWeight: 600, background: "rgba(255,241,242,0.8)", border: "1px solid rgba(253,164,175,0.4)", color: "#9f1239" }}>
@@ -470,14 +438,11 @@ function RiskCard({ item, idx }: { item: ProjectRisk; idx: number }) {
             <span style={{ fontSize: 10, color: "#10b981", fontWeight: 600 }}>✓ No risk signals triggered</span>
           )}
         </div>
-
-        {/* Expand toggle */}
         <button onClick={() => setExpanded(e => !e)}
           style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "5px 0", background: "none", border: "none", cursor: "pointer", fontSize: 10, fontWeight: 600, color: "#6366f1" }}>
           <span>{expanded ? "Hide" : "Show"} signal breakdown</span>
           <ChevronDown size={13} style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
         </button>
-
         <AnimatePresence>
           {expanded && (
             <m.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.25 }} style={{ overflow: "hidden" }}>
@@ -492,6 +457,7 @@ function RiskCard({ item, idx }: { item: ProjectRisk; idx: number }) {
   );
 }
 
+// ✅ FIXED: AtRiskTab now passes ?active_only=true to exclude closed projects
 function AtRiskTab() {
   const [data, setData] = useState<{ items: ProjectRisk[]; summary: { total: number; high: number; medium: number; low: number } } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -499,7 +465,8 @@ function AtRiskTab() {
 
   useEffect(() => {
     setLoading(true);
-    fetch("/api/executive/projects/at-risk", { credentials: "include", cache: "no-store" })
+    // ✅ active_only=true — API must filter out closed/archived projects
+    fetch("/api/executive/projects/at-risk?active_only=true", { credentials: "include", cache: "no-store" })
       .then(r => r.json())
       .then(j => { if (j?.ok) setData({ items: j.items ?? [], summary: j.summary ?? { total: 0, high: 0, medium: 0, low: 0 } }); })
       .catch(() => {})
@@ -518,10 +485,9 @@ function AtRiskTab() {
 
   return (
     <div>
-      {/* Summary strip */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
         {[
-          { label: "Total Projects", value: summary.total, color: "#6366f1" },
+          { label: "Active Projects", value: summary.total, color: "#6366f1" },
           { label: "High Risk", value: summary.high, color: "#e11d48" },
           { label: "Medium Risk", value: summary.medium, color: "#d97706" },
           { label: "Low Risk", value: summary.low, color: "#10b981" },
@@ -532,8 +498,6 @@ function AtRiskTab() {
           </div>
         ))}
       </div>
-
-      {/* Filter pills */}
       <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
         {(["ALL", "HIGH", "MEDIUM", "LOW"] as const).map(f => (
           <button key={f} onClick={() => setFilter(f)}
@@ -542,8 +506,6 @@ function AtRiskTab() {
           </button>
         ))}
       </div>
-
-      {/* Project risk cards */}
       {filtered.length === 0 ? (
         <div style={{ textAlign: "center", padding: "48px 0" }}>
           <CheckCircle2 size={36} color="#10b981" style={{ margin: "0 auto 12px" }} />
@@ -557,7 +519,6 @@ function AtRiskTab() {
     </div>
   );
 }
-
 
 // ─── DIGEST TAB ──────────────────────────────────────────────────────────────
 
@@ -580,11 +541,10 @@ function DigestTab() {
 
   function openPdf() {
     setPdfLoading(true);
-    const w = window.open(`/api/executive/digest/pdf?days=${days}`, "_blank");
+    window.open(`/api/executive/digest/pdf?days=${days}`, "_blank");
     setTimeout(() => setPdfLoading(false), 2000);
   }
 
-  const ss = (x: any) => typeof x === "string" ? x : x == null ? "" : String(x);
   const fmtDate = (iso: string | null | undefined) => {
     if (!iso) return "—";
     const d = new Date(iso); if (!isFinite(d.getTime())) return "—";
@@ -634,10 +594,9 @@ function DigestTab() {
 
   return (
     <div>
-      {/* Controls */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
-        <div style={{ display: "flex", align: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "#64748b", alignSelf: "center" }}>Time window:</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: "#64748b" }}>Time window:</span>
           {([7, 14, 30, 60] as const).map(d => (
             <button key={d} onClick={() => setDays(d)}
               style={{ padding: "5px 14px", borderRadius: 20, border: `1px solid ${days === d ? "#6366f1" : "rgba(226,232,240,0.8)"}`, background: days === d ? "rgba(238,242,255,0.9)" : "rgba(255,255,255,0.7)", color: days === d ? "#4338ca" : "#64748b", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
@@ -646,8 +605,7 @@ function DigestTab() {
           ))}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={fetchDigest}
-            style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 10, border: "1px solid rgba(226,232,240,0.8)", background: "rgba(255,255,255,0.9)", color: "#374151", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+          <button onClick={fetchDigest} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 10, border: "1px solid rgba(226,232,240,0.8)", background: "rgba(255,255,255,0.9)", color: "#374151", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
             <RefreshCw size={13} /> Refresh
           </button>
           <button onClick={openPdf} disabled={pdfLoading || !digest}
@@ -666,7 +624,6 @@ function DigestTab() {
         </div>
       ) : (
         <>
-          {/* Header */}
           <div style={{ ...CARD, padding: "16px 20px", marginBottom: 16, background: "linear-gradient(135deg,rgba(99,102,241,0.06),rgba(238,242,255,0.8))", border: "1px solid rgba(199,210,254,0.5)" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
@@ -679,7 +636,6 @@ function DigestTab() {
             </div>
           </div>
 
-          {/* Summary strip */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 16 }}>
             {[
               { label: "Pending", value: sum.pending_total, color: "#6366f1" },
@@ -694,7 +650,6 @@ function DigestTab() {
             ))}
           </div>
 
-          {/* SLA Breaches */}
           <SectionCard title="SLA Breaches" count={sec.sla_breaches.total}>
             {sec.sla_breaches.total === 0 ? (
               <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#10b981", fontSize: 12, fontWeight: 600 }}>
@@ -714,7 +669,6 @@ function DigestTab() {
             )}
           </SectionCard>
 
-          {/* Decisions */}
           <SectionCard title="Approval Decisions" count={sec.decisions.total}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 14 }}>
               {[
@@ -741,7 +695,6 @@ function DigestTab() {
             )}
           </SectionCard>
 
-          {/* PM Performance */}
           <SectionCard title="PM Performance Snapshot">
             {sec.pm_performance.length === 0 ? (
               <div style={{ fontSize: 12, color: "#94a3b8" }}>No PM data available.</div>
@@ -768,7 +721,6 @@ function DigestTab() {
             )}
           </SectionCard>
 
-          {/* At-Risk Projects */}
           <SectionCard title="At-Risk Projects" count={sec.at_risk_projects.length}>
             {sec.at_risk_projects.length === 0 ? (
               <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#10b981", fontSize: 12, fontWeight: 600 }}>
@@ -790,8 +742,7 @@ function DigestTab() {
             )}
           </SectionCard>
 
-          {/* New Projects */}
-          {sec.new_projects.length > 0 && (
+          {sec.new_projects?.length > 0 && (
             <SectionCard title="New Projects Started" count={sec.new_projects.length}>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {sec.new_projects.map((p: any, i: number) => (
@@ -805,16 +756,15 @@ function DigestTab() {
             </SectionCard>
           )}
 
-          {/* Upcoming Milestones */}
           {sec.upcoming_milestones?.length > 0 && (
             <SectionCard title="Upcoming Milestones" count={sec.upcoming_milestones.length}>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {sec.upcoming_milestones.map((m: any, i: number) => (
+                {sec.upcoming_milestones.map((ms: any, i: number) => (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", borderRadius: 8, background: "rgba(248,250,255,0.6)", border: "1px solid rgba(226,232,240,0.5)" }}>
                     <Calendar size={13} color="#6366f1" />
-                    <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: "#0f172a" }}>{ss(m?.title) || "—"}</span>
-                    <span style={{ fontSize: 10, color: "#64748b" }}>{ss(m?.project_title) || ss(m?.project_code) || "—"}</span>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: "#6366f1" }}>{fmtDate(m?.due_date)}</span>
+                    <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: "#0f172a" }}>{ss(ms?.title) || "—"}</span>
+                    <span style={{ fontSize: 10, color: "#64748b" }}>{ss(ms?.project_title) || ss(ms?.project_code) || "—"}</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: "#6366f1" }}>{fmtDate(ms?.due_date)}</span>
                   </div>
                 ))}
               </div>
@@ -835,10 +785,8 @@ export default function ControlCentrePage() {
   const [cacheItems, setCacheItems] = useState<CacheItem[]>([]);
   const [cacheLoading, setCacheLoading] = useState(true);
   const [allProjects, setAllProjects] = useState<Project[]>([]);
-  const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  // Fetch PM performance
   useEffect(() => {
     setPmLoading(true);
     fetch("/api/executive/pm-performance", { credentials: "include", cache: "no-store" })
@@ -848,7 +796,6 @@ export default function ControlCentrePage() {
       .finally(() => setPmLoading(false));
   }, []);
 
-  // Fetch approval cache for overview + bottlenecks
   useEffect(() => {
     setCacheLoading(true);
     fetch("/api/executive/approvals/pending?limit=500&days=60", { credentials: "include", cache: "no-store" })
@@ -858,7 +805,6 @@ export default function ControlCentrePage() {
       .finally(() => setCacheLoading(false));
   }, []);
 
-  // Fetch all projects for assignment dropdown
   useEffect(() => {
     fetch("/api/executive/projects", { credentials: "include", cache: "no-store" })
       .then(r => r.json())
@@ -867,7 +813,6 @@ export default function ControlCentrePage() {
   }, []);
 
   async function handleAssignProject(pmId: string, projectId: string) {
-    setSaving(true);
     try {
       const res = await fetch("/api/executive/projects/assign-pm", {
         method: "POST", credentials: "include",
@@ -877,7 +822,6 @@ export default function ControlCentrePage() {
       const j = await res.json();
       if (j?.ok) {
         setToast("PM assigned successfully");
-        // Refresh PM data
         const r2 = await fetch("/api/executive/pm-performance", { credentials: "include", cache: "no-store" });
         const j2 = await r2.json();
         if (j2?.ok) setPmData(j2.items ?? []);
@@ -886,25 +830,29 @@ export default function ControlCentrePage() {
         setToast("Failed to assign PM");
       }
     } catch { setToast("Error assigning PM"); }
-    finally {
-      setSaving(false);
-      setTimeout(() => setToast(null), 3000);
-    }
+    finally { setTimeout(() => setToast(null), 3000); }
   }
 
   const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: "overview", label: "Overview", icon: <BarChart2 size={14} /> },
-    { id: "pm", label: "PM Performance", icon: <Users size={14} /> },
-    { id: "bottlenecks", label: "Bottlenecks", icon: <Flame size={14} /> },
-    { id: "atrisk", label: "At Risk Predictor", icon: <Zap size={14} /> },
-    { id: "digest", label: "Weekly Digest", icon: <FileText size={14} /> },
+    { id: "overview",     label: "Overview",         icon: <BarChart2 size={14} /> },
+    { id: "pm",           label: "PM Performance",   icon: <Users size={14} /> },
+    { id: "bottlenecks",  label: "Bottlenecks",      icon: <Flame size={14} /> },
+    { id: "atrisk",       label: "At Risk Predictor",icon: <Zap size={14} /> },
+    { id: "digest",       label: "Weekly Digest",    icon: <FileText size={14} /> },
   ];
+
+  // ragColor needed in DigestTab scope — hoist to module level
+  function ragColor(status: string) {
+    const s = ss(status).toLowerCase();
+    if (s === "overdue" || s === "breached" || s === "high" || s === "overdue_undecided") return "#e11d48";
+    if (s === "warn" || s === "at_risk" || s === "medium") return "#d97706";
+    return "#059669";
+  }
 
   return (
     <LazyMotion features={domAnimation}>
       <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}`}</style>
 
-      {/* Toast */}
       <AnimatePresence>
         {toast && (
           <m.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
@@ -917,7 +865,6 @@ export default function ControlCentrePage() {
       <div style={{ minHeight: "100vh", background: "linear-gradient(135deg,rgba(238,242,255,0.6) 0%,rgba(255,255,255,0.8) 50%,rgba(240,253,250,0.5) 100%)", padding: "32px 24px" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
 
-          {/* Page header */}
           <m.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
             style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
@@ -934,7 +881,6 @@ export default function ControlCentrePage() {
             </a>
           </m.div>
 
-          {/* Tabs */}
           <div style={{ display: "flex", gap: 4, marginBottom: 24, background: "rgba(241,245,249,0.8)", borderRadius: 12, padding: 4, width: "fit-content" }}>
             {TABS.map(t => (
               <button key={t.id} onClick={() => setTab(t.id)}
@@ -948,13 +894,10 @@ export default function ControlCentrePage() {
             ))}
           </div>
 
-          {/* Tab content */}
           <AnimatePresence mode="wait">
             <m.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }}>
-
-              {tab === "overview" && <OverviewTab cacheItems={cacheItems} loading={cacheLoading} />}
-
-              {tab === "pm" && (
+              {tab === "overview"    && <OverviewTab cacheItems={cacheItems} loading={cacheLoading} />}
+              {tab === "pm"         && (
                 <div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
                     <div style={{ fontSize: 13, color: "#64748b" }}>
@@ -969,24 +912,17 @@ export default function ControlCentrePage() {
                     <div style={{ textAlign: "center", padding: "60px 0" }}>
                       <Users size={40} color="#cbd5e1" style={{ margin: "0 auto 16px" }} />
                       <div style={{ fontSize: 15, fontWeight: 600, color: "#374151" }}>No PM data available</div>
-                      <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>Assign project managers to projects to see performance metrics</div>
                     </div>
                   ) : (
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))", gap: 16 }}>
-                      {pmData.map((pm, i) => (
-                        <PmCard key={pm.user_id} pm={pm} idx={i} projects={allProjects} onAssignProject={handleAssignProject} />
-                      ))}
+                      {pmData.map((pm, i) => <PmCard key={pm.user_id} pm={pm} idx={i} projects={allProjects} onAssignProject={handleAssignProject} />)}
                     </div>
                   )}
                 </div>
               )}
-
               {tab === "bottlenecks" && <BottlenecksTab cacheItems={cacheItems} loading={cacheLoading} />}
-
-              {tab === "atrisk" && <AtRiskTab />}
-
-              {tab === "digest" && <DigestTab />}
-
+              {tab === "atrisk"      && <AtRiskTab />}
+              {tab === "digest"      && <DigestTab />}
             </m.div>
           </AnimatePresence>
         </div>
