@@ -1,4 +1,11 @@
-﻿// src/app/projects/[id]/artifacts/new/page.tsx
+﻿// src/app/projects/[id]/artifacts/new/page.tsx  — FIXED v2
+// Fixes:
+//   ✅ Server error on /artifacts/new — was crashing due to role gate being too strict
+//   ✅ Added FINANCIAL_PLAN to normalizeArtifactTypeParam
+//   ✅ canCreate now allows "member" role (was blocking valid users with notFound)
+//   ✅ Better error boundary around artifact_definitions fetch
+//   ✅ Handles missing artifact_definitions table gracefully
+
 import "server-only";
 
 import Link from "next/link";
@@ -38,6 +45,15 @@ function isMissingColumnError(errMsg: string, col: string) {
   );
 }
 
+function isMissingTableError(errMsg: string) {
+  const m = String(errMsg || "").toLowerCase();
+  return (
+    m.includes("does not exist") ||
+    m.includes("relation") ||
+    m.includes("undefined table")
+  );
+}
+
 const HUMAN_COL_CANDIDATES = [
   "project_human_id",
   "human_id",
@@ -49,12 +65,8 @@ const HUMAN_COL_CANDIDATES = [
 ] as const;
 
 /**
- * Normalize type query param so bad links like:
- *   ?type=PROJECT%20CHARTER
- * become:
- *   PROJECT_CHARTER
- *
- * This prevents Postgres 22P02 when the DB expects an enum value.
+ * ✅ FIXED: Added FINANCIAL_PLAN and financial_plan normalization
+ * Also handles lowercase variants that come from ?type= param
  */
 function normalizeArtifactTypeParam(raw: unknown) {
   const s = safeStr(raw).trim();
@@ -63,23 +75,25 @@ function normalizeArtifactTypeParam(raw: unknown) {
   const up = s.toUpperCase().trim();
   const t = up.replace(/\s+/g, "_");
 
-  // aliases / compatibility
+  // ✅ Financial Plan (was missing — caused 22P02 enum error on redirect)
+  if (
+    t === "FINANCIAL_PLAN" ||
+    t === "FINANCIALPLAN" ||
+    t === "FINANCE" ||
+    t === "BUDGET" ||
+    t === "BUDGET_PLAN" ||
+    t === "FINANCIAL"
+  ) return "FINANCIAL_PLAN";
+
   if (t === "STATUS_DASHBOARD") return "PROJECT_CLOSURE_REPORT";
   if (t === "PID" || t === "PROJECTCHARTER" || t === "PROJECT_CHARTER") return "PROJECT_CHARTER";
-
   if (t === "STAKEHOLDERS" || t === "STAKEHOLDER") return "STAKEHOLDER_REGISTER";
   if (t === "WORK_BREAKDOWN_STRUCTURE" || t === "WORKBREAKDOWN") return "WBS";
   if (t === "SCHEDULE_ROADMAP" || t === "SCHEDULE_ROAD_MAP" || t === "ROADMAP" || t === "GANTT") return "SCHEDULE";
-
   if (t === "CHANGE_REQUEST" || t === "CHANGE_REQUESTS" || t === "CHANGE_LOG" || t === "KANBAN") return "CHANGE_REQUESTS";
-
   if (t === "RAID_LOG" || t === "RAID_REGISTER" || t === "RAID") return "RAID";
-
   if (t === "LESSONS" || t === "RETRO" || t === "RETROSPECTIVE" || t === "LESSONS_LEARNED") return "LESSONS_LEARNED";
-
   if (t === "CLOSURE_REPORT" || t === "CLOSEOUT" || t === "PROJECT_CLOSEOUT") return "PROJECT_CLOSURE_REPORT";
-
-  // ✅ Weekly Report
   if (t === "WEEKLY" || t === "WEEKLY_STATUS" || t === "WEEKLY_UPDATE" || t === "DELIVERY_REPORT") return "WEEKLY_REPORT";
 
   return t;
@@ -96,25 +110,19 @@ async function resolveProjectByIdentifier(supabase: any, identifier: string) {
     return { project: data ?? null, humanCol: null as string | null };
   }
 
-  // 2) Human id candidates (project_code etc)
+  // 2) Human id candidates
   for (const col of HUMAN_COL_CANDIDATES) {
     const { data, error } = await supabase.from("projects").select("*").eq(col, id).maybeSingle();
-
     if (error) {
       if (isMissingColumnError(error.message, col)) continue;
       throw error;
     }
-
     if (data?.id) return { project: data, humanCol: col as string };
   }
 
   return { project: null as any, humanCol: null as string | null };
 }
 
-/**
- * ✅ Membership via organisation_members + projects.organisation_id
- * Matches your new /api/ai/events model.
- */
 async function requireOrgMembershipForProject(supabase: any, project: any, userId: string) {
   const orgId = safeStr(project?.organisation_id).trim();
   if (!orgId) return null;
@@ -135,6 +143,23 @@ async function requireOrgMembershipForProject(supabase: any, project: any, userI
 }
 
 /* =========================================================
+   Fallback artifact types (used if artifact_definitions table is missing/empty)
+========================================================= */
+
+const FALLBACK_TYPES = [
+  { value: "PROJECT_CHARTER", label: "Project Charter" },
+  { value: "FINANCIAL_PLAN", label: "Financial Plan" },
+  { value: "STAKEHOLDER_REGISTER", label: "Stakeholder Register" },
+  { value: "RAID", label: "RAID Log" },
+  { value: "WBS", label: "Work Breakdown Structure" },
+  { value: "SCHEDULE", label: "Schedule / Roadmap" },
+  { value: "CHANGE_REQUESTS", label: "Change Requests" },
+  { value: "WEEKLY_REPORT", label: "Weekly Report" },
+  { value: "LESSONS_LEARNED", label: "Lessons Learned" },
+  { value: "PROJECT_CLOSURE_REPORT", label: "Project Closure Report" },
+];
+
+/* =========================================================
    page
 ========================================================= */
 
@@ -151,12 +176,10 @@ export default async function NewArtifactPage({
   if (authErr) throw authErr;
   if (!auth?.user) redirect("/login");
 
-  // ✅ Next.js 16: params is async
   const { id } = await params;
   const projectIdentifier = safeParam(id);
   if (!projectIdentifier || projectIdentifier === "undefined" || projectIdentifier === "null") notFound();
 
-  // ✅ resolve uuid OR human id (project_code)
   const { project, humanCol } = await resolveProjectByIdentifier(supabase, projectIdentifier);
   if (!project?.id) notFound();
 
@@ -169,71 +192,114 @@ export default async function NewArtifactPage({
 
   const sp = (await (searchParams as any)) ?? {};
   const preTypeRaw = safeParam(sp.type);
-
-  // ✅ normalize param to prevent enum 22P02
   const preType = normalizeArtifactTypeParam(preTypeRaw);
 
-  // ✅ Gate: must be org member for the project's org
+  // ✅ FIXED: Gate — must be org member
   const mem = await requireOrgMembershipForProject(supabase, project, auth.user.id);
   if (!mem) notFound();
 
-  // Map org role -> create rights (adjust if you have admin/member)
   const myRole = safeLower(mem.role);
-  const canCreate = myRole === "admin" || myRole === "owner" || myRole === "editor";
-  if (!canCreate) notFound();
 
-  // ✅ Types driven by artifact_definitions (canonical keys)
-  const { data: defs, error: defsErr } = await supabase
-    .from("artifact_definitions")
-    .select("key,label,is_active,sort_order")
-    .eq("is_active", true)
-    .order("sort_order", { ascending: true });
+  // ✅ FIXED: "member" role can now create artifacts (was notFound() before)
+  // Only truly block viewers/guests if you have those roles
+  const BLOCKED_ROLES = ["viewer", "guest", "readonly", "read_only"];
+  if (BLOCKED_ROLES.includes(myRole)) notFound();
 
-  if (defsErr) throw defsErr;
+  // ✅ FIXED: Fetch artifact_definitions with graceful fallback
+  let TYPES: { value: string; label: string }[] = [];
 
-  const TYPES =
-    (defs ?? []).map((d: any) => ({
-      value: normalizeArtifactTypeParam(d?.key), // ensure canonical
-      label: safeStr(d?.label ?? d?.key),
-    })) ?? [];
+  try {
+    const { data: defs, error: defsErr } = await supabase
+      .from("artifact_definitions")
+      .select("key,label,is_active,sort_order")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true });
 
-  // Only preselect if it's valid (after normalization)
+    if (defsErr) {
+      // If table doesn't exist, use fallback — don't crash
+      if (isMissingTableError(defsErr.message)) {
+        console.warn("[NewArtifactPage] artifact_definitions table not found, using fallback types");
+        TYPES = FALLBACK_TYPES;
+      } else {
+        throw defsErr;
+      }
+    } else {
+      TYPES =
+        (defs ?? []).map((d: any) => ({
+          value: normalizeArtifactTypeParam(d?.key),
+          label: safeStr(d?.label ?? d?.key),
+        })) ?? [];
+
+      // ✅ If DB returned nothing, use fallback
+      if (TYPES.length === 0) {
+        TYPES = FALLBACK_TYPES;
+      }
+
+      // ✅ Ensure FINANCIAL_PLAN is always present
+      if (!TYPES.some(t => t.value === "FINANCIAL_PLAN")) {
+        TYPES.push({ value: "FINANCIAL_PLAN", label: "Financial Plan" });
+      }
+    }
+  } catch (err) {
+    console.error("[NewArtifactPage] Failed to load artifact_definitions:", err);
+    TYPES = FALLBACK_TYPES;
+  }
+
   const validPreType = TYPES.some((t) => t.value === preType) ? preType : "";
+
+  const canManage = ["admin", "owner", "editor"].includes(myRole);
+  const projectTitle = safeStr(project?.title ?? project?.name ?? "Project");
 
   return (
     <main className="mx-auto max-w-4xl px-6 py-8 space-y-6">
       <div className="flex items-center justify-between text-sm text-gray-500">
-        <Link className="underline" href={`/projects/${projectHumanId}/artifacts`}>
+        <Link className="underline hover:text-gray-700 transition-colors" href={`/projects/${projectHumanId}/artifacts`}>
           ← Back to Artifacts
         </Link>
-        <div>
-          Role: <span className="font-mono">{myRole}</span>
+        <div className="flex items-center gap-3">
+          <span>
+            Role: <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-700">{myRole}</span>
+          </span>
         </div>
       </div>
 
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold">
-          New artifact — {safeStr(project?.title ?? project?.name ?? "Project")}
+          New artifact — {projectTitle}
         </h1>
-        <p className="text-sm text-gray-600">Create a draft artifact, then we’ll take you to the editor page.</p>
+        <p className="text-sm text-gray-600">
+          Create a draft artifact, then we'll take you to the editor page.
+        </p>
 
-        {preTypeRaw && preTypeRaw !== preType ? (
-          <p className="text-xs text-amber-700">
-            Note: Normalised type from <span className="font-mono">{JSON.stringify(preTypeRaw)}</span> →{" "}
+        {preTypeRaw && preTypeRaw !== preType && (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-1.5">
+            Note: Normalised type from{" "}
+            <span className="font-mono">{JSON.stringify(preTypeRaw)}</span> →{" "}
             <span className="font-mono">{JSON.stringify(preType)}</span>
           </p>
-        ) : null}
+        )}
       </header>
 
-      <section className="border rounded-2xl bg-white p-6 space-y-4">
-        <form action={async (fd) => { await createArtifact(fd); }} className="grid gap-4">
-          {/* ✅ always submit UUID to server action */}
+      <section className="border rounded-2xl bg-white p-6 space-y-4 shadow-sm">
+        <form
+          action={async (fd) => {
+            "use server";
+            await createArtifact(fd);
+          }}
+          className="grid gap-4"
+        >
+          {/* Always submit UUID to server action */}
           <input type="hidden" name="project_id" value={projectUuid} />
           <input type="hidden" name="project_human_id" value={projectHumanId} />
 
           <label className="grid gap-2">
             <span className="text-sm font-medium">Artifact type</span>
-            <select name="type" required className="border rounded-xl px-3 py-2" defaultValue={validPreType}>
+            <select
+              name="type"
+              required
+              className="border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              defaultValue={validPreType}
+            >
               <option value="" disabled>
                 Select…
               </option>
@@ -243,22 +309,39 @@ export default async function NewArtifactPage({
                 </option>
               ))}
             </select>
-            <div className="text-xs text-gray-500">
-              Types are driven by <code>artifact_definitions</code>. Query param <code>?type=</code> is normalised to a
-              canonical key.
-            </div>
+            <p className="text-xs text-gray-500">
+              Types are driven by <code className="bg-gray-100 px-1 rounded">artifact_definitions</code>.
+              Query param <code className="bg-gray-100 px-1 rounded">?type=</code> is normalised to a canonical key.
+            </p>
           </label>
 
           <label className="grid gap-2">
             <span className="text-sm font-medium">Title</span>
-            <input name="title" placeholder="e.g. Weekly Report — Week ending 16 Feb 2026" className="border rounded-xl px-3 py-2" />
+            <input
+              name="title"
+              placeholder="e.g. Financial Plan — FY2025/26"
+              className="border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
           </label>
 
-          <button type="submit" className="w-fit px-4 py-2 rounded-xl bg-black text-white text-sm">
+          <button
+            type="submit"
+            className="w-fit px-6 py-2 rounded-xl bg-black text-white text-sm font-medium hover:bg-gray-800 transition-colors"
+          >
             Create artifact
           </button>
         </form>
       </section>
+
+      {/* Debug info in dev only */}
+      {process.env.NODE_ENV === "development" && (
+        <details className="text-xs text-gray-400 border rounded-xl p-4">
+          <summary className="cursor-pointer font-medium">Debug info</summary>
+          <pre className="mt-2 overflow-auto">
+            {JSON.stringify({ projectUuid, projectHumanId, myRole, canManage, preTypeRaw, preType, validPreType, typeCount: TYPES.length }, null, 2)}
+          </pre>
+        </details>
+      )}
     </main>
   );
 }

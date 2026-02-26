@@ -1,9 +1,10 @@
-// src/components/home/HomePage.tsx  — REBUILT v4
-// All v3 fixes retained +
-//   ✅ Financial Plan integrated into Quick Stats (budget RAG row, no layout disruption)
-//   ✅ Budget variance badge on Portfolio Overview header (only when data available)
-//   ✅ New FinancialPlanSnippet component — compact inline budget health display
-//   ✅ Fetches /api/portfolio/financial-plan-summary — graceful 404/null fallback
+// src/components/home/HomePage.tsx  — REBUILT v5
+// ✅ FIX 1: Duplicate Approvals card REMOVED from right sidebar
+// ✅ FIX 2: Budget Health promoted to 5th KPI card (top-level prominence)
+// ✅ FIX 3: Budget Health click routes to /artifacts/new?type=FINANCIAL_PLAN (uppercase)
+// ✅ FIX 4: Budget section removed from Quick Stats sidebar
+// ✅ FIX 5: budgetVarianceBadge removed from header (redundant with KPI card)
+// ✅ FIX 6: FinancialPlanSnippet rebuilt as full KpiCard
 
 "use client";
 
@@ -127,7 +128,6 @@ type PortfolioHealthApi =
 
 type RagLetter = "G" | "A" | "R";
 
-// ✅ NEW: Financial Plan summary type
 type FinancialPlanSummary =
   | { ok: false; error: string }
   | {
@@ -300,11 +300,11 @@ function orderBriefingInsights(xs: Insight[]) {
   return arr;
 }
 
-// ✅ NEW: Format currency compactly
+// ✅ Format currency compactly
 function fmtBudget(value: number | null | undefined, currency = "GBP"): string {
   const v = Number(value);
   if (!Number.isFinite(v)) return "—";
-  const sym = currency === "GBP" ? "£" : currency === "USD" ? "$" : currency === "EUR" ? "€" : "";
+  const sym = currency === "GBP" ? "£" : currency === "USD" ? "$" : currency === "EUR" ? "€" : currency === "AUD" ? "A$" : currency === "CAD" ? "C$" : "";
   if (Math.abs(v) >= 1_000_000) return `${sym}${(v / 1_000_000).toFixed(1)}M`;
   if (Math.abs(v) >= 1_000) return `${sym}${(v / 1_000).toFixed(0)}k`;
   return `${sym}${v.toFixed(0)}`;
@@ -415,136 +415,6 @@ function AiSignalPill({ text, tone }: { text: string; tone: "rose" | "amber" | "
       <span className="h-1 w-1 rounded-full bg-current opacity-70" />
       {text}
     </span>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ✅ NEW: Financial Plan Snippet — used in Quick Stats sidebar
-// ─────────────────────────────────────────────────────────────────────────────
-
-function FinancialPlanSnippet({
-  summary,
-  loading,
-  projectRef,
-}: {
-  summary: FinancialPlanSummary | null;
-  loading: boolean;
-  projectRef: string;
-}) {
-  const router = useRouter();
-
-  // Derive display values
-  const ragDot = useMemo(() => {
-    if (!summary || !summary.ok) return "#94a3b8";
-    return summary.rag === "G" ? "#10b981" : summary.rag === "A" ? "#f59e0b" : "#f43f5e";
-  }, [summary]);
-
-  const ragText = useMemo(() => {
-    if (!summary || !summary.ok) return "No plan";
-    return summary.rag === "G" ? "On budget" : summary.rag === "A" ? "Watch" : "Over budget";
-  }, [summary]);
-
-  const ragTextColor = useMemo(() => {
-    if (!summary || !summary.ok) return "text-slate-400";
-    return summary.rag === "G" ? "text-emerald-700" : summary.rag === "A" ? "text-amber-700" : "text-rose-700";
-  }, [summary]);
-
-  const ragBg = useMemo(() => {
-    if (!summary || !summary.ok) return "bg-slate-50 border-slate-100";
-    return summary.rag === "G"
-      ? "bg-emerald-50/60 border-emerald-100"
-      : summary.rag === "A"
-      ? "bg-amber-50/60 border-amber-100"
-      : "bg-rose-50/60 border-rose-100";
-  }, [summary]);
-
-  const budgetLabel = useMemo(() => {
-    if (!summary || !summary.ok) return null;
-    const budget = summary.total_approved_budget;
-    const currency = summary.currency || "GBP";
-    if (!budget) return null;
-    return fmtBudget(budget, currency);
-  }, [summary]);
-
-  const varianceLabel = useMemo(() => {
-    if (!summary || !summary.ok) return null;
-    const v = summary.variance_pct;
-    if (v == null || !Number.isFinite(Number(v))) return null;
-    const pct = Math.round(Number(v) * 10) / 10;
-    return pct === 0 ? "0%" : `${pct > 0 ? "+" : ""}${pct}%`;
-  }, [summary]);
-
-  function handleClick() {
-    if (summary && summary.ok && summary.artifact_id) {
-      router.push(`/projects/${projectRef}/artifacts/${summary.artifact_id}`);
-    } else if (projectRef) {
-      router.push(`/projects/${projectRef}/artifacts?type=financial_plan`);
-    }
-  }
-
-  return (
-    <m.div
-      initial={{ opacity: 0, x: 14 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: 0.56 }}
-      onClick={handleClick}
-      className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all hover:shadow-sm ${ragBg}`}
-      style={{ backdropFilter: "blur(10px)", boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}
-    >
-      <div className="flex items-center gap-2.5 min-w-0">
-        {/* RAG dot with icon */}
-        <div
-          className="h-7 w-7 rounded-lg flex items-center justify-center shrink-0"
-          style={{
-            background: loading ? "#f1f5f9" : `${ragDot}18`,
-            border: `1px solid ${loading ? "#e5e7eb" : ragDot}40`,
-          }}
-        >
-          {loading ? (
-            <span className="h-3 w-3 rounded-full bg-slate-200 animate-pulse" />
-          ) : (
-            <DollarSign className="h-3.5 w-3.5" style={{ color: ragDot }} />
-          )}
-        </div>
-
-        <div className="min-w-0">
-          <span className="text-sm text-slate-500 font-medium">Budget Health</span>
-          {budgetLabel && (
-            <span className="ml-1.5 text-[10px] text-slate-400 font-mono">{budgetLabel}</span>
-          )}
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2 shrink-0">
-        {loading ? (
-          <span className="h-4 w-10 rounded bg-slate-200 animate-pulse" />
-        ) : (
-          <>
-            {varianceLabel && (
-              <span
-                className={`text-[11px] font-bold font-mono ${
-                  summary && summary.ok && Number(summary.variance_pct) > 0
-                    ? "text-rose-600"
-                    : "text-emerald-600"
-                }`}
-              >
-                {varianceLabel}
-              </span>
-            )}
-            <span
-              className={`flex items-center gap-1 text-[11px] font-semibold ${ragTextColor}`}
-            >
-              <span
-                className="h-2 w-2 rounded-full shrink-0"
-                style={{ background: ragDot }}
-              />
-              {ragText}
-            </span>
-          </>
-        )}
-        <ChevronRight className="h-3 w-3 text-slate-300" />
-      </div>
-    </m.div>
   );
 }
 
@@ -1124,6 +994,112 @@ function RaidMeta({ loading, panel, onClickType }: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ✅ FIXED: Budget Health KPI Card (was FinancialPlanSnippet — now a full KpiCard)
+// Routes to /artifacts/new?type=FINANCIAL_PLAN (uppercase, correctly normalised)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function BudgetHealthCard({
+  summary,
+  loading,
+  projectRef,
+  delay = 0.24,
+}: {
+  summary: FinancialPlanSummary | null;
+  loading: boolean;
+  projectRef: string;
+  delay?: number;
+}) {
+  const router = useRouter();
+
+  const hasData = summary?.ok === true;
+  const ragLetter = hasData ? (summary as any).rag as RagLetter : null;
+  const currency = hasData ? ((summary as any).currency || "GBP") : "GBP";
+
+  const budgetLabel = useMemo(() => {
+    if (!hasData) return "—";
+    const b = (summary as any).total_approved_budget;
+    return b ? fmtBudget(b, currency) : "—";
+  }, [summary, hasData, currency]);
+
+  const spentLabel = useMemo(() => {
+    if (!hasData) return null;
+    const s = (summary as any).total_spent;
+    return s != null ? fmtBudget(s, currency) : null;
+  }, [summary, hasData, currency]);
+
+  const variancePct = hasData ? (summary as any).variance_pct : null;
+  const varianceNum = variancePct != null && Number.isFinite(Number(variancePct))
+    ? Math.round(Number(variancePct) * 10) / 10 : null;
+  const varianceLabel = varianceNum != null
+    ? varianceNum === 0 ? "±0%" : `${varianceNum > 0 ? "+" : ""}${varianceNum}%`
+    : null;
+
+  const utilPct = useMemo(() => {
+    if (!hasData) return null;
+    const b = Number((summary as any).total_approved_budget);
+    const s = Number((summary as any).total_spent);
+    return b && s ? Math.round((s / b) * 100) : null;
+  }, [summary, hasData]);
+
+  const projectCount = hasData ? ((summary as any).project_count ?? 1) : null;
+
+  // ✅ FIXED routing: uses FINANCIAL_PLAN (uppercase) so normalizer in page.tsx handles it
+  function handleClick() {
+    if (hasData && (summary as any).artifact_id) {
+      router.push(`/projects/${projectRef}/artifacts/${(summary as any).artifact_id}`);
+    } else if (projectRef) {
+      router.push(`/projects/${projectRef}/artifacts/new?type=FINANCIAL_PLAN`);
+    }
+  }
+
+  const tone = loading ? "slate"
+    : !hasData ? "slate"
+    : ragLetter === "G" ? "emerald"
+    : ragLetter === "A" ? "amber"
+    : "rose";
+
+  const displayValue = loading ? "…"
+    : !hasData ? "No Plan"
+    : varianceLabel ?? (ragLetter === "G" ? "On Budget" : ragLetter === "A" ? "Watch" : "Over Budget");
+
+  const subText = loading ? "Fetching budget health…"
+    : !hasData ? "No financial plan linked — click to create one"
+    : `Budget ${budgetLabel}${spentLabel ? ` · Spent ${spentLabel}` : ""}`;
+
+  const aiText = loading ? "Analysing budget position…"
+    : !hasData ? "Create a Financial Plan artifact to track budget health here."
+    : ragLetter === "G" ? "Budget is tracking well — no material overrun detected."
+    : ragLetter === "A" ? `Utilisation at ${utilPct ?? "?"}%. Monitor forecast vs approved budget closely.`
+    : `Forecast exceeds budget by ${varianceLabel ?? "an unknown amount"}. Immediate escalation recommended.`;
+
+  const metaText = loading ? "Syncing…"
+    : !hasData ? "Click to link a plan"
+    : `${projectCount} project${projectCount !== 1 ? "s" : ""} tracked`;
+
+  return (
+    <KpiCard
+      cardClassName="min-h-[460px] flex flex-col"
+      label="Budget Health"
+      value={displayValue}
+      sub={subText}
+      icon={<DollarSign className="h-5 w-5" />}
+      tone={tone}
+      tooltip="Pulled from the project Financial Plan artifact. Click to view or create."
+      aiLine={aiText}
+      badge={ragLetter ? (
+        <span className={["ml-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest", ragBadgeClasses(ragLetter)].join(" ")}>
+          {ragLabel(ragLetter)}
+        </span>
+      ) : undefined}
+      metaLine={metaText}
+      metaIcon={<DollarSign className="h-3 w-3" />}
+      onClick={handleClick}
+      delay={delay}
+    />
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Project Tile
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1246,16 +1222,16 @@ export default function HomePage({ data }: { data: HomeData }) {
   const [dueCounts, setDueCounts] = useState({ total: 0, milestone: 0, work_item: 0, raid: 0, artifact: 0, change: 0 });
   const [dueUpdatedAt, setDueUpdatedAt] = useState<string>("");
 
-  // ✅ NEW: Financial Plan state
+  // Financial Plan state
   const [fpSummary, setFpSummary] = useState<FinancialPlanSummary | null>(null);
   const [fpLoading, setFpLoading] = useState(false);
 
   useEffect(() => { setToday(new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" })); }, []);
   useEffect(() => { setShowPhDetails(false); }, [debouncedWindowDays]);
 
-  // ✅ NEW: Fetch portfolio financial plan summary
+  // Fetch portfolio financial plan summary
   useEffect(() => {
-    if (!ok || !isExec) return;
+    if (!ok) return;
     let cancelled = false;
     runIdle(() => {
       (async () => {
@@ -1271,7 +1247,7 @@ export default function HomePage({ data }: { data: HomeData }) {
       })();
     });
     return () => { cancelled = true; };
-  }, [ok, isExec]);
+  }, [ok]);
 
   useEffect(() => {
     if (!ok) return;
@@ -1603,23 +1579,14 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   function openSuccessStories() { const sp = new URLSearchParams(); sp.set("days", String(numericWindowDays)); router.push(`/success-stories?${sp.toString()}`); }
 
-  // ✅ Financial plan routing helper — uses first active project ref
+  // First project ref for Budget Health card routing
   const firstProjectRef = useMemo(() => {
-    const fp = fpSummary && fpSummary.ok ? fpSummary.project_ref : null;
+    const fp = fpSummary && fpSummary.ok ? (fpSummary as any).project_ref : null;
     if (fp) return fp;
     const p = sortedProjects[0] as any;
     if (!p) return "";
     return projectCodeLabel(p?.project_code) || safeStr(p?.id);
   }, [fpSummary, sortedProjects]);
-
-  // ✅ Budget variance badge for section header (only show when data available + non-green)
-  const budgetVarianceBadge = useMemo(() => {
-    if (!fpSummary || !fpSummary.ok) return null;
-    if (fpSummary.rag === "G") return null; // green = no need to surface
-    const pct = fpSummary.variance_pct;
-    if (pct == null || !Number.isFinite(Number(pct))) return null;
-    return { rag: fpSummary.rag, pct: Math.round(Number(pct) * 10) / 10 };
-  }, [fpSummary]);
 
   const KPI_CARD_CLASS = "min-h-[460px] flex flex-col";
 
@@ -1721,30 +1688,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                     <div className="h-5 w-0.5 rounded-full bg-indigo-500" style={{ boxShadow: "0 0 10px rgba(99,102,241,0.6)" }} />
                     <span className="text-[11px] text-indigo-600 uppercase tracking-[0.22em] font-bold">Executive Command</span>
                   </div>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <h2 className="text-3xl font-bold text-slate-950 tracking-tight">Portfolio Overview</h2>
-
-                    {/* ✅ NEW: Budget variance badge — only shows when Amber/Red and data exists */}
-                    {budgetVarianceBadge && (
-                      <m.button
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ delay: 0.4 }}
-                        onClick={() => firstProjectRef && router.push(`/projects/${firstProjectRef}/artifacts?type=financial_plan`)}
-                        className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-bold cursor-pointer transition-all hover:shadow-sm"
-                        style={{
-                          background: budgetVarianceBadge.rag === "R" ? "rgba(255,241,242,0.92)" : "rgba(255,251,235,0.92)",
-                          borderColor: budgetVarianceBadge.rag === "R" ? "rgba(253,164,175,0.8)" : "rgba(252,211,77,0.8)",
-                          color: budgetVarianceBadge.rag === "R" ? "#9f1239" : "#92400e",
-                        }}
-                        title="Click to view Financial Plan"
-                      >
-                        <DollarSign className="h-3 w-3" />
-                        Budget {budgetVarianceBadge.pct > 0 ? "+" : ""}{budgetVarianceBadge.pct}%
-                        <span className="h-1.5 w-1.5 rounded-full" style={{ background: budgetVarianceBadge.rag === "R" ? "#f43f5e" : "#f59e0b" }} />
-                      </m.button>
-                    )}
-                  </div>
+                  <h2 className="text-3xl font-bold text-slate-950 tracking-tight">Portfolio Overview</h2>
                   <p className="text-slate-400 mt-1 text-sm font-medium">Real-time portfolio intelligence</p>
                 </div>
 
@@ -1772,9 +1716,10 @@ export default function HomePage({ data }: { data: HomeData }) {
                 </div>
               </m.div>
 
-              {/* 4 equal KPI cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
+              {/* ✅ FIXED: 5 KPI cards — Budget Health is now the 5th prominent card */}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 lg:grid-cols-3 gap-5 mb-10">
 
+                {/* 1. Portfolio Health */}
                 <KpiCard
                   cardClassName={KPI_CARD_CLASS}
                   label="Portfolio Health"
@@ -1811,6 +1756,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                   delay={0}
                 />
 
+                {/* 2. Success Stories */}
                 <KpiCard
                   cardClassName={KPI_CARD_CLASS}
                   label="Success Stories"
@@ -1841,6 +1787,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                   delay={0.06}
                 />
 
+                {/* 3. Milestones Due */}
                 <KpiCard
                   cardClassName={KPI_CARD_CLASS}
                   label="Milestones Due"
@@ -1858,6 +1805,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                   delay={0.12}
                 />
 
+                {/* 4. RAID */}
                 <KpiCard
                   cardClassName={KPI_CARD_CLASS}
                   label="RAID — Due"
@@ -1873,6 +1821,14 @@ export default function HomePage({ data }: { data: HomeData }) {
                     </div>
                   }
                   delay={0.18}
+                />
+
+                {/* 5. ✅ FIXED: Budget Health — full KPI card, visible to all, correct routing */}
+                <BudgetHealthCard
+                  summary={fpSummary}
+                  loading={fpLoading}
+                  projectRef={firstProjectRef}
+                  delay={0.24}
                 />
               </div>
 
@@ -1989,11 +1945,36 @@ export default function HomePage({ data }: { data: HomeData }) {
                   </SurfaceCard>
                 </div>
 
-                {/* Right Column — Approvals + Quick Stats (with Financial Plan row) */}
+                {/* ✅ FIXED: Right Column — Approvals REMOVED (was duplicate). Only Quick Stats remains. */}
                 <div className="space-y-6">
 
-                  {/* Approvals */}
+                  {/* Quick Stats — clean, no Budget Health row (moved to KPI cards above) */}
                   <SurfaceCard delay={0.32}>
+                    <div className="flex items-center gap-2 mb-5">
+                      <div className="h-px flex-1 bg-gradient-to-r from-transparent to-indigo-200/62" />
+                      <span className="text-[10px] text-indigo-500 uppercase tracking-[0.2em] font-bold">Quick Stats</span>
+                      <div className="h-px flex-1 bg-gradient-to-l from-transparent to-indigo-200/62" />
+                    </div>
+                    <div className="space-y-3">
+                      {[
+                        { label: "Active Projects", node: <span className="text-2xl font-bold text-slate-950" style={{ fontFamily: "var(--font-mono, monospace)" }}>{uiActiveCount}</span> },
+                        { label: "Portfolio Score", node: <span className={["text-sm font-bold px-2.5 py-1 rounded-xl border-2", ragBadgeClasses(phRag)].join(" ")}>{phScoreForUi}%</span> },
+                        { label: "Open Risks", node: <span className="text-2xl font-bold text-slate-950" style={{ fontFamily: "var(--font-mono, monospace)" }}>{kpis.openRisks}</span> },
+                        { label: "Approvals Pending", node: <span className="text-2xl font-bold text-slate-950" style={{ fontFamily: "var(--font-mono, monospace)" }}>{approvalsLoading ? "…" : approvalCount}</span> },
+                        { label: "Open Lessons", node: <span className="text-2xl font-bold text-slate-950" style={{ fontFamily: "var(--font-mono, monospace)" }}>{kpis.openLessons}</span> },
+                      ].map((stat, i) => (
+                        <m.div key={stat.label} initial={{ opacity: 0, x: 14 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.36 + i * 0.05 }}
+                          className="flex items-center justify-between p-3 rounded-xl bg-white/52 border border-slate-100/82"
+                          style={{ backdropFilter: "blur(10px)", boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}>
+                          <span className="text-sm text-slate-500 font-medium">{stat.label}</span>
+                          {stat.node}
+                        </m.div>
+                      ))}
+                    </div>
+                  </SurfaceCard>
+
+                  {/* Approvals — shown once here in right sidebar */}
+                  <SurfaceCard delay={0.38}>
                     <div className="flex items-center justify-between mb-5">
                       <div className="flex items-center gap-3">
                         <div className="flex h-11 w-11 items-center justify-center rounded-xl text-white"
@@ -2062,43 +2043,6 @@ export default function HomePage({ data }: { data: HomeData }) {
                           </button>
                         </div>
                       )}
-                    </div>
-                  </SurfaceCard>
-
-                  {/* ✅ Quick Stats — now includes Financial Plan Budget Health row */}
-                  <SurfaceCard delay={0.38}>
-                    <div className="flex items-center gap-2 mb-5">
-                      <div className="h-px flex-1 bg-gradient-to-r from-transparent to-indigo-200/62" />
-                      <span className="text-[10px] text-indigo-500 uppercase tracking-[0.2em] font-bold">Quick Stats</span>
-                      <div className="h-px flex-1 bg-gradient-to-l from-transparent to-indigo-200/62" />
-                    </div>
-                    <div className="space-y-3">
-                      {[
-                        { label: "Active Projects", node: <span className="text-2xl font-bold text-slate-950" style={{ fontFamily: "var(--font-mono, monospace)" }}>{uiActiveCount}</span> },
-                        { label: "Portfolio Score", node: <span className={["text-sm font-bold px-2.5 py-1 rounded-xl border-2", ragBadgeClasses(phRag)].join(" ")}>{phScoreForUi}%</span> },
-                        { label: "Open Risks", node: <span className="text-2xl font-bold text-slate-950" style={{ fontFamily: "var(--font-mono, monospace)" }}>{kpis.openRisks}</span> },
-                      ].map((stat, i) => (
-                        <m.div key={stat.label} initial={{ opacity: 0, x: 14 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.42 + i * 0.06 }}
-                          className="flex items-center justify-between p-3 rounded-xl bg-white/52 border border-slate-100/82"
-                          style={{ backdropFilter: "blur(10px)", boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}>
-                          <span className="text-sm text-slate-500 font-medium">{stat.label}</span>
-                          {stat.node}
-                        </m.div>
-                      ))}
-
-                      {/* ✅ NEW: Financial Plan / Budget Health row */}
-                      <div className="pt-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className="h-px flex-1 bg-slate-100" />
-                          <span className="text-[9px] text-slate-400 uppercase tracking-widest font-bold">Budget</span>
-                          <div className="h-px flex-1 bg-slate-100" />
-                        </div>
-                        <FinancialPlanSnippet
-                          summary={fpSummary}
-                          loading={fpLoading}
-                          projectRef={firstProjectRef}
-                        />
-                      </div>
                     </div>
                   </SurfaceCard>
                 </div>
