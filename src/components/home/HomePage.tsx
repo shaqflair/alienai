@@ -1041,13 +1041,22 @@ function BudgetHealthCard({
 
   const projectCount = hasData ? ((summary as any).project_count ?? 1) : null;
 
-  function handleViewClick(e: React.MouseEvent) {
-    e.stopPropagation();
+  function navigateToArtifact() {
     if (hasData && (summary as any).artifact_id) {
-      router.push(`/projects/${projectRef}/artifacts/${(summary as any).artifact_id}`);
+      router.push(`/projects/${projectRef}/artifacts/${(summary as any).artifact_id}?panel=intelligence`);
     } else if (projectRef) {
       router.push(`/projects/${projectRef}/artifacts/new?type=FINANCIAL_PLAN`);
     }
+  }
+
+  function handleViewClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    navigateToArtifact();
+  }
+
+  function handleExpandToggle(e: React.MouseEvent) {
+    e.stopPropagation();
+    setExpanded(v => !v);
   }
 
   const tone = loading ? "slate" : !hasData ? "slate" : ragLetter === "G" ? "emerald" : ragLetter === "A" ? "amber" : "rose";
@@ -1089,7 +1098,7 @@ function BudgetHealthCard({
         style={{ background: `radial-gradient(ellipse, ${acc.orb} 0%, transparent 65%)`, filter: "blur(2px)" }} />
 
       {/* ── Always-visible header ── */}
-      <div className="relative pl-4 p-5 cursor-pointer select-none" onClick={() => setExpanded(v => !v)}>
+      <div className="relative pl-4 p-5 cursor-pointer select-none" onClick={navigateToArtifact}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -1099,9 +1108,14 @@ function BudgetHealthCard({
                   {ragLabel(ragLetter)}
                 </span>
               )}
-              <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-slate-400 font-semibold">
-                {expanded ? <><ChevronUp className="h-3.5 w-3.5" />Collapse</> : <><ChevronDown className="h-3.5 w-3.5" />Expand</>}
-              </span>
+              <button
+                type="button"
+                onClick={handleExpandToggle}
+                className="ml-auto inline-flex items-center gap-1 text-[10px] text-slate-400 font-semibold hover:text-slate-600 transition-colors px-1.5 py-1 rounded-lg hover:bg-slate-100/60"
+                title={expanded ? "Collapse" : "Expand details"}
+              >
+                {expanded ? <><ChevronUp className="h-3.5 w-3.5" />Collapse</> : <><ChevronDown className="h-3.5 w-3.5" />Details</>}
+              </button>
             </div>
 
             <p className="text-[42px] font-bold text-slate-950 tracking-tight leading-none"
