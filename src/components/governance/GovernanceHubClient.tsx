@@ -2,6 +2,7 @@
 // Fix: ensure projectId is always available in project scope (fallback to route params)
 // Fix: Ask Aliena always sends scope + projectId (when project scope)
 // Fix: "Read →" links always use Link
+// Fix: Hub supports DB-driven governance_articles (with safe fallback)
 
 "use client";
 
@@ -27,6 +28,16 @@ import {
 
 type Scope = "global" | "project";
 
+type GovernanceArticleSummary = {
+  id: string;
+  slug: string;
+  title: string;
+  summary?: string | null;
+  category?: string | null;
+  updated_at?: string | null;
+  content?: unknown;
+};
+
 function safeStr(x: unknown) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
@@ -42,8 +53,20 @@ function clamp(s: string, max: number) {
   return t.length > max ? t.slice(0, max) : t;
 }
 
+function iconForSlug(slug: string) {
+  const s = safeStr(slug).trim().toLowerCase();
+  if (s === "delivery-governance-framework") return <Shield className="h-5 w-5" />;
+  if (s === "roles-ownership") return <Users className="h-5 w-5" />;
+  if (s === "approvals-decision-control") return <FileCheck className="h-5 w-5" />;
+  if (s === "change-control") return <GitBranch className="h-5 w-5" />;
+  if (s === "risk-raid-discipline") return <AlertTriangle className="h-5 w-5" />;
+  if (s === "ai-assistance") return <Sparkles className="h-5 w-5" />;
+  if (s === "executive-oversight") return <BarChart3 className="h-5 w-5" />;
+  return <Shield className="h-5 w-5" />;
+}
+
 type Card = {
-  key: string; // also used as slug for KB
+  key: string; // slug
   title: string;
   icon: React.ReactNode;
   summary: string;
@@ -109,7 +132,36 @@ function kindLabel(k: string) {
   return kk.charAt(0).toUpperCase() + kk.slice(1);
 }
 
-export default function GovernanceHubClient({ scope, projectId }: { scope: Scope; projectId?: string }) {
+// Try to extract bullets from JSON content {sections:[{bullets:[]}]}
+function bulletsFromContent(content: unknown, max = 5): string[] {
+  try {
+    if (!content || typeof content !== "object") return [];
+    const c: any = content;
+    const secs = Array.isArray(c?.sections) ? c.sections : [];
+    const all: string[] = [];
+    for (const s of secs) {
+      const bs = Array.isArray(s?.bullets) ? s.bullets : [];
+      for (const b of bs) {
+        const t = safeStr(b).trim();
+        if (t) all.push(t);
+        if (all.length >= max) return all.slice(0, max);
+      }
+    }
+    return all.slice(0, max);
+  } catch {
+    return [];
+  }
+}
+
+export default function GovernanceHubClient({
+  scope,
+  projectId,
+  articles,
+}: {
+  scope: Scope;
+  projectId?: string;
+  articles?: GovernanceArticleSummary[];
+}) {
   const params = useParams();
   const pidFromParams = safeStr((params as any)?.id).trim();
   const pidProp = safeStr(projectId).trim();
@@ -127,7 +179,7 @@ export default function GovernanceHubClient({ scope, projectId }: { scope: Scope
   const [askAnswer, setAskAnswer] = useState<string>("");
   const [askResult, setAskResult] = useState<AdvisorResult | null>(null);
 
-  const cards: Card[] = useMemo(
+  const fallbackCards: Card[] = useMemo(
     () => [
       {
         key: "delivery-governance-framework",
@@ -156,10 +208,7 @@ export default function GovernanceHubClient({ scope, projectId }: { scope: Scope
           "Use delegation / holiday cover for uninterrupted approvals",
         ],
         ctas: [
-          {
-            label: "Go to project members",
-            href: (p) => `/projects/${encodeURIComponent(p)}`,
-          },
+          { label: "Go to project members", href: (p) => `/projects/${encodeURIComponent(p)}` },
         ],
       },
       {
@@ -175,14 +224,8 @@ export default function GovernanceHubClient({ scope, projectId }: { scope: Scope
           "Decisions remain auditable (who/when/what)",
         ],
         ctas: [
-          {
-            label: "Open approvals inbox",
-            href: (p) => `/projects/${encodeURIComponent(p)}/approvals/inbox`,
-          },
-          {
-            label: "Open approvals timeline",
-            href: (p) => `/projects/${encodeURIComponent(p)}/approvals/timeline`,
-          },
+          { label: "Open approvals inbox", href: (p) => `/projects/${encodeURIComponent(p)}/approvals/inbox` },
+          { label: "Open approvals timeline", href: (p) => `/projects/${encodeURIComponent(p)}/approvals/timeline` },
         ],
       },
       {
@@ -197,12 +240,7 @@ export default function GovernanceHubClient({ scope, projectId }: { scope: Scope
           "Link changes to delivery impact and actions",
           "Close changes with outcomes recorded",
         ],
-        ctas: [
-          {
-            label: "Open change board",
-            href: (p) => `/projects/${encodeURIComponent(p)}/change`,
-          },
-        ],
+        ctas: [{ label: "Open change board", href: (p) => `/projects/${encodeURIComponent(p)}/change` }],
       },
       {
         key: "risk-raid-discipline",
@@ -216,12 +254,7 @@ export default function GovernanceHubClient({ scope, projectId }: { scope: Scope
           "Update cadence: weekly minimum for active delivery",
           "Escalate high-severity items for executive visibility",
         ],
-        ctas: [
-          {
-            label: "Open RAID log",
-            href: (p) => `/projects/${encodeURIComponent(p)}/raid`,
-          },
-        ],
+        ctas: [{ label: "Open RAID log", href: (p) => `/projects/${encodeURIComponent(p)}/raid` }],
       },
       {
         key: "ai-assistance",
@@ -252,6 +285,40 @@ export default function GovernanceHubClient({ scope, projectId }: { scope: Scope
     ],
     []
   );
+
+  const cards: Card[] = useMemo(() => {
+    const list = Array.isArray(articles) ? articles : [];
+    if (!list.length) return fallbackCards;
+
+    // Convert DB articles to cards; keep project CTAs for known slugs
+    const ctasBySlug: Record<string, Card["ctas"]> = {
+      "roles-ownership": [{ label: "Go to project members", href: (p) => `/projects/${encodeURIComponent(p)}` }],
+      "approvals-decision-control": [
+        { label: "Open approvals inbox", href: (p) => `/projects/${encodeURIComponent(p)}/approvals/inbox` },
+        { label: "Open approvals timeline", href: (p) => `/projects/${encodeURIComponent(p)}/approvals/timeline` },
+      ],
+      "change-control": [{ label: "Open change board", href: (p) => `/projects/${encodeURIComponent(p)}/change` }],
+      "risk-raid-discipline": [{ label: "Open RAID log", href: (p) => `/projects/${encodeURIComponent(p)}/raid` }],
+    };
+
+    return list
+      .filter((a) => safeStr(a.slug).trim())
+      .map((a) => {
+        const slug = safeStr(a.slug).trim();
+        const title = safeStr(a.title).trim() || slug;
+        const summary = safeStr(a.summary).trim();
+        const bullets = bulletsFromContent(a.content, 5);
+
+        return {
+          key: slug,
+          title,
+          icon: iconForSlug(slug),
+          summary: summary || "Governance guidance and operating standards.",
+          bullets: bullets.length ? bullets : ["Open the article to view full guidance."],
+          ctas: ctasBySlug[slug],
+        };
+      });
+  }, [articles, fallbackCards]);
 
   const q = query.trim().toLowerCase();
   const filtered = useMemo(() => {
@@ -363,11 +430,17 @@ export default function GovernanceHubClient({ scope, projectId }: { scope: Scope
             {/* Breadcrumbs (project scope) */}
             {scope === "project" && pid ? (
               <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
-                <Link href={`/projects/${encodeURIComponent(pid)}`} className="hover:text-neutral-700 transition-colors">
+                <Link
+                  href={`/projects/${encodeURIComponent(pid)}`}
+                  className="hover:text-neutral-700 transition-colors"
+                >
                   {projectLabel}
                 </Link>
                 <span className="text-neutral-300">/</span>
-                <Link href={`/projects/${encodeURIComponent(pid)}/artifacts`} className="hover:text-neutral-700 transition-colors">
+                <Link
+                  href={`/projects/${encodeURIComponent(pid)}/artifacts`}
+                  className="hover:text-neutral-700 transition-colors"
+                >
                   Artifacts
                 </Link>
                 <span className="text-neutral-300">/</span>
@@ -439,10 +512,15 @@ export default function GovernanceHubClient({ scope, projectId }: { scope: Scope
       {/* Cards */}
       <div className="grid grid-cols-1 gap-4">
         {filtered.map((card) => (
-          <div key={card.key} className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm hover:bg-neutral-50">
+          <div
+            key={card.key}
+            className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm hover:bg-neutral-50"
+          >
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-3">
-                <div className="mt-0.5 rounded-xl border border-neutral-200 bg-white p-2 text-neutral-700">{card.icon}</div>
+                <div className="mt-0.5 rounded-xl border border-neutral-200 bg-white p-2 text-neutral-700">
+                  {card.icon}
+                </div>
                 <div className="min-w-0">
                   <h2 className="text-base font-semibold text-neutral-900">{card.title}</h2>
                   <p className="mt-1 text-sm text-neutral-600">{card.summary}</p>
@@ -598,7 +676,9 @@ export default function GovernanceHubClient({ scope, projectId }: { scope: Scope
                     </button>
                   </div>
 
-                  <div className="mt-3 whitespace-pre-wrap text-sm text-neutral-900">{safeStr(askResult?.answer || askAnswer)}</div>
+                  <div className="mt-3 whitespace-pre-wrap text-sm text-neutral-900">
+                    {safeStr(askResult?.answer || askAnswer)}
+                  </div>
 
                   {/* Key drivers */}
                   {askResult?.key_drivers?.length ? (
@@ -606,7 +686,10 @@ export default function GovernanceHubClient({ scope, projectId }: { scope: Scope
                       <div className="text-xs font-semibold text-neutral-500">Key drivers</div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         {askResult.key_drivers.slice(0, 10).map((d, idx) => (
-                          <span key={`drv:${idx}`} className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-xs text-neutral-700">
+                          <span
+                            key={`drv:${idx}`}
+                            className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-xs text-neutral-700"
+                          >
                             {d}
                           </span>
                         ))}
@@ -625,8 +708,12 @@ export default function GovernanceHubClient({ scope, projectId }: { scope: Scope
                               <div className="min-w-0">
                                 <div className="text-xs text-neutral-500">
                                   {kindLabel(b.kind)}
-                                  {typeof b.age_days === "number" ? <span className="ml-2 text-neutral-400">• {b.age_days}d</span> : null}
-                                  {typeof b.severity === "number" ? <span className="ml-2 text-neutral-400">• Sev {b.severity}</span> : null}
+                                  {typeof b.age_days === "number" ? (
+                                    <span className="ml-2 text-neutral-400">• {b.age_days}d</span>
+                                  ) : null}
+                                  {typeof b.severity === "number" ? (
+                                    <span className="ml-2 text-neutral-400">• Sev {b.severity}</span>
+                                  ) : null}
                                 </div>
                                 <div className="mt-0.5 text-sm font-medium text-neutral-900">{b.title}</div>
                                 <div className="mt-1 text-sm text-neutral-700">
@@ -654,7 +741,9 @@ export default function GovernanceHubClient({ scope, projectId }: { scope: Scope
                                 <div className="min-w-0">
                                   <div className="text-xs text-neutral-500">
                                     Priority {a.priority}
-                                    {a.owner_suggestion ? <span className="ml-2 text-neutral-400">• {a.owner_suggestion}</span> : null}
+                                    {a.owner_suggestion ? (
+                                      <span className="ml-2 text-neutral-400">• {a.owner_suggestion}</span>
+                                    ) : null}
                                   </div>
                                   <div className="mt-0.5 text-sm font-medium text-neutral-900">{a.action}</div>
                                   <div className="mt-1 text-sm text-neutral-700">{a.why}</div>
@@ -672,7 +761,11 @@ export default function GovernanceHubClient({ scope, projectId }: { scope: Scope
                       <div className="text-xs font-semibold text-neutral-500">Recommended next clicks</div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         {askResult.recommended_routes.slice(0, 6).map((r, idx) => (
-                          <Link key={`rr:${idx}`} href={r.href} className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-800 hover:bg-neutral-50">
+                          <Link
+                            key={`rr:${idx}`}
+                            href={r.href}
+                            className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-800 hover:bg-neutral-50"
+                          >
                             {r.label}
                             <ExternalLink className="h-3.5 w-3.5 text-neutral-400" />
                           </Link>
@@ -725,7 +818,9 @@ export default function GovernanceHubClient({ scope, projectId }: { scope: Scope
                   Project-aware answers enabled {pid && looksLikeUuid(pid) ? "(ID hidden)" : ""}.
                 </div>
               ) : (
-                <div className="text-[11px] text-neutral-500">Global scope: best-practice guidance + platform governance patterns.</div>
+                <div className="text-[11px] text-neutral-500">
+                  Global scope: best-practice guidance + platform governance patterns.
+                </div>
               )}
             </div>
           </div>

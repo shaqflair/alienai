@@ -1,10 +1,11 @@
-﻿"use client";
+﻿//src/components/artifact/FinancialIntelligencePanel.tsx
+"use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import {
-  AlertTriangle, TrendingUp, Zap, RefreshCw,
-  ChevronDown, ChevronRight, CheckCircle, Clock,
-  Info, Sparkles, ArrowRight, Shield, AlertCircle, WifiOff,
+  AlertTriangle, RefreshCw, ChevronDown, ChevronRight,
+  Info, Sparkles, ArrowRight, AlertCircle,
 } from "lucide-react";
 import {
   analyseFinancialPlan,
@@ -12,7 +13,6 @@ import {
   type Signal,
   type FinancialAIAnalysis,
   type AIDriver,
-  type AIWarning,
 } from "@/lib/financial-intelligence";
 import type { FinancialPlanContent } from "./FinancialPlanEditor";
 import type { MonthlyData, FYConfig } from "./FinancialPlanMonthlyView";
@@ -34,20 +34,11 @@ type Props = {
 function RagDot({ rag, size = "md" }: { rag: "red" | "amber" | "green"; size?: "sm" | "md" | "lg" }) {
   const sz = { sm: "w-2 h-2", md: "w-3 h-3", lg: "w-4 h-4" }[size];
   const col = {
-    red:   "bg-red-500   shadow-red-300",
+    red:   "bg-red-500 shadow-red-300",
     amber: "bg-amber-400 shadow-amber-200",
     green: "bg-emerald-500 shadow-emerald-200",
   }[rag];
   return <span className={`inline-block rounded-full ${sz} ${col} shadow-md ring-2 ring-white`} />;
-}
-
-function LikelihoodBadge({ l }: { l: "high" | "medium" | "low" }) {
-  const map = {
-    high:   "bg-red-100   text-red-700   border-red-200",
-    medium: "bg-amber-100 text-amber-700 border-amber-200",
-    low:    "bg-blue-100  text-blue-700  border-blue-200",
-  };
-  return <span className={`px-1.5 py-0.5 rounded text-xs font-semibold border ${map[l]} capitalize`}>{l}</span>;
 }
 
 // ── Signal card ───────────────────────────────────────────────────────────────
@@ -55,17 +46,14 @@ function LikelihoodBadge({ l }: { l: "high" | "medium" | "low" }) {
 function SignalCard({ signal }: { signal: Signal }) {
   const [expanded, setExpanded] = useState(false);
   const style = SEVERITY_STYLE[signal.severity];
-  const Icon  = signal.severity === "critical" ? AlertTriangle
+  const Icon = signal.severity === "critical" ? AlertTriangle
     : signal.severity === "warning" ? AlertCircle : Info;
-
   return (
     <div className={`rounded-xl border ${style.bg} ${style.border} overflow-hidden`}>
       <button onClick={() => setExpanded(e => !e)} className="w-full flex items-start gap-3 px-4 py-3 text-left">
         <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${style.text}`} />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className={`text-sm font-semibold ${style.text}`}>{signal.title}</span>
-          </div>
+          <span className={`text-sm font-semibold ${style.text}`}>{signal.title}</span>
           {!expanded && <p className={`text-xs mt-0.5 ${style.text} opacity-80 line-clamp-1`}>{signal.detail}</p>}
         </div>
         {expanded
@@ -81,7 +69,7 @@ function SignalCard({ signal }: { signal: Signal }) {
   );
 }
 
-// ── Skeletons ──────────────────────────────────────────────────────────────────
+// ── Skeletons ─────────────────────────────────────────────────────────────────
 
 function Skeleton({ className = "" }: { className?: string }) {
   return <div className={`animate-pulse bg-gray-200 rounded ${className}`} />;
@@ -104,11 +92,11 @@ function AILoadingSkeleton() {
   );
 }
 
-// ── AI driver card ────────────────────────────────────────────────────────────
+// ── Driver card ───────────────────────────────────────────────────────────────
 
 function DriverCard({ d }: { d: AIDriver }) {
   const style = SEVERITY_STYLE[d.severity];
-  const Icon  = d.severity === "critical" ? AlertTriangle
+  const Icon = d.severity === "critical" ? AlertTriangle
     : d.severity === "warning" ? AlertCircle : Info;
   return (
     <div className={`rounded-xl border ${style.bg} ${style.border} p-4 flex flex-col gap-2`}>
@@ -140,20 +128,35 @@ export default function FinancialIntelligencePanel({
   content, monthlyData, fyConfig, lastUpdatedAt,
   raidItems, approvalDelays, onSignalsChange,
 }: Props) {
+  const searchParams   = useSearchParams();
+  const panelRef       = useRef<HTMLDivElement>(null);
   const [signals, setSignals]       = useState<Signal[]>([]);
   const [aiAnalysis, setAiAnalysis] = useState<FinancialAIAnalysis | null>(null);
   const [aiLoading, setAiLoading]   = useState(false);
   const [aiError, setAiError]       = useState<string | null>(null);
   const [activeTab, setActiveTab]   = useState<"signals" | "ai">("signals");
-  const [analysedAt, setAnalysedAt] = useState<Date | null>(null);
 
+  // ── Compute signals whenever content changes ───────────────────────────────
   useEffect(() => {
     const sigs = analyseFinancialPlan(content, monthlyData, fyConfig, { lastUpdatedAt });
     setSignals(sigs);
     onSignalsChange?.(sigs);
   }, [content, monthlyData, fyConfig, lastUpdatedAt, onSignalsChange]);
 
-  const fetchAI = useCallback(async () => {
+  // ── Auto-open + scroll when navigated from Budget Health card ─────────────
+  useEffect(() => {
+    if (searchParams?.get("panel") === "intelligence") {
+      // Scroll the panel into view smoothly
+      setTimeout(() => {
+        panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 300);
+      // Auto-trigger AI briefing
+      triggerAI();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const triggerAI = useCallback(async () => {
     setAiLoading(true);
     setAiError(null);
     setActiveTab("ai");
@@ -161,15 +164,11 @@ export default function FinancialIntelligencePanel({
       const res = await fetch("/api/ai/financial-intelligence", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content, monthlyData, fyConfig, lastUpdatedAt,
-          raidItems, approvalDelays,
-        }),
+        body: JSON.stringify({ content, monthlyData, fyConfig, lastUpdatedAt, raidItems, approvalDelays }),
       });
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       const data = await res.json();
       setAiAnalysis(data.analysis);
-      setAnalysedAt(new Date());
     } catch (e: any) {
       setAiError(e?.message ?? "AI analysis failed.");
     } finally {
@@ -180,12 +179,15 @@ export default function FinancialIntelligencePanel({
   const criticals = signals.filter(s => s.severity === "critical");
   const warnings  = signals.filter(s => s.severity === "warning");
   const infos     = signals.filter(s => s.severity === "info");
-
   const planRag: "red" | "amber" | "green" =
     criticals.length > 0 ? "red" : warnings.length > 0 ? "amber" : "green";
 
   return (
-    <div className="flex flex-col rounded-2xl border border-gray-200 overflow-hidden shadow-sm bg-white">
+    <div
+      ref={panelRef}
+      id="financial-intelligence-panel"
+      className="flex flex-col rounded-2xl border border-gray-200 overflow-hidden shadow-sm bg-white"
+    >
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-3.5 bg-gray-900">
         <div className="flex items-center gap-3">
@@ -194,23 +196,25 @@ export default function FinancialIntelligencePanel({
           <RagDot rag={planRag} size="sm" />
         </div>
         <button
-          onClick={fetchAI}
+          onClick={triggerAI}
           disabled={aiLoading}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-gray-900 text-xs font-bold transition-colors disabled:opacity-50"
         >
-          {aiLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-          Explain
+          {aiLoading
+            ? <RefreshCw className="w-3 h-3 animate-spin" />
+            : <Sparkles className="w-3 h-3" />}
+          {aiLoading ? "Analysing…" : "Explain"}
         </button>
       </div>
 
       {/* Tabs */}
       <div className="flex border-b border-gray-200 bg-gray-50">
-        {["signals", "ai"].map((id) => (
+        {(["signals", "ai"] as const).map(id => (
           <button
             key={id}
-            onClick={() => setActiveTab(id as any)}
-            className={`px-5 py-2.5 text-xs font-semibold border-b-2 transition-colors capitalize ${
-              activeTab === id ? "border-amber-500 text-gray-900" : "border-transparent text-gray-500"
+            onClick={() => setActiveTab(id)}
+            className={`px-5 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
+              activeTab === id ? "border-amber-500 text-gray-900" : "border-transparent text-gray-500 hover:text-gray-700"
             }`}
           >
             {id === "signals" ? `Signals (${signals.length})` : "AI Briefing"}
@@ -222,22 +226,47 @@ export default function FinancialIntelligencePanel({
       <div className="p-4 overflow-y-auto max-h-[500px]">
         {activeTab === "signals" ? (
           <div className="flex flex-col gap-3">
-            {signals.length === 0 && <p className="text-center text-gray-400 py-8 text-sm">No signals detected</p>}
+            {signals.length === 0 && (
+              <p className="text-center text-gray-400 py-8 text-sm">No signals detected — budget looks healthy.</p>
+            )}
             {criticals.map(s => <SignalCard key={s.code + s.scopeKey} signal={s} />)}
-            {warnings.map(s => <SignalCard key={s.code + s.scopeKey} signal={s} />)}
-            {infos.map(s => <SignalCard key={s.code + s.scopeKey} signal={s} />)}
+            {warnings.map(s  => <SignalCard key={s.code + s.scopeKey} signal={s} />)}
+            {infos.map(s     => <SignalCard key={s.code + s.scopeKey} signal={s} />)}
           </div>
         ) : (
           <div>
             {aiLoading && <AILoadingSkeleton />}
-            {aiError && <p className="text-red-500 text-sm p-4">{aiError}</p>}
+            {aiError && (
+              <div className="text-red-500 text-sm p-4 bg-red-50 rounded-xl border border-red-200">
+                {aiError}
+              </div>
+            )}
+            {!aiLoading && !aiAnalysis && !aiError && (
+              <div className="text-center py-8 text-gray-400 text-sm">
+                <Sparkles className="w-6 h-6 mx-auto mb-2 opacity-40" />
+                <p>Press <strong className="text-gray-600">Explain</strong> for an AI briefing on this financial plan</p>
+              </div>
+            )}
             {aiAnalysis && !aiLoading && (
               <div className="flex flex-col gap-4">
-                <div className="p-4 bg-gray-50 rounded-xl">
-                  <p className="text-sm font-bold">{aiAnalysis.headline}</p>
-                  <p className="text-xs text-gray-600 mt-1">{aiAnalysis.narrative}</p>
+                <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+                  <p className="text-sm font-bold text-gray-900">{aiAnalysis.headline}</p>
+                  <p className="text-xs text-gray-600 mt-1 leading-relaxed">{aiAnalysis.narrative}</p>
                 </div>
                 {aiAnalysis.drivers.map((d, i) => <DriverCard key={i} d={d} />)}
+                {aiAnalysis.pm_actions?.length > 0 && (
+                  <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                    <p className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-2">Recommended Actions</p>
+                    <ul className="flex flex-col gap-1.5">
+                      {aiAnalysis.pm_actions.map((a, i) => (
+                        <li key={i} className="flex items-start gap-2 text-xs text-blue-900">
+                          <span className="mt-0.5 w-4 h-4 rounded-full bg-blue-200 text-blue-800 flex items-center justify-center text-[10px] font-bold flex-shrink-0">{i + 1}</span>
+                          {a}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             )}
           </div>

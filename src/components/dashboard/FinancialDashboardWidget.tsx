@@ -2,20 +2,16 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { TrendingUp, TrendingDown, AlertTriangle, ExternalLink, DollarSign } from "lucide-react";
+import { AlertTriangle, ExternalLink, DollarSign, Sparkles } from "lucide-react";
 import type { FinancialPlanContent } from "@/components/artifact/FinancialPlanEditor";
 import { extractFinancialSnapshot, fmtMoney, fmtPct, type FinancialSnapshot } from "@/lib/financial-plan-utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type Props = {
-  /** content_json from the financial_plan artifact */
   financialContent: FinancialPlanContent | null;
-  /** href to the artifact detail page */
   artifactHref?: string;
-  /** optional project name for header */
   projectName?: string;
-  /** compact mode for dashboard grid */
   compact?: boolean;
 };
 
@@ -23,9 +19,9 @@ type Props = {
 
 function RagPill({ rag }: { rag: "red" | "amber" | "green" }) {
   const map = {
-    red:   { label: "Over Budget",   cls: "bg-red-100 text-red-700 border-red-200" },
-    amber: { label: "Watch",         cls: "bg-amber-100 text-amber-700 border-amber-200" },
-    green: { label: "On Track",      cls: "bg-emerald-100 text-emerald-700 border-emerald-200" },
+    red:   { label: "Over Budget", cls: "bg-red-100 text-red-700 border-red-200" },
+    amber: { label: "Watch",       cls: "bg-amber-100 text-amber-700 border-amber-200" },
+    green: { label: "On Track",    cls: "bg-emerald-100 text-emerald-700 border-emerald-200" },
   }[rag];
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${map.cls}`}>
@@ -40,59 +36,40 @@ function RagPill({ rag }: { rag: "red" | "amber" | "green" }) {
 function SpendBar({ actual, forecast, budget }: { actual: number; forecast: number; budget: number }) {
   if (!budget) return null;
   const spentPct    = Math.min((actual / budget) * 100, 100);
-  const forecastPct = Math.min((forecast / budget) * 100, 110); // allow slight overflow
-  const over = forecast > budget;
-
+  const forecastPct = Math.min((forecast / budget) * 100, 110);
+  const over        = forecast > budget;
   return (
     <div className="relative">
       <div className="h-2 rounded-full bg-neutral-100 overflow-hidden">
-        {/* forecast track */}
-        <div
-          className={`absolute top-0 left-0 h-2 rounded-full transition-all ${over ? "bg-red-200" : "bg-emerald-100"}`}
-          style={{ width: `${Math.min(forecastPct, 100)}%` }}
-        />
-        {/* actual spend */}
-        <div
-          className="absolute top-0 left-0 h-2 rounded-full bg-blue-500 transition-all"
-          style={{ width: `${spentPct}%` }}
-        />
+        <div className={`absolute top-0 left-0 h-2 rounded-full transition-all ${over ? "bg-red-200" : "bg-emerald-100"}`}
+          style={{ width: `${Math.min(forecastPct, 100)}%` }} />
+        <div className="absolute top-0 left-0 h-2 rounded-full bg-blue-500 transition-all"
+          style={{ width: `${spentPct}%` }} />
       </div>
-      {/* budget marker */}
-      <div className="absolute top-0 left-full h-2 w-0.5 bg-neutral-400 -translate-x-px" style={{ left: "100%" }} />
     </div>
   );
 }
 
-// ── Category bar chart ────────────────────────────────────────────────────────
+// ── Category breakdown ────────────────────────────────────────────────────────
 
 const CATEGORY_DISPLAY: Record<string, string> = {
-  people:            "People",
-  tools_licences:    "Tools",
-  infrastructure:    "Infra",
-  external_vendors:  "Vendors",
-  travel:            "Travel",
-  contingency:       "Contingency",
-  other:             "Other",
+  people: "People", tools_licences: "Tools", infrastructure: "Infra",
+  external_vendors: "Vendors", travel: "Travel", contingency: "Contingency", other: "Other",
 };
-
 const CATEGORY_COLORS = ["bg-blue-500", "bg-violet-500", "bg-amber-500", "bg-emerald-500"];
 
-function CategoryBreakdown({ categories }: { categories: FinancialSnapshot["topCategories"]; sym: string }) {
+function CategoryBreakdown({ categories }: { categories: FinancialSnapshot["topCategories"] }) {
   if (categories.length === 0) return null;
   return (
     <div className="flex flex-col gap-1.5">
       {categories.map((c, i) => (
         <div key={c.category} className="flex items-center gap-2">
           <div className="w-20 shrink-0">
-            <span className="text-xs text-neutral-500 truncate">
-              {CATEGORY_DISPLAY[c.category] ?? c.category}
-            </span>
+            <span className="text-xs text-neutral-500 truncate">{CATEGORY_DISPLAY[c.category] ?? c.category}</span>
           </div>
           <div className="flex-1 h-1.5 rounded-full bg-neutral-100 overflow-hidden">
-            <div
-              className={`h-1.5 rounded-full ${CATEGORY_COLORS[i % CATEGORY_COLORS.length]} transition-all`}
-              style={{ width: `${c.pct}%` }}
-            />
+            <div className={`h-1.5 rounded-full ${CATEGORY_COLORS[i % CATEGORY_COLORS.length]} transition-all`}
+              style={{ width: `${c.pct}%` }} />
           </div>
           <span className="text-xs text-neutral-500 w-8 text-right tabular-nums">{c.pct}%</span>
         </div>
@@ -103,13 +80,10 @@ function CategoryBreakdown({ categories }: { categories: FinancialSnapshot["topC
 
 // ── Stat tile ─────────────────────────────────────────────────────────────────
 
-function StatTile({ label, value, sub, highlight }: { label: string; value: string; sub?: string; highlight?: "good" | "bad" | "warn" | "neutral" }) {
-  const colors = {
-    good:    "text-emerald-700",
-    bad:     "text-red-600",
-    warn:    "text-amber-600",
-    neutral: "text-neutral-800",
-  };
+function StatTile({ label, value, sub, highlight }: {
+  label: string; value: string; sub?: string; highlight?: "good" | "bad" | "warn" | "neutral";
+}) {
+  const colors = { good: "text-emerald-700", bad: "text-red-600", warn: "text-amber-600", neutral: "text-neutral-800" };
   return (
     <div className="bg-white rounded-xl border border-neutral-100 px-4 py-3">
       <div className="text-[11px] text-neutral-500 font-medium uppercase tracking-wide mb-1">{label}</div>
@@ -132,10 +106,8 @@ function EmptyState({ artifactHref }: { artifactHref?: string }) {
         <p className="text-xs text-neutral-400 mt-0.5">Create a Financial Plan artifact to see budget metrics here</p>
       </div>
       {artifactHref && (
-        <Link
-          href={artifactHref}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 transition-colors"
-        >
+        <Link href={artifactHref}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 transition-colors">
           Create Financial Plan
         </Link>
       )}
@@ -156,6 +128,11 @@ export default function FinancialDashboardWidget({ financialContent, artifactHre
   const { sym } = snap;
   const hasData = snap.approvedBudget > 0 || snap.totalForecast > 0;
 
+  // ✅ Intelligence panel href — appends ?panel=intelligence to open and scroll to the panel
+  const intelligenceHref = artifactHref
+    ? `${artifactHref}?panel=intelligence`
+    : undefined;
+
   return (
     <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
       {/* ── Header ── */}
@@ -171,14 +148,25 @@ export default function FinancialDashboardWidget({ financialContent, artifactHre
           {hasData && <RagPill rag={snap.ragStatus} />}
         </div>
 
-        {artifactHref && (
-          <Link
-            href={artifactHref}
-            className="inline-flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"
-          >
-            Open <ExternalLink className="w-3 h-3" />
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {/* ✅ NEW: Direct link to Financial Intelligence Panel */}
+          {intelligenceHref && hasData && (
+            <Link
+              href={intelligenceHref}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition-colors"
+              title="Open Financial Intelligence Panel"
+            >
+              <Sparkles className="w-3 h-3" />
+              Intelligence
+            </Link>
+          )}
+          {artifactHref && (
+            <Link href={artifactHref}
+              className="inline-flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors">
+              Open <ExternalLink className="w-3 h-3" />
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="p-5 flex flex-col gap-5">
@@ -188,32 +176,18 @@ export default function FinancialDashboardWidget({ financialContent, artifactHre
           <>
             {/* ── KPI tiles ── */}
             <div className={`grid gap-3 ${compact ? "grid-cols-2" : "grid-cols-2 md:grid-cols-4"}`}>
-              <StatTile
-                label="Approved Budget"
-                value={fmtMoney(snap.approvedBudget, sym)}
-                sub="total approved"
-                highlight="neutral"
-              />
-              <StatTile
-                label="Actual Spent"
-                value={fmtMoney(snap.totalActual, sym)}
-                sub={snap.spentPct !== null ? `${snap.spentPct}% of budget` : undefined}
-                highlight="neutral"
-              />
-              <StatTile
-                label="Total Forecast"
-                value={fmtMoney(snap.totalForecast, sym)}
+              <StatTile label="Approved Budget" value={fmtMoney(snap.approvedBudget, sym)} sub="total approved" />
+              <StatTile label="Actual Spent" value={fmtMoney(snap.totalActual, sym)}
+                sub={snap.spentPct !== null ? `${snap.spentPct}% of budget` : undefined} />
+              <StatTile label="Total Forecast" value={fmtMoney(snap.totalForecast, sym)}
                 sub={snap.utilPct !== null ? `${snap.utilPct}% utilisation` : undefined}
-                highlight={snap.overBudget ? "bad" : "good"}
-              />
+                highlight={snap.overBudget ? "bad" : "good"} />
               <StatTile
                 label="Forecast Variance"
                 value={snap.forecastVariance !== null ? fmtMoney(Math.abs(snap.forecastVariance), sym) : "—"}
-                sub={
-                  snap.forecastVariancePct !== null
-                    ? `${snap.forecastVariancePct > 0 ? "over" : "under"} by ${Math.abs(snap.forecastVariancePct).toFixed(1)}%`
-                    : undefined
-                }
+                sub={snap.forecastVariancePct !== null
+                  ? `${snap.forecastVariancePct > 0 ? "over" : "under"} by ${Math.abs(snap.forecastVariancePct).toFixed(1)}%`
+                  : undefined}
                 highlight={snap.forecastVariance === null ? "neutral" : snap.forecastVariance > 0 ? "bad" : "good"}
               />
             </div>
@@ -247,6 +221,12 @@ export default function FinancialDashboardWidget({ financialContent, artifactHre
                   {snap.varianceNarrative && (
                     <p className="text-xs mt-1 text-red-600 opacity-80">{snap.varianceNarrative}</p>
                   )}
+                  {intelligenceHref && (
+                    <Link href={intelligenceHref}
+                      className="inline-flex items-center gap-1 mt-2 text-xs font-semibold text-red-700 underline underline-offset-2 hover:text-red-900">
+                      <Sparkles className="w-3 h-3" /> View AI analysis
+                    </Link>
+                  )}
                 </div>
               </div>
             )}
@@ -276,7 +256,7 @@ export default function FinancialDashboardWidget({ financialContent, artifactHre
             {!compact && snap.topCategories.length > 0 && (
               <div>
                 <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2.5">Forecast by Category</div>
-                <CategoryBreakdown categories={snap.topCategories} sym={sym} />
+                <CategoryBreakdown categories={snap.topCategories} />
               </div>
             )}
 
