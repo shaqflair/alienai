@@ -1,5 +1,4 @@
-// src/app/api/executive/projects/route.ts
-// Executive Projects feed for Cockpit / Approvals UI
+﻿// Executive Projects feed for Cockpit / Approvals UI
 // ✅ Filters deleted projects at DB level
 // ✅ Non-exec users only see projects they’re a member of
 import "server-only";
