@@ -280,8 +280,7 @@ export function InlineQuarterFlags({
   const has = (sev: string) => signals.some(s => s.severity === sev);
   if (!signals?.length) return null;
   const color = has("critical") ? "#f43f5e" : has("warning") ? "#f59e0b" : "#10b981";
-  const count = signals.filter(s => s.triggered !== false).length;
-  if (!count) return null;
+  if (!signals.length) return null;
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 2, marginLeft: 4 }}>
       <span style={{ width: 6, height: 6, borderRadius: "50%", background: color, display: "inline-block" }} />
