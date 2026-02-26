@@ -1,56 +1,60 @@
 ﻿// src/components/artifacts/ArtifactDetailClientHost.tsx
+// ✅ FIX: Added FINANCIAL_PLAN mode — renders FinancialPlanEditor instead of fallback textarea
+// ✅ FIX: financial_plan mode added to ArtifactDetailClientMode type
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 
-/**
- * âœ… Keep Charter entry as normal import.
- * Heavy internals are already lazy-loaded inside ProjectCharterEditorFormLazy.tsx.
- */
 import ProjectCharterEditorFormLazy from "@/components/editors/ProjectCharterEditorFormLazy";
 
 /* ---------------- dynamic client components ---------------- */
 
 const StakeholderRegisterEditor = dynamic(() => import("@/components/editors/StakeholderRegisterEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Stakeholder editorâ€¦</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading Stakeholder editor…</div>,
 });
 
 const WBSEditor = dynamic(() => import("@/components/editors/WBSEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading WBS editorâ€¦</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading WBS editor…</div>,
 });
 
 const ScheduleGanttEditor = dynamic(() => import("@/components/editors/ScheduleGanttEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Schedule editorâ€¦</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading Schedule editor…</div>,
 });
 
 const ProjectClosureReportEditor = dynamic(() => import("@/components/editors/ProjectClosureReportEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Closure Report editorâ€¦</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading Closure Report editor…</div>,
 });
 
 const ChangeManagementBoard = dynamic(() => import("@/components/change/ChangeManagementBoard"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Change Boardâ€¦</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading Change Board…</div>,
 });
 
 const WeeklyReportEditor = dynamic(() => import("@/components/editors/WeeklyReportEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading Weekly Report editorâ€¦</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading Weekly Report editor…</div>,
+});
+
+// ✅ NEW: Financial Plan editor — lazy loaded
+const FinancialPlanEditor = dynamic(() => import("@/components/artifacts/FinancialPlanEditor"), {
+  ssr: false,
+  loading: () => <div className="text-sm text-gray-500">Loading Financial Plan editor…</div>,
 });
 
 const AiSuggestionsPanel = dynamic(() => import("@/components/ai/AiSuggestionsPanel"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading AI suggestionsâ€¦</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading AI suggestions…</div>,
 });
 
 const ArtifactTimeline = dynamic(() => import("@/components/artifacts/ArtifactTimeline"), {
   ssr: false,
-  loading: () => <div className="text-sm text-gray-500">Loading timelineâ€¦</div>,
+  loading: () => <div className="text-sm text-gray-500">Loading timeline…</div>,
 });
 
 /* ---------------- types ---------------- */
@@ -63,6 +67,7 @@ export type ArtifactDetailClientMode =
   | "change_requests"
   | "closure"
   | "weekly_report"
+  | "financial_plan"   // ✅ NEW
   | "fallback";
 
 type LegacyExports = { pdf?: string; docx?: string; xlsx?: string };
@@ -92,7 +97,7 @@ export type ArtifactDetailClientHostProps = {
 
   // project extras (charter seeds + schedule header)
   projectTitle?: string;
-  projectManagerName?: string | null; // âœ… seed charter meta
+  projectManagerName?: string | null;
   projectStartDate?: string | null;
   projectFinishDate?: string | null;
 
@@ -115,10 +120,6 @@ export type ArtifactDetailClientHostProps = {
 
   submitForApprovalAction?: any | null;
 
-  /**
-   * âœ… Optional server action (same idea as Charter save)
-   * Provide this from the Server Component host.
-   */
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
 };
 
@@ -133,60 +134,33 @@ function getArtifactVersion(typedInitialJson: any) {
 
 export default function ArtifactDetailClientHost(props: ArtifactDetailClientHostProps) {
   const {
-    projectId,
-    artifactId,
-    mode,
-    isEditable,
-    lockLayout,
-
-    charterInitial,
-    typedInitialJson,
-    rawContentJson,
-    rawContentText,
-
-    projectTitle,
-    projectManagerName,
-    projectStartDate,
-    projectFinishDate,
-
-    latestWbsJson,
-    wbsArtifactId,
-
-    aiTargetType,
-    aiTitle,
-
-    showTimeline = true,
-    showAI = true,
-
+    projectId, artifactId, mode, isEditable, lockLayout,
+    charterInitial, typedInitialJson, rawContentJson, rawContentText,
+    projectTitle, projectManagerName, projectStartDate, projectFinishDate,
+    latestWbsJson, wbsArtifactId,
+    aiTargetType, aiTitle,
+    showTimeline = true, showAI = true,
     hideContentExportsRow: hideContentExportsRowProp = false,
     legacyExports,
-
-    approvalEnabled,
-    canSubmitOrResubmit,
-    approvalStatus,
+    approvalEnabled, canSubmitOrResubmit, approvalStatus,
     submitForApprovalAction,
-
     updateArtifactJsonAction,
   } = props;
 
   const [openAI, setOpenAI] = useState(false);
   const [openTimeline, setOpenTimeline] = useState(false);
 
-  // hydration-safe dev detection for showTestButton
   const [devHost, setDevHost] = useState(false);
   useEffect(() => {
-    try {
-      const host = window.location.hostname || "";
-      setDevHost(/localhost|127\.0\.0\.1/i.test(host));
-    } catch {
-      setDevHost(false);
-    }
+    try { const host = window.location.hostname || ""; setDevHost(/localhost|127\.0\.0\.1/i.test(host)); } catch { setDevHost(false); }
   }, []);
 
   const artifactVersion = useMemo(() => getArtifactVersion(typedInitialJson), [typedInitialJson]);
   const isCharterV2 = mode === "charter" && artifactVersion >= 2;
 
-  const hideContentExportsRow = mode === "charter" || mode === "closure" || mode === "weekly_report" ? true : !!hideContentExportsRowProp;
+  // ✅ financial_plan also hides legacy content exports row
+  const hideContentExportsRow = mode === "charter" || mode === "closure" || mode === "weekly_report" || mode === "financial_plan"
+    ? true : !!hideContentExportsRowProp;
 
   const effectiveLegacyExports = mode === "charter" ? (isCharterV2 ? undefined : legacyExports) : legacyExports;
 
@@ -197,7 +171,8 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     </div>
   );
 
-  const shouldHidePanels = mode === "charter"; // âœ… Charter V2 has its own per-section AI; avoid duplicate global panel UX.
+  // ✅ financial_plan has its own integrated panels — skip global panel section
+  const shouldHidePanels = mode === "charter" || mode === "financial_plan";
 
   return (
     <div className="space-y-6">
@@ -206,61 +181,34 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
           <div className="crEmbed">
             <div className="crPage">
               <Link
-  href={`/projects/${encodeURIComponent(projectId)}/change`}
-  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50"
-  prefetch={false}
->
-  Open Change Control
-</Link>
+                href={`/projects/${encodeURIComponent(projectId)}/change`}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50"
+                prefetch={false}
+              >
+                Open Change Control
+              </Link>
             </div>
           </div>
-
-          {/* Panels (kept for CR) */}
           {!shouldHidePanels && (showAI || showTimeline) ? (
             <section className="mt-6 border rounded-2xl bg-white p-5 space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="font-medium">Panels</div>
                 <div className="flex items-center gap-2">
                   {showAI ? (
-                    <button
-                      type="button"
-                      onClick={() => setOpenAI((v) => !v)}
-                      className={cx(
-                        "rounded-xl border px-3 py-2 text-sm transition",
-                        openAI ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50"
-                      )}
-                    >
+                    <button type="button" onClick={() => setOpenAI((v) => !v)}
+                      className={cx("rounded-xl border px-3 py-2 text-sm transition", openAI ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50")}>
                       {openAI ? "Hide AI" : "Show AI"}
                     </button>
                   ) : null}
-
                   {showTimeline ? (
-                    <button
-                      type="button"
-                      onClick={() => setOpenTimeline((v) => !v)}
-                      className={cx(
-                        "rounded-xl border px-3 py-2 text-sm transition",
-                        openTimeline ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50"
-                      )}
-                    >
+                    <button type="button" onClick={() => setOpenTimeline((v) => !v)}
+                      className={cx("rounded-xl border px-3 py-2 text-sm transition", openTimeline ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50")}>
                       {openTimeline ? "Hide timeline" : "Show timeline"}
                     </button>
                   ) : null}
                 </div>
               </div>
-
-              {showAI && openAI ? (
-                <AiSuggestionsPanel
-                  projectId={projectId}
-                  artifactId={artifactId}
-                  targetArtifactType={aiTargetType}
-                  title={aiTitle || "AI Suggestions"}
-                  limit={20}
-                  hideWhenEmpty={false}
-                  showTestButton={devHost}
-                />
-              ) : null}
-
+              {showAI && openAI ? <AiSuggestionsPanel projectId={projectId} artifactId={artifactId} targetArtifactType={aiTargetType} title={aiTitle || "AI Suggestions"} limit={20} hideWhenEmpty={false} showTestButton={devHost} /> : null}
               {showTimeline && openTimeline ? <ArtifactTimeline artifactId={artifactId} titleMap={{}} limit={60} /> : null}
             </section>
           ) : null}
@@ -272,19 +220,10 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
 
             {mode === "charter" ? (
               <ProjectCharterEditorFormLazy
-                projectId={projectId}
-                artifactId={artifactId}
-                initialJson={charterInitial}
-                readOnly={!isEditable}
-
-                artifactVersion={artifactVersion}
-                // âœ… seed values for meta defaults
-                projectTitle={projectTitle}
-                projectManagerName={projectManagerName ?? undefined}
-                legacyExports={effectiveLegacyExports}
-                approvalEnabled={!!approvalEnabled}
-                canSubmitOrResubmit={!!canSubmitOrResubmit}
-                approvalStatus={approvalStatus ?? null}
+                projectId={projectId} artifactId={artifactId} initialJson={charterInitial} readOnly={!isEditable}
+                artifactVersion={artifactVersion} projectTitle={projectTitle} projectManagerName={projectManagerName ?? undefined}
+                legacyExports={effectiveLegacyExports} approvalEnabled={!!approvalEnabled}
+                canSubmitOrResubmit={!!canSubmitOrResubmit} approvalStatus={approvalStatus ?? null}
                 submitForApprovalAction={submitForApprovalAction}
               />
             ) : mode === "stakeholder" ? (
@@ -293,92 +232,60 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
               <WBSEditor projectId={projectId} artifactId={artifactId} initialJson={rawContentJson ?? null} readOnly={!isEditable} />
             ) : mode === "schedule" ? (
               <ScheduleGanttEditor
-                projectId={projectId}
-                artifactId={artifactId}
-                initialJson={typedInitialJson ?? null}
-                readOnly={!isEditable}
-                projectTitle={projectTitle || ""}
-                projectStartDate={projectStartDate ?? null}
-                projectFinishDate={projectFinishDate ?? null}
-                // âœ… pass through server-provided WBS JSON so schedule doesn't need to refetch
-                latestWbsJson={latestWbsJson ?? null}
-                wbsArtifactId={wbsArtifactId ?? null}
+                projectId={projectId} artifactId={artifactId} initialJson={typedInitialJson ?? null} readOnly={!isEditable}
+                projectTitle={projectTitle || ""} projectStartDate={projectStartDate ?? null} projectFinishDate={projectFinishDate ?? null}
+                latestWbsJson={latestWbsJson ?? null} wbsArtifactId={wbsArtifactId ?? null}
               />
             ) : mode === "closure" ? (
               <ProjectClosureReportEditor projectId={projectId} artifactId={artifactId} initialJson={typedInitialJson ?? null} readOnly={!isEditable} />
             ) : mode === "weekly_report" ? (
               <WeeklyReportEditor
+                projectId={projectId} artifactId={artifactId} initialJson={typedInitialJson ?? rawContentJson ?? null}
+                readOnly={!isEditable} updateArtifactJsonAction={updateArtifactJsonAction}
+              />
+            ) : mode === "financial_plan" ? (
+              // ✅ NEW: Financial Plan renders the dedicated editor (not a fallback textarea)
+              <FinancialPlanEditor
                 projectId={projectId}
                 artifactId={artifactId}
                 initialJson={typedInitialJson ?? rawContentJson ?? null}
                 readOnly={!isEditable}
+                projectTitle={projectTitle}
                 updateArtifactJsonAction={updateArtifactJsonAction}
               />
             ) : (
               <div className="grid gap-2">
                 {String(rawContentText ?? "").trim().length === 0 ? <div className="text-sm text-gray-600">No content yet.</div> : null}
                 <textarea
-                  rows={14}
-                  readOnly
-                  value={String(rawContentText ?? "")}
+                  rows={14} readOnly value={String(rawContentText ?? "")}
                   className="border rounded-xl px-3 py-2 font-mono text-sm bg-gray-50 whitespace-pre-wrap"
                 />
               </div>
             )}
           </section>
 
-          {/* âœ… Panels: keep for non-charter (avoid duplicate "Improve" UI on charter pages) */}
           {!shouldHidePanels && (showAI || showTimeline) ? (
             <section className="border rounded-2xl bg-white p-5 space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="font-medium">Panels</div>
-
                 <div className="flex items-center gap-2">
                   {showAI ? (
-                    <button
-                      type="button"
-                      onClick={() => setOpenAI((v) => !v)}
-                      className={cx(
-                        "rounded-xl border px-3 py-2 text-sm transition",
-                        openAI ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50"
-                      )}
-                    >
+                    <button type="button" onClick={() => setOpenAI((v) => !v)}
+                      className={cx("rounded-xl border px-3 py-2 text-sm transition", openAI ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50")}>
                       {openAI ? "Hide AI" : "Show AI"}
                     </button>
                   ) : null}
-
                   {showTimeline ? (
-                    <button
-                      type="button"
-                      onClick={() => setOpenTimeline((v) => !v)}
-                      className={cx(
-                        "rounded-xl border px-3 py-2 text-sm transition",
-                        openTimeline ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50"
-                      )}
-                    >
+                    <button type="button" onClick={() => setOpenTimeline((v) => !v)}
+                      className={cx("rounded-xl border px-3 py-2 text-sm transition", openTimeline ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50")}>
                       {openTimeline ? "Hide timeline" : "Show timeline"}
                     </button>
                   ) : null}
                 </div>
               </div>
-
-              {showAI && openAI ? (
-                <AiSuggestionsPanel
-                  projectId={projectId}
-                  artifactId={artifactId}
-                  targetArtifactType={aiTargetType}
-                  title={aiTitle || "AI Suggestions"}
-                  limit={20}
-                  hideWhenEmpty={mode !== "closure"} // only hide by default for non-key documents
-                  showTestButton={devHost}
-                />
-              ) : null}
-
+              {showAI && openAI ? <AiSuggestionsPanel projectId={projectId} artifactId={artifactId} targetArtifactType={aiTargetType} title={aiTitle || "AI Suggestions"} limit={20} hideWhenEmpty={mode !== "closure"} showTestButton={devHost} /> : null}
               {showTimeline && openTimeline ? <ArtifactTimeline artifactId={artifactId} titleMap={{}} limit={60} /> : null}
-
-              {!openAI && !openTimeline ? (
-                <div className="text-xs text-gray-500">Tip: open panels only when you need them â€” keeps this page snappy.</div>
-              ) : null}
+              {!openAI && !openTimeline ? <div className="text-xs text-gray-500">Tip: open panels only when you need them — keeps this page snappy.</div> : null}
             </section>
           ) : null}
         </>
