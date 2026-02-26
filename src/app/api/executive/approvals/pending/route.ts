@@ -1,7 +1,6 @@
 ﻿// src/app/api/executive/approvals/pending/route.ts — v3
 // ✅ FIX: No longer relies on org resolution (which was picking wrong org from multi-membership)
-// Now resolves projects the user belongs to via project_members, then queries cache by project_id.
-// Falls back to querying ALL cache rows if project membership lookup fails.
+// Now queries cache for ALL orgs the user belongs to and merges results.
 
 import "server-only";
 import { NextResponse } from "next/server";
@@ -44,7 +43,6 @@ export async function GET(req: Request) {
       return noStoreJson({ ok: false, error: "unauthorized" }, { status: 401 });
     }
 
-    // ── Step 1: Get all orgs this user belongs to (all active memberships)
     const { data: memberships } = await supabase
       .from("organisation_members")
       .select("organisation_id")
@@ -60,7 +58,6 @@ export async function GET(req: Request) {
       return noStoreJson({ ok: false, error: "no_active_org" }, { status: 400 });
     }
 
-    // ── Step 2: Query cache for ALL orgs this user belongs to
     let cacheData: any[] = [];
     let cacheErr: any = null;
 
@@ -78,7 +75,6 @@ export async function GET(req: Request) {
       if (error) cacheErr = error;
     }
 
-    // ── Step 3: Filter by window_days
     if (cacheData.length > 0) {
       const filtered = cacheData.filter((row: any) => {
         const rowDays = Number(row?.window_days);
@@ -107,7 +103,6 @@ export async function GET(req: Request) {
       });
     }
 
-    // ── Step 4: Cache empty — return empty with debug info
     return noStoreJson({
       ok: true,
       scope: "org",
