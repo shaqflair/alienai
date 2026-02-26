@@ -1,11 +1,9 @@
-// src/components/home/HomePage.tsx  — REBUILT v3
-// Fixes applied:
-//   ✅ All 4 KPI cards equal size (col-span-1 each, no Portfolio Health col-span-2)
-//   ✅ RAID card moved up into main KPI row (4-col grid: Health | Stories | Milestones | RAID)
-//   ✅ Duplicate Approvals card removed from right column sidebar
-//   ✅ Approvals loaded live via API (not just from initial SSR props) — fixes "6 pending but showing 0"
-//   ✅ Milestone links fixed — uses project human_id not project uuid
-//   ✅ min-h instead of fixed h on KPI cards
+// src/components/home/HomePage.tsx  — REBUILT v4
+// All v3 fixes retained +
+//   ✅ Financial Plan integrated into Quick Stats (budget RAG row, no layout disruption)
+//   ✅ Budget variance badge on Portfolio Overview header (only when data available)
+//   ✅ New FinancialPlanSnippet component — compact inline budget health display
+//   ✅ Fetches /api/portfolio/financial-plan-summary — graceful 404/null fallback
 
 "use client";
 
@@ -48,6 +46,7 @@ import {
   Shield,
   Info,
   RefreshCw,
+  DollarSign,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -127,6 +126,22 @@ type PortfolioHealthApi =
   | { ok: true; portfolio_health: number; days: 7 | 14 | 30 | 60 | "all"; windowDays?: number; projectCount: number; parts: { schedule: number; raid: number; flow: number; approvals: number; activity: number }; drivers: PortfolioHealthDriver[]; schedule?: any; meta?: any };
 
 type RagLetter = "G" | "A" | "R";
+
+// ✅ NEW: Financial Plan summary type
+type FinancialPlanSummary =
+  | { ok: false; error: string }
+  | {
+      ok: true;
+      total_approved_budget?: number | null;
+      total_spent?: number | null;
+      variance_pct?: number | null;
+      pending_exposure_pct?: number | null;
+      rag: "G" | "A" | "R";
+      currency?: string | null;
+      project_ref?: string | null;
+      artifact_id?: string | null;
+      project_count?: number;
+    };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PURE UTILS
@@ -285,6 +300,16 @@ function orderBriefingInsights(xs: Insight[]) {
   return arr;
 }
 
+// ✅ NEW: Format currency compactly
+function fmtBudget(value: number | null | undefined, currency = "GBP"): string {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return "—";
+  const sym = currency === "GBP" ? "£" : currency === "USD" ? "$" : currency === "EUR" ? "€" : "";
+  if (Math.abs(v) >= 1_000_000) return `${sym}${(v / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(v) >= 1_000) return `${sym}${(v / 1_000).toFixed(0)}k`;
+  return `${sym}${v.toFixed(0)}`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // windowDays debounce hook
 // ─────────────────────────────────────────────────────────────────────────────
@@ -390,6 +415,136 @@ function AiSignalPill({ text, tone }: { text: string; tone: "rose" | "amber" | "
       <span className="h-1 w-1 rounded-full bg-current opacity-70" />
       {text}
     </span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ✅ NEW: Financial Plan Snippet — used in Quick Stats sidebar
+// ─────────────────────────────────────────────────────────────────────────────
+
+function FinancialPlanSnippet({
+  summary,
+  loading,
+  projectRef,
+}: {
+  summary: FinancialPlanSummary | null;
+  loading: boolean;
+  projectRef: string;
+}) {
+  const router = useRouter();
+
+  // Derive display values
+  const ragDot = useMemo(() => {
+    if (!summary || !summary.ok) return "#94a3b8";
+    return summary.rag === "G" ? "#10b981" : summary.rag === "A" ? "#f59e0b" : "#f43f5e";
+  }, [summary]);
+
+  const ragText = useMemo(() => {
+    if (!summary || !summary.ok) return "No plan";
+    return summary.rag === "G" ? "On budget" : summary.rag === "A" ? "Watch" : "Over budget";
+  }, [summary]);
+
+  const ragTextColor = useMemo(() => {
+    if (!summary || !summary.ok) return "text-slate-400";
+    return summary.rag === "G" ? "text-emerald-700" : summary.rag === "A" ? "text-amber-700" : "text-rose-700";
+  }, [summary]);
+
+  const ragBg = useMemo(() => {
+    if (!summary || !summary.ok) return "bg-slate-50 border-slate-100";
+    return summary.rag === "G"
+      ? "bg-emerald-50/60 border-emerald-100"
+      : summary.rag === "A"
+      ? "bg-amber-50/60 border-amber-100"
+      : "bg-rose-50/60 border-rose-100";
+  }, [summary]);
+
+  const budgetLabel = useMemo(() => {
+    if (!summary || !summary.ok) return null;
+    const budget = summary.total_approved_budget;
+    const currency = summary.currency || "GBP";
+    if (!budget) return null;
+    return fmtBudget(budget, currency);
+  }, [summary]);
+
+  const varianceLabel = useMemo(() => {
+    if (!summary || !summary.ok) return null;
+    const v = summary.variance_pct;
+    if (v == null || !Number.isFinite(Number(v))) return null;
+    const pct = Math.round(Number(v) * 10) / 10;
+    return pct === 0 ? "0%" : `${pct > 0 ? "+" : ""}${pct}%`;
+  }, [summary]);
+
+  function handleClick() {
+    if (summary && summary.ok && summary.artifact_id) {
+      router.push(`/projects/${projectRef}/artifacts/${summary.artifact_id}`);
+    } else if (projectRef) {
+      router.push(`/projects/${projectRef}/artifacts?type=financial_plan`);
+    }
+  }
+
+  return (
+    <m.div
+      initial={{ opacity: 0, x: 14 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: 0.56 }}
+      onClick={handleClick}
+      className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all hover:shadow-sm ${ragBg}`}
+      style={{ backdropFilter: "blur(10px)", boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}
+    >
+      <div className="flex items-center gap-2.5 min-w-0">
+        {/* RAG dot with icon */}
+        <div
+          className="h-7 w-7 rounded-lg flex items-center justify-center shrink-0"
+          style={{
+            background: loading ? "#f1f5f9" : `${ragDot}18`,
+            border: `1px solid ${loading ? "#e5e7eb" : ragDot}40`,
+          }}
+        >
+          {loading ? (
+            <span className="h-3 w-3 rounded-full bg-slate-200 animate-pulse" />
+          ) : (
+            <DollarSign className="h-3.5 w-3.5" style={{ color: ragDot }} />
+          )}
+        </div>
+
+        <div className="min-w-0">
+          <span className="text-sm text-slate-500 font-medium">Budget Health</span>
+          {budgetLabel && (
+            <span className="ml-1.5 text-[10px] text-slate-400 font-mono">{budgetLabel}</span>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 shrink-0">
+        {loading ? (
+          <span className="h-4 w-10 rounded bg-slate-200 animate-pulse" />
+        ) : (
+          <>
+            {varianceLabel && (
+              <span
+                className={`text-[11px] font-bold font-mono ${
+                  summary && summary.ok && Number(summary.variance_pct) > 0
+                    ? "text-rose-600"
+                    : "text-emerald-600"
+                }`}
+              >
+                {varianceLabel}
+              </span>
+            )}
+            <span
+              className={`flex items-center gap-1 text-[11px] font-semibold ${ragTextColor}`}
+            >
+              <span
+                className="h-2 w-2 rounded-full shrink-0"
+                style={{ background: ragDot }}
+              />
+              {ragText}
+            </span>
+          </>
+        )}
+        <ChevronRight className="h-3 w-3 text-slate-300" />
+      </div>
+    </m.div>
   );
 }
 
@@ -1048,7 +1203,6 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   const [today, setToday] = useState<string>("");
 
-  // windowDays with debounce
   const [windowDays, setWindowDays] = useState<WindowDays>(30);
   const debouncedWindowDays = useDebounced(windowDays, 300);
   const numericWindowDays = useMemo<7 | 14 | 30 | 60>(() => (debouncedWindowDays === "all" ? 60 : debouncedWindowDays), [debouncedWindowDays]);
@@ -1072,7 +1226,6 @@ export default function HomePage({ data }: { data: HomeData }) {
   const [ssSummary, setSsSummary] = useState<SuccessStoriesSummary | null>(null);
   const [ssIdx, setSsIdx] = useState(0);
 
-  // ✅ FIX: Approvals loaded live via API — not just from SSR props (fixes "6 pending showing 0")
   const [approvalItems, setApprovalItems] = useState<any[]>([]);
   const [approvalsLoading, setApprovalsLoading] = useState(true);
   const [pendingIds, setPendingIds] = useState<Record<string, true>>({});
@@ -1093,10 +1246,33 @@ export default function HomePage({ data }: { data: HomeData }) {
   const [dueCounts, setDueCounts] = useState({ total: 0, milestone: 0, work_item: 0, raid: 0, artifact: 0, change: 0 });
   const [dueUpdatedAt, setDueUpdatedAt] = useState<string>("");
 
+  // ✅ NEW: Financial Plan state
+  const [fpSummary, setFpSummary] = useState<FinancialPlanSummary | null>(null);
+  const [fpLoading, setFpLoading] = useState(false);
+
   useEffect(() => { setToday(new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" })); }, []);
   useEffect(() => { setShowPhDetails(false); }, [debouncedWindowDays]);
 
-  // ✅ FIX: Load approvals fresh from API on mount (fixes stale SSR count)
+  // ✅ NEW: Fetch portfolio financial plan summary
+  useEffect(() => {
+    if (!ok || !isExec) return;
+    let cancelled = false;
+    runIdle(() => {
+      (async () => {
+        try {
+          setFpLoading(true);
+          const j = await fetchJson<FinancialPlanSummary>("/api/portfolio/financial-plan-summary", { cache: "no-store" });
+          if (!cancelled) setFpSummary(j ?? null);
+        } catch {
+          if (!cancelled) setFpSummary(null);
+        } finally {
+          if (!cancelled) setFpLoading(false);
+        }
+      })();
+    });
+    return () => { cancelled = true; };
+  }, [ok, isExec]);
+
   useEffect(() => {
     if (!ok) return;
     let cancelled = false;
@@ -1108,7 +1284,6 @@ export default function HomePage({ data }: { data: HomeData }) {
           const items = Array.isArray(j?.items) ? j.items : Array.isArray(j?.approvals) ? j.approvals : [];
           setApprovalItems(items);
         } else if (!cancelled) {
-          // Fallback to SSR props
           const ssrItems = ok ? (data as any).approvals?.items || [] : [];
           setApprovalItems(Array.isArray(ssrItems) ? ssrItems : []);
         }
@@ -1237,7 +1412,6 @@ export default function HomePage({ data }: { data: HomeData }) {
     return ids.join("|");
   }, [projects]);
 
-  // ✅ FIX: Milestone drilldown uses project_code (human ID) not raw UUID when available
   function openMilestonesDrilldown() {
     const sp = new URLSearchParams();
     sp.set("days", String(numericWindowDays));
@@ -1429,6 +1603,24 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   function openSuccessStories() { const sp = new URLSearchParams(); sp.set("days", String(numericWindowDays)); router.push(`/success-stories?${sp.toString()}`); }
 
+  // ✅ Financial plan routing helper — uses first active project ref
+  const firstProjectRef = useMemo(() => {
+    const fp = fpSummary && fpSummary.ok ? fpSummary.project_ref : null;
+    if (fp) return fp;
+    const p = sortedProjects[0] as any;
+    if (!p) return "";
+    return projectCodeLabel(p?.project_code) || safeStr(p?.id);
+  }, [fpSummary, sortedProjects]);
+
+  // ✅ Budget variance badge for section header (only show when data available + non-green)
+  const budgetVarianceBadge = useMemo(() => {
+    if (!fpSummary || !fpSummary.ok) return null;
+    if (fpSummary.rag === "G") return null; // green = no need to surface
+    const pct = fpSummary.variance_pct;
+    if (pct == null || !Number.isFinite(Number(pct))) return null;
+    return { rag: fpSummary.rag, pct: Math.round(Number(pct) * 10) / 10 };
+  }, [fpSummary]);
+
   const KPI_CARD_CLASS = "min-h-[460px] flex flex-col";
 
   if (!ok) {
@@ -1529,7 +1721,30 @@ export default function HomePage({ data }: { data: HomeData }) {
                     <div className="h-5 w-0.5 rounded-full bg-indigo-500" style={{ boxShadow: "0 0 10px rgba(99,102,241,0.6)" }} />
                     <span className="text-[11px] text-indigo-600 uppercase tracking-[0.22em] font-bold">Executive Command</span>
                   </div>
-                  <h2 className="text-3xl font-bold text-slate-950 tracking-tight">Portfolio Overview</h2>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <h2 className="text-3xl font-bold text-slate-950 tracking-tight">Portfolio Overview</h2>
+
+                    {/* ✅ NEW: Budget variance badge — only shows when Amber/Red and data exists */}
+                    {budgetVarianceBadge && (
+                      <m.button
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: 0.4 }}
+                        onClick={() => firstProjectRef && router.push(`/projects/${firstProjectRef}/artifacts?type=financial_plan`)}
+                        className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-bold cursor-pointer transition-all hover:shadow-sm"
+                        style={{
+                          background: budgetVarianceBadge.rag === "R" ? "rgba(255,241,242,0.92)" : "rgba(255,251,235,0.92)",
+                          borderColor: budgetVarianceBadge.rag === "R" ? "rgba(253,164,175,0.8)" : "rgba(252,211,77,0.8)",
+                          color: budgetVarianceBadge.rag === "R" ? "#9f1239" : "#92400e",
+                        }}
+                        title="Click to view Financial Plan"
+                      >
+                        <DollarSign className="h-3 w-3" />
+                        Budget {budgetVarianceBadge.pct > 0 ? "+" : ""}{budgetVarianceBadge.pct}%
+                        <span className="h-1.5 w-1.5 rounded-full" style={{ background: budgetVarianceBadge.rag === "R" ? "#f43f5e" : "#f59e0b" }} />
+                      </m.button>
+                    )}
+                  </div>
                   <p className="text-slate-400 mt-1 text-sm font-medium">Real-time portfolio intelligence</p>
                 </div>
 
@@ -1557,10 +1772,9 @@ export default function HomePage({ data }: { data: HomeData }) {
                 </div>
               </m.div>
 
-              {/* ✅ FIX: 4 equal KPI cards in a row — Portfolio Health | Success Stories | Milestones | RAID */}
+              {/* 4 equal KPI cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
 
-                {/* Portfolio Health — equal size, no col-span */}
                 <KpiCard
                   cardClassName={KPI_CARD_CLASS}
                   label="Portfolio Health"
@@ -1597,7 +1811,6 @@ export default function HomePage({ data }: { data: HomeData }) {
                   delay={0}
                 />
 
-                {/* Success Stories */}
                 <KpiCard
                   cardClassName={KPI_CARD_CLASS}
                   label="Success Stories"
@@ -1628,7 +1841,6 @@ export default function HomePage({ data }: { data: HomeData }) {
                   delay={0.06}
                 />
 
-                {/* Milestones Due */}
                 <KpiCard
                   cardClassName={KPI_CARD_CLASS}
                   label="Milestones Due"
@@ -1646,7 +1858,6 @@ export default function HomePage({ data }: { data: HomeData }) {
                   delay={0.12}
                 />
 
-                {/* ✅ FIX: RAID moved up into the 4-card KPI row */}
                 <KpiCard
                   cardClassName={KPI_CARD_CLASS}
                   label="RAID — Due"
@@ -1670,7 +1881,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                 <GovernanceIntelligence days={numericWindowDays} />
               </div>
 
-              {/* Bottom Section — no approvals in right column since we removed duplicate */}
+              {/* Bottom Section */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 space-y-6">
 
@@ -1778,10 +1989,10 @@ export default function HomePage({ data }: { data: HomeData }) {
                   </SurfaceCard>
                 </div>
 
-                {/* ✅ Right Column — Approvals (single source, no duplicate) + Quick Stats */}
+                {/* Right Column — Approvals + Quick Stats (with Financial Plan row) */}
                 <div className="space-y-6">
 
-                  {/* Approvals — live loaded, shows real pending count */}
+                  {/* Approvals */}
                   <SurfaceCard delay={0.32}>
                     <div className="flex items-center justify-between mb-5">
                       <div className="flex items-center gap-3">
@@ -1854,7 +2065,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                     </div>
                   </SurfaceCard>
 
-                  {/* Quick Stats */}
+                  {/* ✅ Quick Stats — now includes Financial Plan Budget Health row */}
                   <SurfaceCard delay={0.38}>
                     <div className="flex items-center gap-2 mb-5">
                       <div className="h-px flex-1 bg-gradient-to-r from-transparent to-indigo-200/62" />
@@ -1874,6 +2085,20 @@ export default function HomePage({ data }: { data: HomeData }) {
                           {stat.node}
                         </m.div>
                       ))}
+
+                      {/* ✅ NEW: Financial Plan / Budget Health row */}
+                      <div className="pt-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="h-px flex-1 bg-slate-100" />
+                          <span className="text-[9px] text-slate-400 uppercase tracking-widest font-bold">Budget</span>
+                          <div className="h-px flex-1 bg-slate-100" />
+                        </div>
+                        <FinancialPlanSnippet
+                          summary={fpSummary}
+                          loading={fpLoading}
+                          projectRef={firstProjectRef}
+                        />
+                      </div>
                     </div>
                   </SurfaceCard>
                 </div>
@@ -1898,7 +2123,6 @@ export default function HomePage({ data }: { data: HomeData }) {
                   {sortedProjects.slice(0, 9).map((p: any, i) => {
                     const code = projectCodeLabel(p.project_code);
                     const id = String(p?.id || "").trim();
-                    // ✅ FIX: use project_code (human ID) for routing where available
                     const routeRef = code || id;
                     return (
                       <m.div key={String(p.id || id)} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.48 + i * 0.045 }}>

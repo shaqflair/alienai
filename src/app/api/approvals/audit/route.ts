@@ -1,4 +1,5 @@
-﻿import "server-only";
+﻿//src/app/api/approvals/audit/route.ts
+import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
