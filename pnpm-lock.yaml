@@ -72,8 +72,8 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0
       docx:
-        specifier: ^9.5.1
-        version: 9.5.3
+        specifier: ^9.6.0
+        version: 9.6.0
       exceljs:
         specifier: ^4.4.0
         version: 4.4.0
@@ -2618,8 +2618,8 @@ packages:
     resolution: {integrity: sha512-35mSku4ZXK0vfCuHEDAwt55dg2jNajHZ1odvF+8SSr82EsZY4QmXfuWso8oEd8zRhVObSN18aM0CjSdoBX7zIw==}
     engines: {node: '>=0.10.0'}
 
-  docx@9.5.3:
-    resolution: {integrity: sha512-uFVrYiN2WKx1an884SS6mRu4JuCO10fpnRGQLYmbYgMLVAqqjrKPc2qMXsGj9JuDVrzdntGRw+y84bSjBxXqew==}
+  docx@9.6.0:
+    resolution: {integrity: sha512-y6EaJJMDvt4P7wgGQB9KsZf4wsRkQMJfkc9LlNufRshggI5BT35hGNkXBCAeEoI3MLMwApKguxzjdqqVcBCqNA==}
     engines: {node: '>=10'}
 
   dom-serializer@0.2.2:
@@ -7057,7 +7057,7 @@ snapshots:
     dependencies:
       esutils: 2.0.3
 
-  docx@9.5.3:
+  docx@9.6.0:
     dependencies:
       '@types/node': 25.3.0
       hash.js: 1.1.7
