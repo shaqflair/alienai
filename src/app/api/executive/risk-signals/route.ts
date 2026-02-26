@@ -1,4 +1,6 @@
 // src/app/api/executive/approvals/risk-signals/route.ts
+// ✅ FIX: All 4 queries now filter .is("projects.deleted_at", null)
+// ✅ FIX: In-memory filter skips risks/incidents/tasks/tickets from closed/cancelled projects
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -24,7 +26,6 @@ function jsonErr(error: string, status = 400, meta?: any) {
 }
 
 async function isExecutiveForOrg(supabase: any, userId: string, orgId: string) {
-  // Single-org exec gate: owner on any active project in org
   const { data, error } = await supabase
     .from("project_members")
     .select("id, projects!inner(id, organisation_id)")
@@ -34,7 +35,6 @@ async function isExecutiveForOrg(supabase: any, userId: string, orgId: string) {
     .eq("projects.organisation_id", orgId)
     .limit(1)
     .maybeSingle();
-
   if (error) throw new Error(error.message);
   return !!data;
 }
@@ -46,7 +46,6 @@ async function myProjectIdsInOrg(supabase: any, userId: string, orgId: string) {
     .eq("user_id", userId)
     .is("removed_at", null)
     .eq("projects.organisation_id", orgId);
-
   if (error) throw new Error(error.message);
   return (data || []).map((r: any) => safeStr(r?.project_id).trim()).filter(Boolean);
 }
@@ -73,6 +72,23 @@ function isHighSeverityOrPriority(x: any) {
   return ["high", "critical", "sev1", "sev2", "p0", "p1"].includes(s);
 }
 
+// ✅ NEW: skip items whose joined project is in a closed/cancelled/archived state
+const CLOSED_PROJECT_STATUSES = [
+  "closed", "cancelled", "canceled", "deleted", "archived",
+  "completed", "inactive", "on_hold", "paused", "suspended",
+];
+
+function isClosedProject(row: any): boolean {
+  const proj = (row as any).projects;
+  if (!proj) return false;
+  // If deleted_at is populated the .is() filter should have caught it, but belt-and-braces:
+  if (proj.deleted_at) return true;
+  if (proj.archived_at) return true;
+  if (proj.cancelled_at) return true;
+  const st = safeStr(proj.status ?? proj.lifecycle_state ?? proj.state).toLowerCase().trim();
+  return CLOSED_PROJECT_STATUSES.some(s => st.includes(s));
+}
+
 export async function GET() {
   try {
     const supabase = await createClient();
@@ -84,15 +100,9 @@ export async function GET() {
 
     const isExec = await isExecutiveForOrg(supabase, user.id, orgId);
 
-    /**
-     * Risk Signals: early warnings (risks, incidents, blocked tasks, overdue high-priority tickets)
-     * - Always org-scoped by orgId.
-     * - Member scope filters to user's project memberships.
-     * - Defensive: if a table/view doesn't exist, we just skip it (no 500).
-     */
     const items: any[] = [];
 
-    // Optional cached view/table: exec_risk_signals (org_id)
+    // ── Optional cache view ───────────────────────────────────────────────────
     {
       const { data: cached, error } = await supabase
         .from("exec_risk_signals")
@@ -119,23 +129,25 @@ export async function GET() {
       }
     }
 
-    // If no cache, build from common tables
     if (items.length === 0) {
-      // 1) risks
+
+      // ── 1. Risks ─────────────────────────────────────────────────────────────
+      // ✅ Added: deleted_at, status, lifecycle_state to project select + .is("projects.deleted_at", null)
       {
         const { data, error } = await supabase
           .from("risks")
           .select(
-            "id, title, severity, status, updated_at, project_id, owner_id, projects!inner(id, organisation_id, name)"
+            "id, title, severity, status, updated_at, project_id, owner_id, projects!inner(id, organisation_id, name, deleted_at, status, lifecycle_state)"
           )
           .eq("projects.organisation_id", orgId)
+          .is("projects.deleted_at", null)  // ✅ exclude deleted projects at DB level
           .limit(200);
 
         if (!error && Array.isArray(data)) {
           for (const r of data) {
+            if (isClosedProject(r)) continue;          // ✅ skip closed/cancelled
             if (!isOpenStatus(r?.status)) continue;
             if (!isHighSeverityOrPriority(r?.severity)) continue;
-
             items.push({
               type: "risk",
               id: r.id,
@@ -151,21 +163,23 @@ export async function GET() {
         }
       }
 
-      // 2) incidents
+      // ── 2. Incidents ─────────────────────────────────────────────────────────
+      // ✅ Same pattern
       {
         const { data, error } = await supabase
           .from("incidents")
           .select(
-            "id, title, severity, status, started_at, updated_at, project_id, commander_id, projects!inner(id, organisation_id, name)"
+            "id, title, severity, status, started_at, updated_at, project_id, commander_id, projects!inner(id, organisation_id, name, deleted_at, status, lifecycle_state)"
           )
           .eq("projects.organisation_id", orgId)
+          .is("projects.deleted_at", null)  // ✅
           .limit(200);
 
         if (!error && Array.isArray(data)) {
           for (const r of data) {
+            if (isClosedProject(r)) continue;          // ✅
             if (!isOpenStatus(r?.status)) continue;
             if (!isHighSeverityOrPriority(r?.severity)) continue;
-
             items.push({
               type: "incident",
               id: r.id,
@@ -182,19 +196,22 @@ export async function GET() {
         }
       }
 
-      // 3) blocked tasks
+      // ── 3. Blocked tasks ─────────────────────────────────────────────────────
+      // ✅ Same pattern
       {
         const { data, error } = await supabase
           .from("tasks")
           .select(
-            "id, title, status, due_at, updated_at, project_id, assignee_id, blocked_by, projects!inner(id, organisation_id, name)"
+            "id, title, status, due_at, updated_at, project_id, assignee_id, blocked_by, projects!inner(id, organisation_id, name, deleted_at, status, lifecycle_state)"
           )
           .eq("projects.organisation_id", orgId)
+          .is("projects.deleted_at", null)  // ✅
           .in("status", ["blocked"])
           .limit(200);
 
         if (!error && Array.isArray(data)) {
           for (const t of data) {
+            if (isClosedProject(t)) continue;          // ✅
             items.push({
               type: "task",
               id: t.id,
@@ -211,33 +228,30 @@ export async function GET() {
         }
       }
 
-      // 4) overdue high-priority tickets
+      // ── 4. Overdue high-priority tickets ─────────────────────────────────────
+      // ✅ Same pattern
       {
         const { data, error } = await supabase
           .from("tickets")
           .select(
-            "id, title, status, priority, due_at, sla_due_at, updated_at, project_id, assignee_id, projects!inner(id, organisation_id, name)"
+            "id, title, status, priority, due_at, sla_due_at, updated_at, project_id, assignee_id, projects!inner(id, organisation_id, name, deleted_at, status, lifecycle_state)"
           )
           .eq("projects.organisation_id", orgId)
+          .is("projects.deleted_at", null)  // ✅
           .limit(200);
 
         if (!error && Array.isArray(data)) {
           const now = Date.now();
-
           for (const t of data) {
+            if (isClosedProject(t)) continue;          // ✅
             const status = safeStr(t?.status).toLowerCase().trim();
-            const closed = ["done", "closed", "completed", "resolved"].includes(status);
-            if (closed) continue;
-
+            if (["done", "closed", "completed", "resolved"].includes(status)) continue;
             const pr = safeStr(t?.priority).toLowerCase().trim();
             if (!isHighSeverityOrPriority(pr)) continue;
-
             const dueIso = safeIso((t as any).sla_due_at ?? (t as any).due_at);
             if (!dueIso) continue;
-
             const dueMs = new Date(dueIso).getTime();
             if (!Number.isFinite(dueMs) || dueMs >= now) continue;
-
             items.push({
               type: "ticket",
               id: t.id,
@@ -264,13 +278,12 @@ export async function GET() {
       return true;
     });
 
-    // Sort: incidents/risks first, then tickets, then tasks; newest updates first
+    // Sort: incidents/risks first; newest updates first
     const typeRank: Record<string, number> = { incident: 0, risk: 1, ticket: 2, task: 3, signal: 4 };
     deduped.sort((a, b) => {
       const ar = typeRank[safeStr(a?.type)] ?? 9;
       const br = typeRank[safeStr(b?.type)] ?? 9;
       if (ar !== br) return ar - br;
-
       const au = a?.updated_at ? new Date(a.updated_at).getTime() : 0;
       const bu = b?.updated_at ? new Date(b.updated_at).getTime() : 0;
       return bu - au;
@@ -289,6 +302,9 @@ export async function GET() {
   } catch (e: any) {
     const msg = safeStr(e?.message) || "Failed";
     const status = msg.toLowerCase().includes("unauthorized") ? 401 : 500;
+    return jsonErr(msg, status);
+  }
+}: 500;
     return jsonErr(msg, status);
   }
 }

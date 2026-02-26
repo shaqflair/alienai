@@ -1,7 +1,7 @@
-﻿// Weekly Exec Digest — aggregates all sections into one payload
-// Sections: pending approvals, SLA breaches, decisions, at-risk projects,
-//           PM performance snapshot, new projects, upcoming milestones
-
+﻿// src/app/api/executive/weekly-digest/route.ts  (or wherever this lives)
+// ✅ FIX: activeProjects derived with isProjectActive() — closed/cancelled/archived excluded
+// ✅ FIX: projectIds, pmStats, atRiskProjects, milestones all use activeProjects
+// ✅ FIX: summary now reports active_projects count separately from total_projects
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -28,6 +28,21 @@ async function getOrgIds(supabase: any, userId: string): Promise<string[]> {
   return Array.from(new Set((data ?? []).map((m: any) => ss(m?.organisation_id)).filter(Boolean)));
 }
 
+// ✅ NEW: determines whether a project row counts as "active"
+const CLOSED_STATES = [
+  "closed", "cancelled", "canceled", "deleted", "archived",
+  "completed", "inactive", "on_hold", "paused", "suspended",
+];
+function isProjectActive(p: any): boolean {
+  if (p?.deleted_at) return false;
+  if (p?.archived_at) return false;
+  if (p?.cancelled_at) return false;
+  if (p?.closed_at) return false;
+  const st = ss(p?.status ?? p?.lifecycle_state ?? p?.state).toLowerCase().trim();
+  if (!st) return true; // unknown = assume active
+  return !CLOSED_STATES.some(s => st.includes(s));
+}
+
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
@@ -44,22 +59,37 @@ export async function GET(req: Request) {
     const now = new Date().toISOString();
 
     // ── 1. Projects ────────────────────────────────────────────────────────────
+    // ✅ Added lifecycle_state, archived_at, cancelled_at, closed_at to select
     const { data: projects } = await supabase
       .from("projects")
-      .select("id, title, project_code, created_at, updated_at, status, project_manager_id")
+      .select("id, title, project_code, created_at, updated_at, status, lifecycle_state, project_manager_id, deleted_at, archived_at, cancelled_at, closed_at")
       .in("organisation_id", orgIds)
-      .is("deleted_at", null);
+      .is("deleted_at", null); // at minimum exclude hard-deleted at DB level
 
     const allProjects = projects ?? [];
-    const newProjects = allProjects.filter((p: any) => p?.created_at && p.created_at >= since);
 
-    // ── 2. Approval cache (pending + breaches) ─────────────────────────────────
+    // ✅ NEW: active subset — excludes cancelled/closed/archived
+    const activeProjects = allProjects.filter(isProjectActive);
+
+    // New projects = active projects created within the window
+    const newProjects = activeProjects.filter((p: any) => p?.created_at && p.created_at >= since);
+
+    // ✅ projectIds from active projects only
+    const projectIds = activeProjects.map((p: any) => ss(p.id)).filter(Boolean);
+
+    // ── 2. Approval cache ──────────────────────────────────────────────────────
     const { data: cacheRows } = await supabase
       .from("exec_approval_cache")
       .select("project_id, project_title, project_code, sla_status, approver_label, window_days, computed_at")
       .in("organisation_id", orgIds);
 
-    const pending = (cacheRows ?? []);
+    // ✅ Only include cache rows for active projects (or rows with no project_id = org-level)
+    const activeProjectIdSet = new Set(projectIds);
+    const pending = (cacheRows ?? []).filter((r: any) => {
+      const pid = ss(r?.project_id).trim();
+      return !pid || activeProjectIdSet.has(pid);
+    });
+
     const breached = pending.filter((r: any) => {
       const s = ss(r?.sla_status).toLowerCase();
       return s === "overdue" || s === "breached" || s === "overdue_undecided";
@@ -70,14 +100,14 @@ export async function GET(req: Request) {
     });
 
     // ── 3. Approval decisions this period ──────────────────────────────────────
-    const projectIds = allProjects.map((p: any) => ss(p.id));
+    // ✅ Use activeProjects projectIds so decisions from closed projects are excluded
     let decisions: any[] = [];
 
     if (projectIds.length > 0) {
       const { data: stepRows } = await supabase
         .from("artifact_approval_steps")
         .select("id, project_id")
-        .in("project_id", projectIds);
+        .in("project_id", projectIds); // ✅ active only
 
       const stepIds = (stepRows ?? []).map((s: any) => ss(s?.id)).filter(Boolean);
       const stepToProject = new Map((stepRows ?? []).map((s: any) => [ss(s.id), ss(s.project_id)]));
@@ -117,7 +147,8 @@ export async function GET(req: Request) {
     }
 
     const pmStats = Array.from(profileMap.entries()).map(([uid, prof]) => {
-      const pmProjects = allProjects.filter((p: any) => ss(p?.project_manager_id) === uid);
+      // ✅ Count only active projects per PM
+      const pmProjects = activeProjects.filter((p: any) => ss(p?.project_manager_id) === uid);
       const pmApproved = approved.filter(d => ss(d?.actor_user_id) === uid).length;
       const pmRejected = rejected.filter(d => ss(d?.actor_user_id) === uid).length;
       const pmOverdue = breached.filter((r: any) => {
@@ -137,39 +168,57 @@ export async function GET(req: Request) {
     }).filter(pm => pm.projects_managed > 0 || pm.approved > 0 || pm.rejected > 0 || pm.overdue > 0)
       .sort((a, b) => b.projects_managed - a.projects_managed);
 
-    // ── 5. At-risk projects (simple scoring) ───────────────────────────────────
-    const atRiskProjects = allProjects.map((p: any) => {
+    // ── 5. At-risk projects — active only ─────────────────────────────────────
+    // ✅ Uses activeProjects — closed/cancelled projects never appear here
+    const atRiskProjects = activeProjects.map((p: any) => {
       const pid = ss(p.id);
       const overdueCount = breached.filter((r: any) => ss(r?.project_id) === pid).length;
       const daysSince = p?.updated_at ? Math.round((Date.now() - new Date(p.updated_at).getTime()) / 86400000) : null;
-      const score = Math.min(100, (overdueCount > 0 ? 40 : 0) + (daysSince != null && daysSince > 14 ? Math.min(35, 20 + Math.floor((daysSince - 14) / 7) * 5) : 0));
-      return { project_id: pid, project_code: p?.project_code ?? null, project_title: p?.title ?? null, risk_score: score, overdue_steps: overdueCount, days_since_activity: daysSince, risk_level: score >= 60 ? "HIGH" : score >= 30 ? "MEDIUM" : "LOW" };
+      const score = Math.min(100,
+        (overdueCount > 0 ? 40 : 0) +
+        (daysSince != null && daysSince > 14 ? Math.min(35, 20 + Math.floor((daysSince - 14) / 7) * 5) : 0)
+      );
+      return {
+        project_id: pid,
+        project_code: p?.project_code ?? null,
+        project_title: p?.title ?? null,
+        risk_score: score,
+        overdue_steps: overdueCount,
+        days_since_activity: daysSince,
+        risk_level: score >= 60 ? "HIGH" : score >= 30 ? "MEDIUM" : "LOW",
+      };
     }).filter(p => p.risk_level !== "LOW").sort((a, b) => b.risk_score - a.risk_score);
 
-    // ── 6. Upcoming milestones ──────────────────────────────────────────────────
+    // ── 6. Upcoming milestones — active projects only ─────────────────────────
     let upcomingMilestones: any[] = [];
     try {
-      const nextWeek = new Date(Date.now() + 14 * 86400000).toISOString();
-      const { data: milestones } = await supabase
-        .from("milestones")
-        .select("id, title, due_date, status, project_id")
-        .in("project_id", projectIds)
-        .gte("due_date", now)
-        .lte("due_date", nextWeek)
-        .neq("status", "completed")
-        .order("due_date", { ascending: true })
-        .limit(10);
-      upcomingMilestones = (milestones ?? []).map((m: any) => ({
-        ...m,
-        project_code: allProjects.find((p: any) => ss(p.id) === ss(m?.project_id))?.project_code ?? null,
-        project_title: allProjects.find((p: any) => ss(p.id) === ss(m?.project_id))?.title ?? null,
-      }));
+      if (projectIds.length > 0) { // ✅ guard: skip if no active projects
+        const nextTwoWeeks = new Date(Date.now() + 14 * 86400000).toISOString();
+        const { data: milestones } = await supabase
+          .from("milestones")
+          .select("id, title, due_date, status, project_id")
+          .in("project_id", projectIds) // ✅ active project IDs only
+          .gte("due_date", now)
+          .lte("due_date", nextTwoWeeks)
+          .neq("status", "completed")
+          .order("due_date", { ascending: true })
+          .limit(10);
+
+        upcomingMilestones = (milestones ?? []).map((m: any) => ({
+          ...m,
+          project_code: activeProjects.find((p: any) => ss(p.id) === ss(m?.project_id))?.project_code ?? null,
+          project_title: activeProjects.find((p: any) => ss(p.id) === ss(m?.project_id))?.title ?? null,
+        }));
+      }
     } catch { }
 
     const digest = {
       generated_at: new Date().toISOString(),
       window_days: days,
       summary: {
+        // ✅ Separate active vs total so UI can show "X of Y projects active"
+        active_projects: activeProjects.length,
+        total_projects: allProjects.length,
         pending_total: pending.length,
         breached_total: breached.length,
         at_risk_total: at_risk_pending.length,
@@ -200,7 +249,8 @@ export async function GET(req: Request) {
             decision: d?.decision,
             created_at: d?.created_at,
             project_id: d?.project_id,
-            project_title: allProjects.find((p: any) => ss(p.id) === ss(d?.project_id))?.title ?? null,
+            // ✅ look up in activeProjects
+            project_title: activeProjects.find((p: any) => ss(p.id) === ss(d?.project_id))?.title ?? null,
           })),
         },
         pm_performance: pmStats,

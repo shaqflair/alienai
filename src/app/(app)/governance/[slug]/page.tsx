@@ -7,15 +7,30 @@ import { notFound } from "next/navigation";
  * Replace this with your real source (DB, MDX, etc.)
  * For now this makes the page NOT blank and proves routing works.
  */
-const ARTICLES: Record<
-  string,
-  { title: string; description?: string; body: string }
-> = {
+const ARTICLES: Record<string, { title: string; description?: string; body: string }> = {
+  "delivery-governance-framework": {
+    title: "Delivery Governance Framework",
+    description: "Enterprise delivery governance model used in Aliena.",
+    body: `This is a placeholder. Replace with real content.
+
+This framework defines how projects are governed across the delivery lifecycle.
+
+Includes:
+• Stage gates
+• RAID discipline
+• Change control
+• Approval workflows
+• Executive reporting
+• AI-assisted delivery assurance
+`,
+  },
+
   "change-management": {
     title: "Change Management",
     description: "How change requests are raised, reviewed, approved, and audited.",
     body: `This is a placeholder. Replace with real content.`,
   },
+
   "risk-management": {
     title: "Risk Management",
     description: "How risks are logged, assessed, mitigated, and escalated.",
@@ -54,10 +69,7 @@ export default async function GovernanceArticlePage({ params }: PageProps) {
   return (
     <div className="mx-auto max-w-3xl px-6 py-12">
       <div className="mb-8">
-        <Link
-          href="/governance"
-          className="text-sm opacity-70 hover:opacity-100"
-        >
+        <Link href="/governance" className="text-sm opacity-70 hover:opacity-100">
           ← Back to Governance Hub
         </Link>
       </div>
