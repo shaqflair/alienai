@@ -42,3 +42,5 @@ next-env.d.ts
 
 # local temp blobs
 .tmp-blob.bin
+
+package-lock.json
