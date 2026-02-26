@@ -1,5 +1,4 @@
-//src/components/artifact/FinancialIntelligencePanel.tsx
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
@@ -136,14 +135,12 @@ export default function FinancialIntelligencePanel({
   const [aiError, setAiError]       = useState<string | null>(null);
   const [activeTab, setActiveTab]   = useState<"signals" | "ai">("signals");
 
-  // ── Compute signals whenever content changes ───────────────────────────────
   useEffect(() => {
     const sigs = analyseFinancialPlan(content, monthlyData, fyConfig, { lastUpdatedAt });
     setSignals(sigs);
     onSignalsChange?.(sigs);
   }, [content, monthlyData, fyConfig, lastUpdatedAt, onSignalsChange]);
 
-  // ── Auto-open + scroll when autoOpen prop is set ─────────────────────────
   useEffect(() => {
     if (autoOpen) {
       setTimeout(() => {
@@ -186,7 +183,6 @@ export default function FinancialIntelligencePanel({
       id="financial-intelligence-panel"
       className="flex flex-col rounded-2xl border border-gray-200 overflow-hidden shadow-sm bg-white"
     >
-      {/* Header */}
       <div className="flex items-center justify-between px-5 py-3.5 bg-gray-900">
         <div className="flex items-center gap-3">
           <Sparkles className="w-4 h-4 text-amber-400" />
@@ -205,7 +201,6 @@ export default function FinancialIntelligencePanel({
         </button>
       </div>
 
-      {/* Tabs */}
       <div className="flex border-b border-gray-200 bg-gray-50">
         {(["signals", "ai"] as const).map(id => (
           <button
@@ -220,7 +215,6 @@ export default function FinancialIntelligencePanel({
         ))}
       </div>
 
-      {/* Content */}
       <div className="p-4 overflow-y-auto max-h-[500px]">
         {activeTab === "signals" ? (
           <div className="flex flex-col gap-3">
@@ -274,6 +268,39 @@ export default function FinancialIntelligencePanel({
   );
 }
 
-// ── Inline flag components (used by FinancialPlanMonthlyView) ─────────────────
+// ── Inline flag exports (used by FinancialPlanMonthlyView) ────────────────────
 
-export function InlineQuarterFlags({ signals, ..._ }: { signals: Array<{ severity?: string; triggered?: boolean }>; [key: string]: unknown }) {
+export function InlineQuarterFlags({
+  signals,
+  quarterLabel: _ql,
+}: {
+  signals: Signal[];
+  quarterLabel?: string;
+}) {
+  const has = (sev: string) => signals.some(s => s.severity === sev);
+  if (!signals?.length) return null;
+  const color = has("critical") ? "#f43f5e" : has("warning") ? "#f59e0b" : "#10b981";
+  const count = signals.filter(s => s.triggered !== false).length;
+  if (!count) return null;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 2, marginLeft: 4 }}>
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: color, display: "inline-block" }} />
+    </span>
+  );
+}
+
+export function InlineMonthFlag({
+  signals,
+  monthKey: _mk,
+}: {
+  signals: Signal[];
+  monthKey?: string;
+}) {
+  if (!signals?.length) return null;
+  const has = (sev: string) => signals.some(s => s.severity === sev);
+  const color = has("critical") ? "#f43f5e" : has("warning") ? "#f59e0b" : null;
+  if (!color) return null;
+  return (
+    <span style={{ width: 5, height: 5, borderRadius: "50%", background: color, display: "inline-block", marginLeft: 2, flexShrink: 0 }} />
+  );
+}
