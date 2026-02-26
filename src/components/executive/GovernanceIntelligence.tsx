@@ -1,9 +1,9 @@
-// src/components/executive/GovernanceIntelligence.tsx — v6
+ï»¿// src/components/executive/GovernanceIntelligence.tsx ï¿½ v6
 // ? All v5 features retained
-// ? NEW: Hero stat cards clickable — slide-in drawer with filtered item list
-// ? NEW: Heatmap tiles clickable — expands inline to show individual approval steps
-// ? NEW: Bottleneck tiles clickable — drawer filtered to that approver
-// ? NEW: Header pills clickable — opens filtered drawer
+// ? NEW: Hero stat cards clickable ï¿½ slide-in drawer with filtered item list
+// ? NEW: Heatmap tiles clickable ï¿½ expands inline to show individual approval steps
+// ? NEW: Bottleneck tiles clickable ï¿½ drawer filtered to that approver
+// ? NEW: Header pills clickable ï¿½ opens filtered drawer
 // ? 100% inline styles, zero Tailwind for design
 
 "use client";
@@ -98,9 +98,9 @@ function deriveRag(ov: number, w: number): Rag {
   return ov > 0 ? "R" : w > 0 ? "A" : "G";
 }
 function fmtDate(iso: string | null | undefined) {
-  if (!iso) return "—";
+  if (!iso) return "ï¿½";
   const d = new Date(iso);
-  if (!isFinite(d.getTime())) return "—";
+  if (!isFinite(d.getTime())) return "ï¿½";
   return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 }
 
@@ -372,7 +372,7 @@ function DrillDrawer({
                               {ss(it?.artifact_title || it?.step_title || it?.artifact_type || "Approval")}
                             </div>
                             <div style={{ fontSize: 11, color: "#64748b" }}>
-                              {ss(it?.project_title || it?.project_code || "—")}
+                              {ss(it?.project_title || it?.project_code || "ï¿½")}
                             </div>
                           </div>
                           <span
@@ -590,7 +590,7 @@ function AiOutlook({
       badgeBg: "rgba(209,250,229,0.8)",
       badgeBorder: "rgba(110,231,183,0.5)",
       badgeColor: "#065f46",
-      fallback: counts.pending > 0 ? `${counts.pending} approval${counts.pending !== 1 ? "s" : ""} in queue — all within SLA.` : "No approvals pending.",
+      fallback: counts.pending > 0 ? `${counts.pending} approval${counts.pending !== 1 ? "s" : ""} in queue ï¿½ all within SLA.` : "No approvals pending.",
     },
   }[urgency];
 
@@ -724,7 +724,7 @@ function HeatTile({ p, idx, expanded, onToggle }: { p: UiProject; idx: number; e
               {p.project_title || "Project"}
             </div>
             <div style={{ fontSize: 11, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {[p.stage, p.approver_label && p.approver_label !== "—" ? `by ${p.approver_label}` : null].filter(Boolean).join(" · ")}
+              {[p.stage, p.approver_label && p.approver_label !== "ï¿½" ? `by ${p.approver_label}` : null].filter(Boolean).join(" ï¿½ ")}
             </div>
           </div>
           <div style={{ flexShrink: 0, textAlign: "right" }}>
@@ -867,7 +867,7 @@ function BnTile({ b, maxCount, idx, onClick }: { b: UiBottleneck; maxCount: numb
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.label}</div>
               <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 500, marginTop: 2 }}>
-                {b.pending_count} item{b.pending_count !== 1 ? "s" : ""} · {b.projects_affected} project{b.projects_affected !== 1 ? "s" : ""}
+                {b.pending_count} item{b.pending_count !== 1 ? "s" : ""} ï¿½ {b.projects_affected} project{b.projects_affected !== 1 ? "s" : ""}
               </div>
             </div>
           </div>
@@ -995,7 +995,7 @@ export default function GovernanceIntelligence({
           project_title: it?.project_title ?? null,
           rag: "G",
           stage: it._stage || null,
-          approver_label: it._approver || "—",
+          approver_label: it._approver || "ï¿½",
           days_waiting: age,
           counts: { ok: 0, warn: 0, overdue: 0, total: 0 },
           items: [],
@@ -1008,7 +1008,7 @@ export default function GovernanceIntelligence({
       else if (state === "warn") p.counts.warn++;
       else p.counts.ok++;
       p.days_waiting = Math.max(p.days_waiting, age);
-      if (!p.approver_label || p.approver_label === "—") p.approver_label = it._approver || "—";
+      if (!p.approver_label || p.approver_label === "ï¿½") p.approver_label = it._approver || "ï¿½";
       if (!p.stage) p.stage = it._stage || null;
     }
 
@@ -1025,7 +1025,7 @@ export default function GovernanceIntelligence({
     const map = new Map<string, { kind: UiBottleneck["kind"]; label: string; ages: number[]; projects: Set<string>; count: number }>();
     for (const it of items) {
       const label = it._approver;
-      if (!label || label === "—") continue;
+      if (!label || label === "ï¿½") continue;
       const kind: UiBottleneck["kind"] = it?.approver_type === "user" ? "user" : "unknown";
       const key = `${kind}::${label}`;
       const age = daysWaiting(it);
@@ -1068,7 +1068,7 @@ export default function GovernanceIntelligence({
           <HeroStat label="Pending Approvals" value={counts.pending} sub="Click to view all" accent="#6366f1" accentGlow="rgba(99,102,241,0.4)" delay={0} onClick={() => setDrawer({ open: true, filter: "all" })} />
           <HeroStat label="SLA Breaches" value={counts.breached} sub={counts.breached > 0 ? "Click to review" : "All within SLA"} accent="#f43f5e" accentGlow="rgba(244,63,94,0.35)" numColor={counts.breached > 0 ? "#e11d48" : undefined} delay={0.06} onClick={counts.breached > 0 ? () => setDrawer({ open: true, filter: "breached" }) : undefined} />
           <HeroStat label="At Risk" value={counts.at_risk} sub={counts.at_risk > 0 ? "Click to review" : "None at risk"} accent="#f59e0b" accentGlow="rgba(245,158,11,0.35)" numColor={counts.at_risk > 0 ? "#d97706" : undefined} delay={0.12} onClick={counts.at_risk > 0 ? () => setDrawer({ open: true, filter: "at_risk" }) : undefined} />
-          <HeroStat label="Active Tracks" value={projects.length} sub={projects.slice(0, 2).map((p) => p.project_code || p.project_title?.split(" ")[0] || "—").join(", ") || "—"} accent="#10b981" accentGlow="rgba(16,185,129,0.35)" numColor="#059669" delay={0.18} onClick={() => setDrawer({ open: true, filter: "all" })} />
+          <HeroStat label="Active Tracks" value={projects.length} sub={projects.slice(0, 2).map((p) => p.project_code || p.project_title?.split(" ")[0] || "ï¿½").join(", ") || "ï¿½"} accent="#10b981" accentGlow="rgba(16,185,129,0.35)" numColor="#059669" delay={0.18} onClick={() => setDrawer({ open: true, filter: "all" })} />
         </div>
       )}
 
@@ -1085,15 +1085,15 @@ export default function GovernanceIntelligence({
               </div>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.2em", color: "#6366f1", marginBottom: 2 }}>Governance Intelligence</div>
-                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#0f172a", lineHeight: 1.2 }}>Approvals — Portfolio Control</h2>
+                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#0f172a", lineHeight: 1.2 }}>Approvals ï¿½ Portfolio Control</h2>
               </div>
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               {[
-                { dot: "#94a3b8", bg: "rgba(255,255,255,0.72)", border: "rgba(226,232,240,0.8)", color: "#64748b", label: `${loading ? "—" : counts.pending} waiting`, filter: "all" as DrawerFilter },
-                { dot: "#f59e0b", bg: "rgba(255,251,235,0.82)", border: "rgba(252,211,77,0.6)", color: "#92400e", label: `${loading ? "—" : counts.at_risk} at risk`, filter: "at_risk" as DrawerFilter },
-                { dot: "#f43f5e", bg: "rgba(255,241,242,0.82)", border: "rgba(253,164,175,0.6)", color: "#9f1239", label: `${loading ? "—" : counts.breached} breached`, filter: "breached" as DrawerFilter, pulse: true },
+                { dot: "#94a3b8", bg: "rgba(255,255,255,0.72)", border: "rgba(226,232,240,0.8)", color: "#64748b", label: `${loading ? "ï¿½" : counts.pending} waiting`, filter: "all" as DrawerFilter },
+                { dot: "#f59e0b", bg: "rgba(255,251,235,0.82)", border: "rgba(252,211,77,0.6)", color: "#92400e", label: `${loading ? "ï¿½" : counts.at_risk} at risk`, filter: "at_risk" as DrawerFilter },
+                { dot: "#f43f5e", bg: "rgba(255,241,242,0.82)", border: "rgba(253,164,175,0.6)", color: "#9f1239", label: `${loading ? "ï¿½" : counts.breached} breached`, filter: "breached" as DrawerFilter, pulse: true },
               ].map((pill, i) => (
                 <span
                   key={i}
@@ -1131,7 +1131,7 @@ export default function GovernanceIntelligence({
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 20 }}>
             <div>
-              <SectionLabel color="#6366f1" glow="rgba(99,102,241,0.5)" text="Portfolio Approval Heatmap" right={!loading && projects.length > 0 ? `${projects.length} stalled — click tiles to expand` : undefined} />
+              <SectionLabel color="#6366f1" glow="rgba(99,102,241,0.5)" text="Portfolio Approval Heatmap" right={!loading && projects.length > 0 ? `${projects.length} stalled ï¿½ click tiles to expand` : undefined} />
               {loading ? (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>{[1, 2, 3, 4].map((i) => <Skel key={i} />)}</div>
               ) : projects.length === 0 ? (
