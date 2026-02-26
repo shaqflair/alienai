@@ -200,7 +200,7 @@ export async function GET(req: Request) {
 
     const unified: UnifiedItem[] = [];
 
-    for (const r of contentRes.data ?? []) {
+    for (const r of (contentRes.data as any[]) ?? []) {
       unified.push({
         kind: "content",
         id: r.id,
@@ -218,7 +218,7 @@ export async function GET(req: Request) {
       });
     }
 
-    for (const r of approvalRes.data ?? []) {
+    for (const r of (approvalRes.data as any[]) ?? []) {
       unified.push({
         kind: "approval",
         id: r.id,
