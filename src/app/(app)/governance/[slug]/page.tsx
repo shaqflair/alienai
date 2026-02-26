@@ -1,22 +1,20 @@
 ﻿import "server-only";
 
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getGovernanceArticle, getGovernancePrevNext } from "@/lib/governance/kb";
-import Link from "next/link";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default function GovernanceArticlePage({
-  params,
-}: {
-  params: { slug: string };
-}) {
-  const article = getGovernanceArticle(params.slug);
+export default function GovernanceArticlePage({ params }: { params: { slug: string } }) {
+  const slug = decodeURIComponent(String(params?.slug || "")).trim();
+  const article = getGovernanceArticle(slug);
+
   if (!article) return notFound();
 
-  const nav = getGovernancePrevNext(params.slug);
+  const { prev, next } = getGovernancePrevNext(article.slug);
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
@@ -49,14 +47,13 @@ export default function GovernanceArticlePage({
         ))}
       </div>
 
-      {/* prev next */}
       <div className="mt-12 flex justify-between text-sm">
-        {nav.prev ? (
-          <Link href={`/governance/${nav.prev.slug}`}>← {nav.prev.title}</Link>
+        {prev ? (
+          <Link href={`/governance/${prev.slug}`}>← {prev.title}</Link>
         ) : <div />}
 
-        {nav.next ? (
-          <Link href={`/governance/${nav.next.slug}`}>{nav.next.title} →</Link>
+        {next ? (
+          <Link href={`/governance/${next.slug}`}>{next.title} →</Link>
         ) : null}
       </div>
     </div>
