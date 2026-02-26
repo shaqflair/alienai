@@ -287,7 +287,7 @@ function buildSidebarItems(dbArtifacts: any[], projectUuid: string): SidebarItem
     if (!byDbType.has(t)) byDbType.set(t, a);
   }
 
-  return ARTIFACT_TYPE_REGISTRY.map((def) => {
+  const core = ARTIFACT_TYPE_REGISTRY.map((def) => {
     const dbTypeLower = safeStr(def.dbType).toLowerCase();
 
     // ✅ Change Requests: ALWAYS route to change workspace, never an artifact doc
@@ -342,8 +342,20 @@ function buildSidebarItems(dbArtifacts: any[], projectUuid: string): SidebarItem
       canEdit: true,
     };
   });
-}
-/* ═══════════════════════════════════════════════════════════════
+
+  // ✅ Boardroom-grade: always available governance hub (hybrid model)
+  const governanceItem: SidebarItem = {
+    key: "DELIVERY_GOVERNANCE",
+    label: "Delivery Governance",
+    ui_kind: "DELIVERY_GOVERNANCE",
+    current: null,
+    href: `/projects/${projectUuid}/governance`,
+    canCreate: false,
+    canEdit: true,
+  };
+
+  return [...core, governanceItem];
+}/* ═══════════════════════════════════════════════════════════════
    EXPORTED SERVER COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 
