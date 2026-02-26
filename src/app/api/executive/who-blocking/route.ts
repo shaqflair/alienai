@@ -58,7 +58,7 @@ function pickProjectId(row: any): string {
 export async function GET() {
   try {
     const supabase = await createClient();
-    const user = await requireUser(supabase);
+    const _auth = await requireUser(supabase); const user = (_auth as any)?.user ?? _auth;
 
     // Single-org mode: orgIdsForUser returns [profiles.active_organisation_id]
     const orgIds = await orgIdsForUser(user.id);

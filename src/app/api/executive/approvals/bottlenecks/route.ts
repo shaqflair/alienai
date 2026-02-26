@@ -1,4 +1,4 @@
-﻿// src/app/api/executive/approvals/bottlenecks/route.ts
+// src/app/api/executive/approvals/bottlenecks/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -26,7 +26,7 @@ function jsonErr(error: string, status = 400, meta?: any) {
 export async function GET(req: Request) {
   try {
     const supabase = await createClient();
-    const user = await requireUser(supabase);
+    const _auth = await requireUser(supabase); const user = (_auth as any)?.user ?? _auth;
 
     const url = new URL(req.url);
     const days = clampDays(url.searchParams.get("days"));

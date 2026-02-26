@@ -1,6 +1,7 @@
-﻿import { cookies } from "next/headers";
+import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
-import type { Database } from "@/types/supabase";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Database = any; // generated types not yet in repo
 
 export function createClient<T = Database>(cookieStore = cookies()) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

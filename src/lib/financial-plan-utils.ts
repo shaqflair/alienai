@@ -1,7 +1,7 @@
-﻿// Shared utilities for extracting financial summary data from FinancialPlanContent
+// Shared utilities for extracting financial summary data from FinancialPlanContent
 // Used by WeeklyReportEditor and ExecutiveDashboard
 
-import type { FinancialPlanContent, CostLine } from "@/components/artifact/FinancialPlanEditor";
+import type { FinancialPlanContent, CostLine } from "@/components/artifacts/FinancialPlanEditor";
 
 export type FinancialSnapshot = {
   currency: string;

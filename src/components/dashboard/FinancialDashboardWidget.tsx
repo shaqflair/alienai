@@ -1,9 +1,9 @@
-﻿"use client";
+"use client";
 
 import { useMemo } from "react";
 import Link from "next/link";
 import { AlertTriangle, ExternalLink, DollarSign, Sparkles } from "lucide-react";
-import type { FinancialPlanContent } from "@/components/artifact/FinancialPlanEditor";
+import type { FinancialPlanContent } from "@/components/artifacts/FinancialPlanEditor";
 import { extractFinancialSnapshot, fmtMoney, fmtPct, type FinancialSnapshot } from "@/lib/financial-plan-utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────

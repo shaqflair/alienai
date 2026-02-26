@@ -1,4 +1,4 @@
-﻿// Drop this inside WeeklyReportEditor alongside RAG / summary sections.
+// Drop this inside WeeklyReportEditor alongside RAG / summary sections.
 // Receives financialContent (nullable) from the parent, which loads it server-side
 // or fetches it from the current financial_plan artifact.
 "use client";
@@ -6,7 +6,7 @@
 import { useMemo } from "react";
 import Link from "next/link";
 import { TrendingUp, TrendingDown, AlertTriangle, ExternalLink, DollarSign, Minus } from "lucide-react";
-import type { FinancialPlanContent } from "@/components/artifact/FinancialPlanEditor";
+import type { FinancialPlanContent } from "@/components/artifacts/FinancialPlanEditor";
 import { extractFinancialSnapshot, fmtMoney, fmtPct } from "@/lib/financial-plan-utils";
 
 type Props = {

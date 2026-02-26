@@ -76,7 +76,7 @@ function isHighSeverityOrPriority(x: any) {
 export async function GET() {
   try {
     const supabase = await createClient();
-    const user = await requireUser(supabase);
+    const _auth = await requireUser(supabase); const user = (_auth as any)?.user ?? _auth;
 
     const orgIds = await orgIdsForUser(user.id);
     const orgId = safeStr(orgIds[0]).trim();

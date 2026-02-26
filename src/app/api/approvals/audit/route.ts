@@ -1,4 +1,4 @@
-﻿//src/app/api/approvals/audit/route.ts
+//src/app/api/approvals/audit/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -119,7 +119,7 @@ export async function GET(req: Request) {
     const rows = Array.isArray(data) ? data : [];
     const nextCursor =
       rows.length === limit
-        ? encodeCursor(rows[rows.length - 1].created_at, rows[rows.length - 1].id)
+        ? encodeCursor((rows[rows.length - 1] as any).created_at, (rows[rows.length - 1] as any).id)
         : null;
 
     return jsonOk({ rows, nextCursor }, 200);

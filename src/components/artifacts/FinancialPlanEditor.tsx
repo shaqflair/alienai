@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Plus, Trash2, TrendingUp, TrendingDown, AlertTriangle, Calendar, Sparkles } from "lucide-react";
@@ -112,7 +112,7 @@ type Props = {
 export default function FinancialPlanEditor({ content, onChange, readOnly = false, raidItems, approvalDelays }: Props) {
   const [activeTab, setActiveTab] = useState<"budget" | "monthly" | "changes" | "narrative">("budget");
   const [signals, setSignals] = useState<Signal[]>([]);
-  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const sym = CURRENCY_SYMBOLS[content.currency] ?? "£";
   const lines = content.cost_lines ?? [];

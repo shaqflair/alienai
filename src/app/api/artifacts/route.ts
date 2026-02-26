@@ -235,7 +235,7 @@ export async function GET(req: Request) {
       await requireProjectMember(supabase, projectIdRaw, user.id);
       scopedProjectIds = [projectIdRaw];
     } else {
-      scopedProjectIds = await listAccessibleProjectIds(supabase, user.id);
+      scopedProjectIds = (await listAccessibleProjectIds(supabase, user.id)) as string[];
     }
 
     async function runWithRel(rel: ProjectRel) {

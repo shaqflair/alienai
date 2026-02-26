@@ -1,4 +1,4 @@
-﻿//src/components/artifact/FinancialIntelligencePanel.tsx
+//src/components/artifact/FinancialIntelligencePanel.tsx
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -271,5 +271,41 @@ export default function FinancialIntelligencePanel({
         )}
       </div>
     </div>
+  );
+}
+
+// ─── Inline flag exports consumed by FinancialPlanMonthlyView ────────────────
+export function InlineQuarterFlags({
+  signals,
+}: {
+  signals: Array<{ severity?: string; triggered?: boolean }>;
+}) {
+  if (!signals?.length) return null;
+  const triggered = signals.filter((s) => s.triggered !== false);
+  if (!triggered.length) return null;
+  const hasCritical = triggered.some((s) => s.severity === "critical");
+  const hasWarning  = triggered.some((s) => s.severity === "warning");
+  const color = hasCritical ? "#f43f5e" : hasWarning ? "#f59e0b" : "#10b981";
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 2, marginLeft: 4 }}>
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: color, display: "inline-block" }} />
+    </span>
+  );
+}
+
+export function InlineMonthFlag({
+  signals,
+}: {
+  signals: Array<{ severity?: string; triggered?: boolean }>;
+}) {
+  if (!signals?.length) return null;
+  const hasCritical = signals.some((s) => s.triggered !== false && s.severity === "critical");
+  const hasWarning  = signals.some((s) => s.triggered !== false && s.severity === "warning");
+  const color = hasCritical ? "#f43f5e" : hasWarning ? "#f59e0b" : null;
+  if (!color) return null;
+  return (
+    <span
+      style={{ width: 5, height: 5, borderRadius: "50%", background: color, display: "inline-block", marginLeft: 2, flexShrink: 0 }}
+    />
   );
 }
