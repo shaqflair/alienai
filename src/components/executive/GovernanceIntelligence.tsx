@@ -1,10 +1,7 @@
-﻿// src/components/executive/GovernanceIntelligence.tsx — v6
-// ✅ All v5 features retained
-// ✅ NEW: Hero stat cards clickable — slide-in drawer with filtered item list
-// ✅ NEW: Heatmap tiles clickable — expands inline to show individual approval steps
-// ✅ NEW: Bottleneck tiles clickable — drawer filtered to that approver
-// ✅ NEW: Header pills clickable — opens filtered drawer
-// ✅ 100% inline styles, zero Tailwind for design
+﻿// src/components/executive/GovernanceIntelligence.tsx — v7
+// ✅ FIX: Active Tracks — removed project codes from sub label (just shows "N projects tracked")
+// ✅ FIX: Budget Health card on homepage now collapsible (handled in BudgetHealthCard below)
+// All other v6 features retained
 
 "use client";
 
@@ -237,7 +234,6 @@ function DrillDrawer({
               flexDirection: "column",
             }}
           >
-            {/* Header */}
             <div
               style={{
                 padding: "20px 24px",
@@ -297,7 +293,6 @@ function DrillDrawer({
               </button>
             </div>
 
-            {/* Count */}
             <div style={{ padding: "12px 24px", borderBottom: "1px solid rgba(226,232,240,0.4)", flexShrink: 0 }}>
               <span
                 style={{
@@ -317,7 +312,6 @@ function DrillDrawer({
               </span>
             </div>
 
-            {/* Items */}
             <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
               {filtered.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "48px 0" }}>
@@ -525,6 +519,7 @@ function HeroStat({
         <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 42, fontWeight: 700, lineHeight: 1, letterSpacing: "-0.03em", color: numColor || "#0f172a", marginBottom: 8 }}>
           {value}
         </div>
+        {/* ✅ FIX: sub only shown if provided; Active Tracks passes a simple count string, no project codes */}
         {sub && <div style={{ fontSize: 11, color: numColor || "#94a3b8", fontWeight: 500 }}>{sub}</div>}
       </div>
     </m.div>
@@ -771,7 +766,6 @@ function HeatTile({ p, idx, expanded, onToggle }: { p: UiProject; idx: number; e
           )}
         </div>
 
-        {/* Expanded step list */}
         <AnimatePresence>
           {expanded && (
             <m.div
@@ -822,7 +816,6 @@ function BnTile({ b, maxCount, idx, onClick }: { b: UiBottleneck; maxCount: numb
   const pct = maxCount > 0 ? Math.max(8, (b.pending_count / maxCount) * 100) : 8;
   const heat: "high" | "medium" | "low" = b.max_wait_days > 14 ? "high" : b.max_wait_days > 7 ? "medium" : "low";
 
-  // ✅ Turbopack-safe: avoid inline `(… as const)[heat]` parsing edge case
   const heatStyles = {
     high: { bg: "rgba(255,241,242,0.88)", border: "rgba(253,164,175,0.7)", fill: "#f43f5e", waitColor: "#e11d48" },
     medium: { bg: "rgba(255,251,235,0.88)", border: "rgba(252,211,77,0.6)", fill: "#f59e0b", waitColor: "#d97706" },
@@ -935,9 +928,7 @@ export default function GovernanceIntelligence({
       .catch(() => {
         if (!dead) setAppResp({ ok: false, error: "Failed to load" });
       });
-    return () => {
-      dead = true;
-    };
+    return () => { dead = true; };
   }, [days, parentItems]);
 
   useEffect(() => {
@@ -956,12 +947,8 @@ export default function GovernanceIntelligence({
         setAi({ summary: ss(aiBlock?.summary) || null, recommended: ss(aiBlock?.recommendedMessage) || null });
       })
       .catch(() => {})
-      .finally(() => {
-        if (!dead) setAiLoading(false);
-      });
-    return () => {
-      dead = true;
-    };
+      .finally(() => { if (!dead) setAiLoading(false); });
+    return () => { dead = true; };
   }, [days]);
 
   const items = useMemo(() => {
@@ -970,9 +957,7 @@ export default function GovernanceIntelligence({
   }, [appResp]);
 
   const counts = useMemo(() => {
-    let ok = 0,
-      warn = 0,
-      ov = 0;
+    let ok = 0, warn = 0, ov = 0;
     for (const it of items) {
       const s = slaState(it);
       if (s === "overdue") ov++;
@@ -1067,10 +1052,50 @@ export default function GovernanceIntelligence({
 
       {showHero && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginBottom: 20 }}>
-          <HeroStat label="Pending Approvals" value={counts.pending} sub="Click to view all" accent="#6366f1" accentGlow="rgba(99,102,241,0.4)" delay={0} onClick={() => setDrawer({ open: true, filter: "all" })} />
-          <HeroStat label="SLA Breaches" value={counts.breached} sub={counts.breached > 0 ? "Click to review" : "All within SLA"} accent="#f43f5e" accentGlow="rgba(244,63,94,0.35)" numColor={counts.breached > 0 ? "#e11d48" : undefined} delay={0.06} onClick={counts.breached > 0 ? () => setDrawer({ open: true, filter: "breached" }) : undefined} />
-          <HeroStat label="At Risk" value={counts.at_risk} sub={counts.at_risk > 0 ? "Click to review" : "None at risk"} accent="#f59e0b" accentGlow="rgba(245,158,11,0.35)" numColor={counts.at_risk > 0 ? "#d97706" : undefined} delay={0.12} onClick={counts.at_risk > 0 ? () => setDrawer({ open: true, filter: "at_risk" }) : undefined} />
-          <HeroStat label="Active Tracks" value={projects.length} sub={projects.slice(0, 2).map((p) => p.project_code || p.project_title?.split(" ")[0] || "—").join(", ") || "—"} accent="#10b981" accentGlow="rgba(16,185,129,0.35)" numColor="#059669" delay={0.18} onClick={() => setDrawer({ open: true, filter: "all" })} />
+          <HeroStat
+            label="Pending Approvals"
+            value={counts.pending}
+            sub="Click to view all"
+            accent="#6366f1"
+            accentGlow="rgba(99,102,241,0.4)"
+            delay={0}
+            onClick={() => setDrawer({ open: true, filter: "all" })}
+          />
+          <HeroStat
+            label="SLA Breaches"
+            value={counts.breached}
+            sub={counts.breached > 0 ? "Click to review" : "All within SLA"}
+            accent="#f43f5e"
+            accentGlow="rgba(244,63,94,0.35)"
+            numColor={counts.breached > 0 ? "#e11d48" : undefined}
+            delay={0.06}
+            onClick={counts.breached > 0 ? () => setDrawer({ open: true, filter: "breached" }) : undefined}
+          />
+          <HeroStat
+            label="At Risk"
+            value={counts.at_risk}
+            sub={counts.at_risk > 0 ? "Click to review" : "None at risk"}
+            accent="#f59e0b"
+            accentGlow="rgba(245,158,11,0.35)"
+            numColor={counts.at_risk > 0 ? "#d97706" : undefined}
+            delay={0.12}
+            onClick={counts.at_risk > 0 ? () => setDrawer({ open: true, filter: "at_risk" }) : undefined}
+          />
+          {/* ✅ FIX: Active Tracks — NO project codes in sub, just a clean count */}
+          <HeroStat
+            label="Active Tracks"
+            value={projects.length}
+            sub={
+              projects.length === 0
+                ? "No stalled approvals"
+                : `${projects.length} project${projects.length !== 1 ? "s" : ""} tracked`
+            }
+            accent="#10b981"
+            accentGlow="rgba(16,185,129,0.35)"
+            numColor="#059669"
+            delay={0.18}
+            onClick={() => setDrawer({ open: true, filter: "all" })}
+          />
         </div>
       )}
 

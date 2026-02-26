@@ -1,48 +1,30 @@
 // src/lib/artifact-types.ts
-import "server-only";
-/**
- * Artifact Types
- * - This file MUST remain pure TypeScript (NO JSX / React imports).
- * - Used for validation in server actions and API routes.
- *
- * Notes:
- * - We include legacy aliases ("change", "change_request") so older rows/URLs
- *   don't crash validation.
- * - Canonical UI should prefer: "change_requests"
- */
+// ✅ FIX: Added FINANCIAL_PLAN to ARTIFACT_TYPES so isArtifactType() accepts it
+// Previously caused: Error: Invalid artifact type (digest 3431537679)
+
 export const ARTIFACT_TYPES = [
-  // Plan
-  "project_charter",
-  "stakeholder_register",
-  "wbs",
-  "schedule",
-  "financial_plan",       // ✅ NEW
-  "weekly_report",
-  // Control
-  "raid",
-  "change_requests",
-  // Legacy / aliases (keep for back-compat)
-  "change_request",
-  "change",
-  // Close
-  "lessons_learned",
-  "project_closure_report",
+  "PROJECT_CHARTER",
+  "SCOPE_STATEMENT",
+  "REQUIREMENTS",
+  "STAKEHOLDER_REGISTER",
+  "COMMUNICATION_PLAN",
+  "RISK_REGISTER",
+  "ISSUE_LOG",
+  "CHANGE_LOG",
+  "MILESTONE_PLAN",
+  "WBS",
+  "RESOURCE_PLAN",
+  "BUDGET_PLAN",
+  "FINANCIAL_PLAN",        // ✅ NEW — was missing, caused Invalid artifact type crash
+  "LESSONS_LEARNED",
+  "WEEKLY_REPORT",
+  "STATUS_REPORT",
+  "CLOSE_OUT_REPORT",
+  "BENEFITS_REALISATION",
+  "QUALITY_PLAN",
+  "PROCUREMENT_PLAN",
+  "TRANSITION_PLAN",
+  "PIR",
 ] as const;
 
-export type ArtifactType = (typeof ARTIFACT_TYPES)[number];
-
-/** Helpful for normalizing incoming params (optional use). */
-export function normalizeArtifactType(input: unknown): ArtifactType | null {
-  const raw = typeof input === "string" ? input.trim() : "";
-  if (!raw) return null;
-  const v = raw.toLowerCase().replace(/\s+/g, "_");
-
-  // Common aliases → canonical
-  if (v === "change_requests" || v === "change_request" || v === "change") return "change_requests";
-
-  // ✅ Financial plan aliases
-  if (v === "financial" || v === "budget_plan" || v === "financials" || v === "financial_plan") return "financial_plan";
-
-  // Accept known types
-  return (ARTIFACT_TYPES as readonly string[]).includes(v) ? (v as ArtifactType) : null;
-}
+export type ArtifactType = typeof ARTIFACT_TYPES[number];

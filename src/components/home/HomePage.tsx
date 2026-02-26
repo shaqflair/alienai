@@ -35,6 +35,8 @@ import {
   X,
   CircleDot,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Activity,
   Layers,
   Zap,
@@ -998,6 +1000,9 @@ function RaidMeta({ loading, panel, onClickType }: {
 // Routes to /artifacts/new?type=FINANCIAL_PLAN (uppercase, correctly normalised)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ✅ REBUILT: BudgetHealthCard — collapsible like the Portfolio Heatmap tiles
+// Collapsed: shows RAG badge + value + key budget/spent numbers
+// Expanded:  utilisation bar + variance + project count + AI narrative + CTA button
 function BudgetHealthCard({
   summary,
   loading,
@@ -1010,22 +1015,17 @@ function BudgetHealthCard({
   delay?: number;
 }) {
   const router = useRouter();
+  const [expanded, setExpanded] = useState(false);
 
   const hasData = summary?.ok === true;
   const ragLetter = hasData ? (summary as any).rag as RagLetter : null;
   const currency = hasData ? ((summary as any).currency || "GBP") : "GBP";
 
-  const budgetLabel = useMemo(() => {
-    if (!hasData) return "—";
-    const b = (summary as any).total_approved_budget;
-    return b ? fmtBudget(b, currency) : "—";
-  }, [summary, hasData, currency]);
+  const budgetAmt = hasData ? (summary as any).total_approved_budget : null;
+  const spentAmt  = hasData ? (summary as any).total_spent : null;
 
-  const spentLabel = useMemo(() => {
-    if (!hasData) return null;
-    const s = (summary as any).total_spent;
-    return s != null ? fmtBudget(s, currency) : null;
-  }, [summary, hasData, currency]);
+  const budgetLabel = useMemo(() => budgetAmt ? fmtBudget(budgetAmt, currency) : "—", [budgetAmt, currency]);
+  const spentLabel  = useMemo(() => spentAmt  != null ? fmtBudget(spentAmt, currency) : null, [spentAmt, currency]);
 
   const variancePct = hasData ? (summary as any).variance_pct : null;
   const varianceNum = variancePct != null && Number.isFinite(Number(variancePct))
@@ -1035,16 +1035,14 @@ function BudgetHealthCard({
     : null;
 
   const utilPct = useMemo(() => {
-    if (!hasData) return null;
-    const b = Number((summary as any).total_approved_budget);
-    const s = Number((summary as any).total_spent);
-    return b && s ? Math.round((s / b) * 100) : null;
-  }, [summary, hasData]);
+    const b = Number(budgetAmt); const s = Number(spentAmt);
+    return b && s ? Math.min(100, Math.round((s / b) * 100)) : null;
+  }, [budgetAmt, spentAmt]);
 
   const projectCount = hasData ? ((summary as any).project_count ?? 1) : null;
 
-  // ✅ FIXED routing: uses FINANCIAL_PLAN (uppercase) so normalizer in page.tsx handles it
-  function handleClick() {
+  function handleViewClick(e: React.MouseEvent) {
+    e.stopPropagation();
     if (hasData && (summary as any).artifact_id) {
       router.push(`/projects/${projectRef}/artifacts/${(summary as any).artifact_id}`);
     } else if (projectRef) {
@@ -1052,50 +1050,172 @@ function BudgetHealthCard({
     }
   }
 
-  const tone = loading ? "slate"
-    : !hasData ? "slate"
-    : ragLetter === "G" ? "emerald"
-    : ragLetter === "A" ? "amber"
-    : "rose";
+  const tone = loading ? "slate" : !hasData ? "slate" : ragLetter === "G" ? "emerald" : ragLetter === "A" ? "amber" : "rose";
+  const accentMap: Record<string, { bar: string; glow: string; iconBg: string; iconGlow: string; orb: string }> = {
+    emerald: { bar: "#10b981", glow: "rgba(16,185,129,0.18)", iconBg: "linear-gradient(135deg,#10b981,#059669)", iconGlow: "rgba(16,185,129,0.45)", orb: "rgba(16,185,129,0.07)" },
+    amber:   { bar: "#f59e0b", glow: "rgba(245,158,11,0.18)", iconBg: "linear-gradient(135deg,#f59e0b,#d97706)", iconGlow: "rgba(245,158,11,0.45)", orb: "rgba(245,158,11,0.07)" },
+    rose:    { bar: "#f43f5e", glow: "rgba(244,63,94,0.18)",  iconBg: "linear-gradient(135deg,#f43f5e,#e11d48)", iconGlow: "rgba(244,63,94,0.45)",  orb: "rgba(244,63,94,0.06)"  },
+    slate:   { bar: "#64748b", glow: "rgba(100,116,139,0.14)", iconBg: "linear-gradient(135deg,#64748b,#475569)", iconGlow: "rgba(100,116,139,0.38)", orb: "rgba(100,116,139,0.05)" },
+  };
+  const acc = accentMap[tone] || accentMap.slate;
 
-  const displayValue = loading ? "…"
-    : !hasData ? "No Plan"
-    : varianceLabel ?? (ragLetter === "G" ? "On Budget" : ragLetter === "A" ? "Watch" : "Over Budget");
-
-  const subText = loading ? "Fetching budget health…"
-    : !hasData ? "No financial plan linked — click to create one"
-    : `Budget ${budgetLabel}${spentLabel ? ` · Spent ${spentLabel}` : ""}`;
-
+  const displayValue = loading ? "…" : !hasData ? "No Plan"
+    : varianceLabel ?? (ragLetter === "G" ? "On Budget" : ragLetter === "A" ? "Watch" : "Over");
   const aiText = loading ? "Analysing budget position…"
     : !hasData ? "Create a Financial Plan artifact to track budget health here."
     : ragLetter === "G" ? "Budget is tracking well — no material overrun detected."
     : ragLetter === "A" ? `Utilisation at ${utilPct ?? "?"}%. Monitor forecast vs approved budget closely.`
     : `Forecast exceeds budget by ${varianceLabel ?? "an unknown amount"}. Immediate escalation recommended.`;
 
-  const metaText = loading ? "Syncing…"
-    : !hasData ? "Click to link a plan"
-    : `${projectCount} project${projectCount !== 1 ? "s" : ""} tracked`;
-
   return (
-    <KpiCard
-      cardClassName="min-h-[460px] flex flex-col"
-      label="Budget Health"
-      value={displayValue}
-      sub={subText}
-      icon={<DollarSign className="h-5 w-5" />}
-      tone={tone}
-      tooltip="Pulled from the project Financial Plan artifact. Click to view or create."
-      aiLine={aiText}
-      badge={ragLetter ? (
-        <span className={["ml-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest", ragBadgeClasses(ragLetter)].join(" ")}>
-          {ragLabel(ragLetter)}
-        </span>
-      ) : undefined}
-      metaLine={metaText}
-      metaIcon={<DollarSign className="h-3 w-3" />}
-      onClick={handleClick}
-      delay={delay}
-    />
+    <m.div
+      initial={{ opacity: 0, y: 22 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay, ease: [0.16, 1, 0.3, 1] }}
+      className="relative overflow-hidden rounded-2xl"
+      style={{
+        background: "linear-gradient(145deg, rgba(255,255,255,0.99) 0%, rgba(250,252,255,0.97) 50%, rgba(248,250,255,0.96) 100%)",
+        border: expanded ? `1.5px solid ${acc.bar}` : "1px solid rgba(255,255,255,0.96)",
+        boxShadow: `0 1px 1px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.04), 0 16px 44px ${acc.glow}, 0 0 0 1px rgba(226,232,240,0.75), 0 1px 0 rgba(255,255,255,1) inset`,
+        backdropFilter: "blur(28px) saturate(1.9)",
+        transition: "border-color 0.2s",
+      }}
+    >
+      <div className="absolute top-0 inset-x-0 h-[1px] rounded-t-2xl pointer-events-none"
+        style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,1) 20%, rgba(255,255,255,1) 80%, transparent)" }} />
+      <div className="absolute left-0 top-5 bottom-5 w-[3px] rounded-r-full pointer-events-none"
+        style={{ background: acc.bar, boxShadow: `0 0 14px ${acc.glow}` }} />
+      <div className="absolute -bottom-12 -right-12 w-40 h-40 rounded-full pointer-events-none"
+        style={{ background: `radial-gradient(ellipse, ${acc.orb} 0%, transparent 65%)`, filter: "blur(2px)" }} />
+
+      {/* ── Always-visible header ── */}
+      <div className="relative pl-4 p-5 cursor-pointer select-none" onClick={() => setExpanded(v => !v)}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.18em]">Budget Health</p>
+              {ragLetter && (
+                <span className={["inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest", ragBadgeClasses(ragLetter)].join(" ")}>
+                  {ragLabel(ragLetter)}
+                </span>
+              )}
+              <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-slate-400 font-semibold">
+                {expanded ? <><ChevronUp className="h-3.5 w-3.5" />Collapse</> : <><ChevronDown className="h-3.5 w-3.5" />Expand</>}
+              </span>
+            </div>
+
+            <p className="text-[42px] font-bold text-slate-950 tracking-tight leading-none"
+              style={{ fontFamily: "var(--font-mono, 'DM Mono', monospace)", letterSpacing: "-0.025em" }}>
+              {displayValue}
+            </p>
+
+            {hasData && (
+              <div className="mt-3 flex items-center gap-2 flex-wrap">
+                {budgetLabel !== "—" && (
+                  <div className="inline-flex items-center gap-1.5 text-xs text-slate-500 bg-white/70 border border-slate-200/70 px-2.5 py-1.5 rounded-lg"
+                    style={{ backdropFilter: "blur(10px)" }}>
+                    <DollarSign className="h-3 w-3 text-slate-400" /><span>Budget {budgetLabel}</span>
+                  </div>
+                )}
+                {spentLabel && (
+                  <div className="inline-flex items-center gap-1.5 text-xs text-slate-500 bg-white/70 border border-slate-200/70 px-2.5 py-1.5 rounded-lg"
+                    style={{ backdropFilter: "blur(10px)" }}>
+                    <span>Spent {spentLabel}</span>
+                  </div>
+                )}
+              </div>
+            )}
+            {!hasData && !loading && (
+              <p className="text-xs text-slate-400 mt-2 font-medium">No financial plan linked</p>
+            )}
+          </div>
+
+          <div className="shrink-0 flex items-center justify-center w-12 h-12 rounded-xl text-white"
+            style={{ background: acc.iconBg, boxShadow: `0 4px 16px ${acc.iconGlow}, 0 1px 0 rgba(255,255,255,0.22) inset` }}>
+            <DollarSign className="h-5 w-5" />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Expandable detail ── */}
+      <AnimatePresence>
+        {expanded && (
+          <m.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+            style={{ overflow: "hidden" }}
+          >
+            <div className="px-5 pb-5 pl-9 space-y-4">
+              <div className="border-t border-slate-100/80 pt-4 space-y-4">
+
+                {/* Utilisation bar */}
+                {utilPct !== null && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Utilisation</span>
+                      <span className="text-xs font-bold text-slate-700" style={{ fontFamily: "var(--font-mono, monospace)" }}>{utilPct}%</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-slate-100/80 overflow-hidden">
+                      <m.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${utilPct}%` }}
+                        transition={{ duration: 0.8, delay: 0.1 }}
+                        className="h-full rounded-full"
+                        style={{
+                          background: utilPct > 95 ? "#f43f5e" : utilPct > 80 ? "#f59e0b" : "#10b981",
+                          boxShadow: `0 0 6px ${utilPct > 95 ? "rgba(244,63,94,0.4)" : utilPct > 80 ? "rgba(245,158,11,0.4)" : "rgba(16,185,129,0.4)"}`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Variance + projects grid */}
+                {hasData && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="text-center p-2.5 rounded-xl bg-white/60 border border-slate-100"
+                      style={{ backdropFilter: "blur(10px)", boxShadow: "0 1px 3px rgba(0,0,0,0.03)" }}>
+                      <div className="text-lg font-bold text-slate-800" style={{ fontFamily: "var(--font-mono, monospace)" }}>{varianceLabel ?? "—"}</div>
+                      <div className="text-[9px] uppercase tracking-widest text-slate-400 mt-0.5 font-bold">Variance</div>
+                    </div>
+                    <div className="text-center p-2.5 rounded-xl bg-white/60 border border-slate-100"
+                      style={{ backdropFilter: "blur(10px)", boxShadow: "0 1px 3px rgba(0,0,0,0.03)" }}>
+                      <div className="text-lg font-bold text-slate-800" style={{ fontFamily: "var(--font-mono, monospace)" }}>{projectCount ?? "—"}</div>
+                      <div className="text-[9px] uppercase tracking-widest text-slate-400 mt-0.5 font-bold">Projects</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* AI narrative */}
+                <div className={[
+                  "relative overflow-hidden rounded-xl border p-3",
+                  !hasData ? "border-slate-200/60 bg-slate-50/60"
+                    : ragLetter === "G" ? "border-emerald-200/60 bg-emerald-50/60"
+                    : ragLetter === "A" ? "border-amber-200/60 bg-amber-50/60"
+                    : "border-rose-200/60 bg-rose-50/60",
+                ].join(" ")} style={{ backdropFilter: "blur(14px)" }}>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <Brain className="h-3.5 w-3.5 text-slate-500" />
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">AI Analysis</span>
+                  </div>
+                  <p className="text-xs text-slate-600 leading-relaxed">{aiText}</p>
+                </div>
+
+                {/* CTA */}
+                <button type="button" onClick={handleViewClick}
+                  className="w-full h-9 rounded-xl border border-slate-200/80 bg-white/60 text-xs text-slate-600 hover:bg-white/90 hover:text-slate-900 transition-all flex items-center justify-center gap-2 font-semibold"
+                  style={{ backdropFilter: "blur(10px)", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+                  {hasData && (summary as any).artifact_id ? "View Financial Plan" : "Create Financial Plan"}
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          </m.div>
+        )}
+      </AnimatePresence>
+    </m.div>
   );
 }
 
