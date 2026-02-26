@@ -9,9 +9,10 @@ export const revalidate = 0;
 
 export const metadata = {
   title: "Governance Hub | Aliena",
-  description: "Delivery governance framework, roles, approvals, change control, and RAID discipline.",
+  description:
+    "Delivery governance framework, roles, approvals, change control, and RAID discipline.",
 };
 
 export default function GovernancePage() {
-  return <GovernanceHubClient />;
+  return <GovernanceHubClient scope="global" />;
 }
