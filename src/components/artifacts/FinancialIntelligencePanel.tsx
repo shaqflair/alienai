@@ -2,7 +2,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useSearchParams } from "next/navigation";
 import {
   AlertTriangle, RefreshCw, ChevronDown, ChevronRight,
   Info, Sparkles, ArrowRight, AlertCircle,
@@ -27,6 +26,8 @@ type Props = {
   raidItems?: Array<{ type: string; title: string; severity: string; status: string }>;
   approvalDelays?: Array<{ title: string; daysPending: number; cost_impact?: number }>;
   onSignalsChange?: (signals: Signal[]) => void;
+  /** Pass true when navigating from Budget Health card (?panel=intelligence) */
+  autoOpen?: boolean;
 };
 
 // ── RAG dot ───────────────────────────────────────────────────────────────────
@@ -126,9 +127,8 @@ function DriverCard({ d }: { d: AIDriver }) {
 
 export default function FinancialIntelligencePanel({
   content, monthlyData, fyConfig, lastUpdatedAt,
-  raidItems, approvalDelays, onSignalsChange,
+  raidItems, approvalDelays, onSignalsChange, autoOpen = false,
 }: Props) {
-  const searchParams   = useSearchParams();
   const panelRef       = useRef<HTMLDivElement>(null);
   const [signals, setSignals]       = useState<Signal[]>([]);
   const [aiAnalysis, setAiAnalysis] = useState<FinancialAIAnalysis | null>(null);
@@ -143,18 +143,16 @@ export default function FinancialIntelligencePanel({
     onSignalsChange?.(sigs);
   }, [content, monthlyData, fyConfig, lastUpdatedAt, onSignalsChange]);
 
-  // ── Auto-open + scroll when navigated from Budget Health card ─────────────
+  // ── Auto-open + scroll when autoOpen prop is set ─────────────────────────
   useEffect(() => {
-    if (searchParams?.get("panel") === "intelligence") {
-      // Scroll the panel into view smoothly
+    if (autoOpen) {
       setTimeout(() => {
         panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 300);
-      // Auto-trigger AI briefing
       triggerAI();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [autoOpen]);
 
   const triggerAI = useCallback(async () => {
     setAiLoading(true);
