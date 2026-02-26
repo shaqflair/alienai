@@ -78,6 +78,18 @@ function isRaidKey(kUpper: string) {
   return u === "RAID" || u === "RAID_LOG" || u.includes("RAID");
 }
 
+function isGovernanceKey(kUpper: string) {
+  const u = safeUpper(kUpper);
+  return (
+    u === "DELIVERY_GOVERNANCE" ||
+    u === "GOVERNANCE" ||
+    u === "DELIVERYGOVERNANCE" ||
+    u.includes("DELIVERY_GOVERNANCE") ||
+    u.includes("DELIVERY GOVERNANCE") ||
+    u.includes("GOVERNANCE_HUB")
+  );
+}
+
 function groupForKey(k: string): GroupName {
   const u = k.toUpperCase().trim();
   if (["PROJECT_CHARTER", "STAKEHOLDER_REGISTER", "WBS", "SCHEDULE", "WEEKLY_REPORT"].includes(u)) return "Plan";
@@ -356,23 +368,42 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
   const safeItems = useMemo(() => (Array.isArray(items) ? items : []), [items]);
 
   // ✅ Ensure Change Requests always shows (even if server didn’t include it)
-  const itemsWithChange = useMemo(() => {
-    const hasChange = safeItems.some((it) => isChangeKey(canonicalKeyUpper(it)));
-    if (hasChange) return safeItems;
-
+  // ✅ Ensure Delivery Governance always shows (authority link)
+  const itemsWithRequired = useMemo(() => {
     const canEdit = role === "owner" || role === "editor";
     const canCreate = canEdit;
 
-    const injected: SidebarItem = {
-      key: "CHANGE",
-      ui_kind: "CHANGE",
-      label: "Change Requests",
-      current: null,
-      href: `/projects/${projectId}/change`,
-      canCreate,
-      canEdit,
-    };
-    return [...safeItems, injected];
+    const out = [...safeItems];
+
+    const hasChange = out.some((it) => isChangeKey(canonicalKeyUpper(it)));
+    if (!hasChange) {
+      const injected: SidebarItem = {
+        key: "CHANGE",
+        ui_kind: "CHANGE",
+        label: "Change Requests",
+        current: null,
+        href: `/projects/${projectId}/change`,
+        canCreate,
+        canEdit,
+      };
+      out.push(injected);
+    }
+
+    const hasGov = out.some((it) => isGovernanceKey(canonicalKeyUpper(it)));
+    if (!hasGov) {
+      const injectedGov: SidebarItem = {
+        key: "DELIVERY_GOVERNANCE",
+        ui_kind: "DELIVERY_GOVERNANCE",
+        label: "Delivery Governance",
+        current: null,
+        href: `/projects/${projectId}/governance`,
+        canCreate: false,
+        canEdit: true,
+      };
+      out.push(injectedGov);
+    }
+
+    return out;
   }, [safeItems, role, projectId]);
 
   const enhanced: EnhancedItem[] = useMemo(() => {
@@ -380,10 +411,12 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
     const activeId = urlId ?? (mounted ? storedId : null);
     const newType = safeUpper(newTypeRaw);
 
-    return itemsWithChange.map((it) => {
+    return itemsWithRequired.map((it) => {
       const itKey = canonicalKeyUpper(it);
+      const isGov = isGovernanceKey(itKey);
 
       const active =
+        (isGov && String(pathname ?? "").includes("/governance")) ||
         (it.current?.id != null && activeId != null && it.current.id === activeId) ||
         (!it.current && String(pathname ?? "").includes("/artifacts/new") && newType === itKey) ||
         (!it.current && isChangeKey(itKey) && String(pathname ?? "").includes("/change")) ||
@@ -391,13 +424,16 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
 
       const status = normStatus(it.current?.approval_status);
 
-      const openUrl = it.current?.id
-        ? `/projects/${projectId}/artifacts/${it.current.id}`
-        : isChangeKey(itKey)
-          ? `/projects/${projectId}/change`
-          : isRaidKey(itKey)
-            ? `/projects/${projectId}/raid`
-            : it.href || `/projects/${projectId}/artifacts`;
+      const openUrl =
+        isGov
+          ? `/projects/${projectId}/governance`
+          : it.current?.id
+            ? `/projects/${projectId}/artifacts/${it.current.id}`
+            : isChangeKey(itKey)
+              ? `/projects/${projectId}/change`
+              : isRaidKey(itKey)
+                ? `/projects/${projectId}/raid`
+                : it.href || `/projects/${projectId}/artifacts`;
 
       const isLocked = Boolean(it.current?.is_locked);
       const isDeleted = Boolean(it.current?.deleted_at);
@@ -410,7 +446,8 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
         !isLocked &&
         !isDeleted &&
         !isChangeKey(itKey) &&
-        !isRaidKey(itKey);
+        !isRaidKey(itKey) &&
+        !isGov;
 
       return {
         ...it,
@@ -424,7 +461,7 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
         canDeleteDraft,
       };
     });
-  }, [itemsWithChange, pathname, newTypeRaw, storedId, mounted, projectId]);
+  }, [itemsWithRequired, pathname, newTypeRaw, storedId, mounted, projectId]);
 
   const counts = useMemo(() => {
     let submitted = 0;
@@ -441,19 +478,28 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
     return q ? enhanced.filter((it) => it.label.toLowerCase().includes(q)) : enhanced;
   }, [enhanced, query]);
 
+  // ✅ Separate “authority” items from artifacts (premium section)
+  const governanceItems = useMemo(() => visible.filter((it) => isGovernanceKey(it.keyUpper)), [visible]);
+  const artifactItems = useMemo(() => visible.filter((it) => !isGovernanceKey(it.keyUpper)), [visible]);
+
   const grouped = useMemo(() => {
     const out: Record<GroupName, EnhancedItem[]> = { Plan: [], Control: [], Close: [] };
-    for (const it of visible) out[groupForKey(it.keyUpper)].push(it);
+    for (const it of artifactItems) out[groupForKey(it.keyUpper)].push(it);
     return out;
-  }, [visible]);
+  }, [artifactItems]);
 
-  const flat = useMemo(() => {
+  const flatArtifacts = useMemo(() => {
     const arr: EnhancedItem[] = [];
     (["Plan", "Control", "Close"] as const).forEach((g) => {
       if (groupOpen[g]) arr.push(...grouped[g]);
     });
     return arr;
   }, [grouped, groupOpen]);
+
+  const flat = useMemo(() => {
+    // keyboard navigation goes through artifacts, then governance at end
+    return [...flatArtifacts, ...governanceItems];
+  }, [flatArtifacts, governanceItems]);
 
   const groupStarts = useMemo(() => {
     let i = 0;
@@ -464,6 +510,8 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
     });
     return s;
   }, [grouped, groupOpen]);
+
+  const governanceStart = useMemo(() => flatArtifacts.length, [flatArtifacts.length]);
 
   useEffect(() => {
     const idx = flat.findIndex((x) => x.active);
@@ -704,7 +752,7 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search artifacts…  (/)"
+                placeholder="Search artifacts…  (/) "
                 aria-label="Search artifacts"
                 className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-sm text-neutral-900 placeholder-neutral-400 outline-none focus:ring-2 focus:ring-neutral-300 focus:border-neutral-300 transition-all"
               />
@@ -731,11 +779,11 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
           {!collapsed && (
             <div className="flex items-center justify-between px-2 mb-2">
               <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Artifacts</span>
-              <span className="text-[10px] font-semibold text-neutral-400 tabular-nums">{visible.length}</span>
+              <span className="text-[10px] font-semibold text-neutral-400 tabular-nums">{artifactItems.length}</span>
             </div>
           )}
 
-          {visible.length === 0 ? (
+          {artifactItems.length === 0 && governanceItems.length === 0 ? (
             !collapsed && (
               <div className="px-2 py-8 text-center">
                 <p className="text-sm text-neutral-500">No match</p>
@@ -786,6 +834,35 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
                 onDeleteDraft={onDeleteDraft}
                 deleting={isPending}
               />
+
+              {/* ── GOVERNANCE (Authority Section) ── */}
+              {governanceItems.length > 0 && (
+                <div className={collapsed ? "mt-1" : "mt-3"}>
+                  {!collapsed && (
+                    <div className="px-2 mb-2">
+                      <div className="h-px bg-neutral-200 mb-2" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                        Governance
+                      </span>
+                    </div>
+                  )}
+
+                  <div className={collapsed ? "space-y-0.5" : "space-y-0.5"}>
+                    {governanceItems.map((it, i) => (
+                      <ArtifactRow
+                        key={it.key}
+                        it={it}
+                        idx={governanceStart + i}
+                        collapsed={collapsed}
+                        rowRefs={rowRefs}
+                        onRowClick={handleRowClick}
+                        onDeleteDraft={onDeleteDraft}
+                        deleting={isPending}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </nav>

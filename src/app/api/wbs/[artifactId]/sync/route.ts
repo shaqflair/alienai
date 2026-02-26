@@ -5,20 +5,32 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 /* ---------------- response helpers ---------------- */
 
+function noStoreJson(payload: any, status = 200) {
+  const res = NextResponse.json(payload, { status });
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  return res;
+}
 function jsonErr(message: string, status = 400, details?: any) {
-  return NextResponse.json({ ok: false, error: message, details }, { status });
+  return noStoreJson({ ok: false, error: message, details }, status);
 }
 function jsonOk(payload: any) {
-  return NextResponse.json({ ok: true, ...payload }, { status: 200 });
+  return noStoreJson({ ok: true, ...payload }, 200);
 }
 
 /* ---------------- utils ---------------- */
 
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+function safeLower(x: any) {
+  return safeStr(x).trim().toLowerCase();
 }
 
 function isUuid(s: string) {
@@ -38,7 +50,7 @@ function parseIsoDateOnlyOrNull(x: any): string | null {
   // accept yyyy-mm-dd
   if (looksLikeIsoDate(s)) return s;
 
-  // accept timestamp-ish, but normalize to yyyy-mm-dd (UTC)
+  // accept timestamp-ish, normalize to yyyy-mm-dd (UTC)
   const dt = new Date(s);
   if (Number.isNaN(dt.getTime())) return null;
   return dt.toISOString().slice(0, 10);
@@ -51,11 +63,18 @@ function clampInt(n: any, min: number, max: number, fallback: number) {
 }
 
 function mapStatus(x: any): "todo" | "inprogress" | "done" | "blocked" {
-  const s = safeStr(x).trim().toLowerCase();
+  const s = safeLower(x);
+
+  // canonical DB values
+  if (s === "todo") return "todo";
+  if (s === "inprogress") return "inprogress";
   if (s === "done") return "done";
   if (s === "blocked") return "blocked";
-  if (s === "in_progress" || s === "inprogress") return "inprogress";
-  // not_started etc.
+
+  // editor values
+  if (s === "in_progress") return "inprogress";
+  if (s === "not_started" || s === "notstarted" || s === "not-started") return "todo";
+
   return "todo";
 }
 
@@ -72,19 +91,16 @@ function mapEffortToNumeric(e: any): number | null {
   return null;
 }
 
-/** Safe "NOT IN" delete: chunked + uses `not().in()` to avoid fragile string expressions */
+/** Safe "NOT IN" delete: chunked + uses id deletes */
 async function deleteStaleRows(
   supabase: any,
   projectId: string,
   artifactId: string,
   keepList: string[]
 ) {
-  // If keepList is empty, caller should delete all earlier.
-  // If list is massive, chunk to avoid query limits.
   const CHUNK = 900;
 
-  // We can't express "NOT IN (all keepList)" in multiple chunks safely,
-  // so we do the inverse: fetch current rows and delete those not in keep set.
+  // fetch current rows for this artifact
   const { data: cur, error } = await supabase
     .from("wbs_items")
     .select("id, source_row_id")
@@ -94,7 +110,7 @@ async function deleteStaleRows(
 
   if (error) return { ok: false, error: error.message };
 
-  const keep = new Set(keepList);
+  const keep = new Set((keepList ?? []).map((x) => safeStr(x).trim()).filter(Boolean));
   const toDeleteIds = (cur || [])
     .filter((r: any) => {
       const sr = safeStr(r?.source_row_id).trim();
@@ -112,10 +128,14 @@ async function deleteStaleRows(
   return { ok: true, deleted: toDeleteIds.length };
 }
 
-export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: string }> }) {
+/* ---------------- handler ---------------- */
+
+export async function POST(
+  req: Request,
+  { params }: { params: { artifactId?: string } }
+) {
   try {
-    const { artifactId } = await ctx.params;
-    const aId = safeStr(artifactId).trim();
+    const aId = safeStr(params?.artifactId).trim();
     if (!aId || !isUuid(aId)) return jsonErr("Missing/invalid artifactId", 400);
 
     const supabase = await createClient();
@@ -128,6 +148,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: s
     const projectId = safeStr(body?.projectId ?? body?.project_id).trim();
     if (!projectId || !isUuid(projectId)) return jsonErr("Missing/invalid projectId", 400);
 
+    // ✅ Authz gate (at minimum: must be a project member)
+    // If you have a stricter RPC (e.g. require_project_role), swap it in here.
+    try {
+      const memberCheck = await supabase.rpc("is_project_member", {
+        p_project_id: projectId,
+        p_user_id: auth.user.id,
+      });
+      const isMember = !!memberCheck?.data;
+      if (memberCheck?.error) return jsonErr(memberCheck.error.message, 403);
+      if (!isMember) return jsonErr("Forbidden", 403);
+    } catch {
+      // If RPC is missing in some envs, fail closed.
+      return jsonErr("Forbidden (membership check unavailable)", 403);
+    }
+
     const rows = Array.isArray(body?.rows) ? body.rows : [];
 
     // cap to protect DB / API
@@ -136,7 +171,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: s
 
     if (!sliced.length) {
       // If editor emptied, remove linked items
-      const del = await supabase.from("wbs_items").delete().eq("project_id", projectId).eq("source_artifact_id", aId);
+      const del = await supabase
+        .from("wbs_items")
+        .delete()
+        .eq("project_id", projectId)
+        .eq("source_artifact_id", aId);
+
       if (del.error) return jsonErr(del.error.message, 400);
       return jsonOk({ synced: 0, deletedAllForArtifact: true });
     }
@@ -164,7 +204,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: s
     const upsertPayload = sliced.map((r: any, i: number) => {
       const sourceRowId = safeStr(r?.id).trim() || `row_${i}`;
 
-      // ✅ accept due_date / dueDate / end_date / endDate / end
       const due =
         r?.due_date ??
         r?.dueDate ??
@@ -175,7 +214,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: s
 
       const dueDate = parseIsoDateOnlyOrNull(due);
 
-      // ✅ accept deliverable or name/title as fallback
       const name =
         safeStr(r?.deliverable).trim() ||
         safeStr(r?.name).trim() ||
@@ -190,10 +228,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: s
         name: name.slice(0, 500),
         description: safeStr(r?.description).trim() || null,
 
-        // ✅ accept owner_label or owner
         owner: (safeStr(r?.owner_label).trim() || safeStr(r?.owner).trim()) || null,
 
-        // ✅ stored as ISO date only (DB)
         due_date: dueDate,
 
         estimated_effort: mapEffortToNumeric(r?.effort),
@@ -201,7 +237,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: s
 
         sort_order: rowIdToSort.get(sourceRowId) ?? i,
 
-        // parent_id set in step 2
+        // parent_id patched in step 3
       };
     });
 
@@ -211,7 +247,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: s
 
     if (up.error) return jsonErr(up.error.message, 400);
 
-    // 2) Reload to get fresh mapping for all rows after upsert
+    // 2) Reload to map source_row_id -> id
     const after = await supabase
       .from("wbs_items")
       .select("id, source_row_id")
@@ -222,14 +258,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: s
     if (after.error) return jsonErr(after.error.message, 400);
 
     const srToId = new Map<string, string>();
-    // FIX: Line 258 - Added explicit type annotation for x
     for (const x of (after.data ?? []) as Array<{ id: string; source_row_id: string }>) {
       const sr = safeStr((x as any).source_row_id).trim();
       const id = safeStr((x as any).id).trim();
       if (sr && id) srToId.set(sr, id);
     }
 
-    // 3) Patch parent_id for each row
+    // 3) Patch parent_id (never self-parent)
     const parentUpdates = sliced
       .map((r: any, i: number) => {
         const sourceRowId = safeStr(r?.id).trim() || `row_${i}`;
@@ -239,12 +274,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ artifactId?: s
         const parentSource = rowIdToParentRowId.get(sourceRowId) ?? null;
         const parentId = parentSource ? srToId.get(parentSource) ?? null : null;
 
-        return { id: selfId, parent_id: parentId };
+        // guard against self-parent (DB check constraint)
+        const safeParentId = parentId && parentId !== selfId ? parentId : null;
+
+        return { id: selfId, parent_id: safeParentId };
       })
       .filter(Boolean) as Array<{ id: string; parent_id: string | null }>;
 
     if (parentUpdates.length) {
-      // upsert by id
       const pu = await supabase.from("wbs_items").upsert(parentUpdates, { onConflict: "id" });
       if (pu.error) {
         // tolerant: don't fail the whole sync if parent patching has issues
