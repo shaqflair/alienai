@@ -1,5 +1,4 @@
-﻿// src/app/(app)/governance/[slug]/page.tsx
-import "server-only";
+﻿import "server-only";
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -33,12 +32,14 @@ function fmtUpdated(x: unknown) {
 
 /* ---------------- page ---------------- */
 
-export default async function GovernanceArticlePage({
-  params,
-}: {
-  params: { slug: string };
-}) {
-  const slug = normSlug(params?.slug);
+type PageProps = {
+  params: Promise<{ slug: string }>;
+};
+
+export default async function GovernanceArticlePage({ params }: PageProps) {
+  // ✅ Next.js 16: params is async
+  const { slug: rawSlug } = await params;
+  const slug = normSlug(rawSlug);
   if (!slug) return notFound();
 
   const supabase = await createClient();
@@ -50,7 +51,7 @@ export default async function GovernanceArticlePage({
     .eq("is_published", true)
     .maybeSingle();
 
-  // Real errors should not silently become "not found"
+  // Don’t hide real errors (RLS, schema, etc.)
   if (error) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-16">
@@ -97,36 +98,25 @@ export default async function GovernanceArticlePage({
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
-      {/* Top bar */}
       <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Link
-          href="/governance"
-          className="text-sm opacity-70 hover:opacity-100"
-        >
+        <Link href="/governance" className="text-sm opacity-70 hover:opacity-100">
           ← Back to Governance Hub
         </Link>
 
         <div className="flex items-center gap-2 text-xs">
           {category ? (
-            <span className="rounded-full border px-2 py-1 opacity-80">
-              {category}
-            </span>
+            <span className="rounded-full border px-2 py-1 opacity-80">{category}</span>
           ) : null}
           {updated ? (
-            <span className="rounded-full border px-2 py-1 opacity-70">
-              Updated {updated}
-            </span>
+            <span className="rounded-full border px-2 py-1 opacity-70">Updated {updated}</span>
           ) : null}
         </div>
       </div>
 
-      {/* Executive header card */}
       <div className="rounded-2xl border bg-white/70 p-6 shadow-sm backdrop-blur dark:bg-white/5">
         <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
         {summary ? (
-          <p className="mt-3 max-w-3xl text-base leading-relaxed opacity-80">
-            {summary}
-          </p>
+          <p className="mt-3 max-w-3xl text-base leading-relaxed opacity-80">{summary}</p>
         ) : null}
 
         <div className="mt-5 flex flex-wrap items-center gap-2">
@@ -137,7 +127,6 @@ export default async function GovernanceArticlePage({
             Slug: {safeStr(article.slug)}
           </span>
 
-          {/* Ask Aliena hook placeholder (wired next phase) */}
           <Link
             href={`/governance?ask=${encodeURIComponent(title)}`}
             className="ml-auto inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/10"
@@ -148,10 +137,8 @@ export default async function GovernanceArticlePage({
         </div>
       </div>
 
-      {/* Body */}
       <div className="mt-8 rounded-2xl border bg-white/60 p-6 shadow-sm backdrop-blur dark:bg-white/5">
         <article className="prose prose-neutral dark:prose-invert max-w-none">
-          {/* NOTE: For now we render as plain text. Next phase: MDX/markdown renderer with sanitization */}
           {content ? <pre className="whitespace-pre-wrap">{content}</pre> : <p />}
         </article>
       </div>
