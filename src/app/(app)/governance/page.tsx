@@ -199,7 +199,7 @@ export default async function GovernancePage({
       {/* Layout */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[280px_1fr]">
         {/* Sidebar */}
-        <aside className="rounded-2xl border bg-white/60 p-4 shadow-sm backdrop-blur dark:bg-white/5">
+        <aside <main className="relative rounded-2xl border bg-white/60 p-4 shadow-sm backdrop-blur dark:bg-white/5">
           <div className="mb-3 text-sm font-medium">Categories</div>
 
           <div className="flex flex-col gap-1">
@@ -249,7 +249,7 @@ export default async function GovernancePage({
         </aside>
 
         {/* Main */}
-        <main className="rounded-2xl border bg-white/60 p-4 shadow-sm backdrop-blur dark:bg-white/5">
+        <main <main className="relative rounded-2xl border bg-white/60 p-4 shadow-sm backdrop-blur dark:bg-white/5">
           <div className="mb-3 flex items-center justify-between">
             <div className="text-sm font-medium">Articles</div>
             <div className="text-xs opacity-70">
