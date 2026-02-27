@@ -78,30 +78,35 @@ export default async function SettingsPage() {
     .map((r) => {
       if (!r.organisations?.id) return null;
       return {
-        orgId: r.organisations.id,
+        orgId:   r.organisations.id,
         orgName: r.organisations.name,
-        role: normalizeRole(r.role),
+        role:    normalizeRole(r.role),
       };
     })
     .filter(Boolean) as Array<{ orgId: string; orgName: string; role: Role }>;
 
-  const active = memberships.find((m) => m.orgId === activeOrgId) ?? memberships[0] ?? null;
-  const myRole = active?.role ?? null;
+  const active  = memberships.find((m) => m.orgId === activeOrgId) ?? memberships[0] ?? null;
+  const myRole  = active?.role ?? null;
+  const isAdmin = myRole === "admin" || myRole === "owner";
 
   return (
     <main className="mx-auto max-w-3xl p-6 space-y-6">
       <h1 className="text-2xl font-semibold">Settings</h1>
 
+      {/* ── Your organisations ── */}
       <section className="rounded-lg border bg-white p-5 space-y-3">
         <div className="text-sm font-medium">Your organisations</div>
 
         {memberships.length === 0 ? (
-          <div className="text-sm text-gray-700">You are not a member of any organisation yet.</div>
+          <div className="text-sm text-gray-700">
+            You are not a member of any organisation yet.
+          </div>
         ) : (
           <div className="space-y-2">
             {memberships.map((m) => {
-              const isActive = active?.orgId === m.orgId;
-              const badge = roleBadge(m.role);
+              const isActive      = active?.orgId === m.orgId;
+              const badge         = roleBadge(m.role);
+              const memberIsAdmin = m.role === "admin" || m.role === "owner";
 
               return (
                 <div
@@ -113,7 +118,9 @@ export default async function SettingsPage() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <div className="text-sm font-medium truncate">{m.orgName}</div>
-                      <span className={`text-xs rounded border px-2 py-0.5 ${badge.cls}`}>{badge.label}</span>
+                      <span className={`text-xs rounded border px-2 py-0.5 ${badge.cls}`}>
+                        {badge.label}
+                      </span>
                       {isActive ? (
                         <span className="text-xs rounded border px-2 py-0.5 bg-green-50 border-green-200 text-green-800">
                           Active
@@ -126,9 +133,12 @@ export default async function SettingsPage() {
                   <div className="flex flex-wrap gap-2">
                     {!isActive ? (
                       <form method="post" action="/api/active-org">
-                        <input type="hidden" name="org_id" value={m.orgId} />
-                        <input type="hidden" name="next" value="/settings" />
-                        <button className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50" type="submit">
+                        <input type="hidden" name="org_id"  value={m.orgId} />
+                        <input type="hidden" name="next"    value="/settings" />
+                        <button
+                          className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
+                          type="submit"
+                        >
                           Set active
                         </button>
                       </form>
@@ -155,6 +165,24 @@ export default async function SettingsPage() {
                     >
                       Approvals
                     </Link>
+
+                    {/*
+                      Rate Cards — visible to all members so they can see rates,
+                      but only admins/owners can create or edit entries (enforced
+                      by RLS on the resource_rates table and by RateCardTab itself).
+                    */}
+                    <Link
+                      href={`/organisations/${m.orgId}/settings/rate-cards`}
+                      className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 inline-flex items-center gap-1.5"
+                      title="View and manage resource rate cards used in Financial Plans"
+                    >
+                      Rate Cards
+                      {memberIsAdmin && (
+                        <span className="text-[10px] rounded px-1.5 py-0.5 bg-blue-100 text-blue-700 font-semibold leading-none">
+                          Admin
+                        </span>
+                      )}
+                    </Link>
                   </div>
                 </div>
               );
@@ -163,10 +191,12 @@ export default async function SettingsPage() {
         )}
 
         <div className="text-xs opacity-60">
-          Governance actions (transfer ownership / leave org) live in <b>Organisation settings</b>.
+          Governance actions (transfer ownership / leave org) live in{" "}
+          <b>Organisation settings</b>.
         </div>
       </section>
 
+      {/* ── Active organisation ── */}
       <section className="rounded-lg border bg-white p-5 space-y-3">
         <div className="text-sm font-medium">Active organisation</div>
 
@@ -187,22 +217,38 @@ export default async function SettingsPage() {
             >
               Members
             </Link>
+
             <Link
               href={`/organisations/${active.orgId}/settings?tab=settings`}
               className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
             >
               Organisation settings
             </Link>
+
             <Link
               href={`/organisations/${active.orgId}/settings?tab=approvals`}
               className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
             >
               Approvals
             </Link>
+
+            <Link
+              href={`/organisations/${active.orgId}/settings/rate-cards`}
+              className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 inline-flex items-center gap-1.5"
+              title="View and manage resource rate cards used in Financial Plans"
+            >
+              Rate Cards
+              {isAdmin && (
+                <span className="text-[10px] rounded px-1.5 py-0.5 bg-blue-100 text-blue-700 font-semibold leading-none">
+                  Admin
+                </span>
+              )}
+            </Link>
           </div>
         ) : null}
       </section>
 
+      {/* ── Create organisation ── */}
       {/* Creating an org should not depend on being admin/owner of an active org */}
       <section className="rounded-lg border bg-white p-5 space-y-4">
         <h2 className="text-lg font-medium">Create organisation</h2>
@@ -223,7 +269,8 @@ export default async function SettingsPage() {
         </form>
 
         <div className="text-xs opacity-60">
-          After creating, use the org’s <b>Settings</b> page for governance and membership management.
+          After creating, use the org's <b>Settings</b> page for governance and membership
+          management.
         </div>
       </section>
     </main>

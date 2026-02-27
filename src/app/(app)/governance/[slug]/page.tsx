@@ -1,4 +1,5 @@
-﻿import "server-only";
+﻿//src/app(app)governance/[slug]/page.tsx
+import "server-only";
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -24,16 +25,18 @@ function normSlug(x: unknown) {
 export default async function GovernanceArticlePage({
   params,
 }: {
-  params: { slug: string };
+  params: { slug: string } | Promise<{ slug: string }>;
 }) {
   console.log("GOVSLUG_PROD_FINGERPRINT_v1");
 
-  const slug = normSlug(params?.slug);
+  const p = await Promise.resolve(params as any);
+  const slug = normSlug(p?.slug);
 
-  console.log("[governance][slug] HIT", { slug, raw: params?.slug });
+  console.log("[governance][slug] HIT", { slug, raw: p?.slug });
 
   if (!slug) return notFound();
 
+}
   const supabase = await createClient();
 
   // Diagnose session/RLS behaviour in prod

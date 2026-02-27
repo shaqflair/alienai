@@ -27,15 +27,23 @@ function noStoreJson(payload: any, status = 200) {
   return res;
 }
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: { slug?: string } }
-) {
-  const slug = normSlug(params?.slug);
+type Ctx = { params: { slug?: string } | Promise<{ slug?: string }> };
+
+export async function GET(_req: NextRequest, ctx: Ctx) {
+  const p = await Promise.resolve(ctx?.params as any);
+  const slug = normSlug(p?.slug);
 
   if (!slug) {
     return noStoreJson(
-      { ok: false, error: "Missing slug", meta: { paramsPresent: !!params } },
+      {
+        ok: false,
+        error: "Missing slug",
+        meta: {
+          paramsType: typeof ctx?.params,
+          paramsKeys: p ? Object.keys(p) : [],
+          rawSlug: p?.slug ?? null,
+        },
+      },
       400
     );
   }
