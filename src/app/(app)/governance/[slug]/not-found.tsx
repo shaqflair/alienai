@@ -3,7 +3,9 @@
 export default function NotFound() {
   return (
     <div className="mx-auto max-w-2xl px-6 py-16 text-center">
-      <h1 className="text-xl font-semibold">Governance article not found</h1>
+      <h1 className="text-2xl font-semibold">
+  Governance article not found (build a14a206)
+</h1>
       <p className="mt-2 text-neutral-600">
         This guidance page doesn’t exist.
       </p>
@@ -16,4 +18,4 @@ export default function NotFound() {
       </Link>
     </div>
   );
-}
+}  
