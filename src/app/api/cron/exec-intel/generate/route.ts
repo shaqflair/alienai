@@ -1,222 +1,306 @@
-﻿// src/app/api/cron/exec-intel/generate/route.ts — REBUILT v3
-// Completely rewritten to use v_pending_artifact_approvals_all view.
-// ✅ FIX-CR1: Query v_pending_artifact_approvals_all — all joins already done in the view
-// ✅ FIX-CR2: approver_label = pending_email (the view's actual approver field)
-// ✅ FIX-CR3: organisation_id resolved via project_id → projects table
-// ✅ FIX-CR4: window_days = 30 set on every cache row
-// ✅ FIX-CR5: No more artifact_approval_decisions join
+﻿import "server-only";
 
-import "server-only";
-import { NextResponse } from "next/server";
-import { createAdminClient } from "@/utils/supabase/admin";
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import OpenAI from "openai";
+import {
+  Decision,
+  DecisionSignal,
+  DecisionIntelligenceResult,
+  DecisionOption,
+  computeDecisionSignals,
+  ruleBasedDecisionAnalysis,
+  rationaleQualityScore,
+  daysTil,
+} from "@/lib/decision-intelligence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function jsonOk(data: any, status = 200) {
-  const res = NextResponse.json({ ok: true, ...data }, { status });
-  res.headers.set("Cache-Control", "no-store");
-  return res;
-}
-function jsonErr(error: string, status = 400, meta?: any) {
-  const res = NextResponse.json({ ok: false, error, meta }, { status });
-  res.headers.set("Cache-Control", "no-store");
-  return res;
-}
-function safeStr(x: any): string {
-  return typeof x === "string" ? x : x == null ? "" : String(x);
-}
-function asInt(x: any): number | null {
-  const n = Number(x);
-  return Number.isFinite(n) ? Math.trunc(n) : null;
-}
-function safeNum(x: any): number {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : 0;
-}
-function hoursBetween(a: Date, b: Date): number {
-  return Math.round((b.getTime() - a.getTime()) / 36e5);
-}
-function requireCronSecret(req: Request) {
+/* ---------------- helpers ---------------- */
+
+const ss = (x: any) => (typeof x === "string" ? x : x == null ? "" : String(x));
+
+function requireCronSecret(req: NextRequest) {
   const expected = process.env.CRON_SECRET;
   if (!expected) return;
+
   const got =
     req.headers.get("x-cron-secret") ||
-    req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (got !== expected) throw new Error("Unauthorized");
+    (req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "");
+
+  if (got !== expected) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+  return null;
 }
 
-async function handler(req: Request) {
-  try {
-    requireCronSecret(req);
-    const supabase = await createAdminClient();
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  if (!url || !key) throw new Error("Supabase env vars not configured");
+  return createClient(url, key);
+}
 
-    const now = new Date();
-    const nowIso = now.toISOString();
-    const windowRiskDays = 7;
-    const riskCutoff = new Date(now.getTime() + windowRiskDays * 86400_000);
+const CLOSED_STATES = [
+  "closed",
+  "cancelled",
+  "canceled",
+  "archived",
+  "completed",
+  "inactive",
+  "on_hold",
+  "paused",
+  "suspended",
+];
 
-    const { data: viewRows, error: viewErr } = await supabase
-      .from("v_pending_artifact_approvals_all")
-      .select("*")
-      .eq("step_status", "pending")
-      .limit(5000);
+function isProjectActive(p: any): boolean {
+  if (p?.deleted_at) return false;
+  if (p?.archived_at) return false;
+  if (p?.cancelled_at) return false;
+  if (p?.closed_at) return false;
 
-    if (viewErr) throw viewErr;
-    const rows = Array.isArray(viewRows) ? viewRows : [];
+  const st = ss(p?.status ?? p?.lifecycle_status ?? p?.lifecycle_state ?? p?.state)
+    .toLowerCase()
+    .trim();
 
-    const projectIds = Array.from(new Set(rows.map((r: any) => safeStr(r.project_id)).filter(Boolean)));
-    const orgByProject = new Map<string, string>();
-    const codeByProject = new Map<string, string>();
-    const titleByProject = new Map<string, string>();
+  if (!st) return true;
+  return !CLOSED_STATES.some((s) => st.includes(s));
+}
 
-    if (projectIds.length) {
-      const { data: projects, error: projErr } = await supabase
-        .from("projects")
-        .select("id, project_code, title, organisation_id")
-        .in("id", projectIds)
-        .limit(5000);
-      if (projErr) throw projErr;
-      for (const p of projects ?? []) {
-        const pid = safeStr((p as any).id);
-        const orgId = safeStr((p as any).organisation_id).trim();
-        if (pid && orgId) orgByProject.set(pid, orgId);
-        codeByProject.set(pid, safeStr((p as any).project_code));
-        titleByProject.set(pid, safeStr((p as any).title));
-      }
-    }
+/* ---------------- json schema ---------------- */
 
-    const { data: slaCfg, error: slaErr } = await supabase
-      .from("approval_sla_config")
-      .select("project_id, artifact_type, stage_key, sla_hours, warn_hours, breach_grace_hours, is_active")
-      .eq("is_active", true)
-      .limit(5000);
-    if (slaErr) throw slaErr;
-
-    function resolveSla(pid: string | null, artifactType: string | null, stageKey: string | null) {
-      let best: any = null, bestScore = -1;
-      for (const c of slaCfg ?? []) {
-        if (c.project_id && c.project_id !== pid) continue;
-        if (c.artifact_type && c.artifact_type !== artifactType) continue;
-        if (c.stage_key && c.stage_key !== stageKey) continue;
-        const score = (c.project_id ? 4 : 0) + (c.artifact_type ? 2 : 0) + (c.stage_key ? 1 : 0);
-        if (score > bestScore) { bestScore = score; best = c; }
-      }
-      return {
-        sla_hours: asInt(best?.sla_hours) ?? 72,
-        warn_hours: asInt(best?.warn_hours) ?? 24,
-        grace_hours: asInt(best?.breach_grace_hours) ?? 0,
-      };
-    }
-
-    const cacheRows: any[] = [];
-    let skippedNullOrg = 0;
-
-    for (const row of rows) {
-      const pid = safeStr(row.project_id);
-      if (!pid) continue;
-      const orgId = orgByProject.get(pid) ?? null;
-      if (!orgId) { skippedNullOrg++; continue; }
-
-      const artifactType = safeStr(row.artifact_type) || null;
-      const stageKey = safeStr(row.step_name) || null;
-      const approverEmail = safeStr(row.pending_email).trim();
-      const approverRole = safeStr(row.approver_role).trim();
-      const approverLabel = approverEmail || approverRole || "Unassigned";
-
-      const submittedAtIso = safeStr(row.step_pending_since || row.artifact_submitted_at).trim() || null;
-      const submittedAt = submittedAtIso ? new Date(submittedAtIso) : null;
-      const sla = resolveSla(pid, artifactType, stageKey);
-      const derivedDueAt = submittedAt ? new Date(submittedAt.getTime() + sla.sla_hours * 3600_000) : null;
-      const hoursToDue = derivedDueAt ? hoursBetween(now, derivedDueAt) : null;
-      const hoursOverdue = derivedDueAt && now > derivedDueAt ? hoursBetween(derivedDueAt, now) : null;
-
-      let slaStatus: "ok" | "at_risk" | "breached" | "overdue_undecided" | "unknown" = "unknown";
-      if (derivedDueAt) {
-        const warnAt = new Date(derivedDueAt.getTime() - sla.warn_hours * 3600_000);
-        const breachAt = new Date(derivedDueAt.getTime() + sla.grace_hours * 3600_000);
-        if (now > breachAt) slaStatus = "overdue_undecided";
-        else if (now >= derivedDueAt) slaStatus = "breached";
-        else if (now >= warnAt || derivedDueAt <= riskCutoff) slaStatus = "at_risk";
-        else slaStatus = "ok";
-      }
-
-      cacheRows.push({
-        organisation_id: orgId,
-        project_id: pid,
-        project_code: codeByProject.get(pid) || null,
-        project_title: titleByProject.get(pid) || null,
-        artifact_id: safeStr(row.artifact_id) || null,
-        artifact_type: artifactType,
-        artifact_title: safeStr(row.title) || null,
-        step_id: safeStr(row.artifact_step_id) || null,
-        stage_key: stageKey,
-        step_title: safeStr(row.step_name) || "Approval",
-        approver_user_id: safeStr(row.pending_user_id) || null,
-        approver_group_id: null,
-        approver_label: approverLabel,
-        submitted_at: submittedAtIso,
-        due_at: derivedDueAt ? derivedDueAt.toISOString() : null,
-        sla_status: slaStatus,
-        hours_to_due: hoursToDue,
-        hours_overdue: hoursOverdue,
-        window_days: 30,
-        meta: {
-          source: "v_pending_artifact_approvals_all",
-          sla_hours: sla.sla_hours,
-          approver_role: approverRole,
-          approver_type: safeStr(row.approver_type) || null,
-          approver_ref: safeStr(row.approver_ref) || null,
+const JSON_SCHEMA = {
+  name: "decision_intelligence",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      headline: { type: "string" },
+      rag: { type: "string", enum: ["green", "amber", "red"] },
+      narrative: { type: "string" },
+      keyDecisions: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            ref: { type: "string" },
+            title: { type: "string" },
+            rationaleScore: { type: "number" },
+            rationaleAssessment: { type: "string" },
+            impactAssessment: { type: "string" },
+            urgency: { type: "string", enum: ["immediate", "this_week", "this_sprint", "monitor"] },
+          },
+          required: ["ref", "title", "rationaleScore", "rationaleAssessment", "impactAssessment", "urgency"],
+          additionalProperties: false,
         },
-        computed_at: nowIso,
-      });
-    }
+      },
+      pendingRisks: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            ref: { type: "string" },
+            risk: { type: "string" },
+            recommendation: { type: "string" },
+          },
+          required: ["ref", "risk", "recommendation"],
+          additionalProperties: false,
+        },
+      },
+      pmActions: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            action: { type: "string" },
+            priority: { type: "string", enum: ["high", "medium", "low"] },
+            timeframe: { type: "string" },
+          },
+          required: ["action", "priority", "timeframe"],
+          additionalProperties: false,
+        },
+      },
+      earlyWarnings: { type: "array", items: { type: "string" } },
+    },
+    required: ["headline", "rag", "narrative", "keyDecisions", "pendingRisks", "pmActions", "earlyWarnings"],
+    additionalProperties: false,
+  },
+};
 
-    await supabase.from("exec_approval_cache").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-    for (let i = 0; i < cacheRows.length; i += 500) {
-      const { error } = await supabase.from("exec_approval_cache").insert(cacheRows.slice(i, i + 500));
-      if (error) throw error;
-    }
+/* ---------------- AI worker ---------------- */
 
-    await supabase.from("exec_approval_bottlenecks").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-    const byApprover = new Map<string, { label: string; userId: string | null; open: number; breached: number; atRisk: number; maxOverdue: number }>();
-    for (const r of cacheRows) {
-      const key = r.approver_label || "Unassigned";
-      const cur = byApprover.get(key) ?? { label: r.approver_label, userId: r.approver_user_id, open: 0, breached: 0, atRisk: 0, maxOverdue: 0 };
-      cur.open++;
-      if (r.sla_status === "breached" || r.sla_status === "overdue_undecided") cur.breached++;
-      if (r.sla_status === "at_risk") cur.atRisk++;
-      cur.maxOverdue = Math.max(cur.maxOverdue, safeNum(r.hours_overdue));
-      byApprover.set(key, cur);
-    }
+async function generateIntelligenceForProject(
+  projectId: string,
+  projectName: string,
+  decisions: Decision[]
+): Promise<{ result: DecisionIntelligenceResult; signals: DecisionSignal[]; fallback: boolean }> {
+  const signals = computeDecisionSignals(decisions);
+  const apiKey = process.env.OPENAI_API_KEY || process.env.WIRE_AI_API_KEY;
 
-    const bottleneckRows = Array.from(byApprover.values()).map(v => ({
-      approver_user_id: v.userId, approver_group_id: null, approver_label: v.label,
-      open_steps: v.open, breached_steps: v.breached, at_risk_steps: v.atRisk,
-      blocker_score: v.breached * 5 + v.atRisk * 2 + v.open, computed_at: nowIso,
-    }));
+  if (!apiKey) {
+    return { result: ruleBasedDecisionAnalysis(decisions, signals), signals, fallback: true };
+  }
 
-    if (bottleneckRows.length) {
-      const { error } = await supabase.from("exec_approval_bottlenecks").insert(bottleneckRows);
-      if (error) throw error;
-    }
+  const openai = new OpenAI({ apiKey });
+  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-    try { await supabase.rpc("exec_refresh_intel"); } catch { }
+  const open = decisions.filter((d) => !["implemented", "rejected", "superseded"].includes(d.status));
 
-    const orgDist: Record<string, number> = {};
-    for (const r of cacheRows) { const o = safeStr(r.organisation_id); orgDist[o] = (orgDist[o] ?? 0) + 1; }
-    console.log("[exec-intel v3] view rows:", rows.length);
-    console.log("[exec-intel v3] cache inserted:", cacheRows.length);
-    console.log("[exec-intel v3] skipped null org:", skippedNullOrg);
-    console.log("[exec-intel v3] orgs:", JSON.stringify(orgDist));
+  const prompt = `You are a senior project governance advisor reviewing a decision log for daily briefing.
 
-    return jsonOk({ source: "v_pending_artifact_approvals_all", view_rows: rows.length, cache: cacheRows.length, bottlenecks: bottleneckRows.length, skipped_null_org: skippedNullOrg, orgs: orgDist });
+Project: ${projectName}
+Total: ${decisions.length} | Open: ${open.length} | Implemented: ${decisions.filter((d) => d.status === "implemented").length}
 
-  } catch (e: any) {
-    return jsonErr("Exec intel generation failed", 500, { message: e?.message ?? String(e) });
+SIGNALS
+${signals.length > 0 ? signals.map((s) => `[${s.severity.toUpperCase()}] ${s.label}: ${s.detail}`).join("\n") : "No signals"}
+
+OPEN DECISIONS (top 10 by impact)
+${open
+  .sort((a, b) => {
+    const s = { critical: 3, high: 2, medium: 1, low: 0 };
+    return s[b.impact] - s[a.impact];
+  })
+  .slice(0, 10)
+  .map((d) => {
+    const rScore = rationaleQualityScore(d);
+    const overdue = d.neededByDate ? daysTil(d.neededByDate) : null;
+    return `${d.ref} ${d.title} | ${d.status} | ${d.impact} impact | Owner: ${d.owner || "UNOWNED"} | Rationale: ${rScore}/5${
+      overdue !== null && overdue < 0 ? " | OVERDUE " + Math.abs(overdue) + "d" : ""
+    }`;
+  })
+  .join("\n")}
+
+Concise governance brief. Narrative: 2-3 sentences max.`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model,
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_schema", json_schema: JSON_SCHEMA as any },
+    });
+
+    const result: DecisionIntelligenceResult = JSON.parse(response.choices[0].message.content || "{}");
+    return { result, signals, fallback: false };
+  } catch (err) {
+    console.error(`[decision-cron] AI failed for ${projectId}:`, err);
+    return { result: ruleBasedDecisionAnalysis(decisions, signals), signals, fallback: true };
   }
 }
 
-export async function POST(req: Request) { return handler(req); }
-export async function GET(req: Request) { return handler(req); }
+/* ---------------- route ---------------- */
+
+export async function GET(req: NextRequest) {
+  const authFail = requireCronSecret(req);
+  if (authFail) return authFail;
+
+  const results: Record<string, any> = {};
+  let processed = 0;
+  let failed = 0;
+
+  try {
+    const supabase = getSupabase();
+
+    // ✅ match your schema: title + lifecycle fields
+    const { data: projects, error: projectErr } = await supabase
+      .from("projects")
+      .select("id, title, project_code, status, lifecycle_status, lifecycle_state, state, deleted_at, archived_at, cancelled_at, closed_at")
+      .is("deleted_at", null);
+
+    if (projectErr) throw projectErr;
+
+    const active = (projects ?? []).filter(isProjectActive);
+    if (active.length === 0) {
+      return NextResponse.json({ ok: true, message: "No active projects", processed: 0, failed: 0 });
+    }
+
+    for (const project of active) {
+      const projectId = ss((project as any).id);
+      const projectName = ss((project as any).title) || ss((project as any).project_code) || projectId;
+
+      try {
+        const { data: rawDecisions, error: decErr } = await supabase
+          .from("decisions")
+          .select("*")
+          .eq("project_id", projectId);
+
+        if (decErr) {
+          console.error(`[decision-cron] Fetch failed for ${projectId}:`, decErr);
+          failed++;
+          continue;
+        }
+
+        const decisions: Decision[] = (rawDecisions ?? []).map((row: any) => ({
+          id: row.id,
+          ref: row.ref,
+          title: row.title,
+          context: row.context ?? "",
+          rationale: row.rationale ?? "",
+          decision: row.decision ?? "",
+          category: row.category ?? "Other",
+          status: row.status,
+          impact: row.impact ?? "medium",
+          impactDescription: row.impact_description ?? "",
+          owner: row.owner,
+          approver: row.approver,
+          optionsConsidered: row.options_considered ? (JSON.parse(row.options_considered) as DecisionOption[]) : [],
+          dateRaised: row.date_raised,
+          neededByDate: row.needed_by_date,
+          approvedDate: row.approved_date,
+          implementationDate: row.implementation_date,
+          reviewDate: row.review_date,
+          reversible: row.reversible ?? false,
+          linkedRisks: row.linked_risks ? JSON.parse(row.linked_risks) : [],
+          linkedChangeRequests: row.linked_change_requests ? JSON.parse(row.linked_change_requests) : [],
+          linkedMilestones: row.linked_milestones ? JSON.parse(row.linked_milestones) : [],
+          tags: row.tags ? JSON.parse(row.tags) : [],
+          lastUpdated: row.last_updated,
+          notes: row.notes ?? "",
+        }));
+
+        const { result, signals, fallback } = await generateIntelligenceForProject(projectId, projectName, decisions);
+
+        const { error: upsertErr } = await supabase.from("decision_intelligence").upsert(
+          {
+            project_id: projectId,
+            headline: result.headline,
+            rag: result.rag,
+            narrative: result.narrative,
+            key_decisions: JSON.stringify(result.keyDecisions),
+            pending_risks: JSON.stringify(result.pendingRisks),
+            pm_actions: JSON.stringify(result.pmActions),
+            early_warnings: JSON.stringify(result.earlyWarnings),
+            signals: JSON.stringify(signals),
+            fallback,
+            generated_at: new Date().toISOString(),
+          },
+          { onConflict: "project_id" }
+        );
+
+        if (upsertErr) {
+          console.error(`[decision-cron] Upsert failed for ${projectId}:`, upsertErr);
+          failed++;
+        } else {
+          results[projectId] = { rag: result.rag, signals: signals.length, fallback };
+          processed++;
+        }
+      } catch (projErr) {
+        console.error(`[decision-cron] Project ${projectId} failed:`, projErr);
+        failed++;
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      message: "Decision intelligence generated",
+      processed,
+      failed,
+      results,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error("[decision-cron] Fatal error:", err);
+    return NextResponse.json({ ok: false, error: "Cron job failed", detail: err?.message }, { status: 500 });
+  }
+}
