@@ -1,4 +1,4 @@
-﻿//src/app(app)governance/[slug]/page.tsx
+﻿// src/app/(app)/governance/[slug]/page.tsx
 import "server-only";
 
 import Link from "next/link";
@@ -36,7 +36,6 @@ export default async function GovernanceArticlePage({
 
   if (!slug) return notFound();
 
-}
   const supabase = await createClient();
 
   // Diagnose session/RLS behaviour in prod
