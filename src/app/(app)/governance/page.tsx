@@ -1,9 +1,9 @@
 // src/app/(app)/governance/page.tsx
-// Governance Knowledge Base — hub listing page (production, server-rendered)
 import "server-only";
 
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/server";
+import GovernanceSearchBox from "@/components/governance/GovernanceSearchBox";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ function safeStr(x: unknown) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
-function safeArr<T>(x: unknown): T[] {
+function safeArr<T>(x: unknown) {
   return Array.isArray(x) ? (x as T[]) : [];
 }
 
@@ -37,11 +37,7 @@ function fmtUpdated(x: unknown) {
   if (!s) return "";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-  });
+  return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "2-digit" });
 }
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -55,13 +51,19 @@ type CatRow = {
   icon: string | null;
 };
 
+type CountRow = {
+  category_id: string;
+  category_slug: string;
+  category_name: string;
+  published_count: number;
+};
+
 type ArticleRow = {
   id: string;
   slug: string;
   title: string;
   summary: string | null;
   category_id: string | null;
-  category: string | null; // legacy text (kept for safety)
   updated_at: string | null;
 };
 
@@ -76,6 +78,7 @@ export default async function GovernancePage({
 
   const supabase = await createClient();
 
+  // Categories (new model)
   const { data: catsRaw } = await supabase
     .from("governance_categories")
     .select("id,slug,name,description,sort_order,icon,is_active")
@@ -85,42 +88,43 @@ export default async function GovernancePage({
 
   const categories = safeArr<CatRow>(catsRaw);
 
-  const activeCategory = cat
-    ? categories.find((c) => c.slug === cat) ?? null
-    : null;
+  const activeCategory = cat ? categories.find((c) => c.slug === cat) ?? null : null;
 
+  // Category counts (view) — fallback safe if view not created yet
+  const countsByCatId = new Map<string, number>();
+  try {
+    const { data: countsRaw } = await supabase
+      .from("v_governance_category_counts")
+      .select("category_id,category_slug,category_name,published_count");
+
+    const counts = safeArr<CountRow>(countsRaw);
+    for (const r of counts) countsByCatId.set(r.category_id, Number(r.published_count) || 0);
+  } catch {
+    // ignore — we fall back to derived counts below
+  }
+
+  // Articles (published) — filter by category and/or query
   let articlesQ = supabase
     .from("governance_articles")
-    .select("id,slug,title,summary,category_id,category,updated_at")
+    .select("id,slug,title,summary,category_id,updated_at")
     .eq("is_published", true);
 
-  if (activeCategory?.id) {
-    articlesQ = articlesQ.eq("category_id", activeCategory.id);
-  }
+  if (activeCategory?.id) articlesQ = articlesQ.eq("category_id", activeCategory.id);
 
   if (q) {
     const like = `%${q.replace(/%/g, "\\%").replace(/_/g, "\\_")}%`;
-    articlesQ = articlesQ.or(
-      `title.ilike.${like},summary.ilike.${like},content.ilike.${like}`
-    );
+    articlesQ = articlesQ.or(`title.ilike.${like},summary.ilike.${like},content.ilike.${like}`);
   }
 
-  const { data: artsRaw, error: artsErr } = await articlesQ.order("title", {
-    ascending: true,
-  });
-
-  if (artsErr && process.env.NODE_ENV === "development") {
-    // eslint-disable-next-line no-console
-    console.error("Governance hub load failed:", artsErr);
-  }
-
+  const { data: artsRaw } = await articlesQ.order("title", { ascending: true });
   const articles = safeArr<ArticleRow>(artsRaw);
 
-  // Counts computed from loaded set (simple + RLS-safe)
-  const countsByCatId = new Map<string, number>();
-  for (const a of articles) {
-    if (!a.category_id) continue;
-    countsByCatId.set(a.category_id, (countsByCatId.get(a.category_id) ?? 0) + 1);
+  // Fallback counts if view missing
+  if (countsByCatId.size === 0) {
+    for (const a of articles) {
+      if (!a.category_id) continue;
+      countsByCatId.set(a.category_id, (countsByCatId.get(a.category_id) ?? 0) + 1);
+    }
   }
 
   const pageTitle = "Governance Knowledge Base";
@@ -134,9 +138,7 @@ export default async function GovernancePage({
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight">{pageTitle}</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-relaxed opacity-75">
-              {pageSubtitle}
-            </p>
+            <p className="mt-2 max-w-3xl text-sm leading-relaxed opacity-75">{pageSubtitle}</p>
 
             <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
               <span className="rounded-lg border bg-white/60 px-2.5 py-1 opacity-80 dark:bg-white/5">
@@ -166,33 +168,28 @@ export default async function GovernancePage({
           </div>
         </div>
 
-        {/* Search bar (server-driven) */}
-        <form className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center">
-          <input
-            type="text"
-            name="q"
-            defaultValue={q}
-            placeholder='Search governance guidance (e.g., “SLA breach”, “change approval”, “risk escalation”)…'
-            className="w-full rounded-lg border bg-white/60 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10 dark:bg-white/5 dark:focus:ring-white/10"
-          />
-          {activeCategory ? (
-            <input type="hidden" name="cat" value={activeCategory.slug} />
-          ) : null}
-          <button
-            type="submit"
-            className="inline-flex shrink-0 items-center justify-center rounded-lg border px-4 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
-          >
-            Search
-          </button>
+        {/* Instant search (client) */}
+        <div className="mt-5">
+          <GovernanceSearchBox initialQ={q} categorySlug={activeCategory?.slug ?? null} />
           {q || activeCategory ? (
-            <Link
-              href="/governance"
-              className="inline-flex shrink-0 items-center justify-center rounded-lg border px-4 py-2 text-sm opacity-80 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/10"
-            >
-              Clear
-            </Link>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+              <Link
+                href="/governance"
+                className="inline-flex rounded-lg border px-3 py-1.5 opacity-80 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                Clear filters
+              </Link>
+              {activeCategory ? (
+                <Link
+                  href="/governance"
+                  className="inline-flex rounded-lg border px-3 py-1.5 opacity-80 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  All categories
+                </Link>
+              ) : null}
+            </div>
           ) : null}
-        </form>
+        </div>
       </div>
 
       {/* Layout */}
@@ -203,7 +200,7 @@ export default async function GovernancePage({
 
           <div className="flex flex-col gap-1">
             <Link
-              href={q ? `/governance?q=${encodeURIComponent(q)}` : "/governance"}
+              href="/governance"
               className={[
                 "rounded-lg px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10",
                 !activeCategory ? "bg-black/5 dark:bg-white/10" : "",
@@ -214,10 +211,7 @@ export default async function GovernancePage({
 
             {categories.map((c) => {
               const isActive = activeCategory?.slug === c.slug;
-              const href = q
-                ? `/governance?cat=${encodeURIComponent(c.slug)}&q=${encodeURIComponent(q)}`
-                : `/governance?cat=${encodeURIComponent(c.slug)}`;
-
+              const href = `/governance?cat=${encodeURIComponent(c.slug)}`;
               const count = countsByCatId.get(c.id) ?? 0;
 
               return (
@@ -241,14 +235,14 @@ export default async function GovernancePage({
           <div className="mt-4 rounded-lg border bg-white/60 p-3 text-xs opacity-80 dark:bg-white/5">
             <div className="font-medium">Governance standard</div>
             <div className="mt-1 leading-relaxed">
-              This KB is the operating model for delivery assurance, approvals discipline,
-              and audit-ready governance inside Aliena.
+              This KB is the operating model for delivery assurance, approvals discipline, and
+              audit-ready governance inside Aliena.
             </div>
           </div>
         </aside>
 
         {/* Main */}
-        <main className="relative rounded-2xl border bg-white/60 p-4 shadow-sm backdrop-blur dark:bg-white/5">
+        <main className="rounded-2xl border bg-white/60 p-4 shadow-sm backdrop-blur dark:bg-white/5">
           <div className="mb-3 flex items-center justify-between">
             <div className="text-sm font-medium">Articles</div>
             <div className="text-xs opacity-70">
@@ -266,9 +260,7 @@ export default async function GovernancePage({
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="truncate text-base font-semibold">
-                        {safeStr(a.title)}
-                      </div>
+                      <div className="truncate text-base font-semibold">{safeStr(a.title)}</div>
                       {a.summary ? (
                         <div className="mt-1 line-clamp-2 text-sm opacity-75">
                           {safeStr(a.summary)}
@@ -284,11 +276,6 @@ export default async function GovernancePage({
                     {a.updated_at ? (
                       <span className="rounded-md border px-2 py-0.5">
                         Updated {fmtUpdated(a.updated_at)}
-                      </span>
-                    ) : null}
-                    {activeCategory ? (
-                      <span className="rounded-md border px-2 py-0.5">
-                        {activeCategory.name}
                       </span>
                     ) : null}
                   </div>

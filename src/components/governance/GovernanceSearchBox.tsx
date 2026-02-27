@@ -2,8 +2,8 @@
 
 // GovernanceSearchBox — inline dropdown (NO fixed overlay, NO click blocking)
 // - Renders results panel inside a relative wrapper (absolute dropdown).
-// - Outside-click closes.
-// - Esc closes.
+// - Outside-click closes (only while open).
+// - Esc closes (only while open).
 // - Never blocks other page links (Ask Aliena / Open).
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
@@ -68,25 +68,31 @@ export default function GovernanceSearchBox({
     inputRef.current?.focus();
   }, []);
 
-  // Close on outside click
+  // Close on outside click (only while open)
   useEffect(() => {
+    if (!open) return;
+
     function onDown(e: MouseEvent) {
       const el = wrapRef.current;
       if (!el) return;
       if (!el.contains(e.target as any)) setOpen(false);
     }
+
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
-  }, []);
+  }, [open]);
 
-  // Esc closes
+  // Esc closes (only while open)
   useEffect(() => {
+    if (!open) return;
+
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
     }
+
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, []);
+  }, [open]);
 
   // Auto focus (optional)
   useEffect(() => {
@@ -103,6 +109,7 @@ export default function GovernanceSearchBox({
     if (!canSearch) {
       setLoading(false);
       setItems([]);
+      setOpen(false);
       return;
     }
 
@@ -207,43 +214,48 @@ export default function GovernanceSearchBox({
               </div>
             ) : items.length ? (
               <div className="space-y-2">
-                {items.map((it) => (
-                  <Link
-                    key={safeStr(it.slug)}
-                    href={`/governance/${encodeURIComponent(safeStr(it.slug))}`}
-                    className="block rounded-2xl border border-neutral-200 bg-white p-3 hover:bg-neutral-50"
-                    onClick={() => setOpen(false)}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-neutral-900">
-                          {safeStr(it.title) || safeStr(it.slug)}
-                        </div>
-                        {safeStr(it.summary).trim() ? (
-                          <div className="mt-1 line-clamp-2 text-xs text-neutral-600">
-                            {safeStr(it.summary)}
+                {items.map((it) => {
+                  const s = safeStr(it.slug).trim();
+                  const href = `/governance/${encodeURIComponent(s)}`;
+                  return (
+                    <Link
+                      key={s}
+                      href={href}
+                      className="block rounded-2xl border border-neutral-200 bg-white p-3 hover:bg-neutral-50"
+                      onClick={() => setOpen(false)}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-neutral-900">
+                            {safeStr(it.title).trim() || s}
                           </div>
-                        ) : null}
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500">
-                          {safeStr(it.updated_at).trim() ? (
-                            <span className="rounded-md border border-neutral-200 px-2 py-0.5">
-                              Updated {fmtUpdated(it.updated_at)}
-                            </span>
+                          {safeStr(it.summary).trim() ? (
+                            <div className="mt-1 line-clamp-2 text-xs text-neutral-600">
+                              {safeStr(it.summary)}
+                            </div>
                           ) : null}
-                          {safeStr(it.category_name || it.category).trim() ? (
-                            <span className="rounded-md border border-neutral-200 px-2 py-0.5">
-                              {safeStr(it.category_name || it.category)}
-                            </span>
-                          ) : null}
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500">
+                            {safeStr(it.updated_at).trim() ? (
+                              <span className="rounded-md border border-neutral-200 px-2 py-0.5">
+                                Updated {fmtUpdated(it.updated_at)}
+                              </span>
+                            ) : null}
+                            {safeStr(it.category_name || it.category).trim() ? (
+                              <span className="rounded-md border border-neutral-200 px-2 py-0.5">
+                                {safeStr(it.category_name || it.category)}
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
-                      </div>
 
-                      <span className="shrink-0 rounded-lg border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-700">
-                        Open <ArrowUpRight className="ml-1 inline h-3.5 w-3.5 text-neutral-400" />
-                      </span>
-                    </div>
-                  </Link>
-                ))}
+                        <span className="shrink-0 rounded-lg border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-700">
+                          Open{" "}
+                          <ArrowUpRight className="ml-1 inline h-3.5 w-3.5 text-neutral-400" />
+                        </span>
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             ) : (
               <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-3 text-sm text-neutral-700">
