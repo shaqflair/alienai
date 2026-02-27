@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
   Plus, Trash2, TrendingUp, TrendingDown, AlertTriangle,
-  Calendar, Sparkles, Users, Link2, LinkOff, RefreshCw,
+  Calendar, Sparkles, Users, Link2, Link2Off, RefreshCw,
 } from "lucide-react";
 import FinancialPlanMonthlyView, { type MonthlyData, type FYConfig } from "./FinancialPlanMonthlyView";
 import FinancialIntelligencePanel from "./FinancialIntelligencePanel";
@@ -541,7 +541,7 @@ function OverrideToggle({
             : "bg-emerald-100 border-emerald-300 text-emerald-700 hover:bg-emerald-200"
         }`}
       >
-        {line.override ? <LinkOff className="w-2.5 h-2.5" /> : <Link2 className="w-2.5 h-2.5" />}
+        {line.override ? <Link2Off className="w-2.5 h-2.5" /> : <Link2 className="w-2.5 h-2.5" />}
         {line.override ? "Override" : `Auto ${fmt(resTotal, sym)}`}
       </button>
     </div>
