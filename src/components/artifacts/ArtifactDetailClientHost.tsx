@@ -1,13 +1,15 @@
 ﻿// src/components/artifacts/ArtifactDetailClientHost.tsx
-// ✅ FIX: Added FINANCIAL_PLAN mode — renders FinancialPlanEditor instead of fallback textarea
-// ✅ FIX: financial_plan mode added to ArtifactDetailClientMode type
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 
 import ProjectCharterEditorFormLazy from "@/components/editors/ProjectCharterEditorFormLazy";
+import {
+  emptyFinancialPlan,
+  type FinancialPlanContent,
+} from "@/components/artifacts/FinancialPlanEditor";
 
 /* ---------------- dynamic client components ---------------- */
 
@@ -41,7 +43,6 @@ const WeeklyReportEditor = dynamic(() => import("@/components/editors/WeeklyRepo
   loading: () => <div className="text-sm text-gray-500">Loading Weekly Report editor…</div>,
 });
 
-// ✅ NEW: Financial Plan editor — lazy loaded
 const FinancialPlanEditor = dynamic(() => import("@/components/artifacts/FinancialPlanEditor"), {
   ssr: false,
   loading: () => <div className="text-sm text-gray-500">Loading Financial Plan editor…</div>,
@@ -67,7 +68,7 @@ export type ArtifactDetailClientMode =
   | "change_requests"
   | "closure"
   | "weekly_report"
-  | "financial_plan"   // ✅ NEW
+  | "financial_plan"
   | "fallback";
 
 type LegacyExports = { pdf?: string; docx?: string; xlsx?: string };
@@ -89,13 +90,11 @@ export type ArtifactDetailClientHostProps = {
   isEditable: boolean;
   lockLayout: boolean;
 
-  // initial JSON/content from server
   charterInitial?: any;
   typedInitialJson?: any;
   rawContentJson?: any;
   rawContentText?: string;
 
-  // project extras (charter seeds + schedule header)
   projectTitle?: string;
   projectManagerName?: string | null;
   projectStartDate?: string | null;
@@ -104,7 +103,6 @@ export type ArtifactDetailClientHostProps = {
   latestWbsJson?: any;
   wbsArtifactId?: string | null;
 
-  // AI panel
   aiTargetType?: string;
   aiTitle?: string;
 
@@ -132,6 +130,72 @@ function getArtifactVersion(typedInitialJson: any) {
   return Number.isFinite(v) && v > 0 ? v : 1;
 }
 
+/* -----------------------------------------------------------------------
+   ✅ FinancialPlanEditorHost
+   Thin stateful wrapper so FinancialPlanEditor always receives a valid
+   `content` object (never null/undefined) and auto-saves via the action.
+   ----------------------------------------------------------------------- */
+function FinancialPlanEditorHost({
+  projectId,
+  artifactId,
+  initialJson,
+  readOnly,
+  updateArtifactJsonAction,
+}: {
+  projectId: string;
+  artifactId: string;
+  initialJson: any;
+  readOnly: boolean;
+  updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
+}) {
+  // ✅ Safe initialisation — fall back to emptyFinancialPlan() if null/invalid
+  const [content, setContent] = useState<FinancialPlanContent>(() => {
+    if (
+      initialJson &&
+      typeof initialJson === "object" &&
+      typeof initialJson.currency === "string"
+    ) {
+      return initialJson as FinancialPlanContent;
+    }
+    return emptyFinancialPlan();
+  });
+
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const handleChange = useCallback(
+    (updated: FinancialPlanContent) => {
+      setContent(updated);
+
+      if (!updateArtifactJsonAction || readOnly) return;
+
+      clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => {
+        updateArtifactJsonAction({
+          artifactId,
+          projectId,
+          contentJson: updated,
+        }).catch((e) => {
+          console.error("[FinancialPlanEditorHost] save error:", e);
+        });
+      }, 800);
+    },
+    [artifactId, projectId, readOnly, updateArtifactJsonAction]
+  );
+
+  // Cleanup timer on unmount
+  useEffect(() => () => clearTimeout(saveTimer.current), []);
+
+  return (
+    <FinancialPlanEditor
+      content={content}
+      onChange={handleChange}
+      readOnly={readOnly}
+    />
+  );
+}
+
+/* ---------------- main component ---------------- */
+
 export default function ArtifactDetailClientHost(props: ArtifactDetailClientHostProps) {
   const {
     projectId, artifactId, mode, isEditable, lockLayout,
@@ -152,17 +216,24 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
 
   const [devHost, setDevHost] = useState(false);
   useEffect(() => {
-    try { const host = window.location.hostname || ""; setDevHost(/localhost|127\.0\.0\.1/i.test(host)); } catch { setDevHost(false); }
+    try {
+      const host = window.location.hostname || "";
+      setDevHost(/localhost|127\.0\.0\.1/i.test(host));
+    } catch {
+      setDevHost(false);
+    }
   }, []);
 
   const artifactVersion = useMemo(() => getArtifactVersion(typedInitialJson), [typedInitialJson]);
   const isCharterV2 = mode === "charter" && artifactVersion >= 2;
 
-  // ✅ financial_plan also hides legacy content exports row
-  const hideContentExportsRow = mode === "charter" || mode === "closure" || mode === "weekly_report" || mode === "financial_plan"
-    ? true : !!hideContentExportsRowProp;
+  const hideContentExportsRow =
+    mode === "charter" || mode === "closure" || mode === "weekly_report" || mode === "financial_plan"
+      ? true
+      : !!hideContentExportsRowProp;
 
-  const effectiveLegacyExports = mode === "charter" ? (isCharterV2 ? undefined : legacyExports) : legacyExports;
+  const effectiveLegacyExports =
+    mode === "charter" ? (isCharterV2 ? undefined : legacyExports) : legacyExports;
 
   const contentHeader = hideContentExportsRow ? null : (
     <div className="flex items-center justify-between">
@@ -171,7 +242,6 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     </div>
   );
 
-  // ✅ financial_plan has its own integrated panels — skip global panel section
   const shouldHidePanels = mode === "charter" || mode === "financial_plan";
 
   return (
@@ -195,21 +265,45 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 <div className="font-medium">Panels</div>
                 <div className="flex items-center gap-2">
                   {showAI ? (
-                    <button type="button" onClick={() => setOpenAI((v) => !v)}
-                      className={cx("rounded-xl border px-3 py-2 text-sm transition", openAI ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50")}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenAI((v) => !v)}
+                      className={cx(
+                        "rounded-xl border px-3 py-2 text-sm transition",
+                        openAI ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50"
+                      )}
+                    >
                       {openAI ? "Hide AI" : "Show AI"}
                     </button>
                   ) : null}
                   {showTimeline ? (
-                    <button type="button" onClick={() => setOpenTimeline((v) => !v)}
-                      className={cx("rounded-xl border px-3 py-2 text-sm transition", openTimeline ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50")}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenTimeline((v) => !v)}
+                      className={cx(
+                        "rounded-xl border px-3 py-2 text-sm transition",
+                        openTimeline ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50"
+                      )}
+                    >
                       {openTimeline ? "Hide timeline" : "Show timeline"}
                     </button>
                   ) : null}
                 </div>
               </div>
-              {showAI && openAI ? <AiSuggestionsPanel projectId={projectId} artifactId={artifactId} targetArtifactType={aiTargetType} title={aiTitle || "AI Suggestions"} limit={20} hideWhenEmpty={false} showTestButton={devHost} /> : null}
-              {showTimeline && openTimeline ? <ArtifactTimeline artifactId={artifactId} titleMap={{}} limit={60} /> : null}
+              {showAI && openAI ? (
+                <AiSuggestionsPanel
+                  projectId={projectId}
+                  artifactId={artifactId}
+                  targetArtifactType={aiTargetType}
+                  title={aiTitle || "AI Suggestions"}
+                  limit={20}
+                  hideWhenEmpty={false}
+                  showTestButton={devHost}
+                />
+              ) : null}
+              {showTimeline && openTimeline ? (
+                <ArtifactTimeline artifactId={artifactId} titleMap={{}} limit={60} />
+              ) : null}
             </section>
           ) : null}
         </section>
@@ -220,44 +314,78 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
 
             {mode === "charter" ? (
               <ProjectCharterEditorFormLazy
-                projectId={projectId} artifactId={artifactId} initialJson={charterInitial} readOnly={!isEditable}
-                artifactVersion={artifactVersion} projectTitle={projectTitle} projectManagerName={projectManagerName ?? undefined}
-                legacyExports={effectiveLegacyExports} approvalEnabled={!!approvalEnabled}
-                canSubmitOrResubmit={!!canSubmitOrResubmit} approvalStatus={approvalStatus ?? null}
+                projectId={projectId}
+                artifactId={artifactId}
+                initialJson={charterInitial}
+                readOnly={!isEditable}
+                artifactVersion={artifactVersion}
+                projectTitle={projectTitle}
+                projectManagerName={projectManagerName ?? undefined}
+                legacyExports={effectiveLegacyExports}
+                approvalEnabled={!!approvalEnabled}
+                canSubmitOrResubmit={!!canSubmitOrResubmit}
+                approvalStatus={approvalStatus ?? null}
                 submitForApprovalAction={submitForApprovalAction}
               />
             ) : mode === "stakeholder" ? (
-              <StakeholderRegisterEditor projectId={projectId} artifactId={artifactId} initialJson={rawContentJson ?? null} readOnly={!isEditable} />
+              <StakeholderRegisterEditor
+                projectId={projectId}
+                artifactId={artifactId}
+                initialJson={rawContentJson ?? null}
+                readOnly={!isEditable}
+              />
             ) : mode === "wbs" ? (
-              <WBSEditor projectId={projectId} artifactId={artifactId} initialJson={rawContentJson ?? null} readOnly={!isEditable} />
+              <WBSEditor
+                projectId={projectId}
+                artifactId={artifactId}
+                initialJson={rawContentJson ?? null}
+                readOnly={!isEditable}
+              />
             ) : mode === "schedule" ? (
               <ScheduleGanttEditor
-                projectId={projectId} artifactId={artifactId} initialJson={typedInitialJson ?? null} readOnly={!isEditable}
-                projectTitle={projectTitle || ""} projectStartDate={projectStartDate ?? null} projectFinishDate={projectFinishDate ?? null}
-                latestWbsJson={latestWbsJson ?? null} wbsArtifactId={wbsArtifactId ?? null}
+                projectId={projectId}
+                artifactId={artifactId}
+                initialJson={typedInitialJson ?? null}
+                readOnly={!isEditable}
+                projectTitle={projectTitle || ""}
+                projectStartDate={projectStartDate ?? null}
+                projectFinishDate={projectFinishDate ?? null}
+                latestWbsJson={latestWbsJson ?? null}
+                wbsArtifactId={wbsArtifactId ?? null}
               />
             ) : mode === "closure" ? (
-              <ProjectClosureReportEditor projectId={projectId} artifactId={artifactId} initialJson={typedInitialJson ?? null} readOnly={!isEditable} />
+              <ProjectClosureReportEditor
+                projectId={projectId}
+                artifactId={artifactId}
+                initialJson={typedInitialJson ?? null}
+                readOnly={!isEditable}
+              />
             ) : mode === "weekly_report" ? (
               <WeeklyReportEditor
-                projectId={projectId} artifactId={artifactId} initialJson={typedInitialJson ?? rawContentJson ?? null}
-                readOnly={!isEditable} updateArtifactJsonAction={updateArtifactJsonAction}
-              />
-            ) : mode === "financial_plan" ? (
-              // ✅ NEW: Financial Plan renders the dedicated editor (not a fallback textarea)
-              <FinancialPlanEditor
                 projectId={projectId}
                 artifactId={artifactId}
                 initialJson={typedInitialJson ?? rawContentJson ?? null}
                 readOnly={!isEditable}
-                projectTitle={projectTitle}
+                updateArtifactJsonAction={updateArtifactJsonAction}
+              />
+            ) : mode === "financial_plan" ? (
+              // ✅ Uses FinancialPlanEditorHost to safely handle null initialJson
+              <FinancialPlanEditorHost
+                projectId={projectId}
+                artifactId={artifactId}
+                initialJson={typedInitialJson ?? rawContentJson ?? null}
+                readOnly={!isEditable}
                 updateArtifactJsonAction={updateArtifactJsonAction}
               />
             ) : (
               <div className="grid gap-2">
-                {String(rawContentText ?? "").trim().length === 0 ? <div className="text-sm text-gray-600">No content yet.</div> : null}
+                {String(rawContentText ?? "").trim().length === 0 ? (
+                  <div className="text-sm text-gray-600">No content yet.</div>
+                ) : null}
                 <textarea
-                  rows={14} readOnly value={String(rawContentText ?? "")}
+                  rows={14}
+                  readOnly
+                  value={String(rawContentText ?? "")}
                   className="border rounded-xl px-3 py-2 font-mono text-sm bg-gray-50 whitespace-pre-wrap"
                 />
               </div>
@@ -270,22 +398,50 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 <div className="font-medium">Panels</div>
                 <div className="flex items-center gap-2">
                   {showAI ? (
-                    <button type="button" onClick={() => setOpenAI((v) => !v)}
-                      className={cx("rounded-xl border px-3 py-2 text-sm transition", openAI ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50")}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenAI((v) => !v)}
+                      className={cx(
+                        "rounded-xl border px-3 py-2 text-sm transition",
+                        openAI ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50"
+                      )}
+                    >
                       {openAI ? "Hide AI" : "Show AI"}
                     </button>
                   ) : null}
                   {showTimeline ? (
-                    <button type="button" onClick={() => setOpenTimeline((v) => !v)}
-                      className={cx("rounded-xl border px-3 py-2 text-sm transition", openTimeline ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50")}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenTimeline((v) => !v)}
+                      className={cx(
+                        "rounded-xl border px-3 py-2 text-sm transition",
+                        openTimeline ? "bg-black text-white border-black" : "border-gray-200 hover:bg-gray-50"
+                      )}
+                    >
                       {openTimeline ? "Hide timeline" : "Show timeline"}
                     </button>
                   ) : null}
                 </div>
               </div>
-              {showAI && openAI ? <AiSuggestionsPanel projectId={projectId} artifactId={artifactId} targetArtifactType={aiTargetType} title={aiTitle || "AI Suggestions"} limit={20} hideWhenEmpty={mode !== "closure"} showTestButton={devHost} /> : null}
-              {showTimeline && openTimeline ? <ArtifactTimeline artifactId={artifactId} titleMap={{}} limit={60} /> : null}
-              {!openAI && !openTimeline ? <div className="text-xs text-gray-500">Tip: open panels only when you need them — keeps this page snappy.</div> : null}
+              {showAI && openAI ? (
+                <AiSuggestionsPanel
+                  projectId={projectId}
+                  artifactId={artifactId}
+                  targetArtifactType={aiTargetType}
+                  title={aiTitle || "AI Suggestions"}
+                  limit={20}
+                  hideWhenEmpty={mode !== "closure"}
+                  showTestButton={devHost}
+                />
+              ) : null}
+              {showTimeline && openTimeline ? (
+                <ArtifactTimeline artifactId={artifactId} titleMap={{}} limit={60} />
+              ) : null}
+              {!openAI && !openTimeline ? (
+                <div className="text-xs text-gray-500">
+                  Tip: open panels only when you need them — keeps this page snappy.
+                </div>
+              ) : null}
             </section>
           ) : null}
         </>
@@ -293,3 +449,4 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     </div>
   );
 }
+

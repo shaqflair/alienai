@@ -76,7 +76,6 @@ export default async function GovernancePage({
 
   const supabase = await createClient();
 
-  // Categories (new model)
   const { data: catsRaw } = await supabase
     .from("governance_categories")
     .select("id,slug,name,description,sort_order,icon,is_active")
@@ -86,10 +85,10 @@ export default async function GovernancePage({
 
   const categories = safeArr<CatRow>(catsRaw);
 
-  // Resolve category filter → category_id
-  const activeCategory = cat ? categories.find((c) => c.slug === cat) ?? null : null;
+  const activeCategory = cat
+    ? categories.find((c) => c.slug === cat) ?? null
+    : null;
 
-  // Fetch articles (published) — filter by category and/or query
   let articlesQ = supabase
     .from("governance_articles")
     .select("id,slug,title,summary,category_id,category,updated_at")
@@ -100,7 +99,6 @@ export default async function GovernancePage({
   }
 
   if (q) {
-    // Server-side search (ILIKE) — upgrade to FTS later
     const like = `%${q.replace(/%/g, "\\%").replace(/_/g, "\\_")}%`;
     articlesQ = articlesQ.or(
       `title.ilike.${like},summary.ilike.${like},content.ilike.${like}`
@@ -118,7 +116,7 @@ export default async function GovernancePage({
 
   const articles = safeArr<ArticleRow>(artsRaw);
 
-  // NOTE: counts computed from loaded set (simple + RLS-safe)
+  // Counts computed from loaded set (simple + RLS-safe)
   const countsByCatId = new Map<string, number>();
   for (const a of articles) {
     if (!a.category_id) continue;
