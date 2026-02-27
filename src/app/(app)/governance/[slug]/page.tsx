@@ -1,21 +1,35 @@
-﻿import "server-only";
+﻿// src/app/(app)/governance/page.tsx
+import "server-only";
 
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
+import GovernanceSearchBox from "@/components/governance/GovernanceSearchBox";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-/* ---------------- helpers ---------------- */
+export const metadata = {
+  title: "Governance Hub | Aliena",
+  description:
+    "Delivery governance framework, roles, approvals, change control, and RAID discipline.",
+};
 
 function safeStr(x: unknown) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
+function safeArr<T>(x: unknown) {
+  return Array.isArray(x) ? (x as T[]) : [];
+}
+
+function normQuery(x: unknown) {
+  const s = safeStr(x).trim();
+  return s.length > 200 ? s.slice(0, 200) : s;
+}
+
 function normSlug(x: unknown) {
-  return decodeURIComponent(safeStr(x)).trim().toLowerCase();
+  return safeStr(x).trim().toLowerCase();
 }
 
 function fmtUpdated(x: unknown) {
@@ -23,21 +37,10 @@ function fmtUpdated(x: unknown) {
   if (!s) return "";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-  });
+  return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "2-digit" });
 }
 
-function normalizeNewlines(s: string) {
-  // prevent SSR/CSR mismatch (CRLF vs LF)
-  return s.replace(/\r\n?/g, "\n");
-}
-
-type PageProps = {
-  params: Promise<{ slug: string }>;
-};
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 type CatRow = {
   id: string;
@@ -48,78 +51,34 @@ type CatRow = {
   icon: string | null;
 };
 
+type CountRow = {
+  category_id: string;
+  category_slug: string;
+  category_name: string;
+  published_count: number;
+};
+
 type ArticleRow = {
   id: string;
   slug: string;
   title: string;
   summary: string | null;
-  content: string | null;
   category_id: string | null;
   updated_at: string | null;
-  is_published: boolean;
 };
 
-/* ---------------- page ---------------- */
-
-export default async function GovernanceArticlePage({ params }: PageProps) {
-  const { slug: rawSlug } = await params;
-  const slug = normSlug(rawSlug);
-  if (!slug) return notFound();
+export default async function GovernancePage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const sp = (await searchParams) ?? {};
+  const q = normQuery(sp.q);
+  const cat = normSlug(sp.cat);
 
   const supabase = await createClient();
 
-  // 1) Load article
-  const { data: article, error: aErr } = await supabase
-    .from("governance_articles")
-    .select("id,slug,title,summary,content,category_id,updated_at,is_published")
-    .eq("slug", slug)
-    .eq("is_published", true)
-    .maybeSingle<ArticleRow>();
-
-  if (aErr) {
-    return (
-      <div className="mx-auto max-w-3xl px-6 py-16">
-        <h1 className="text-2xl font-semibold">Unable to load governance article</h1>
-        <p className="mt-2 text-sm opacity-70">
-          A data error occurred while fetching this guidance page.
-        </p>
-
-        <div className="mt-6 rounded-lg border bg-white/60 p-4 text-sm dark:bg-white/5">
-          <div className="font-medium">Error</div>
-          <div className="mt-1 break-words opacity-80">{safeStr(aErr.message)}</div>
-        </div>
-
-        <Link
-          href="/governance"
-          className="mt-6 inline-flex rounded-md border px-4 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
-        >
-          Back to Governance Hub
-        </Link>
-      </div>
-    );
-  }
-
-  if (!article) {
-    return (
-      <div className="mx-auto max-w-3xl px-6 py-16">
-        <h1 className="text-2xl font-semibold">Governance article not found</h1>
-        <p className="mt-2 text-sm opacity-70">This guidance page doesn’t exist.</p>
-        <Link
-          href="/governance"
-          className="mt-6 inline-flex rounded-md border px-4 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
-        >
-          Back to Governance Hub
-        </Link>
-      </div>
-    );
-  }
-
-  const title = safeStr(article.title);
-  const summary = safeStr(article.summary);
-  const content = normalizeNewlines(safeStr(article.content));
-  const updated = fmtUpdated(article.updated_at);
-
-  // 2) Load categories (for sidebar)
+  // Categories (new model)
   const { data: catsRaw } = await supabase
     .from("governance_categories")
     .select("id,slug,name,description,sort_order,icon,is_active")
@@ -127,260 +86,227 @@ export default async function GovernanceArticlePage({ params }: PageProps) {
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
 
-  const categories: CatRow[] = Array.isArray(catsRaw) ? (catsRaw as CatRow[]) : [];
+  const categories = safeArr<CatRow>(catsRaw);
 
-  // Determine active category
-  const activeCategory =
-    article.category_id && categories.length
-      ? categories.find((c) => c.id === article.category_id) ?? null
-      : null;
+  const activeCategory = cat
+    ? categories.find((c) => c.slug === cat) ?? null
+    : null;
 
-  // 3) Load articles in same category (for in-category nav + prev/next)
-  let inCategory: { id: string; slug: string; title: string; updated_at: string | null }[] =
-    [];
+  // Category counts (view) — fallback safe if view not created yet
+  const countsByCatId = new Map<string, number>();
+  try {
+    const { data: countsRaw } = await supabase
+      .from("v_governance_category_counts")
+      .select("category_id,category_slug,category_name,published_count");
 
-  if (article.category_id) {
-    const { data: inCatRaw } = await supabase
-      .from("governance_articles")
-      .select("id,slug,title,updated_at,category_id")
-      .eq("is_published", true)
-      .eq("category_id", article.category_id)
-      .order("title", { ascending: true });
-
-    inCategory = Array.isArray(inCatRaw)
-      ? (inCatRaw as any[]).map((x) => ({
-          id: safeStr(x.id),
-          slug: safeStr(x.slug),
-          title: safeStr(x.title),
-          updated_at: x.updated_at ?? null,
-        }))
-      : [];
+    const counts = safeArr<CountRow>(countsRaw);
+    for (const r of counts) countsByCatId.set(r.category_id, Number(r.published_count) || 0);
+  } catch {
+    // ignore — we fall back to derived counts below
   }
 
-  const idx = inCategory.findIndex((x) => x.slug === slug);
-  const prev = idx > 0 ? inCategory[idx - 1] : null;
-  const next = idx >= 0 && idx < inCategory.length - 1 ? inCategory[idx + 1] : null;
+  // Articles (published) — filter by category and/or query
+  let articlesQ = supabase
+    .from("governance_articles")
+    .select("id,slug,title,summary,category_id,updated_at")
+    .eq("is_published", true);
 
-  // 4) Related (fallback): if no category_id, show “recent” published
-  let related: { slug: string; title: string; updated_at: string | null }[] = [];
-  if (article.category_id) {
-    related = inCategory
-      .filter((x) => x.slug !== slug)
-      .slice(0, 6)
-      .map((x) => ({ slug: x.slug, title: x.title, updated_at: x.updated_at }));
-  } else {
-    const { data: relRaw } = await supabase
-      .from("governance_articles")
-      .select("slug,title,updated_at")
-      .eq("is_published", true)
-      .order("updated_at", { ascending: false })
-      .limit(6);
+  if (activeCategory?.id) articlesQ = articlesQ.eq("category_id", activeCategory.id);
 
-    related = Array.isArray(relRaw)
-      ? (relRaw as any[])
-          .filter((x) => safeStr(x.slug) !== slug)
-          .map((x) => ({
-            slug: safeStr(x.slug),
-            title: safeStr(x.title),
-            updated_at: x.updated_at ?? null,
-          }))
-      : [];
+  if (q) {
+    const like = `%${q.replace(/%/g, "\\%").replace(/_/g, "\\_")}%`;
+    articlesQ = articlesQ.or(
+      `title.ilike.${like},summary.ilike.${like},content.ilike.${like}`
+    );
   }
+
+  const { data: artsRaw } = await articlesQ.order("title", { ascending: true });
+  const articles = safeArr<ArticleRow>(artsRaw);
+
+  // Fallback counts if view missing
+  if (countsByCatId.size === 0) {
+    for (const a of articles) {
+      if (!a.category_id) continue;
+      countsByCatId.set(a.category_id, (countsByCatId.get(a.category_id) ?? 0) + 1);
+    }
+  }
+
+  const pageTitle = "Governance Knowledge Base";
+  const pageSubtitle =
+    "Boardroom-grade governance guidance: delivery discipline, approvals, change control, RAID, and financial governance — all in one place.";
 
   return (
     <div className="mx-auto max-w-7xl px-6 py-10">
-      {/* Top bar */}
-      <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Link href="/governance" className="text-sm opacity-70 hover:opacity-100">
-          ← Back to Governance Hub
-        </Link>
+      {/* Header */}
+      <div className="mb-8 rounded-2xl border bg-white/70 p-6 shadow-sm backdrop-blur dark:bg-white/5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight">{pageTitle}</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-relaxed opacity-75">
+              {pageSubtitle}
+            </p>
 
-        <div className="flex items-center gap-2 text-xs">
-          {activeCategory ? (
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+              <span className="rounded-lg border bg-white/60 px-2.5 py-1 opacity-80 dark:bg-white/5">
+                Published: {articles.length}
+              </span>
+              {activeCategory ? (
+                <span className="rounded-lg border bg-white/60 px-2.5 py-1 opacity-80 dark:bg-white/5">
+                  Category: {activeCategory.name}
+                </span>
+              ) : null}
+              {q ? (
+                <span className="rounded-lg border bg-white/60 px-2.5 py-1 opacity-80 dark:bg-white/5">
+                  Search: “{q}”
+                </span>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
             <Link
-              href={`/governance?cat=${encodeURIComponent(activeCategory.slug)}`}
-              className="rounded-full border px-2 py-1 opacity-80 hover:opacity-100"
-              title="View category"
+              href="/governance?ask=help"
+              className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
+              title="Ask Aliena about governance"
             >
-              {activeCategory.name}
+              Ask Aliena →
             </Link>
-          ) : null}
-          {updated ? (
-            <span className="rounded-full border px-2 py-1 opacity-70">Updated {updated}</span>
+          </div>
+        </div>
+
+        {/* Instant search (client) */}
+        <div className="mt-5">
+          <GovernanceSearchBox initialQ={q} categorySlug={activeCategory?.slug ?? null} />
+          {(q || activeCategory) ? (
+            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+              <Link
+                href="/governance"
+                className="inline-flex rounded-lg border px-3 py-1.5 opacity-80 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                Clear filters
+              </Link>
+              {activeCategory ? (
+                <Link
+                  href="/governance"
+                  className="inline-flex rounded-lg border px-3 py-1.5 opacity-80 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  All categories
+                </Link>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_1fr]">
+      {/* Layout */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[280px_1fr]">
         {/* Sidebar */}
         <aside className="rounded-2xl border bg-white/60 p-4 shadow-sm backdrop-blur dark:bg-white/5">
-          <div className="mb-3 text-sm font-medium">Knowledge Base</div>
+          <div className="mb-3 text-sm font-medium">Categories</div>
 
-          <Link
-            href="/governance"
-            className="mb-3 inline-flex w-full items-center justify-between rounded-xl border bg-white/70 px-3 py-2 text-sm shadow-sm hover:bg-white/90 dark:bg-white/5 dark:hover:bg-white/10"
-          >
-            <span>Browse all guidance</span>
-            <span className="text-xs opacity-70">→</span>
-          </Link>
-
-          {/* Categories */}
-          {categories.length ? (
-            <div className="mt-2">
-              <div className="mb-2 text-xs font-medium opacity-70">Categories</div>
-              <div className="flex flex-col gap-1">
-                {categories.map((c) => {
-                  const isActive = activeCategory?.id === c.id;
-                  return (
-                    <Link
-                      key={c.id}
-                      href={`/governance?cat=${encodeURIComponent(c.slug)}`}
-                      className={[
-                        "rounded-lg px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10",
-                        isActive ? "bg-black/5 dark:bg-white/10" : "",
-                      ].join(" ")}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="truncate">{c.name}</span>
-                        {isActive ? (
-                          <span className="rounded-md border px-2 py-0.5 text-xs opacity-70">
-                            Active
-                          </span>
-                        ) : null}
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
-
-          {/* In-category navigation */}
-          {activeCategory && inCategory.length ? (
-            <div className="mt-5">
-              <div className="mb-2 text-xs font-medium opacity-70">
-                In {activeCategory.name}
-              </div>
-              <div className="max-h-[320px] overflow-auto rounded-xl border bg-white/70 p-2 dark:bg-white/5">
-                {inCategory.map((a) => {
-                  const isCurrent = a.slug === slug;
-                  return (
-                    <Link
-                      key={a.id}
-                      href={`/governance/${encodeURIComponent(a.slug)}`}
-                      className={[
-                        "block rounded-lg px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10",
-                        isCurrent ? "bg-black/5 dark:bg-white/10" : "",
-                      ].join(" ")}
-                      title={a.title}
-                    >
-                      <div className="truncate font-medium">{a.title}</div>
-                      {a.updated_at ? (
-                        <div className="mt-0.5 text-xs opacity-60">
-                          Updated {fmtUpdated(a.updated_at)}
-                        </div>
-                      ) : null}
-                    </Link>
-                  );
-                })}
-              </div>
-
-              {/* Prev/Next */}
-              <div className="mt-3 grid grid-cols-1 gap-2">
-                {prev ? (
-                  <Link
-                    href={`/governance/${encodeURIComponent(prev.slug)}`}
-                    className="rounded-xl border bg-white/70 px-3 py-2 text-sm hover:bg-white/90 dark:bg-white/5 dark:hover:bg-white/10"
-                  >
-                    <div className="text-xs opacity-70">Previous</div>
-                    <div className="truncate font-medium">{prev.title}</div>
-                  </Link>
-                ) : null}
-
-                {next ? (
-                  <Link
-                    href={`/governance/${encodeURIComponent(next.slug)}`}
-                    className="rounded-xl border bg-white/70 px-3 py-2 text-sm hover:bg-white/90 dark:bg-white/5 dark:hover:bg-white/10"
-                  >
-                    <div className="text-xs opacity-70">Next</div>
-                    <div className="truncate font-medium">{next.title}</div>
-                  </Link>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-
-          {/* Ask Aliena (hook) */}
-          <div className="mt-5 rounded-xl border bg-white/70 p-3 dark:bg-white/5">
-            <div className="text-xs font-medium opacity-70">Ask Aliena</div>
-            <div className="mt-1 text-sm opacity-80">
-              Get governance guidance tailored to this article.
-            </div>
+          <div className="flex flex-col gap-1">
             <Link
-              href={`/governance?ask=${encodeURIComponent(title)}`}
-              className="mt-3 inline-flex w-full items-center justify-between rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
+              href="/governance"
+              className={[
+                "rounded-lg px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10",
+                !activeCategory ? "bg-black/5 dark:bg-white/10" : "",
+              ].join(" ")}
             >
-              <span>Ask about “{title}”</span>
-              <span className="text-xs opacity-70">→</span>
+              All guidance
             </Link>
+
+            {categories.map((c) => {
+              const isActive = activeCategory?.slug === c.slug;
+              const href = `/governance?cat=${encodeURIComponent(c.slug)}`;
+              const count = countsByCatId.get(c.id) ?? 0;
+
+              return (
+                <Link
+                  key={c.id}
+                  href={href}
+                  className={[
+                    "flex items-center justify-between rounded-lg px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10",
+                    isActive ? "bg-black/5 dark:bg-white/10" : "",
+                  ].join(" ")}
+                >
+                  <span className="truncate">{c.name}</span>
+                  <span className="ml-3 rounded-md border px-2 py-0.5 text-xs opacity-75">
+                    {count}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+
+          <div className="mt-4 rounded-lg border bg-white/60 p-3 text-xs opacity-80 dark:bg-white/5">
+            <div className="font-medium">Governance standard</div>
+            <div className="mt-1 leading-relaxed">
+              This KB is the operating model for delivery assurance, approvals discipline,
+              and audit-ready governance inside Aliena.
+            </div>
           </div>
         </aside>
 
-        {/* Article */}
-        <main>
-          {/* Executive header card */}
-          <div className="rounded-2xl border bg-white/70 p-6 shadow-sm backdrop-blur dark:bg-white/5">
-            <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
-            {summary ? (
-              <p className="mt-3 max-w-3xl text-base leading-relaxed opacity-80">{summary}</p>
-            ) : null}
-
-            <div className="mt-5 flex flex-wrap items-center gap-2">
-              <span className="rounded-lg border bg-white/60 px-2.5 py-1 text-xs opacity-80 dark:bg-white/5">
-                KB Article
-              </span>
-              <span className="rounded-lg border bg-white/60 px-2.5 py-1 text-xs opacity-80 dark:bg-white/5">
-                Slug: {safeStr(article.slug)}
-              </span>
-              <Link
-                href={`/governance?ask=${encodeURIComponent(title)}`}
-                className="ml-auto inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/10"
-                title="Ask Aliena about this article"
-              >
-                Ask Aliena →
-              </Link>
+        {/* Main */}
+        <main className="rounded-2xl border bg-white/60 p-4 shadow-sm backdrop-blur dark:bg-white/5">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="text-sm font-medium">Articles</div>
+            <div className="text-xs opacity-70">
+              {articles.length ? `${articles.length} result(s)` : "No results"}
             </div>
           </div>
 
-          {/* Body */}
-          <div className="mt-6 rounded-2xl border bg-white/60 p-6 shadow-sm backdrop-blur dark:bg-white/5">
-            <article className="prose prose-neutral dark:prose-invert max-w-none">
-              {content ? <pre className="whitespace-pre-wrap">{content}</pre> : <p />}
-            </article>
-          </div>
+          {articles.length ? (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {articles.map((a) => (
+                <Link
+                  key={a.id}
+                  href={`/governance/${encodeURIComponent(a.slug)}`}
+                  className="group rounded-xl border bg-white/70 p-4 shadow-sm transition hover:-translate-y-0.5 hover:bg-white/90 dark:bg-white/5 dark:hover:bg-white/10"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-base font-semibold">{safeStr(a.title)}</div>
+                      {a.summary ? (
+                        <div className="mt-1 line-clamp-2 text-sm opacity-75">
+                          {safeStr(a.summary)}
+                        </div>
+                      ) : null}
+                    </div>
+                    <span className="shrink-0 rounded-lg border px-2 py-1 text-xs opacity-70 group-hover:opacity-90">
+                      Open →
+                    </span>
+                  </div>
 
-          {/* Related */}
-          {related.length ? (
-            <div className="mt-6 rounded-2xl border bg-white/60 p-5 shadow-sm backdrop-blur dark:bg-white/5">
-              <div className="mb-3 text-sm font-medium">Related guidance</div>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                {related.map((r) => (
-                  <Link
-                    key={r.slug}
-                    href={`/governance/${encodeURIComponent(r.slug)}`}
-                    className="rounded-xl border bg-white/70 p-4 shadow-sm hover:bg-white/90 dark:bg-white/5 dark:hover:bg-white/10"
-                  >
-                    <div className="truncate font-semibold">{r.title}</div>
-                    {r.updated_at ? (
-                      <div className="mt-1 text-xs opacity-70">
-                        Updated {fmtUpdated(r.updated_at)}
-                      </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs opacity-70">
+                    {a.updated_at ? (
+                      <span className="rounded-md border px-2 py-0.5">
+                        Updated {fmtUpdated(a.updated_at)}
+                      </span>
                     ) : null}
-                  </Link>
-                ))}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border bg-white/70 p-6 text-sm opacity-80 dark:bg-white/5">
+              No articles matched your filters.
+              <div className="mt-3 flex gap-2">
+                <Link
+                  href="/governance"
+                  className="inline-flex rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  View all
+                </Link>
+                <Link
+                  href="/governance?ask=help"
+                  className="inline-flex rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  Ask Aliena
+                </Link>
               </div>
             </div>
-          ) : null}
+          )}
         </main>
       </div>
     </div>
