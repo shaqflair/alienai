@@ -37,7 +37,11 @@ function fmtUpdated(x: unknown) {
   if (!s) return "";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "2-digit" });
+  return d.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+  });
 }
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -83,9 +87,7 @@ export default async function GovernancePage({
   const categories = safeArr<CatRow>(catsRaw);
 
   // Resolve category filter → category_id
-  const activeCategory = cat
-    ? categories.find((c) => c.slug === cat) ?? null
-    : null;
+  const activeCategory = cat ? categories.find((c) => c.slug === cat) ?? null : null;
 
   // Fetch articles (published) — filter by category and/or query
   let articlesQ = supabase
@@ -116,8 +118,7 @@ export default async function GovernancePage({
 
   const articles = safeArr<ArticleRow>(artsRaw);
 
-  // Compute category counts from the full published article set
-  // (To keep it simple and RLS-safe, we compute counts from what we loaded.)
+  // NOTE: counts computed from loaded set (simple + RLS-safe)
   const countsByCatId = new Map<string, number>();
   for (const a of articles) {
     if (!a.category_id) continue;
@@ -173,7 +174,7 @@ export default async function GovernancePage({
             type="text"
             name="q"
             defaultValue={q}
-            placeholder="Search governance guidance (e.g., “SLA breach”, “change approval”, “risk escalation”)…"
+            placeholder='Search governance guidance (e.g., “SLA breach”, “change approval”, “risk escalation”)…'
             className="w-full rounded-lg border bg-white/60 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10 dark:bg-white/5 dark:focus:ring-white/10"
           />
           {activeCategory ? (
@@ -185,7 +186,7 @@ export default async function GovernancePage({
           >
             Search
           </button>
-          {(q || activeCategory) ? (
+          {q || activeCategory ? (
             <Link
               href="/governance"
               className="inline-flex shrink-0 items-center justify-center rounded-lg border px-4 py-2 text-sm opacity-80 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/10"
@@ -199,7 +200,7 @@ export default async function GovernancePage({
       {/* Layout */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[280px_1fr]">
         {/* Sidebar */}
-        <aside <main className="relative rounded-2xl border bg-white/60 p-4 shadow-sm backdrop-blur dark:bg-white/5">
+        <aside className="rounded-2xl border bg-white/60 p-4 shadow-sm backdrop-blur dark:bg-white/5">
           <div className="mb-3 text-sm font-medium">Categories</div>
 
           <div className="flex flex-col gap-1">
@@ -249,7 +250,7 @@ export default async function GovernancePage({
         </aside>
 
         {/* Main */}
-        <main <main className="relative rounded-2xl border bg-white/60 p-4 shadow-sm backdrop-blur dark:bg-white/5">
+        <main className="relative rounded-2xl border bg-white/60 p-4 shadow-sm backdrop-blur dark:bg-white/5">
           <div className="mb-3 flex items-center justify-between">
             <div className="text-sm font-medium">Articles</div>
             <div className="text-xs opacity-70">
