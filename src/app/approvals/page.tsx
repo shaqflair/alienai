@@ -589,9 +589,15 @@ function DigestTab() {
     );
   }
 
-  const sum = digest?.summary;
-  const sec = digest?.sections;
-
+const sum = digest?.summary ?? {};
+const sec = digest?.sections ?? {
+  sla_breaches: { total: 0, items: [] },
+  decisions: { total: 0, approved: 0, rejected: 0, approval_rate: null, recent: [] },
+  pm_performance: [],
+  at_risk_projects: [],
+  new_projects: [],
+  upcoming_milestones: [],
+};
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>

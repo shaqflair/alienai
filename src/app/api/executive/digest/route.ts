@@ -1,4 +1,4 @@
-﻿// src/app/api/executive/weekly-digest/route.ts  (or wherever this lives)
+﻿﻿// src/app/api/executive/weekly-digest/route.ts  (or wherever this lives)
 // ✅ FIX: activeProjects derived with isProjectActive() — closed/cancelled/archived excluded
 // ✅ FIX: projectIds, pmStats, atRiskProjects, milestones all use activeProjects
 // ✅ FIX: summary now reports active_projects count separately from total_projects
