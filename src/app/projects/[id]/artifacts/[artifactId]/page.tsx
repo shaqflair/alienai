@@ -180,6 +180,7 @@ export default async function ArtifactDetailPage({
     wbsMode,
     scheduleMode,
     closureMode,
+    financialPlanMode,   // ✅ NEW
 
     legacyExports,
 
@@ -190,6 +191,7 @@ export default async function ArtifactDetailPage({
   const projectRefForPaths = normParam(projectHumanId) || projectParam || normParam(projectUuid);
 
   const isWeeklyReport = mode === "weekly_report" || !!weeklyMode;
+  const isFinancialPlan = mode === "financial_plan" || !!financialPlanMode; // ✅ NEW
 
   // ---------------------------------------------------------------------------
   // ✅ FIX: Charter/Closure editability + submit eligibility should NOT depend on
@@ -233,7 +235,7 @@ export default async function ArtifactDetailPage({
   try {
     const supabase = await createClient();
 
-    // Best-effort title fallback (don’t block page if schema differs)
+    // Best-effort title fallback (don't block page if schema differs)
     if (!projectTitleForSeed && projectUuid) {
       const { data: proj } = await supabase.from("projects").select("title").eq("id", projectUuid).maybeSingle();
       const t = safeStr((proj as any)?.title).trim();
@@ -557,7 +559,7 @@ export default async function ArtifactDetailPage({
         aiTitle={aiTitle}
         showAI={true}
         showTimeline={!changeRequestsMode}
-        hideContentExportsRow={mode === "charter" || mode === "closure" || mode === "weekly_report"}
+        hideContentExportsRow={mode === "charter" || mode === "closure" || mode === "weekly_report" || mode === "financial_plan"}
         legacyExports={legacyExports}
         approvalEnabled={!!approvalEnabled}
         canSubmitOrResubmit={canSubmitFromServer}
@@ -566,8 +568,9 @@ export default async function ArtifactDetailPage({
         updateArtifactJsonAction={updateArtifactJsonArgs}
       />
 
-      {/* fallback editor (NOT for weekly report) */}
+      {/* fallback editor — NOT for weekly report, financial plan, or any typed mode */}
       {!isWeeklyReport &&
+      !isFinancialPlan &&        // ✅ NEW
       !changeRequestsMode &&
       !charterMode &&
       !stakeholderMode &&
@@ -613,3 +616,4 @@ export default async function ArtifactDetailPage({
     </main>
   );
 }
+

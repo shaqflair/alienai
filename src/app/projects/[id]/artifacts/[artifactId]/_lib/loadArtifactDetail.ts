@@ -11,6 +11,7 @@ import {
   getCharterInitialRaw,
   getTypedInitialJson,
   isChangeRequestsType,
+  isFinancialPlanType,           // ✅ NEW
   isLessonsLearnedType,
   isProjectCharterType,
   isProjectClosureReportType,
@@ -258,8 +259,9 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
   const scheduleMode = isScheduleType(artifact.type);
   const changeRequestsMode = isChangeRequestsType(artifact.type);
   const weeklyMode = isWeeklyReportType(artifact.type);
+  const financialPlanMode = isFinancialPlanType(artifact.type); // ✅ NEW
 
-  // ✅ Only Charter/Closure are approval-governed (Weekly Report is living)
+  // ✅ Only Charter/Closure are approval-governed (Weekly Report + Financial Plan are living)
   const approvalEnabled = charterMode || closureMode;
 
   const mode = charterMode
@@ -276,6 +278,8 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     ? "closure"
     : weeklyMode
     ? "weekly_report"
+    : financialPlanMode       // ✅ NEW
+    ? "financial_plan"        // ✅ NEW
     : "fallback";
 
   // 8) Status + permissions
@@ -360,7 +364,7 @@ export async function loadArtifactDetail(params: Promise<{ id?: string; artifact
     wbsMode,
     scheduleMode,
     closureMode,
-
     weeklyMode,
+    financialPlanMode,   // ✅ NEW
   };
 }

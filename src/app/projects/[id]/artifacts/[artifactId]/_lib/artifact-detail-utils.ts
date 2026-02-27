@@ -191,6 +191,22 @@ export function isWeeklyReportType(type: any) {
   ].includes(t);
 }
 
+/**
+ * ✅ Financial Plan
+ */
+export function isFinancialPlanType(type: any) {
+  const t = normType(type);
+  return [
+    "financial_plan",
+    "financial plan",
+    "financialplan",
+    "finance_plan",
+    "finance plan",
+    "budget_plan",
+    "budget plan",
+  ].includes(t);
+}
+
 export function displayType(type: any) {
   const t = normType(type);
 
@@ -210,6 +226,17 @@ export function displayType(type: any) {
     t === "status_report"
   ) {
     return "weekly_report";
+  }
+
+  // financial plan aliases -> canonical key
+  if (
+    t === "financialplan" ||
+    t === "finance_plan" ||
+    t === "finance plan" ||
+    t === "budget_plan" ||
+    t === "budget plan"
+  ) {
+    return "financial_plan";
   }
 
   return String(type ?? "—");
