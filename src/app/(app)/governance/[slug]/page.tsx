@@ -307,8 +307,8 @@ export default async function GovernanceArticlePage({ params }: PageProps) {
     if (!fallback) {
       return (
         <div className="mx-auto max-w-3xl px-6 py-16">
-          <h1 className="text-2xl font-semibold">Governance article not found</h1>
-          <p className="mt-2 text-sm opacity-70">This guidance page doesn’t exist.</p>
+          <h1 className="text-2xl font-semibold">Governance article not found (stamp-a14a206)</h1>
+                    <p className="mt-2 text-sm opacity-70">This guidance page doesn’t exist.</p>
           <Link
             href="/governance"
             className="mt-6 inline-flex rounded-md border px-4 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
