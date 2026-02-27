@@ -22,13 +22,14 @@ const sn = (x: any) => {
 };
 
 async function getOrgIds(supabase: any, userId: string): Promise<string[]> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("organisation_members")
     .select("organisation_id")
     .eq("user_id", userId)
     .is("removed_at", null)
     .limit(50);
 
+  if (error) return [];
   return Array.from(
     new Set((data ?? []).map((m: any) => ss(m?.organisation_id)).filter(Boolean))
   );
@@ -46,15 +47,17 @@ const CLOSED_STATES = [
   "suspended",
 ];
 
+/**
+ * ✅ Align to your projects schema:
+ * - lifecycle_state does NOT exist
+ * - archived_at/cancelled_at not present in your column list (harmless if absent,
+ *   but we also don't select them to avoid 500s)
+ */
 function isProjectActive(p: any): boolean {
   if (p?.deleted_at) return false;
-  if (p?.archived_at) return false;
-  if (p?.cancelled_at) return false;
   if (p?.closed_at) return false;
 
-  const st = ss(p?.status ?? p?.lifecycle_state ?? p?.state ?? p?.lifecycle_status)
-    .toLowerCase()
-    .trim();
+  const st = ss(p?.status ?? p?.lifecycle_status ?? p?.state).toLowerCase().trim();
   if (!st) return true;
   return !CLOSED_STATES.some((s) => st.includes(s));
 }
@@ -79,30 +82,36 @@ export async function GET(req: Request) {
     const since = new Date(Date.now() - days * 86400000).toISOString();
     const nowIso = new Date().toISOString();
 
-    // 1) Projects (all vs active)
+    // 1) Projects (all vs active) — ✅ schema-aligned select (no lifecycle_state / archived_at / cancelled_at)
     const { data: projects, error: projErr } = await supabase
       .from("projects")
       .select(
-        "id, title, project_code, created_at, updated_at, status, lifecycle_state, lifecycle_status, project_manager_id, deleted_at, archived_at, cancelled_at, closed_at"
+        "id, title, project_code, created_at, updated_at, status, lifecycle_status, project_manager_id, deleted_at, closed_at, organisation_id"
       )
       .in("organisation_id", orgIds)
       .is("deleted_at", null);
 
-    if (projErr) return noStoreJson({ ok: false, error: projErr.message }, { status: 500 });
+    if (projErr)
+      return noStoreJson({ ok: false, error: projErr.message }, { status: 500 });
 
     const allProjects = projects ?? [];
     const activeProjects = allProjects.filter(isProjectActive);
-    const newProjects = activeProjects.filter((p: any) => p?.created_at && p.created_at >= since);
+    const newProjects = activeProjects.filter(
+      (p: any) => p?.created_at && p.created_at >= since
+    );
     const projectIds = activeProjects.map((p: any) => ss(p.id)).filter(Boolean);
     const activeProjectIdSet = new Set(projectIds);
 
     // 2) Approval cache (filtered to active projects)
     const { data: cacheRows, error: cacheErr } = await supabase
       .from("exec_approval_cache")
-      .select("project_id, project_title, project_code, sla_status, approver_label, window_days, computed_at")
+      .select(
+        "project_id, project_title, project_code, sla_status, approver_label, window_days, computed_at, organisation_id"
+      )
       .in("organisation_id", orgIds);
 
-    if (cacheErr) return noStoreJson({ ok: false, error: cacheErr.message }, { status: 500 });
+    if (cacheErr)
+      return noStoreJson({ ok: false, error: cacheErr.message }, { status: 500 });
 
     const pending = (cacheRows ?? []).filter((r: any) => {
       const pid = ss(r?.project_id).trim();
@@ -127,10 +136,13 @@ export async function GET(req: Request) {
         .select("id, project_id")
         .in("project_id", projectIds);
 
-      if (stepErr) return noStoreJson({ ok: false, error: stepErr.message }, { status: 500 });
+      if (stepErr)
+        return noStoreJson({ ok: false, error: stepErr.message }, { status: 500 });
 
       const stepIds = (stepRows ?? []).map((s: any) => ss(s?.id)).filter(Boolean);
-      const stepToProject = new Map((stepRows ?? []).map((s: any) => [ss(s.id), ss(s.project_id)]));
+      const stepToProject = new Map(
+        (stepRows ?? []).map((s: any) => [ss(s.id), ss(s.project_id)])
+      );
 
       if (stepIds.length > 0) {
         const { data: decRows, error: decErr } = await supabase
@@ -140,7 +152,8 @@ export async function GET(req: Request) {
           .gte("created_at", since)
           .order("created_at", { ascending: false });
 
-        if (decErr) return noStoreJson({ ok: false, error: decErr.message }, { status: 500 });
+        if (decErr)
+          return noStoreJson({ ok: false, error: decErr.message }, { status: 500 });
 
         decisions = (decRows ?? []).map((d: any) => ({
           ...d,
@@ -149,7 +162,9 @@ export async function GET(req: Request) {
       }
     }
 
-    const approved = decisions.filter((d) => ss(d?.decision).toLowerCase().includes("approv"));
+    const approved = decisions.filter((d) =>
+      ss(d?.decision).toLowerCase().includes("approv")
+    );
     const rejected = decisions.filter((d) => {
       const dec = ss(d?.decision).toLowerCase();
       return dec.includes("reject") || dec.includes("declin");
@@ -162,7 +177,8 @@ export async function GET(req: Request) {
       .in("organisation_id", orgIds)
       .is("removed_at", null);
 
-    if (memErr) return noStoreJson({ ok: false, error: memErr.message }, { status: 500 });
+    if (memErr)
+      return noStoreJson({ ok: false, error: memErr.message }, { status: 500 });
 
     const memberMap = new Map<string, { role: string; department: string | null }>();
     for (const m of members ?? []) {
@@ -176,12 +192,19 @@ export async function GET(req: Request) {
 
     const memberIds = Array.from(memberMap.keys());
     const { data: profiles, error: profErr } = memberIds.length
-      ? await supabase.from("profiles").select("id, full_name, email, department").in("id", memberIds)
-      : { data: [], error: null as any };
+      ? await supabase
+          .from("profiles")
+          .select("id, full_name, email, department")
+          .in("id", memberIds)
+      : ({ data: [], error: null as any } as any);
 
-    if (profErr) return noStoreJson({ ok: false, error: profErr.message }, { status: 500 });
+    if (profErr)
+      return noStoreJson({ ok: false, error: profErr.message }, { status: 500 });
 
-    const profMap = new Map<string, { full_name: string; email: string; department: string | null }>();
+    const profMap = new Map<
+      string,
+      { full_name: string; email: string; department: string | null }
+    >();
     for (const p of profiles ?? []) {
       const id = ss((p as any)?.id);
       if (!id) continue;
@@ -223,7 +246,13 @@ export async function GET(req: Request) {
               : null,
         };
       })
-      .filter((pm) => pm.projects_managed > 0 || pm.approved > 0 || pm.rejected > 0 || pm.overdue > 0)
+      .filter(
+        (pm) =>
+          pm.projects_managed > 0 ||
+          pm.approved > 0 ||
+          pm.rejected > 0 ||
+          pm.overdue > 0
+      )
       .sort((a, b) => b.projects_managed - a.projects_managed);
 
     // 5) At-risk projects (active only)
@@ -275,8 +304,11 @@ export async function GET(req: Request) {
       if (!ms1.error) {
         upcomingMilestones = (ms1.data ?? []).map((m: any) => ({
           ...m,
-          project_code: activeProjects.find((p: any) => ss(p.id) === ss(m?.project_id))?.project_code ?? null,
-          project_title: activeProjects.find((p: any) => ss(p.id) === ss(m?.project_id))?.title ?? null,
+          project_code:
+            activeProjects.find((p: any) => ss(p.id) === ss(m?.project_id))?.project_code ??
+            null,
+          project_title:
+            activeProjects.find((p: any) => ss(p.id) === ss(m?.project_id))?.title ?? null,
         }));
       } else {
         // Fallback schedule_milestones
@@ -293,8 +325,11 @@ export async function GET(req: Request) {
         if (!ms2.error) {
           upcomingMilestones = (ms2.data ?? []).map((m: any) => ({
             ...m,
-            project_code: activeProjects.find((p: any) => ss(p.id) === ss(m?.project_id))?.project_code ?? null,
-            project_title: activeProjects.find((p: any) => ss(p.id) === ss(m?.project_id))?.title ?? null,
+            project_code:
+              activeProjects.find((p: any) => ss(p.id) === ss(m?.project_id))?.project_code ??
+              null,
+            project_title:
+              activeProjects.find((p: any) => ss(p.id) === ss(m?.project_id))?.title ?? null,
           }));
         }
       }
@@ -348,12 +383,15 @@ export async function GET(req: Request) {
           approved: approved.length,
           rejected: rejected.length,
           approval_rate:
-            decisions.length > 0 ? Math.round((approved.length / decisions.length) * 100) : null,
+            decisions.length > 0
+              ? Math.round((approved.length / decisions.length) * 100)
+              : null,
           recent: decisions.slice(0, 10).map((d: any) => ({
             decision: d?.decision,
             created_at: d?.created_at,
             project_id: d?.project_id,
-            project_title: activeProjects.find((p: any) => ss(p.id) === ss(d?.project_id))?.title ?? null,
+            project_title:
+              activeProjects.find((p: any) => ss(p.id) === ss(d?.project_id))?.title ?? null,
           })),
         },
         pm_performance: pmStats,
@@ -362,7 +400,7 @@ export async function GET(req: Request) {
           project_code: p?.project_code ?? null,
           title: p?.title ?? null,
           created_at: p?.created_at ?? null,
-          status: p?.status ?? null,
+          status: p?.status ?? p?.lifecycle_status ?? null,
         })),
         upcoming_milestones: upcomingMilestones,
       },
@@ -370,6 +408,9 @@ export async function GET(req: Request) {
 
     return noStoreJson({ ok: true, digest });
   } catch (e: any) {
-    return noStoreJson({ ok: false, error: e?.message ?? String(e) }, { status: 500 });
+    return noStoreJson(
+      { ok: false, error: e?.message ?? String(e) },
+      { status: 500 }
+    );
   }
 }

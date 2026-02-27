@@ -1,4 +1,9 @@
-﻿import "server-only";
+﻿// src/app/api/executive/projects/at-risk/route.ts — v2 (schema-aligned)
+// ✅ FIX: remove lifecycle_state / archived_at / cancelled_at (not in your schema)
+// ✅ Uses status + lifecycle_status + closed_at + deleted_at to determine "active"
+// ✅ Keeps scoring logic unchanged
+
+import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -70,15 +75,11 @@ const CLOSED_STATES = [
 
 function isProjectActive(p: any): boolean {
   if (p?.deleted_at) return false;
-  if (p?.archived_at) return false;
-  if (p?.cancelled_at) return false;
   if (p?.closed_at) return false;
 
-  const st = ss(p?.status ?? p?.lifecycle_state ?? p?.state ?? p?.lifecycle_status)
-    .toLowerCase()
-    .trim();
-
-  if (!st) return true; // unknown => assume active
+  // ✅ your schema has lifecycle_status, not lifecycle_state
+  const st = ss(p?.status ?? p?.lifecycle_status ?? p?.state).toLowerCase().trim();
+  if (!st) return true;
   return !CLOSED_STATES.some((s) => st.includes(s));
 }
 
@@ -102,11 +103,10 @@ export async function GET(req: Request) {
       return noStoreJson({ ok: false, error: "no_active_org" }, { status: 400 });
     }
 
+    // ✅ select only real columns
     const { data: projects, error: projErr } = await supabase
       .from("projects")
-      .select(
-        "id, title, project_code, updated_at, status, lifecycle_state, lifecycle_status, deleted_at, archived_at, cancelled_at, closed_at"
-      )
+      .select("id, title, project_code, updated_at, status, lifecycle_status, deleted_at, closed_at")
       .in("organisation_id", orgIds)
       .is("deleted_at", null)
       .order("updated_at", { ascending: true });
@@ -126,6 +126,7 @@ export async function GET(req: Request) {
 
     const projectIds = filteredProjects.map((p: any) => ss(p?.id)).filter(Boolean);
 
+    // overdue steps by project from cache
     const { data: cacheRows, error: cacheErr } = await supabase
       .from("exec_approval_cache")
       .select("project_id, sla_status")
@@ -144,6 +145,7 @@ export async function GET(req: Request) {
       }
     }
 
+    // map approval steps to project
     const { data: stepRows, error: stepErr } = await supabase
       .from("artifact_approval_steps")
       .select("id, project_id")

@@ -37,11 +37,10 @@ const CLOSED_STATES = [
 
 function isProjectActive(p: any): boolean {
   if (p?.deleted_at) return false;
-  if (p?.archived_at) return false;
-  if (p?.cancelled_at) return false;
   if (p?.closed_at) return false;
 
-  const st = ss(p?.status ?? p?.lifecycle_state ?? p?.state).toLowerCase().trim();
+  // ✅ match your schema: lifecycle_status exists, lifecycle_state does not
+  const st = ss(p?.status ?? p?.lifecycle_status ?? p?.state).toLowerCase().trim();
   if (!st) return true; // unknown => assume active
   return !CLOSED_STATES.some((s) => st.includes(s));
 }
@@ -72,11 +71,11 @@ export async function GET(req: Request) {
     const orgIds = await getOrgIds(supabase, user.id);
     if (!orgIds.length) return noStoreJson({ ok: false, error: "no_active_org" }, { status: 400 });
 
-    // ✅ schema uses title, not name
+    // ✅ select only columns that exist in your projects schema
     const { data: rows, error } = await supabase
       .from("projects")
       .select(
-        "id, title, project_code, project_manager_id, organisation_id, status, lifecycle_state, created_at, updated_at, deleted_at, archived_at, cancelled_at, closed_at"
+        "id, title, project_code, project_manager_id, organisation_id, status, lifecycle_status, created_at, updated_at, deleted_at, closed_at"
       )
       .in("organisation_id", orgIds)
       .is("deleted_at", null)
@@ -93,7 +92,7 @@ export async function GET(req: Request) {
         title: p?.title ?? null,
         project_code: p?.project_code ?? null,
         project_manager_id: p?.project_manager_id ?? null,
-        status: p?.status ?? p?.lifecycle_state ?? null,
+        status: p?.status ?? p?.lifecycle_status ?? null,
         updated_at: p?.updated_at ?? null,
       })),
       meta: { active_only: activeOnly, total: filtered.length },

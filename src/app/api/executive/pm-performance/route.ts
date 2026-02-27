@@ -1,4 +1,5 @@
-﻿import "server-only";
+﻿// src/app/api/executive/pm-performance/route.ts
+import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
@@ -17,14 +18,17 @@ function noStoreJson(data: unknown, init?: ResponseInit) {
 const ss = (x: any) => (typeof x === "string" ? x : x == null ? "" : String(x));
 
 async function resolveOrgIds(supabase: any, userId: string): Promise<string[]> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("organisation_members")
     .select("organisation_id")
     .eq("user_id", userId)
     .is("removed_at", null)
     .limit(50);
 
-  return Array.from(new Set((data ?? []).map((m: any) => ss(m?.organisation_id)).filter(Boolean)));
+  if (error) return [];
+  return Array.from(
+    new Set((data ?? []).map((m: any) => ss(m?.organisation_id)).filter(Boolean))
+  );
 }
 
 export async function GET(req: Request) {
@@ -34,10 +38,12 @@ export async function GET(req: Request) {
       data: { user },
       error: userErr,
     } = await supabase.auth.getUser();
-    if (userErr || !user) return noStoreJson({ ok: false, error: "unauthorized" }, { status: 401 });
+    if (userErr || !user)
+      return noStoreJson({ ok: false, error: "unauthorized" }, { status: 401 });
 
     const orgIds = await resolveOrgIds(supabase, user.id);
-    if (!orgIds.length) return noStoreJson({ ok: false, error: "no_active_org" }, { status: 400 });
+    if (!orgIds.length)
+      return noStoreJson({ ok: false, error: "no_active_org" }, { status: 400 });
 
     // 1) org members (no nested profiles)
     const { data: members, error: memErr } = await supabase
@@ -46,9 +52,13 @@ export async function GET(req: Request) {
       .in("organisation_id", orgIds)
       .is("removed_at", null);
 
-    if (memErr) return noStoreJson({ ok: false, error: memErr.message }, { status: 500 });
+    if (memErr)
+      return noStoreJson({ ok: false, error: memErr.message }, { status: 500 });
 
-    const base = new Map<string, { user_id: string; role: string; department: string | null }>();
+    const base = new Map<
+      string,
+      { user_id: string; role: string; department: string | null }
+    >();
     for (const m of members ?? []) {
       const uid = ss((m as any)?.user_id);
       if (!uid || base.has(uid)) continue;
@@ -70,7 +80,8 @@ export async function GET(req: Request) {
       .select("id, full_name, email, avatar_url, department")
       .in("id", userIds);
 
-    if (profErr) return noStoreJson({ ok: false, error: profErr.message }, { status: 500 });
+    if (profErr)
+      return noStoreJson({ ok: false, error: profErr.message }, { status: 500 });
 
     const profMap = new Map<
       string,
@@ -93,20 +104,25 @@ export async function GET(req: Request) {
       return {
         user_id: u.user_id,
         role: u.role,
-        department: p?.department ?? u.department ?? null, // ✅ include dept
+        department: p?.department ?? u.department ?? null,
         full_name: p?.full_name ?? "Unknown",
         email: p?.email ?? "",
         avatar_url: p?.avatar_url ?? null,
       };
     });
 
-    // 3) projects managed
-    const { data: projectRows } = await supabase
+    // 3) projects managed (✅ error handled)
+    const { data: projectRows, error: projErr } = await supabase
       .from("projects")
-      .select("id, project_manager_id, project_code, title, status, organisation_id, deleted_at")
+      .select(
+        "id, project_manager_id, project_code, title, status, organisation_id, deleted_at, closed_at, lifecycle_status, updated_at"
+      )
       .in("organisation_id", orgIds)
       .is("deleted_at", null)
       .in("project_manager_id", userIds);
+
+    if (projErr)
+      return noStoreJson({ ok: false, error: projErr.message }, { status: 500 });
 
     const projectsByPm = new Map<string, number>();
     const projectListByPm = new Map<
@@ -117,19 +133,30 @@ export async function GET(req: Request) {
     for (const p of projectRows ?? []) {
       const pmId = ss((p as any)?.project_manager_id);
       if (!pmId) continue;
+
+      // Optional: treat closed projects as not "managed" (uncomment if desired)
+      // if ((p as any)?.closed_at) continue;
+
       projectsByPm.set(pmId, (projectsByPm.get(pmId) ?? 0) + 1);
 
       const list = projectListByPm.get(pmId) ?? [];
-      list.push({ id: ss((p as any)?.id), title: (p as any)?.title ?? null, project_code: (p as any)?.project_code ?? null });
+      list.push({
+        id: ss((p as any)?.id),
+        title: (p as any)?.title ?? null,
+        project_code: (p as any)?.project_code ?? null,
+      });
       projectListByPm.set(pmId, list);
     }
 
-    // 4) decisions
-    const { data: decisionRows } = await supabase
+    // 4) decisions (✅ error handled)
+    const { data: decisionRows, error: decErr } = await supabase
       .from("artifact_approval_decisions")
       .select("actor_user_id, decision, created_at")
       .in("actor_user_id", userIds)
       .order("created_at", { ascending: false });
+
+    if (decErr)
+      return noStoreJson({ ok: false, error: decErr.message }, { status: 500 });
 
     const approvedByUser = new Map<string, number>();
     const rejectedByUser = new Map<string, number>();
@@ -138,16 +165,22 @@ export async function GET(req: Request) {
       const uid = ss((d as any)?.actor_user_id);
       if (!uid) continue;
       const dec = ss((d as any)?.decision).toLowerCase();
-      if (dec === "approved" || dec === "approve") approvedByUser.set(uid, (approvedByUser.get(uid) ?? 0) + 1);
-      if (dec === "rejected" || dec === "reject" || dec === "declined") rejectedByUser.set(uid, (rejectedByUser.get(uid) ?? 0) + 1);
+
+      // be a bit tolerant of text values
+      if (dec.includes("approv")) approvedByUser.set(uid, (approvedByUser.get(uid) ?? 0) + 1);
+      if (dec.includes("reject") || dec.includes("declin"))
+        rejectedByUser.set(uid, (rejectedByUser.get(uid) ?? 0) + 1);
     }
 
-    // 5) pending approvals by user
-    const { data: pendingRows } = await supabase
+    // 5) pending approvals by user (✅ error handled)
+    const { data: pendingRows, error: pendErr } = await supabase
       .from("v_pending_artifact_approvals_all")
       .select("pending_user_id, step_status")
       .eq("step_status", "pending")
       .in("pending_user_id", userIds);
+
+    if (pendErr)
+      return noStoreJson({ ok: false, error: pendErr.message }, { status: 500 });
 
     const pendingByUser = new Map<string, number>();
     for (const r of pendingRows ?? []) {
@@ -156,11 +189,14 @@ export async function GET(req: Request) {
       pendingByUser.set(uid, (pendingByUser.get(uid) ?? 0) + 1);
     }
 
-    // 6) overdue via exec_approval_cache (match by email label)
-    const { data: cacheRows } = await supabase
+    // 6) overdue via exec_approval_cache (✅ error handled)
+    const { data: cacheRows, error: cacheErr } = await supabase
       .from("exec_approval_cache")
       .select("approver_label, sla_status")
       .in("organisation_id", orgIds);
+
+    if (cacheErr)
+      return noStoreJson({ ok: false, error: cacheErr.message }, { status: 500 });
 
     const overdueByUser = new Map<string, number>();
     const emailToUid = new Map<string, string>();
@@ -178,7 +214,16 @@ export async function GET(req: Request) {
     }
 
     // 7) assemble
-    const PM_COLORS = ["#6366f1","#10b981","#f59e0b","#06b6d4","#f43f5e","#8b5cf6","#ec4899","#14b8a6"];
+    const PM_COLORS = [
+      "#6366f1",
+      "#10b981",
+      "#f59e0b",
+      "#06b6d4",
+      "#f43f5e",
+      "#8b5cf6",
+      "#ec4899",
+      "#14b8a6",
+    ];
 
     const items = users
       .map((u, i) => {
@@ -197,7 +242,7 @@ export async function GET(req: Request) {
           email: u.email,
           avatar_url: u.avatar_url,
           role: u.role,
-          department: u.department, // ✅ surfaced
+          department: u.department,
           color: PM_COLORS[i % PM_COLORS.length],
           projects_managed: projects,
           project_list: projectList,
@@ -207,10 +252,16 @@ export async function GET(req: Request) {
           rag: overdue >= 3 ? "R" : overdue >= 1 ? "A" : "G",
         };
       })
-      .sort((a, b) => b.projects_managed - a.projects_managed || b.overdue_items - a.overdue_items);
+      .sort(
+        (a, b) =>
+          b.projects_managed - a.projects_managed || b.overdue_items - a.overdue_items
+      );
 
     return noStoreJson({ ok: true, items, org_ids: orgIds });
   } catch (e: any) {
-    return noStoreJson({ ok: false, error: e?.message ?? String(e) }, { status: 500 });
+    return noStoreJson(
+      { ok: false, error: e?.message ?? String(e) },
+      { status: 500 }
+    );
   }
 }

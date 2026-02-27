@@ -1,24 +1,29 @@
-﻿// Generates a PDF-ready HTML digest by calling the digest API
+﻿// src/app/api/executive/digest/pdf/route.ts — v2
+// ✅ FIX: Normalise digest sections to support BOTH shapes:
+//    - digest.sections.pending_approvals (new)
+//    - digest.sections.sla_breaches (legacy/alt)
+// ✅ FIX: Guard against missing digest / failed fetch
+// ✅ Keeps output as PDF-ready HTML
+
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-const ss = (x: any) => typeof x === "string" ? x : x == null ? "" : String(x);
-const sn = (x: any) => { const n = Number(x); return isFinite(n) ? n : 0; };
+const ss = (x: any) => (typeof x === "string" ? x : x == null ? "" : String(x));
+const sn = (x: any) => {
+  const n = Number(x);
+  return isFinite(n) ? n : 0;
+};
 
 function fmtDate(iso: string | null | undefined) {
   if (!iso) return "—";
-  const d = new Date(iso); if (!isFinite(d.getTime())) return "—";
+  const d = new Date(iso);
+  if (!isFinite(d.getTime())) return "—";
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-}
-
-function fmtDateShort(iso: string | null | undefined) {
-  if (!iso) return "—";
-  const d = new Date(iso); if (!isFinite(d.getTime())) return "—";
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
 }
 
 function ragColor(status: string) {
@@ -37,11 +42,31 @@ function ragLabel(status: string) {
   return "OK";
 }
 
+function normalisePending(digest: any) {
+  const sections = digest?.sections ?? {};
+  // Prefer pending_approvals, else fall back to sla_breaches, else empty
+  const base =
+    sections?.pending_approvals ??
+    sections?.sla_breaches ??
+    { total: 0, breached: 0, at_risk: 0, items: [] };
+
+  // Ensure shape
+  return {
+    total: Number(base?.total ?? 0),
+    breached: Number(base?.breached ?? 0),
+    at_risk: Number(base?.at_risk ?? 0),
+    items: Array.isArray(base?.items) ? base.items : [],
+  };
+}
+
 function buildHtml(digest: any, days: number): string {
-  const s = digest.sections;
-  const sum = digest.summary;
-  const genDate = fmtDate(digest.generated_at);
+  const sum = digest?.summary ?? {};
+  const genDate = fmtDate(digest?.generated_at);
   const windowLabel = `Last ${days} day${days !== 1 ? "s" : ""}`;
+
+  const pending = normalisePending(digest);
+  const pmPerf = Array.isArray(digest?.sections?.pm_performance) ? digest.sections.pm_performance : [];
+  const decisions = digest?.sections?.decisions ?? { total: 0, approved: 0, rejected: 0, approval_rate: null, recent: [] };
 
   const sectionHeader = (title: string, count?: number) => `
     <div style="display:flex;align-items:center;gap:10px;margin:28px 0 12px;border-bottom:2px solid #e2e8f0;padding-bottom:8px;">
@@ -55,72 +80,122 @@ function buildHtml(digest: any, days: number): string {
       <div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;margin-top:4px;">${label}</div>
     </div>`;
 
-  const tableRow = (cells: string[], isHeader = false) => `
-    <tr style="background:${isHeader ? "#f1f5f9" : "white"};">
-      ${cells.map(c => `<td style="padding:7px 10px;font-size:${isHeader ? "9px" : "11px"};font-weight:${isHeader ? "700" : "400"};color:${isHeader ? "#64748b" : "#374151"};border-bottom:1px solid #f1f5f9;">${c}</td>`).join("")}
+  const tr = (cells: string[], header = false) => `
+    <tr style="background:${header ? "#f1f5f9" : "white"};">
+      ${cells
+        .map(
+          (c) =>
+            `<td style="padding:7px 10px;font-size:${header ? "9px" : "11px"};font-weight:${
+              header ? "700" : "400"
+            };color:${header ? "#64748b" : "#374151"};border-bottom:1px solid #f1f5f9;">${c}</td>`
+        )
+        .join("")}
     </tr>`;
 
   const badge = (text: string, color: string) =>
     `<span style="display:inline-block;border-radius:20px;padding:2px 8px;font-size:9px;font-weight:700;background:${color}18;border:1px solid ${color}44;color:${color};">${text}</span>`;
 
+  const pendingRows =
+    pending.items.length > 0
+      ? pending.items
+          .slice(0, 40)
+          .map((r: any) =>
+            tr([
+              `${ss(r?.project_title) || "—"} ${r?.project_code ? `<span style="color:#4338ca;font-weight:700;font-family:monospace;font-size:10px;margin-left:6px;">${ss(r.project_code)}</span>` : ""}`,
+              ss(r?.approver_label) || "—",
+              badge(ragLabel(ss(r?.sla_status)), ragColor(ss(r?.sla_status))),
+            ])
+          )
+          .join("")
+      : tr([`<span style="color:#10b981;font-weight:700;">✓ No pending approvals</span>`, "—", "—"]);
+
   return `<!DOCTYPE html>
 <html>
-<head><meta charset="UTF-8"/><style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: sans-serif; padding: 40px; color: #374151; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-  @media print { body { -webkit-print-color-adjust: exact; } }
-</style></head>
+<head>
+  <meta charset="UTF-8"/>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; padding: 40px; color: #374151; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  </style>
+</head>
 <body>
   <div style="border-bottom:3px solid #6366f1; padding-bottom:20px; margin-bottom:28px;">
     <h1 style="font-size:26px; color:#0f172a;">Portfolio Governance Report</h1>
     <div style="color:#64748b;">${windowLabel} · Generated ${genDate}</div>
+    <div style="color:#64748b; margin-top:6px;">
+      Projects: <b>${Number(sum?.active_projects ?? 0)}</b> active
+      ${sum?.total_projects != null ? ` of <b>${Number(sum.total_projects)}</b> total` : ""}
+    </div>
   </div>
 
   <div style="display:flex; gap:10px; margin-bottom:28px;">
-    ${statCard("Pending", sum.pending_total, "#6366f1")}
-    ${statCard("Breached", sum.breached_total, "#e11d48")}
-    ${statCard("Decisions", sum.decisions_total, "#0f172a")}
-    ${statCard("High Risk", sum.at_risk_projects, "#e11d48")}
+    ${statCard("Pending", Number(sum?.pending_total ?? pending.total), "#6366f1")}
+    ${statCard("Breached", Number(sum?.breached_total ?? pending.breached), "#e11d48")}
+    ${statCard("Decisions", Number(sum?.decisions_total ?? decisions?.total ?? 0), "#0f172a")}
+    ${statCard("High Risk", Number(sum?.at_risk_projects ?? 0), "#e11d48")}
   </div>
 
-  ${sectionHeader("SLA Breaches", s.sla_breaches.total)}
+  ${sectionHeader("Pending Approvals (incl. Breaches)", pending.total)}
   <table>
-    ${tableRow(["Project", "Approver"], true)}
-    ${s.sla_breaches.items.map((r: any) => tableRow([ss(r?.project_title), ss(r?.approver_label)])).join("")}
+    ${tr(["Project", "Approver", "Status"], true)}
+    ${pendingRows}
   </table>
 
   ${sectionHeader("PM Performance")}
   <table>
-    ${tableRow(["PM", "Projects", "Approve Rate", "Overdue"], true)}
-    ${s.pm_performance.map((pm: any) => tableRow([
-      ss(pm?.full_name), 
-      String(pm?.projects_managed), 
-      pm?.approval_rate ? `${pm.approval_rate}%` : "N/A",
-      String(pm?.overdue)
-    ])).join("")}
+    ${tr(["PM", "Projects", "Approval Rate", "Overdue"], true)}
+    ${
+      pmPerf.length
+        ? pmPerf
+            .slice(0, 50)
+            .map((pm: any) =>
+              tr([
+                ss(pm?.full_name) || "—",
+                String(pm?.projects_managed ?? 0),
+                pm?.approval_rate != null ? `${pm.approval_rate}%` : "N/A",
+                String(pm?.overdue ?? 0),
+              ])
+            )
+            .join("")
+        : tr([`<span style="color:#94a3b8;">No PM data</span>`, "—", "—", "—"])
+    }
   </table>
 
   <div style="margin-top:40px; font-size:10px; color:#94a3b8;">Generated by Aliena AI · Confidential</div>
-</body></html>`;
+</body>
+</html>`;
 }
 
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const days = Math.min(Math.max(sn(url.searchParams.get("days") ?? "7"), 1), 90);
+
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return new NextResponse("Unauthorized", { status: 401 });
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser();
+    if (userErr || !user) return new NextResponse("Unauthorized", { status: 401 });
 
     const digestResp = await fetch(`${url.origin}/api/executive/digest?days=${days}`, {
       headers: { Cookie: req.headers.get("cookie") ?? "" },
+      cache: "no-store",
     });
-    const json = await digestResp.json();
-    const html = buildHtml(json.digest, days);
 
-    return new NextResponse(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+    const json = await digestResp.json().catch(() => null);
+
+    if (!json?.ok || !json?.digest) {
+      return new NextResponse("Digest unavailable", { status: 502 });
+    }
+
+    const html = buildHtml(json.digest, days);
+    return new NextResponse(html, {
+      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+    });
   } catch (e: any) {
-    return new NextResponse(e.message, { status: 500 });
+    return new NextResponse(e?.message ?? String(e), { status: 500 });
   }
 }
