@@ -1,73 +1,32 @@
-﻿// Executive Projects feed for Cockpit / Approvals UI
-// ✅ Filters deleted projects at DB level
-// ✅ Non-exec users only see projects they’re a member of
 import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { orgIdsForUser, requireUser, safeStr } from "../approvals/_lib";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function jsonOk(data: any, status = 200) {
-  const res = NextResponse.json({ ok: true, ...data }, { status });
-  res.headers.set(
-    "Cache-Control",
-    "no-store, no-cache, must-revalidate, proxy-revalidate"
-  );
-  res.headers.set("Pragma", "no-cache");
-  res.headers.set("Expires", "0");
-  return res;
-}
-function jsonErr(error: string, status = 400, meta?: any) {
-  const res = NextResponse.json({ ok: false, error, meta }, { status });
-  res.headers.set(
-    "Cache-Control",
-    "no-store, no-cache, must-revalidate, proxy-revalidate"
-  );
+function noStoreJson(data: unknown, init?: ResponseInit) {
+  const res = NextResponse.json(data, init);
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
   res.headers.set("Pragma", "no-cache");
   res.headers.set("Expires", "0");
   return res;
 }
 
-async function isExecutiveForOrg(supabase: any, userId: string, orgId: string) {
-  // “Exec” = owner on any project in org (matches your other executive routes)
-  const { data, error } = await supabase
-    .from("project_members")
-    .select("id, projects!inner(id, organisation_id)")
-    .eq("user_id", userId)
-    .eq("role", "owner")
-    .is("removed_at", null)
-    .eq("projects.organisation_id", orgId)
-    .limit(1)
-    .maybeSingle();
+const ss = (x: any) => (typeof x === "string" ? x : x == null ? "" : String(x));
 
-  if (error) throw new Error(error.message);
-  return !!data;
+function parseBool(x: string | null): boolean {
+  if (!x) return false;
+  const v = x.toLowerCase().trim();
+  return v === "1" || v === "true" || v === "yes" || v === "y";
 }
 
-async function myProjectIdsInOrg(supabase: any, userId: string, orgId: string) {
-  const { data, error } = await supabase
-    .from("project_members")
-    .select("project_id, projects!inner(id, organisation_id)")
-    .eq("user_id", userId)
-    .is("removed_at", null)
-    .eq("projects.organisation_id", orgId);
-
-  if (error) throw new Error(error.message);
-
-  return (data || [])
-    .map((r: any) => safeStr(r?.project_id).trim())
-    .filter(Boolean);
-}
-
-const CLOSED_PROJECT_STATUSES = [
+const CLOSED_STATES = [
   "closed",
   "cancelled",
   "canceled",
-  "deleted",
   "archived",
   "completed",
   "inactive",
@@ -76,68 +35,70 @@ const CLOSED_PROJECT_STATUSES = [
   "suspended",
 ];
 
-function isClosedStatus(x: any) {
-  const s = safeStr(x).toLowerCase().trim();
-  if (!s) return false;
-  return CLOSED_PROJECT_STATUSES.some((k) => s.includes(k));
+function isProjectActive(p: any): boolean {
+  if (p?.deleted_at) return false;
+  if (p?.archived_at) return false;
+  if (p?.cancelled_at) return false;
+  if (p?.closed_at) return false;
+
+  const st = ss(p?.status ?? p?.lifecycle_state ?? p?.state).toLowerCase().trim();
+  if (!st) return true; // unknown => assume active
+  return !CLOSED_STATES.some((s) => st.includes(s));
 }
 
-export async function GET() {
+async function getOrgIds(supabase: any, userId: string): Promise<string[]> {
+  const { data } = await supabase
+    .from("organisation_members")
+    .select("organisation_id")
+    .eq("user_id", userId)
+    .is("removed_at", null)
+    .limit(50);
+
+  return Array.from(new Set((data ?? []).map((m: any) => ss(m?.organisation_id)).filter(Boolean)));
+}
+
+export async function GET(req: Request) {
   try {
+    const url = new URL(req.url);
+    const activeOnly = parseBool(url.searchParams.get("active_only"));
+
     const supabase = await createClient();
-    const _auth = await requireUser(supabase);
-    const user = (_auth as any)?.user ?? _auth;
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser();
+    if (userErr || !user) return noStoreJson({ ok: false, error: "unauthorized" }, { status: 401 });
 
-    const orgIds = await orgIdsForUser(user.id);
-    const orgId = safeStr(orgIds?.[0]).trim();
-    if (!orgId) return jsonOk({ orgId: null, scope: "member", total: 0, projects: [] });
+    const orgIds = await getOrgIds(supabase, user.id);
+    if (!orgIds.length) return noStoreJson({ ok: false, error: "no_active_org" }, { status: 400 });
 
-    const isExec = await isExecutiveForOrg(supabase, user.id, orgId);
-
-    // Pull org projects (non-deleted). We’ll scope down in-memory for members if needed.
-    const { data, error } = await supabase
+    // ✅ schema uses title, not name
+    const { data: rows, error } = await supabase
       .from("projects")
-      .select("id, name, project_code, status, lifecycle_state, deleted_at, updated_at, created_at")
-      .eq("organisation_id", orgId)
+      .select(
+        "id, title, project_code, project_manager_id, organisation_id, status, lifecycle_state, created_at, updated_at, deleted_at, archived_at, cancelled_at, closed_at"
+      )
+      .in("organisation_id", orgIds)
       .is("deleted_at", null)
-      .order("updated_at", { ascending: false })
-      .limit(500);
+      .order("updated_at", { ascending: false });
 
-    if (error) return jsonErr(error.message, 500);
+    if (error) return noStoreJson({ ok: false, error: error.message }, { status: 500 });
 
-    let rows = Array.isArray(data) ? data : [];
+    const filtered = (rows ?? []).filter((p: any) => (activeOnly ? isProjectActive(p) : true));
 
-    // belt-and-braces: skip closed/cancelled/archived
-    rows = rows.filter((p: any) => {
-      if (p?.deleted_at) return false;
-      const st = p?.status ?? p?.lifecycle_state;
-      return !isClosedStatus(st);
-    });
-
-    if (!isExec) {
-      const myIds = await myProjectIdsInOrg(supabase, user.id, orgId);
-      const allowed = new Set(myIds);
-      rows = rows.filter((p: any) => allowed.has(safeStr(p?.id).trim()));
-    }
-
-    const projects = rows.map((p: any) => ({
-      id: p?.id,
-      name: safeStr(p?.name || "Untitled"),
-      project_code: safeStr(p?.project_code || ""),
-      status: p?.status ?? p?.lifecycle_state ?? null,
-      updated_at: p?.updated_at ?? null,
-      created_at: p?.created_at ?? null,
-    }));
-
-    return jsonOk({
-      orgId,
-      scope: isExec ? "org" : "member",
-      total: projects.length,
-      projects,
+    return noStoreJson({
+      ok: true,
+      items: filtered.map((p: any) => ({
+        id: ss(p?.id),
+        title: p?.title ?? null,
+        project_code: p?.project_code ?? null,
+        project_manager_id: p?.project_manager_id ?? null,
+        status: p?.status ?? p?.lifecycle_state ?? null,
+        updated_at: p?.updated_at ?? null,
+      })),
+      meta: { active_only: activeOnly, total: filtered.length },
     });
   } catch (e: any) {
-    const msg = safeStr(e?.message) || "Failed";
-    const status = msg.toLowerCase().includes("unauthorized") ? 401 : 500;
-    return jsonErr(msg, status);
+    return noStoreJson({ ok: false, error: e?.message ?? String(e) }, { status: 500 });
   }
 }
