@@ -29,7 +29,9 @@ export default function GovernanceSearchBox({
   initialQ?: string;
   categorySlug?: string | null;
 }) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
   const [q, setQ] = useState(initialQ);
   const [open, setOpen] = useState(false);
@@ -37,7 +39,6 @@ export default function GovernanceSearchBox({
   const [results, setResults] = useState<SearchResult[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
-  // fixed panel positioning
   const [pos, setPos] = useState<{ left: number; top: number; width: number }>({
     left: 0,
     top: 0,
@@ -51,11 +52,11 @@ export default function GovernanceSearchBox({
     const el = inputRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const width = Math.max(320, Math.min(r.width, 900));
+    const width = Math.max(320, Math.min(r.width, 920));
     setPos({ left: r.left, top: r.bottom + 8, width });
   }
 
-  // keep panel anchored while open
+  // Keep panel anchored while open
   useEffect(() => {
     if (!open) return;
     recompute();
@@ -71,17 +72,39 @@ export default function GovernanceSearchBox({
     };
   }, [open]);
 
-  // close on escape
+  // Close on outside click (NO backdrop, NO click blocking)
   useEffect(() => {
     if (!open) return;
+
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node | null;
+      if (!t) return;
+
+      const root = rootRef.current;
+      const panel = panelRef.current;
+
+      // If click inside input/root or panel, keep open
+      if (root?.contains(t) || panel?.contains(t)) return;
+
+      // Otherwise close (do not prevent default; let clicks go through)
+      setOpen(false);
+    };
+
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
+
+    // capture=true so we detect outside clicks before navigation, but we don't block them
+    document.addEventListener("mousedown", onDown, true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+
+    return () => {
+      document.removeEventListener("mousedown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+    };
   }, [open]);
 
-  // search request (debounced)
+  // Search request (debounced)
   useEffect(() => {
     const qq = q.trim();
     if (qq.length < 2) {
@@ -128,7 +151,7 @@ export default function GovernanceSearchBox({
   const showPanel = open && (busy || err || canSearch);
 
   return (
-    <>
+    <div ref={rootRef} className="relative">
       <input
         ref={inputRef}
         value={q}
@@ -142,19 +165,13 @@ export default function GovernanceSearchBox({
       />
 
       {showPanel ? (
-        <>
-          {/* Backdrop: ONLY purpose is to close on outside click.
-              This prevents invisible hitboxes elsewhere. */}
-          <button
-            type="button"
-            aria-label="Close search"
-            className="fixed inset-0 z-[9998] cursor-default bg-transparent"
-            onClick={() => setOpen(false)}
-          />
-
-          {/* Panel */}
+        // IMPORTANT:
+        // Wrapper is pointer-events-none so it never blocks clicking the page.
+        // The panel itself is pointer-events-auto so it remains interactive.
+        <div className="fixed inset-0 z-[9999] pointer-events-none">
           <div
-            className="fixed z-[9999]"
+            ref={panelRef}
+            className="pointer-events-auto fixed"
             style={{ left: pos.left, top: pos.top, width: pos.width }}
           >
             <div className="overflow-hidden rounded-xl border bg-white shadow-lg dark:border-white/10 dark:bg-[#0b0d12]">
@@ -203,8 +220,8 @@ export default function GovernanceSearchBox({
               )}
             </div>
           </div>
-        </>
+        </div>
       ) : null}
-    </>
+    </div>
   );
 }
