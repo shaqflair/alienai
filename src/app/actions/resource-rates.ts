@@ -1,9 +1,9 @@
-"use server";
+﻿"use server";
 
 import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
 
-// ── Shared types ──────────────────────────────────────────────────────────────
+// â”€â”€ Shared types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export type OrgMemberForPicker = {
   user_id: string;
@@ -34,7 +34,7 @@ export type ResourceRate = {
   job_title: string | null;
 };
 
-// ── Fetch all org members (for the person picker in financial plan) ────────────
+// â”€â”€ Fetch all org members (for the person picker in financial plan) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function getOrgMembersForPicker(
   organisationId: string
@@ -72,7 +72,7 @@ export async function getOrgMembersForPicker(
   }));
 }
 
-// ── Fetch latest resource rates for an org (admin rate card view) ─────────────
+// â”€â”€ Fetch latest resource rates for an org (admin rate card view) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function getResourceRates(
   organisationId: string
@@ -90,7 +90,7 @@ export async function getResourceRates(
   return (data ?? []) as ResourceRate[];
 }
 
-// ── Fetch rate for a specific user (used when PM picks a person) ──────────────
+// â”€â”€ Fetch rate for a specific user (used when PM picks a person) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function getResourceRateForUser(
   organisationId: string,
@@ -108,7 +108,7 @@ export async function getResourceRateForUser(
   return (data ?? []) as ResourceRate[];
 }
 
-// ── Upsert a rate (admin only — RLS enforces this) ────────────────────────────
+// â”€â”€ Upsert a rate (admin only â€” RLS enforces this) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function upsertResourceRate(payload: {
   id?: string;
@@ -147,7 +147,7 @@ export async function upsertResourceRate(payload: {
   return { id: data.id };
 }
 
-// ── Delete a rate row ─────────────────────────────────────────────────────────
+// â”€â”€ Delete a rate row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function deleteResourceRate(
   id: string,
