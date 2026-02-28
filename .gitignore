@@ -44,3 +44,8 @@ next-env.d.ts
 .tmp-blob.bin
 
 package-lock.json
+
+# local one-off scripts
+fix-*.js
+diagnose.js
+
