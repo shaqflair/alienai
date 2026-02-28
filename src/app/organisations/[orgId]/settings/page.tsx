@@ -1,4 +1,4 @@
-// src/app/organisations/[orgId]/settings/page.tsx
+﻿// src/app/organisations/[orgId]/settings/page.tsx
 import "server-only";
 
 import Link from "next/link";
@@ -189,8 +189,8 @@ export default async function OrgSettingsPage({
 
   const [ratesResult, membersResult] = tab === "ratecards"
     ? await Promise.all([
-        getResourceRates(organisationId),
-        getOrgMembersForPicker(organisationId),
+        getResourceRates(organisationId).then(rates => ({ rates })),
+        getOrgMembersForPicker(organisationId).then(members => ({ members })),
       ])
     : [{ rates: [] }, { members: [] }];
 
@@ -516,3 +516,4 @@ export default async function OrgSettingsPage({
     </div>
   );
 }
+
