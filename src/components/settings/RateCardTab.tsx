@@ -1,4 +1,4 @@
-ï»¿"use client";
+"use client";
 
 import { useState, useTransition, useCallback, useMemo } from "react";
 import {
@@ -11,11 +11,11 @@ import {
   deleteResourceRate,
 } from "@/app/actions/resource-rates";
 
-// Ã¢âEURÃ¢âEUR Types Ã¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEUR
+// â”EURâ”EUR Types â”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EUR
 
 const CURRENCIES = ["GBP", "USD", "EUR", "AUD", "CAD"] as const;
 const CURRENCY_SYMBOLS: Record<string, string> = {
-  GBP: "Â£", USD: "$", EUR: "Ã¢âÂ¬", AUD: "A$", CAD: "C$",
+  GBP: "��", USD: "$", EUR: "â‚¬", AUD: "A$", CAD: "C$",
 };
 
 const RESOURCE_TYPES = [
@@ -56,7 +56,7 @@ function emptyEdit(userId = "", currency = "GBP"): EditRow {
   };
 }
 
-// Ã¢âEURÃ¢âEUR Avatar Ã¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEUR
+// â”EURâ”EUR Avatar â”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EUR
 
 function Avatar({ name, url, size = 7 }: { name: string | null; url: string | null; size?: number }) {
   const initials = (name ?? "?")
@@ -84,7 +84,7 @@ function Avatar({ name, url, size = 7 }: { name: string | null; url: string | nu
   );
 }
 
-// Ã¢âEURÃ¢âEUR Person picker (searchable dropdown) Ã¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEUR
+// â”EURâ”EUR Person picker (searchable dropdown) â”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EUR
 
 function PersonPicker({
   members,
@@ -133,7 +133,7 @@ function PersonPicker({
             </div>
           </>
         ) : (
-          <span className="text-gray-400 flex-1">Search for a personÃ¢EURÂ¦</span>
+          <span className="text-gray-400 flex-1">Search for a personâEUR¦</span>
         )}
         <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />
       </button>
@@ -149,7 +149,7 @@ function PersonPicker({
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search by name, email, departmentÃ¢EURÂ¦"
+                placeholder="Search by name, email, departmentâEUR¦"
                 className="flex-1 text-sm text-gray-800 placeholder-gray-400 focus:outline-none"
               />
               {query && (
@@ -188,7 +188,7 @@ function PersonPicker({
                       <span className="text-xs text-gray-400 truncate">{m.department}</span>
                     )}
                     {m.job_title && (
-                      <span className="text-xs text-gray-400 truncate">ÃÂ· {m.job_title}</span>
+                      <span className="text-xs text-gray-400 truncate">Â· {m.job_title}</span>
                     )}
                   </div>
                 </div>
@@ -207,7 +207,7 @@ function PersonPicker({
   );
 }
 
-// Ã¢âEURÃ¢âEUR Rate form (inline) Ã¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEUR
+// â”EURâ”EUR Rate form (inline) â”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EUR
 
 function RateForm({
   organisationId,
@@ -262,7 +262,7 @@ function RateForm({
     });
   };
 
-  const sym = CURRENCY_SYMBOLS[row.currency] ?? "Â£";
+  const sym = CURRENCY_SYMBOLS[row.currency] ?? "��";
 
   return (
     <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-4 space-y-4">
@@ -396,7 +396,7 @@ function RateForm({
             type="text"
             value={row.notes}
             onChange={(e) => patch({ notes: e.target.value })}
-            placeholder="e.g. includes agency uplift, outside IR35Ã¢EURÂ¦"
+            placeholder="e.g. includes agency uplift, outside IR35âEUR¦"
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -411,7 +411,7 @@ function RateForm({
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-all disabled:opacity-60 shadow-sm"
         >
           <Check className="w-4 h-4" />
-          {pending ? "SavingÃ¢EURÂ¦" : "Save rate"}
+          {pending ? "SavingâEUR¦" : "Save rate"}
         </button>
         <button
           type="button"
@@ -426,7 +426,7 @@ function RateForm({
   );
 }
 
-// Ã¢âEURÃ¢âEUR Main component Ã¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEURÃ¢âEUR
+// â”EURâ”EUR Main component â”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EURâ”EUR
 
 type Props = {
   organisationId: string;
@@ -462,7 +462,7 @@ export default function RateCardTab({
   const handleDone = () => {
     setAdding(false);
     setEditingId(null);
-    // Re-fetch by reloading Ã¢EURâ server action calls revalidatePath
+    // Re-fetch by reloading âEUR” server action calls revalidatePath
     window.location.reload();
   };
 
@@ -518,7 +518,7 @@ export default function RateCardTab({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name, role, departmentÃ¢EURÂ¦"
+            placeholder="Search by name, role, departmentâEUR¦"
             className="flex-1 text-sm text-gray-800 placeholder-gray-400 focus:outline-none"
           />
         </div>
@@ -631,7 +631,7 @@ export default function RateCardTab({
 
                     {/* Notes */}
                     <td className="px-4 py-3 text-sm text-gray-400 max-w-[180px] truncate">
-                      {r.notes ?? "Ã¢EURâ"}
+                      {r.notes ?? "âEUR”"}
                     </td>
 
                     {/* Actions */}
@@ -667,7 +667,7 @@ export default function RateCardTab({
       {/* Summary */}
       {rates.length > 0 && (
         <p className="text-xs text-gray-400">
-          {rates.length} rate{rates.length !== 1 ? "s" : ""} configured ÃÂ· {" "}
+          {rates.length} rate{rates.length !== 1 ? "s" : ""} configured Â· {" "}
           {new Set(rates.map((r) => r.user_id)).size} people
         </p>
       )}
