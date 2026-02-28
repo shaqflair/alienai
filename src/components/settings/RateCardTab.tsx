@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useTransition, useCallback, useMemo } from "react";
+import { useState, useTransition, useMemo } from "react";
 import {
   Plus, Trash2, Pencil, Check, X, Search,
-  ChevronDown, AlertCircle,
+  ChevronDown, AlertCircle, User,
 } from "lucide-react";
 import type { OrgMemberForPicker, ResourceRate } from "@/app/actions/resource-rates";
 import {
@@ -38,9 +38,9 @@ type EditRow = {
   effectiveFrom: string;
 };
 
-function emptyEdit(userId = "", today = ""): EditRow {
+function emptyEdit(today = ""): EditRow {
   return {
-    userId,
+    userId: "",
     roleLabel: "",
     rateType: "day_rate",
     rate: 0,
@@ -65,7 +65,7 @@ function Avatar({ name, avatarUrl, size = 8 }: { name?: string | null; avatarUrl
   );
 }
 
-// -- Person picker (searchable dropdown) ------------------------------------
+// -- Person picker (optional) -----------------------------------------------
 
 function PersonPicker({
   members,
@@ -100,14 +100,21 @@ function PersonPicker({
           <>
             <Avatar name={selected.full_name} avatarUrl={selected.avatar_url} size={6} />
             <span className="flex-1 text-left truncate">{selected.full_name ?? selected.email}</span>
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); onChange(""); }}
+              className="ml-1 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </>
         ) : (
           <>
-            <Search className="w-4 h-4 text-gray-400" />
-            <span className="text-gray-400 flex-1">Search for a person...</span>
+            <User className="w-4 h-4 text-gray-400" />
+            <span className="text-gray-400 flex-1 text-left">No specific person (role-based rate)</span>
+            <ChevronDown className="w-4 h-4 text-gray-400 ml-auto" />
           </>
         )}
-        <ChevronDown className="w-4 h-4 text-gray-400 ml-auto" />
       </button>
 
       {open && (
@@ -122,6 +129,17 @@ function PersonPicker({
             />
           </div>
           <ul className="max-h-52 overflow-y-auto py-1">
+            <li>
+              <button
+                type="button"
+                onClick={() => { onChange(""); setOpen(false); setQ(""); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 text-left text-gray-500 italic"
+              >
+                <User className="w-4 h-4 text-gray-400" />
+                No specific person (role-based rate)
+              </button>
+            </li>
+            <li className="border-t border-gray-100 my-0.5" />
             {filtered.length === 0 && (
               <li className="px-3 py-2 text-sm text-gray-400">No results</li>
             )}
@@ -138,8 +156,8 @@ function PersonPicker({
                     {m.full_name && m.email && (
                       <div className="text-xs text-gray-400 truncate">{m.email}</div>
                     )}
-                    {m.job_title && (
-                      <span className="text-xs text-gray-400 truncate">&middot; {m.job_title}</span>
+                    {m.department && (
+                      <div className="text-xs text-gray-400 truncate">{m.department}</div>
                     )}
                   </div>
                 </button>
@@ -175,7 +193,7 @@ function RateForm({
   }
 
   function handleSave() {
-    if (!row.userId || !row.roleLabel || row.rate < 0) return;
+    if (!row.roleLabel || row.rate < 0) return;
     startTransition(() => onSave(row));
   }
 
@@ -184,21 +202,27 @@ function RateForm({
 
   return (
     <div className="border border-indigo-200 rounded-xl p-4 bg-indigo-50/30 space-y-4">
+
       <div>
-        <label className="block text-xs font-semibold text-gray-600 mb-1">PERSON *</label>
+        <label className="block text-xs font-semibold text-gray-600 mb-1">ROLE LABEL *</label>
+        <input
+          className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          placeholder="e.g. Senior Developer, Project Manager, UX Designer"
+          value={row.roleLabel}
+          onChange={e => set("roleLabel", e.target.value)}
+          autoFocus
+        />
+        <p className="text-xs text-gray-400 mt-1">Rate for anyone in this role. Optionally link to a specific person below for an individual override.</p>
+      </div>
+
+      <div>
+        <label className="block text-xs font-semibold text-gray-600 mb-1">
+          PERSON <span className="font-normal text-gray-400">(optional)</span>
+        </label>
         <PersonPicker members={members} value={row.userId} onChange={v => set("userId", v)} />
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-semibold text-gray-600 mb-1">ROLE LABEL *</label>
-          <input
-            className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            placeholder="e.g. Senior Developer"
-            value={row.roleLabel}
-            onChange={e => set("roleLabel", e.target.value)}
-          />
-        </div>
         <div>
           <label className="block text-xs font-semibold text-gray-600 mb-1">TYPE</label>
           <select
@@ -210,6 +234,15 @@ function RateForm({
               <option key={t.value} value={t.value}>{t.label}</option>
             ))}
           </select>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1">EFFECTIVE FROM</label>
+          <input
+            type="date"
+            className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            value={row.effectiveFrom}
+            onChange={e => set("effectiveFrom", e.target.value)}
+          />
         </div>
       </div>
 
@@ -259,16 +292,6 @@ function RateForm({
       </div>
 
       <div>
-        <label className="block text-xs font-semibold text-gray-600 mb-1">EFFECTIVE FROM</label>
-        <input
-          type="date"
-          className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          value={row.effectiveFrom}
-          onChange={e => set("effectiveFrom", e.target.value)}
-        />
-      </div>
-
-      <div>
         <label className="block text-xs font-semibold text-gray-600 mb-1">NOTES</label>
         <input
           className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -281,7 +304,7 @@ function RateForm({
       <div className="flex gap-2 pt-1">
         <button
           type="button"
-          disabled={pending}
+          disabled={pending || !row.roleLabel}
           onClick={handleSave}
           className="flex items-center gap-1.5 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-60 font-medium"
         >
@@ -318,7 +341,6 @@ export default function RateCardTab({ organisationId, rates: initialRates, membe
   const [editRow, setEditRow] = useState<EditRow | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
-
   const [search, setSearch] = useState("");
 
   const filtered = useMemo(() => {
@@ -335,7 +357,7 @@ export default function RateCardTab({ organisationId, rates: initialRates, membe
     startTransition(async () => {
       const res = await upsertResourceRate({
         organisationId,
-        userId: row.userId,
+        userId: row.userId || null,
         roleLabel: row.roleLabel,
         rateType: row.rateType,
         rate: row.rate,
@@ -345,7 +367,6 @@ export default function RateCardTab({ organisationId, rates: initialRates, membe
         effectiveFrom: row.effectiveFrom,
       });
       if (res.error) { setError(res.error); return; }
-      // Re-fetch by reloading - server action calls revalidatePath
       window.location.reload();
     });
   }
@@ -356,7 +377,7 @@ export default function RateCardTab({ organisationId, rates: initialRates, membe
       const res = await upsertResourceRate({
         id: editId ?? undefined,
         organisationId,
-        userId: row.userId,
+        userId: row.userId || null,
         roleLabel: row.roleLabel,
         rateType: row.rateType,
         rate: row.rate,
@@ -382,7 +403,7 @@ export default function RateCardTab({ organisationId, rates: initialRates, membe
   function startEdit(r: ResourceRate) {
     setEditId(r.id);
     setEditRow({
-      userId: r.user_id,
+      userId: r.user_id ?? "",
       roleLabel: r.role_label,
       rateType: r.rate_type,
       rate: r.rate,
@@ -403,7 +424,7 @@ export default function RateCardTab({ organisationId, rates: initialRates, membe
       <div>
         <h2 className="text-lg font-semibold text-gray-900">Resource Rate Card</h2>
         <p className="text-sm text-gray-500 mt-0.5">
-          Set day rates or monthly costs per person. These auto-fill when a PM adds someone to a Financial Plan.
+          Set day rates or monthly costs by role. Optionally link to a specific person for individual overrides.
         </p>
       </div>
 
@@ -428,7 +449,7 @@ export default function RateCardTab({ organisationId, rates: initialRates, membe
       {showForm && (
         <RateForm
           members={members}
-          initial={emptyEdit("", today)}
+          initial={emptyEdit(today)}
           onSave={row => { handleAdd(row); setShowForm(false); }}
           onCancel={() => setShowForm(false)}
           today={today}
@@ -451,11 +472,11 @@ export default function RateCardTab({ organisationId, rates: initialRates, membe
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">PERSON</th>
                   <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">ROLE</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">PERSON</th>
                   <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">TYPE</th>
                   <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">RATE</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">EFFECTIVE FROM</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">FROM</th>
                   <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">NOTES</th>
                   <th className="px-4 py-2.5" />
                 </tr>
@@ -464,16 +485,17 @@ export default function RateCardTab({ organisationId, rates: initialRates, membe
                 {filtered.map(r => (
                   <>
                     <tr key={r.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 font-medium text-gray-900">{r.role_label}</td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <Avatar name={r.full_name} avatarUrl={r.avatar_url} size={7} />
-                          <div>
-                            <div className="font-medium text-gray-900">{r.full_name ?? r.email ?? r.user_id}</div>
-                            {r.department && <div className="text-xs text-gray-400">{r.department}</div>}
+                        {r.user_id ? (
+                          <div className="flex items-center gap-2">
+                            <Avatar name={r.full_name} avatarUrl={r.avatar_url} size={6} />
+                            <span className="text-gray-700 truncate">{r.full_name ?? r.email}</span>
                           </div>
-                        </div>
+                        ) : (
+                          <span className="text-xs text-gray-400 italic">Any person in role</span>
+                        )}
                       </td>
-                      <td className="px-4 py-3 text-gray-700">{r.role_label}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${rtMap[r.resource_type]?.cls ?? "bg-gray-100 text-gray-700"}`}>
                           {rtMap[r.resource_type]?.label ?? r.resource_type}
@@ -485,8 +507,8 @@ export default function RateCardTab({ organisationId, rates: initialRates, membe
                           {r.rate_type === "day_rate" ? "/day" : "/mo"}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-500">{r.effective_from}</td>
-                      <td className="px-4 py-3 text-gray-500 max-w-[160px] truncate">{r.notes ?? "-"}</td>
+                      <td className="px-4 py-3 text-gray-500 text-xs">{r.effective_from}</td>
+                      <td className="px-4 py-3 text-gray-500 max-w-[140px] truncate text-xs">{r.notes ?? "-"}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1 justify-end">
                           <button
@@ -527,7 +549,7 @@ export default function RateCardTab({ organisationId, rates: initialRates, membe
 
           <p className="text-xs text-gray-400">
             {rates.length} rate{rates.length !== 1 ? "s" : ""} configured &middot;{" "}
-            Showing latest effective rate per person &amp; role
+            Showing latest effective rate per role
           </p>
         </div>
       )}
