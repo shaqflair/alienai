@@ -506,20 +506,43 @@ export default function GovernanceIntelligence({
   }, [days, parentItems]);
 
   useEffect(() => {
-    let dead = false;
-    setAiLoading(true);
-    fetch("/api/ai/events", {
-      method: "POST", credentials: "include",
-      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-      body: JSON.stringify({ eventType: "artifact_due", windowDays: days }),
-    })
-      .then((r) => r.json())
-      .then((j) => { if (dead || !j?.ok) return; const aiBlock = j?.ai ?? {}; setAi({ summary: ss(aiBlock?.summary) || null, recommended: ss(aiBlock?.recommendedMessage) || null }); })
-      .catch(() => {})
-      .finally(() => { if (!dead) setAiLoading(false); });
-    return () => { dead = true; };
-  }, [days]);
+  let dead = false;
+  setAiLoading(true);
 
+  // Governance Brain is GET (recommended), returns org-scoped narrative in orgs[0].ai_summary
+  fetch(`/api/ai/governance-brain`, {
+    method: "GET",
+    cache: "no-store",
+    credentials: "include",
+    headers: { Accept: "application/json", "Cache-Control": "no-store, no-cache" },
+  })
+    .then((r) => r.json())
+    .then((j) => {
+      if (dead || !j?.ok) return;
+
+      const org = Array.isArray(j?.orgs) ? j.orgs[0] : null;
+      const summary = ss(org?.ai_summary) || null;
+
+      // We can optionally build a "recommended" line from key counters
+      const overdue = Number(org?.approvals?.overdue_steps || 0);
+      const blocked = Number(org?.blockers?.projects_blocked || 0);
+      const score = Number(org?.health?.portfolio_score || 0);
+      const rec =
+        overdue > 0
+          ? `Escalate overdue approvals and unblock ${blocked} project(s).`
+          : score < 70
+            ? `Portfolio health is under pressure — review worst projects.`
+            : blocked > 0
+              ? `Resolve blockers to keep flow moving.`
+              : `Governance flow is clear.`;
+
+      setAi({ summary, recommended: rec });
+    })
+    .catch(() => {})
+    .finally(() => { if (!dead) setAiLoading(false); });
+
+  return () => { dead = true; };
+}, [days]);
   const items = useMemo(() => { if (!appResp?.ok) return []; return (appResp.items || []).map(normalise); }, [appResp]);
 
   const counts = useMemo(() => {
