@@ -1,269 +1,305 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Search, X, Check, ChevronDown, User, Loader2 } from "lucide-react";
-import type { OrgMemberForPicker, ResourceRate } from "@/app/actions/resource-rates";
-import { getOrgMembersForPicker, getResourceRateForUser } from "@/app/actions/resource-rates";
-import type { Resource, ResourceRole, ResourceType } from "./FinancialPlanEditor";
-import { RESOURCE_ROLE_LABELS } from "./FinancialPlanEditor";
+import { useState, useMemo, useTransition } from "react";
+import { User, ChevronDown, X, Zap, AlertCircle } from "lucide-react";
+import { getOrgMembersForPicker } from "@/app/actions/resource-rates";
+import { getRateForUser }         from "@/app/actions/resource-rate-lookup";
+import type { OrgMemberForPicker } from "@/app/actions/resource-rates";
+import type { RateCardMatch }       from "@/app/actions/resource-rate-lookup";
+import type {
+  Resource, ResourceRateType, ResourceType,
+} from "./FinancialPlanEditor";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── PickedPerson ─────────────────────────────────────────────────────────────
+// Returned to the parent when a user selects someone from the picker.
 
 export type PickedPerson = {
-  user_id: string;
-  full_name: string | null;
-  email: string | null;
-  avatar_url: string | null;
-  department: string | null;
-  job_title: string | null;
-  // Auto-filled from rate card if available
-  rate_type?: "day_rate" | "monthly_cost";
-  rate?: number;
-  currency?: string;
-  resource_type?: ResourceType;
-  role_label?: string;
-};
-
-type Props = {
-  organisationId: string;
-  value: string | null;          // current user_id
-  currentResource: Resource;     // the resource row being edited
-  onPick: (person: PickedPerson) => void;
-  disabled?: boolean;
+  user_id:       string;
+  full_name:     string | null;
+  email:         string | null;
+  avatar_url:    string | null;
+  job_title:     string | null;
+  department:    string | null;
+  // Rate card fields — null if no rate found
+  rate_type:     ResourceRateType | null;
+  rate:          number | null;
+  currency:      string | null;
+  resource_type: ResourceType | null;
+  role_label:    string | null;
+  rate_source:   "personal" | "role" | null; // which rate matched
 };
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
 
-function Avatar({ name, url }: { name: string | null; url: string | null }) {
-  const initials = (name ?? "?")
-    .split(" ")
-    .map((w) => w[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-
-  if (url) {
+function Avatar({
+  name, avatarUrl, size = 7,
+}: { name?: string | null; avatarUrl?: string | null; size?: number }) {
+  const initials = (name ?? "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+  if (avatarUrl) {
     return (
-      <img src={url} alt={name ?? ""} className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+      <img
+        src={avatarUrl}
+        alt={name ?? ""}
+        className={`w-${size} h-${size} rounded-full object-cover flex-shrink-0`}
+      />
     );
   }
   return (
-    <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+    <div className={`w-${size} h-${size} rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-semibold flex-shrink-0`}>
       {initials}
     </div>
   );
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
+// ── Rate badge ────────────────────────────────────────────────────────────────
+
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  GBP: "£", USD: "$", EUR: "€", AUD: "A$", CAD: "C$",
+};
+
+function RateBadge({ match, source }: { match: RateCardMatch; source: "personal" | "role" }) {
+  const sym  = CURRENCY_SYMBOLS[match.currency] ?? match.currency;
+  const label = match.rate_type === "day_rate" ? "/day" : "/mo";
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+      source === "personal"
+        ? "bg-emerald-100 text-emerald-700"
+        : "bg-blue-100 text-blue-700"
+    }`}>
+      <Zap className="w-2.5 h-2.5" />
+      {sym}{Number(match.rate).toLocaleString()}{label}
+      {source === "role" && <span className="opacity-70">(role)</span>}
+    </span>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+type Props = {
+  organisationId:  string;
+  value:           string | null; // user_id of currently selected person
+  currentResource: Resource;
+  disabled?:       boolean;
+  onPick:          (person: PickedPerson) => void;
+};
+
+// Cache members per org to avoid redundant fetches within the same session
+const memberCache: Record<string, OrgMemberForPicker[]> = {};
 
 export default function ResourcePicker({
-  organisationId,
-  value,
-  currentResource,
-  onPick,
-  disabled = false,
+  organisationId, value, currentResource, disabled = false, onPick,
 }: Props) {
-  const [open,       setOpen]       = useState(false);
-  const [query,      setQuery]      = useState("");
-  const [members,    setMembers]    = useState<OrgMemberForPicker[]>([]);
-  const [loading,    setLoading]    = useState(false);
+  const [open, setOpen]     = useState(false);
+  const [q, setQ]           = useState("");
+  const [members, setMembers] = useState<OrgMemberForPicker[]>(memberCache[organisationId] ?? []);
+  const [loading, setLoading] = useState(false);
   const [rateLoading, setRateLoading] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [rateError, setRateError]     = useState<string | null>(null);
+  const [, startTransition] = useTransition();
 
-  // Load members once when dropdown opens for first time
-  const loaded = useRef(false);
-  useEffect(() => {
-    if (!open || loaded.current) return;
-    loaded.current = true;
+  const selected = members.find(m => m.user_id === value);
+
+  // ── Load members on first open ─────────────────────────────────────────────
+  async function handleOpen() {
+    if (disabled) return;
+    setOpen(o => !o);
+    if (members.length > 0 || loading) return;
     setLoading(true);
-    getOrgMembersForPicker(organisationId)
-      .then(setMembers)
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [open, organisationId]);
+    try {
+      const data = await getOrgMembersForPicker(organisationId);
+      memberCache[organisationId] = data;
+      setMembers(data);
+    } catch {
+      // silently fail — empty list shown
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  // Close on outside click
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (!containerRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
+  // ── Select a member → look up their rate card ─────────────────────────────
+  async function handleSelect(member: OrgMemberForPicker) {
+    setOpen(false);
+    setQ("");
+    setRateError(null);
+    setRateLoading(true);
 
-  const selected = useMemo(
-    () => members.find((m) => m.user_id === value) ?? null,
-    [members, value]
-  );
+    let rateMatch: RateCardMatch | null = null;
+    let rateSource: "personal" | "role" | null = null;
 
-  const filtered = useMemo(() => {
-    if (!query.trim()) return members;
-    const q = query.toLowerCase();
-    return members.filter(
-      (m) =>
-        m.full_name?.toLowerCase().includes(q) ||
-        m.email?.toLowerCase().includes(q) ||
-        m.department?.toLowerCase().includes(q) ||
-        m.department?.toLowerCase().includes(q)
-    );
-  }, [members, query]);
-
-  const handlePick = useCallback(
-    async (member: OrgMemberForPicker) => {
-      setOpen(false);
-      setQuery("");
-
-      // Start with basic info
-      const picked: PickedPerson = {
-        user_id:       member.user_id,
-        full_name:     member.full_name,
-        email:         member.email,
-        avatar_url:    member.avatar_url,
-        department:    member.department,
-        job_title:     member.department,
-        role_label:    member.department ?? "",
-      };
-
-      onPick(picked); // fire immediately so UI feels snappy
-
-      // Then fetch rate card and enrich
-      setRateLoading(true);
-      try {
-        const rates = await getResourceRateForUser(organisationId, member.user_id);
-        if (rates.length > 0) {
-          // Prefer day_rate if available, otherwise monthly_cost
-          const rate =
-            rates.find((r) => r.rate_type === "day_rate") ?? rates[0];
-
-          onPick({
-            ...picked,
-            rate_type:     rate.rate_type as "day_rate" | "monthly_cost",
-            rate:          rate.rate,
-            currency:      rate.currency,
-            resource_type: rate.resource_type as ResourceType,
-            role_label:    rate.role_label || member.department || "",
-          });
-        }
-      } catch (e) {
-        console.error("Failed to fetch rate card:", e);
-      } finally {
-        setRateLoading(false);
+    try {
+      rateMatch = await getRateForUser(organisationId, member.user_id);
+      if (rateMatch) {
+        // Determine source: personal if user_id was matched, role if fallback
+        // getRateForUser tries personal first, then role — we can infer from role_label
+        // For now, treat as personal if we got a result; the action handles fallback
+        rateSource = "personal"; // conservative label — action already tried personal first
       }
-    },
-    [organisationId, onPick]
-  );
+    } catch {
+      setRateError("Could not load rate — please set manually");
+    } finally {
+      setRateLoading(false);
+    }
 
+    onPick({
+      user_id:       member.user_id,
+      full_name:     member.full_name,
+      email:         member.email,
+      avatar_url:    member.avatar_url,
+      job_title:     member.job_title,
+      department:    member.department,
+      rate_type:     rateMatch?.rate_type     ?? null,
+      rate:          rateMatch?.rate          ?? null,
+      currency:      rateMatch?.currency      ?? null,
+      resource_type: rateMatch?.resource_type ?? null,
+      role_label:    rateMatch?.role_label    ?? null,
+      rate_source:   rateSource,
+    });
+  }
+
+  // ── Clear ─────────────────────────────────────────────────────────────────
+  function handleClear(e: React.MouseEvent) {
+    e.stopPropagation();
+    onPick({
+      user_id: "", full_name: null, email: null, avatar_url: null,
+      job_title: null, department: null,
+      rate_type: null, rate: null, currency: null,
+      resource_type: null, role_label: null, rate_source: null,
+    });
+  }
+
+  // ── Filtered list ─────────────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    const lq = q.toLowerCase();
+    return members.filter(m =>
+      (m.full_name  ?? "").toLowerCase().includes(lq) ||
+      (m.email      ?? "").toLowerCase().includes(lq) ||
+      (m.job_title  ?? "").toLowerCase().includes(lq) ||
+      (m.department ?? "").toLowerCase().includes(lq)
+    );
+  }, [members, q]);
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div ref={containerRef} className="relative w-full">
-      {/* Trigger button */}
+    <div className="relative">
+      {/* Trigger */}
       <button
         type="button"
+        onClick={handleOpen}
         disabled={disabled}
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 bg-white text-sm text-left hover:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        className={`w-full flex items-center gap-2 border rounded-lg px-2.5 py-1.5 text-sm bg-white transition-colors ${
+          disabled
+            ? "border-gray-100 opacity-60 cursor-default"
+            : "border-gray-200 hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
+        }`}
       >
-        {value && selected ? (
+        {selected ? (
           <>
-            <Avatar name={selected.full_name} url={selected.avatar_url} />
-            <div className="flex-1 min-w-0">
-              <div className="font-medium text-gray-800 text-xs truncate">
+            <Avatar name={selected.full_name} avatarUrl={selected.avatar_url} size={6} />
+            <div className="flex-1 min-w-0 text-left">
+              <div className="text-xs font-medium text-gray-800 truncate">
                 {selected.full_name ?? selected.email}
               </div>
-              {selected.department && (
-                <div className="text-[10px] text-gray-400 truncate">{selected.department}</div>
+              {selected.job_title && (
+                <div className="text-[10px] text-gray-400 truncate">{selected.job_title}</div>
               )}
             </div>
-            {rateLoading && <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin flex-shrink-0" />}
+            {/* Rate badge — show current resource rate if set */}
+            {currentResource.rate_type && (currentResource.day_rate || currentResource.monthly_cost) && (
+              <RateBadge
+                match={{
+                  rate_type:     currentResource.rate_type,
+                  rate:          Number(currentResource.rate_type === "day_rate" ? currentResource.day_rate : currentResource.monthly_cost),
+                  currency:      "GBP",
+                  resource_type: currentResource.type,
+                  role_label:    currentResource.name,
+                }}
+                source="personal"
+              />
+            )}
+            {!disabled && (
+              <button
+                type="button"
+                onClick={handleClear}
+                className="ml-1 text-gray-300 hover:text-gray-500 flex-shrink-0"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
           </>
-        ) : value && !selected && !loading ? (
-          // user_id set but members not loaded yet
+        ) : rateLoading ? (
           <>
-            <User className="w-4 h-4 text-gray-400 flex-shrink-0" />
-            <span className="flex-1 text-xs text-gray-600 truncate">{currentResource.name || "Selected"}</span>
-            {rateLoading && <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin flex-shrink-0" />}
+            <div className="w-6 h-6 rounded-full bg-gray-100 animate-pulse flex-shrink-0" />
+            <span className="text-xs text-gray-400 flex-1 text-left">Loading rate…</span>
           </>
         ) : (
           <>
-            <User className="w-4 h-4 text-gray-400 flex-shrink-0" />
-            <span className="flex-1 text-xs text-gray-400">Pick a person…</span>
+            <User className="w-4 h-4 text-gray-300 flex-shrink-0" />
+            <span className="text-xs text-gray-400 flex-1 text-left">Pick a person…</span>
+            <ChevronDown className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />
           </>
         )}
-        <ChevronDown className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
+
+      {/* Rate error */}
+      {rateError && (
+        <div className="flex items-center gap-1 mt-0.5 px-1 text-[10px] text-amber-600">
+          <AlertCircle className="w-2.5 h-2.5" />
+          {rateError}
+        </div>
+      )}
 
       {/* Dropdown */}
       {open && (
-        <div className="absolute z-50 mt-1 w-72 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
+        <div className="absolute z-50 mt-1 w-72 bg-white border border-gray-200 rounded-xl shadow-xl">
           {/* Search */}
-          <div className="px-3 py-2 border-b border-gray-100">
-            <div className="flex items-center gap-2">
-              <Search className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-              <input
-                autoFocus
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search name, email, dept…"
-                className="flex-1 text-xs text-gray-800 placeholder-gray-400 focus:outline-none"
-              />
-              {query && (
-                <button onClick={() => setQuery("")}>
-                  <X className="w-3.5 h-3.5 text-gray-400 hover:text-gray-600" />
-                </button>
-              )}
-            </div>
+          <div className="p-2 border-b border-gray-100">
+            <input
+              autoFocus
+              className="w-full text-xs px-2.5 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400"
+              placeholder="Search name, title, department…"
+              value={q}
+              onChange={e => setQ(e.target.value)}
+            />
           </div>
 
-          {/* List */}
-          <div className="max-h-56 overflow-y-auto">
+          <ul className="max-h-60 overflow-y-auto py-1">
             {loading && (
-              <div className="flex items-center justify-center py-8 gap-2 text-gray-400">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span className="text-xs">Loading people…</span>
-              </div>
+              <li className="px-3 py-4 text-xs text-gray-400 text-center">Loading members…</li>
             )}
             {!loading && filtered.length === 0 && (
-              <div className="py-8 text-center text-xs text-gray-400">
-                {query ? "No people match your search" : "No org members found"}
-              </div>
+              <li className="px-3 py-4 text-xs text-gray-400 text-center">No members found</li>
             )}
-            {!loading && filtered.map((m) => (
-              <button
-                key={m.user_id}
-                type="button"
-                onClick={() => handlePick(m)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-blue-50 transition-colors ${
-                  m.user_id === value ? "bg-blue-50" : ""
-                }`}
-              >
-                <Avatar name={m.full_name} url={m.avatar_url} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-medium text-gray-800 truncate">
-                    {m.full_name ?? m.email ?? "Unknown"}
-                  </div>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    {m.department && (
-                      <span className="text-[10px] text-gray-400 truncate">{m.department}</span>
+            {!loading && filtered.map(m => (
+              <li key={m.user_id}>
+                <button
+                  type="button"
+                  onClick={() => handleSelect(m)}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-blue-50 transition-colors"
+                >
+                  <Avatar name={m.full_name} avatarUrl={m.avatar_url} size={7} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium text-gray-800 truncate">
+                      {m.full_name ?? m.email}
+                    </div>
+                    {m.job_title && (
+                      <div className="text-[10px] text-indigo-500 truncate">{m.job_title}</div>
                     )}
                     {m.department && (
-                      <span className="text-[10px] text-gray-400 truncate">· {m.job_title}</span>
+                      <div className="text-[10px] text-gray-400 truncate">{m.department}</div>
                     )}
                   </div>
-                </div>
-                {m.user_id === value && <Check className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />}
-              </button>
+                  {/* Show role label from org membership */}
+                  <span className="text-[10px] text-gray-300 flex-shrink-0">{m.role}</span>
+                </button>
+              </li>
             ))}
-          </div>
+          </ul>
 
           {/* Footer hint */}
-          {!loading && members.length > 0 && (
-            <div className="px-3 py-2 border-t border-gray-100 bg-gray-50">
-              <p className="text-[10px] text-gray-400">
-                Rate will auto-fill from org rate card if set.
-              </p>
-            </div>
-          )}
+          <div className="border-t border-gray-100 px-3 py-2 text-[10px] text-gray-400 flex items-center gap-1">
+            <Zap className="w-2.5 h-2.5 text-emerald-500" />
+            Rate auto-fills from Rate Card on selection
+          </div>
         </div>
       )}
     </div>

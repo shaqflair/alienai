@@ -3,12 +3,14 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
   Plus, Trash2, TrendingUp, TrendingDown, AlertTriangle,
-  Calendar, Users, Link2, Link2Off,
+  Calendar, Users, Link2, Link2Off, Zap, ChevronRight,
+  Check, AlertCircle,
 } from "lucide-react";
 import FinancialPlanMonthlyView, { type MonthlyData, type FYConfig } from "./FinancialPlanMonthlyView";
 import FinancialIntelligencePanel from "./FinancialIntelligencePanel";
 import { analyseFinancialPlan, type Signal } from "@/lib/financial-intelligence";
 import ResourcePicker, { type PickedPerson } from "./ResourcePicker";
+import { syncResourcesToMonthlyData, previewSync } from "./syncResourcesToMonthlyData";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -96,6 +98,8 @@ export type Resource = {
   planned_months: number | "";
   cost_line_id: string | null;
   notes: string;
+  /** Optional: which month this resource starts (YYYY-MM). Defaults to FY start. */
+  start_month?: string;
 };
 
 export type FinancialPlanContent = {
@@ -186,6 +190,12 @@ function fmt(n: number | "" | null | undefined, sym: string): string {
   return `${sym}${Number(n).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
 }
 
+function fmtShort(n: number, sym: string): string {
+  if (!n) return "—";
+  if (Math.abs(n) >= 1_000_000) return `${sym}${(Math.abs(n) / 1_000_000).toFixed(1)}M`;
+  return `${sym}${Math.abs(n).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
+}
+
 function sumField(lines: CostLine[], field: keyof CostLine): number {
   return lines.reduce((s, l) => s + (Number(l[field]) || 0), 0);
 }
@@ -223,8 +233,6 @@ function MoneyCell({
   );
 }
 
-// ── Override toggle ───────────────────────────────────────────────────────────
-
 function OverrideToggle({
   line, hasLinkedResources, resTotal, sym, onToggle,
 }: {
@@ -247,24 +255,173 @@ function OverrideToggle({
   );
 }
 
+// ── ResourceSyncBar ───────────────────────────────────────────────────────────
+
+function ResourceSyncBar({
+  resources, costLines, monthlyData, fyConfig, currency, onSync,
+}: {
+  resources:   Resource[];
+  costLines:   CostLine[];
+  monthlyData: MonthlyData;
+  fyConfig:    FYConfig;
+  currency:    string;
+  onSync:      (d: MonthlyData) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [synced,   setSynced]   = useState(false);
+
+  const sym = CURRENCY_SYMBOLS[currency as Currency] ?? "£";
+
+  const preview = previewSync(resources, costLines, monthlyData, fyConfig);
+
+  const readyResources = resources.filter(r =>
+    r.cost_line_id &&
+    (
+      (r.rate_type === "day_rate"     && Number(r.day_rate)     > 0 && Number(r.planned_days)   > 0) ||
+      (r.rate_type === "monthly_cost" && Number(r.monthly_cost) > 0 && Number(r.planned_months) > 0)
+    )
+  );
+
+  const unreadyResources = resources.filter(r =>
+    r.cost_line_id &&
+    !(
+      (r.rate_type === "day_rate"     && Number(r.day_rate)     > 0 && Number(r.planned_days)   > 0) ||
+      (r.rate_type === "monthly_cost" && Number(r.monthly_cost) > 0 && Number(r.planned_months) > 0)
+    )
+  );
+
+  if (resources.length === 0) return null;
+
+  const hasChanges = preview.length > 0;
+
+  function handleSync() {
+    const newData = syncResourcesToMonthlyData(resources, costLines, monthlyData, fyConfig);
+    onSync(newData);
+    setSynced(true);
+    setTimeout(() => setSynced(false), 3000);
+    setExpanded(false);
+  }
+
+  return (
+    <div className={`rounded-xl border overflow-hidden ${
+      synced       ? "border-emerald-200 bg-emerald-50"
+      : hasChanges ? "border-blue-200 bg-blue-50"
+      :              "border-gray-200 bg-gray-50"
+    }`}>
+      <div className="flex items-center justify-between px-4 py-3 gap-3">
+        <div className="flex items-center gap-3">
+          <Zap className={`w-4 h-4 flex-shrink-0 ${
+            synced ? "text-emerald-500" : hasChanges ? "text-blue-500" : "text-gray-400"
+          }`} />
+          <div>
+            <div className={`text-xs font-bold ${
+              synced ? "text-emerald-700" : hasChanges ? "text-blue-700" : "text-gray-600"
+            }`}>
+              {synced
+                ? "Monthly phasing synced from resources"
+                : hasChanges
+                ? `${readyResources.length} resource${readyResources.length !== 1 ? "s" : ""} ready to sync to monthly phasing`
+                : "Monthly phasing is up to date with resources"
+              }
+            </div>
+            <div className="text-[10px] text-gray-400 mt-0.5">
+              {readyResources.length} ready · {unreadyResources.length} missing rate or qty · {resources.filter(r => !r.cost_line_id).length} unlinked
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {hasChanges && !synced && (
+            <>
+              <button
+                onClick={() => setExpanded(v => !v)}
+                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+              >
+                Preview
+                <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expanded ? "rotate-90" : ""}`} />
+              </button>
+              <button
+                onClick={handleSync}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-sm"
+              >
+                <Zap className="w-3 h-3" />
+                Sync to monthly
+              </button>
+            </>
+          )}
+          {synced && (
+            <span className="flex items-center gap-1.5 text-xs text-emerald-600 font-semibold">
+              <Check className="w-3.5 h-3.5" /> Synced
+            </span>
+          )}
+        </div>
+      </div>
+
+      {expanded && hasChanges && (
+        <div className="border-t border-blue-100 bg-white divide-y divide-gray-100">
+          {preview.map(row => {
+            const delta = row.totalAfter - row.totalBefore;
+            return (
+              <div key={row.lineId} className="px-4 py-2.5 flex items-center gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold text-gray-800 truncate">{row.lineLabel}</div>
+                  <div className="text-[10px] text-gray-400 mt-0.5">{row.monthsAffected} month{row.monthsAffected !== 1 ? "s" : ""} will change</div>
+                </div>
+                <div className="flex items-center gap-2 text-xs tabular-nums flex-shrink-0">
+                  <span className="text-gray-400">{fmtShort(row.totalBefore, sym)}</span>
+                  <span className="text-gray-300">→</span>
+                  <span className="font-bold text-gray-800">{fmtShort(row.totalAfter, sym)}</span>
+                  {delta !== 0 && (
+                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                      delta > 0 ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
+                    }`}>
+                      {delta > 0 ? "+" : ""}{fmtShort(delta, sym)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {unreadyResources.length > 0 && (
+            <div className="px-4 py-2.5 flex items-start gap-2 bg-amber-50">
+              <AlertCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div className="text-[10px] text-amber-700">
+                <strong>{unreadyResources.length} resource{unreadyResources.length !== 1 ? "s" : ""}</strong> linked but missing rate or qty:
+                <ul className="mt-1 list-disc list-inside">
+                  {unreadyResources.map(r => <li key={r.id}>{r.name || "Unnamed"}</li>)}
+                </ul>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Resources tab ─────────────────────────────────────────────────────────────
 
 function ResourcesTab({
   resources, costLines, sym, currency, readOnly, onChange, organisationId,
+  monthlyData, fyConfig, onSyncMonthly,
 }: {
-  resources: Resource[];
-  costLines: CostLine[];
-  sym: string;
-  currency: Currency;
-  readOnly: boolean;
-  onChange: (r: Resource[]) => void;
+  resources:      Resource[];
+  costLines:      CostLine[];
+  sym:            string;
+  currency:       Currency;
+  readOnly:       boolean;
+  onChange:       (r: Resource[]) => void;
   organisationId: string;
+  monthlyData:    MonthlyData;
+  fyConfig:       FYConfig;
+  onSyncMonthly:  (d: MonthlyData) => void;
 }) {
   const update = (id: string, patch: Partial<Resource>) =>
     onChange(resources.map(r => r.id === id ? { ...r, ...patch } : r));
 
-  const totalCost   = resources.reduce((s, r) => s + resourceTotal(r), 0);
-  const linkedCost  = resources.filter(r => r.cost_line_id).reduce((s, r) => s + resourceTotal(r), 0);
+  const totalCost    = resources.reduce((s, r) => s + resourceTotal(r), 0);
+  const linkedCost   = resources.filter(r => r.cost_line_id).reduce((s, r) => s + resourceTotal(r), 0);
   const unlinkedCost = totalCost - linkedCost;
 
   const byLine = useMemo(() => {
@@ -286,10 +443,10 @@ function ResourcesTab({
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Total Resources",   value: String(resources.length),  sub: "across all roles",                                           color: "text-gray-700"   },
-          { label: "Total Resource Cost", value: fmt(totalCost, sym),     sub: "calculated from rates",                                      color: "text-blue-600"   },
-          { label: "Linked to Cost Lines", value: fmt(linkedCost, sym),   sub: `${byLine.length} line${byLine.length !== 1 ? "s" : ""} receiving rollup`, color: "text-emerald-600" },
-          { label: "Unlinked Cost",     value: fmt(unlinkedCost, sym),     sub: unlinkedCost > 0 ? "not rolling up" : "all linked",           color: unlinkedCost > 0 ? "text-amber-600" : "text-gray-400" },
+          { label: "Total Resources",      value: String(resources.length), sub: "across all roles",                                                          color: "text-gray-700"   },
+          { label: "Total Resource Cost",  value: fmt(totalCost, sym),      sub: "calculated from rates",                                                     color: "text-blue-600"   },
+          { label: "Linked to Cost Lines", value: fmt(linkedCost, sym),     sub: `${byLine.length} line${byLine.length !== 1 ? "s" : ""} receiving rollup`,   color: "text-emerald-600" },
+          { label: "Unlinked Cost",        value: fmt(unlinkedCost, sym),   sub: unlinkedCost > 0 ? "not rolling up" : "all linked",                          color: unlinkedCost > 0 ? "text-amber-600" : "text-gray-400" },
         ].map(s => (
           <div key={s.label} className="bg-white rounded-xl border border-gray-100 px-4 py-3 shadow-sm">
             <div className="text-xs text-gray-500 mb-1">{s.label}</div>
@@ -320,13 +477,26 @@ function ResourcesTab({
         </div>
       )}
 
+      {/* Sync bar — wires resources to monthly phasing */}
+      {!readOnly && (
+        <ResourceSyncBar
+          resources={resources}
+          costLines={costLines}
+          monthlyData={monthlyData}
+          fyConfig={fyConfig}
+          currency={currency}
+          onSync={onSyncMonthly}
+        />
+      )}
+
       {/* Rate card hint */}
       <div className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
         <Users className="w-3.5 h-3.5 flex-shrink-0" />
         <span>
-          Pick a person from your organisation — their rate will auto-fill from the{" "}
+          Pick a person from your organisation — their rate auto-fills from the{" "}
           <strong>Rate Card</strong>. Org admins manage rates in{" "}
           <strong>Organisation Settings → Rate Cards</strong>.
+          Then hit <strong>Sync to monthly</strong> to phase costs across the timeline.
         </span>
       </div>
 
@@ -335,7 +505,7 @@ function ResourcesTab({
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-              {["Person", "Type", "Rate Method", "Rate", "Qty", "Total", "Links to", "Notes", ""].map((h, i) => (
+              {["Person / Role", "Type", "Rate Method", "Rate", "Qty", "Total", "Start Month", "Links to", "Notes", ""].map((h, i) => (
                 <th key={i} className="px-3 py-2.5 text-left border-b border-gray-200 whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -343,7 +513,7 @@ function ResourcesTab({
           <tbody>
             {resources.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-sm text-gray-400">
+                <td colSpan={10} className="px-4 py-10 text-center text-sm text-gray-400">
                   No resources yet. Click <strong>Add resource</strong> below.
                 </td>
               </tr>
@@ -351,6 +521,9 @@ function ResourcesTab({
             {resources.map((r, idx) => {
               const total      = resourceTotal(r);
               const linkedLine = costLines.find(l => l.id === r.cost_line_id);
+              const hasRate    = r.rate_type === "day_rate"
+                ? Number(r.day_rate) > 0
+                : Number(r.monthly_cost) > 0;
 
               return (
                 <tr key={r.id} className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50/50"} hover:bg-blue-50/20 group transition-colors`}>
@@ -364,9 +537,8 @@ function ResourcesTab({
                       disabled={readOnly}
                       onPick={(person: PickedPerson) => {
                         update(r.id, {
-                          user_id: person.user_id,
+                          user_id: person.user_id || undefined,
                           name:    person.full_name ?? person.email ?? r.name,
-                          // Auto-fill rate from rate card if available
                           ...(person.rate_type != null ? {
                             rate_type:    person.rate_type,
                             day_rate:     person.rate_type === "day_rate"     ? (person.rate ?? "") : r.day_rate,
@@ -376,7 +548,7 @@ function ResourcesTab({
                         });
                       }}
                     />
-                    {/* Editable role override below picker */}
+                    {/* Role label override */}
                     <input
                       type="text"
                       value={r.name}
@@ -394,7 +566,7 @@ function ResourcesTab({
                       onChange={e => update(r.id, { type: e.target.value as ResourceType })}
                       disabled={readOnly}
                       className={`text-xs font-semibold px-2 py-1.5 rounded-full border-0 cursor-pointer focus:outline-none w-full ${
-                        r.type === "internal"   ? "bg-blue-100 text-blue-700"
+                        r.type === "internal"    ? "bg-blue-100 text-blue-700"
                         : r.type === "contractor" ? "bg-amber-100 text-amber-700"
                         : r.type === "vendor"     ? "bg-purple-100 text-purple-700"
                         : "bg-gray-100 text-gray-600"
@@ -423,7 +595,7 @@ function ResourcesTab({
                     </div>
                   </td>
 
-                  {/* Rate — read-only if from rate card, shows lock */}
+                  {/* Rate */}
                   <td className="border-b border-gray-100 min-w-[110px]">
                     <div className="relative">
                       {r.rate_type === "day_rate" ? (
@@ -435,6 +607,14 @@ function ResourcesTab({
                     <div className="px-3 text-[10px] text-gray-400">
                       {r.rate_type === "day_rate" ? "per day" : "per month"}
                     </div>
+                    {/* Rate card badge */}
+                    {hasRate && r.user_id && (
+                      <div className="px-2 mt-0.5">
+                        <span className="inline-flex items-center gap-1 text-[9px] text-emerald-600 font-semibold">
+                          <Zap className="w-2 h-2" /> from rate card
+                        </span>
+                      </div>
+                    )}
                   </td>
 
                   {/* Qty */}
@@ -461,6 +641,18 @@ function ResourcesTab({
                       {total > 0 ? fmt(total, sym) : "—"}
                     </div>
                     {total > 0 && <div className="text-[10px] text-gray-400">calculated</div>}
+                  </td>
+
+                  {/* Start month */}
+                  <td className="border-b border-gray-100 min-w-[110px] px-2 py-1">
+                    <input
+                      type="month"
+                      value={r.start_month ?? ""}
+                      onChange={e => update(r.id, { start_month: e.target.value || undefined })}
+                      readOnly={readOnly}
+                      className="w-full border border-gray-200 bg-white text-xs rounded-lg px-2 py-1.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    />
+                    <div className="text-[9px] text-gray-400 px-1 mt-0.5">optional</div>
                   </td>
 
                   {/* Links to cost line */}
@@ -517,7 +709,7 @@ function ResourcesTab({
               <tr className="bg-gray-100 font-semibold text-xs text-gray-700">
                 <td colSpan={5} className="px-3 py-2">Total</td>
                 <td className="px-3 py-2 font-bold text-gray-800">{fmt(totalCost, sym)}</td>
-                <td colSpan={3} />
+                <td colSpan={4} />
               </tr>
             </tfoot>
           )}
@@ -544,7 +736,6 @@ type Props = {
   content: FinancialPlanContent;
   onChange: (c: FinancialPlanContent) => void;
   readOnly?: boolean;
-  /** Required to power the org-wide person picker and rate card auto-fill */
   organisationId: string;
   raidItems?: Array<{ type: string; title: string; severity: string; status: string }>;
   approvalDelays?: Array<{ title: string; daysPending: number; cost_impact?: number }>;
@@ -561,7 +752,6 @@ export default function FinancialPlanEditor({
   const lines     = content.cost_lines ?? [];
   const resources = content.resources  ?? [];
 
-  // Resource totals per cost line
   const resourceTotalsByLine = useMemo(() => {
     const map: Record<string, number> = {};
     for (const r of resources) {
@@ -709,10 +899,10 @@ export default function FinancialPlanEditor({
       {/* ── Summary cards ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Budgeted",         value: fmt(totalBudgeted, sym),   sub: "across all cost lines",                                             color: "text-gray-700"   },
+          { label: "Budgeted",         value: fmt(totalBudgeted, sym),   sub: "across all cost lines",                                                    color: "text-gray-700"   },
           { label: "Actual Spent",     value: fmt(totalActual, sym),     sub: approvedBudget ? `${Math.round((totalActual / approvedBudget) * 100)}% of budget` : "", color: "text-blue-600"   },
-          { label: "Total Forecast",   value: fmt(totalForecast, sym),   sub: utilPct !== null ? `${utilPct}% of approved` : "",                   color: overBudget ? "text-red-600" : "text-emerald-600" },
-          { label: "Pending Exposure", value: fmt(pendingExposure, sym), sub: "from change requests",                                              color: pendingExposure > 0 ? "text-amber-600" : "text-gray-400" },
+          { label: "Total Forecast",   value: fmt(totalForecast, sym),   sub: utilPct !== null ? `${utilPct}% of approved` : "",                           color: overBudget ? "text-red-600" : "text-emerald-600" },
+          { label: "Pending Exposure", value: fmt(pendingExposure, sym), sub: "from change requests",                                                      color: pendingExposure > 0 ? "text-amber-600" : "text-gray-400" },
         ].map(s => (
           <div key={s.label} className="bg-white rounded-xl border border-gray-100 px-4 py-3 shadow-sm">
             <div className="text-xs text-gray-500 mb-1">{s.label}</div>
@@ -745,7 +935,7 @@ export default function FinancialPlanEditor({
         </div>
       )}
 
-      {/* ── Summary ── */}
+      {/* ── Plan Summary ── */}
       <div>
         <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Plan Summary</label>
         <textarea
@@ -802,7 +992,7 @@ export default function FinancialPlanEditor({
                 </tr>
               )}
               {lines.map((l, idx) => {
-                const resTotal    = resourceTotalsByLine[l.id] ?? 0;
+                const resTotal     = resourceTotalsByLine[l.id] ?? 0;
                 const hasResources = resTotal > 0;
                 return (
                   <tr key={l.id} className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50/50"} hover:bg-blue-50/20 group transition-colors`}>
@@ -904,6 +1094,9 @@ export default function FinancialPlanEditor({
           readOnly={readOnly}
           onChange={handleResourcesChange}
           organisationId={organisationId}
+          monthlyData={monthlyData}
+          fyConfig={fyConfig}
+          onSyncMonthly={d => updateField("monthly_data", d)}
         />
       )}
 
@@ -936,9 +1129,9 @@ export default function FinancialPlanEditor({
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-3 gap-3 text-sm">
             {[
-              { label: "Approved Exposure", value: fmt(approvedExposure, sym),                  color: "text-blue-600"   },
-              { label: "Pending Exposure",  value: fmt(pendingExposure, sym),                   color: pendingExposure > 0 ? "text-amber-600" : "text-gray-400" },
-              { label: "Total Exposure",    value: fmt(approvedExposure + pendingExposure, sym), color: "text-gray-700"   },
+              { label: "Approved Exposure", value: fmt(approvedExposure, sym),                   color: "text-blue-600"   },
+              { label: "Pending Exposure",  value: fmt(pendingExposure, sym),                    color: pendingExposure > 0 ? "text-amber-600" : "text-gray-400" },
+              { label: "Total Exposure",    value: fmt(approvedExposure + pendingExposure, sym),  color: "text-gray-700"   },
             ].map(s => (
               <div key={s.label} className="bg-white rounded-xl border border-gray-100 px-4 py-3 shadow-sm">
                 <div className="text-xs text-gray-500">{s.label}</div>

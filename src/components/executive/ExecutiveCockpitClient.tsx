@@ -4,9 +4,6 @@
 //
 // Fixes applied:
 //   ✅ FIX-ECC1: URL paths corrected — three endpoints were missing /approvals/ prefix
-//              /api/executive/who-blocking   → /api/executive/approvals/who-blocking
-//              /api/executive/sla-radar      → /api/executive/approvals/sla-radar
-//              /api/executive/risk-signals   → /api/executive/approvals/risk-signals
 //   ✅ FIX-ECC2: SlaRadarBody reads item.breached / item.at_risk (route returns booleans, not sla_state)
 //   ✅ FIX-ECC3: PendingApprovalsBody reads sla_status || sla_state (cache column is sla_status)
 //   ✅ FIX-ECC4: MicroList age derived from timestamps (submitted_at/created_at/computed_at/updated_at/etc.)
@@ -19,11 +16,8 @@
 //   ✅ FIX-ECC9: Align list rendering keys with API payloads (project_name vs project_title, etc.)
 //   ✅ FIX-ECC10: WhoBlockingBody renders task-style rows correctly (title/project_name) when not aggregated
 //
-// Governance Brain Live:
-//   ✅ FIX-ECC11: Wire /api/ai/events (artifact_due) into Executive Cockpit as primary “Delivery Pressure” feed.
-//                - Org scope supported (no project_id)
-//                - Derive Overdue / Due Soon / Change / RAID pressure signals
-//                - Degrades gracefully if endpoint unavailable
+// NEW:
+//   ✅ FIX-ECC11: Tiles clickable → opens a governance drawer with top items + deep links (bestHref resolver)
 
 "use client";
 
@@ -41,10 +35,11 @@ import {
   CheckCheck,
   Flame,
   Clock3,
-  CalendarDays,
-  ClipboardList,
+  X,
+  Copy,
 } from "lucide-react";
 import { LazyMotion, domAnimation, m, AnimatePresence } from "framer-motion";
+import { useRouter } from "next/navigation";
 
 // --- TYPES --------------------------------------------------------------------
 
@@ -112,17 +107,6 @@ type BrainResp = {
   }>;
 };
 
-type AiEventsResp = {
-  ok?: boolean;
-  error?: string;
-  message?: string;
-  ai?: {
-    dueSoon?: any[];
-  };
-  stats?: any;
-  scope?: string;
-};
-
 function firstOrg(brain: BrainResp | null) {
   const org = brain?.orgs && Array.isArray(brain.orgs) ? brain.orgs[0] : null;
   return org;
@@ -160,43 +144,11 @@ async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   return json as T;
 }
 
-async function postJson<T>(url: string, body: any, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(url, {
-    method: "POST",
-    credentials: "include",
-    cache: "no-store",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-      Pragma: "no-cache",
-    },
-    body: JSON.stringify(body ?? {}),
-    signal,
-  });
-  const text = await res.text();
-  let json: any = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {}
-  if (!res.ok) {
-    throw new Error(
-      (json && (json.message || json.error)) ||
-        text.slice(0, 200) ||
-        `Request failed (${res.status})`
-    );
-  }
-  return json as T;
-}
-
 function errPayload(msg: string): ApiErr {
   return { error: msg };
 }
 
-function settledOrErr<T>(
-  r: PromiseSettledResult<T>,
-  fallbackMsg: string
-): T | ApiErr {
+function settledOrErr<T>(r: PromiseSettledResult<T>, fallbackMsg: string): T | ApiErr {
   if (r.status === "fulfilled") return r.value as any;
   return errPayload((r.reason?.message || String(r.reason)) || fallbackMsg);
 }
@@ -230,12 +182,18 @@ function extractList(payload: any, preferredKeys: string[] = ["items"]): any[] {
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
-function safeLower(x: any) {
-  return safeStr(x).trim().toLowerCase();
-}
 function safeNum(x: any, fb = 0) {
   const n = Number(x);
   return Number.isFinite(n) ? n : fb;
+}
+function safeLower(x: any) {
+  return safeStr(x).trim().toLowerCase();
+}
+
+function looksLikeUuid(s: any) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(s || "").trim()
+  );
 }
 
 function timeAgo(iso: string) {
@@ -261,71 +219,87 @@ function ageFromItem(it: any): string {
   return timeAgo(safeStr(ts));
 }
 
-// --- GOVERNANCE BRAIN LIVE HELPERS (/api/ai/events) ----------------------------
-
-function parseDueDate(it: any): Date | null {
-  const raw = safeStr(it?.dueDate ?? it?.due_date ?? it?.due ?? "").trim();
-  if (!raw) return null;
-  const d = new Date(raw);
-  return isNaN(d.getTime()) ? null : d;
+function fmtUkDateOnly(iso: string) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }).format(d);
+  } catch {
+    return iso;
+  }
 }
 
-function daysUntilDate(d: Date | null) {
-  if (!d) return null;
-  const ms = d.getTime() - Date.now();
-  return Math.ceil(ms / (1000 * 60 * 60 * 24));
+function normalizeHref(href: string) {
+  const raw = safeStr(href).trim();
+  if (!raw) return "";
+  // keep your previous normalisation rules minimal/safe
+  return raw
+    .replace(/\/RAID(\/|$)/g, "/raid$1")
+    .replace(/\/WBS(\/|$)/g, "/wbs$1")
+    .replace(/\/SCHEDULE(\/|$)/g, "/schedule$1")
+    .replace(/\/CHANGE(\/|$)/g, "/change$1")
+    .replace(/\/CHANGES(\/|$)/g, "/change$1")
+    .replace(/\/CHANGE_REQUESTS(\/|$)/g, "/change$1")
+    .replace(/\/ARTIFACTS(\/|$)/g, "/artifacts$1");
 }
 
-function aiKind(it: any) {
-  const k = safeLower(it?.itemType ?? it?.kind ?? it?.type ?? it?.entity ?? "");
-  return k;
+function extractProjectRefFromHref(href: string): string | null {
+  const h = safeStr(href).trim();
+  const m = h.match(/\/projects\/([^\/?#]+)/i);
+  return m?.[1] ? String(m[1]) : null;
 }
-function aiProjectKey(it: any) {
-  const meta = it?.meta ?? {};
-  return (
+
+/**
+ * ✅ Best-effort deep link resolver for drawer items.
+ * 1) Respect server link/href if it's already an app route.
+ * 2) Else build safe project routes using meta.project_code/human_id.
+ * 3) Else fall back to module pages.
+ */
+function bestHref(item: any, fallbackHref: string): string {
+  const rawLink = safeStr(item?.link || item?.href || "").trim();
+  const normalized = rawLink ? normalizeHref(rawLink) : "";
+  if (normalized.startsWith("/")) return normalized;
+
+  const meta = item?.meta ?? {};
+  const projectRef =
     safeStr(meta?.project_human_id).trim() ||
     safeStr(meta?.project_code).trim() ||
-    safeStr(meta?.project_id).trim() ||
-    safeStr(it?.project_code).trim() ||
-    safeStr(it?.project_id).trim() ||
-    "Project"
-  );
-}
-function aiProjectLabel(it: any) {
-  const meta = it?.meta ?? {};
-  return (
-    safeStr(meta?.project_name).trim() ||
-    safeStr(meta?.project_title).trim() ||
-    safeStr(it?.project_name).trim() ||
-    safeStr(it?.project_title).trim() ||
-    aiProjectKey(it)
-  );
-}
-
-function aiIsChange(it: any) {
-  const k = aiKind(it);
-  if (k.includes("change")) return true;
-  const t = safeLower(it?.title);
-  return t.includes("change request") || t.includes("cr:");
-}
-function aiIsRaid(it: any) {
-  const k = aiKind(it);
-  if (k.includes("raid") || k.includes("risk") || k.includes("issue") || k.includes("dependency") || k.includes("assumption")) return true;
-  const t = safeLower(it?.title);
-  return t.startsWith("risk:") || t.startsWith("issue:") || t.startsWith("dependency:");
-}
-function aiLabel(it: any) {
-  return safeStr(it?.title || it?.name || it?.label || "Untitled");
-}
-function aiSub(it: any) {
-  const proj = aiProjectLabel(it);
-  const meta = it?.meta ?? {};
-  const owner =
-    safeStr(meta?.owner_name).trim() ||
-    safeStr(meta?.owner_email).trim() ||
-    safeStr(it?.owner).trim() ||
+    safeStr(item?.project_code).trim() ||
+    safeStr(item?.project_name).trim() ||
+    extractProjectRefFromHref(normalized) ||
     "";
-  return owner ? `${proj} · ${owner}` : proj;
+
+  const kind = safeLower(item?.itemType || item?.kind || item?.type || "");
+
+  const artifactId = safeStr(
+    meta?.sourceArtifactId ||
+      meta?.artifactId ||
+      item?.artifact_id ||
+      item?.artifactId ||
+      ""
+  ).trim();
+
+  if (projectRef && artifactId && looksLikeUuid(artifactId)) {
+    return `/projects/${projectRef}/artifacts/${artifactId}`;
+  }
+
+  if (projectRef) {
+    if (kind.includes("milestone") || kind.includes("schedule")) return `/projects/${projectRef}/schedule`;
+    if (kind.includes("work_item") || kind.includes("work item") || kind.includes("wbs")) return `/projects/${projectRef}/wbs`;
+    if (kind.includes("raid") || kind.includes("risk") || kind.includes("issue") || kind.includes("dependency")) return `/projects/${projectRef}/raid`;
+    if (kind.includes("change")) return `/projects/${projectRef}/change`;
+  }
+
+  // approvals-centric fallbacks
+  if (kind.includes("approval") || kind.includes("approver") || kind.includes("bottleneck") || kind.includes("blocking")) {
+    return "/approvals/bottlenecks";
+  }
+
+  return fallbackHref || "/approvals";
 }
 
 // --- DESIGN SYSTEM -----------------------------------------------------------
@@ -434,6 +408,182 @@ function TileSkeleton({ delay = 0 }: { delay?: number }) {
   );
 }
 
+// --- DRAWER -------------------------------------------------------------------
+
+function Drawer({
+  open,
+  onClose,
+  title,
+  subtitle,
+  tone,
+  items,
+  fallbackHref,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  subtitle?: string;
+  tone: ToneKey;
+  items: any[];
+  fallbackHref: string;
+}) {
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && open) onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const acc = TONES[tone];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-stretch justify-end">
+      <div
+        className="absolute inset-0 bg-black/20 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <m.div
+        initial={{ x: 520, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        exit={{ x: 520, opacity: 0 }}
+        transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+        className="relative w-full max-w-[520px] h-full bg-white/85 border-l border-slate-200/70 flex flex-col"
+        style={{
+          backdropFilter: "blur(18px) saturate(1.6)",
+          boxShadow: "0 24px 80px rgba(0,0,0,0.15)",
+        }}
+      >
+        <div className="px-5 py-4 border-b border-slate-200/70 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+              Governance Brain
+            </div>
+            <div className="mt-1 flex items-center gap-2 min-w-0">
+              <span className="text-[15px] font-bold text-slate-950 truncate">{title}</span>
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ background: acc.bar, boxShadow: `0 0 10px ${acc.glow}` }}
+              />
+            </div>
+            {subtitle && (
+              <div className="mt-1 text-[12px] text-slate-500 font-medium truncate">
+                {subtitle}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-xl hover:bg-slate-100 transition-colors"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4 text-slate-600" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-auto p-5">
+          {!items.length ? (
+            <div className="text-center py-10 text-sm text-slate-500">
+              No items available
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {items.slice(0, 25).map((it, idx) => {
+                const label =
+                  safeStr(it?.title) ||
+                  safeStr(it?.name) ||
+                  safeStr(it?.label) ||
+                  safeStr(it?.project_title) ||
+                  safeStr(it?.project_name) ||
+                  "---";
+
+                const sub =
+                  safeStr(it?.project_name) ||
+                  safeStr(it?.project_title) ||
+                  safeStr(it?.sla_status || it?.sla_state || it?.state) ||
+                  safeStr(it?.type) ||
+                  safeStr(it?.itemType) ||
+                  "";
+
+                const due = safeStr(it?.dueDate || it?.due_date || "");
+                const age = ageFromItem(it);
+                const href = bestHref(it, fallbackHref);
+
+                return (
+                  <div
+                    key={idx}
+                    className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3"
+                    style={{
+                      backdropFilter: "blur(10px)",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-[13px] font-semibold text-slate-900 truncate">
+                          {label}
+                        </div>
+                        {(sub || due) && (
+                          <div className="mt-1 text-[11px] text-slate-500 font-medium truncate">
+                            {sub}
+                            {sub && due ? " • " : ""}
+                            {due ? `Due ${fmtUkDateOnly(due)}` : ""}
+                          </div>
+                        )}
+                      </div>
+                      {age && (
+                        <div
+                          className="shrink-0 text-[10px] text-slate-400 font-semibold"
+                          style={{ fontFamily: "var(--font-mono, monospace)" }}
+                        >
+                          {age}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-3 flex items-center gap-2">
+                      <a
+                        href={href}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2 text-[11px] font-bold text-slate-700 hover:bg-white transition-colors"
+                      >
+                        Open <ArrowUpRight className="h-3.5 w-3.5" />
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const txt = `${label}${due ? ` — due ${fmtUkDateOnly(due)}` : ""}`;
+                          navigator.clipboard?.writeText(txt);
+                        }}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2 text-[11px] font-bold text-white hover:bg-indigo-700 transition-colors"
+                        title="Copy reminder"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="p-5 border-t border-slate-200/70">
+          <a
+            href={fallbackHref}
+            className="w-full inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200/80 bg-white/70 px-4 py-3 text-[12px] font-bold text-slate-700 hover:bg-white transition-colors"
+            style={{ backdropFilter: "blur(10px)" }}
+          >
+            View full list <ChevronRight className="h-4 w-4" />
+          </a>
+        </div>
+      </m.div>
+    </div>
+  );
+}
+
 // --- COCKPIT TILE -------------------------------------------------------------
 
 function CockpitTile({
@@ -445,6 +595,7 @@ function CockpitTile({
   children,
   href,
   delay = 0,
+  onClick,
 }: {
   label: string;
   count: number | null;
@@ -454,16 +605,19 @@ function CockpitTile({
   children?: React.ReactNode;
   href?: string;
   delay?: number;
+  onClick?: () => void;
 }) {
   const acc = TONES[tone];
   const hasData = count !== null && !error;
 
   return (
-    <m.div
+    <m.button
+      type="button"
+      onClick={onClick}
       initial={{ opacity: 0, y: 18 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay, ease: [0.16, 1, 0.3, 1] }}
-      className="relative overflow-hidden rounded-2xl min-h-[168px] flex flex-col"
+      className="relative overflow-hidden rounded-2xl min-h-[168px] flex flex-col text-left w-full"
       style={{
         background:
           "linear-gradient(145deg, rgba(255,255,255,0.99) 0%, rgba(250,252,255,0.97) 50%, rgba(248,250,255,0.96) 100%)",
@@ -475,8 +629,7 @@ function CockpitTile({
       <div
         className="absolute inset-0 rounded-2xl pointer-events-none"
         style={{
-          background:
-            "linear-gradient(135deg, rgba(255,255,255,0.68) 0%, transparent 62%)",
+          background: "linear-gradient(135deg, rgba(255,255,255,0.68) 0%, transparent 62%)",
         }}
       />
       <div
@@ -489,8 +642,7 @@ function CockpitTile({
       <div
         className="absolute top-0 inset-x-0 h-24 rounded-t-2xl pointer-events-none"
         style={{
-          background:
-            "linear-gradient(180deg, rgba(255,255,255,0.82) 0%, transparent 100%)",
+          background: "linear-gradient(180deg, rgba(255,255,255,0.82) 0%, transparent 100%)",
         }}
       />
       <div
@@ -556,17 +708,16 @@ function CockpitTile({
         {hasData && children && <div className="mt-auto">{children}</div>}
 
         {href && hasData && (
-          <a
-            href={href}
-            className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider transition-colors"
+          <div
+            className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider"
             style={{ color: acc.bar }}
           >
             View details
             <ArrowUpRight className="h-3 w-3" />
-          </a>
+          </div>
         )}
       </div>
-    </m.div>
+    </m.button>
   );
 }
 
@@ -638,14 +789,10 @@ function MicroList({
 function SeverityBar({ items }: { items: any[] }) {
   if (!items.length) return null;
   const high = items.filter((it) =>
-    /high|critical|red|r/.test(
-      safeStr(it?.severity || it?.level || it?.rag || "").toLowerCase()
-    )
+    /high|critical|red|r/.test(safeStr(it?.severity || it?.level || it?.rag || "").toLowerCase())
   ).length;
   const medium = items.filter((it) =>
-    /med|medium|amber|a|warn|at_risk/.test(
-      safeStr(it?.severity || it?.level || it?.rag || "").toLowerCase()
-    )
+    /med|medium|amber|a|warn|at_risk/.test(safeStr(it?.severity || it?.level || it?.rag || "").toLowerCase())
   ).length;
   const low = items.length - high - medium;
   const total = items.length;
@@ -695,17 +842,13 @@ function SlaRadarBody({ items }: { items: any[] }) {
   const breached = items.filter(
     (it) =>
       it?.breached === true ||
-      /breach|overdue|breached|r/.test(
-        safeStr(it?.sla_status || it?.sla_state || it?.state || "").toLowerCase()
-      )
+      /breach|overdue|breached|r/.test(safeStr(it?.sla_status || it?.sla_state || it?.state || "").toLowerCase())
   ).length;
 
   const atRisk = items.filter(
     (it) =>
       it?.at_risk === true ||
-      /warn|at_risk|a/.test(
-        safeStr(it?.sla_status || it?.sla_state || it?.state || "").toLowerCase()
-      )
+      /warn|at_risk|a/.test(safeStr(it?.sla_status || it?.sla_state || it?.state || "").toLowerCase())
   ).length;
 
   return (
@@ -739,9 +882,7 @@ function SlaRadarBody({ items }: { items: any[] }) {
 
 function WhoBlockingBody({ items }: { items: any[] }) {
   // Aggregated format: count/pending_count per person
-  const structured = items.some(
-    (it) => typeof it?.count === "number" || typeof it?.pending_count === "number"
-  );
+  const structured = items.some((it) => typeof it?.count === "number" || typeof it?.pending_count === "number");
 
   if (structured) {
     return (
@@ -772,9 +913,7 @@ function WhoBlockingBody({ items }: { items: any[] }) {
                 >
                   {count}
                 </span>
-                {maxWait > 0 && (
-                  <span className="text-[10px] text-slate-400 font-medium">{maxWait}d</span>
-                )}
+                {maxWait > 0 && <span className="text-[10px] text-slate-400 font-medium">{maxWait}d</span>}
               </div>
             </m.div>
           );
@@ -801,13 +940,7 @@ function PortfolioApprovalsBody({ items }: { items: any[] }) {
   const byProject = new Map<string, { title: string; count: number }>();
   for (const it of items) {
     const pid = safeStr(it?.project_id || it?.project?.id || "unknown");
-    const title = safeStr(
-      it?.project_title ||
-        it?.project_name ||
-        it?.project?.title ||
-        it?.change?.project_title ||
-        pid
-    );
+    const title = safeStr(it?.project_title || it?.project_name || it?.project?.title || it?.change?.project_title || pid);
     const p = byProject.get(pid) || { title, count: 0 };
     p.count++;
     byProject.set(pid, p);
@@ -844,9 +977,7 @@ function PortfolioApprovalsBody({ items }: { items: any[] }) {
 }
 
 function BottlenecksBody({ items }: { items: any[] }) {
-  const maxCount = items.length
-    ? Math.max(...items.map((it) => safeNum(it?.pending_count || it?.count || 1)))
-    : 1;
+  const maxCount = items.length ? Math.max(...items.map((it) => safeNum(it?.pending_count || it?.count || 1))) : 1;
   return (
     <div className="mt-3 pt-3 border-t border-slate-100/80 space-y-2">
       {items.slice(0, 3).map((it, i) => {
@@ -890,9 +1021,7 @@ function BottlenecksBody({ items }: { items: any[] }) {
 function PendingApprovalsBody({ items }: { items: any[] }) {
   // ✅ FIX-ECC3: exec_approval_cache uses sla_status not sla_state; check both for safety
   const overdue = items.filter((it) =>
-    /breach|overdue|breached|r/.test(
-      safeStr(it?.sla_status || it?.sla_state || it?.state || "").toLowerCase()
-    )
+    /breach|overdue|breached|r/.test(safeStr(it?.sla_status || it?.sla_state || it?.state || "").toLowerCase())
   ).length;
 
   return (
@@ -907,27 +1036,8 @@ function PendingApprovalsBody({ items }: { items: any[] }) {
       )}
 
       {/* ✅ FIX-ECC9: pending rows: project_title + sla_status/approver_label + computed_at */}
-      <MicroList
-        items={items}
-        tone="emerald"
-        labelKey="project_title"
-        subKey="sla_status"
-        ageKey="computed_at"
-      />
+      <MicroList items={items} tone="emerald" labelKey="project_title" subKey="sla_status" ageKey="computed_at" />
     </div>
-  );
-}
-
-// Governance Brain Live (DueSoon) bodies
-function DueSoonBody({ items, tone }: { items: any[]; tone: ToneKey }) {
-  return (
-    <MicroList
-      items={items}
-      tone={tone}
-      labelKey="title"
-      subKey="sub"
-      ageKey="computed_at"
-    />
   );
 }
 
@@ -960,8 +1070,7 @@ function CockpitHeader({
             className="flex h-11 w-11 items-center justify-center rounded-xl text-white"
             style={{
               background: "linear-gradient(135deg,#6366f1,#4f46e5)",
-              boxShadow:
-                "0 4px 16px rgba(99,102,241,0.38), 0 1px 0 rgba(255,255,255,0.22) inset",
+              boxShadow: "0 4px 16px rgba(99,102,241,0.38), 0 1px 0 rgba(255,255,255,0.22) inset",
             }}
           >
             <BarChart2 className="h-5 w-5" />
@@ -970,14 +1079,10 @@ function CockpitHeader({
             <div className="text-[10px] uppercase tracking-[0.2em] font-bold text-indigo-600 mb-0.5">
               Live Signals
             </div>
-            <h2 className="text-lg font-bold text-slate-950 leading-tight">
-              Executive Cockpit
-            </h2>
+            <h2 className="text-lg font-bold text-slate-950 leading-tight">Executive Cockpit</h2>
           </div>
         </div>
-        <p className="text-sm text-slate-400 font-medium">
-          Org-scoped governance signals
-        </p>
+        <p className="text-sm text-slate-400 font-medium">Org-scoped governance signals</p>
       </div>
 
       <div className="flex items-center gap-3">
@@ -1008,12 +1113,12 @@ function CockpitHeader({
 // --- MAIN EXPORT --------------------------------------------------------------
 
 export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) {
+  const router = useRouter();
+
   const [loading, setLoading] = React.useState(true);
   const [lastRefreshed, setLastRefreshed] = React.useState("");
 
   const [brain, setBrain] = React.useState<BrainResp | null>(null);
-  const [aiEvents, setAiEvents] = React.useState<AiEventsResp | null>(null);
-  const [aiEventsError, setAiEventsError] = React.useState<string | null>(null);
 
   const [pendingApprovals, setPendingApprovals] = React.useState<Payload | null>(null);
   const [whoBlocking, setWhoBlocking] = React.useState<Payload | null>(null);
@@ -1023,15 +1128,35 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
   const [bottlenecks, setBottlenecks] = React.useState<Payload | null>(null);
   const [fatalError, setFatalError] = React.useState<string | null>(null);
 
+  // Drawer state
+  const [drawerOpen, setDrawerOpen] = React.useState(false);
+  const [drawerTitle, setDrawerTitle] = React.useState("");
+  const [drawerSubtitle, setDrawerSubtitle] = React.useState<string | undefined>(undefined);
+  const [drawerTone, setDrawerTone] = React.useState<ToneKey>("indigo");
+  const [drawerItems, setDrawerItems] = React.useState<any[]>([]);
+  const [drawerHref, setDrawerHref] = React.useState<string>("/approvals");
+
+  const openDrawer = React.useCallback((args: {
+    title: string;
+    subtitle?: string;
+    tone: ToneKey;
+    items: any[];
+    href: string;
+  }) => {
+    setDrawerTitle(args.title);
+    setDrawerSubtitle(args.subtitle);
+    setDrawerTone(args.tone);
+    setDrawerItems(Array.isArray(args.items) ? args.items : []);
+    setDrawerHref(args.href || "/approvals");
+    setDrawerOpen(true);
+  }, []);
+
   const load = React.useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setFatalError(null);
 
     // reset
     setBrain(null);
-    setAiEvents(null);
-    setAiEventsError(null);
-
     setPendingApprovals(null);
     setWhoBlocking(null);
     setSlaRadar(null);
@@ -1048,21 +1173,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
         brainResp = null;
       }
       setBrain(brainResp);
-
-      // ✅ FIX-ECC11: Governance Brain Live (canonical due items feed)
-      // Org scope: omit project_id
-      let aiResp: AiEventsResp | null = null;
-      try {
-        aiResp = await postJson<AiEventsResp>(
-          "/api/ai/events",
-          { eventType: "artifact_due", windowDays: 14 },
-          signal
-        );
-      } catch (e: any) {
-        aiResp = null;
-        setAiEventsError(e?.message || "AI events unavailable");
-      }
-      setAiEvents(aiResp);
 
       const [paR, wbR, slaR, rsR, portR, bottR] = await Promise.allSettled([
         fetchJson<Payload>("/api/executive/approvals/pending?limit=200", signal),
@@ -1088,17 +1198,14 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       setBottlenecks(bott as any);
       setLastRefreshed(new Date().toISOString());
 
-      const allFailed =
-        isErr(pa) && isErr(wb) && isErr(sla) && isErr(rs) && isErr(port) && isErr(bott);
+      const allFailed = isErr(pa) && isErr(wb) && isErr(sla) && isErr(rs) && isErr(port) && isErr(bott);
 
       if (allFailed) {
         const okBrain = !!brainResp && (brainResp as any)?.ok === true;
-        const okAi = !!aiResp && (aiResp as any)?.ok !== false;
-        if (!okBrain && !okAi) setFatalError("All cockpit endpoints failed. Check your API routes.");
+        if (!okBrain) setFatalError("All cockpit endpoints failed. Check your API routes.");
       }
     } catch (e: any) {
-      if (e?.name !== "AbortError")
-        setFatalError(e?.message ?? "Failed to load executive cockpit");
+      if (e?.name !== "AbortError") setFatalError(e?.message ?? "Failed to load executive cockpit");
     } finally {
       setLoading(false);
     }
@@ -1135,10 +1242,7 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
 
   const org = firstOrg(brain);
 
-  const brainPendingCount =
-    org?.approvals?.unique_pending_items ??
-    org?.approvals?.total_pending_steps ??
-    null;
+  const brainPendingCount = org?.approvals?.unique_pending_items ?? org?.approvals?.total_pending_steps ?? null;
 
   const brainWhoBlocking = Array.isArray(org?.approvals?.top_blockers)
     ? org!.approvals!.top_blockers.map((b: any) => ({
@@ -1147,6 +1251,8 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
         count: safeNum(b.count),
         pending_count: safeNum(b.count),
         max_wait_days: safeNum(b.oldest_days),
+        // hint kind for bestHref fallbacks
+        kind: "approvals_bottleneck",
       }))
     : [];
 
@@ -1167,27 +1273,28 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
 
   const brainSlaSample = (() => {
     const byType =
-      org?.sla?.breached_by_type && typeof org.sla.breached_by_type === "object"
-        ? org.sla.breached_by_type
-        : null;
+      org?.sla?.breached_by_type && typeof org.sla.breached_by_type === "object" ? org.sla.breached_by_type : null;
     if (!byType) return [];
     return Object.entries(byType)
       .filter(([, v]) => safeNum(v) > 0)
       .sort((a, b) => safeNum(b[1]) - safeNum(a[1]))
-      .slice(0, 6)
+      .slice(0, 10)
       .map(([k, v]) => ({
         title: k.replace(/_/g, " "),
         project_name: `${safeNum(v)} breach${safeNum(v) !== 1 ? "es" : ""}`,
         breached: true,
+        kind: "sla",
       }));
   })();
 
   const brainPortfolioItems = Array.isArray(org?.health?.projects)
-    ? org!.health!.projects.slice(0, 8).map((p: any) => ({
+    ? org!.health!.projects.slice(0, 25).map((p: any) => ({
         project_id: p.project_id,
         project_title: p.project_title,
         project_name: p.project_title,
         stage_key: `Score ${safeNum(p.score)} · ${safeStr(p.rag)}`,
+        meta: { project_id: p.project_id, project_code: p.project_code, project_human_id: p.project_code },
+        kind: "portfolio",
       }))
     : [];
 
@@ -1210,52 +1317,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
 
   const brainBottlenecks = brainWhoBlocking;
 
-  // --- Governance Brain Live (ai/events) derived signals ----------------------
-
-  const aiDueSoonRaw: any[] = Array.isArray(aiEvents?.ai?.dueSoon) ? (aiEvents!.ai!.dueSoon as any[]) : [];
-
-  const aiEnriched = React.useMemo(() => {
-    return aiDueSoonRaw.map((it) => {
-      const due = parseDueDate(it);
-      const days = daysUntilDate(due);
-      const overdue = days != null && days < 0;
-      const sub = aiSub(it);
-      return {
-        ...it,
-        __due: due,
-        __days: days,
-        __overdue: overdue,
-        title: aiLabel(it),
-        sub,
-        computed_at: it?.computed_at ?? it?.updated_at ?? it?.created_at ?? null,
-        project_key: aiProjectKey(it),
-        project_label: aiProjectLabel(it),
-      };
-    });
-  }, [aiDueSoonRaw]);
-
-  const aiOverdue = React.useMemo(() => aiEnriched.filter((x) => x.__overdue), [aiEnriched]);
-  const aiDueSoon = React.useMemo(() => aiEnriched.filter((x) => x.__days != null && x.__days >= 0), [aiEnriched]);
-  const aiChange = React.useMemo(() => aiEnriched.filter((x) => aiIsChange(x)), [aiEnriched]);
-  const aiRaid = React.useMemo(() => aiEnriched.filter((x) => aiIsRaid(x)), [aiEnriched]);
-
-  const aiTopProject = React.useMemo(() => {
-    if (!aiEnriched.length) return null;
-    const map = new Map<string, { key: string; label: string; count: number; overdue: number }>();
-    for (const it of aiEnriched) {
-      const key = safeStr(it.project_key).trim() || "Project";
-      const label = safeStr(it.project_label).trim() || key;
-      const cur = map.get(key) ?? { key, label, count: 0, overdue: 0 };
-      cur.count += 1;
-      if (it.__overdue) cur.overdue += 1;
-      map.set(key, cur);
-    }
-    const arr = Array.from(map.values()).sort((a, b) => (b.overdue - a.overdue) || (b.count - a.count));
-    return arr[0] ?? null;
-  }, [aiEnriched]);
-
-  const aiScopeLabel = safeStr(aiEvents?.scope).trim() || "org";
-
   // --- TILE MODEL -------------------------------------------------------------
 
   function pickCount(primary: Payload | null, fallback: number | null): number | null {
@@ -1263,58 +1324,7 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
     return c != null ? c : fallback;
   }
 
-  const deliveryTiles = [
-    {
-      id: "ai_overdue",
-      label: "Delivery Pressure — Overdue",
-      short: "Overdue",
-      icon: <Flame className="h-5 w-5" />,
-      tone: "rose" as ToneKey,
-      count: aiEventsError ? null : aiOverdue.length,
-      error: aiEventsError,
-      href: "/approvals",
-      body: aiOverdue.length ? <DueSoonBody items={aiOverdue} tone="rose" /> : null,
-      scope: aiScopeLabel,
-    },
-    {
-      id: "ai_due_14",
-      label: "Due Next 14 Days",
-      short: "Due 14d",
-      icon: <CalendarDays className="h-5 w-5" />,
-      tone: "amber" as ToneKey,
-      count: aiEventsError ? null : aiDueSoon.length,
-      error: aiEventsError,
-      href: "/approvals",
-      body: aiDueSoon.length ? <DueSoonBody items={aiDueSoon} tone="amber" /> : null,
-      scope: aiScopeLabel,
-    },
-    {
-      id: "ai_change",
-      label: "Change Requests Due / In Review",
-      short: "Changes",
-      icon: <ClipboardList className="h-5 w-5" />,
-      tone: "indigo" as ToneKey,
-      count: aiEventsError ? null : aiChange.length,
-      error: aiEventsError,
-      href: "/approvals/portfolio",
-      body: aiChange.length ? <DueSoonBody items={aiChange} tone="indigo" /> : null,
-      scope: aiScopeLabel,
-    },
-    {
-      id: "ai_raid",
-      label: "RAID Pressure",
-      short: "RAID",
-      icon: <AlertTriangle className="h-5 w-5" />,
-      tone: "cyan" as ToneKey,
-      count: aiEventsError ? null : aiRaid.length,
-      error: aiEventsError,
-      href: "/approvals",
-      body: aiRaid.length ? <DueSoonBody items={aiRaid} tone="cyan" /> : null,
-      scope: aiScopeLabel,
-    },
-  ];
-
-  const classicTiles = [
+  const tiles = [
     {
       id: "pending",
       label: "Pending Approvals",
@@ -1324,6 +1334,8 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       count: pickCount(pendingApprovals, brainPendingCount),
       error: getError(pendingApprovals),
       href: "/approvals",
+      items: paItems.length ? paItems : [],
+      fallbackItems: brainPortfolioItems, // nice fallback “what to look at”
       body: paItems.length ? (
         <PendingApprovalsBody items={paItems} />
       ) : brainPortfolioItems.length ? (
@@ -1340,11 +1352,9 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       count: pickCount(whoBlocking, brainWhoBlocking.length ? brainWhoBlocking.length : null),
       error: getError(whoBlocking),
       href: "/approvals/bottlenecks",
-      body: wbItems.length ? (
-        <WhoBlockingBody items={wbItems} />
-      ) : brainWhoBlocking.length ? (
-        <WhoBlockingBody items={brainWhoBlocking} />
-      ) : null,
+      items: wbItems.length ? wbItems : brainWhoBlocking,
+      body: wbItems.length ? <WhoBlockingBody items={wbItems} /> : brainWhoBlocking.length ? <WhoBlockingBody items={brainWhoBlocking} /> : null,
+      scope: (whoBlocking as any)?.scope ?? brain?.scope,
     },
     {
       id: "sla",
@@ -1354,12 +1364,10 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       tone: "cyan" as ToneKey,
       count: pickCount(slaRadar, brainSlaBreachedTotal),
       error: getError(slaRadar),
-      href: "/sla",
-      body: slaItems.length ? (
-        <SlaRadarBody items={slaItems} />
-      ) : brainSlaSample.length ? (
-        <SlaRadarBody items={brainSlaSample} />
-      ) : null,
+      href: "/approvals",
+      items: slaItems.length ? slaItems : brainSlaSample,
+      body: slaItems.length ? <SlaRadarBody items={slaItems} /> : brainSlaSample.length ? <SlaRadarBody items={brainSlaSample} /> : null,
+      scope: (slaRadar as any)?.scope ?? brain?.scope,
     },
     {
       id: "risk",
@@ -1369,8 +1377,10 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       tone: "rose" as ToneKey,
       count: pickCount(riskSignals, brainRiskCount),
       error: getError(riskSignals),
-      href: "/risks",
+      href: "/approvals",
+      items: rsItems,
       body: rsItems.length ? <RiskSignalsBody items={rsItems} /> : null,
+      scope: (riskSignals as any)?.scope ?? brain?.scope,
     },
     {
       id: "portfolio",
@@ -1378,12 +1388,10 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       short: "Portfolio",
       icon: <Target className="h-5 w-5" />,
       tone: "indigo" as ToneKey,
-      count: pickCount(
-        portfolioApprovals,
-        org?.health?.projects?.length ? org!.health!.projects!.length : null
-      ),
+      count: pickCount(portfolioApprovals, org?.health?.projects?.length ? org!.health!.projects!.length : null),
       error: getError(portfolioApprovals),
       href: "/approvals/portfolio",
+      items: portItems.length ? portItems : brainPortfolioItems,
       body: portItems.length ? (
         <PortfolioApprovalsBody items={portItems} />
       ) : brainPortfolioItems.length ? (
@@ -1400,15 +1408,32 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       count: pickCount(bottlenecks, brainBottlenecks.length ? brainBottlenecks.length : null),
       error: getError(bottlenecks),
       href: "/approvals/bottlenecks",
-      body: bottItems.length ? (
-        <BottlenecksBody items={bottItems} />
-      ) : brainBottlenecks.length ? (
-        <BottlenecksBody items={brainBottlenecks} />
-      ) : null,
+      items: bottItems.length ? bottItems : brainBottlenecks,
+      body: bottItems.length ? <BottlenecksBody items={bottItems} /> : brainBottlenecks.length ? <BottlenecksBody items={brainBottlenecks} /> : null,
+      scope: (bottlenecks as any)?.scope ?? brain?.scope,
     },
   ];
 
-  const tiles = [...deliveryTiles, ...classicTiles];
+  function onTileClick(t: (typeof tiles)[number]) {
+    // If we have “items” for drawer, open drawer.
+    const list = Array.isArray(t.items) ? t.items : [];
+    const fallbackList = (t as any).fallbackItems && Array.isArray((t as any).fallbackItems) ? (t as any).fallbackItems : [];
+    const use = list.length ? list : fallbackList;
+
+    if (use.length) {
+      openDrawer({
+        title: t.label,
+        subtitle: (t as any).scope ? `Scope: ${(t as any).scope}` : undefined,
+        tone: t.tone,
+        items: use,
+        href: t.href,
+      });
+      return;
+    }
+
+    // otherwise just go to href
+    if (t.href) router.push(t.href);
+  }
 
   return (
     <LazyMotion features={domAnimation}>
@@ -1433,55 +1458,10 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
           )}
         </AnimatePresence>
 
-        {aiTopProject && !loading && (
-          <m.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.08 }}
-            className="mb-5 rounded-2xl border border-slate-200/70 bg-white/62 px-5 py-4 flex flex-wrap items-center justify-between gap-3"
-            style={{
-              backdropFilter: "blur(14px)",
-              boxShadow:
-                "0 1px 4px rgba(0,0,0,0.04), 0 1px 0 rgba(255,255,255,0.9) inset",
-            }}
-          >
-            <div className="flex items-center gap-3">
-              <div
-                className="h-10 w-10 rounded-xl flex items-center justify-center text-white"
-                style={{
-                  background: TONES.slate.iconBg,
-                  boxShadow: `0 4px 16px ${TONES.slate.iconGlow}, 0 1px 0 rgba(255,255,255,0.22) inset`,
-                }}
-              >
-                <Layers className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-[10px] uppercase tracking-[0.18em] font-bold text-slate-400 mb-1">
-                  Top pressured project
-                </div>
-                <div className="text-sm font-bold text-slate-900 truncate">
-                  {aiTopProject.label}
-                </div>
-                <div className="text-[11px] text-slate-500 font-medium">
-                  {aiTopProject.overdue > 0
-                    ? `${aiTopProject.overdue} overdue · ${aiTopProject.count} due soon`
-                    : `${aiTopProject.count} due soon`}
-                </div>
-              </div>
-            </div>
-            <a
-              href="/approvals"
-              className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 transition-colors uppercase tracking-wider"
-            >
-              Open approvals <ChevronRight className="h-3.5 w-3.5" />
-            </a>
-          </m.div>
-        )}
-
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {loading
-            ? Array.from({ length: 9 }).map((_, i) => <TileSkeleton key={i} delay={i * 0.045} />)
-            : tiles.map((tile: any, i: number) => (
+            ? Array.from({ length: 6 }).map((_, i) => <TileSkeleton key={i} delay={i * 0.055} />)
+            : tiles.map((tile, i) => (
                 <CockpitTile
                   key={tile.id}
                   label={tile.label}
@@ -1490,12 +1470,13 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
                   tone={tile.tone}
                   error={tile.error}
                   href={tile.href}
-                  delay={i * 0.045}
+                  delay={i * 0.055}
+                  onClick={() => onTileClick(tile)}
                 >
                   {tile.body}
-                  {tile.scope && (
+                  {(tile as any).scope && (
                     <div className="mt-2 text-[10px] text-slate-400 font-medium uppercase tracking-wider">
-                      Scope: {tile.scope}
+                      Scope: {(tile as any).scope}
                     </div>
                   )}
                 </CockpitTile>
@@ -1510,16 +1491,15 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
             className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/70 bg-white/62 px-5 py-4"
             style={{
               backdropFilter: "blur(14px)",
-              boxShadow:
-                "0 1px 4px rgba(0,0,0,0.04), 0 1px 0 rgba(255,255,255,0.9) inset",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.04), 0 1px 0 rgba(255,255,255,0.9) inset",
             }}
           >
             <div className="flex flex-wrap items-center gap-4 text-sm text-slate-500">
-              {tiles.map((t: any) => (
+              {tiles.map((t) => (
                 <div key={t.id} className="flex items-center gap-1.5">
                   <span className={`h-2 w-2 rounded-full ${TONES[t.tone].listDot}`} />
                   <span className="font-semibold text-slate-800">{t.count ?? "---"}</span>
-                  <span className="font-medium text-[12px]">{t.short ?? t.label}</span>
+                  <span className="font-medium text-[12px]">{(t as any).short ?? t.label}</span>
                 </div>
               ))}
             </div>
@@ -1531,6 +1511,20 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
             </a>
           </m.div>
         )}
+
+        <AnimatePresence>
+          {drawerOpen && (
+            <Drawer
+              open={drawerOpen}
+              onClose={() => setDrawerOpen(false)}
+              title={drawerTitle}
+              subtitle={drawerSubtitle}
+              tone={drawerTone}
+              items={drawerItems}
+              fallbackHref={drawerHref}
+            />
+          )}
+        </AnimatePresence>
       </div>
     </LazyMotion>
   );
