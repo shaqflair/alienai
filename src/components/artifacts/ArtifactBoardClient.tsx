@@ -14,7 +14,6 @@ import {
   X,
   Search,
   Copy,
-  Zap,
   Shield,
   Clock,
   ArrowUpRight,
@@ -123,10 +122,29 @@ function initialsFromEmail(email: string) {
   return local.slice(0, 2).toUpperCase();
 }
 
+/**
+ * ✅ Keep query/hash but normalise module paths.
+ * Mirrors API normaliser behaviour.
+ */
 function normalizeArtifactLink(href: string) {
   const raw = safeStr(href).trim();
   if (!raw) return "";
-  return raw
+
+  const hashIdx = raw.indexOf("#");
+  const qIdx = raw.indexOf("?");
+  const cutIdx =
+    qIdx >= 0 && hashIdx >= 0
+      ? Math.min(qIdx, hashIdx)
+      : qIdx >= 0
+        ? qIdx
+        : hashIdx >= 0
+          ? hashIdx
+          : -1;
+
+  const path = cutIdx >= 0 ? raw.slice(0, cutIdx) : raw;
+  const tail = cutIdx >= 0 ? raw.slice(cutIdx) : "";
+
+  const fixedPath = path
     .replace(/\/RAID(\/|$)/g, "/raid$1")
     .replace(/\/WBS(\/|$)/g, "/wbs$1")
     .replace(/\/SCHEDULE(\/|$)/g, "/schedule$1")
@@ -134,6 +152,8 @@ function normalizeArtifactLink(href: string) {
     .replace(/\/CHANGES(\/|$)/g, "/change$1")
     .replace(/\/CHANGE_REQUESTS(\/|$)/g, "/change$1")
     .replace(/\/ARTIFACTS(\/|$)/g, "/artifacts$1");
+
+  return `${fixedPath}${tail}`;
 }
 
 function booly(v: any) {
@@ -169,12 +189,30 @@ function aiItemHref(args: { item: any; fallbackProjectRef: string }) {
     fallbackProjectRef;
 
   const kind = safeLower(item?.itemType || item?.kind || item?.type || "");
-  const artifactId = safeStr(meta?.sourceArtifactId || meta?.artifactId || item?.artifact_id || item?.artifactId || "").trim();
-  if (artifactId && looksLikeUuid(artifactId)) return `/projects/${metaProjectRef}/artifacts/${artifactId}`;
+  const artifactId = safeStr(
+    meta?.sourceArtifactId ||
+      meta?.artifactId ||
+      item?.artifact_id ||
+      item?.artifactId ||
+      ""
+  ).trim();
+  if (artifactId && looksLikeUuid(artifactId))
+    return `/projects/${metaProjectRef}/artifacts/${artifactId}`;
 
-  if (kind.includes("milestone") || kind.includes("schedule")) return `/projects/${metaProjectRef}/schedule`;
-  if (kind.includes("work_item") || kind.includes("work item") || kind.includes("wbs")) return `/projects/${metaProjectRef}/wbs`;
-  if (kind.includes("raid") || kind.includes("risk") || kind.includes("issue") || kind.includes("dependency"))
+  if (kind.includes("milestone") || kind.includes("schedule"))
+    return `/projects/${metaProjectRef}/schedule`;
+  if (
+    kind.includes("work_item") ||
+    kind.includes("work item") ||
+    kind.includes("wbs")
+  )
+    return `/projects/${metaProjectRef}/wbs`;
+  if (
+    kind.includes("raid") ||
+    kind.includes("risk") ||
+    kind.includes("issue") ||
+    kind.includes("dependency")
+  )
     return `/projects/${metaProjectRef}/raid`;
   if (kind.includes("change")) return `/projects/${metaProjectRef}/change`;
 
@@ -188,7 +226,11 @@ function aiItemHref(args: { item: any; fallbackProjectRef: string }) {
 function canonType(x: any): string {
   const raw = safeLower(x);
   if (!raw) return "";
-  const t = raw.replace(/\s+/g, " ").replace(/[\/]+/g, " / ").replace(/[_-]+/g, "_").trim();
+  const t = raw
+    .replace(/\s+/g, " ")
+    .replace(/[\/]+/g, " / ")
+    .replace(/[_-]+/g, "_")
+    .trim();
 
   // ✅ Governance module row
   if (
@@ -216,11 +258,13 @@ function canonType(x: any): string {
   )
     return "WEEKLY_REPORT";
 
-  if (t === "status_dashboard" || t === "status dashboard") return "PROJECT_CLOSURE_REPORT";
+  if (t === "status_dashboard" || t === "status dashboard")
+    return "PROJECT_CLOSURE_REPORT";
   if (t.includes("charter") || t === "pid") return "PROJECT_CHARTER";
   if (t.includes("stakeholder")) return "STAKEHOLDER_REGISTER";
   if (t === "wbs" || t.includes("work breakdown")) return "WBS";
-  if (t.includes("schedule") || t.includes("roadmap") || t.includes("gantt")) return "SCHEDULE";
+  if (t.includes("schedule") || t.includes("roadmap") || t.includes("gantt"))
+    return "SCHEDULE";
 
   // ✅ FINANCIAL_PLAN — must be before "change" check
   if (
@@ -236,7 +280,8 @@ function canonType(x: any): string {
   if (t.includes("change")) return "CHANGE_REQUESTS";
   if (t.includes("raid")) return "RAID";
   if (t.includes("lessons") || t.includes("retro")) return "LESSONS_LEARNED";
-  if (t.includes("closure") || t.includes("closeout")) return "PROJECT_CLOSURE_REPORT";
+  if (t.includes("closure") || t.includes("closeout"))
+    return "PROJECT_CLOSURE_REPORT";
   return t.toUpperCase().replace(/\s+/g, "_");
 }
 
@@ -289,7 +334,9 @@ function applyCurrentFallback(rows: ArtifactBoardRow[]) {
   if (hasAnyCurrent) return rows.map((r) => ({ ...r, isCurrent: booly(r.isCurrent) }));
   const seenType = new Set<string>();
   return rows.map((r) => {
-    const tk = safeStr(r.typeKey || canonType(r.artifactType)).trim() || safeStr(r.artifactType).trim();
+    const tk =
+      safeStr(r.typeKey || canonType(r.artifactType)).trim() ||
+      safeStr(r.artifactType).trim();
     const key = tk || r.id;
     const mark = !seenType.has(key);
     if (mark) seenType.add(key);
@@ -319,20 +366,23 @@ function rowHref(projectRef: string, projectUuid: string, row: ArtifactBoardRow)
   if (direct) return normalizeArtifactLink(direct);
 
   const tk = rowTypeKey(row);
-  if (tk === "CHANGE_REQUESTS" || tk === "CHANGE" || tk === "CHANGE_REQUEST") return `/projects/${projectRef}/change`;
+  if (tk === "CHANGE_REQUESTS" || tk === "CHANGE" || tk === "CHANGE_REQUEST")
+    return `/projects/${projectRef}/change`;
   if (tk === "RAID" || tk === "RAID_LOG") return `/projects/${projectRef}/raid`;
   if (tk === "GOVERNANCE") return `/projects/${projectRef}/governance`;
 
   // ✅ Financial plan virtual row → new artifact page
   const id = safeStr(row.id).trim();
-  if (id === "__financial_plan__") return `/projects/${projectRef}/artifacts/new?type=financial_plan`;
+  if (id === "__financial_plan__")
+    return `/projects/${projectRef}/artifacts/new?type=financial_plan`;
 
   return `/projects/${projectRef}/artifacts/${id}`;
 }
 
 function rowOpensArtifactDetail(row: ArtifactBoardRow) {
   const tk = rowTypeKey(row);
-  if (tk === "CHANGE_REQUESTS" || tk === "CHANGE" || tk === "CHANGE_REQUEST") return false;
+  if (tk === "CHANGE_REQUESTS" || tk === "CHANGE" || tk === "CHANGE_REQUEST")
+    return false;
   if (tk === "RAID" || tk === "RAID_LOG") return false;
   if (tk === "GOVERNANCE") return false;
   return true;
@@ -481,7 +531,12 @@ function ArtifactTableRow({
   const opensArtifact = rowOpensArtifactDetail(row);
 
   const canDelete =
-    !virtual && row.canDeleteDraft !== false && row.status === "Draft" && !row.isBaseline && !row.isLocked && !row.deletedAt;
+    !virtual &&
+    row.canDeleteDraft !== false &&
+    row.status === "Draft" &&
+    !row.isBaseline &&
+    !row.isLocked &&
+    !row.deletedAt;
   const canClone = !virtual;
   const canMakeCurrent = !virtual && opensArtifact;
 
@@ -494,10 +549,7 @@ function ArtifactTableRow({
       className="notion-row group relative grid items-center cursor-pointer"
       style={{ gridTemplateColumns: COL_TEMPLATE, borderBottom: "1px solid #F1F5F9", minHeight: 44 }}
     >
-      <div
-        className="flex items-center gap-2 px-3 py-2.5 min-w-0 h-full"
-        style={{ borderRight: "1px solid #F8FAFC" }}
-      >
+      <div className="flex items-center gap-2 px-3 py-2.5 min-w-0 h-full" style={{ borderRight: "1px solid #F8FAFC" }}>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="text-[13px] font-medium text-[#111827] truncate">{row.title || row.artifactType}</span>
@@ -514,11 +566,7 @@ function ArtifactTableRow({
               </TagPill>
             )}
 
-            {virtual && (
-              <TagPill color="#6B7280" bg="#F3F4F6">
-                module
-              </TagPill>
-            )}
+            {virtual && <TagPill color="#6B7280" bg="#F3F4F6">module</TagPill>}
           </div>
           <span className="text-[11px] text-[#9CA3AF] truncate block">{row.artifactType}</span>
         </div>
@@ -554,11 +602,7 @@ function ArtifactTableRow({
               style={{ color: "#059669" }}
               title={canMakeCurrent ? "Set as current" : "Not available for modules"}
             >
-              {isMaking ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <CheckCircle2 className="h-3.5 w-3.5" />
-              )}
+              {isMaking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
             </button>
           )}
 
@@ -646,10 +690,7 @@ function InlineFilterBar({
   return (
     <div className="mb-1">
       <div className="flex items-center gap-2 px-1 py-2">
-        <div
-          className="flex items-center gap-2 flex-1 px-3 py-[7px] rounded-lg border transition-colors"
-          style={{ borderColor: "#E5E7EB", background: "#FAFAFA" }}
-        >
+        <div className="flex items-center gap-2 flex-1 px-3 py-[7px] rounded-lg border transition-colors" style={{ borderColor: "#E5E7EB", background: "#FAFAFA" }}>
           <Search className="h-4 w-4 text-[#9CA3AF] shrink-0" />
           <input
             ref={inputRef}
@@ -746,10 +787,7 @@ function InlineFilterBar({
           {activeCount > 0 && (
             <>
               <div className="w-px h-5 bg-[#E5E7EB]" />
-              <button
-                onClick={clearAll}
-                className="text-[12px] font-medium text-[#9CA3AF] hover:text-[#6B7280] transition-colors"
-              >
+              <button onClick={clearAll} className="text-[12px] font-medium text-[#9CA3AF] hover:text-[#6B7280] transition-colors">
                 Clear all
               </button>
             </>
@@ -826,18 +864,21 @@ function AiPanel({
   projectName: string;
   projectHumanId: string;
 }) {
+  const canProject = !!projectUuid && looksLikeUuid(projectUuid);
+
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState("");
-  const [scope, setScope] = useState<AiScope>("project"); // ✅ new: allow "All projects" too
+  const [scope, setScope] = useState<AiScope>(canProject ? "project" : "org"); // ✅ auto-default if project UUID missing
 
   useEffect(() => {
     if (open) {
       setLoading(false);
       setResult(null);
       setError("");
-      setScope("project");
+      setScope(canProject ? "project" : "org"); // ✅ auto-default on open
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   useEffect(() => {
@@ -849,7 +890,6 @@ function AiPanel({
   }, [open, onClose]);
 
   async function runCheck() {
-    const canProject = !!projectUuid && looksLikeUuid(projectUuid);
     if (scope === "project" && !canProject) {
       setError("Invalid project UUID");
       return;
@@ -868,8 +908,6 @@ function AiPanel({
       // ✅ If org scope: omit project fields (org/global dashboard response)
       if (scope === "project") {
         payload.project_id = projectUuid;
-        // Do NOT send conflicting identifiers unless needed.
-        // (project_human_id is optional; project_id is authoritative)
       }
 
       const res = await fetch("/api/ai/events", {
@@ -908,27 +946,31 @@ function AiPanel({
   // Group by project (only meaningful in org scope)
   const grouped = useMemo(() => {
     if (scope !== "org") return null;
-    const map = new Map<string, any[]>();
+    const map = new Map<string, { label: string; items: any[]; sortKey: string }>();
+
     for (const it of items) {
       const meta = it?.meta ?? {};
-      const key =
-        safeStr(meta?.project_code).trim() ||
-        safeStr(meta?.project_human_id).trim() ||
-        safeStr(meta?.project_id).trim() ||
-        "Project";
-      const arr = map.get(key) ?? [];
-      arr.push(it);
-      map.set(key, arr);
+      const code = safeStr(meta?.project_code).trim();
+      const name = safeStr(meta?.project_name).trim();
+      const human = safeStr(meta?.project_human_id).trim();
+      const pid = safeStr(meta?.project_id).trim();
+
+      const key = code || human || pid || "Project";
+      const label = code && name ? `${code} — ${name}` : code || name || human || pid || "Project";
+
+      const existing = map.get(key);
+      if (!existing) map.set(key, { label, items: [it], sortKey: code || human || name || pid || key });
+      else existing.items.push(it);
     }
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+
+    return Array.from(map.entries())
+      .map(([k, v]) => ({ key: k, ...v }))
+      .sort((a, b) => a.sortKey.localeCompare(b.sortKey));
   }, [items, scope]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh]">
-      <div
-        className="absolute inset-0 bg-black/20 backdrop-blur-sm animate-[notionFadeIn_0.12s_ease-out]"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/20 backdrop-blur-sm animate-[notionFadeIn_0.12s_ease-out]" onClick={onClose} />
       <div
         className="relative w-full max-w-md max-h-[70vh] rounded-xl overflow-hidden flex flex-col bg-white animate-[notionSlideUp_0.2s_ease-out]"
         style={{ border: "1px solid #E5E7EB", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.15)" }}
@@ -947,13 +989,11 @@ function AiPanel({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* ✅ Scope toggle */}
-            <div
-              className="inline-flex items-center rounded-lg border border-[#E5E7EB] overflow-hidden bg-[#FAFAFA]"
-              style={{ height: 28 }}
-            >
+            {/* ✅ Scope toggle (Project disabled if no UUID) */}
+            <div className="inline-flex items-center rounded-lg border border-[#E5E7EB] overflow-hidden bg-[#FAFAFA]" style={{ height: 28 }}>
               <button
                 onClick={() => {
+                  if (!canProject) return;
                   setScope("project");
                   setResult(null);
                   setError("");
@@ -962,8 +1002,10 @@ function AiPanel({
                 style={{
                   background: scope === "project" ? "#EEF2FF" : "transparent",
                   color: scope === "project" ? "#4F46E5" : "#6B7280",
+                  opacity: canProject ? 1 : 0.4,
+                  cursor: canProject ? "pointer" : "not-allowed",
                 }}
-                title="Due items for this project"
+                title={canProject ? "Due items for this project" : "Project scope unavailable (missing project UUID)"}
               >
                 Project
               </button>
@@ -1001,8 +1043,7 @@ function AiPanel({
                 </div>
               </div>
               <div className="mt-1 text-[11px] text-[#6B7280]">
-                Milestones due 30d:{" "}
-                <span className="font-semibold text-[#111827]">{stats?.milestones_due_30d ?? "—"}</span>
+                Milestones due 30d: <span className="font-semibold text-[#111827]">{stats?.milestones_due_30d ?? "—"}</span>
               </div>
             </div>
           )}
@@ -1025,9 +1066,7 @@ function AiPanel({
           ) : !result ? (
             <div className="text-center py-10">
               <Clock className="h-8 w-8 mx-auto mb-3 text-violet-400" />
-              <p className="text-[13px] text-[#6B7280] mb-1">
-                Check what&apos;s due in the next 14 days
-              </p>
+              <p className="text-[13px] text-[#6B7280] mb-1">Check what&apos;s due in the next 14 days</p>
               <p className="text-[11px] text-[#9CA3AF] mb-4">{scopeLabel}</p>
               <button
                 onClick={runCheck}
@@ -1051,21 +1090,21 @@ function AiPanel({
             </div>
           ) : scope === "org" && grouped ? (
             <div className="space-y-3">
-              {grouped.map(([proj, projItems]) => (
-                <div key={proj} className="rounded-lg border border-[#F1F5F9] overflow-hidden">
+              {grouped.map((g) => (
+                <div key={g.key} className="rounded-lg border border-[#F1F5F9] overflow-hidden">
                   <div className="px-3 py-2 bg-[#FAFAFA] border-b border-[#F1F5F9] flex items-center justify-between">
-                    <div className="text-[12px] font-semibold text-[#111827]">{proj}</div>
-                    <div className="text-[11px] text-[#9CA3AF]">{projItems.length} due</div>
+                    <div className="text-[12px] font-semibold text-[#111827]">{g.label}</div>
+                    <div className="text-[11px] text-[#9CA3AF]">{g.items.length} due</div>
                   </div>
                   <div className="p-3 space-y-2">
-                    {projItems.slice(0, 25).map((item: any, idx: number) => {
+                    {g.items.slice(0, 25).map((item: any, idx: number) => {
                       const days = daysUntil(item?.dueDate);
                       const isOverdue = days !== null && days < 0;
                       const href = aiItemHref({ item, fallbackProjectRef: projectRef });
                       const label = safeStr(item?.itemType || "item").replace(/_/g, " ");
                       return (
                         <div
-                          key={`${proj}:${idx}`}
+                          key={`${g.key}:${idx}`}
                           className="p-3 rounded-lg border border-[#F1F5F9] hover:border-[#E5E7EB] transition-colors"
                         >
                           <div className="flex items-center justify-between mb-1.5">
@@ -1073,10 +1112,7 @@ function AiPanel({
                               {label}
                             </span>
                             {days !== null && (
-                              <span
-                                className="text-[11px] font-semibold tabular-nums"
-                                style={{ color: isOverdue ? "#DC2626" : "#D97706" }}
-                              >
+                              <span className="text-[11px] font-semibold tabular-nums" style={{ color: isOverdue ? "#DC2626" : "#D97706" }}>
                                 {isOverdue ? `${Math.abs(days)}d overdue` : `${days}d`}
                               </span>
                             )}
@@ -1096,7 +1132,9 @@ function AiPanel({
                             <button
                               onClick={() =>
                                 navigator.clipboard.writeText(
-                                  `Reminder: ${safeStr(item?.title)} due ${safeStr(item?.dueDate).trim() ? fmtUkDateOnly(item.dueDate) : "TBC"}`
+                                  `Reminder: ${safeStr(item?.title)} due ${
+                                    safeStr(item?.dueDate).trim() ? fmtUkDateOnly(item.dueDate) : "TBC"
+                                  }`
                                 )
                               }
                               className="px-3 py-1.5 rounded-md text-[11px] font-medium text-white bg-violet-600 hover:bg-violet-700 transition-colors"
@@ -1119,19 +1157,13 @@ function AiPanel({
                 const href = aiItemHref({ item, fallbackProjectRef: projectRef });
                 const label = safeStr(item?.itemType || "item").replace(/_/g, " ");
                 return (
-                  <div
-                    key={idx}
-                    className="p-3 rounded-lg border border-[#F1F5F9] hover:border-[#E5E7EB] transition-colors"
-                  >
+                  <div key={idx} className="p-3 rounded-lg border border-[#F1F5F9] hover:border-[#E5E7EB] transition-colors">
                     <div className="flex items-center justify-between mb-1.5">
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] bg-[#F9FAFB] px-1.5 py-0.5 rounded">
                         {label}
                       </span>
                       {days !== null && (
-                        <span
-                          className="text-[11px] font-semibold tabular-nums"
-                          style={{ color: isOverdue ? "#DC2626" : "#D97706" }}
-                        >
+                        <span className="text-[11px] font-semibold tabular-nums" style={{ color: isOverdue ? "#DC2626" : "#D97706" }}>
                           {isOverdue ? `${Math.abs(days)}d overdue` : `${days}d`}
                         </span>
                       )}
@@ -1432,10 +1464,11 @@ export default function ArtifactBoardClient(props: {
               <div className="flex items-center gap-2">
                 <StatsRow rows={filteredRows} />
                 <div className="w-px h-5 bg-[#E5E7EB] mx-1 hidden md:block" />
+                {/* ✅ Do NOT hard-disable: org/portfolio scope can run without project UUID */}
                 <button
                   onClick={() => setAiOpen(true)}
-                  disabled={!projectUuid || !looksLikeUuid(projectUuid)}
-                  className="flex items-center gap-1.5 px-3 py-[7px] rounded-lg text-[12px] font-medium bg-violet-50 text-violet-600 border border-violet-100 hover:bg-violet-100 transition-colors disabled:opacity-30"
+                  className="flex items-center gap-1.5 px-3 py-[7px] rounded-lg text-[12px] font-medium bg-violet-50 text-violet-600 border border-violet-100 hover:bg-violet-100 transition-colors"
+                  title={looksLikeUuid(projectUuid) ? "AI due scan (project or portfolio)" : "AI due scan (portfolio available)"}
                 >
                   <Sparkles className="h-3.5 w-3.5" />
                   AI
@@ -1478,10 +1511,7 @@ export default function ArtifactBoardClient(props: {
               </p>
             </div>
           ) : (
-            <div
-              className="rounded-lg border border-[#E5E7EB] overflow-hidden overflow-x-auto"
-              style={{ background: "#FFFFFF" }}
-            >
+            <div className="rounded-lg border border-[#E5E7EB] overflow-hidden overflow-x-auto" style={{ background: "#FFFFFF" }}>
               <div
                 className="grid items-center sticky top-0 bg-[#F9FAFB] border-b border-[#E5E7EB] z-10"
                 style={{ gridTemplateColumns: COL_TEMPLATE, minHeight: 36 }}
