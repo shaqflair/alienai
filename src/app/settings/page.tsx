@@ -172,7 +172,7 @@ export default async function SettingsPage() {
                       by RLS on the resource_rates table and by RateCardTab itself).
                     */}
                     <Link
-                      href={`/organisations/${m.orgId}/settings/rate-cards`}
+                      href={`/organisations/${m.orgId}/settings?tab=rate-cards`}
                       className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 inline-flex items-center gap-1.5"
                       title="View and manage resource rate cards used in Financial Plans"
                     >
@@ -233,7 +233,7 @@ export default async function SettingsPage() {
             </Link>
 
             <Link
-              href={`/organisations/${active.orgId}/settings/rate-cards`}
+              href={`/organisations/${active.orgId}/settings?tab=rate-cards`}
               className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 inline-flex items-center gap-1.5"
               title="View and manage resource rate cards used in Financial Plans"
             >
