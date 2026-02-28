@@ -11,6 +11,11 @@
 //   ✅ FIX-ECC3: PendingApprovalsBody reads sla_status || sla_state (cache column is sla_status)
 //   ✅ FIX-ECC4: MicroList age derived from submitted_at/created_at (age_hours doesn't exist on cache rows)
 //   ✅ FIX-ECC5: Add Governance Brain as primary/fallback signal source (/api/ai/governance-brain)
+//
+// Additional hardening:
+//   ✅ FIX-ECC6: Brain SLA tile prefers approvals overdue_steps / breached_by_type.approvals over total breached_total
+//   ✅ FIX-ECC7: Brain risk fallback uses health.projects[].signals (raid_high/raid_overdue) when available
+//   ✅ FIX-ECC8: Stable footer labels (avoid split(" ").pop() weirdness)
 
 "use client";
 
@@ -878,12 +883,26 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       }))
     : [];
 
+  // ✅ FIX-ECC6: SLA radar count should be approvals-focused when possible
+  const brainSlaApprovalsBreached =
+    org?.sla?.breached_by_type && typeof org.sla.breached_by_type === "object"
+      ? safeNum((org.sla.breached_by_type as any).approvals, 0)
+      : null;
+
   const brainSlaBreachedTotal =
-    org?.sla?.breached_total != null ? safeNum(org.sla.breached_total) : null;
+    brainSlaApprovalsBreached != null && brainSlaApprovalsBreached > 0
+      ? brainSlaApprovalsBreached
+      : org?.approvals?.overdue_steps != null
+        ? safeNum(org.approvals.overdue_steps)
+        : org?.sla?.breached_total != null
+          ? safeNum(org.sla.breached_total)
+          : null;
 
   const brainSlaSample = (() => {
-    // No per-item sample is returned by brain (yet). Provide "type-level" pseudo rows for MicroList.
-    const byType = org?.sla?.breached_by_type && typeof org.sla.breached_by_type === "object" ? org.sla.breached_by_type : null;
+    const byType =
+      org?.sla?.breached_by_type && typeof org.sla.breached_by_type === "object"
+        ? org.sla.breached_by_type
+        : null;
     if (!byType) return [];
     return Object.entries(byType)
       .filter(([, v]) => safeNum(v) > 0)
@@ -904,16 +923,21 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       }))
     : [];
 
+  // ✅ FIX-ECC7: risk fallback from project signals (raid_high + raid_overdue) when present
   const brainRiskCount = (() => {
-    const byType = org?.sla?.breached_by_type && typeof org.sla.breached_by_type === "object" ? org.sla.breached_by_type : null;
-    if (!byType) return null;
-    // heuristic: sum any keys that look like risk/raid/signal
-    const sum = Object.entries(byType).reduce((acc, [k, v]) => {
-      const kk = String(k).toLowerCase();
-      if (kk.includes("risk") || kk.includes("raid") || kk.includes("signal")) return acc + safeNum(v);
-      return acc;
-    }, 0);
-    return sum > 0 ? sum : null;
+    const ps = Array.isArray(org?.health?.projects) ? org!.health!.projects : [];
+    if (!ps.length) return null;
+    let sum = 0;
+    let saw = false;
+    for (const p of ps) {
+      const s = p?.signals;
+      if (!s || typeof s !== "object") continue;
+      const a = safeNum((s as any).high_raid, 0);
+      const b = safeNum((s as any).overdue_raid, 0);
+      if (a || b) saw = true;
+      sum += a + b;
+    }
+    return saw ? sum : null;
   })();
 
   const brainBottlenecks = brainWhoBlocking;
@@ -929,6 +953,7 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
     {
       id: "pending",
       label: "Pending Approvals",
+      short: "Pending",
       icon: <CheckCircle2 className="h-5 w-5" />,
       tone: "emerald" as ToneKey,
       count: pickCount(pendingApprovals, brainPendingCount),
@@ -936,6 +961,8 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       href: "/approvals",
       body: paItems.length ? (
         <PendingApprovalsBody items={paItems} />
+      ) : brainWhoBlocking.length ? (
+        <WhoBlockingBody items={brainWhoBlocking} />
       ) : brainPortfolioItems.length ? (
         <MicroList items={brainPortfolioItems} tone="emerald" labelKey="project_title" subKey="stage_key" />
       ) : null,
@@ -944,6 +971,7 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
     {
       id: "blocking",
       label: "Who's Blocking",
+      short: "Blocking",
       icon: <Users className="h-5 w-5" />,
       tone: "amber" as ToneKey,
       count: pickCount(whoBlocking, brainWhoBlocking.length ? brainWhoBlocking.length : null),
@@ -958,6 +986,7 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
     {
       id: "sla",
       label: "SLA Radar",
+      short: "SLA",
       icon: <Clock3 className="h-5 w-5" />,
       tone: "cyan" as ToneKey,
       count: pickCount(slaRadar, brainSlaBreachedTotal),
@@ -972,6 +1001,7 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
     {
       id: "risk",
       label: "Risk Signals",
+      short: "Risks",
       icon: <AlertTriangle className="h-5 w-5" />,
       tone: "rose" as ToneKey,
       count: pickCount(riskSignals, brainRiskCount),
@@ -982,9 +1012,13 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
     {
       id: "portfolio",
       label: "Portfolio Approvals",
+      short: "Portfolio",
       icon: <Target className="h-5 w-5" />,
       tone: "indigo" as ToneKey,
-      count: pickCount(portfolioApprovals, org?.health?.projects?.length ? org!.health!.projects!.length : null),
+      count: pickCount(
+        portfolioApprovals,
+        org?.health?.projects?.length ? org!.health!.projects!.length : null
+      ),
       error: getError(portfolioApprovals),
       href: "/approvals/portfolio",
       body: portItems.length ? (
@@ -997,6 +1031,7 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
     {
       id: "bottlenecks",
       label: "Bottlenecks",
+      short: "Bottlenecks",
       icon: <Layers className="h-5 w-5" />,
       tone: "slate" as ToneKey,
       count: pickCount(bottlenecks, brainBottlenecks.length ? brainBottlenecks.length : null),
@@ -1073,7 +1108,7 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
                 <div key={t.id} className="flex items-center gap-1.5">
                   <span className={`h-2 w-2 rounded-full ${TONES[t.tone].listDot}`} />
                   <span className="font-semibold text-slate-800">{t.count ?? "---"}</span>
-                  <span className="font-medium text-[12px]">{t.label.split(" ").pop()}</span>
+                  <span className="font-medium text-[12px]">{(t as any).short ?? t.label}</span>
                 </div>
               ))}
             </div>
