@@ -10,6 +10,7 @@ export type OrgMemberForPicker = {
   email: string | null;
   avatar_url: string | null;
   department: string | null;
+  job_title: string | null;
   role: string;
 };
 
@@ -52,7 +53,7 @@ export async function getOrgMembersForPicker(
 
   const { data: profiles } = await supabase
     .from("profiles")
-    .select("user_id, full_name, email, avatar_url, department")
+    .select("user_id, full_name, email, avatar_url, department, job_title")
     .in("user_id", userIds);
 
   const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
@@ -65,6 +66,7 @@ export async function getOrgMembersForPicker(
       email:      p.email      ?? null,
       avatar_url: p.avatar_url ?? null,
       department: p.department ?? null,
+      job_title: (p as any).job_title ?? null,
       role:       row.role,
     };
   });
