@@ -1,1 +1,5 @@
-export { GET } from "@/app/api/approvals/risk-signals/route";
+import { NextResponse } from "next/server";
+
+export async function GET() {
+  return NextResponse.json({ signals: [] });
+}
