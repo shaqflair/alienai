@@ -175,19 +175,15 @@ export default function GovernanceHubClient({
 
   const pidFromParams = safeStr((params as any)?.id).trim();
   const pidProp = safeStr(projectId).trim();
-
-  // In project scope, prefer explicit prop, but fall back to route params.
   const pid = scope === "project" ? (pidProp || pidFromParams) : "";
 
-  // If the URL says ask=help&article=slug, we treat the Ask drawer as KB-scoped.
+  // URL deep-link: ?ask=help&article=<slug>
   const urlAsk = safeLower(searchParams?.get("ask"));
   const urlArticle = safeLower(searchParams?.get("article") || searchParams?.get("kb") || "");
 
   const [query, setQuery] = useState("");
   const [askOpen, setAskOpen] = useState(false);
   const [askText, setAskText] = useState("");
-
-  // Optional KB context selected from card or URL
   const [kbArticleSlug, setKbArticleSlug] = useState<string>("");
 
   // Ask Aliena state
@@ -196,7 +192,7 @@ export default function GovernanceHubClient({
   const [askAnswer, setAskAnswer] = useState<string>("");
   const [askResult, setAskResult] = useState<AdvisorResult | null>(null);
 
-  // Auto-open ask panel from URL (deep links)
+  // ✅ Keep in sync with URL (not just mount)
   useEffect(() => {
     const wantsAsk = urlAsk === "help" || urlAsk === "1" || urlAsk === "true";
     const slug = urlArticle ? clamp(urlArticle, 200) : "";
@@ -205,8 +201,9 @@ export default function GovernanceHubClient({
       setAskOpen(true);
       setAskError("");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // only on mount
+    // If URL removes ask flag, we do not auto-close (user may be mid-answer).
+    // That keeps UX stable.
+  }, [urlAsk, urlArticle]);
 
   const fallbackCards: Card[] = useMemo(
     () => [
@@ -214,8 +211,7 @@ export default function GovernanceHubClient({
         key: "delivery-governance-framework",
         title: "Aliena Delivery Governance Framework™",
         icon: <Shield className="h-5 w-5" />,
-        summary:
-          "The operating model that makes delivery visible, controlled, auditable, and continuity-safe.",
+        summary: "The operating model that makes delivery visible, controlled, auditable, and continuity-safe.",
         bullets: [
           "Pillar 1: Structured Ownership (no single point of failure)",
           "Pillar 2: Controlled Decision-Making (approvals + audit trail)",
@@ -228,24 +224,20 @@ export default function GovernanceHubClient({
         key: "roles-ownership",
         title: "Roles & Ownership",
         icon: <Users className="h-5 w-5" />,
-        summary:
-          "Assign delivery roles correctly so projects remain resilient, secure, and board-safe.",
+        summary: "Assign delivery roles correctly so projects remain resilient, secure, and board-safe.",
         bullets: [
           "Always maintain 2+ Owners (continuity best practice)",
           "Editors can update artifacts; Viewers are read-only",
           "Approvers must be members + included in the approval chain",
           "Use delegation / holiday cover for uninterrupted approvals",
         ],
-        ctas: [
-          { label: "Go to project members", href: (p) => `/projects/${encodeURIComponent(p)}` },
-        ],
+        ctas: [{ label: "Go to project members", href: (p) => `/projects/${encodeURIComponent(p)}` }],
       },
       {
         key: "approvals-decision-control",
         title: "Approvals & Decision Control",
         icon: <FileCheck className="h-5 w-5" />,
-        summary:
-          "Sequential approval chains, delegation, SLA awareness, and a traceable decision history.",
+        summary: "Sequential approval chains, delegation, SLA awareness, and a traceable decision history.",
         bullets: [
           "Draft → Submitted → In Review → Approved / Changes Requested / Rejected",
           "Add approvers in order (Reviewer → Commercial → Sponsor, etc.)",
@@ -261,8 +253,7 @@ export default function GovernanceHubClient({
         key: "change-control",
         title: "Change Control",
         icon: <GitBranch className="h-5 w-5" />,
-        summary:
-          "No hidden scope drift. All cost/scope/schedule changes must be raised and approved.",
+        summary: "No hidden scope drift. All cost/scope/schedule changes must be raised and approved.",
         bullets: [
           "Raise change for cost, scope, schedule, or commercial impact",
           "Submit to the configured approval chain",
@@ -275,8 +266,7 @@ export default function GovernanceHubClient({
         key: "risk-raid-discipline",
         title: "Risk & RAID Discipline",
         icon: <AlertTriangle className="h-5 w-5" />,
-        summary:
-          "Delivery risk is never invisible. RAID is the single source of operational truth.",
+        summary: "Delivery risk is never invisible. RAID is the single source of operational truth.",
         bullets: [
           "Risk = potential future problem; Issue = active problem",
           "Assumptions & dependencies must be explicit and reviewed",
@@ -289,8 +279,7 @@ export default function GovernanceHubClient({
         key: "ai-assistance",
         title: "AI Assistance",
         icon: <Sparkles className="h-5 w-5" />,
-        summary:
-          "AI supports governance (drafts + signals). Humans remain accountable for decisions.",
+        summary: "AI supports governance (drafts + signals). Humans remain accountable for decisions.",
         bullets: [
           "AI drafts charters/reports; you approve and submit",
           "AI flags approval bottlenecks & delivery risk signals",
@@ -302,8 +291,7 @@ export default function GovernanceHubClient({
         key: "executive-oversight",
         title: "Executive Oversight",
         icon: <BarChart3 className="h-5 w-5" />,
-        summary:
-          "Boards want truth fast: portfolio health, financial exposure, bottlenecks, and risk signals.",
+        summary: "Boards want truth fast: portfolio health, financial exposure, bottlenecks, and risk signals.",
         bullets: [
           "Portfolio health (RAG) and trend direction",
           "Approval delays + SLA breach visibility",
@@ -319,7 +307,6 @@ export default function GovernanceHubClient({
     const list = Array.isArray(articles) ? articles : [];
     if (!list.length) return fallbackCards;
 
-    // Convert DB articles to cards; keep project CTAs for known slugs
     const ctasBySlug: Record<string, Card["ctas"]> = {
       "roles-ownership": [{ label: "Go to project members", href: (p) => `/projects/${encodeURIComponent(p)}` }],
       "approvals-decision-control": [
@@ -393,7 +380,6 @@ export default function GovernanceHubClient({
   }, []);
 
   const effectiveAdvisorScope: AdvisorScope = useMemo(() => {
-    // If a KB slug is selected, force KB scope regardless of hub scope.
     if (safeLower(kbArticleSlug)) return "kb";
     return scope === "project" ? "project" : "global";
   }, [kbArticleSlug, scope]);
@@ -480,19 +466,27 @@ export default function GovernanceHubClient({
     return match ? match.title : slug;
   }, [kbArticleSlug, cards]);
 
+  // ✅ When reading KB from project hub, preserve return path
+  const readHref = useCallback(
+    (slug: string) => {
+      const s = encodeURIComponent(slug);
+      if (scope === "project" && pid) {
+        return `/governance/${s}?from=project&pid=${encodeURIComponent(pid)}`;
+      }
+      return `/governance/${s}?from=hub`;
+    },
+    [scope, pid]
+  );
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6 md:py-10">
       {/* Header */}
       <div className="mb-6 rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">
-            {/* Breadcrumbs (project scope) */}
             {scope === "project" && pid ? (
               <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
-                <Link
-                  href={`/projects/${encodeURIComponent(pid)}`}
-                  className="hover:text-neutral-700 transition-colors"
-                >
+                <Link href={`/projects/${encodeURIComponent(pid)}`} className="hover:text-neutral-700 transition-colors">
                   {projectLabel}
                 </Link>
                 <span className="text-neutral-300">/</span>
@@ -513,12 +507,9 @@ export default function GovernanceHubClient({
             </div>
             <p className="mt-1 text-sm text-neutral-600">{subtitle}</p>
 
-            {scope === "project" && pid ? (
-              <p className="mt-2 text-xs text-neutral-500">Project context enabled</p>
-            ) : null}
+            {scope === "project" && pid ? <p className="mt-2 text-xs text-neutral-500">Project context enabled</p> : null}
           </div>
 
-          {/* Ask Aliena */}
           <button
             type="button"
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50"
@@ -529,7 +520,6 @@ export default function GovernanceHubClient({
           </button>
         </div>
 
-        {/* Search */}
         <div className="mt-4 flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2">
           <Search className="h-4 w-4 text-neutral-500" />
           <input
@@ -540,7 +530,6 @@ export default function GovernanceHubClient({
           />
         </div>
 
-        {/* Quick links */}
         <div className="mt-3 flex flex-wrap gap-2">
           {scope === "project" && pid ? (
             <>
@@ -571,20 +560,14 @@ export default function GovernanceHubClient({
       {/* Cards */}
       <div className="grid grid-cols-1 gap-4">
         {filtered.map((card) => (
-          <div
-            key={card.key}
-            className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm hover:bg-neutral-50"
-          >
+          <div key={card.key} className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm hover:bg-neutral-50">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-3">
-                <div className="mt-0.5 rounded-xl border border-neutral-200 bg-white p-2 text-neutral-700">
-                  {card.icon}
-                </div>
+                <div className="mt-0.5 rounded-xl border border-neutral-200 bg-white p-2 text-neutral-700">{card.icon}</div>
                 <div className="min-w-0">
                   <h2 className="text-base font-semibold text-neutral-900">{card.title}</h2>
                   <p className="mt-1 text-sm text-neutral-600">{card.summary}</p>
 
-                  {/* Project CTAs */}
                   {scope === "project" && pid && card.ctas?.length ? (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {card.ctas.map((c, idx) => (
@@ -600,7 +583,6 @@ export default function GovernanceHubClient({
                     </div>
                   ) : null}
 
-                  {/* KB actions */}
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -618,7 +600,7 @@ export default function GovernanceHubClient({
                     </button>
 
                     <Link
-                      href={`/governance/${encodeURIComponent(card.key)}?from=hub`}
+                      href={readHref(card.key)}
                       className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50"
                       title="Read the full guidance"
                     >
@@ -629,9 +611,8 @@ export default function GovernanceHubClient({
                 </div>
               </div>
 
-              {/* Desktop read */}
               <Link
-                href={`/governance/${encodeURIComponent(card.key)}`}
+                href={readHref(card.key)}
                 className="hidden md:inline-flex items-center gap-1 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50"
                 aria-label={`Read ${card.title}`}
               >
@@ -648,10 +629,9 @@ export default function GovernanceHubClient({
               ))}
             </ul>
 
-            {/* Mobile read */}
             <div className="mt-4 md:hidden">
               <Link
-                href={`/governance/${encodeURIComponent(card.key)}`}
+                href={readHref(card.key)}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50"
               >
                 Read
@@ -662,7 +642,6 @@ export default function GovernanceHubClient({
         ))}
       </div>
 
-      {/* Phase 2 note */}
       <div className="mt-6 rounded-2xl border border-neutral-200 bg-white p-5">
         <p className="text-sm text-neutral-700">
           <span className="font-semibold">Next (Phase 2):</span> project-aware governance signals (health score, missing
@@ -695,7 +674,6 @@ export default function GovernanceHubClient({
                 This advisor uses governance data (where available) to give executive-ready, actionable guidance.
               </div>
 
-              {/* Context chips */}
               <div className="flex flex-wrap gap-2">
                 <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-[11px] text-neutral-700">
                   Scope:{" "}
@@ -737,7 +715,6 @@ export default function GovernanceHubClient({
                 ) : null}
               </div>
 
-              {/* Input */}
               <div className="rounded-xl border border-neutral-200 bg-white p-3">
                 <textarea
                   value={askText}
@@ -766,7 +743,6 @@ export default function GovernanceHubClient({
                 </div>
               </div>
 
-              {/* Error */}
               {askError ? (
                 <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
                   <div className="flex items-start gap-2">
@@ -776,7 +752,6 @@ export default function GovernanceHubClient({
                 </div>
               ) : null}
 
-              {/* Answer */}
               {(askAnswer || askResult) && !askError ? (
                 <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
                   <div className="flex items-start justify-between gap-3">
@@ -808,7 +783,6 @@ export default function GovernanceHubClient({
                     {safeStr(askResult?.answer || askAnswer)}
                   </div>
 
-                  {/* Key drivers */}
                   {askResult?.key_drivers?.length ? (
                     <div className="mt-4">
                       <div className="text-xs font-semibold text-neutral-500">Key drivers</div>
@@ -825,29 +799,24 @@ export default function GovernanceHubClient({
                     </div>
                   ) : null}
 
-                  {/* Blockers */}
                   {askResult?.blockers?.length ? (
                     <div className="mt-4">
                       <div className="text-xs font-semibold text-neutral-500">Blockers</div>
                       <div className="mt-2 space-y-2">
                         {askResult.blockers.slice(0, 6).map((b, idx) => (
                           <div key={`blk:${idx}`} className="rounded-xl border border-neutral-200 bg-white p-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="text-xs text-neutral-500">
-                                  {kindLabel(b.kind)}
-                                  {typeof b.age_days === "number" ? (
-                                    <span className="ml-2 text-neutral-400">• {b.age_days}d</span>
-                                  ) : null}
-                                  {typeof b.severity === "number" ? (
-                                    <span className="ml-2 text-neutral-400">• Sev {b.severity}</span>
-                                  ) : null}
-                                </div>
-                                <div className="mt-0.5 text-sm font-medium text-neutral-900">{b.title}</div>
-                                <div className="mt-1 text-sm text-neutral-700">
-                                  <span className="font-medium">Next:</span> {b.next_action}
-                                </div>
-                              </div>
+                            <div className="text-xs text-neutral-500">
+                              {kindLabel(b.kind)}
+                              {typeof b.age_days === "number" ? (
+                                <span className="ml-2 text-neutral-400">• {b.age_days}d</span>
+                              ) : null}
+                              {typeof b.severity === "number" ? (
+                                <span className="ml-2 text-neutral-400">• Sev {b.severity}</span>
+                              ) : null}
+                            </div>
+                            <div className="mt-0.5 text-sm font-medium text-neutral-900">{b.title}</div>
+                            <div className="mt-1 text-sm text-neutral-700">
+                              <span className="font-medium">Next:</span> {b.next_action}
                             </div>
                           </div>
                         ))}
@@ -855,7 +824,6 @@ export default function GovernanceHubClient({
                     </div>
                   ) : null}
 
-                  {/* Today actions */}
                   {askResult?.today_actions?.length ? (
                     <div className="mt-4">
                       <div className="text-xs font-semibold text-neutral-500">Today’s actions</div>
@@ -865,25 +833,20 @@ export default function GovernanceHubClient({
                           .sort((a, b) => Number(a.priority) - Number(b.priority))
                           .map((a, idx) => (
                             <div key={`act:${idx}`} className="rounded-xl border border-neutral-200 bg-neutral-50 p-3">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <div className="text-xs text-neutral-500">
-                                    Priority {a.priority}
-                                    {a.owner_suggestion ? (
-                                      <span className="ml-2 text-neutral-400">• {a.owner_suggestion}</span>
-                                    ) : null}
-                                  </div>
-                                  <div className="mt-0.5 text-sm font-medium text-neutral-900">{a.action}</div>
-                                  <div className="mt-1 text-sm text-neutral-700">{a.why}</div>
-                                </div>
+                              <div className="text-xs text-neutral-500">
+                                Priority {a.priority}
+                                {a.owner_suggestion ? (
+                                  <span className="ml-2 text-neutral-400">• {a.owner_suggestion}</span>
+                                ) : null}
                               </div>
+                              <div className="mt-0.5 text-sm font-medium text-neutral-900">{a.action}</div>
+                              <div className="mt-1 text-sm text-neutral-700">{a.why}</div>
                             </div>
                           ))}
                       </div>
                     </div>
                   ) : null}
 
-                  {/* Recommended routes */}
                   {askResult?.recommended_routes?.length ? (
                     <div className="mt-4">
                       <div className="text-xs font-semibold text-neutral-500">Recommended next clicks</div>
@@ -902,7 +865,6 @@ export default function GovernanceHubClient({
                     </div>
                   ) : null}
 
-                  {/* Data requests */}
                   {askResult?.data_requests?.length ? (
                     <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
                       <div className="text-xs font-semibold text-amber-800">To be more accurate, I need:</div>
@@ -919,7 +881,6 @@ export default function GovernanceHubClient({
                 </div>
               ) : null}
 
-              {/* Suggested */}
               <div className="space-y-2">
                 <div className="text-xs font-semibold text-neutral-500">Suggested</div>
                 <div className="flex flex-wrap gap-2">
@@ -940,19 +901,14 @@ export default function GovernanceHubClient({
                 </div>
               </div>
 
-              {/* Context hint */}
               {effectiveAdvisorScope === "project" ? (
                 <div className="text-[11px] text-neutral-500">
                   Project-aware answers enabled {pid && looksLikeUuid(pid) ? "(ID hidden)" : ""}.
                 </div>
               ) : effectiveAdvisorScope === "kb" ? (
-                <div className="text-[11px] text-neutral-500">
-                  KB-aware answers: grounded in the selected governance article.
-                </div>
+                <div className="text-[11px] text-neutral-500">KB-aware answers: grounded in the selected governance article.</div>
               ) : (
-                <div className="text-[11px] text-neutral-500">
-                  Global scope: best-practice guidance + platform governance patterns.
-                </div>
+                <div className="text-[11px] text-neutral-500">Global scope: best-practice guidance + platform governance patterns.</div>
               )}
             </div>
           </div>

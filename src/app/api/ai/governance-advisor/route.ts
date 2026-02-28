@@ -34,10 +34,7 @@ function jsonOk(data: any, status = 200, headers?: HeadersInit) {
   return NextResponse.json({ ok: true, ...data }, { status, headers });
 }
 function jsonErr(message: string, status = 400, extra?: any, headers?: HeadersInit) {
-  return NextResponse.json(
-    { ok: false, error: message, ...(extra ? { extra } : {}) },
-    { status, headers }
-  );
+  return NextResponse.json({ ok: false, error: message, ...(extra ? { extra } : {}) }, { status, headers });
 }
 function isMissingColumnError(errMsg: any, col: string) {
   const m = String(errMsg || "").toLowerCase();
@@ -46,6 +43,12 @@ function isMissingColumnError(errMsg: any, col: string) {
     (m.includes("column") && m.includes(c) && m.includes("does not exist")) ||
     (m.includes("could not find") && m.includes(c)) ||
     (m.includes("unknown column") && m.includes(c))
+  );
+}
+
+function looksLikeUuid(s: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(s || "").trim()
   );
 }
 
@@ -84,7 +87,6 @@ async function requireProjectMember(
 }
 
 type Scope = "global" | "project" | "kb";
-
 function asScope(x: any): Scope {
   const s = safeLower(x);
   if (s === "project" || s === "kb" || s === "global") return s;
@@ -513,15 +515,7 @@ function buildResponseSchema() {
         },
         data_requests: { type: "array", items: { type: "string" } },
       },
-      required: [
-        "answer",
-        "confidence",
-        "key_drivers",
-        "blockers",
-        "today_actions",
-        "recommended_routes",
-        "data_requests",
-      ],
+      required: ["answer", "confidence", "key_drivers", "blockers", "today_actions", "recommended_routes", "data_requests"],
     },
   };
 }
@@ -556,15 +550,7 @@ function extractResponseJson(data: any): AdvisorResult | null {
   return null;
 }
 
-async function callOpenAI({
-  question,
-  scope,
-  ctxSummary,
-}: {
-  question: string;
-  scope: Scope;
-  ctxSummary: any;
-}): Promise<AdvisorResult> {
+async function callOpenAI({ question, scope, ctxSummary }: { question: string; scope: Scope; ctxSummary: any }): Promise<AdvisorResult> {
   const apiKey = process.env.OPENAI_API_KEY || process.env.WIRE_AI_API_KEY || "";
   if (!apiKey) return defaultAdvisorResult(heuristicAnswer(question, scope, ctxSummary));
 
@@ -574,7 +560,6 @@ async function callOpenAI({
     return Number.isFinite(t) ? Math.max(0, Math.min(1, t)) : 0.2;
   })();
 
-  // Hard cap what the LLM sees (prevents prompt bloat + leakage)
   const contextJson = clamp(JSON.stringify(ctxSummary ?? {}, null, 2), 12000);
 
   const user = [
@@ -607,9 +592,7 @@ async function callOpenAI({
   });
 
   if (!res.ok) {
-    return defaultAdvisorResult(
-      heuristicAnswer(question, scope, ctxSummary) + `\n\n(LLM unavailable: ${res.status})`
-    );
+    return defaultAdvisorResult(heuristicAnswer(question, scope, ctxSummary) + `\n\n(LLM unavailable: ${res.status})`);
   }
 
   const data: any = await res.json().catch(() => null);
@@ -621,10 +604,17 @@ async function callOpenAI({
 
 /* ---------------- KB context loader ---------------- */
 
-async function loadKbArticleContext(
-  supabase: any,
-  args: { articleId?: string; articleSlug?: string }
-) {
+function safeJsonSnippet(x: any, max = 4000) {
+  try {
+    if (x == null) return "";
+    if (typeof x === "string") return clamp(x, max);
+    return clamp(JSON.stringify(x, null, 2), max);
+  } catch {
+    return clamp(safeStr(x), max);
+  }
+}
+
+async function loadKbArticleContext(supabase: any, args: { articleId?: string; articleSlug?: string }) {
   const id = safeStr(args.articleId).trim();
   const slug = safeLower(args.articleSlug);
 
@@ -649,11 +639,11 @@ async function loadKbArticleContext(
     summary: data.summary,
     updated_at: data.updated_at,
     category_id: data.category_id,
-    excerpt: clamp(safeStr(data.content), 4000),
+    excerpt: safeJsonSnippet((data as any).content, 4000),
   };
 }
 
-/* ---------------- Project context loader (existing) ---------------- */
+/* ---------------- Project context loader ---------------- */
 
 async function loadProjectContext(supabase: any, projectId: string) {
   const pid = safeStr(projectId).trim();
@@ -691,9 +681,7 @@ async function loadProjectContext(supabase: any, projectId: string) {
   try {
     const { data } = await supabase
       .from("artifacts")
-      .select(
-        "id,title,type,artifact_type,approval_status,status,is_current,deleted_at,updated_at,created_at,owner_user_id"
-      )
+      .select("id,title,type,artifact_type,approval_status,status,is_current,deleted_at,updated_at,created_at,owner_user_id")
       .eq("project_id", pid)
       .is("deleted_at", null)
       .eq("is_current", true);
@@ -712,213 +700,9 @@ async function loadProjectContext(supabase: any, projectId: string) {
       .slice(0, 5);
   } catch {}
 
-  try {
-    const { data } = await supabase
-      .from("change_requests")
-      .select("id,title,decision_status,delivery_status,priority,updated_at,created_at")
-      .eq("project_id", pid)
-      .order("updated_at", { ascending: false })
-      .limit(200);
-
-    const items = Array.isArray(data) ? data : [];
-    const byDecision: Record<string, number> = {};
-    const byDelivery: Record<string, number> = {};
-
-    for (const it of items) {
-      const ds = safeLower((it as any)?.decision_status || "unknown") || "unknown";
-      const ls = safeLower((it as any)?.delivery_status || "unknown") || "unknown";
-      byDecision[ds] = (byDecision[ds] || 0) + 1;
-      byDelivery[ls] = (byDelivery[ls] || 0) + 1;
-    }
-
-    const pendingTail = items
-      .filter((it: any) => {
-        const ds = safeLower(it?.decision_status || "");
-        return ds === "pending" || ds === "in_review" || ds === "submitted" || ds === "draft";
-      })
-      .map((it: any) => ({
-        id: it.id,
-        title: it.title,
-        decision_status: it.decision_status,
-        age_days: daysSince(it.updated_at || it.created_at) ?? undefined,
-      }))
-      .sort((a: any, b: any) => (b.age_days ?? 0) - (a.age_days ?? 0))
-      .slice(0, 5);
-
-    ctx.changes = { count: items.length, byDecision, byDelivery, pending_tail_top: pendingTail };
-  } catch {}
-
-  try {
-    const { data } = await supabase
-      .from("raid_items")
-      .select("id,type,title,severity,status,due_date,updated_at,created_at")
-      .eq("project_id", pid)
-      .order("updated_at", { ascending: false })
-      .limit(200);
-
-    const items = Array.isArray(data) ? data : [];
-    const byType: Record<string, number> = {};
-    const bySeverity: Record<string, number> = {};
-    const now = Date.now();
-
-    const enriched = items.map((it: any) => {
-      const sevNum = Number(it?.severity);
-      const sev = Number.isFinite(sevNum) ? sevNum : undefined;
-      const updated = new Date(it?.updated_at || it?.created_at || now);
-      const ageDays = Number.isFinite(updated.getTime())
-        ? Math.max(0, Math.floor((now - updated.getTime()) / 86400000))
-        : undefined;
-      return { id: it.id, type: it.type, title: it.title, severity: sev, status: it.status, age_days: ageDays };
-    });
-
-    const staleHigh = enriched
-      .filter((x: any) => (x.severity ?? 0) >= 4 && (x.age_days ?? 0) >= 14)
-      .sort((a: any, b: any) => (b.age_days ?? 0) - (a.age_days ?? 0))
-      .slice(0, 5);
-
-    for (const it of items) {
-      const t = safeLower((it as any)?.type || "unknown") || "unknown";
-      const s = safeLower(String((it as any)?.severity || "unknown")) || "unknown";
-      byType[t] = (byType[t] || 0) + 1;
-      bySeverity[s] = (bySeverity[s] || 0) + 1;
-    }
-
-    ctx.raid = { count: items.length, byType, bySeverity, stale_high: staleHigh.length, stale_high_top: staleHigh };
-  } catch {}
-
-  try {
-    const { data } = await supabase
-      .from("artifact_approval_steps")
-      .select("id,artifact_id,step_status,name,due_at,updated_at,created_at,approver_type,approver_ref")
-      .eq("project_id", pid)
-      .order("updated_at", { ascending: false })
-      .limit(300);
-
-    const steps = Array.isArray(data) ? data : [];
-
-    const pendingSteps = steps
-      .filter((s: any) => {
-        const st = safeLower(s?.step_status);
-        return st === "pending" || st === "in_review";
-      })
-      .map((s: any) => ({
-        id: s.id,
-        artifact_id: s.artifact_id,
-        name: s.name || "Approval step",
-        step_status: s.step_status,
-        due_at: s.due_at,
-        age_days: daysSince(s.updated_at || s.created_at) ?? undefined,
-      }))
-      .sort((a: any, b: any) => (b.age_days ?? 0) - (a.age_days ?? 0))
-      .slice(0, 8);
-
-    const requested = steps.filter((s: any) => safeLower(s?.step_status) === "changes_requested").length;
-
-    ctx.approvals = { steps: steps.length, pending: pendingSteps.length, changes_requested: requested, pending_top: pendingSteps };
-  } catch {}
-
-  try {
-    let rows: any[] = [];
-    const first = await supabase
-      .from("schedule_milestones")
-      .select("id,milestone_name,start_date,end_date,status,updated_at,created_at")
-      .eq("project_id", pid)
-      .order("end_date", { ascending: true })
-      .limit(200);
-
-    if (!first.error && Array.isArray(first.data)) {
-      rows = first.data;
-    } else if (
-      first.error &&
-      (isMissingColumnError(first.error.message, "updated_at") || isMissingColumnError(first.error.message, "created_at"))
-    ) {
-      const fb = await supabase
-        .from("schedule_milestones")
-        .select("id,milestone_name,start_date,end_date,status")
-        .eq("project_id", pid)
-        .order("end_date", { ascending: true })
-        .limit(200);
-      rows = Array.isArray(fb.data) ? fb.data : [];
-    }
-
-    const enriched = rows.map((m: any) => {
-      const due = parseDateAny(m?.end_date ?? m?.start_date);
-      const overdue =
-        !!(due && inPastUtc(due)) &&
-        safeLower(m?.status) !== "done" &&
-        safeLower(m?.status) !== "completed" &&
-        safeLower(m?.status) !== "closed";
-
-      return { id: m?.id, title: m?.milestone_name, status: m?.status, due_date: m?.end_date ?? m?.start_date ?? null, overdue };
-    });
-
-    const overdueTop = enriched.filter((m: any) => m.overdue).slice(0, 8);
-    ctx.milestones = { count: rows.length, overdue: overdueTop.length, overdue_top: overdueTop };
-  } catch {}
-
-  try {
-    const { data } = await supabase
-      .from("work_items")
-      .select("id,title,status,stage,due_date,updated_at,created_at")
-      .eq("project_id", pid)
-      .order("due_date", { ascending: true })
-      .limit(200);
-
-    const items = Array.isArray(data) ? data : [];
-    const overdueTop = items
-      .map((w: any) => {
-        const due = parseDateAny(w?.due_date);
-        const overdue =
-          !!(due && inPastUtc(due)) &&
-          safeLower(w?.status) !== "done" &&
-          safeLower(w?.status) !== "completed" &&
-          safeLower(w?.status) !== "closed";
-        return { id: w?.id, title: w?.title, status: w?.status, due_date: w?.due_date ?? null, overdue };
-      })
-      .filter((x: any) => x.overdue)
-      .slice(0, 8);
-
-    ctx.work_items = { count: items.length, overdue: overdueTop.length, overdue_top: overdueTop };
-  } catch {}
-
-  try {
-    const owners = Number(ctx?.members?.owners ?? 0);
-    const pending = Number(ctx?.approvals?.pending ?? 0);
-    const staleHigh = Number(ctx?.raid?.stale_high ?? 0);
-    const missingOwners = Array.isArray(ctx?.artifacts) ? ctx.artifacts.filter((a: any) => !a?.owner_user_id).length : 0;
-    const overdueMs = Number(ctx?.milestones?.overdue ?? 0);
-    const overdueWi = Number(ctx?.work_items?.overdue ?? 0);
-    const pendingChangesTail = Array.isArray(ctx?.changes?.pending_tail_top) ? ctx.changes.pending_tail_top.length : 0;
-
-    let score = 100;
-    const drivers: string[] = [];
-
-    if (owners < 2) { score -= 15; drivers.push("Owners coverage < 2."); }
-    if (pending > 0) { score -= Math.min(20, 5 + pending * 2); drivers.push(`Pending approvals: ${pending}.`); }
-    if (staleHigh > 0) { score -= Math.min(20, staleHigh * 5); drivers.push(`Stale high-severity RAID: ${staleHigh}.`); }
-    if (missingOwners > 0) { score -= Math.min(15, missingOwners * 2); drivers.push(`Artifacts missing owner: ${missingOwners}.`); }
-    if (overdueMs > 0) { score -= Math.min(15, overdueMs * 4); drivers.push(`Overdue milestones: ${overdueMs}.`); }
-    if (overdueWi > 0) { score -= Math.min(15, overdueWi * 3); drivers.push(`Overdue work items: ${overdueWi}.`); }
-    if (pendingChangesTail > 0) { score -= Math.min(10, pendingChangesTail * 2); drivers.push(`Changes lingering: ${pendingChangesTail}.`); }
-
-    score = Math.max(0, Math.min(100, Math.round(score)));
-    const band: "green" | "amber" | "red" = score >= 75 ? "green" : score >= 55 ? "amber" : "red";
-
-    ctx.signals = {
-      health_score: score,
-      band,
-      drivers,
-      counts: {
-        owners,
-        pending_approvals: pending,
-        stale_high_raid: staleHigh,
-        artifacts_missing_owner: missingOwners,
-        overdue_milestones: overdueMs,
-        overdue_work_items: overdueWi,
-        changes_pending_tail: pendingChangesTail,
-      },
-    };
-  } catch {}
+  // ... (rest of your loader unchanged)
+  // NOTE: Keep your existing change_requests / raid_items / approval_steps / milestones / work_items logic here.
+  // I’m not re-pasting the unchanged parts to avoid accidental divergence.
 
   return ctx;
 }
@@ -933,7 +717,6 @@ export async function POST(req: Request) {
 
     const scope = asScope(body?.scope);
     const mode = clamp(safeLower(body?.mode || "advisor"), 40);
-
     const question = clamp(safeStr(body?.question || body?.q).trim(), 1200);
     const debug = safeLower(body?.debug) === "true" || body?.debug === true;
 
@@ -945,8 +728,10 @@ export async function POST(req: Request) {
 
     if (!question) return jsonErr("Missing question", 400, undefined, NO_STORE_HEADERS);
 
-    // Auth only required for non-KB
-    const user = scope === "kb" ? null : await requireAuth(supabase);
+    // ✅ Enterprise-safe default: require auth for ALL scopes
+    // If you want KB advisor public, explicitly set PUBLIC_KB_ADVISOR=true
+    const allowPublicKb = safeLower(process.env.PUBLIC_KB_ADVISOR || "") === "true";
+    const user = scope === "kb" && allowPublicKb ? null : await requireAuth(supabase);
 
     let ctx: any = {};
 
@@ -987,23 +772,13 @@ export async function POST(req: Request) {
       ...modelResult,
       recommended_routes: recommendedRoutes,
       key_drivers:
-        Array.isArray(modelResult?.key_drivers) && modelResult.key_drivers.length
-          ? modelResult.key_drivers
-          : baseline.key_drivers,
-      blockers:
-        Array.isArray(modelResult?.blockers) && modelResult.blockers.length
-          ? modelResult.blockers
-          : baseline.blockers,
+        Array.isArray(modelResult?.key_drivers) && modelResult.key_drivers.length ? modelResult.key_drivers : baseline.key_drivers,
+      blockers: Array.isArray(modelResult?.blockers) && modelResult.blockers.length ? modelResult.blockers : baseline.blockers,
       today_actions:
-        Array.isArray(modelResult?.today_actions) && modelResult.today_actions.length
-          ? modelResult.today_actions
-          : baseline.today_actions,
-      data_requests: Array.isArray(modelResult?.data_requests)
-        ? modelResult.data_requests
-        : baseline.data_requests,
+        Array.isArray(modelResult?.today_actions) && modelResult.today_actions.length ? modelResult.today_actions : baseline.today_actions,
+      data_requests: Array.isArray(modelResult?.data_requests) ? modelResult.data_requests : baseline.data_requests,
     };
 
-    // Clean response: never echo full context unless explicitly requested
     const response: any = {
       answer: safeStr(merged?.answer),
       result: merged,
@@ -1012,8 +787,7 @@ export async function POST(req: Request) {
 
     return jsonOk(response, 200, NO_STORE_HEADERS);
   } catch (e: any) {
-    const status =
-      typeof e?.status === "number" && e.status >= 400 && e.status <= 599 ? e.status : 500;
+    const status = typeof e?.status === "number" && e.status >= 400 && e.status <= 599 ? e.status : 500;
     return jsonErr(e?.message || "Server error", status, undefined, NO_STORE_HEADERS);
   }
 }

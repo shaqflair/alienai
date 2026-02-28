@@ -1,5 +1,4 @@
-﻿// src/app/(app)/governance/[slug]/page.tsx
-import "server-only";
+﻿import "server-only";
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -115,9 +114,7 @@ export default async function GovernanceArticlePage({
         </Link>
       </div>
 
-      <h1 style={{ fontSize: 34, lineHeight: 1.15, margin: "0 0 8px" }}>
-        {a.title}
-      </h1>
+      <h1 style={{ fontSize: 34, lineHeight: 1.15, margin: "0 0 8px" }}>{a.title}</h1>
 
       {a.summary ? (
         <p style={{ fontSize: 16, opacity: 0.85, margin: "0 0 18px" }}>{a.summary}</p>
@@ -148,9 +145,7 @@ export default async function GovernanceArticlePage({
         ) : null}
       </div>
 
-      <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6, fontSize: 16 }}>
-        {a.content ?? ""}
-      </div>
+      <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6, fontSize: 16 }}>{a.content ?? ""}</div>
 
       {/* Enterprise touch: CTA footer */}
       <div
