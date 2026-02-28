@@ -4,6 +4,7 @@
 // ✅ "Ask about this" uses scope:"kb" + articleSlug
 // ✅ Project scope continues to send scope + projectId
 // ✅ Cards remain DB-driven with safe fallback
+// ✅ NEW: Governance Brain snapshot (org-scoped signals) surfaced in hub header
 
 "use client";
 
@@ -26,6 +27,10 @@ import {
   AlertCircle,
   ExternalLink,
   MessageSquareText,
+  Brain,
+  Activity,
+  Flame,
+  Clock3,
 } from "lucide-react";
 
 type HubScope = "global" | "project";
@@ -161,6 +166,64 @@ function bulletsFromContent(content: unknown, max = 5): string[] {
   }
 }
 
+/* =======================
+   Governance Brain (client types)
+======================= */
+
+type BrainScope = "active" | "all";
+
+type GovernanceBrainResponse = {
+  ok: boolean;
+  scope: BrainScope;
+  generated_at: string;
+  config?: {
+    approval_sla_days: number;
+    change_sla_days: number;
+    idle_days: number;
+  };
+  rollup?: {
+    org_count: number;
+    portfolio_score_avg: number;
+    overdue_approvals: number;
+    breached_total: number;
+    blocked_projects: number;
+  };
+  orgs?: Array<{
+    org_id: string;
+    org_name?: string;
+    approvals?: {
+      overdue_steps: number;
+      total_pending_steps: number;
+      oldest_pending_days: number;
+      top_blockers?: Array<{ label: string; count: number; overdue_count: number; oldest_days: number }>;
+    };
+    sla?: { breached_total: number; breached_by_type?: Record<string, number> };
+    blockers?: { projects_blocked: number };
+    health?: {
+      portfolio_score: number;
+      portfolio_rag: "G" | "A" | "R";
+      projects?: Array<{
+        project_id: string;
+        project_code?: string;
+        project_title: string;
+        score: number;
+        rag: "G" | "A" | "R";
+        signals?: Record<string, any>;
+      }>;
+    };
+    ai_summary?: string;
+  }>;
+  error?: string;
+};
+
+function ragPill(rag?: string) {
+  const r = safeLower(rag);
+  if (r === "g" || r === "green") return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (r === "a" || r === "amber") return "border-amber-200 bg-amber-50 text-amber-800";
+  if (r === "r" || r === "red") return "border-red-200 bg-red-50 text-red-800";
+  return "border-neutral-200 bg-neutral-50 text-neutral-700";
+}
+
 export default function GovernanceHubClient({
   scope,
   projectId,
@@ -191,6 +254,11 @@ export default function GovernanceHubClient({
   const [askError, setAskError] = useState<string>("");
   const [askAnswer, setAskAnswer] = useState<string>("");
   const [askResult, setAskResult] = useState<AdvisorResult | null>(null);
+
+  // Governance Brain state
+  const [brainLoading, setBrainLoading] = useState(false);
+  const [brainError, setBrainError] = useState<string>("");
+  const [brain, setBrain] = useState<GovernanceBrainResponse | null>(null);
 
   // ✅ Keep in sync with URL (not just mount)
   useEffect(() => {
@@ -478,6 +546,61 @@ export default function GovernanceHubClient({
     [scope, pid]
   );
 
+  /* =======================
+     Governance Brain fetch
+  ======================= */
+
+  const loadBrain = useCallback(async () => {
+    setBrainLoading(true);
+    setBrainError("");
+
+    try {
+      const res = await fetch("/api/ai/governance-brain?scope=active", {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+
+      const json = (await res.json().catch(() => null)) as GovernanceBrainResponse | null;
+
+      if (!res.ok || !json || json.ok !== true) {
+        setBrain(null);
+        setBrainError(safeStr((json as any)?.error) || `Brain request failed (${res.status})`);
+        return;
+      }
+
+      setBrain(json);
+      setBrainError("");
+    } catch (e: any) {
+      setBrain(null);
+      setBrainError(safeStr(e?.message) || "Failed to load Governance Brain.");
+    } finally {
+      setBrainLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Lightweight signals panel: load once on entry, refresh button provided.
+    loadBrain();
+  }, [loadBrain]);
+
+  const brainOrg = useMemo(() => {
+    const orgs = Array.isArray(brain?.orgs) ? brain!.orgs! : [];
+    return orgs.length ? orgs[0] : null;
+  }, [brain]);
+
+  const brainProject = useMemo(() => {
+    if (scope !== "project" || !pid || !brainOrg?.health?.projects?.length) return null;
+    const hit = brainOrg.health.projects.find((p) => safeStr(p.project_id) === pid);
+    return hit || null;
+  }, [scope, pid, brainOrg]);
+
+  const worstProjects = useMemo(() => {
+    const list = brainOrg?.health?.projects ?? [];
+    if (!Array.isArray(list) || !list.length) return [];
+    return [...list].sort((a, b) => Number(a.score) - Number(b.score)).slice(0, 3);
+  }, [brainOrg]);
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6 md:py-10">
       {/* Header */}
@@ -510,14 +633,182 @@ export default function GovernanceHubClient({
             {scope === "project" && pid ? <p className="mt-2 text-xs text-neutral-500">Project context enabled</p> : null}
           </div>
 
-          <button
-            type="button"
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50"
-            onClick={() => openAsk()}
-          >
-            <Sparkles className="h-4 w-4" />
-            Ask Aliena
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50"
+              onClick={() => openAsk()}
+            >
+              <Sparkles className="h-4 w-4" />
+              Ask Aliena
+            </button>
+          </div>
+        </div>
+
+        {/* Governance Brain Snapshot */}
+        <div className="mt-4 rounded-2xl border border-neutral-200 bg-white p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <div className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-neutral-200 bg-white text-neutral-800">
+                  <Brain className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-neutral-900">Governance Brain</div>
+                  <div className="text-xs text-neutral-500">
+                    {brainOrg?.org_name ? (
+                      <>
+                        Org: <span className="font-medium text-neutral-700">{brainOrg.org_name}</span>
+                      </>
+                    ) : (
+                      <>Org-scoped governance signals</>
+                    )}
+                    {brain?.generated_at ? (
+                      <span className="ml-2 text-neutral-400">• Updated {new Date(brain.generated_at).toLocaleString()}</span>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              {brainError ? (
+                <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="h-4 w-4 mt-0.5" />
+                    <div className="min-w-0">{brainError}</div>
+                  </div>
+                </div>
+              ) : null}
+
+              {!brainError && brainLoading ? (
+                <div className="mt-3 flex items-center gap-2 text-sm text-neutral-600">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading signals…
+                </div>
+              ) : null}
+
+              {!brainError && !brainLoading && brainOrg ? (
+                <>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] ${ragPill(
+                        brainOrg.health?.portfolio_rag
+                      )}`}
+                      title="Portfolio RAG"
+                    >
+                      <Activity className="h-3.5 w-3.5" />
+                      Portfolio {brainOrg.health?.portfolio_rag ?? "—"} • {brainOrg.health?.portfolio_score ?? "—"}
+                    </span>
+
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-[11px] text-neutral-700"
+                      title="Overdue approval steps"
+                    >
+                      <Clock3 className="h-3.5 w-3.5 text-neutral-500" />
+                      Overdue approvals{" "}
+                      <span className="font-semibold text-neutral-900">{brainOrg.approvals?.overdue_steps ?? 0}</span>
+                    </span>
+
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-[11px] text-neutral-700"
+                      title="Total SLA breaches across approvals/tasks/WBS/RAID/changes"
+                    >
+                      <Flame className="h-3.5 w-3.5 text-neutral-500" />
+                      Breaches{" "}
+                      <span className="font-semibold text-neutral-900">{brainOrg.sla?.breached_total ?? 0}</span>
+                    </span>
+
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-[11px] text-neutral-700"
+                      title="Projects blocked across approvals/tasks/WBS/RAID/changes"
+                    >
+                      <AlertTriangle className="h-3.5 w-3.5 text-neutral-500" />
+                      Blocked projects{" "}
+                      <span className="font-semibold text-neutral-900">{brainOrg.blockers?.projects_blocked ?? 0}</span>
+                    </span>
+
+                    {scope === "project" && pid && brainProject ? (
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] ${ragPill(
+                          brainProject.rag
+                        )}`}
+                        title="This project's governance health score"
+                      >
+                        <Shield className="h-3.5 w-3.5" />
+                        This project {brainProject.rag} • {brainProject.score}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {safeStr(brainOrg.ai_summary) ? (
+                    <div className="mt-3 text-sm text-neutral-700">{safeStr(brainOrg.ai_summary)}</div>
+                  ) : null}
+
+                  {!!worstProjects.length ? (
+                    <div className="mt-3 rounded-xl border border-neutral-200 bg-neutral-50 p-3">
+                      <div className="text-xs font-semibold text-neutral-600">Most at-risk projects</div>
+                      <div className="mt-2 space-y-2">
+                        {worstProjects.map((p) => (
+                          <div
+                            key={p.project_id}
+                            className="flex items-center justify-between gap-3 rounded-lg border border-neutral-200 bg-white px-3 py-2"
+                          >
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium text-neutral-900">
+                                {safeStr(p.project_title) || "Untitled project"}
+                              </div>
+                              <div className="text-xs text-neutral-500">
+                                {p.project_code ? <span className="mr-2">{p.project_code}</span> : null}
+                                <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] ${ragPill(p.rag)}`}>
+                                  {p.rag} • {p.score}
+                                </span>
+                              </div>
+                            </div>
+
+                            {looksLikeUuid(p.project_id) ? (
+                              <Link
+                                href={`/projects/${encodeURIComponent(p.project_id)}/artifacts`}
+                                className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-neutral-800 hover:bg-neutral-50"
+                                title="Open project artifacts"
+                              >
+                                Open <ChevronRight className="h-4 w-4 text-neutral-400" />
+                              </Link>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Link
+                      href="/executive"
+                      className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-800 hover:bg-neutral-50"
+                    >
+                      Open Executive Cockpit <ExternalLink className="h-3.5 w-3.5 text-neutral-400" />
+                    </Link>
+                    <Link
+                      href="/approvals"
+                      className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-800 hover:bg-neutral-50"
+                    >
+                      Approvals Centre <ExternalLink className="h-3.5 w-3.5 text-neutral-400" />
+                    </Link>
+                  </div>
+                </>
+              ) : null}
+            </div>
+
+            <div className="shrink-0 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={loadBrain}
+                disabled={brainLoading}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-800 hover:bg-neutral-50 disabled:opacity-60"
+              >
+                {brainLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Refresh
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="mt-4 flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2">
@@ -678,11 +969,7 @@ export default function GovernanceHubClient({
                 <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-[11px] text-neutral-700">
                   Scope:{" "}
                   <span className="font-semibold">
-                    {effectiveAdvisorScope === "kb"
-                      ? "KB"
-                      : effectiveAdvisorScope === "project"
-                        ? "Project"
-                        : "Global"}
+                    {effectiveAdvisorScope === "kb" ? "KB" : effectiveAdvisorScope === "project" ? "Project" : "Global"}
                   </span>
                 </span>
 
@@ -835,9 +1122,7 @@ export default function GovernanceHubClient({
                             <div key={`act:${idx}`} className="rounded-xl border border-neutral-200 bg-neutral-50 p-3">
                               <div className="text-xs text-neutral-500">
                                 Priority {a.priority}
-                                {a.owner_suggestion ? (
-                                  <span className="ml-2 text-neutral-400">• {a.owner_suggestion}</span>
-                                ) : null}
+                                {a.owner_suggestion ? <span className="ml-2 text-neutral-400">• {a.owner_suggestion}</span> : null}
                               </div>
                               <div className="mt-0.5 text-sm font-medium text-neutral-900">{a.action}</div>
                               <div className="mt-1 text-sm text-neutral-700">{a.why}</div>
@@ -902,9 +1187,7 @@ export default function GovernanceHubClient({
               </div>
 
               {effectiveAdvisorScope === "project" ? (
-                <div className="text-[11px] text-neutral-500">
-                  Project-aware answers enabled {pid && looksLikeUuid(pid) ? "(ID hidden)" : ""}.
-                </div>
+                <div className="text-[11px] text-neutral-500">Project-aware answers enabled {pid && looksLikeUuid(pid) ? "(ID hidden)" : ""}.</div>
               ) : effectiveAdvisorScope === "kb" ? (
                 <div className="text-[11px] text-neutral-500">KB-aware answers: grounded in the selected governance article.</div>
               ) : (
