@@ -15,9 +15,12 @@
 //   ✅ FIX-ECC8: Stable footer labels (avoid split(" ").pop() weirdness)
 //   ✅ FIX-ECC9: Align list rendering keys with API payloads (project_name vs project_title, etc.)
 //   ✅ FIX-ECC10: WhoBlockingBody renders task-style rows correctly (title/project_name) when not aggregated
-//
-// NEW:
 //   ✅ FIX-ECC11: Tiles clickable → opens a governance drawer with top items + deep links (bestHref resolver)
+//
+// NEW fixes requested:
+//   ✅ FIX-ECC12: Never show UUIDs (user:uuid) — resolve person label to name/email only
+//   ✅ FIX-ECC13: Risk signal “corrupted HTML” hardened — detect HTML responses and show clean error
+//   ✅ FIX-ECC14: Remove “Scope: ORG” labels (tile + drawer)
 
 "use client";
 
@@ -116,6 +119,53 @@ function isErr(x: any): x is ApiErr {
   return !!x && typeof x === "object" && typeof x.error === "string";
 }
 
+function safeStr(x: any) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+function safeNum(x: any, fb = 0) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : fb;
+}
+function safeLower(x: any) {
+  return safeStr(x).trim().toLowerCase();
+}
+
+function looksLikeUuid(s: any) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(s || "").trim()
+  );
+}
+
+function isHtmlLike(text: string, contentType?: string | null) {
+  const t = (text || "").trim().toLowerCase();
+  if ((contentType || "").toLowerCase().includes("text/html")) return true;
+  if (t.startsWith("<!doctype html") || t.startsWith("<html") || t.includes("<head") || t.includes("<body"))
+    return true;
+  return false;
+}
+
+function stripHtml(s: string) {
+  const raw = safeStr(s);
+  if (!raw) return "";
+  // remove tags + collapse whitespace
+  return raw
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanErrorMessage(s: string) {
+  const raw = safeStr(s).trim();
+  if (!raw) return "Request failed";
+  const cleaned = stripHtml(raw);
+  // if it was HTML-ish and stripping nuked meaning, fall back:
+  if (!cleaned || cleaned.length < 3) return "Request failed";
+  // keep it short (avoid dumping pages into UI)
+  return cleaned.length > 140 ? `${cleaned.slice(0, 140)}…` : cleaned;
+}
+
 async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, {
     method: "GET",
@@ -129,23 +179,38 @@ async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
     },
     signal,
   });
+
+  const contentType = res.headers.get("content-type");
   const text = await res.text();
+
+  // ✅ FIX-ECC13: detect HTML responses early (common when route 404s or throws)
+  if (isHtmlLike(text, contentType)) {
+    if (!res.ok) throw new Error(`Endpoint error (${res.status})`);
+    throw new Error("Invalid response (expected JSON)");
+  }
+
   let json: any = null;
   try {
     json = text ? JSON.parse(text) : null;
-  } catch {}
-  if (!res.ok) {
-    throw new Error(
-      (json && (json.message || json.error)) ||
-        text.slice(0, 200) ||
-        `Request failed (${res.status})`
-    );
+  } catch {
+    // Non-HTML but still not JSON
+    if (!res.ok) throw new Error(`Endpoint error (${res.status})`);
+    throw new Error("Invalid JSON response");
   }
+
+  if (!res.ok) {
+    const msg =
+      (json && (json.message || json.error)) ||
+      (text ? text.slice(0, 200) : "") ||
+      `Request failed (${res.status})`;
+    throw new Error(cleanErrorMessage(msg));
+  }
+
   return json as T;
 }
 
 function errPayload(msg: string): ApiErr {
-  return { error: msg };
+  return { error: cleanErrorMessage(msg) };
 }
 
 function settledOrErr<T>(r: PromiseSettledResult<T>, fallbackMsg: string): T | ApiErr {
@@ -179,21 +244,48 @@ function extractList(payload: any, preferredKeys: string[] = ["items"]): any[] {
   return [];
 }
 
-function safeStr(x: any) {
-  return typeof x === "string" ? x : x == null ? "" : String(x);
-}
-function safeNum(x: any, fb = 0) {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : fb;
-}
-function safeLower(x: any) {
-  return safeStr(x).trim().toLowerCase();
+// ✅ FIX-ECC12: resolve person labels safely (never show UUIDs / "user:<uuid>")
+function extractUserIdFromUserTag(x: any) {
+  const s = safeStr(x).trim();
+  if (!s) return "";
+  if (s.toLowerCase().startsWith("user:")) return s.slice(5).trim();
+  return "";
 }
 
-function looksLikeUuid(s: any) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    String(s || "").trim()
-  );
+function resolvePersonLabel(it: any): string {
+  // Prefer explicit human-friendly fields first
+  const candidates = [
+    it?.display_name,
+    it?.full_name,
+    it?.name,
+    it?.label,
+    it?.approver_name,
+    it?.approver_label,
+    it?.user_name,
+    it?.email,
+    it?.user_email,
+    it?.approver_email,
+  ]
+    .map((v) => safeStr(v).trim())
+    .filter(Boolean);
+
+  // If primary candidate is a uuid / user:uuid, try other candidates
+  for (const c of candidates) {
+    const uid = extractUserIdFromUserTag(c);
+    if (uid && looksLikeUuid(uid)) continue;
+    if (looksLikeUuid(c)) continue;
+    if (c.toLowerCase().startsWith("user:")) {
+      // non-uuid user tag (rare) → still avoid; continue searching
+      continue;
+    }
+    return c;
+  }
+
+  // If no good label, but we have an email somewhere, show it
+  const emailish = candidates.find((c) => c.includes("@") && c.includes("."));
+  if (emailish) return emailish;
+
+  return "Unknown user";
 }
 
 function timeAgo(iso: string) {
@@ -236,7 +328,6 @@ function fmtUkDateOnly(iso: string) {
 function normalizeHref(href: string) {
   const raw = safeStr(href).trim();
   if (!raw) return "";
-  // keep your previous normalisation rules minimal/safe
   return raw
     .replace(/\/RAID(\/|$)/g, "/raid$1")
     .replace(/\/WBS(\/|$)/g, "/wbs$1")
@@ -255,9 +346,6 @@ function extractProjectRefFromHref(href: string): string | null {
 
 /**
  * ✅ Best-effort deep link resolver for drawer items.
- * 1) Respect server link/href if it's already an app route.
- * 2) Else build safe project routes using meta.project_code/human_id.
- * 3) Else fall back to module pages.
  */
 function bestHref(item: any, fallbackHref: string): string {
   const rawLink = safeStr(item?.link || item?.href || "").trim();
@@ -289,13 +377,19 @@ function bestHref(item: any, fallbackHref: string): string {
 
   if (projectRef) {
     if (kind.includes("milestone") || kind.includes("schedule")) return `/projects/${projectRef}/schedule`;
-    if (kind.includes("work_item") || kind.includes("work item") || kind.includes("wbs")) return `/projects/${projectRef}/wbs`;
-    if (kind.includes("raid") || kind.includes("risk") || kind.includes("issue") || kind.includes("dependency")) return `/projects/${projectRef}/raid`;
+    if (kind.includes("work_item") || kind.includes("work item") || kind.includes("wbs"))
+      return `/projects/${projectRef}/wbs`;
+    if (kind.includes("raid") || kind.includes("risk") || kind.includes("issue") || kind.includes("dependency"))
+      return `/projects/${projectRef}/raid`;
     if (kind.includes("change")) return `/projects/${projectRef}/change`;
   }
 
-  // approvals-centric fallbacks
-  if (kind.includes("approval") || kind.includes("approver") || kind.includes("bottleneck") || kind.includes("blocking")) {
+  if (
+    kind.includes("approval") ||
+    kind.includes("approver") ||
+    kind.includes("bottleneck") ||
+    kind.includes("blocking")
+  ) {
     return "/approvals/bottlenecks";
   }
 
@@ -441,10 +535,7 @@ function Drawer({
 
   return (
     <div className="fixed inset-0 z-50 flex items-stretch justify-end">
-      <div
-        className="absolute inset-0 bg-black/20 backdrop-blur-sm"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={onClose} />
       <m.div
         initial={{ x: 520, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
@@ -469,9 +560,7 @@ function Drawer({
               />
             </div>
             {subtitle && (
-              <div className="mt-1 text-[12px] text-slate-500 font-medium truncate">
-                {subtitle}
-              </div>
+              <div className="mt-1 text-[12px] text-slate-500 font-medium truncate">{subtitle}</div>
             )}
           </div>
           <button
@@ -485,9 +574,7 @@ function Drawer({
 
         <div className="flex-1 overflow-auto p-5">
           {!items.length ? (
-            <div className="text-center py-10 text-sm text-slate-500">
-              No items available
-            </div>
+            <div className="text-center py-10 text-sm text-slate-500">No items available</div>
           ) : (
             <div className="space-y-2.5">
               {items.slice(0, 25).map((it, idx) => {
@@ -522,9 +609,7 @@ function Drawer({
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="text-[13px] font-semibold text-slate-900 truncate">
-                          {label}
-                        </div>
+                        <div className="text-[13px] font-semibold text-slate-900 truncate">{label}</div>
                         {(sub || due) && (
                           <div className="mt-1 text-[11px] text-slate-500 font-medium truncate">
                             {sub}
@@ -660,13 +745,11 @@ function CockpitTile({
       <div className="relative pl-4 p-5 flex flex-col h-full">
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.18em] mb-2">
-              {label}
-            </p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.18em] mb-2">{label}</p>
             {error ? (
               <div className="rounded-xl border border-rose-200/70 bg-rose-50/70 px-3 py-2 text-xs text-rose-700 mt-1">
                 <AlertTriangle className="inline h-3.5 w-3.5 mr-1.5 -mt-0.5" />
-                {error}
+                {cleanErrorMessage(error)}
               </div>
             ) : (
               <div className="flex items-end gap-3">
@@ -838,7 +921,6 @@ function SeverityBar({ items }: { items: any[] }) {
 // --- TILE BODIES --------------------------------------------------------------
 
 function SlaRadarBody({ items }: { items: any[] }) {
-  // ✅ FIX-ECC2: sla-radar route returns item.breached / item.at_risk booleans
   const breached = items.filter(
     (it) =>
       it?.breached === true ||
@@ -874,21 +956,19 @@ function SlaRadarBody({ items }: { items: any[] }) {
         )}
       </div>
 
-      {/* ✅ FIX-ECC9: sla-radar items use title + project_name */}
       <MicroList items={items} tone="cyan" labelKey="title" subKey="project_name" />
     </div>
   );
 }
 
 function WhoBlockingBody({ items }: { items: any[] }) {
-  // Aggregated format: count/pending_count per person
   const structured = items.some((it) => typeof it?.count === "number" || typeof it?.pending_count === "number");
 
   if (structured) {
     return (
       <div className="mt-3 pt-3 border-t border-slate-100/80 space-y-2">
         {items.slice(0, 3).map((it, i) => {
-          const name = safeStr(it?.name || it?.label || it?.email || it?.user || "---");
+          const name = resolvePersonLabel(it);
           const count = safeNum(it?.count || it?.pending_count);
           const maxWait = safeNum(it?.max_wait_days || it?.max_age_days || 0);
           return (
@@ -922,7 +1002,6 @@ function WhoBlockingBody({ items }: { items: any[] }) {
     );
   }
 
-  // ✅ FIX-ECC10: who-blocking route returns task-like rows: title + project_name
   return <MicroList items={items} tone="amber" labelKey="title" subKey="project_name" />;
 }
 
@@ -930,7 +1009,6 @@ function RiskSignalsBody({ items }: { items: any[] }) {
   return (
     <div>
       <SeverityBar items={items} />
-      {/* ✅ FIX-ECC9: risk-signals uses project_name */}
       <MicroList items={items} tone="rose" labelKey="title" subKey="project_name" />
     </div>
   );
@@ -981,7 +1059,7 @@ function BottlenecksBody({ items }: { items: any[] }) {
   return (
     <div className="mt-3 pt-3 border-t border-slate-100/80 space-y-2">
       {items.slice(0, 3).map((it, i) => {
-        const label = safeStr(it?.label || it?.name || it?.email || "---");
+        const label = resolvePersonLabel(it);
         const count = safeNum(it?.pending_count || it?.count || 0);
         const widthPct = Math.max(8, (count / maxCount) * 100);
         return (
@@ -1019,7 +1097,6 @@ function BottlenecksBody({ items }: { items: any[] }) {
 }
 
 function PendingApprovalsBody({ items }: { items: any[] }) {
-  // ✅ FIX-ECC3: exec_approval_cache uses sla_status not sla_state; check both for safety
   const overdue = items.filter((it) =>
     /breach|overdue|breached|r/.test(safeStr(it?.sla_status || it?.sla_state || it?.state || "").toLowerCase())
   ).length;
@@ -1035,7 +1112,6 @@ function PendingApprovalsBody({ items }: { items: any[] }) {
         </div>
       )}
 
-      {/* ✅ FIX-ECC9: pending rows: project_title + sla_status/approver_label + computed_at */}
       <MicroList items={items} tone="emerald" labelKey="project_title" subKey="sla_status" ageKey="computed_at" />
     </div>
   );
@@ -1076,13 +1152,11 @@ function CockpitHeader({
             <BarChart2 className="h-5 w-5" />
           </div>
           <div>
-            <div className="text-[10px] uppercase tracking-[0.2em] font-bold text-indigo-600 mb-0.5">
-              Live Signals
-            </div>
+            <div className="text-[10px] uppercase tracking-[0.2em] font-bold text-indigo-600 mb-0.5">Live Signals</div>
             <h2 className="text-lg font-bold text-slate-950 leading-tight">Executive Cockpit</h2>
           </div>
         </div>
-        <p className="text-sm text-slate-400 font-medium">Org-scoped governance signals</p>
+        <p className="text-sm text-slate-400 font-medium">Governance signals</p>
       </div>
 
       <div className="flex items-center gap-3">
@@ -1155,7 +1229,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
     setLoading(true);
     setFatalError(null);
 
-    // reset
     setBrain(null);
     setPendingApprovals(null);
     setWhoBlocking(null);
@@ -1165,7 +1238,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
     setBottlenecks(null);
 
     try {
-      // ✅ FIX-ECC5: Fetch Governance Brain first (primary/fallback)
       let brainResp: BrainResp | null = null;
       try {
         brainResp = await fetchJson<BrainResp>("/api/ai/governance-brain", signal);
@@ -1246,17 +1318,15 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
 
   const brainWhoBlocking = Array.isArray(org?.approvals?.top_blockers)
     ? org!.approvals!.top_blockers.map((b: any) => ({
-        name: b.label,
+        name: b.label, // already human label
         label: b.label,
         count: safeNum(b.count),
         pending_count: safeNum(b.count),
         max_wait_days: safeNum(b.oldest_days),
-        // hint kind for bestHref fallbacks
         kind: "approvals_bottleneck",
       }))
     : [];
 
-  // ✅ FIX-ECC6: SLA radar count should be approvals-focused when possible
   const brainSlaApprovalsBreached =
     org?.sla?.breached_by_type && typeof org.sla.breached_by_type === "object"
       ? safeNum((org.sla.breached_by_type as any).approvals, 0)
@@ -1298,7 +1368,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       }))
     : [];
 
-  // ✅ FIX-ECC7: risk fallback from project signals (raid_high + raid_overdue) when present
   const brainRiskCount = (() => {
     const ps = Array.isArray(org?.health?.projects) ? org!.health!.projects : [];
     if (!ps.length) return null;
@@ -1335,13 +1404,12 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       error: getError(pendingApprovals),
       href: "/approvals",
       items: paItems.length ? paItems : [],
-      fallbackItems: brainPortfolioItems, // nice fallback “what to look at”
+      fallbackItems: brainPortfolioItems,
       body: paItems.length ? (
         <PendingApprovalsBody items={paItems} />
       ) : brainPortfolioItems.length ? (
         <MicroList items={brainPortfolioItems} tone="emerald" labelKey="project_title" subKey="stage_key" />
       ) : null,
-      scope: (pendingApprovals as any)?.scope ?? brain?.scope,
     },
     {
       id: "blocking",
@@ -1353,8 +1421,11 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       error: getError(whoBlocking),
       href: "/approvals/bottlenecks",
       items: wbItems.length ? wbItems : brainWhoBlocking,
-      body: wbItems.length ? <WhoBlockingBody items={wbItems} /> : brainWhoBlocking.length ? <WhoBlockingBody items={brainWhoBlocking} /> : null,
-      scope: (whoBlocking as any)?.scope ?? brain?.scope,
+      body: wbItems.length ? (
+        <WhoBlockingBody items={wbItems} />
+      ) : brainWhoBlocking.length ? (
+        <WhoBlockingBody items={brainWhoBlocking} />
+      ) : null,
     },
     {
       id: "sla",
@@ -1366,8 +1437,11 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       error: getError(slaRadar),
       href: "/approvals",
       items: slaItems.length ? slaItems : brainSlaSample,
-      body: slaItems.length ? <SlaRadarBody items={slaItems} /> : brainSlaSample.length ? <SlaRadarBody items={brainSlaSample} /> : null,
-      scope: (slaRadar as any)?.scope ?? brain?.scope,
+      body: slaItems.length ? (
+        <SlaRadarBody items={slaItems} />
+      ) : brainSlaSample.length ? (
+        <SlaRadarBody items={brainSlaSample} />
+      ) : null,
     },
     {
       id: "risk",
@@ -1380,7 +1454,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       href: "/approvals",
       items: rsItems,
       body: rsItems.length ? <RiskSignalsBody items={rsItems} /> : null,
-      scope: (riskSignals as any)?.scope ?? brain?.scope,
     },
     {
       id: "portfolio",
@@ -1397,7 +1470,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       ) : brainPortfolioItems.length ? (
         <PortfolioApprovalsBody items={brainPortfolioItems} />
       ) : null,
-      scope: (portfolioApprovals as any)?.scope ?? brain?.scope,
     },
     {
       id: "bottlenecks",
@@ -1409,21 +1481,24 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       error: getError(bottlenecks),
       href: "/approvals/bottlenecks",
       items: bottItems.length ? bottItems : brainBottlenecks,
-      body: bottItems.length ? <BottlenecksBody items={bottItems} /> : brainBottlenecks.length ? <BottlenecksBody items={brainBottlenecks} /> : null,
-      scope: (bottlenecks as any)?.scope ?? brain?.scope,
+      body: bottItems.length ? (
+        <BottlenecksBody items={bottItems} />
+      ) : brainBottlenecks.length ? (
+        <BottlenecksBody items={brainBottlenecks} />
+      ) : null,
     },
   ];
 
   function onTileClick(t: (typeof tiles)[number]) {
-    // If we have “items” for drawer, open drawer.
     const list = Array.isArray(t.items) ? t.items : [];
-    const fallbackList = (t as any).fallbackItems && Array.isArray((t as any).fallbackItems) ? (t as any).fallbackItems : [];
+    const fallbackList =
+      (t as any).fallbackItems && Array.isArray((t as any).fallbackItems) ? (t as any).fallbackItems : [];
     const use = list.length ? list : fallbackList;
 
     if (use.length) {
       openDrawer({
         title: t.label,
-        subtitle: (t as any).scope ? `Scope: ${(t as any).scope}` : undefined,
+        subtitle: undefined, // ✅ FIX-ECC14: remove scope label entirely
         tone: t.tone,
         items: use,
         href: t.href,
@@ -1431,7 +1506,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       return;
     }
 
-    // otherwise just go to href
     if (t.href) router.push(t.href);
   }
 
@@ -1474,11 +1548,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
                   onClick={() => onTileClick(tile)}
                 >
                   {tile.body}
-                  {(tile as any).scope && (
-                    <div className="mt-2 text-[10px] text-slate-400 font-medium uppercase tracking-wider">
-                      Scope: {(tile as any).scope}
-                    </div>
-                  )}
                 </CockpitTile>
               ))}
         </div>
