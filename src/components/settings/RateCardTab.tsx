@@ -15,7 +15,7 @@ import {
 
 const CURRENCIES = ["GBP", "USD", "EUR", "AUD", "CAD"] as const;
 const CURRENCY_SYMBOLS: Record<string, string> = {
-  GBP: "Â£", USD: "$", EUR: "â‚¬", AUD: "A$", CAD: "C$",
+  GBP: "£", USD: "$", EUR: "â‚¬", AUD: "A$", CAD: "C$",
 };
 
 const RESOURCE_TYPES = [
@@ -262,7 +262,7 @@ function RateForm({
     });
   };
 
-  const sym = CURRENCY_SYMBOLS[row.currency] ?? "Â£";
+  const sym = CURRENCY_SYMBOLS[row.currency] ?? "£";
 
   return (
     <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-4 space-y-4">
