@@ -1,3 +1,4 @@
+// src/app/projects/[id]/governance/page.tsx
 import "server-only";
 
 import GovernanceHubClient from "@/components/governance/GovernanceHubClient";
@@ -20,9 +21,24 @@ export default async function ProjectGovernancePage({
 
   const supabase = await createClient();
 
+  // DB-driven KB articles (published) + category join for label display
   const { data, error } = await supabase
     .from("governance_articles")
-    .select("id,slug,title,summary,category,updated_at,content")
+    .select(
+      `
+      id,
+      slug,
+      title,
+      summary,
+      updated_at,
+      content,
+      category_id,
+      governance_categories!left (
+        slug,
+        name
+      )
+    `
+    )
     .eq("is_published", true)
     .order("title", { ascending: true });
 
@@ -33,11 +49,23 @@ export default async function ProjectGovernancePage({
     }
   }
 
+  const articles = (Array.isArray(data) ? data : []).map((a: any) => ({
+    id: safeStr(a?.id),
+    slug: safeStr(a?.slug),
+    title: safeStr(a?.title),
+    summary: a?.summary ?? null,
+    updated_at: a?.updated_at ?? null,
+    content: a?.content ?? null,
+    // Optional labels (if your client wants them later)
+    category: safeStr(a?.governance_categories?.slug) || null,
+    category_name: safeStr(a?.governance_categories?.name) || null,
+  }));
+
   return (
     <GovernanceHubClient
       scope="project"
       projectId={projectId}
-      articles={Array.isArray(data) ? data : []}
+      articles={articles}
     />
   );
 }
