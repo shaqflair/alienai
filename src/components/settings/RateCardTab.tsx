@@ -222,9 +222,9 @@ function RateForm({
   onDone: () => void;
   onCancel: () => void;
 }) {
-  const [row, setRow]            = useState<EditRow>(initial);
-  const [error, setError]        = useState<string | null>(null);
-  const [pending, startTrans]    = useTransition();
+  const [row, setRow]           = useState<EditRow>(initial);
+  const [error, setError]       = useState<string | null>(null);
+  const [pending, startTrans]   = useTransition();
 
   const patch = (p: Partial<EditRow>) => setRow((r) => ({ ...r, ...p }));
 
@@ -236,7 +236,7 @@ function RateForm({
   };
 
   const handleSubmit = () => {
-    if (!row.user_id)            return setError("Please select a person.");
+    if (!row.user_id)           return setError("Please select a person.");
     if (!row.role_label.trim()) return setError("Role label is required.");
     if (row.rate === "" || Number(row.rate) <= 0) return setError("Rate must be greater than 0.");
 
@@ -244,16 +244,16 @@ function RateForm({
     startTrans(async () => {
       try {
         await upsertResourceRate({
-          id:               initial.id,
+          id:              initial.id,
           organisation_id: organisationId,
-          user_id:          row.user_id,
-          role_label:       row.role_label.trim(),
-          rate_type:        row.rate_type,
-          rate:             Number(row.rate),
-          currency:         row.currency,
-          resource_type:    row.resource_type,
-          notes:            row.notes || undefined,
-          effective_from:   row.effective_from,
+          user_id:         row.user_id,
+          role_label:      row.role_label.trim(),
+          rate_type:       row.rate_type,
+          rate:            Number(row.rate),
+          currency:        row.currency,
+          resource_type:   row.resource_type,
+          notes:           row.notes || undefined,
+          effective_from:  row.effective_from,
         });
         onDone();
       } catch (e: any) {
@@ -442,10 +442,10 @@ export default function RateCardTab({
   isAdmin,
 }: Props) {
   const [rates, setRates]         = useState<ResourceRate[]>(initialRates);
-  const [adding, setAdding]        = useState(false);
+  const [adding, setAdding]       = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [search, setSearch]        = useState("");
-  const [pending, startTrans]      = useTransition();
+  const [search, setSearch]       = useState("");
+  const [pending, startTrans]     = useTransition();
 
   const filtered = useMemo(() => {
     if (!search.trim()) return rates;
@@ -564,14 +564,14 @@ export default function RateCardTab({
                           organisationId={organisationId}
                           members={members}
                           initial={{
-                            id:             r.id,
-                            user_id:         r.user_id,
-                            role_label:      r.role_label,
-                            rate_type:       r.rate_type,
-                            rate:            r.rate,
-                            currency:        r.currency,
-                            resource_type:  r.resource_type as ResourceTypeValue,
-                            notes:           r.notes ?? "",
+                            id:            r.id,
+                            user_id:       r.user_id,
+                            role_label:    r.role_label,
+                            rate_type:     r.rate_type,
+                            rate:          r.rate,
+                            currency:      r.currency,
+                            resource_type: r.resource_type as ResourceTypeValue,
+                            notes:         r.notes ?? "",
                             effective_from: r.effective_from,
                           }}
                           onDone={handleDone}
@@ -590,7 +590,7 @@ export default function RateCardTab({
                     {/* Person */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">
-                        <Avatar name={r.full_name} url={r.avatar_url} size={7} />
+                        <Avatar name={r.full_name} url={r.avatar_url} size={~} />
                         <div>
                           <div className="font-medium text-gray-800 text-sm">
                             {r.full_name ?? r.email ?? "Unknown"}
@@ -648,7 +648,7 @@ export default function RateCardTab({
                           <button
                             onClick={() => handleDelete(r.id)}
                             disabled={pending}
-                            className="p-1.5 rounded-lg hover:bg-red-100 text-gray-400 hover:text-red-600 transition-colors"
+                            className="p-1.5 rounded-lg hover:bs-red-100 text-gray-400 hover:text-red-600 transition-colors"
                             title="Delete"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -667,7 +667,7 @@ export default function RateCardTab({
       {/* Summary */}
       {rates.length > 0 && (
         <p className="text-xs text-gray-400">
-          {rates.length} rate{rates.length !== 1 ? "s" : ""} configured ·{" "}
+          {rates.length} rate{rates.length !== 1 ? "s" : ""} configured · {" "}
           {new Set(rates.map((r) => r.user_id)).size} people
         </p>
       )}
