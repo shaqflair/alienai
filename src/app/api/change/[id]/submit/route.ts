@@ -1,4 +1,4 @@
-// src/app/api/change/[id]/submit/route.ts
+﻿// src/app/api/change/[id]/submit/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -235,7 +235,7 @@ async function resolveActorName(supabase: any, userId: string, fallbackEmail?: s
 }
 
 /**
- * ✅ Approval timeline event into approval_events
+ * âœ… Approval timeline event into approval_events
  * Best-effort; never blocks.
  */
 async function insertApprovalEvent(
@@ -281,7 +281,7 @@ async function insertApprovalEvent(
   }
 }
 
-/** Best-effort: show “waiting for step X / approvers” on submit */
+/** Best-effort: show â€œwaiting for step X / approversâ€ on submit */
 async function getFirstPendingStepSummary(
   supabase: any,
   chainId: string
@@ -396,7 +396,7 @@ async function loadRulesForArtifact(
 }
 
 /**
- * ✅ Canonical group expansion for YOUR schema:
+ * âœ… Canonical group expansion for YOUR schema:
  * - approver_groups / approver_group_members
  * - groupId is approver_groups.id
  */
@@ -488,7 +488,7 @@ async function getActiveChainIdForArtifact(supabase: any, artifactId: string): P
 }
 
 /**
- * ✅ Map user_ids -> organisation_members.id (canonical approver_member_id)
+ * âœ… Map user_ids -> organisation_members.id (canonical approver_member_id)
  * Falls back gracefully if mapping is missing.
  */
 async function mapUserIdsToOrgMemberIds(
@@ -720,7 +720,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
     const supabase = await sb();
     const user = await requireUser(supabase);
 
-    const requestId = getRequestId(req);
+    const requestId = requestId;
 
     type ChangeRow = {
       id: string;
@@ -775,12 +775,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       return jsonErr("This change is already decided", 400);
     }
 
-    // ✅ Idempotent: already submitted
+    // âœ… Idempotent: already submitted
     if (decision === "submitted") {
       return jsonOk({ item: { ...cr, delivery_status: cr?.delivery_status ?? null }, data: cr, already: "submitted" });
     }
 
-    // ✅ Only lane-gate when column exists (legacy-safe)
+    // âœ… Only lane-gate when column exists (legacy-safe)
     if (!deliveryStatusMissing && fromLane !== "analysis") {
       return jsonErr("Only changes in Analysis can be submitted for approval.", 409);
     }
@@ -911,7 +911,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id?: string }>
       },
     });
 
-    // ✅ Approval timeline (submitted)
+    // âœ… Approval timeline (submitted)
     await insertApprovalEvent(supabase, {
       organisation_id: organisationId,
       project_id: projectId,

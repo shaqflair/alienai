@@ -1,9 +1,9 @@
-import { cookies } from "next/headers";
+﻿import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Database = any; // generated types not yet in repo
 
-export function createClient<T = Database>(cookieStore = await cookies()) {
+export async function createClient<T = Database>(cookieStore = await cookies()) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -30,3 +30,4 @@ export function createClient<T = Database>(cookieStore = await cookies()) {
     },
   });
 }
+

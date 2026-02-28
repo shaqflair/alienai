@@ -1,4 +1,4 @@
-// src/app/projects/[id]/artifacts/page.tsx
+﻿// src/app/projects/[id]/artifacts/page.tsx
 import "server-only";
 
 import { notFound, redirect } from "next/navigation";
@@ -88,9 +88,9 @@ function extractDigitsAsNumber(input: string): number | null {
 
 /**
  * Deterministic resolver:
- * - UUID → use directly (no projects lookup needed)
- * - else → digits → projects.project_code = <number>
- * - else → optional fallbacks to slug/reference columns (best-effort + tolerant)
+ * - UUID â†’ use directly (no projects lookup needed)
+ * - else â†’ digits â†’ projects.project_code = <number>
+ * - else â†’ optional fallbacks to slug/reference columns (best-effort + tolerant)
  */
 async function resolveProject(
   supabase: any,
@@ -177,7 +177,7 @@ function canonType(x: any) {
     .replace(/[_-]+/g, "_")
     .trim();
 
-  // ✅ Governance hub virtual type (future-proof mapping)
+  // âœ… Governance hub virtual type (future-proof mapping)
   if (
     t === "governance" ||
     t === "delivery_governance" ||
@@ -315,7 +315,7 @@ const TYPE_ORDER = [
   "WBS",
   "SCHEDULE",
   "CHANGE_REQUESTS",
-  "GOVERNANCE", // ✅ NEW: keep Governance near control artifacts
+  "GOVERNANCE", // âœ… NEW: keep Governance near control artifacts
   "RAID",
   "LESSONS_LEARNED",
   "PROJECT_CLOSURE_REPORT",
@@ -387,7 +387,7 @@ export default async function ArtifactsPage({
   if (!resolved?.projectUuid) notFound();
   const projectUuid = String(resolved.projectUuid);
 
-  // ✅ membership gate first (real access check)
+  // âœ… membership gate first (real access check)
   const { data: mem, error: memErr } = await supabase
     .from("project_members")
     .select("role, is_active")
@@ -402,7 +402,7 @@ export default async function ArtifactsPage({
   const role = safeLower((mem as any)?.role);
   const canEditProject = role === "owner" || role === "editor";
 
-  // ✅ best-effort project meta if UUID path didn’t fetch it
+  // âœ… best-effort project meta if UUID path didnâ€™t fetch it
   let project = resolved.project ?? null;
   if (!project) {
     const { data: p, error: pErr } = await supabase
@@ -423,7 +423,7 @@ export default async function ArtifactsPage({
     : projectHumanId;
 
   const projectFinishDateIso = safeStr((project as any)?.finish_date ?? (project as any)?.end_date ?? "").trim();
-  const dueDisplay = projectFinishDateIso ? fmtUkDateOnly(projectFinishDateIso) : "—";
+  const dueDisplay = projectFinishDateIso ? fmtUkDateOnly(projectFinishDateIso) : "â€”";
 
   // artifacts
   const { data: artifacts, error: artErr } = await supabase
@@ -514,7 +514,7 @@ export default async function ArtifactsPage({
     .filter((a) => safeStr(a?.id).trim())
     .map((a) => {
       const id = safeStr(a.id).trim();
-      const t = canonType(a?.type) || safeStr(a?.type).trim() || "—";
+      const t = canonType(a?.type) || safeStr(a?.type).trim() || "â€”";
       const owner = ownerMap[safeStr(a?.user_id).trim()] ?? {};
 
       const approvalStatus = safeLower(a?.approval_status) || "";
@@ -529,7 +529,6 @@ export default async function ArtifactsPage({
         progress: progressFromArtifact(a),
         status: uiStatusFromArtifact(a),
         phase: phaseForCanonType(t),
-        due: dueDisplay,
         isBaseline: !!a?.is_baseline,
 
         canDeleteDraft: canEditProject && canDeleteDraftFromArtifact(a),
@@ -540,7 +539,7 @@ export default async function ArtifactsPage({
       };
     });
 
-  // ✅ Inject Change Requests as a virtual row if no artifact row exists
+  // âœ… Inject Change Requests as a virtual row if no artifact row exists
   const hasChangeArtifact = rowsFromArtifacts.some((r) => r.artifactType === "CHANGE_REQUESTS");
   const changeVirtualRow: ArtifactBoardRowWithActions | null = hasChangeArtifact
     ? null
@@ -554,7 +553,6 @@ export default async function ArtifactsPage({
         progress: 20,
         status: "Draft",
         phase: "Monitoring & Controlling",
-        due: dueDisplay,
         isBaseline: false,
 
         canDeleteDraft: false,
@@ -567,7 +565,7 @@ export default async function ArtifactsPage({
         isVirtual: true,
       };
 
-  // ✅ Inject Delivery Governance as a virtual row (always)
+  // âœ… Inject Delivery Governance as a virtual row (always)
   const governanceVirtualRow: ArtifactBoardRowWithActions = {
     id: "__governance__",
     artifactType: "GOVERNANCE",
@@ -577,7 +575,6 @@ export default async function ArtifactsPage({
     progress: 20,
     status: "Draft",
     phase: "Monitoring & Controlling",
-    due: dueDisplay,
     isBaseline: false,
 
     canDeleteDraft: false,
