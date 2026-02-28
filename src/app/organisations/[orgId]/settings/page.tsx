@@ -1,13 +1,18 @@
-﻿import "server-only";
+// src/app/organisations/[orgId]/settings/page.tsx
+import "server-only";
 
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 
+// approvals admin panel (client component)
 import OrgApprovalsAdminPanel from "@/components/approvals/OrgApprovalsAdminPanel";
-import RateCardTab from "@/components/settings/RateCardTab";
 import { isPlatformAdmin } from "@/lib/server/isPlatformAdmin";
-import { getResourceRates, getOrgMembersForPicker } from "@/app/actions/resource-rates";
+import RateCardTab from "@/components/settings/RateCardTab";
+import {
+  getOrgMembersForPicker,
+  getResourceRatesForOrg,
+} from "@/app/actions/resource-rates";
 
 type OrgRole = "owner" | "admin" | "member";
 
@@ -44,14 +49,12 @@ async function requireOrgAdmin(sb: any, organisationId: string, userId: string) 
 }
 
 function tabBtn(active: boolean) {
-  return `px-3 py-1.5 text-sm rounded-md transition-colors ${
-    active ? "bg-gray-100 font-semibold text-gray-900" : "bg-white hover:bg-gray-50 text-gray-600"
-  }`;
+  return `px-3 py-1.5 text-sm ${active ? "bg-gray-100 font-semibold" : "bg-white hover:bg-gray-50"}`;
 }
 
-export const runtime   = "nodejs";
-export const dynamic   = "force-dynamic";
-export const revalidate = 0; // cache-bust
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 async function rpcWithFallback<T = any>(
   sb: any,
@@ -86,16 +89,15 @@ export default async function OrgSettingsPage({
   params: Promise<{ orgId?: string }>;
   searchParams?: Promise<{ tab?: string }>;
 }) {
-  const p  = await params;
+  const p = await params;
   const sp = (await searchParams) ?? {};
 
   const organisationId = safeParam(p?.orgId);
   if (!organisationId || !isUuid(organisationId)) return notFound();
 
   const tabRaw = safeSearchParam(sp?.tab).trim().toLowerCase();
-  const tab: "settings" | "approvals" | "rate-cards" =
-    tabRaw === "approvals"   ? "approvals"   :
-    tabRaw === "rate-cards"  ? "rate-cards"  : "settings";
+  const tab: "settings" | "approvals" | "ratecards" =
+    tabRaw === "approvals" ? "approvals" : tabRaw === "ratecards" ? "ratecards" : "settings";
 
   const sb = await createClient();
   const { data: auth, error: authErr } = await sb.auth.getUser();
@@ -104,7 +106,6 @@ export default async function OrgSettingsPage({
 
   const userId = auth.user.id;
 
-  // Ensure active membership
   const { data: me, error: meErr } = await sb
     .from("organisation_members")
     .select("role, removed_at")
@@ -116,10 +117,9 @@ export default async function OrgSettingsPage({
   if (meErr) throw meErr;
   if (!me) return notFound();
 
-  const myRole  = normRole(me.role);
+  const myRole = normRole(me.role);
   const isOwner = myRole === "owner";
 
-  // Load org
   const { data: org, error: orgErr } = await sb
     .from("organisations")
     .select("id,name,created_at")
@@ -130,6 +130,7 @@ export default async function OrgSettingsPage({
   if (!org) return notFound();
 
   const { ok: isOrgAdmin } = await requireOrgAdmin(sb, organisationId, userId);
+
   const platformAdmin = await isPlatformAdmin();
 
   const { count: memberCount, error: countErr } = await sb
@@ -138,9 +139,10 @@ export default async function OrgSettingsPage({
     .eq("organisation_id", organisationId)
     .is("removed_at", null);
 
-  if (countErr) console.warn("[organisation_members.count] blocked:", countErr.message);
+  if (countErr) {
+    console.warn("[organisation_members.count] blocked:", countErr.message);
+  }
 
-  // Owner + transfer candidates
   const { data: ownerRow } = await sb
     .from("organisation_members")
     .select("user_id, role")
@@ -166,119 +168,154 @@ export default async function OrgSettingsPage({
       .from("profiles")
       .select("user_id, full_name, email")
       .in("user_id", memberUserIds);
+
     (profs ?? []).forEach((pp: any) => profilesById.set(pp.user_id, pp));
   }
 
   const transferCandidates = (memberRows ?? [])
     .map((r: any) => {
       const uid = safeParam(r.user_id);
-      if (!uid || uid === ownerUserId) return null;
+      if (!uid) return null;
+      if (uid === ownerUserId) return null;
       const prof = profilesById.get(uid);
       return {
         user_id: uid,
-        role:    normRole(r.role),
-        label:   String(prof?.full_name || prof?.email || uid),
-        email:   prof?.email ?? null,
+        role: normRole(r.role),
+        label: String(prof?.full_name || prof?.email || uid),
+        email: prof?.email ?? null,
       };
     })
     .filter(Boolean) as Array<{ user_id: string; role: OrgRole; label: string; email: string | null }>;
 
-  // Rate card data â€” only fetch when on that tab (avoids unnecessary queries)
-  const [rates, rateMembers] = tab === "rate-cards"
-    ? await Promise.all([getResourceRates(organisationId), getOrgMembersForPicker(organisationId)])
-    : [[], []];
-
-  // â”€â”€ Server actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Load rate card data when on that tab
+  const [ratesResult, membersResult] = tab === "ratecards"
+    ? await Promise.all([
+        getResourceRatesForOrg(organisationId),
+        getOrgMembersForPicker(organisationId),
+      ])
+    : [{ rates: [] }, { members: [] }];
 
   async function renameAction(formData: FormData) {
     "use server";
+
     const name = String(formData.get("name") ?? "").trim();
     if (!name) return;
+
     const sb = await createClient();
-    const { data: auth } = await sb.auth.getUser();
+    const { data: auth, error: authErr } = await sb.auth.getUser();
+    if (authErr) throw authErr;
     if (!auth?.user) redirect("/login");
+
     const check = await requireOrgAdmin(sb, organisationId, auth.user.id);
     if (!check.ok) throw new Error("Admin permission required");
+
     const { error } = await sb.from("organisations").update({ name }).eq("id", organisationId);
     if (error) throw error;
+
     redirect(`/organisations/${organisationId}/settings?tab=settings`);
   }
 
   async function deleteAction(formData: FormData) {
     "use server";
+
     const confirm = String(formData.get("confirm") ?? "").trim();
     if (confirm !== "DELETE") throw new Error('Type "DELETE" to confirm.');
+
     const sb = await createClient();
-    const { data: auth } = await sb.auth.getUser();
+    const { data: auth, error: authErr } = await sb.auth.getUser();
+    if (authErr) throw authErr;
     if (!auth?.user) redirect("/login");
+
     const check = await requireOrgAdmin(sb, organisationId, auth.user.id);
     if (!check.ok) throw new Error("Admin permission required");
+
     const { error } = await sb.from("organisations").delete().eq("id", organisationId);
     if (error) throw error;
+
     redirect("/organisations");
   }
 
   async function transferOwnershipAction(formData: FormData) {
     "use server";
+
     const newOwnerUserId = String(formData.get("new_owner_user_id") ?? "").trim();
-    if (!newOwnerUserId || !isUuid(newOwnerUserId)) throw new Error("Select a valid user.");
+    if (!newOwnerUserId || !isUuid(newOwnerUserId))
+      throw new Error("Select a valid user to transfer ownership to.");
+
     const sb = await createClient();
-    const { data: auth } = await sb.auth.getUser();
+    const { data: auth, error: authErr } = await sb.auth.getUser();
+    if (authErr) throw authErr;
     if (!auth?.user) redirect("/login");
-    const { data: me } = await sb
+
+    const { data: me, error: meErr } = await sb
       .from("organisation_members")
       .select("role, removed_at")
       .eq("organisation_id", organisationId)
       .eq("user_id", auth.user.id)
       .is("removed_at", null)
       .maybeSingle();
-    if (normRole(me?.role) !== "owner") throw new Error("Only the owner can transfer ownership.");
+
+    if (meErr) throw meErr;
+    if (normRole(me?.role) !== "owner")
+      throw new Error("Only the organisation owner can transfer ownership.");
+
     const res = await rpcWithFallback(
-      sb, "transfer_org_ownership",
+      sb,
+      "transfer_org_ownership",
       { p_org_id: organisationId, p_new_owner_user_id: newOwnerUserId },
       { org_id: organisationId, new_owner_user_id: newOwnerUserId }
     );
+
     if (res.error) throw new Error(String(res.error.message ?? res.error));
+
     redirect(`/organisations/${organisationId}/settings?tab=settings&ownership=transferred`);
   }
 
   async function leaveOrganisationAction() {
     "use server";
+
     const sb = await createClient();
-    const { data: auth } = await sb.auth.getUser();
+    const { data: auth, error: authErr } = await sb.auth.getUser();
+    if (authErr) throw authErr;
     if (!auth?.user) redirect("/login");
-    const { data: me } = await sb
+
+    const { data: me, error: meErr } = await sb
       .from("organisation_members")
       .select("role, removed_at")
       .eq("organisation_id", organisationId)
       .eq("user_id", auth.user.id)
       .is("removed_at", null)
       .maybeSingle();
-    if (normRole(me?.role) === "owner") throw new Error("Transfer ownership before leaving.");
+
+    if (meErr) throw meErr;
+    if (normRole(me?.role) === "owner")
+      throw new Error("The organisation owner cannot leave. Transfer ownership first.");
+
     const res = await rpcWithFallback(
-      sb, "leave_organisation",
+      sb,
+      "leave_organisation",
       { p_org_id: organisationId },
       { org_id: organisationId }
     );
+
     if (res.error) throw new Error(String(res.error.message ?? res.error));
+
     redirect(`/organisations?left=1`);
   }
 
-  // â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6 text-gray-900">
-      {/* Page header */}
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">Organisation settings</h1>
           <p className="text-sm text-gray-600">
             Org: <span className="font-medium">{org.name}</span>
-            <span className="ml-2 text-xs text-gray-500">â€¢ Your role: {myRole}</span>
-            <span className="ml-2 text-xs text-gray-500">â€¢ Members: {memberCount ?? "â€”"}</span>
-            <span className="ml-2 text-xs text-gray-500">â€¢ Platform admin: {platformAdmin ? "Yes" : "No"}</span>
+            <span className="ml-2 text-xs text-gray-500">&bull; Your role: {myRole}</span>
+            <span className="ml-2 text-xs text-gray-500">&bull; Members: {memberCount ?? "&mdash;"}</span>
+            <span className="ml-2 text-xs text-gray-500">&bull; Platform admin: {platformAdmin ? "Yes" : "No"}</span>
           </p>
         </div>
+
         <div className="flex gap-2">
           <Link
             href={`/organisations/${organisationId}/members`}
@@ -292,11 +329,9 @@ export default async function OrgSettingsPage({
         </div>
       </div>
 
-      {/* Tab container */}
+      {/* Tabs */}
       <div className="rounded-xl border bg-white overflow-hidden">
-
-        {/* Tab bar */}
-        <div className="border-b px-2 py-2 flex gap-1.5 overflow-x-auto">
+        <div className="border-b p-2 flex gap-2">
           <Link
             href={`/organisations/${organisationId}/settings?tab=settings`}
             className={tabBtn(tab === "settings")}
@@ -310,45 +345,34 @@ export default async function OrgSettingsPage({
             Approvals
           </Link>
           <Link
-            href={`/organisations/${organisationId}/settings?tab=rate-cards`}
-            className={`${tabBtn(tab === "rate-cards")} inline-flex items-center gap-1.5`}
+            href={`/organisations/${organisationId}/settings?tab=ratecards`}
+            className={tabBtn(tab === "ratecards")}
           >
             Rate Cards
             {isOrgAdmin && (
-              <span className="text-[10px] rounded px-1.5 py-0.5 bg-blue-100 text-blue-700 font-semibold leading-none">
+              <span className="ml-1.5 text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-medium">
                 Admin
               </span>
             )}
           </Link>
         </div>
 
-        {/* Tab content */}
-        <div className="p-5">
-
-          {/* â”€â”€ Approvals tab â”€â”€ */}
-          {tab === "approvals" && (
+        <div className="p-4">
+          {tab === "approvals" ? (
             <OrgApprovalsAdminPanel
               organisationId={organisationId}
               organisationName={String(org.name ?? "")}
               isAdmin={!!platformAdmin}
             />
-          )}
-
-          {/* â”€â”€ Rate Cards tab â”€â”€ */}
-          {tab === "rate-cards" && (
+          ) : tab === "ratecards" ? (
             <RateCardTab
               organisationId={organisationId}
-              rates={rates}
-              members={rateMembers}
-              isAdmin={isOrgAdmin}
+              rates={(ratesResult as any).rates ?? []}
+              members={(membersResult as any).members ?? []}
             />
-          )}
-
-          {/* â”€â”€ General / Settings tab â”€â”€ */}
-          {tab === "settings" && (
+          ) : (
             <div className="space-y-6">
-
-              {/* Governance */}
+              {/* Governance panel */}
               <div className="rounded-xl border bg-white p-5 space-y-4">
                 <div className="font-medium">Governance</div>
 
@@ -362,7 +386,7 @@ export default async function OrgSettingsPage({
                             profilesById.get(ownerUserId)?.email ||
                             ownerUserId
                           )
-                        : "â€”"}
+                        : "&mdash;"}
                     </span>
                   </div>
                   <div className="text-xs text-gray-500 mt-1">
@@ -370,13 +394,14 @@ export default async function OrgSettingsPage({
                   </div>
                 </div>
 
-                {/* Transfer ownership (owner only) */}
                 {isOwner ? (
                   <div className="rounded-lg border p-4 space-y-3">
                     <div className="text-sm font-medium">Transfer ownership</div>
                     <div className="text-xs text-gray-500">
-                      Transfers the <b>owner</b> role to another member. You will become an <b>admin</b>.
+                      Transfers the <b>owner</b> role to another member. You will become an{" "}
+                      <b>admin</b> (or member depending on your RPC rules).
                     </div>
+
                     {transferCandidates.length === 0 ? (
                       <div className="text-sm text-gray-600">
                         No eligible members to transfer to. Invite someone first.
@@ -390,7 +415,7 @@ export default async function OrgSettingsPage({
                             className="min-w-[260px] rounded-md border px-3 py-2 text-sm bg-white"
                             required
                           >
-                            <option value="">Select memberâ€¦</option>
+                            <option value="">Select member&hellip;</option>
                             {transferCandidates.map((m) => (
                               <option key={m.user_id} value={m.user_id}>
                                 {m.label}{m.email ? ` (${m.email})` : ""}
@@ -398,6 +423,7 @@ export default async function OrgSettingsPage({
                             ))}
                           </select>
                         </div>
+
                         <button className="rounded-md border px-4 py-2 text-sm hover:bg-gray-50" type="submit">
                           Transfer
                         </button>
@@ -410,7 +436,6 @@ export default async function OrgSettingsPage({
                   </div>
                 )}
 
-                {/* Leave org (non-owner) */}
                 {!isOwner ? (
                   <form action={leaveOrganisationAction}>
                     <button
@@ -420,7 +445,7 @@ export default async function OrgSettingsPage({
                       Leave organisation
                     </button>
                     <div className="mt-1 text-xs text-gray-500">
-                      This will remove your membership.
+                      This will remove your membership (soft remove if your RPC uses removed_at).
                     </div>
                   </form>
                 ) : (
@@ -436,13 +461,14 @@ export default async function OrgSettingsPage({
                 <div className="text-sm text-gray-600">
                   Update the organisation name shown in the header dropdown.
                 </div>
+
                 {isOrgAdmin ? (
                   <form action={renameAction} className="flex flex-wrap gap-2">
                     <input
                       name="name"
                       defaultValue={String(org.name ?? "")}
                       className="flex-1 min-w-[240px] rounded-md border px-3 py-2 text-sm text-gray-900 bg-white"
-                      placeholder="Organisation nameâ€¦"
+                      placeholder="Organisation name&hellip;"
                       required
                     />
                     <button className="rounded-md bg-black text-white px-4 py-2 text-sm">Save</button>
@@ -459,8 +485,10 @@ export default async function OrgSettingsPage({
                 <div className="font-medium text-red-700">Danger zone</div>
                 <div className="text-sm text-gray-700">
                   Deleting an organisation permanently removes the org and its memberships. Projects may
-                  also be affected if they are linked via <code className="text-xs">organisation_id</code>.
+                  also be affected if they are linked via{" "}
+                  <code className="text-xs">organisation_id</code>.
                 </div>
+
                 {isOrgAdmin ? (
                   <form action={deleteAction} className="space-y-3">
                     <div className="text-sm">
@@ -482,7 +510,6 @@ export default async function OrgSettingsPage({
                   </div>
                 )}
               </div>
-
             </div>
           )}
         </div>
