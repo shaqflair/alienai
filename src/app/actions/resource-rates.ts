@@ -86,7 +86,7 @@ export async function getResourceRates(
     .eq("organisation_id", organisationId)
     .order("full_name");
 
-  if (error) throw new Error(error.message);
+  if (error) { console.error("[getResourceRates]", error.message); return []; }
   return (data ?? []) as ResourceRate[];
 }
 
@@ -164,4 +164,5 @@ export async function deleteResourceRate(
 
   revalidatePath(`/organisations/${organisationId}/settings`);
 }
+
 
