@@ -1,2 +1,1 @@
-﻿import { GET } from "../approvals/risk-signals/route";
-export { GET };
+﻿export { GET } from "@/app/api/approvals/risk-signals/route";

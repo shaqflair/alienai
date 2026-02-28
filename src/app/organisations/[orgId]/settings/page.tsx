@@ -11,7 +11,7 @@ import { isPlatformAdmin } from "@/lib/server/isPlatformAdmin";
 import RateCardTab from "@/components/settings/RateCardTab";
 import {
   getOrgMembersForPicker,
-  getResourceRatesForOrg,
+  getResourceRates,
 } from "@/app/actions/resource-rates";
 
 type OrgRole = "owner" | "admin" | "member";
@@ -187,10 +187,9 @@ export default async function OrgSettingsPage({
     })
     .filter(Boolean) as Array<{ user_id: string; role: OrgRole; label: string; email: string | null }>;
 
-  // Load rate card data when on that tab
   const [ratesResult, membersResult] = tab === "ratecards"
     ? await Promise.all([
-        getResourceRatesForOrg(organisationId),
+        getResourceRates(organisationId),
         getOrgMembersForPicker(organisationId),
       ])
     : [{ rates: [] }, { members: [] }];
