@@ -18,6 +18,12 @@
 //   ✅ FIX-ECC8: Stable footer labels (avoid split(" ").pop() weirdness)
 //   ✅ FIX-ECC9: Align list rendering keys with API payloads (project_name vs project_title, etc.)
 //   ✅ FIX-ECC10: WhoBlockingBody renders task-style rows correctly (title/project_name) when not aggregated
+//
+// Governance Brain Live:
+//   ✅ FIX-ECC11: Wire /api/ai/events (artifact_due) into Executive Cockpit as primary “Delivery Pressure” feed.
+//                - Org scope supported (no project_id)
+//                - Derive Overdue / Due Soon / Change / RAID pressure signals
+//                - Degrades gracefully if endpoint unavailable
 
 "use client";
 
@@ -35,6 +41,8 @@ import {
   CheckCheck,
   Flame,
   Clock3,
+  CalendarDays,
+  ClipboardList,
 } from "lucide-react";
 import { LazyMotion, domAnimation, m, AnimatePresence } from "framer-motion";
 
@@ -104,6 +112,17 @@ type BrainResp = {
   }>;
 };
 
+type AiEventsResp = {
+  ok?: boolean;
+  error?: string;
+  message?: string;
+  ai?: {
+    dueSoon?: any[];
+  };
+  stats?: any;
+  scope?: string;
+};
+
 function firstOrg(brain: BrainResp | null) {
   const org = brain?.orgs && Array.isArray(brain.orgs) ? brain.orgs[0] : null;
   return org;
@@ -124,6 +143,35 @@ async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
       "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
       Pragma: "no-cache",
     },
+    signal,
+  });
+  const text = await res.text();
+  let json: any = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {}
+  if (!res.ok) {
+    throw new Error(
+      (json && (json.message || json.error)) ||
+        text.slice(0, 200) ||
+        `Request failed (${res.status})`
+    );
+  }
+  return json as T;
+}
+
+async function postJson<T>(url: string, body: any, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    credentials: "include",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      Pragma: "no-cache",
+    },
+    body: JSON.stringify(body ?? {}),
     signal,
   });
   const text = await res.text();
@@ -182,6 +230,9 @@ function extractList(payload: any, preferredKeys: string[] = ["items"]): any[] {
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
+function safeLower(x: any) {
+  return safeStr(x).trim().toLowerCase();
+}
 function safeNum(x: any, fb = 0) {
   const n = Number(x);
   return Number.isFinite(n) ? n : fb;
@@ -208,6 +259,73 @@ function ageFromItem(it: any): string {
     null;
   if (!ts) return "";
   return timeAgo(safeStr(ts));
+}
+
+// --- GOVERNANCE BRAIN LIVE HELPERS (/api/ai/events) ----------------------------
+
+function parseDueDate(it: any): Date | null {
+  const raw = safeStr(it?.dueDate ?? it?.due_date ?? it?.due ?? "").trim();
+  if (!raw) return null;
+  const d = new Date(raw);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function daysUntilDate(d: Date | null) {
+  if (!d) return null;
+  const ms = d.getTime() - Date.now();
+  return Math.ceil(ms / (1000 * 60 * 60 * 24));
+}
+
+function aiKind(it: any) {
+  const k = safeLower(it?.itemType ?? it?.kind ?? it?.type ?? it?.entity ?? "");
+  return k;
+}
+function aiProjectKey(it: any) {
+  const meta = it?.meta ?? {};
+  return (
+    safeStr(meta?.project_human_id).trim() ||
+    safeStr(meta?.project_code).trim() ||
+    safeStr(meta?.project_id).trim() ||
+    safeStr(it?.project_code).trim() ||
+    safeStr(it?.project_id).trim() ||
+    "Project"
+  );
+}
+function aiProjectLabel(it: any) {
+  const meta = it?.meta ?? {};
+  return (
+    safeStr(meta?.project_name).trim() ||
+    safeStr(meta?.project_title).trim() ||
+    safeStr(it?.project_name).trim() ||
+    safeStr(it?.project_title).trim() ||
+    aiProjectKey(it)
+  );
+}
+
+function aiIsChange(it: any) {
+  const k = aiKind(it);
+  if (k.includes("change")) return true;
+  const t = safeLower(it?.title);
+  return t.includes("change request") || t.includes("cr:");
+}
+function aiIsRaid(it: any) {
+  const k = aiKind(it);
+  if (k.includes("raid") || k.includes("risk") || k.includes("issue") || k.includes("dependency") || k.includes("assumption")) return true;
+  const t = safeLower(it?.title);
+  return t.startsWith("risk:") || t.startsWith("issue:") || t.startsWith("dependency:");
+}
+function aiLabel(it: any) {
+  return safeStr(it?.title || it?.name || it?.label || "Untitled");
+}
+function aiSub(it: any) {
+  const proj = aiProjectLabel(it);
+  const meta = it?.meta ?? {};
+  const owner =
+    safeStr(meta?.owner_name).trim() ||
+    safeStr(meta?.owner_email).trim() ||
+    safeStr(it?.owner).trim() ||
+    "";
+  return owner ? `${proj} · ${owner}` : proj;
 }
 
 // --- DESIGN SYSTEM -----------------------------------------------------------
@@ -800,6 +918,19 @@ function PendingApprovalsBody({ items }: { items: any[] }) {
   );
 }
 
+// Governance Brain Live (DueSoon) bodies
+function DueSoonBody({ items, tone }: { items: any[]; tone: ToneKey }) {
+  return (
+    <MicroList
+      items={items}
+      tone={tone}
+      labelKey="title"
+      subKey="sub"
+      ageKey="computed_at"
+    />
+  );
+}
+
 // --- HEADER -------------------------------------------------------------------
 
 function CockpitHeader({
@@ -881,6 +1012,8 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
   const [lastRefreshed, setLastRefreshed] = React.useState("");
 
   const [brain, setBrain] = React.useState<BrainResp | null>(null);
+  const [aiEvents, setAiEvents] = React.useState<AiEventsResp | null>(null);
+  const [aiEventsError, setAiEventsError] = React.useState<string | null>(null);
 
   const [pendingApprovals, setPendingApprovals] = React.useState<Payload | null>(null);
   const [whoBlocking, setWhoBlocking] = React.useState<Payload | null>(null);
@@ -896,6 +1029,9 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
 
     // reset
     setBrain(null);
+    setAiEvents(null);
+    setAiEventsError(null);
+
     setPendingApprovals(null);
     setWhoBlocking(null);
     setSlaRadar(null);
@@ -912,6 +1048,21 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
         brainResp = null;
       }
       setBrain(brainResp);
+
+      // ✅ FIX-ECC11: Governance Brain Live (canonical due items feed)
+      // Org scope: omit project_id
+      let aiResp: AiEventsResp | null = null;
+      try {
+        aiResp = await postJson<AiEventsResp>(
+          "/api/ai/events",
+          { eventType: "artifact_due", windowDays: 14 },
+          signal
+        );
+      } catch (e: any) {
+        aiResp = null;
+        setAiEventsError(e?.message || "AI events unavailable");
+      }
+      setAiEvents(aiResp);
 
       const [paR, wbR, slaR, rsR, portR, bottR] = await Promise.allSettled([
         fetchJson<Payload>("/api/executive/approvals/pending?limit=200", signal),
@@ -942,7 +1093,8 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
 
       if (allFailed) {
         const okBrain = !!brainResp && (brainResp as any)?.ok === true;
-        if (!okBrain) setFatalError("All cockpit endpoints failed. Check your API routes.");
+        const okAi = !!aiResp && (aiResp as any)?.ok !== false;
+        if (!okBrain && !okAi) setFatalError("All cockpit endpoints failed. Check your API routes.");
       }
     } catch (e: any) {
       if (e?.name !== "AbortError")
@@ -1058,6 +1210,52 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
 
   const brainBottlenecks = brainWhoBlocking;
 
+  // --- Governance Brain Live (ai/events) derived signals ----------------------
+
+  const aiDueSoonRaw: any[] = Array.isArray(aiEvents?.ai?.dueSoon) ? (aiEvents!.ai!.dueSoon as any[]) : [];
+
+  const aiEnriched = React.useMemo(() => {
+    return aiDueSoonRaw.map((it) => {
+      const due = parseDueDate(it);
+      const days = daysUntilDate(due);
+      const overdue = days != null && days < 0;
+      const sub = aiSub(it);
+      return {
+        ...it,
+        __due: due,
+        __days: days,
+        __overdue: overdue,
+        title: aiLabel(it),
+        sub,
+        computed_at: it?.computed_at ?? it?.updated_at ?? it?.created_at ?? null,
+        project_key: aiProjectKey(it),
+        project_label: aiProjectLabel(it),
+      };
+    });
+  }, [aiDueSoonRaw]);
+
+  const aiOverdue = React.useMemo(() => aiEnriched.filter((x) => x.__overdue), [aiEnriched]);
+  const aiDueSoon = React.useMemo(() => aiEnriched.filter((x) => x.__days != null && x.__days >= 0), [aiEnriched]);
+  const aiChange = React.useMemo(() => aiEnriched.filter((x) => aiIsChange(x)), [aiEnriched]);
+  const aiRaid = React.useMemo(() => aiEnriched.filter((x) => aiIsRaid(x)), [aiEnriched]);
+
+  const aiTopProject = React.useMemo(() => {
+    if (!aiEnriched.length) return null;
+    const map = new Map<string, { key: string; label: string; count: number; overdue: number }>();
+    for (const it of aiEnriched) {
+      const key = safeStr(it.project_key).trim() || "Project";
+      const label = safeStr(it.project_label).trim() || key;
+      const cur = map.get(key) ?? { key, label, count: 0, overdue: 0 };
+      cur.count += 1;
+      if (it.__overdue) cur.overdue += 1;
+      map.set(key, cur);
+    }
+    const arr = Array.from(map.values()).sort((a, b) => (b.overdue - a.overdue) || (b.count - a.count));
+    return arr[0] ?? null;
+  }, [aiEnriched]);
+
+  const aiScopeLabel = safeStr(aiEvents?.scope).trim() || "org";
+
   // --- TILE MODEL -------------------------------------------------------------
 
   function pickCount(primary: Payload | null, fallback: number | null): number | null {
@@ -1065,7 +1263,58 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
     return c != null ? c : fallback;
   }
 
-  const tiles = [
+  const deliveryTiles = [
+    {
+      id: "ai_overdue",
+      label: "Delivery Pressure — Overdue",
+      short: "Overdue",
+      icon: <Flame className="h-5 w-5" />,
+      tone: "rose" as ToneKey,
+      count: aiEventsError ? null : aiOverdue.length,
+      error: aiEventsError,
+      href: "/approvals",
+      body: aiOverdue.length ? <DueSoonBody items={aiOverdue} tone="rose" /> : null,
+      scope: aiScopeLabel,
+    },
+    {
+      id: "ai_due_14",
+      label: "Due Next 14 Days",
+      short: "Due 14d",
+      icon: <CalendarDays className="h-5 w-5" />,
+      tone: "amber" as ToneKey,
+      count: aiEventsError ? null : aiDueSoon.length,
+      error: aiEventsError,
+      href: "/approvals",
+      body: aiDueSoon.length ? <DueSoonBody items={aiDueSoon} tone="amber" /> : null,
+      scope: aiScopeLabel,
+    },
+    {
+      id: "ai_change",
+      label: "Change Requests Due / In Review",
+      short: "Changes",
+      icon: <ClipboardList className="h-5 w-5" />,
+      tone: "indigo" as ToneKey,
+      count: aiEventsError ? null : aiChange.length,
+      error: aiEventsError,
+      href: "/approvals/portfolio",
+      body: aiChange.length ? <DueSoonBody items={aiChange} tone="indigo" /> : null,
+      scope: aiScopeLabel,
+    },
+    {
+      id: "ai_raid",
+      label: "RAID Pressure",
+      short: "RAID",
+      icon: <AlertTriangle className="h-5 w-5" />,
+      tone: "cyan" as ToneKey,
+      count: aiEventsError ? null : aiRaid.length,
+      error: aiEventsError,
+      href: "/approvals",
+      body: aiRaid.length ? <DueSoonBody items={aiRaid} tone="cyan" /> : null,
+      scope: aiScopeLabel,
+    },
+  ];
+
+  const classicTiles = [
     {
       id: "pending",
       label: "Pending Approvals",
@@ -1159,6 +1408,8 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
     },
   ];
 
+  const tiles = [...deliveryTiles, ...classicTiles];
+
   return (
     <LazyMotion features={domAnimation}>
       <div className="w-full">
@@ -1182,10 +1433,55 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
           )}
         </AnimatePresence>
 
+        {aiTopProject && !loading && (
+          <m.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.08 }}
+            className="mb-5 rounded-2xl border border-slate-200/70 bg-white/62 px-5 py-4 flex flex-wrap items-center justify-between gap-3"
+            style={{
+              backdropFilter: "blur(14px)",
+              boxShadow:
+                "0 1px 4px rgba(0,0,0,0.04), 0 1px 0 rgba(255,255,255,0.9) inset",
+            }}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className="h-10 w-10 rounded-xl flex items-center justify-center text-white"
+                style={{
+                  background: TONES.slate.iconBg,
+                  boxShadow: `0 4px 16px ${TONES.slate.iconGlow}, 0 1px 0 rgba(255,255,255,0.22) inset`,
+                }}
+              >
+                <Layers className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[10px] uppercase tracking-[0.18em] font-bold text-slate-400 mb-1">
+                  Top pressured project
+                </div>
+                <div className="text-sm font-bold text-slate-900 truncate">
+                  {aiTopProject.label}
+                </div>
+                <div className="text-[11px] text-slate-500 font-medium">
+                  {aiTopProject.overdue > 0
+                    ? `${aiTopProject.overdue} overdue · ${aiTopProject.count} due soon`
+                    : `${aiTopProject.count} due soon`}
+                </div>
+              </div>
+            </div>
+            <a
+              href="/approvals"
+              className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 transition-colors uppercase tracking-wider"
+            >
+              Open approvals <ChevronRight className="h-3.5 w-3.5" />
+            </a>
+          </m.div>
+        )}
+
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {loading
-            ? Array.from({ length: 6 }).map((_, i) => <TileSkeleton key={i} delay={i * 0.055} />)
-            : tiles.map((tile, i) => (
+            ? Array.from({ length: 9 }).map((_, i) => <TileSkeleton key={i} delay={i * 0.045} />)
+            : tiles.map((tile: any, i: number) => (
                 <CockpitTile
                   key={tile.id}
                   label={tile.label}
@@ -1194,12 +1490,12 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
                   tone={tile.tone}
                   error={tile.error}
                   href={tile.href}
-                  delay={i * 0.055}
+                  delay={i * 0.045}
                 >
                   {tile.body}
-                  {(tile as any).scope && (
+                  {tile.scope && (
                     <div className="mt-2 text-[10px] text-slate-400 font-medium uppercase tracking-wider">
-                      Scope: {(tile as any).scope}
+                      Scope: {tile.scope}
                     </div>
                   )}
                 </CockpitTile>
@@ -1219,11 +1515,11 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
             }}
           >
             <div className="flex flex-wrap items-center gap-4 text-sm text-slate-500">
-              {tiles.map((t) => (
+              {tiles.map((t: any) => (
                 <div key={t.id} className="flex items-center gap-1.5">
                   <span className={`h-2 w-2 rounded-full ${TONES[t.tone].listDot}`} />
                   <span className="font-semibold text-slate-800">{t.count ?? "---"}</span>
-                  <span className="font-medium text-[12px]">{(t as any).short ?? t.label}</span>
+                  <span className="font-medium text-[12px]">{t.short ?? t.label}</span>
                 </div>
               ))}
             </div>
