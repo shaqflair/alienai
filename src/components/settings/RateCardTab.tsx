@@ -178,12 +178,14 @@ function RateForm({
   onSave,
   onCancel,
   today,
+  existingRoles,
 }: {
   members: OrgMemberForPicker[];
   initial: EditRow;
   onSave: (row: EditRow) => void;
   onCancel: () => void;
   today: string;
+  existingRoles: string[];
 }) {
   const [row, setRow] = useState<EditRow>(initial);
   const [pending, startTransition] = useTransition();
@@ -211,7 +213,13 @@ function RateForm({
           value={row.roleLabel}
           onChange={e => set("roleLabel", e.target.value)}
           autoFocus
+          list="role-suggestions"
         />
+        {existingRoles.length > 0 && (
+          <datalist id="role-suggestions">
+            {existingRoles.map(r => <option key={r} value={r} />)}
+          </datalist>
+        )}
         <p className="text-xs text-gray-400 mt-1">Rate for anyone in this role. Optionally link to a specific person below for an individual override.</p>
       </div>
 
@@ -343,6 +351,11 @@ export default function RateCardTab({ organisationId, rates: initialRates, membe
   const [, startTransition] = useTransition();
   const [search, setSearch] = useState("");
 
+  const existingRoles = useMemo(
+    () => [...new Set(rates.map(r => r.role_label))].sort(),
+    [rates]
+  );
+
   const filtered = useMemo(() => {
     const lq = search.toLowerCase();
     return rates.filter(r =>
@@ -453,6 +466,7 @@ export default function RateCardTab({ organisationId, rates: initialRates, membe
           onSave={row => { handleAdd(row); setShowForm(false); }}
           onCancel={() => setShowForm(false)}
           today={today}
+          existingRoles={existingRoles}
         />
       )}
 
@@ -537,6 +551,7 @@ export default function RateCardTab({ organisationId, rates: initialRates, membe
                             onSave={row => { handleEdit(row); cancelEdit(); }}
                             onCancel={cancelEdit}
                             today={today}
+                            existingRoles={existingRoles}
                           />
                         </td>
                       </tr>
