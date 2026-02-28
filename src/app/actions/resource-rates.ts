@@ -1,9 +1,8 @@
-﻿"use server";
-
+"use server";
 import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
 
-// â”€â”€ Shared types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- Shared types -----------------------------------------------------------
 
 export type OrgMemberForPicker = {
   user_id: string;
@@ -11,14 +10,13 @@ export type OrgMemberForPicker = {
   email: string | null;
   avatar_url: string | null;
   department: string | null;
-  job_title: string | null;
-  role: string; // org role: member | admin | owner
+  role: string;
 };
 
 export type ResourceRate = {
   id: string;
   organisation_id: string;
-  user_id: string;
+  user_id: string | null;
   role_label: string;
   rate_type: "day_rate" | "monthly_cost";
   rate: number;
@@ -26,15 +24,14 @@ export type ResourceRate = {
   resource_type: "internal" | "contractor" | "vendor" | "consultant";
   notes: string | null;
   effective_from: string;
-  // joined from profiles + organisation_members
+  // joined from profiles
   full_name: string | null;
   email: string | null;
   avatar_url: string | null;
   department: string | null;
-  job_title: string | null;
 };
 
-// â”€â”€ Fetch all org members (for the person picker in financial plan) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- Fetch all org members (for the person picker) --------------------------
 
 export async function getOrgMembersForPicker(
   organisationId: string
@@ -55,7 +52,7 @@ export async function getOrgMembersForPicker(
 
   const { data: profiles } = await supabase
     .from("profiles")
-    .select("user_id, full_name, email, avatar_url, department, job_title")
+    .select("user_id, full_name, email, avatar_url, department")
     .in("user_id", userIds);
 
   const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
@@ -68,104 +65,104 @@ export async function getOrgMembersForPicker(
       email:      p.email      ?? null,
       avatar_url: p.avatar_url ?? null,
       department: p.department ?? null,
-      job_title:  p.job_title  ?? null,
       role:       row.role,
     };
   });
 }
 
-// â”€â”€ Fetch latest resource rates for an org (admin rate card view) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- Fetch latest resource rates for an org ---------------------------------
 
 export async function getResourceRates(
   organisationId: string
 ): Promise<ResourceRate[]> {
   const supabase = await createClient();
-
-  // Use the view which already deduplicates to latest effective_from
   const { data, error } = await supabase
     .from("v_resource_rates_latest")
     .select("*")
     .eq("organisation_id", organisationId)
-    .order("full_name");
-
+    .order("role_label");
   if (error) { console.error("[getResourceRates]", error.message); return []; }
   return (data ?? []) as ResourceRate[];
 }
 
-// â”€â”€ Fetch rate for a specific user (used when PM picks a person) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- Fetch rate for a specific user -----------------------------------------
 
 export async function getResourceRateForUser(
   organisationId: string,
   userId: string
 ): Promise<ResourceRate[]> {
   const supabase = await createClient();
-
   const { data, error } = await supabase
     .from("v_resource_rates_latest")
     .select("*")
     .eq("organisation_id", organisationId)
     .eq("user_id", userId);
-
   if (error) throw new Error(error.message);
   return (data ?? []) as ResourceRate[];
 }
 
-// â”€â”€ Upsert a rate (admin only â€” RLS enforces this) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- Upsert a rate (admin only - RLS enforces this) -------------------------
 
 export async function upsertResourceRate(payload: {
   id?: string;
-  organisation_id: string;
-  user_id: string;
-  role_label: string;
-  rate_type: "day_rate" | "monthly_cost";
+  organisationId: string;
+  userId?: string | null;
+  roleLabel: string;
+  rateType: "day_rate" | "monthly_cost";
   rate: number;
   currency: string;
-  resource_type: "internal" | "contractor" | "vendor" | "consultant";
-  notes?: string;
-  effective_from: string;
-}): Promise<{ id: string }> {
+  resourceType: "internal" | "contractor" | "vendor" | "consultant";
+  notes?: string | null;
+  effectiveFrom: string;
+}): Promise<{ error?: string }> {
   const supabase = await createClient();
-
   const { data: userData } = await supabase.auth.getUser();
   const actorId = userData?.user?.id;
 
-  const row = {
-    ...payload,
-    updated_by: actorId,
-    ...(payload.id ? {} : { created_by: actorId }),
+  const row: Record<string, any> = {
+    organisation_id: payload.organisationId,
+    user_id:         payload.userId || null,
+    role_label:      payload.roleLabel,
+    rate_type:       payload.rateType,
+    rate:            payload.rate,
+    currency:        payload.currency,
+    resource_type:   payload.resourceType,
+    notes:           payload.notes || null,
+    effective_from:  payload.effectiveFrom,
+    updated_by:      actorId,
   };
 
-  const { data, error } = await supabase
-    .from("resource_rates")
-    .upsert(row, {
-      onConflict: "organisation_id,user_id,rate_type,effective_from",
-    })
-    .select("id")
-    .single();
-
-  if (error) throw new Error(error.message);
-
-  revalidatePath(`/organisations/${payload.organisation_id}/settings`);
-  return { id: data.id };
-}
-
-// â”€â”€ Delete a rate row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-export async function deleteResourceRate(
-  id: string,
-  organisationId: string
-): Promise<void> {
-  const supabase = await createClient();
+  if (payload.id) {
+    row.id = payload.id;
+  } else {
+    row.created_by = actorId;
+  }
 
   const { error } = await supabase
     .from("resource_rates")
-    .delete()
-    .eq("id", id);
+    .upsert(row, { onConflict: payload.id ? "id" : undefined });
 
-  if (error) throw new Error(error.message);
+  if (error) return { error: error.message };
 
-  revalidatePath(`/organisations/${organisationId}/settings`);
+  revalidatePath(`/organisations/${payload.organisationId}/settings`);
+  return {};
 }
 
+// -- Delete a rate ----------------------------------------------------------
 
+export async function deleteResourceRate(payload: {
+  id: string;
+  organisationId: string;
+}): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("resource_rates")
+    .delete()
+    .eq("id", payload.id)
+    .eq("organisation_id", payload.organisationId);
 
+  if (error) return { error: error.message };
+
+  revalidatePath(`/organisations/${payload.organisationId}/settings`);
+  return {};
+}
