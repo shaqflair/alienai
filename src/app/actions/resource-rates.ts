@@ -41,35 +41,37 @@ export async function getOrgMembersForPicker(
 ): Promise<OrgMemberForPicker[]> {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  const { data: members, error } = await supabase
     .from("organisation_members")
-    .select(
-      `
-      user_id,
-      role,
-      profiles!inner (
-        full_name,
-        email,
-        avatar_url,
-        department
-      )
-    `
-    )
+    .select("user_id, role")
     .eq("organisation_id", organisationId)
     .is("removed_at", null)
     .order("role");
 
   if (error) throw new Error(error.message);
+  if (!members?.length) return [];
 
-  return ((data ?? []) as any[]).map((row) => ({
-    user_id:    row.user_id,
-    full_name:  row.profiles?.full_name ?? null,
-    email:      row.profiles?.email     ?? null,
-    avatar_url: row.profiles?.avatar_url ?? null,
-    department: row.profiles?.department ?? null,
-    job_title:  row.job_title            ?? null,
-    role:       row.role,
-  }));
+  const userIds = members.map((m: any) => m.user_id).filter(Boolean);
+
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("user_id, full_name, email, avatar_url, department, job_title")
+    .in("user_id", userIds);
+
+  const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
+
+  return members.map((row: any) => {
+    const p = profileMap.get(row.user_id) ?? {};
+    return {
+      user_id:    row.user_id,
+      full_name:  p.full_name  ?? null,
+      email:      p.email      ?? null,
+      avatar_url: p.avatar_url ?? null,
+      department: p.department ?? null,
+      job_title:  p.job_title  ?? null,
+      role:       row.role,
+    };
+  });
 }
 
 // â”€â”€ Fetch latest resource rates for an org (admin rate card view) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -164,5 +166,6 @@ export async function deleteResourceRate(
 
   revalidatePath(`/organisations/${organisationId}/settings`);
 }
+
 
 
