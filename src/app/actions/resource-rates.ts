@@ -164,3 +164,4 @@ export async function deleteResourceRate(
 
   revalidatePath(`/organisations/${organisationId}/settings`);
 }
+
