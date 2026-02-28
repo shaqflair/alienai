@@ -177,6 +177,17 @@ function canonType(x: any) {
     .replace(/[_-]+/g, "_")
     .trim();
 
+  // ✅ Governance hub virtual type (future-proof mapping)
+  if (
+    t === "governance" ||
+    t === "delivery_governance" ||
+    t === "delivery governance" ||
+    t === "governance_hub" ||
+    t === "governance hub"
+  ) {
+    return "GOVERNANCE";
+  }
+
   if (t === "status_dashboard" || t === "status dashboard") return "PROJECT_CLOSURE_REPORT";
 
   if (
@@ -255,6 +266,7 @@ function phaseForCanonType(typeKey: string): Phase {
     case "WBS":
     case "SCHEDULE":
       return "Planning";
+    case "GOVERNANCE":
     case "RAID":
     case "CHANGE_REQUESTS":
       return "Monitoring & Controlling";
@@ -303,6 +315,7 @@ const TYPE_ORDER = [
   "WBS",
   "SCHEDULE",
   "CHANGE_REQUESTS",
+  "GOVERNANCE", // ✅ NEW: keep Governance near control artifacts
   "RAID",
   "LESSONS_LEARNED",
   "PROJECT_CLOSURE_REPORT",
@@ -554,17 +567,42 @@ export default async function ArtifactsPage({
         isVirtual: true,
       };
 
-  const rows: ArtifactBoardRowWithActions[] = [...rowsFromArtifacts, ...(changeVirtualRow ? [changeVirtualRow] : [])].sort(
-    (a, b) => {
-      const pr = phaseRank(a.phase) - phaseRank(b.phase);
-      if (pr !== 0) return pr;
+  // ✅ Inject Delivery Governance as a virtual row (always)
+  const governanceVirtualRow: ArtifactBoardRowWithActions = {
+    id: "__governance__",
+    artifactType: "GOVERNANCE",
+    title: "Delivery Governance",
+    ownerEmail: "",
+    ownerName: undefined,
+    progress: 20,
+    status: "Draft",
+    phase: "Monitoring & Controlling",
+    due: dueDisplay,
+    isBaseline: false,
 
-      const tr = typeRank(a.artifactType) - typeRank(b.artifactType);
-      if (tr !== 0) return tr;
+    canDeleteDraft: false,
+    canClone: false,
+    approvalStatus: "draft",
+    isLocked: false,
+    deletedAt: null,
 
-      return a.title.localeCompare(b.title);
-    }
-  );
+    href: `/projects/${projectUuid}/governance`,
+    isVirtual: true,
+  };
+
+  const rows: ArtifactBoardRowWithActions[] = [
+    ...rowsFromArtifacts,
+    ...(changeVirtualRow ? [changeVirtualRow] : []),
+    governanceVirtualRow,
+  ].sort((a, b) => {
+    const pr = phaseRank(a.phase) - phaseRank(b.phase);
+    if (pr !== 0) return pr;
+
+    const tr = typeRank(a.artifactType) - typeRank(b.artifactType);
+    if (tr !== 0) return tr;
+
+    return a.title.localeCompare(b.title);
+  });
 
   return (
     <ArtifactBoardClient
