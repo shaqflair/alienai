@@ -1,1 +1,1 @@
-﻿export { GET } from "@/app/api/approvals/risk-signals/route";
+export { GET } from "@/app/api/approvals/risk-signals/route";

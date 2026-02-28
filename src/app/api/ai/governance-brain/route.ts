@@ -1,4 +1,4 @@
-﻿// src/app/api/ai/governance-brain/route.ts
+// src/app/api/ai/governance-brain/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -27,7 +27,7 @@ function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
-// ✅ Hardened: handle Postgres date-only ("YYYY-MM-DD") as LOCAL date (prevents 1-day drift)
+// ? Hardened: handle Postgres date-only ("YYYY-MM-DD") as LOCAL date (prevents 1-day drift)
 function toDate(x: any): Date | null {
   if (!x) return null;
 
@@ -135,7 +135,7 @@ type OrgBrain = {
     }>;
   };
 
-  // ✅ Optional extras (non-breaking) for UI fallback lists
+  // ? Optional extras (non-breaking) for UI fallback lists
   samples?: {
     sla_breakdown?: Array<{ key: string; count: number }>;
     worst_projects?: Array<{ project_id: string; project_title: string; score: number; rag: "G" | "A" | "R" }>;
@@ -257,7 +257,7 @@ async function buildOrgBrain(opts: {
     updated_at: p.updated_at,
   }));
 
-  const projectIds = projects.map((p) => p.id).filter(Boolean);
+  const projectIds = projects.map((p: any) => p.id).filter(Boolean);
 
   if (!projectIds.length) {
     return {
@@ -556,7 +556,7 @@ async function buildOrgBrain(opts: {
   const byProjHighRaid = mapCount(highRaid);
   const byProjOverdueRaid = mapCount(overdueRaid);
 
-  const projectScores = projects.map((p) => {
+  const projectScores = projects.map((p: any) => {
     const overdueApprovalsN = byProjOverdueApprovals.get(p.id) ?? 0;
     const breachedTasksN = byProjBreachedTasks.get(p.id) ?? 0;
     const breachedWbsN = byProjBreachedWbs.get(p.id) ?? 0;
@@ -606,7 +606,7 @@ async function buildOrgBrain(opts: {
 
   const portfolioScore =
     projectScores.length > 0
-      ? Math.round(projectScores.reduce((a, b) => a + b.score, 0) / projectScores.length)
+      ? Math.round(projectScores.reduce((a: any, b: any) => a + b.score, 0) / projectScores.length)
       : 100;
 
   const portfolioRag = ragFromScore(portfolioScore);
@@ -661,7 +661,7 @@ async function buildOrgBrain(opts: {
     health: {
       portfolio_score: portfolioScore,
       portfolio_rag: portfolioRag,
-      projects: projectScores.sort((a, b) => a.score - b.score).slice(0, 50),
+      projects: projectScores.sort((a: any, b: any) => a.score - b.score).slice(0, 50),
     },
 
     samples: {
@@ -672,7 +672,7 @@ async function buildOrgBrain(opts: {
         .slice(0, 8),
       worst_projects: projectScores
         .slice()
-        .sort((a, b) => a.score - b.score)
+        .sort((a: any, b: any) => a.score - b.score)
         .slice(0, 8)
         .map((p) => ({
           project_id: p.project_id,
@@ -731,7 +731,7 @@ async function handle(req: Request) {
 
     const allowedOrgIds = memberOrgIds;
 
-    const targetOrgIds =
+    const targetOrgIds: string[] =
       scope === "all"
         ? allowedOrgIds
         : activeOrgId && allowedOrgIds.includes(activeOrgId)

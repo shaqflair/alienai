@@ -105,7 +105,7 @@ export default function ResourcePicker({
         m.full_name?.toLowerCase().includes(q) ||
         m.email?.toLowerCase().includes(q) ||
         m.department?.toLowerCase().includes(q) ||
-        m.job_title?.toLowerCase().includes(q)
+        m.department?.toLowerCase().includes(q)
     );
   }, [members, query]);
 
@@ -121,8 +121,8 @@ export default function ResourcePicker({
         email:         member.email,
         avatar_url:    member.avatar_url,
         department:    member.department,
-        job_title:     member.job_title,
-        role_label:    member.job_title ?? "",
+        job_title:     member.department,
+        role_label:    member.department ?? "",
       };
 
       onPick(picked); // fire immediately so UI feels snappy
@@ -142,7 +142,7 @@ export default function ResourcePicker({
             rate:          rate.rate,
             currency:      rate.currency,
             resource_type: rate.resource_type as ResourceType,
-            role_label:    rate.role_label || member.job_title || "",
+            role_label:    rate.role_label || member.department || "",
           });
         }
       } catch (e) {
@@ -246,7 +246,7 @@ export default function ResourcePicker({
                     {m.department && (
                       <span className="text-[10px] text-gray-400 truncate">{m.department}</span>
                     )}
-                    {m.job_title && (
+                    {m.department && (
                       <span className="text-[10px] text-gray-400 truncate">· {m.job_title}</span>
                     )}
                   </div>
