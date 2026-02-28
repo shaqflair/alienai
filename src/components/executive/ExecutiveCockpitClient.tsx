@@ -9,13 +9,15 @@
 //              /api/executive/risk-signals   → /api/executive/approvals/risk-signals
 //   ✅ FIX-ECC2: SlaRadarBody reads item.breached / item.at_risk (route returns booleans, not sla_state)
 //   ✅ FIX-ECC3: PendingApprovalsBody reads sla_status || sla_state (cache column is sla_status)
-//   ✅ FIX-ECC4: MicroList age derived from submitted_at/created_at (age_hours doesn't exist on cache rows)
+//   ✅ FIX-ECC4: MicroList age derived from timestamps (submitted_at/created_at/computed_at/updated_at/etc.)
 //   ✅ FIX-ECC5: Add Governance Brain as primary/fallback signal source (/api/ai/governance-brain)
 //
 // Additional hardening:
 //   ✅ FIX-ECC6: Brain SLA tile prefers approvals overdue_steps / breached_by_type.approvals over total breached_total
 //   ✅ FIX-ECC7: Brain risk fallback uses health.projects[].signals (raid_high/raid_overdue) when available
 //   ✅ FIX-ECC8: Stable footer labels (avoid split(" ").pop() weirdness)
+//   ✅ FIX-ECC9: Align list rendering keys with API payloads (project_name vs project_title, etc.)
+//   ✅ FIX-ECC10: WhoBlockingBody renders task-style rows correctly (title/project_name) when not aggregated
 
 "use client";
 
@@ -143,7 +145,10 @@ function errPayload(msg: string): ApiErr {
   return { error: msg };
 }
 
-function settledOrErr<T>(r: PromiseSettledResult<T>, fallbackMsg: string): T | ApiErr {
+function settledOrErr<T>(
+  r: PromiseSettledResult<T>,
+  fallbackMsg: string
+): T | ApiErr {
   if (r.status === "fulfilled") return r.value as any;
   return errPayload((r.reason?.message || String(r.reason)) || fallbackMsg);
 }
@@ -191,9 +196,16 @@ function timeAgo(iso: string) {
   return `${Math.floor(d / 86400)}d ago`;
 }
 
-// ✅ FIX-ECC4: derive display age from submitted_at or created_at
+// ✅ FIX-ECC4: derive display age from a wider set of timestamp fields
 function ageFromItem(it: any): string {
-  const ts = it?.submitted_at ?? it?.created_at ?? null;
+  const ts =
+    it?.submitted_at ??
+    it?.created_at ??
+    it?.computed_at ??
+    it?.updated_at ??
+    it?.requested_at ??
+    it?.requestedAt ??
+    null;
   if (!ts) return "";
   return timeAgo(safeStr(ts));
 }
@@ -344,7 +356,10 @@ function CockpitTile({
     >
       <div
         className="absolute inset-0 rounded-2xl pointer-events-none"
-        style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.68) 0%, transparent 62%)" }}
+        style={{
+          background:
+            "linear-gradient(135deg, rgba(255,255,255,0.68) 0%, transparent 62%)",
+        }}
       />
       <div
         className="absolute top-0 inset-x-0 h-[1px] rounded-t-2xl"
@@ -355,11 +370,17 @@ function CockpitTile({
       />
       <div
         className="absolute top-0 inset-x-0 h-24 rounded-t-2xl pointer-events-none"
-        style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.82) 0%, transparent 100%)" }}
+        style={{
+          background:
+            "linear-gradient(180deg, rgba(255,255,255,0.82) 0%, transparent 100%)",
+        }}
       />
       <div
         className="absolute -bottom-12 -right-12 w-40 h-40 rounded-full pointer-events-none"
-        style={{ background: `radial-gradient(ellipse, ${acc.orb} 0%, transparent 65%)`, filter: "blur(2px)" }}
+        style={{
+          background: `radial-gradient(ellipse, ${acc.orb} 0%, transparent 65%)`,
+          filter: "blur(2px)",
+        }}
       />
       <div
         className="absolute left-0 top-5 bottom-5 w-[3px] rounded-r-full"
@@ -369,7 +390,9 @@ function CockpitTile({
       <div className="relative pl-4 p-5 flex flex-col h-full">
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.18em] mb-2">{label}</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.18em] mb-2">
+              {label}
+            </p>
             {error ? (
               <div className="rounded-xl border border-rose-200/70 bg-rose-50/70 px-3 py-2 text-xs text-rose-700 mt-1">
                 <AlertTriangle className="inline h-3.5 w-3.5 mr-1.5 -mt-0.5" />
@@ -379,7 +402,10 @@ function CockpitTile({
               <div className="flex items-end gap-3">
                 <p
                   className="text-[38px] font-bold text-slate-950 leading-none tracking-tight"
-                  style={{ fontFamily: "var(--font-mono, 'DM Mono', monospace)", letterSpacing: "-0.025em" }}
+                  style={{
+                    fontFamily: "var(--font-mono, 'DM Mono', monospace)",
+                    letterSpacing: "-0.025em",
+                  }}
                 >
                   {count === null ? (
                     <span className="inline-flex gap-1 items-center pb-2">
@@ -400,7 +426,10 @@ function CockpitTile({
           </div>
           <div
             className="shrink-0 flex items-center justify-center w-11 h-11 rounded-xl text-white"
-            style={{ background: acc.iconBg, boxShadow: `0 4px 16px ${acc.iconGlow}, 0 1px 0 rgba(255,255,255,0.22) inset` }}
+            style={{
+              background: acc.iconBg,
+              boxShadow: `0 4px 16px ${acc.iconGlow}, 0 1px 0 rgba(255,255,255,0.22) inset`,
+            }}
           >
             {icon}
           </div>
@@ -436,7 +465,6 @@ function MicroList({
   tone: ToneKey;
   labelKey?: string;
   subKey?: string;
-  // ✅ FIX-ECC4: ageKey is now optional — if omitted, age is derived from submitted_at/created_at
   ageKey?: string;
 }) {
   const acc = TONES[tone];
@@ -444,10 +472,17 @@ function MicroList({
   return (
     <div className="space-y-1.5 mt-3 pt-3 border-t border-slate-100/80">
       {items.slice(0, 3).map((it, i) => {
-        const label = safeStr(it?.[labelKey] || it?.title || it?.name || it?.label || it?.project_title || "---");
+        const label = safeStr(
+          it?.[labelKey] ||
+            it?.title ||
+            it?.name ||
+            it?.label ||
+            it?.project_title ||
+            it?.project_name ||
+            "---"
+        );
         const sub = subKey ? safeStr(it?.[subKey]) : "";
-        // ✅ FIX-ECC4: use explicit ageKey if provided, otherwise derive from timestamp fields
-        const age = ageKey ? safeStr(it?.[ageKey]) : ageFromItem(it);
+        const age = ageKey ? timeAgo(safeStr(it?.[ageKey])) : ageFromItem(it);
         return (
           <m.div
             key={i}
@@ -455,7 +490,10 @@ function MicroList({
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.1 + i * 0.06 }}
             className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 bg-white/52 border border-slate-100/70 hover:bg-white/80 transition-all"
-            style={{ backdropFilter: "blur(8px)", boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}
+            style={{
+              backdropFilter: "blur(8px)",
+              boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
+            }}
           >
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${acc.listDot}`} />
             <div className="min-w-0 flex-1">
@@ -463,7 +501,10 @@ function MicroList({
               {sub && <div className="text-[10px] text-slate-400 truncate">{sub}</div>}
             </div>
             {age && (
-              <div className="shrink-0 text-[10px] text-slate-400 font-medium" style={{ fontFamily: "var(--font-mono, monospace)" }}>
+              <div
+                className="shrink-0 text-[10px] text-slate-400 font-medium"
+                style={{ fontFamily: "var(--font-mono, monospace)" }}
+              >
                 {age}
               </div>
             )}
@@ -478,8 +519,16 @@ function MicroList({
 
 function SeverityBar({ items }: { items: any[] }) {
   if (!items.length) return null;
-  const high = items.filter((it) => /high|red|r/.test(safeStr(it?.severity || it?.level || it?.rag || "").toLowerCase())).length;
-  const medium = items.filter((it) => /med|amber|a|warn/.test(safeStr(it?.severity || it?.level || it?.rag || "").toLowerCase())).length;
+  const high = items.filter((it) =>
+    /high|critical|red|r/.test(
+      safeStr(it?.severity || it?.level || it?.rag || "").toLowerCase()
+    )
+  ).length;
+  const medium = items.filter((it) =>
+    /med|medium|amber|a|warn|at_risk/.test(
+      safeStr(it?.severity || it?.level || it?.rag || "").toLowerCase()
+    )
+  ).length;
   const low = items.length - high - medium;
   const total = items.length;
 
@@ -496,7 +545,12 @@ function SeverityBar({ items }: { items: any[] }) {
           />
         )}
         {medium > 0 && (
-          <m.div initial={{ width: 0 }} animate={{ width: `${(medium / total) * 100}%` }} transition={{ duration: 0.7, delay: 0.3 }} className="h-full bg-amber-400" />
+          <m.div
+            initial={{ width: 0 }}
+            animate={{ width: `${(medium / total) * 100}%` }}
+            transition={{ duration: 0.7, delay: 0.3 }}
+            className="h-full bg-amber-400"
+          />
         )}
         {low > 0 && (
           <m.div
@@ -519,10 +573,22 @@ function SeverityBar({ items }: { items: any[] }) {
 // --- TILE BODIES --------------------------------------------------------------
 
 function SlaRadarBody({ items }: { items: any[] }) {
-  // ✅ FIX-ECC2: sla-radar route returns item.breached / item.at_risk booleans, not sla_state/sla_status
-  // Also accept sla_status / sla_state as fallback for any other data sources
-  const breached = items.filter((it) => it?.breached === true || /breach|overdue|r/.test(safeStr(it?.sla_status || it?.sla_state || it?.state || "").toLowerCase())).length;
-  const atRisk = items.filter((it) => it?.at_risk === true || /warn|at_risk|a/.test(safeStr(it?.sla_status || it?.sla_state || it?.state || "").toLowerCase())).length;
+  // ✅ FIX-ECC2: sla-radar route returns item.breached / item.at_risk booleans
+  const breached = items.filter(
+    (it) =>
+      it?.breached === true ||
+      /breach|overdue|breached|r/.test(
+        safeStr(it?.sla_status || it?.sla_state || it?.state || "").toLowerCase()
+      )
+  ).length;
+
+  const atRisk = items.filter(
+    (it) =>
+      it?.at_risk === true ||
+      /warn|at_risk|a/.test(
+        safeStr(it?.sla_status || it?.sla_state || it?.state || "").toLowerCase()
+      )
+  ).length;
 
   return (
     <div>
@@ -546,13 +612,19 @@ function SlaRadarBody({ items }: { items: any[] }) {
           </span>
         )}
       </div>
-      <MicroList items={items} tone="cyan" labelKey="project_title" subKey="stage_key" />
+
+      {/* ✅ FIX-ECC9: sla-radar items use title + project_name */}
+      <MicroList items={items} tone="cyan" labelKey="title" subKey="project_name" />
     </div>
   );
 }
 
 function WhoBlockingBody({ items }: { items: any[] }) {
-  const structured = items.some((it) => typeof it?.count === "number" || typeof it?.pending_count === "number");
+  // Aggregated format: count/pending_count per person
+  const structured = items.some(
+    (it) => typeof it?.count === "number" || typeof it?.pending_count === "number"
+  );
+
   if (structured) {
     return (
       <div className="mt-3 pt-3 border-t border-slate-100/80 space-y-2">
@@ -576,10 +648,15 @@ function WhoBlockingBody({ items }: { items: any[] }) {
                 <span className="text-xs font-semibold text-slate-800 truncate">{name}</span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <span className="text-[10px] font-bold text-amber-700 bg-amber-50/80 border border-amber-200/60 rounded-lg px-2 py-0.5" style={{ fontFamily: "var(--font-mono, monospace)" }}>
+                <span
+                  className="text-[10px] font-bold text-amber-700 bg-amber-50/80 border border-amber-200/60 rounded-lg px-2 py-0.5"
+                  style={{ fontFamily: "var(--font-mono, monospace)" }}
+                >
                   {count}
                 </span>
-                {maxWait > 0 && <span className="text-[10px] text-slate-400 font-medium">{maxWait}d</span>}
+                {maxWait > 0 && (
+                  <span className="text-[10px] text-slate-400 font-medium">{maxWait}d</span>
+                )}
               </div>
             </m.div>
           );
@@ -587,14 +664,17 @@ function WhoBlockingBody({ items }: { items: any[] }) {
       </div>
     );
   }
-  return <MicroList items={items} tone="amber" labelKey="name" />;
+
+  // ✅ FIX-ECC10: who-blocking route returns task-like rows: title + project_name
+  return <MicroList items={items} tone="amber" labelKey="title" subKey="project_name" />;
 }
 
 function RiskSignalsBody({ items }: { items: any[] }) {
   return (
     <div>
       <SeverityBar items={items} />
-      <MicroList items={items} tone="rose" labelKey="title" subKey="project_title" />
+      {/* ✅ FIX-ECC9: risk-signals uses project_name */}
+      <MicroList items={items} tone="rose" labelKey="title" subKey="project_name" />
     </div>
   );
 }
@@ -603,7 +683,13 @@ function PortfolioApprovalsBody({ items }: { items: any[] }) {
   const byProject = new Map<string, { title: string; count: number }>();
   for (const it of items) {
     const pid = safeStr(it?.project_id || it?.project?.id || "unknown");
-    const title = safeStr(it?.project_title || it?.project_name || it?.project?.title || it?.change?.project_title || pid);
+    const title = safeStr(
+      it?.project_title ||
+        it?.project_name ||
+        it?.project?.title ||
+        it?.change?.project_title ||
+        pid
+    );
     const p = byProject.get(pid) || { title, count: 0 };
     p.count++;
     byProject.set(pid, p);
@@ -627,7 +713,10 @@ function PortfolioApprovalsBody({ items }: { items: any[] }) {
             <span className="h-1.5 w-1.5 rounded-full bg-indigo-400 shrink-0" />
             <span className="text-xs font-semibold text-slate-800 truncate">{p.title}</span>
           </div>
-          <span className="shrink-0 text-[10px] font-bold text-indigo-700 bg-indigo-50/80 border border-indigo-200/60 rounded-lg px-2 py-0.5" style={{ fontFamily: "var(--font-mono, monospace)" }}>
+          <span
+            className="shrink-0 text-[10px] font-bold text-indigo-700 bg-indigo-50/80 border border-indigo-200/60 rounded-lg px-2 py-0.5"
+            style={{ fontFamily: "var(--font-mono, monospace)" }}
+          >
             {p.count}
           </span>
         </m.div>
@@ -637,7 +726,9 @@ function PortfolioApprovalsBody({ items }: { items: any[] }) {
 }
 
 function BottlenecksBody({ items }: { items: any[] }) {
-  const maxCount = items.length ? Math.max(...items.map((it) => safeNum(it?.pending_count || it?.count || 1))) : 1;
+  const maxCount = items.length
+    ? Math.max(...items.map((it) => safeNum(it?.pending_count || it?.count || 1)))
+    : 1;
   return (
     <div className="mt-3 pt-3 border-t border-slate-100/80 space-y-2">
       {items.slice(0, 3).map((it, i) => {
@@ -664,7 +755,10 @@ function BottlenecksBody({ items }: { items: any[] }) {
                 <Layers className="h-3 w-3 text-slate-400 shrink-0" />
                 <span className="text-xs font-semibold text-slate-800 truncate">{label}</span>
               </div>
-              <span className="shrink-0 text-[10px] font-bold text-slate-600" style={{ fontFamily: "var(--font-mono, monospace)" }}>
+              <span
+                className="shrink-0 text-[10px] font-bold text-slate-600"
+                style={{ fontFamily: "var(--font-mono, monospace)" }}
+              >
                 {count}
               </span>
             </div>
@@ -677,7 +771,12 @@ function BottlenecksBody({ items }: { items: any[] }) {
 
 function PendingApprovalsBody({ items }: { items: any[] }) {
   // ✅ FIX-ECC3: exec_approval_cache uses sla_status not sla_state; check both for safety
-  const overdue = items.filter((it) => /breach|overdue/.test(safeStr(it?.sla_status || it?.sla_state || it?.state || "").toLowerCase())).length;
+  const overdue = items.filter((it) =>
+    /breach|overdue|breached|r/.test(
+      safeStr(it?.sla_status || it?.sla_state || it?.state || "").toLowerCase()
+    )
+  ).length;
+
   return (
     <div>
       {overdue > 0 && (
@@ -688,8 +787,15 @@ function PendingApprovalsBody({ items }: { items: any[] }) {
           </span>
         </div>
       )}
-      {/* ✅ FIX-ECC4: no ageKey — MicroList derives age from submitted_at/created_at automatically */}
-      <MicroList items={items} tone="emerald" labelKey="project_title" subKey="stage_key" />
+
+      {/* ✅ FIX-ECC9: pending rows: project_title + sla_status/approver_label + computed_at */}
+      <MicroList
+        items={items}
+        tone="emerald"
+        labelKey="project_title"
+        subKey="sla_status"
+        ageKey="computed_at"
+      />
     </div>
   );
 }
@@ -723,17 +829,24 @@ function CockpitHeader({
             className="flex h-11 w-11 items-center justify-center rounded-xl text-white"
             style={{
               background: "linear-gradient(135deg,#6366f1,#4f46e5)",
-              boxShadow: "0 4px 16px rgba(99,102,241,0.38), 0 1px 0 rgba(255,255,255,0.22) inset",
+              boxShadow:
+                "0 4px 16px rgba(99,102,241,0.38), 0 1px 0 rgba(255,255,255,0.22) inset",
             }}
           >
             <BarChart2 className="h-5 w-5" />
           </div>
           <div>
-            <div className="text-[10px] uppercase tracking-[0.2em] font-bold text-indigo-600 mb-0.5">Live Signals</div>
-            <h2 className="text-lg font-bold text-slate-950 leading-tight">Executive Cockpit</h2>
+            <div className="text-[10px] uppercase tracking-[0.2em] font-bold text-indigo-600 mb-0.5">
+              Live Signals
+            </div>
+            <h2 className="text-lg font-bold text-slate-950 leading-tight">
+              Executive Cockpit
+            </h2>
           </div>
         </div>
-        <p className="text-sm text-slate-400 font-medium">Org-scoped governance signals</p>
+        <p className="text-sm text-slate-400 font-medium">
+          Org-scoped governance signals
+        </p>
       </div>
 
       <div className="flex items-center gap-3">
@@ -748,7 +861,10 @@ function CockpitHeader({
           onClick={onRefresh}
           disabled={loading}
           className="flex items-center gap-2 rounded-xl border border-slate-200/80 bg-white/72 px-4 py-2.5 text-sm text-slate-600 hover:bg-white/92 hover:text-slate-900 transition-all disabled:opacity-50"
-          style={{ backdropFilter: "blur(10px)", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}
+          style={{
+            backdropFilter: "blur(10px)",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+          }}
         >
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           {loading ? "Refreshing..." : "Refresh"}
@@ -797,10 +913,8 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       }
       setBrain(brainResp);
 
-      // keep legacy endpoints (for rich lists) but cockpit can now degrade to Brain if these fail
       const [paR, wbR, slaR, rsR, portR, bottR] = await Promise.allSettled([
         fetchJson<Payload>("/api/executive/approvals/pending?limit=200", signal),
-        // ✅ FIX-ECC1: corrected paths — were missing /approvals/ prefix
         fetchJson<Payload>("/api/executive/approvals/who-blocking", signal),
         fetchJson<Payload>("/api/executive/approvals/sla-radar", signal),
         fetchJson<Payload>("/api/executive/approvals/risk-signals", signal),
@@ -823,15 +937,16 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       setBottlenecks(bott as any);
       setLastRefreshed(new Date().toISOString());
 
-      const allFailed = isErr(pa) && isErr(wb) && isErr(sla) && isErr(rs) && isErr(port) && isErr(bott);
+      const allFailed =
+        isErr(pa) && isErr(wb) && isErr(sla) && isErr(rs) && isErr(port) && isErr(bott);
 
-      // If everything failed but Brain is ok, we don't show fatal error.
       if (allFailed) {
         const okBrain = !!brainResp && (brainResp as any)?.ok === true;
         if (!okBrain) setFatalError("All cockpit endpoints failed. Check your API routes.");
       }
     } catch (e: any) {
-      if (e?.name !== "AbortError") setFatalError(e?.message ?? "Failed to load executive cockpit");
+      if (e?.name !== "AbortError")
+        setFatalError(e?.message ?? "Failed to load executive cockpit");
     } finally {
       setLoading(false);
     }
@@ -909,8 +1024,8 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       .sort((a, b) => safeNum(b[1]) - safeNum(a[1]))
       .slice(0, 6)
       .map(([k, v]) => ({
-        project_title: k.replace(/_/g, " "),
-        stage_key: `${safeNum(v)} breach${safeNum(v) !== 1 ? "es" : ""}`,
+        title: k.replace(/_/g, " "),
+        project_name: `${safeNum(v)} breach${safeNum(v) !== 1 ? "es" : ""}`,
         breached: true,
       }));
   })();
@@ -919,6 +1034,7 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
     ? org!.health!.projects.slice(0, 8).map((p: any) => ({
         project_id: p.project_id,
         project_title: p.project_title,
+        project_name: p.project_title,
         stage_key: `Score ${safeNum(p.score)} · ${safeStr(p.rag)}`,
       }))
     : [];
@@ -961,8 +1077,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       href: "/approvals",
       body: paItems.length ? (
         <PendingApprovalsBody items={paItems} />
-      ) : brainWhoBlocking.length ? (
-        <WhoBlockingBody items={brainWhoBlocking} />
       ) : brainPortfolioItems.length ? (
         <MicroList items={brainPortfolioItems} tone="emerald" labelKey="project_title" subKey="stage_key" />
       ) : null,
@@ -1100,7 +1214,8 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
             className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/70 bg-white/62 px-5 py-4"
             style={{
               backdropFilter: "blur(14px)",
-              boxShadow: "0 1px 4px rgba(0,0,0,0.04), 0 1px 0 rgba(255,255,255,0.9) inset",
+              boxShadow:
+                "0 1px 4px rgba(0,0,0,0.04), 0 1px 0 rgba(255,255,255,0.9) inset",
             }}
           >
             <div className="flex flex-wrap items-center gap-4 text-sm text-slate-500">

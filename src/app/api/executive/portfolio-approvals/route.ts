@@ -2,7 +2,7 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { orgIdsForUser, requireUser, safeStr } from "../approvals/_lib";
+import { orgIdsForUser, requireUser, safeStr } from "../_lib";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,21 +10,27 @@ export const revalidate = 0;
 
 function jsonOk(data: any, status = 200) {
   const res = NextResponse.json({ ok: true, ...data }, { status });
-  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
   res.headers.set("Pragma", "no-cache");
   res.headers.set("Expires", "0");
   return res;
 }
 function jsonErr(error: string, status = 400, meta?: any) {
   const res = NextResponse.json({ ok: false, error, meta }, { status });
-  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
   res.headers.set("Pragma", "no-cache");
   res.headers.set("Expires", "0");
   return res;
 }
 
 async function isExecutiveForOrg(supabase: any, userId: string, orgId: string) {
-  // Single-org exec gate: owner on any active project in org
+  // Exec gate: owner on any active project in org
   const { data, error } = await supabase
     .from("project_members")
     .select("id, projects!inner(id, organisation_id)")
@@ -52,7 +58,14 @@ async function myProjectIdsInOrg(supabase: any, userId: string, orgId: string) {
 }
 
 function pickProjectId(row: any): string {
-  return safeStr(row?.project_id || row?.projectId || row?.project_uuid || row?.projectUuid || row?.project || "").trim();
+  return safeStr(
+    row?.project_id ||
+      row?.projectId ||
+      row?.project_uuid ||
+      row?.projectUuid ||
+      row?.project ||
+      ""
+  ).trim();
 }
 
 function safeIso(v: any): string | null {
@@ -65,16 +78,29 @@ function safeIso(v: any): string | null {
 
 function isPendingLike(status: any) {
   const s = safeStr(status).toLowerCase().trim();
-  return s === "" || ["pending", "requested", "awaiting", "open", "in_review"].includes(s);
+  return (
+    s === "" ||
+    [
+      "pending",
+      "requested",
+      "awaiting",
+      "open",
+      "in_review",
+      "review",
+      "submitted",
+      "new",
+    ].includes(s)
+  );
 }
 
 export async function GET() {
   try {
     const supabase = await createClient();
-    const _auth = await requireUser(supabase); const user = (_auth as any)?.user ?? _auth;
+    const auth = await requireUser(supabase);
+    const user = (auth as any)?.user ?? auth;
 
-    // Single-org mode: orgIdsForUser returns [profiles.active_organisation_id]
-    const orgIds = await orgIdsForUser(user.id);
+    // Single-org mode: use active org from profile (via shared lib)
+    const orgIds = await orgIdsForUser(supabase, user.id);
     const orgId = safeStr(orgIds[0]).trim();
     if (!orgId) return jsonOk({ orgId: null, scope: "member", items: [] });
 
@@ -82,10 +108,8 @@ export async function GET() {
 
     /**
      * Portfolio approvals: org-wide approval requests (budget/roadmap/etc).
-     * Prefer:
-     * - approvals table
-     * Fallback:
-     * - change_requests table
+     * Prefer: approvals table
+     * Fallback: change_requests table
      *
      * Response shape stays stable: { items: [...] }
      */
@@ -96,9 +120,10 @@ export async function GET() {
       const { data, error } = await supabase
         .from("approvals")
         .select(
-          "id, title, status, requested_by, requested_at, created_at, updated_at, project_id, amount, type, projects!inner(id, organisation_id, name)"
+          "id, title, status, requested_by, requested_at, created_at, updated_at, project_id, amount, type, projects!inner(id, organisation_id, name, deleted_at)"
         )
         .eq("projects.organisation_id", orgId)
+        .is("projects.deleted_at", null)
         .limit(500);
 
       if (!error && Array.isArray(data)) {
@@ -112,7 +137,8 @@ export async function GET() {
             approval_type: a?.type ?? null,
             amount: a?.amount ?? null,
             requested_by: a?.requested_by ?? null,
-            requested_at: safeIso(a?.requested_at) ?? safeIso(a?.created_at) ?? null,
+            requested_at:
+              safeIso(a?.requested_at) ?? safeIso(a?.created_at) ?? null,
             updated_at: safeIso(a?.updated_at),
             project_id: safeStr(a?.project_id) || null,
             project_name: safeStr(a?.projects?.name) || null,
@@ -125,14 +151,19 @@ export async function GET() {
       const { data, error } = await supabase
         .from("change_requests")
         .select(
-          "id, title, status, created_by, created_at, updated_at, project_id, impact, projects!inner(id, organisation_id, name)"
+          "id, title, status, decision_status, created_by, created_at, updated_at, project_id, impact, projects!inner(id, organisation_id, name, deleted_at)"
         )
         .eq("projects.organisation_id", orgId)
+        .is("projects.deleted_at", null)
         .limit(500);
 
       if (!error && Array.isArray(data)) {
         items = data
-          .filter((c: any) => isPendingLike(c?.status))
+          .filter((c: any) => {
+            const ds = safeStr(c?.decision_status).toLowerCase().trim();
+            if (ds && ["approved", "rejected"].includes(ds)) return false;
+            return isPendingLike(c?.status);
+          })
           .map((c: any) => ({
             type: "change_request",
             id: c.id,
