@@ -70,7 +70,6 @@ function parseIntSafe(x: any, fallback: number) {
 
 /* =======================
    Config (v1)
-   Later: move to org config (approval_sla_config etc.)
 ======================= */
 
 const DEFAULT_APPROVAL_SLA_DAYS = 5;
@@ -134,6 +133,12 @@ type OrgBrain = {
       rag: "G" | "A" | "R";
       signals: ProjectSignals;
     }>;
+  };
+
+  // ✅ Optional extras (non-breaking) for UI fallback lists
+  samples?: {
+    sla_breakdown?: Array<{ key: string; count: number }>;
+    worst_projects?: Array<{ project_id: string; project_title: string; score: number; rag: "G" | "A" | "R" }>;
   };
 
   ai_summary: string;
@@ -208,28 +213,41 @@ async function buildOrgBrain(opts: {
   supabase: any;
   orgId: string;
   orgName?: string;
+  scope: BrainScope;
   approvalSlaDays: number;
   changeSlaDays: number;
   idleDays: number;
 }): Promise<OrgBrain> {
-  const { supabase, orgId, orgName, approvalSlaDays, changeSlaDays, idleDays } =
-    opts;
+  const {
+    supabase,
+    orgId,
+    orgName,
+    scope,
+    approvalSlaDays,
+    changeSlaDays,
+    idleDays,
+  } = opts;
 
   const now = new Date();
 
   // -------------------------
-  // Projects (LIVE only)
-  // status='active', lifecycle_status in ('active','paused'), deleted_at is null
+  // Projects selection
+  // active: LIVE only
+  // all: all non-deleted projects in org
   // -------------------------
-  const { data: projectsRaw } = await supabase
+  let projQ = supabase
     .from("projects")
     .select(
       "id,title,project_code,created_at,updated_at,status,lifecycle_status,deleted_at,organisation_id"
     )
     .eq("organisation_id", orgId)
-    .is("deleted_at", null)
-    .eq("status", "active")
-    .in("lifecycle_status", ["active", "paused"]);
+    .is("deleted_at", null);
+
+  if (scope === "active") {
+    projQ = projQ.eq("status", "active").in("lifecycle_status", ["active", "paused"]);
+  }
+
+  const { data: projectsRaw } = await projQ;
 
   const projects = (projectsRaw ?? []).map((p: any) => ({
     id: safeStr(p.id),
@@ -256,7 +274,11 @@ async function buildOrgBrain(opts: {
       sla: { breached_total: 0, breached_by_type: {} },
       blockers: { projects_blocked: 0, reasons: [] },
       health: { portfolio_score: 100, portfolio_rag: "G", projects: [] },
-      ai_summary: "No live projects found for this organisation.",
+      samples: { sla_breakdown: [], worst_projects: [] },
+      ai_summary:
+        scope === "active"
+          ? "No live projects found for this organisation."
+          : "No projects found for this organisation.",
     };
   }
 
@@ -368,7 +390,7 @@ async function buildOrgBrain(opts: {
   });
 
   // -------------------------
-  // WBS items (todo/inprogress/done/blocked)
+  // WBS items
   // -------------------------
   const { data: wbsRaw } = await supabase
     .from("wbs_items")
@@ -390,11 +412,7 @@ async function buildOrgBrain(opts: {
   );
 
   // -------------------------
-  // RAID items (priority + severity + status)
-  // status: Open, In Progress, Mitigated, Closed, Invalid
-  // type: Risk, Assumption, Issue, Dependency
-  // priority: Low/Medium/High/Critical
-  // severity: 0-100
+  // RAID items
   // -------------------------
   const { data: raidRaw } = await supabase
     .from("raid_items")
@@ -431,10 +449,7 @@ async function buildOrgBrain(opts: {
   });
 
   // -------------------------
-  // Change requests (use review_by SLA first)
-  // status: new/submitted/approved/rejected/changes_requested
-  // decision_status: draft/analysis/review/submitted/approved/rejected/rework
-  // delivery_status: intake/analysis/review/in_progress/implemented/closed
+  // Change requests
   // -------------------------
   const { data: changesRaw } = await supabase
     .from("change_requests")
@@ -499,29 +514,17 @@ async function buildOrgBrain(opts: {
   );
 
   if (blockedProjectIdsByApproval.length)
-    blockerReasons.push({
-      type: "approval",
-      count: blockedProjectIdsByApproval.length,
-    });
+    blockerReasons.push({ type: "approval", count: blockedProjectIdsByApproval.length });
   if (projectsWithOverdueTasks.length)
     blockerReasons.push({ type: "task", count: projectsWithOverdueTasks.length });
   if (projectsWithBlockedWbs.length)
-    blockerReasons.push({
-      type: "wbs_blocked",
-      count: projectsWithBlockedWbs.length,
-    });
+    blockerReasons.push({ type: "wbs_blocked", count: projectsWithBlockedWbs.length });
   if (projectsWithHighRaid.length)
     blockerReasons.push({ type: "raid_high", count: projectsWithHighRaid.length });
   if (projectsWithOverdueRaid.length)
-    blockerReasons.push({
-      type: "raid_overdue",
-      count: projectsWithOverdueRaid.length,
-    });
+    blockerReasons.push({ type: "raid_overdue", count: projectsWithOverdueRaid.length });
   if (projectsWithBreachedChanges.length)
-    blockerReasons.push({
-      type: "change",
-      count: projectsWithBreachedChanges.length,
-    });
+    blockerReasons.push({ type: "change", count: projectsWithBreachedChanges.length });
 
   const blockedProjectIds = uniq([
     ...blockedProjectIdsByApproval,
@@ -534,7 +537,6 @@ async function buildOrgBrain(opts: {
 
   // -------------------------
   // Project-level health scoring
-  // (Explainable + boardroom-friendly)
   // -------------------------
   const mapCount = (rows: any[]) => {
     const m = new Map<string, number>();
@@ -570,24 +572,13 @@ async function buildOrgBrain(opts: {
 
     let score = 100;
 
-    // approvals
     if (overdueApprovalsN > 0) score -= 10 + Math.min(20, overdueApprovalsN * 2);
-
-    // tasks
     if (breachedTasksN > 0) score -= 10 + Math.min(25, breachedTasksN * 2);
-
-    // wbs plan realism
     if (breachedWbsN > 0) score -= 8 + Math.min(20, breachedWbsN * 2);
     if (blockedWbsN > 0) score -= 10 + Math.min(25, blockedWbsN * 3);
-
-    // changes governance
     if (breachedChangesN > 0) score -= 8 + Math.min(20, breachedChangesN * 2);
-
-    // raid governance
     if (highRaidN > 0) score -= 15 + Math.min(35, highRaidN * 5);
     if (overdueRaidN > 0) score -= 8 + Math.min(25, overdueRaidN * 2);
-
-    // idle (avoid penalising very new projects)
     if (!isNew && idle > idleDays) score -= 10;
 
     score = clamp(score, 0, 100);
@@ -615,9 +606,7 @@ async function buildOrgBrain(opts: {
 
   const portfolioScore =
     projectScores.length > 0
-      ? Math.round(
-          projectScores.reduce((a, b) => a + b.score, 0) / projectScores.length
-        )
+      ? Math.round(projectScores.reduce((a, b) => a + b.score, 0) / projectScores.length)
       : 100;
 
   const portfolioRag = ragFromScore(portfolioScore);
@@ -644,9 +633,7 @@ async function buildOrgBrain(opts: {
         .join(", ")}.`
     : `No approval bottlenecks identified.`;
 
-  const aiSummary = [healthLine, blockedLine, approvalLine, bottleneckLine].join(
-    " "
-  );
+  const aiSummary = [healthLine, blockedLine, approvalLine, bottleneckLine].join(" ");
 
   return {
     org_id: orgId,
@@ -674,9 +661,25 @@ async function buildOrgBrain(opts: {
     health: {
       portfolio_score: portfolioScore,
       portfolio_rag: portfolioRag,
-      projects: projectScores
+      projects: projectScores.sort((a, b) => a.score - b.score).slice(0, 50),
+    },
+
+    samples: {
+      sla_breakdown: Object.entries(breachedByType)
+        .map(([key, count]) => ({ key, count }))
+        .filter((x) => x.count > 0)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 8),
+      worst_projects: projectScores
+        .slice()
         .sort((a, b) => a.score - b.score)
-        .slice(0, 50),
+        .slice(0, 8)
+        .map((p) => ({
+          project_id: p.project_id,
+          project_title: p.project_title,
+          score: p.score,
+          rag: p.rag,
+        })),
     },
 
     ai_summary: aiSummary,
@@ -766,6 +769,7 @@ async function handle(req: Request) {
           supabase,
           orgId,
           orgName: meta.get(orgId)?.name,
+          scope,
           approvalSlaDays,
           changeSlaDays,
           idleDays,
@@ -809,7 +813,6 @@ export async function GET(req: Request) {
   return handle(req);
 }
 
-// Optional POST (lets you call it like other AI routes without changing client patterns)
 export async function POST(req: Request) {
   return handle(req);
 }
