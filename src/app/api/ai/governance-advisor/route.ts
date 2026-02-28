@@ -85,6 +85,12 @@ async function requireProjectMember(
 
 type Scope = "global" | "project" | "kb";
 
+function asScope(x: any): Scope {
+  const s = safeLower(x);
+  if (s === "project" || s === "kb" || s === "global") return s;
+  return "global";
+}
+
 function daysSince(isoOrDate: any) {
   try {
     const d = new Date(isoOrDate);
@@ -181,6 +187,8 @@ function buildRecommendedRoutes(scope: Scope, projectId?: string | null, kbSlug?
   ];
 }
 
+/* ---------------- context summariser (what LLM sees) ---------------- */
+
 function summarizeContext(ctx: any) {
   const summary: any = {};
 
@@ -225,11 +233,12 @@ function summarizeContext(ctx: any) {
   if (ctx?.work_items) summary.work_items = ctx.work_items;
   if (ctx?.signals) summary.signals = ctx.signals;
 
-  // ✅ KB context
   if (ctx?.kb?.article) summary.kb = { article: ctx.kb.article };
 
   return summary;
 }
+
+/* ---------------- baseline answer (deterministic) ---------------- */
 
 function heuristicAnswer(question: string, scope: Scope, ctxSummary: any) {
   const q = safeLower(question);
@@ -437,9 +446,11 @@ function buildServerBaselineResult(args: {
   return out;
 }
 
+/* ---------------- OpenAI call ---------------- */
+
 function buildSystemPrompt() {
   return [
-    "You are Aliena -- a boardroom-grade PMO and governance advisor.",
+    "You are Aliena — a boardroom-grade PMO and governance advisor.",
     "Ground all claims in the provided context JSON.",
     "Do not invent counts, dates, owners, links, or statuses.",
     "Be crisp, executive-ready, and action-oriented.",
@@ -515,6 +526,36 @@ function buildResponseSchema() {
   };
 }
 
+function extractResponseJson(data: any): AdvisorResult | null {
+  const t1 = safeStr(data?.output_text).trim();
+  if (t1) {
+    const p1 = safeJsonParse<AdvisorResult>(t1);
+    if (p1?.answer) return p1;
+  }
+
+  try {
+    const output = data?.output;
+    if (Array.isArray(output)) {
+      const chunks: string[] = [];
+      for (const o of output) {
+        const c = o?.content;
+        if (Array.isArray(c)) {
+          for (const part of c) {
+            const t = safeStr(part?.text);
+            if (t) chunks.push(t);
+          }
+        }
+      }
+      const joined = chunks.join("\n").trim();
+      if (!joined) return null;
+      const p2 = safeJsonParse<AdvisorResult>(joined);
+      if (p2?.answer) return p2;
+    }
+  } catch {}
+
+  return null;
+}
+
 async function callOpenAI({
   question,
   scope,
@@ -533,7 +574,9 @@ async function callOpenAI({
     return Number.isFinite(t) ? Math.max(0, Math.min(1, t)) : 0.2;
   })();
 
+  // Hard cap what the LLM sees (prevents prompt bloat + leakage)
   const contextJson = clamp(JSON.stringify(ctxSummary ?? {}, null, 2), 12000);
+
   const user = [
     `Scope: ${scope}`,
     "",
@@ -563,35 +606,15 @@ async function callOpenAI({
     body: JSON.stringify(payload),
   });
 
-  if (!res.ok)
+  if (!res.ok) {
     return defaultAdvisorResult(
       heuristicAnswer(question, scope, ctxSummary) + `\n\n(LLM unavailable: ${res.status})`
     );
+  }
 
   const data: any = await res.json().catch(() => null);
-
-  const outText = safeStr(data?.output_text).trim();
-  const parsed = outText ? safeJsonParse<AdvisorResult>(outText) : null;
+  const parsed = data ? extractResponseJson(data) : null;
   if (parsed?.answer) return parsed;
-
-  try {
-    const output = data?.output;
-    if (Array.isArray(output)) {
-      const chunks: string[] = [];
-      for (const o of output) {
-        const c = o?.content;
-        if (Array.isArray(c)) {
-          for (const part of c) {
-            const t = safeStr(part?.text);
-            if (t) chunks.push(t);
-          }
-        }
-      }
-      const joined = chunks.join("\n").trim();
-      const p2 = joined ? safeJsonParse<AdvisorResult>(joined) : null;
-      if (p2?.answer) return p2;
-    }
-  } catch {}
 
   return defaultAdvisorResult(heuristicAnswer(question, scope, ctxSummary));
 }
@@ -908,20 +931,21 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({} as any));
 
-    const scope = (safeLower(body?.scope) as Scope) || "global";
+    const scope = asScope(body?.scope);
     const mode = clamp(safeLower(body?.mode || "advisor"), 40);
 
     const question = clamp(safeStr(body?.question || body?.q).trim(), 1200);
+    const debug = safeLower(body?.debug) === "true" || body?.debug === true;
 
     const projectId = safeStr(body?.projectId || body?.project_id).trim();
 
-    // ✅ KB scope support
+    // KB inputs
     const articleId = safeStr(body?.articleId || body?.article_id).trim();
-    const articleSlug = safeLower(body?.articleSlug || body?.article_slug);
+    const articleSlug = safeLower(body?.articleSlug || body?.article_slug || body?.article);
 
     if (!question) return jsonErr("Missing question", 400, undefined, NO_STORE_HEADERS);
 
-    // ✅ Only require auth for non-KB calls
+    // Auth only required for non-KB
     const user = scope === "kb" ? null : await requireAuth(supabase);
 
     let ctx: any = {};
@@ -979,11 +1003,14 @@ export async function POST(req: Request) {
         : baseline.data_requests,
     };
 
-    return jsonOk(
-      { answer: safeStr(merged?.answer), result: merged, context: ctxSummary },
-      200,
-      NO_STORE_HEADERS
-    );
+    // Clean response: never echo full context unless explicitly requested
+    const response: any = {
+      answer: safeStr(merged?.answer),
+      result: merged,
+    };
+    if (debug) response.context = ctxSummary;
+
+    return jsonOk(response, 200, NO_STORE_HEADERS);
   } catch (e: any) {
     const status =
       typeof e?.status === "number" && e.status >= 400 && e.status <= 599 ? e.status : 500;

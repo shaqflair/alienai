@@ -1,5 +1,6 @@
 "use client";
 
+// src/components/governance/GovernanceSearchBox.tsx
 // GovernanceSearchBox — inline dropdown (NO fixed overlay, NO click blocking)
 // - Renders results panel inside a relative wrapper (absolute dropdown).
 // - Outside-click closes (only while open).
@@ -117,6 +118,8 @@ export default function GovernanceSearchBox({
 
     const t = window.setTimeout(async () => {
       try {
+        if (typeof window === "undefined") return;
+
         const u = new URL("/api/governance/search", window.location.origin);
         u.searchParams.set("q", qq);
         if (categorySlug) u.searchParams.set("cat", safeStr(categorySlug));

@@ -22,85 +22,164 @@ function normSlug(x: unknown) {
   }
 }
 
+function fmtUpdated(x: unknown) {
+  const s = safeStr(x);
+  if (!s) return "";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-GB", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+type ArticleRow = {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string | null;
+  content: string | null;
+  updated_at: string | null;
+  is_published: boolean;
+  category_id: string | null;
+  governance_categories?: { id: string; slug: string; name: string } | null;
+};
+
 export default async function GovernanceArticlePage({
   params,
 }: {
   params: { slug: string } | Promise<{ slug: string }>;
 }) {
-  console.log("GOVSLUG_PROD_FINGERPRINT_v1");
-
   const p = await Promise.resolve(params as any);
   const slug = normSlug(p?.slug);
-
-  console.log("[governance][slug] HIT", { slug, raw: p?.slug });
 
   if (!slug) return notFound();
 
   const supabase = await createClient();
 
-  // Diagnose session/RLS behaviour in prod
-  const { data: auth, error: authErr } = await supabase.auth.getUser();
-  console.log("[governance][slug] AUTH", {
-    hasUser: !!auth?.user,
-    email: auth?.user?.email ?? null,
-    userId: auth?.user?.id ?? null,
-    authErr: authErr?.message ?? null,
-  });
-
+  // NOTE: Keep auth fetch out of prod logs; RLS should allow published KB reads if desired.
+  // If you need diagnosis, add ?debug=1 and re-enable logging intentionally.
   const { data: article, error } = await supabase
     .from("governance_articles")
-    .select("id,slug,title,summary,content,category,updated_at,is_published")
+    .select(
+      `
+      id,
+      slug,
+      title,
+      summary,
+      content,
+      updated_at,
+      is_published,
+      category_id,
+      governance_categories:category_id (
+        id,
+        slug,
+        name
+      )
+    `
+    )
     .eq("slug", slug)
     .eq("is_published", true)
     .maybeSingle();
 
   if (error) {
-    console.error("[governance][slug] DB ERROR", { slug, error });
+    // Fail loudly (server error) because blank KB pages are unacceptable in prod
     throw new Error(`Failed to load governance article: ${error.message}`);
   }
 
-  if (!article) {
-    console.warn("[governance][slug] NOT FOUND", { slug });
-    return notFound();
-  }
+  if (!article) return notFound();
+
+  const a = article as unknown as ArticleRow;
+
+  const categoryName = safeStr(a?.governance_categories?.name);
+  const categorySlug = safeStr(a?.governance_categories?.slug);
 
   return (
     <div style={{ maxWidth: 980, margin: "0 auto", padding: "32px 16px" }}>
-      <div style={{ marginBottom: 18 }}>
+      <div style={{ marginBottom: 18, display: "flex", gap: 12, flexWrap: "wrap" }}>
         <Link href="/governance" style={{ textDecoration: "none" }}>
           ← Back to Governance Hub
+        </Link>
+
+        {/* Optional convenience links */}
+        <span style={{ opacity: 0.5 }}>•</span>
+        <Link
+          href={`/governance?ask=help&article=${encodeURIComponent(a.slug)}`}
+          style={{ textDecoration: "none" }}
+          title="Ask Aliena about this article"
+        >
+          Ask Aliena →
         </Link>
       </div>
 
       <h1 style={{ fontSize: 34, lineHeight: 1.15, margin: "0 0 8px" }}>
-        {article.title}
+        {a.title}
       </h1>
 
-      {article.summary ? (
-        <p style={{ fontSize: 16, opacity: 0.85, margin: "0 0 18px" }}>
-          {article.summary}
-        </p>
+      {a.summary ? (
+        <p style={{ fontSize: 16, opacity: 0.85, margin: "0 0 18px" }}>{a.summary}</p>
       ) : null}
 
       <div style={{ fontSize: 14, opacity: 0.65, marginBottom: 22 }}>
-        {article.category ? <span>{article.category}</span> : null}
-        {article.updated_at ? (
+        {categoryName ? (
           <span>
-            {article.category ? " • " : ""}
-            Updated{" "}
-            {new Date(article.updated_at).toLocaleString("en-GB", {
-              year: "numeric",
-              month: "short",
-              day: "2-digit",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
+            {categorySlug ? (
+              <Link
+                href={`/governance?cat=${encodeURIComponent(categorySlug)}`}
+                style={{ textDecoration: "none" }}
+                title={`View all in ${categoryName}`}
+              >
+                {categoryName}
+              </Link>
+            ) : (
+              <span>{categoryName}</span>
+            )}
+          </span>
+        ) : null}
+
+        {a.updated_at ? (
+          <span>
+            {categoryName ? " • " : ""}
+            Updated {fmtUpdated(a.updated_at)}
           </span>
         ) : null}
       </div>
 
       <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6, fontSize: 16 }}>
-        {article.content ?? ""}
+        {a.content ?? ""}
+      </div>
+
+      {/* Enterprise touch: CTA footer */}
+      <div
+        style={{
+          marginTop: 28,
+          borderTop: "1px solid rgba(0,0,0,0.08)",
+          paddingTop: 18,
+          display: "flex",
+          gap: 10,
+          flexWrap: "wrap",
+          alignItems: "center",
+          opacity: 0.9,
+        }}
+      >
+        <div style={{ fontSize: 13, opacity: 0.7 }}>
+          Use this as your delivery standard. Need controls / audit evidence / escalation triggers?
+        </div>
+        <Link
+          href={`/governance?ask=help&article=${encodeURIComponent(a.slug)}`}
+          style={{
+            textDecoration: "none",
+            border: "1px solid rgba(0,0,0,0.15)",
+            borderRadius: 10,
+            padding: "8px 10px",
+            fontSize: 13,
+          }}
+        >
+          Ask Aliena (this article) →
+        </Link>
       </div>
     </div>
   );

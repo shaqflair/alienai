@@ -1,14 +1,15 @@
 ﻿// src/components/governance/GovernanceHubClient.tsx
-// Fix: ensure projectId is always available in project scope (fallback to route params)
-// Fix: Ask Aliena always sends scope + projectId (when project scope)
-// Fix: "Read →" links always use Link
-// Fix: Hub supports DB-driven governance_articles (with safe fallback)
+// Enterprise upgrade:
+// ✅ Ask Aliena supports KB context injection via ?ask=help&article=<slug>
+// ✅ "Ask about this" uses scope:"kb" + articleSlug
+// ✅ Project scope continues to send scope + projectId
+// ✅ Cards remain DB-driven with safe fallback
 
 "use client";
 
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback, useEffect } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import {
   BookOpen,
   Shield,
@@ -24,9 +25,11 @@ import {
   Loader2,
   AlertCircle,
   ExternalLink,
+  MessageSquareText,
 } from "lucide-react";
 
-type Scope = "global" | "project";
+type HubScope = "global" | "project";
+type AdvisorScope = "global" | "project" | "kb";
 
 type GovernanceArticleSummary = {
   id: string;
@@ -34,12 +37,17 @@ type GovernanceArticleSummary = {
   title: string;
   summary?: string | null;
   category?: string | null;
+  category_name?: string | null;
   updated_at?: string | null;
   content?: unknown;
 };
 
 function safeStr(x: unknown) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function safeLower(x: unknown) {
+  return safeStr(x).trim().toLowerCase();
 }
 
 function looksLikeUuid(s: string) {
@@ -54,7 +62,7 @@ function clamp(s: string, max: number) {
 }
 
 function iconForSlug(slug: string) {
-  const s = safeStr(slug).trim().toLowerCase();
+  const s = safeLower(slug);
   if (s === "delivery-governance-framework") return <Shield className="h-5 w-5" />;
   if (s === "roles-ownership") return <Users className="h-5 w-5" />;
   if (s === "approvals-decision-control") return <FileCheck className="h-5 w-5" />;
@@ -118,7 +126,7 @@ function fmtConfidence(x: any) {
 }
 
 function kindLabel(k: string) {
-  const kk = safeStr(k).toLowerCase();
+  const kk = safeLower(k);
   if (!kk) return "Item";
   if (kk === "approval") return "Approval";
   if (kk === "risk") return "Risk";
@@ -158,26 +166,47 @@ export default function GovernanceHubClient({
   projectId,
   articles,
 }: {
-  scope: Scope;
+  scope: HubScope;
   projectId?: string;
   articles?: GovernanceArticleSummary[];
 }) {
   const params = useParams();
+  const searchParams = useSearchParams();
+
   const pidFromParams = safeStr((params as any)?.id).trim();
   const pidProp = safeStr(projectId).trim();
 
   // In project scope, prefer explicit prop, but fall back to route params.
   const pid = scope === "project" ? (pidProp || pidFromParams) : "";
 
+  // If the URL says ask=help&article=slug, we treat the Ask drawer as KB-scoped.
+  const urlAsk = safeLower(searchParams?.get("ask"));
+  const urlArticle = safeLower(searchParams?.get("article") || searchParams?.get("kb") || "");
+
   const [query, setQuery] = useState("");
   const [askOpen, setAskOpen] = useState(false);
   const [askText, setAskText] = useState("");
+
+  // Optional KB context selected from card or URL
+  const [kbArticleSlug, setKbArticleSlug] = useState<string>("");
 
   // Ask Aliena state
   const [askLoading, setAskLoading] = useState(false);
   const [askError, setAskError] = useState<string>("");
   const [askAnswer, setAskAnswer] = useState<string>("");
   const [askResult, setAskResult] = useState<AdvisorResult | null>(null);
+
+  // Auto-open ask panel from URL (deep links)
+  useEffect(() => {
+    const wantsAsk = urlAsk === "help" || urlAsk === "1" || urlAsk === "true";
+    const slug = urlArticle ? clamp(urlArticle, 200) : "";
+    if (wantsAsk) {
+      if (slug) setKbArticleSlug(slug);
+      setAskOpen(true);
+      setAskError("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // only on mount
 
   const fallbackCards: Card[] = useMemo(
     () => [
@@ -344,9 +373,15 @@ export default function GovernanceHubClient({
         : "Project"
       : null;
 
-  const openAsk = useCallback(() => {
+  const openAsk = useCallback((opts?: { kbSlug?: string; seed?: string }) => {
     setAskOpen(true);
     setAskError("");
+
+    const kb = safeLower(opts?.kbSlug || "");
+    if (kb) setKbArticleSlug(kb);
+
+    const seed = safeStr(opts?.seed || "").trim();
+    if (seed) setAskText(seed);
   }, []);
 
   const clearAsk = useCallback(() => {
@@ -354,7 +389,14 @@ export default function GovernanceHubClient({
     setAskError("");
     setAskAnswer("");
     setAskResult(null);
+    setKbArticleSlug("");
   }, []);
+
+  const effectiveAdvisorScope: AdvisorScope = useMemo(() => {
+    // If a KB slug is selected, force KB scope regardless of hub scope.
+    if (safeLower(kbArticleSlug)) return "kb";
+    return scope === "project" ? "project" : "global";
+  }, [kbArticleSlug, scope]);
 
   const doAsk = useCallback(
     async (textOverride?: string) => {
@@ -363,8 +405,14 @@ export default function GovernanceHubClient({
         setAskError("Type a question first.");
         return;
       }
-      if (scope === "project" && !pid) {
+
+      if (effectiveAdvisorScope === "project" && !pid) {
         setAskError("Project context is missing.");
+        return;
+      }
+
+      if (effectiveAdvisorScope === "kb" && !safeLower(kbArticleSlug)) {
+        setAskError("KB article context is missing.");
         return;
       }
 
@@ -372,15 +420,19 @@ export default function GovernanceHubClient({
       setAskError("");
 
       try {
+        const payload: any = {
+          scope: effectiveAdvisorScope,
+          question,
+          mode: "advisor",
+        };
+
+        if (effectiveAdvisorScope === "project") payload.projectId = pid;
+        if (effectiveAdvisorScope === "kb") payload.articleSlug = kbArticleSlug;
+
         const res = await fetch("/api/ai/governance-advisor", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            scope,
-            projectId: scope === "project" ? pid : undefined,
-            question,
-            mode: "advisor",
-          }),
+          body: JSON.stringify(payload),
         });
 
         const json = await res.json().catch(() => null);
@@ -406,7 +458,7 @@ export default function GovernanceHubClient({
         setAskLoading(false);
       }
     },
-    [askText, pid, scope]
+    [askText, pid, effectiveAdvisorScope, kbArticleSlug]
   );
 
   const suggested = useMemo(
@@ -420,6 +472,13 @@ export default function GovernanceHubClient({
     ],
     []
   );
+
+  const kbContextBadge = useMemo(() => {
+    const slug = safeLower(kbArticleSlug);
+    if (!slug) return null;
+    const match = cards.find((c) => safeLower(c.key) === slug);
+    return match ? match.title : slug;
+  }, [kbArticleSlug, cards]);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6 md:py-10">
@@ -463,7 +522,7 @@ export default function GovernanceHubClient({
           <button
             type="button"
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50"
-            onClick={openAsk}
+            onClick={() => openAsk()}
           >
             <Sparkles className="h-4 w-4" />
             Ask Aliena
@@ -540,16 +599,43 @@ export default function GovernanceHubClient({
                       ))}
                     </div>
                   ) : null}
+
+                  {/* KB actions */}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openAsk({
+                          kbSlug: card.key,
+                          seed: `Using the "${card.title}" standard — what controls and audit evidence should be in place?`,
+                        })
+                      }
+                      className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50"
+                      title="Ask Aliena using this article as the governing standard"
+                    >
+                      <MessageSquareText className="h-3.5 w-3.5 text-neutral-500" />
+                      Ask about this
+                    </button>
+
+                    <Link
+                      href={`/governance/${encodeURIComponent(card.key)}?from=hub`}
+                      className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50"
+                      title="Read the full guidance"
+                    >
+                      Read
+                      <ChevronRight className="h-3.5 w-3.5 text-neutral-400" />
+                    </Link>
+                  </div>
                 </div>
               </div>
 
-              {/* Read link (KB) */}
+              {/* Desktop read */}
               <Link
                 href={`/governance/${encodeURIComponent(card.key)}`}
                 className="hidden md:inline-flex items-center gap-1 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50"
                 aria-label={`Read ${card.title}`}
               >
-                Read <ChevronRight className="h-4 w-4" />
+                Open <ChevronRight className="h-4 w-4" />
               </Link>
             </div>
 
@@ -606,7 +692,49 @@ export default function GovernanceHubClient({
 
             <div className="p-4 space-y-4">
               <div className="text-xs text-neutral-600">
-                This advisor uses your governance data (where available) to give executive-ready, actionable guidance.
+                This advisor uses governance data (where available) to give executive-ready, actionable guidance.
+              </div>
+
+              {/* Context chips */}
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-[11px] text-neutral-700">
+                  Scope:{" "}
+                  <span className="font-semibold">
+                    {effectiveAdvisorScope === "kb"
+                      ? "KB"
+                      : effectiveAdvisorScope === "project"
+                        ? "Project"
+                        : "Global"}
+                  </span>
+                </span>
+
+                {effectiveAdvisorScope === "project" ? (
+                  <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-[11px] text-neutral-700">
+                    Context: <span className="font-semibold">{pid ? "Enabled" : "Missing"}</span>
+                  </span>
+                ) : null}
+
+                {effectiveAdvisorScope === "kb" ? (
+                  <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-[11px] text-neutral-700">
+                    Article: <span className="font-semibold">{kbContextBadge ?? "Selected"}</span>
+                  </span>
+                ) : null}
+
+                {safeLower(kbArticleSlug) ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setKbArticleSlug("");
+                      setAskAnswer("");
+                      setAskResult(null);
+                      setAskError("");
+                    }}
+                    className="rounded-full border border-neutral-200 bg-white px-3 py-1 text-[11px] text-neutral-700 hover:bg-neutral-50"
+                    title="Remove KB context and return to Project/Global scope"
+                  >
+                    Clear KB context
+                  </button>
+                ) : null}
               </div>
 
               {/* Input */}
@@ -614,7 +742,7 @@ export default function GovernanceHubClient({
                 <textarea
                   value={askText}
                   onChange={(e) => setAskText(e.target.value)}
-                  placeholder="Ask: Is this project safe? What should I do today? Who is blocking delivery?"
+                  placeholder="Ask: Is this project safe? What controls must be in place? What evidence do we need for audit?"
                   className="min-h-[110px] w-full resize-none bg-transparent text-sm text-neutral-900 outline-none placeholder:text-neutral-400"
                 />
                 <div className="mt-3 flex items-center justify-between">
@@ -813,9 +941,13 @@ export default function GovernanceHubClient({
               </div>
 
               {/* Context hint */}
-              {scope === "project" ? (
+              {effectiveAdvisorScope === "project" ? (
                 <div className="text-[11px] text-neutral-500">
                   Project-aware answers enabled {pid && looksLikeUuid(pid) ? "(ID hidden)" : ""}.
+                </div>
+              ) : effectiveAdvisorScope === "kb" ? (
+                <div className="text-[11px] text-neutral-500">
+                  KB-aware answers: grounded in the selected governance article.
                 </div>
               ) : (
                 <div className="text-[11px] text-neutral-500">

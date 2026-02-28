@@ -19,17 +19,23 @@ function safeStr(x: unknown) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
+function firstStr(x: unknown) {
+  if (Array.isArray(x)) return safeStr(x[0]);
+  return safeStr(x);
+}
+
 function safeArr<T>(x: unknown) {
   return Array.isArray(x) ? (x as T[]) : [];
 }
 
 function normQuery(x: unknown) {
-  const s = safeStr(x).trim();
+  const s = firstStr(x).trim();
+  if (!s) return "";
   return s.length > 200 ? s.slice(0, 200) : s;
 }
 
 function normSlug(x: unknown) {
-  return safeStr(x).trim().toLowerCase();
+  return firstStr(x).trim().toLowerCase();
 }
 
 function fmtUpdated(x: unknown) {
@@ -40,7 +46,7 @@ function fmtUpdated(x: unknown) {
   return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "2-digit" });
 }
 
-type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+type SearchParamsLike = Record<string, string | string[] | undefined> | Promise<Record<string, string | string[] | undefined>>;
 
 type CatRow = {
   id: string;
@@ -70,15 +76,15 @@ type ArticleRow = {
 export default async function GovernancePage({
   searchParams,
 }: {
-  searchParams: SearchParams;
+  searchParams: SearchParamsLike;
 }) {
-  const sp = (await searchParams) ?? {};
+  const sp = (await Promise.resolve(searchParams as any)) ?? {};
   const q = normQuery(sp.q);
   const cat = normSlug(sp.cat);
 
   const supabase = await createClient();
 
-  // Categories (new model)
+  // Categories
   const { data: catsRaw } = await supabase
     .from("governance_categories")
     .select("id,slug,name,description,sort_order,icon,is_active")
@@ -87,10 +93,9 @@ export default async function GovernancePage({
     .order("name", { ascending: true });
 
   const categories = safeArr<CatRow>(catsRaw);
-
   const activeCategory = cat ? categories.find((c) => c.slug === cat) ?? null : null;
 
-  // Category counts (view) — fallback safe if view not created yet
+  // Category counts (view) — safe fallback
   const countsByCatId = new Map<string, number>();
   try {
     const { data: countsRaw } = await supabase
@@ -100,10 +105,10 @@ export default async function GovernancePage({
     const counts = safeArr<CountRow>(countsRaw);
     for (const r of counts) countsByCatId.set(r.category_id, Number(r.published_count) || 0);
   } catch {
-    // ignore — we fall back to derived counts below
+    // ignore — fallback derived counts below
   }
 
-  // Articles (published) — filter by category and/or query
+  // Articles
   let articlesQ = supabase
     .from("governance_articles")
     .select("id,slug,title,summary,category_id,updated_at")
@@ -129,7 +134,7 @@ export default async function GovernancePage({
 
   const pageTitle = "Governance Knowledge Base";
   const pageSubtitle =
-    "Boardroom-grade governance guidance: delivery discipline, approvals, change control, RAID, and financial governance — all in one place.";
+    "Boardroom-grade governance guidance: delivery discipline, approvals discipline, change control, RAID, and financial governance — all in one place.";
 
   return (
     <div className="mx-auto max-w-7xl px-6 py-10">
