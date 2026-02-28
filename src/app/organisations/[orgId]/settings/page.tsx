@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -51,7 +51,7 @@ function tabBtn(active: boolean) {
 
 export const runtime   = "nodejs";
 export const dynamic   = "force-dynamic";
-export const revalidate = 0;
+export const revalidate = 0; // cache-bust
 
 async function rpcWithFallback<T = any>(
   sb: any,
@@ -183,12 +183,12 @@ export default async function OrgSettingsPage({
     })
     .filter(Boolean) as Array<{ user_id: string; role: OrgRole; label: string; email: string | null }>;
 
-  // Rate card data — only fetch when on that tab (avoids unnecessary queries)
+  // Rate card data â€” only fetch when on that tab (avoids unnecessary queries)
   const [rates, rateMembers] = tab === "rate-cards"
     ? await Promise.all([getResourceRates(organisationId), getOrgMembersForPicker(organisationId)])
     : [[], []];
 
-  // ── Server actions ────────────────────────────────────────────────────────
+  // â”€â”€ Server actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   async function renameAction(formData: FormData) {
     "use server";
@@ -264,7 +264,7 @@ export default async function OrgSettingsPage({
     redirect(`/organisations?left=1`);
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6 text-gray-900">
@@ -274,9 +274,9 @@ export default async function OrgSettingsPage({
           <h1 className="text-xl font-semibold">Organisation settings</h1>
           <p className="text-sm text-gray-600">
             Org: <span className="font-medium">{org.name}</span>
-            <span className="ml-2 text-xs text-gray-500">• Your role: {myRole}</span>
-            <span className="ml-2 text-xs text-gray-500">• Members: {memberCount ?? "—"}</span>
-            <span className="ml-2 text-xs text-gray-500">• Platform admin: {platformAdmin ? "Yes" : "No"}</span>
+            <span className="ml-2 text-xs text-gray-500">â€¢ Your role: {myRole}</span>
+            <span className="ml-2 text-xs text-gray-500">â€¢ Members: {memberCount ?? "â€”"}</span>
+            <span className="ml-2 text-xs text-gray-500">â€¢ Platform admin: {platformAdmin ? "Yes" : "No"}</span>
           </p>
         </div>
         <div className="flex gap-2">
@@ -325,7 +325,7 @@ export default async function OrgSettingsPage({
         {/* Tab content */}
         <div className="p-5">
 
-          {/* ── Approvals tab ── */}
+          {/* â”€â”€ Approvals tab â”€â”€ */}
           {tab === "approvals" && (
             <OrgApprovalsAdminPanel
               organisationId={organisationId}
@@ -334,7 +334,7 @@ export default async function OrgSettingsPage({
             />
           )}
 
-          {/* ── Rate Cards tab ── */}
+          {/* â”€â”€ Rate Cards tab â”€â”€ */}
           {tab === "rate-cards" && (
             <RateCardTab
               organisationId={organisationId}
@@ -344,7 +344,7 @@ export default async function OrgSettingsPage({
             />
           )}
 
-          {/* ── General / Settings tab ── */}
+          {/* â”€â”€ General / Settings tab â”€â”€ */}
           {tab === "settings" && (
             <div className="space-y-6">
 
@@ -362,7 +362,7 @@ export default async function OrgSettingsPage({
                             profilesById.get(ownerUserId)?.email ||
                             ownerUserId
                           )
-                        : "—"}
+                        : "â€”"}
                     </span>
                   </div>
                   <div className="text-xs text-gray-500 mt-1">
@@ -390,7 +390,7 @@ export default async function OrgSettingsPage({
                             className="min-w-[260px] rounded-md border px-3 py-2 text-sm bg-white"
                             required
                           >
-                            <option value="">Select member…</option>
+                            <option value="">Select memberâ€¦</option>
                             {transferCandidates.map((m) => (
                               <option key={m.user_id} value={m.user_id}>
                                 {m.label}{m.email ? ` (${m.email})` : ""}
@@ -442,7 +442,7 @@ export default async function OrgSettingsPage({
                       name="name"
                       defaultValue={String(org.name ?? "")}
                       className="flex-1 min-w-[240px] rounded-md border px-3 py-2 text-sm text-gray-900 bg-white"
-                      placeholder="Organisation name…"
+                      placeholder="Organisation nameâ€¦"
                       required
                     />
                     <button className="rounded-md bg-black text-white px-4 py-2 text-sm">Save</button>
