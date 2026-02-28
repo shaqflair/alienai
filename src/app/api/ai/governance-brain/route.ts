@@ -1,4 +1,5 @@
-﻿import "server-only";
+﻿// src/app/api/ai/governance-brain/route.ts
+import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -26,8 +27,19 @@ function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
+// ✅ Hardened: handle Postgres date-only ("YYYY-MM-DD") as LOCAL date (prevents 1-day drift)
 function toDate(x: any): Date | null {
   if (!x) return null;
+
+  if (typeof x === "string") {
+    const s = x.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      const [yy, mm, dd] = s.split("-").map((v) => Number(v));
+      const dt = new Date(yy, (mm || 1) - 1, dd || 1);
+      return Number.isFinite(dt.getTime()) ? dt : null;
+    }
+  }
+
   const d = new Date(x);
   return Number.isFinite(d.getTime()) ? d : null;
 }
@@ -398,7 +410,8 @@ async function buildOrgBrain(opts: {
     if (status === "Closed" || status === "Invalid") return false;
 
     const type = safeStr(r.type);
-    const blockerType = type === "Risk" || type === "Issue" || type === "Dependency";
+    const blockerType =
+      type === "Risk" || type === "Issue" || type === "Dependency";
 
     const pr = safeStr(r.priority);
     const sev = typeof r.severity === "number" ? r.severity : null;
@@ -471,9 +484,6 @@ async function buildOrgBrain(opts: {
 
   const projectsWithOverdueTasks = uniq(
     breachedTasks.map((t) => safeStr(t.project_id)).filter(Boolean)
-  );
-  const projectsWithBreachedWbs = uniq(
-    breachedWbs.map((x) => safeStr(x.project_id)).filter(Boolean)
   );
   const projectsWithBlockedWbs = uniq(
     blockedWbs.map((x) => safeStr(x.project_id)).filter(Boolean)
