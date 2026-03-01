@@ -513,19 +513,37 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   useEffect(() => { if (!ok) return; let c=false; runIdle(()=>{(async()=>{ try { setFpLoading(true); const j=await fetchJson<FinancialPlanSummary>("/api/portfolio/financial-plan-summary",{cache:"no-store"}); if (!c) setFpSummary(j??null); } catch {} finally { if (!c) setFpLoading(false); } })();}); return ()=>{c=true;}; }, [ok]);
 
-  useEffect(() => { if (!ok) return; let c=false; runIdle(()=>{(async()=>{ try { setWinsLoading(true); const j:any=await fetchJson(`/api/portfolio/success-stories?days=${numericWindowDays}&limit=10`,{cache:"no-store"}); if (!c) { // Try all known response shapes for top wins
-          const top = Array.isArray(j?.top)?j.top : Array.isArray(j?.summary?.top_wins)?j.summary.top_wins : Array.isArray(j?.items)?j.items : Array.isArray(j?.wins)?j.wins : [];
-          if (top.length > 0) { setRecentWins(top.slice(0,6)); return; }
-          // Fallback: synthesise wins from breakdown counts
-          const bd = j?.breakdown||j?.summary?.breakdown||{};
-          const synthetic: any[] = [];
-          if (num(bd.milestones_done) > 0) synthetic.push({ title:`${bd.milestones_done} milestone${num(bd.milestones_done)>1?"s":""} delivered`, category:"Milestone", type:"milestone" });
-          if (num(bd.wbs_done) > 0) synthetic.push({ title:`${bd.wbs_done} work item${num(bd.wbs_done)>1?"s":""} completed`, category:"Work Item", type:"wbs" });
-          if (num(bd.raid_resolved) > 0) synthetic.push({ title:`${bd.raid_resolved} risk/issue${num(bd.raid_resolved)>1?"s":""} resolved`, category:"RAID", type:"raid" });
-          if (num(bd.changes_delivered) > 0) synthetic.push({ title:`${bd.changes_delivered} change${num(bd.changes_delivered)>1?"s":""} delivered`, category:"Change", type:"change" });
-          if (num(bd.lessons_positive) > 0) synthetic.push({ title:`${bd.lessons_positive} positive lesson${num(bd.lessons_positive)>1?"s":""} captured`, category:"Lessons", type:"lesson" });
-          setRecentWins(synthetic.slice(0,6));
-        } } catch { if (!c) setRecentWins([]); } finally { if (!c) setWinsLoading(false); } })();}); return ()=>{c=true;}; }, [ok, numericWindowDays]);
+  useEffect(() => { if (!ok) return; let c=false; runIdle(()=>{(async()=>{ try { setWinsLoading(true);
+          // Primary: success-stories API
+          const j:any=await fetchJson(`/api/portfolio/success-stories?days=${numericWindowDays}&limit=10`,{cache:"no-store"});
+          if (!c) {
+            // Normalise all known top-wins shapes
+            const top = Array.isArray(j?.top)?j.top : Array.isArray(j?.summary?.top_wins)?j.summary.top_wins : Array.isArray(j?.items)?j.items : Array.isArray(j?.wins)?j.wins : [];
+            const normalised = top.map((w:any)=>({
+              title: safeStr(w?.title||w?.name||w?.description||w?.artifact_title||w?.milestone_title||""),
+              category: safeStr(w?.category||w?.type||w?.artifact_type||w?.item_type||w?.itemType||""),
+              completed_at: w?.completed_at||w?.delivered_at||w?.closed_at||w?.updated_at||w?.created_at||w?.date||null,
+              link: safeStr(w?.link||w?.href||w?.url||""),
+              project_code: safeStr(w?.project_code||w?.meta?.project_code||""),
+              project_name: safeStr(w?.project_name||w?.project_title||w?.meta?.project_name||""),
+            })).filter((w:any)=>w.title);
+            if (normalised.length > 0) { setRecentWins(normalised.slice(0,6)); return; }
+            // Fallback A: synthesise from breakdown
+            const bd = j?.breakdown||j?.summary?.breakdown||{};
+            const synthetic: any[] = [];
+            if (num(bd.milestones_done) > 0) synthetic.push({ title:`${bd.milestones_done} milestone${num(bd.milestones_done)>1?"s":""} delivered`, category:"Milestone" });
+            if (num(bd.wbs_done) > 0) synthetic.push({ title:`${bd.wbs_done} work item${num(bd.wbs_done)>1?"s":""} completed`, category:"Work Item" });
+            if (num(bd.raid_resolved) > 0) synthetic.push({ title:`${bd.raid_resolved} risk/issue${num(bd.raid_resolved)>1?"s":""} resolved`, category:"RAID" });
+            if (num(bd.changes_delivered) > 0) synthetic.push({ title:`${bd.changes_delivered} change${num(bd.changes_delivered)>1?"s":""} delivered`, category:"Change" });
+            if (num(bd.lessons_positive) > 0) synthetic.push({ title:`${bd.lessons_positive} positive lesson${num(bd.lessons_positive)>1?"s":""} captured`, category:"Lessons" });
+            if (synthetic.length > 0) { setRecentWins(synthetic.slice(0,6)); return; }
+            // Fallback B: pull completed milestones directly
+            const mj:any = await fetchJson(`/api/portfolio/milestones?status=completed&days=${numericWindowDays}&limit=6`,{cache:"no-store"});
+            const milestones = Array.isArray(mj?.items)?mj.items : Array.isArray(mj?.milestones)?mj.milestones : Array.isArray(mj?.data)?mj.data : [];
+            const mWins = milestones.map((m:any)=>({ title:safeStr(m?.title||m?.name||m?.description||""), category:"Milestone", completed_at:m?.completed_at||m?.updated_at||null, link:safeStr(m?.link||m?.href||""), project_code:safeStr(m?.project_code||m?.project_human_id||""), project_name:safeStr(m?.project_name||m?.project_title||"") })).filter((m:any)=>m.title);
+            setRecentWins(mWins.slice(0,6));
+          }
+        } catch { if (!c) setRecentWins([]); } finally { if (!c) setWinsLoading(false); } })();}); return ()=>{c=true;}; }, [ok, numericWindowDays]);
 
   useEffect(() => {
     if (!ok) return; let c=false;
@@ -543,7 +561,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   useEffect(() => { if (!ok) return; let c=false; runIdle(()=>{(async()=>{ try { const j:any=await fetchJson(`/api/portfolio/milestones-due?days=${numericWindowDays}`,{cache:"no-store"}); if (j?.ok&&typeof j?.count==="number"&&!c) setMilestonesDueLive(Math.max(0,j.count)); } catch {} })();}); return ()=>{c=true;}; }, [ok, numericWindowDays]);
 
-  useEffect(() => { if (!ok) return; let c=false; runIdle(()=>{(async()=>{ try { setDueLoading(true); const j=await fetchJson<ArtifactDueResp>("/api/ai/events",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",body:JSON.stringify({eventType:"artifact_due",windowDays:dueWindowDays})}); if (!j||!j.ok) return; const ai=(j as any).ai as ArtifactDueAi; const list=Array.isArray(ai?.dueSoon)?ai.dueSoon:[]; const merged=list.sort((a,b)=>(a?.dueDate?new Date(a.dueDate).getTime():Number.MAX_SAFE_INTEGER)-(b?.dueDate?new Date(b.dueDate).getTime():Number.MAX_SAFE_INTEGER)).slice(0,20).map(x=>({...x,title:safeStr(x?.title).trim()||"Untitled",link:safeStr(x?.link).trim()||null})); if (!c) { setDueItems(merged); setDueUpdatedAt(new Date().toISOString()); } } catch {} finally { if (!c) setDueLoading(false); } })();}); return ()=>{c=true;}; }, [ok, dueWindowDays]);
+  useEffect(() => { if (!ok) return; let c=false; runIdle(()=>{(async()=>{ try { setDueLoading(true); const j=await fetchJson<ArtifactDueResp>("/api/ai/events",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",body:JSON.stringify({eventType:"artifact_due",windowDays:dueWindowDays})}); if (!j||!j.ok) return; const ai=(j as any).ai as ArtifactDueAi; const list=Array.isArray(ai?.dueSoon)?ai.dueSoon:[]; const merged=list.sort((a,b)=>(a?.dueDate||a?.due_date?new Date(a?.dueDate||a?.due_date).getTime():Number.MAX_SAFE_INTEGER)-(b?.dueDate||b?.due_date?new Date(b?.dueDate||b?.due_date).getTime():Number.MAX_SAFE_INTEGER)).slice(0,20).map((x:any)=>({ ...x, title:safeStr(x?.title||x?.name||x?.artifact_title||x?.milestone_title).trim()||"Untitled", dueDate:x?.dueDate||x?.due_date||x?.due_at||x?.deadline||null, ownerLabel:x?.ownerLabel||x?.owner_label||x?.owner_name||x?.assignee_name||null, ownerEmail:x?.ownerEmail||x?.owner_email||x?.assignee_email||null, link:safeStr(x?.link||x?.href||x?.url||x?.project_link).trim()||null, meta:{ ...x?.meta, project_code:x?.meta?.project_code||x?.project_code||x?.project_human_id||null, project_name:x?.meta?.project_name||x?.project_name||x?.project_title||null, }, })); if (!c) { setDueItems(merged); setDueUpdatedAt(new Date().toISOString()); } } catch {} finally { if (!c) setDueLoading(false); } })();}); return ()=>{c=true;}; }, [ok, dueWindowDays]);
 
   const activeProjects = useMemo(() => {
     const arr=Array.isArray(projects)?[...projects]:[];
@@ -847,21 +865,30 @@ export default function HomePage({ data }: { data: HomeData }) {
                       <div className="py-8 text-center">
                         <Trophy className="h-6 w-6 text-gray-200 mx-auto mb-1.5"/>
                         <p className="text-sm text-gray-400">No recent wins yet</p>
+                        <button onClick={()=>router.push("/success-stories")} className="mt-2 text-xs text-blue-600 hover:text-blue-700 font-medium">View success stories →</button>
                       </div>
                     ) : recentWins.map((win:any, i:number)=>{
                       const title = safeStr(win?.title||win?.name||win?.description||"");
-                      const category = safeStr(win?.category||win?.type||win?.artifact_type||"");
-                      const date = win?.completed_at||win?.created_at||win?.date||win?.delivered_at||"";
+                      const category = safeStr(win?.category||win?.type||win?.artifact_type||win?.item_type||win?.itemType||"");
+                      const date = win?.completed_at||win?.delivered_at||win?.closed_at||win?.created_at||win?.date||"";
                       const formattedDate = date ? new Date(date).toLocaleDateString(undefined,{day:"2-digit",month:"short"}) : "";
-                      const href = safeStr(win?.link||win?.href||"");
+                      const href = safeStr(win?.link||win?.href||win?.url||"");
+                      const projectCode = safeStr(win?.project_code||win?.meta?.project_code||"");
+                      const projectName = safeStr(win?.project_name||win?.project_title||win?.meta?.project_name||"");
                       return (
                         <m.div key={i} initial={{opacity:0,y:4}} animate={{opacity:1,y:0}} transition={{delay:i*0.05}}
                           className="rounded-xl border border-green-100 bg-green-50/40 p-3.5 cursor-pointer hover:bg-green-50/80 transition-colors"
                           onClick={()=>href&&router.push(href)}>
                           <div className="flex items-start gap-2.5">
                             <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 shrink-0"/>
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex-1">
                               <div className="text-sm font-medium text-gray-800 leading-snug line-clamp-2">{title||"Win"}</div>
+                              {(projectCode||projectName) && (
+                                <div className="flex items-center gap-1.5 mt-1">
+                                  {projectCode && <span className="text-[10px] font-mono font-bold text-gray-400 bg-white/80 border border-gray-100 rounded px-1.5 py-0.5">{projectCode}</span>}
+                                  {projectName && <span className="text-[11px] text-gray-400 truncate">{projectName}</span>}
+                                </div>
+                              )}
                               {(category||formattedDate) && (
                                 <div className="text-xs text-gray-400 mt-1">
                                   {[category, formattedDate].filter(Boolean).join(" · ")}
