@@ -471,8 +471,12 @@ export default function HomePage({ data }: { data: HomeData }) {
   const [dueUpdatedAt, setDueUpdatedAt] = useState<string>("");
   const [fpSummary, setFpSummary] = useState<FinancialPlanSummary|null>(null);
   const [fpLoading, setFpLoading] = useState(false);
+  const [recentWins, setRecentWins] = useState<any[]>([]);
+  const [winsLoading, setWinsLoading] = useState(true);
 
   useEffect(() => { if (!ok) return; let c=false; runIdle(()=>{(async()=>{ try { setFpLoading(true); const j=await fetchJson<FinancialPlanSummary>("/api/portfolio/financial-plan-summary",{cache:"no-store"}); if (!c) setFpSummary(j??null); } catch {} finally { if (!c) setFpLoading(false); } })();}); return ()=>{c=true;}; }, [ok]);
+
+  useEffect(() => { if (!ok) return; let c=false; runIdle(()=>{(async()=>{ try { setWinsLoading(true); const j:any=await fetchJson(`/api/portfolio/success-stories?days=${numericWindowDays}&limit=5`,{cache:"no-store"}); if (!c) { const top=Array.isArray(j?.top)?j.top:Array.isArray(j?.summary?.top_wins)?j.summary.top_wins:Array.isArray(j?.items)?j.items:[]; setRecentWins(top.slice(0,5)); } } catch { if (!c) setRecentWins([]); } finally { if (!c) setWinsLoading(false); } })();}); return ()=>{c=true;}; }, [ok, numericWindowDays]);
 
   useEffect(() => {
     if (!ok) return; let c=false;
@@ -610,7 +614,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
           <main className="max-w-screen-2xl mx-auto px-6 py-6 space-y-5">
 
-            {/* ── KPI Cards ── */}
+            {/* ── KPI Cards (4) ── */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <KpiCard label="Portfolio Health" value={`${phScoreForUi}%`}
                 sub={ragAgg.scored ? `${ragAgg.g} Green · ${ragAgg.a} Amber · ${ragAgg.r} Red` : "vs last period"}
@@ -625,150 +629,14 @@ export default function HomePage({ data }: { data: HomeData }) {
                 icon={<Clock3 className="h-5 w-5"/>} colorKey="blue"
                 onClick={()=>router.push(`/milestones?days=${numericWindowDays}`)} delay={0.1}/>
               <KpiCard label="Budget Health" value={fpVarianceLabel}
-                sub={fpHasData ? `${(fpSummary as any).total_approved_budget ? `Budget ${fpRag==="G"?"on track":fpRag==="A"?"watch":"over"}` : "variance"}` : "variance"}
+                sub={fpHasData ? `Budget ${fpRag==="G"?"on track":fpRag==="A"?"watch":"over"}` : "variance"}
                 icon={<DollarSign className="h-5 w-5"/>} colorKey={fpColorKey}
                 trendLabel={fpVarianceNum!=null&&fpVarianceNum!==0?fpVarianceLabel:undefined}
                 onClick={()=>{ if (fpHasData&&(fpSummary as any).artifact_id) router.push(`/projects/${firstProjectRef}/artifacts/${(fpSummary as any).artifact_id}?panel=intelligence`); else if (firstProjectRef) router.push(`/projects/${firstProjectRef}/artifacts/new?type=FINANCIAL_PLAN`); }}
                 delay={0.15}/>
             </div>
 
-            {/* ── Project Health RAG Strip ── */}
-            {ragAgg.scored > 0 && (
-              <m.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{delay:0.2}}
-                className="bg-white rounded-2xl border border-gray-100 px-6 py-5" style={{ boxShadow:"0 1px 3px rgba(0,0,0,0.05)" }}>
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold text-gray-900 text-sm">Project Health (RAG Status)</h3>
-                  <button onClick={()=>router.push("/projects")} className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">
-                    View all <ChevronRight className="h-3 w-3"/>
-                  </button>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  {/* GREEN */}
-                  <div className="rounded-xl bg-green-50 border border-green-100 p-4 cursor-pointer hover:bg-green-100/60 transition-colors" onClick={()=>router.push("/projects?rag=G")}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <CheckCircle2 className="h-4 w-4 text-green-600"/>
-                      <span className="text-xs font-bold text-green-700 uppercase tracking-wider">Green</span>
-                    </div>
-                    <div className="text-3xl font-bold text-green-700 leading-none mb-1">{ragAgg.g}</div>
-                    <div className="text-xs text-green-600/80">{ragAgg.scored > 0 ? `${Math.round((ragAgg.g/ragAgg.scored)*100)}% of total` : "—"}</div>
-                  </div>
-                  {/* AMBER */}
-                  <div className="rounded-xl bg-amber-50 border border-amber-100 p-4 cursor-pointer hover:bg-amber-100/60 transition-colors" onClick={()=>router.push("/projects?rag=A")}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <AlertTriangle className="h-4 w-4 text-amber-600"/>
-                      <span className="text-xs font-bold text-amber-700 uppercase tracking-wider">Amber</span>
-                    </div>
-                    <div className="text-3xl font-bold text-amber-700 leading-none mb-1">{ragAgg.a}</div>
-                    <div className="text-xs text-amber-600/80">{ragAgg.scored > 0 ? `${Math.round((ragAgg.a/ragAgg.scored)*100)}% of total` : "—"}</div>
-                  </div>
-                  {/* RED */}
-                  <div className="rounded-xl bg-red-50 border border-red-100 p-4 cursor-pointer hover:bg-red-100/60 transition-colors" onClick={()=>router.push("/projects?rag=R")}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <AlertTriangle className="h-4 w-4 text-red-500"/>
-                      <span className="text-xs font-bold text-red-600 uppercase tracking-wider">Red</span>
-                    </div>
-                    <div className="text-3xl font-bold text-red-600 leading-none mb-1">{ragAgg.r}</div>
-                    <div className="text-xs text-red-500/80">{ragAgg.scored > 0 ? `${Math.round((ragAgg.r/ragAgg.scored)*100)}% of total` : "—"}</div>
-                  </div>
-                </div>
-              </m.div>
-            )}
-
-            {/* ── Budget Health Strip ── */}
-            <m.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{delay:0.25}}
-              className="relative overflow-hidden rounded-2xl"
-              style={{
-                background:"linear-gradient(145deg,rgba(255,255,255,0.99) 0%,rgba(248,250,255,0.97) 100%)",
-                border:`1.5px solid ${fpRag ? (fpRag==="G"?"#10b98144":fpRag==="A"?"#f59e0b44":"#f43f5e44") : "rgba(226,232,240,0.8)"}`,
-                boxShadow:`0 2px 8px rgba(0,0,0,0.04), 0 1px 0 rgba(255,255,255,1) inset`,
-              }}>
-              {/* Top accent bar */}
-              <div className="absolute top-0 inset-x-0 h-[3px] rounded-t-2xl"
-                style={{ background: fpRag ? `linear-gradient(90deg,transparent,${fpRag==="G"?"#10b981":fpRag==="A"?"#f59e0b":"#f43f5e"} 20%,${fpRag==="G"?"#10b981":fpRag==="A"?"#f59e0b":"#f43f5e"} 80%,transparent)` : "transparent" }}/>
-              {/* Left accent bar */}
-              <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl"
-                style={{ background: fpRag==="G"?"#10b981":fpRag==="A"?"#f59e0b":"#f43f5e", boxShadow:`0 0 20px ${fpRag==="G"?"rgba(16,185,129,0.3)":fpRag==="A"?"rgba(245,158,11,0.3)":"rgba(244,63,94,0.3)"}` }}/>
-              <div className="pl-5 pr-6 py-5">
-                {/* Header row */}
-                <div className="flex items-center gap-2.5 mb-4">
-                  <div className="h-4 w-0.5 rounded-full" style={{ background: fpRag==="G"?"#10b981":fpRag==="A"?"#f59e0b":"#f43f5e", boxShadow:`0 0 8px ${fpRag==="G"?"rgba(16,185,129,0.5)":fpRag==="A"?"rgba(245,158,11,0.5)":"rgba(244,63,94,0.5)"}` }}/>
-                  <span className="text-[11px] uppercase tracking-[0.22em] font-bold" style={{ color: fpRag==="G"?"#059669":fpRag==="A"?"#d97706":"#e11d48" }}>Budget Health</span>
-                </div>
-                {fpLoading && !fpHasData ? (
-                  <div className="flex gap-8 animate-pulse">
-                    {[0,1,2].map(i=><div key={i} className="flex flex-col gap-2"><div className="h-2 w-16 bg-gray-200 rounded"/><div className="h-8 w-24 bg-gray-200 rounded"/></div>)}
-                  </div>
-                ) : !fpHasData ? (
-                  <div className="flex items-center gap-4 py-2">
-                    <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center"><DollarSign className="w-5 h-5 text-gray-400"/></div>
-                    <div>
-                      <p className="text-sm font-bold text-gray-700">No Financial Plan linked</p>
-                      <p className="text-xs text-gray-400 mt-0.5">Create a Financial Plan artifact to track budget health</p>
-                    </div>
-                    <button onClick={()=>firstProjectRef&&router.push(`/projects/${firstProjectRef}/artifacts/new?type=FINANCIAL_PLAN`)}
-                      className="ml-auto flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 transition-colors">
-                      Create Plan <ArrowUpRight className="w-3.5 h-3.5"/>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-start gap-8 flex-wrap xl:flex-nowrap">
-                    {/* Icon + RAG badge */}
-                    <div className="flex items-center gap-4 flex-shrink-0">
-                      <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
-                        style={{ background:`linear-gradient(135deg,${fpRag==="G"?"#10b981,#059669":fpRag==="A"?"#f59e0b,#d97706":"#f43f5e,#e11d48"})`, boxShadow:`0 4px 20px ${fpRag==="G"?"rgba(16,185,129,0.3)":fpRag==="A"?"rgba(245,158,11,0.3)":"rgba(244,63,94,0.3)"}` }}>
-                        <DollarSign className="w-6 h-6 text-white"/>
-                      </div>
-                      <div>
-                        <div className={["inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-bold uppercase tracking-widest",
-                          fpRag==="G"?"bg-green-100 text-green-700 border-green-200":fpRag==="A"?"bg-amber-100 text-amber-700 border-amber-200":"bg-red-100 text-red-700 border-red-200"].join(" ")}>
-                          <span className="w-1.5 h-1.5 rounded-full" style={{ background: fpRag==="G"?"#10b981":fpRag==="A"?"#f59e0b":"#f43f5e" }}/>
-                          {fpRag==="G"?"On Budget":fpRag==="A"?"Watch":"Over Budget"}
-                        </div>
-                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Budget Health</div>
-                      </div>
-                    </div>
-                    <div className="hidden xl:block w-px self-stretch bg-gray-100"/>
-                    {/* Stats */}
-                    {[
-                      { label:"Approved Budget", value:(fpSummary as any).total_approved_budget!=null?`${(fpSummary as any).currency==="USD"?"$":(fpSummary as any).currency==="EUR"?"€":"£"}${Math.abs(Number((fpSummary as any).total_approved_budget))>=1_000_000?(Number((fpSummary as any).total_approved_budget)/1_000_000).toFixed(1)+"M":Math.abs(Number((fpSummary as any).total_approved_budget))>=1_000?(Number((fpSummary as any).total_approved_budget)/1_000).toFixed(0)+"k":Number((fpSummary as any).total_approved_budget).toFixed(0)}` : "—", sub:"total authorised", accent:"#0f172a" },
-                      { label:"Actual Spent", value:(fpSummary as any).total_spent!=null?`${(fpSummary as any).currency==="USD"?"$":(fpSummary as any).currency==="EUR"?"€":"£"}${Math.abs(Number((fpSummary as any).total_spent))>=1_000_000?(Number((fpSummary as any).total_spent)/1_000_000).toFixed(1)+"M":Math.abs(Number((fpSummary as any).total_spent))>=1_000?(Number((fpSummary as any).total_spent)/1_000).toFixed(0)+"k":Number((fpSummary as any).total_spent).toFixed(0)}` : "—", sub:(fpSummary as any).total_approved_budget&&(fpSummary as any).total_spent?`${Math.min(Math.round((Number((fpSummary as any).total_spent)/Number((fpSummary as any).total_approved_budget))*100),999)}% of budget`:undefined, accent:Number((fpSummary as any).total_spent)/Number((fpSummary as any).total_approved_budget)>0.9?"#f43f5e":"#0f172a" },
-                      { label:"Forecast Variance", value:fpVarianceLabel, sub:fpVarianceNum!=null&&fpVarianceNum!==0?`${fpVarianceNum>0?"over":"under"} by forecast`:"on target", accent:fpVarianceNum!=null&&fpVarianceNum>5?"#f43f5e":fpVarianceNum!=null&&fpVarianceNum>0?"#f59e0b":"#10b981" },
-                    ].map((cell,i)=>(
-                      <div key={i} className="flex flex-col gap-1">
-                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{cell.label}</div>
-                        <div className="text-3xl font-bold tabular-nums leading-none" style={{ color:cell.accent, fontFamily:"monospace" }}>{cell.value}</div>
-                        {cell.sub&&<div className="text-[11px] text-gray-400 font-medium">{cell.sub}</div>}
-                      </div>
-                    ))}
-                    <div className="hidden xl:block w-px self-stretch bg-gray-100"/>
-                    {/* Utilisation bar */}
-                    {Number((fpSummary as any).total_approved_budget)>0&&(fpSummary as any).total_spent!=null&&(
-                      <div className="flex-shrink-0 w-52">
-                        <div className="flex items-center justify-between text-[10px] text-gray-400 font-semibold mb-1.5">
-                          <span>Spend utilisation</span>
-                          <span className={Number((fpSummary as any).total_spent)/Number((fpSummary as any).total_approved_budget)>1?"text-red-600 font-bold":""}>{Math.min(Math.round((Number((fpSummary as any).total_spent)/Number((fpSummary as any).total_approved_budget))*100),110)}%</span>
-                        </div>
-                        <div className="h-2.5 rounded-full overflow-hidden bg-gray-100 relative">
-                          <m.div initial={{width:0}} animate={{width:`${Math.min(Math.round((Number((fpSummary as any).total_spent)/Number((fpSummary as any).total_approved_budget))*100),100)}%`}}
-                            transition={{duration:0.8}} className="absolute top-0 left-0 h-full rounded-full"
-                            style={{ background:fpRag==="G"?"#10b981":fpRag==="A"?"#f59e0b":"#f43f5e" }}/>
-                        </div>
-                      </div>
-                    )}
-                    {/* View Plan button */}
-                    <div className="flex-shrink-0 ml-auto">
-                      <button onClick={()=>{ if (fpHasData&&(fpSummary as any).artifact_id) router.push(`/projects/${firstProjectRef}/artifacts/${(fpSummary as any).artifact_id}?panel=intelligence`); else if (firstProjectRef) router.push(`/projects/${firstProjectRef}/artifacts/new?type=FINANCIAL_PLAN`); }}
-                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-white text-xs font-bold hover:opacity-90 active:scale-95 transition-all"
-                        style={{ background:`linear-gradient(135deg,${fpRag==="G"?"#10b981,#059669":fpRag==="A"?"#f59e0b,#d97706":"#f43f5e,#e11d48"})`, boxShadow:`0 4px 14px ${fpRag==="G"?"rgba(16,185,129,0.35)":fpRag==="A"?"rgba(245,158,11,0.35)":"rgba(244,63,94,0.35)"}` }}>
-                        {(fpSummary as any)?.artifact_id?"View Plan":"Create Plan"} <ArrowUpRight className="w-3.5 h-3.5"/>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </m.div>
-
-            {/* ── Chart + AI Insights ── */}
+            {/* ── Portfolio Activity Trend + AI Insights ── */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 p-6" style={{ boxShadow:"0 1px 3px rgba(0,0,0,0.05)" }}>
                 <div className="flex items-start justify-between mb-2">
@@ -808,26 +676,69 @@ export default function HomePage({ data }: { data: HomeData }) {
             {/* ── Projects + Sidebar ── */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-              {/* Projects */}
-              <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 overflow-hidden" style={{ boxShadow:"0 1px 3px rgba(0,0,0,0.05)" }}>
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-50">
-                  <div>
-                    <h3 className="font-semibold text-gray-900">Active Projects</h3>
-                    <p className="text-xs text-gray-400 mt-0.5">{activeProjects.length} projects</p>
-                  </div>
-                  <span className="text-xs text-gray-400 pr-12">Health</span>
-                </div>
-                {sortedProjects.slice(0,9).map((p:any,i)=>(
-                  <m.div key={String(p.id||i)} initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.03*i}}>
-                    <ProjectRow p={p} ragMap={ragMap}/>
+              {/* Left: RAG strip + Active Projects */}
+              <div className="lg:col-span-2 space-y-4">
+
+                {/* Project Health RAG Strip */}
+                {ragAgg.scored > 0 && (
+                  <m.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{delay:0.2}}
+                    className="bg-white rounded-2xl border border-gray-100 px-6 py-5" style={{ boxShadow:"0 1px 3px rgba(0,0,0,0.05)" }}>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-semibold text-gray-900 text-sm">Project Health (RAG Status)</h3>
+                      <button onClick={()=>router.push("/projects")} className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">
+                        View all <ChevronRight className="h-3 w-3"/>
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="rounded-xl bg-green-50 border border-green-100 p-4 cursor-pointer hover:bg-green-100/60 transition-colors" onClick={()=>router.push("/projects?rag=G")}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <CheckCircle2 className="h-4 w-4 text-green-600"/>
+                          <span className="text-xs font-bold text-green-700 uppercase tracking-wider">Green</span>
+                        </div>
+                        <div className="text-3xl font-bold text-green-700 leading-none mb-1">{ragAgg.g}</div>
+                        <div className="text-xs text-green-600/80">{Math.round((ragAgg.g/ragAgg.scored)*100)}% of total</div>
+                      </div>
+                      <div className="rounded-xl bg-amber-50 border border-amber-100 p-4 cursor-pointer hover:bg-amber-100/60 transition-colors" onClick={()=>router.push("/projects?rag=A")}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <AlertTriangle className="h-4 w-4 text-amber-600"/>
+                          <span className="text-xs font-bold text-amber-700 uppercase tracking-wider">Amber</span>
+                        </div>
+                        <div className="text-3xl font-bold text-amber-700 leading-none mb-1">{ragAgg.a}</div>
+                        <div className="text-xs text-amber-600/80">{Math.round((ragAgg.a/ragAgg.scored)*100)}% of total</div>
+                      </div>
+                      <div className="rounded-xl bg-red-50 border border-red-100 p-4 cursor-pointer hover:bg-red-100/60 transition-colors" onClick={()=>router.push("/projects?rag=R")}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <AlertTriangle className="h-4 w-4 text-red-500"/>
+                          <span className="text-xs font-bold text-red-600 uppercase tracking-wider">Red</span>
+                        </div>
+                        <div className="text-3xl font-bold text-red-600 leading-none mb-1">{ragAgg.r}</div>
+                        <div className="text-xs text-red-500/80">{Math.round((ragAgg.r/ragAgg.scored)*100)}% of total</div>
+                      </div>
+                    </div>
                   </m.div>
-                ))}
-                {sortedProjects.length===0 && <div className="py-14 text-center text-gray-400 text-sm">No active projects</div>}
-                {sortedProjects.length>9 && (
-                  <div className="px-6 py-3 border-t border-gray-50 text-center">
-                    <button onClick={()=>router.push("/projects")} className="text-sm text-blue-600 hover:text-blue-700 font-medium">View all {activeProjects.length} projects →</button>
-                  </div>
                 )}
+
+                {/* Active Projects */}
+                <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden" style={{ boxShadow:"0 1px 3px rgba(0,0,0,0.05)" }}>
+                  <div className="flex items-center justify-between px-6 py-4 border-b border-gray-50">
+                    <div>
+                      <h3 className="font-semibold text-gray-900">Active Projects</h3>
+                      <p className="text-xs text-gray-400 mt-0.5">{activeProjects.length} projects</p>
+                    </div>
+                    <span className="text-xs text-gray-400 pr-12">Health</span>
+                  </div>
+                  {sortedProjects.slice(0,9).map((p:any,i)=>(
+                    <m.div key={String(p.id||i)} initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.03*i}}>
+                      <ProjectRow p={p} ragMap={ragMap}/>
+                    </m.div>
+                  ))}
+                  {sortedProjects.length===0 && <div className="py-14 text-center text-gray-400 text-sm">No active projects</div>}
+                  {sortedProjects.length>9 && (
+                    <div className="px-6 py-3 border-t border-gray-50 text-center">
+                      <button onClick={()=>router.push("/projects")} className="text-sm text-blue-600 hover:text-blue-700 font-medium">View all {activeProjects.length} projects →</button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Sidebar */}
@@ -859,42 +770,44 @@ export default function HomePage({ data }: { data: HomeData }) {
                   </div>
                 </div>
 
-                {/* Approvals */}
+                {/* Recent Wins */}
                 <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden" style={{ boxShadow:"0 1px 3px rgba(0,0,0,0.05)" }}>
                   <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-50">
-                    <div className="h-8 w-8 rounded-xl bg-green-50 flex items-center justify-center"><CheckCircle2 className="h-4 w-4 text-green-500"/></div>
-                    <h3 className="font-semibold text-gray-900 flex-1">Pending Approvals</h3>
-                    {approvalCount>0 && <span className="h-5 min-w-5 px-1.5 rounded-full bg-green-100 text-green-700 text-[11px] font-bold flex items-center justify-center">{approvalCount}</span>}
+                    <div className="h-8 w-8 rounded-xl bg-green-50 flex items-center justify-center"><Trophy className="h-4 w-4 text-green-500"/></div>
+                    <h3 className="font-semibold text-gray-900 flex-1">Recent Wins</h3>
+                    <button onClick={()=>router.push("/success-stories")} className="text-xs text-blue-600 hover:text-blue-700 font-medium">View all</button>
                   </div>
                   <div className="p-4 space-y-2.5">
-                    {approvalsLoading ? Array.from({length:2}).map((_,i)=><div key={i} className="h-20 rounded-xl bg-gray-50 animate-pulse"/>)
-                    : approvalItems.length===0 ? <div className="py-8 text-center"><CheckCheck className="h-6 w-6 text-gray-200 mx-auto mb-1.5"/><p className="text-sm text-gray-400">No approvals pending</p></div>
-                    : approvalItems.slice(0,4).map((t:any)=>{
-                      const taskId=String(t?.id||""); const isBusy=Boolean(pendingIds[taskId]);
-                      const title=t?.change?.title||t?.title||"Change request";
-                      const createdAt=t?.change?.created_at||t?.created_at;
-                      const href=viewHref(t);
+                    {winsLoading ? Array.from({length:3}).map((_,i)=><div key={i} className="h-16 rounded-xl bg-gray-50 animate-pulse"/>)
+                    : recentWins.length===0 ? (
+                      <div className="py-8 text-center">
+                        <Trophy className="h-6 w-6 text-gray-200 mx-auto mb-1.5"/>
+                        <p className="text-sm text-gray-400">No recent wins yet</p>
+                      </div>
+                    ) : recentWins.map((win:any, i:number)=>{
+                      const title = safeStr(win?.title||win?.name||win?.description||"");
+                      const category = safeStr(win?.category||win?.type||win?.artifact_type||"");
+                      const date = win?.completed_at||win?.created_at||win?.date||win?.delivered_at||"";
+                      const formattedDate = date ? new Date(date).toLocaleDateString(undefined,{day:"2-digit",month:"short"}) : "";
+                      const href = safeStr(win?.link||win?.href||"");
                       return (
-                        <m.div key={taskId} initial={{opacity:0}} animate={{opacity:1}} className="rounded-xl border border-gray-100 bg-gray-50/50 p-4">
-                          <div className="flex items-start justify-between gap-2 mb-1">
-                            <div className="text-sm font-medium text-gray-800 line-clamp-2 flex-1">{title}</div>
-                            {href && <a href={href} className="shrink-0 text-gray-400 hover:text-blue-600"><ArrowUpRight className="h-4 w-4"/></a>}
-                          </div>
-                          <div className="text-xs text-gray-400 mb-3">{createdAt?new Date(createdAt).toLocaleDateString(undefined,{day:"2-digit",month:"short",year:"numeric"}):"—"}</div>
-                          <div className="flex gap-2">
-                            <button type="button" disabled={isBusy} onClick={()=>decide(taskId,"approve")}
-                              className="flex-1 h-8 rounded-lg bg-green-500 text-white text-xs font-semibold hover:bg-green-600 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
-                              <CheckCircle2 className="h-3.5 w-3.5"/>{isBusy?"…":"Approve"}
-                            </button>
-                            <button type="button" disabled={isBusy} onClick={()=>setRejectModal({taskId,title})}
-                              className="flex-1 h-8 rounded-lg bg-white border border-red-200 text-red-500 text-xs font-semibold hover:bg-red-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
-                              <X className="h-3.5 w-3.5"/>{isBusy?"…":"Reject"}
-                            </button>
+                        <m.div key={i} initial={{opacity:0,y:4}} animate={{opacity:1,y:0}} transition={{delay:i*0.05}}
+                          className="rounded-xl border border-green-100 bg-green-50/40 p-3.5 cursor-pointer hover:bg-green-50/80 transition-colors"
+                          onClick={()=>href&&router.push(href)}>
+                          <div className="flex items-start gap-2.5">
+                            <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 shrink-0"/>
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-gray-800 leading-snug line-clamp-2">{title||"Win"}</div>
+                              {(category||formattedDate) && (
+                                <div className="text-xs text-gray-400 mt-1">
+                                  {[category, formattedDate].filter(Boolean).join(" · ")}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </m.div>
                       );
                     })}
-                    {approvalCount>4 && <button onClick={()=>router.push("/approvals")} className="w-full text-xs text-blue-600 hover:text-blue-700 font-medium py-1 text-center">View {approvalCount-4} more →</button>}
                   </div>
                 </div>
               </div>
