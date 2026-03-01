@@ -369,37 +369,41 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
   const rag = ragData?.rag||null;
   const client = safeStr(p?.client_name).trim();
   const dotColor = rag ? ragDotColor(rag) : "#d1d5db";
-  const [showRagTip, setShowRagTip] = React.useState(false);
 
-  // RAG scoring logic explanation
   const ragLabel = rag==="G" ? "Green" : rag==="A" ? "Amber" : rag==="R" ? "Red" : "Unscored";
   const ragLogic = rag==="G"
-    ? `Green: Health score ≥ 70% (${health}%). Schedule, RAID items, workflow activity and approvals all within acceptable thresholds.`
+    ? `Health ≥ 70% (${health}%). Schedule, RAID items, workflow and approvals all within acceptable thresholds.`
     : rag==="A"
-    ? `Amber: Health score 55–69% (${health}%). One or more areas need attention — check schedule adherence, open risks or milestone slippage.`
+    ? `Health 55–69% (${health}%). One or more areas need attention — check schedule adherence, open risks or milestone slippage.`
     : rag==="R"
-    ? `Red: Health score < 55% (${health}%). Significant issues detected across schedule, risks or delivery flow. Immediate review recommended.`
-    : `Unscored: No health data yet for this project.`;
+    ? `Health < 55% (${health}%). Significant issues across schedule, risks or delivery. Immediate review recommended.`
+    : "No health score calculated yet for this project.";
 
   return (
-    <button type="button" onClick={()=>{ if (routeRef) router.push(`/projects/${encodeURIComponent(routeRef)}`); }}
-      className="w-full flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0 text-left group">
-      {/* RAG dot with tooltip */}
-      <div className="relative shrink-0" onMouseEnter={()=>setShowRagTip(true)} onMouseLeave={()=>setShowRagTip(false)}>
-        <div className="h-2.5 w-2.5 rounded-full cursor-help" style={{ background:dotColor }}/>
-        {showRagTip && (
-          <div className="absolute left-4 top-1/2 -translate-y-1/2 z-50 w-64 rounded-xl shadow-lg border border-gray-100 bg-white p-3 text-left pointer-events-none"
-            style={{ boxShadow:"0 8px 24px rgba(0,0,0,0.12)" }}>
-            <div className="flex items-center gap-2 mb-1.5">
-              <div className="h-3 w-3 rounded-full shrink-0" style={{ background:dotColor }}/>
-              <span className="text-xs font-bold text-gray-900">{ragLabel} — {health!=null?`${health}% health`:"No score"}</span>
-            </div>
-            <p className="text-[11px] text-gray-500 leading-relaxed">{ragLogic}</p>
-            <div className="mt-2 pt-2 border-t border-gray-50 text-[10px] text-gray-400 font-medium">
-              Score: Green ≥ 70% · Amber 55–69% · Red &lt; 55%
-            </div>
+    <div role="button" tabIndex={0}
+      onClick={()=>{ if (routeRef) router.push(`/projects/${encodeURIComponent(routeRef)}`); }}
+      onKeyDown={e=>e.key==="Enter"&&routeRef&&router.push(`/projects/${encodeURIComponent(routeRef)}`)}
+      className="w-full flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0 text-left group cursor-pointer">
+      {/* RAG dot — hover stops propagation so tooltip stays visible */}
+      <div className="relative shrink-0 group/rag"
+        onClick={e=>e.stopPropagation()}
+        onKeyDown={e=>e.stopPropagation()}>
+        <div className="h-3 w-3 rounded-full cursor-help ring-2 ring-transparent group-hover/rag:ring-offset-1"
+          style={{ background:dotColor, boxShadow:`0 0 0 2px ${dotColor}22` }}/>
+        {/* Tooltip */}
+        <div className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 z-50 w-64
+          opacity-0 group-hover/rag:opacity-100 transition-opacity duration-150
+          rounded-xl bg-white border border-gray-200 p-3 text-left"
+          style={{ boxShadow:"0 8px 24px rgba(0,0,0,0.13)" }}>
+          <div className="flex items-center gap-2 mb-1.5">
+            <div className="h-3 w-3 rounded-full shrink-0" style={{ background:dotColor }}/>
+            <span className="text-xs font-bold text-gray-900">{ragLabel}{health!=null?` — ${health}%`:""}</span>
           </div>
-        )}
+          <p className="text-[11px] text-gray-500 leading-relaxed">{ragLogic}</p>
+          <div className="mt-2 pt-2 border-t border-gray-100 text-[10px] text-gray-400">
+            Thresholds: <span className="text-green-600 font-semibold">Green ≥ 70%</span> · <span className="text-amber-600 font-semibold">Amber 55–69%</span> · <span className="text-red-500 font-semibold">Red &lt; 55%</span>
+          </div>
+        </div>
       </div>
       <div className="min-w-0 flex-1">
         <div className="text-sm font-semibold text-gray-800 group-hover:text-blue-600 transition-colors truncate">{p?.title||"Project"}</div>
@@ -413,7 +417,7 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
         <span className="text-xs font-bold text-gray-600 w-8 text-right">{health!=null?`${health}%`:"—"}</span>
       </div>
       <ChevronRight className="h-3.5 w-3.5 text-gray-300 group-hover:text-gray-500 shrink-0 transition-colors"/>
-    </button>
+    </div>
   );
 }
 
@@ -514,36 +518,46 @@ export default function HomePage({ data }: { data: HomeData }) {
   useEffect(() => { if (!ok) return; let c=false; runIdle(()=>{(async()=>{ try { setFpLoading(true); const j=await fetchJson<FinancialPlanSummary>("/api/portfolio/financial-plan-summary",{cache:"no-store"}); if (!c) setFpSummary(j??null); } catch {} finally { if (!c) setFpLoading(false); } })();}); return ()=>{c=true;}; }, [ok]);
 
   useEffect(() => { if (!ok) return; let c=false; runIdle(()=>{(async()=>{ try { setWinsLoading(true);
-          // Primary: success-stories API
-          const j:any=await fetchJson(`/api/portfolio/success-stories?days=${numericWindowDays}&limit=10`,{cache:"no-store"});
+          const WINS_DAYS = 7; // Recent wins always show last 7 days
+          const j:any=await fetchJson(`/api/portfolio/success-stories?days=${WINS_DAYS}&limit=10`,{cache:"no-store"});
+          console.log("[RecentWins] raw response:", JSON.stringify(j)?.slice(0,600));
           if (!c) {
-            // Normalise all known top-wins shapes
-            const top = Array.isArray(j?.top)?j.top : Array.isArray(j?.summary?.top_wins)?j.summary.top_wins : Array.isArray(j?.items)?j.items : Array.isArray(j?.wins)?j.wins : [];
+            // Try every known array shape from the API
+            const top = Array.isArray(j?.top)?j.top
+              : Array.isArray(j?.summary?.top_wins)?j.summary.top_wins
+              : Array.isArray(j?.summary?.top)?j.summary.top
+              : Array.isArray(j?.items)?j.items
+              : Array.isArray(j?.wins)?j.wins
+              : Array.isArray(j?.stories)?j.stories
+              : Array.isArray(j?.data)?j.data
+              : [];
+            console.log("[RecentWins] top[] length:", top.length);
             const normalised = top.map((w:any)=>({
-              title: safeStr(w?.title||w?.name||w?.description||w?.artifact_title||w?.milestone_title||""),
-              category: safeStr(w?.category||w?.type||w?.artifact_type||w?.item_type||w?.itemType||""),
+              title: safeStr(w?.title||w?.name||w?.description||w?.artifact_title||w?.milestone_title||w?.label||""),
+              category: safeStr(w?.category||w?.type||w?.artifact_type||w?.item_type||w?.itemType||w?.kind||""),
               completed_at: w?.completed_at||w?.delivered_at||w?.closed_at||w?.updated_at||w?.created_at||w?.date||null,
-              link: safeStr(w?.link||w?.href||w?.url||""),
-              project_code: safeStr(w?.project_code||w?.meta?.project_code||""),
+              link: safeStr(w?.link||w?.href||w?.url||w?.path||""),
+              project_code: safeStr(w?.project_code||w?.project_human_id||w?.meta?.project_code||""),
               project_name: safeStr(w?.project_name||w?.project_title||w?.meta?.project_name||""),
             })).filter((w:any)=>w.title);
             if (normalised.length > 0) { setRecentWins(normalised.slice(0,6)); return; }
-            // Fallback A: synthesise from breakdown
-            const bd = j?.breakdown||j?.summary?.breakdown||{};
+            // Fallback A: synthesise from breakdown counts
+            const bd = j?.breakdown||j?.summary?.breakdown||j?.meta?.breakdown||{};
+            console.log("[RecentWins] breakdown:", bd);
             const synthetic: any[] = [];
-            if (num(bd.milestones_done) > 0) synthetic.push({ title:`${bd.milestones_done} milestone${num(bd.milestones_done)>1?"s":""} delivered`, category:"Milestone" });
-            if (num(bd.wbs_done) > 0) synthetic.push({ title:`${bd.wbs_done} work item${num(bd.wbs_done)>1?"s":""} completed`, category:"Work Item" });
-            if (num(bd.raid_resolved) > 0) synthetic.push({ title:`${bd.raid_resolved} risk/issue${num(bd.raid_resolved)>1?"s":""} resolved`, category:"RAID" });
-            if (num(bd.changes_delivered) > 0) synthetic.push({ title:`${bd.changes_delivered} change${num(bd.changes_delivered)>1?"s":""} delivered`, category:"Change" });
-            if (num(bd.lessons_positive) > 0) synthetic.push({ title:`${bd.lessons_positive} positive lesson${num(bd.lessons_positive)>1?"s":""} captured`, category:"Lessons" });
-            if (synthetic.length > 0) { setRecentWins(synthetic.slice(0,6)); return; }
-            // Fallback B: pull completed milestones directly
-            const mj:any = await fetchJson(`/api/portfolio/milestones?status=completed&days=${numericWindowDays}&limit=6`,{cache:"no-store"});
-            const milestones = Array.isArray(mj?.items)?mj.items : Array.isArray(mj?.milestones)?mj.milestones : Array.isArray(mj?.data)?mj.data : [];
-            const mWins = milestones.map((m:any)=>({ title:safeStr(m?.title||m?.name||m?.description||""), category:"Milestone", completed_at:m?.completed_at||m?.updated_at||null, link:safeStr(m?.link||m?.href||""), project_code:safeStr(m?.project_code||m?.project_human_id||""), project_name:safeStr(m?.project_name||m?.project_title||"") })).filter((m:any)=>m.title);
-            setRecentWins(mWins.slice(0,6));
+            if (num(bd.milestones_done)>0) synthetic.push({ title:`${bd.milestones_done} milestone${num(bd.milestones_done)>1?"s":""} delivered on time`, category:"Milestone" });
+            if (num(bd.wbs_done)>0) synthetic.push({ title:`${bd.wbs_done} work item${num(bd.wbs_done)>1?"s":""} completed`, category:"Work Item" });
+            if (num(bd.raid_resolved)>0) synthetic.push({ title:`${bd.raid_resolved} risk/issue${num(bd.raid_resolved)>1?"s":""} resolved`, category:"RAID" });
+            if (num(bd.changes_delivered)>0) synthetic.push({ title:`${bd.changes_delivered} change${num(bd.changes_delivered)>1?"s":""} delivered`, category:"Change" });
+            if (num(bd.lessons_positive)>0) synthetic.push({ title:`${bd.lessons_positive} positive lesson${num(bd.lessons_positive)>1?"s":""} captured`, category:"Lessons" });
+            if (synthetic.length>0) { setRecentWins(synthetic.slice(0,6)); return; }
+            // Fallback B: completed milestones direct endpoint
+            const mj:any = await fetchJson(`/api/portfolio/milestones?status=completed&days=${WINS_DAYS}&limit=6`,{cache:"no-store"});
+            console.log("[RecentWins] milestones fallback:", JSON.stringify(mj)?.slice(0,300));
+            const ms = Array.isArray(mj?.items)?mj.items:Array.isArray(mj?.milestones)?mj.milestones:Array.isArray(mj?.data)?mj.data:[];
+            setRecentWins(ms.map((m:any)=>({ title:safeStr(m?.title||m?.name||""), category:"Milestone", completed_at:m?.completed_at||m?.updated_at||null, link:safeStr(m?.link||m?.href||""), project_code:safeStr(m?.project_code||m?.project_human_id||""), project_name:safeStr(m?.project_name||m?.project_title||"") })).filter((m:any)=>m.title).slice(0,6));
           }
-        } catch { if (!c) setRecentWins([]); } finally { if (!c) setWinsLoading(false); } })();}); return ()=>{c=true;}; }, [ok, numericWindowDays]);
+        } catch(e) { console.error("[RecentWins] error:", e); if (!c) setRecentWins([]); } finally { if (!c) setWinsLoading(false); } })();}); return ()=>{c=true;}; }, [ok]);
 
   useEffect(() => {
     if (!ok) return; let c=false;
@@ -857,6 +871,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                   <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-50">
                     <div className="h-8 w-8 rounded-xl bg-green-50 flex items-center justify-center"><Trophy className="h-4 w-4 text-green-500"/></div>
                     <h3 className="font-semibold text-gray-900 flex-1">Recent Wins</h3>
+                    <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">Last 7 days</span>
                     <button onClick={()=>router.push("/success-stories")} className="text-xs text-blue-600 hover:text-blue-700 font-medium">View all</button>
                   </div>
                   <div className="p-4 space-y-2.5">
