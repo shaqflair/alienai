@@ -9,6 +9,7 @@ import { createProject } from "./actions";
 
 import ProjectsHeader from "./_components/ProjectsHeader";
 import ProjectsResults from "./_components/ProjectsResults";
+import HeatmapProjectFields from "./_components/HeatmapProjectFields";
 
 import type { MemberProjectRow, ProjectListRow, FlashTone } from "./_lib/projects-utils";
 
@@ -43,11 +44,11 @@ type Banner = { tone: "success" | "warn" | "error"; msg: string } | null;
 function inviteBanner(invite: unknown): Banner {
   const v = norm(invite).toLowerCase();
   if (!v) return null;
-  if (v === "accepted") return { tone: "success", msg: "✅ You've joined the organisation." };
-  if (v === "expired") return { tone: "warn", msg: "⚠️ Invite expired. Ask the owner to resend the invite." };
-  if (v === "invalid") return { tone: "error", msg: "❌ Invite invalid or already used." };
-  if (v === "email-mismatch") return { tone: "error", msg: "❌ Invite was sent to a different email. Sign in with the invited email." };
-  if (v === "failed") return { tone: "error", msg: "❌ Invite acceptance failed. Please try again." };
+  if (v === "accepted")      return { tone: "success", msg: "✅ You've joined the organisation." };
+  if (v === "expired")       return { tone: "warn",    msg: "⚠️ Invite expired. Ask the owner to resend the invite." };
+  if (v === "invalid")       return { tone: "error",   msg: "❌ Invite invalid or already used." };
+  if (v === "email-mismatch")return { tone: "error",   msg: "❌ Invite was sent to a different email. Sign in with the invited email." };
+  if (v === "failed")        return { tone: "error",   msg: "❌ Invite acceptance failed. Please try again." };
   return null;
 }
 
@@ -56,48 +57,50 @@ function flashFromQuery(err: unknown, msg: unknown): { tone: FlashTone; text: st
   const m = norm(msg).toLowerCase();
   if (!e && !m) return null;
   if (e) {
-    if (e === "delete_confirm") return { tone: "error", text: 'Type "DELETE" to confirm deletion.' };
-    if (e === "delete_forbidden") return { tone: "error", text: "Only the project owner can delete a project." };
-    if (e === "delete_blocked") return { tone: "warn", text: "Delete is blocked (protected artifacts). Use Abnormal close in the Delete modal." };
-    if (e === "abnormal_confirm") return { tone: "error", text: 'Type "ABNORMAL" to confirm abnormal close.' };
-    if (e === "no_permission") return { tone: "error", text: "You don't have permission to perform that action." };
-    if (e === "missing_project") return { tone: "error", text: "Missing project id." };
-    if (e === "missing_title") return { tone: "error", text: "Title is required." };
-    if (e === "missing_start") return { tone: "error", text: "Start date is required." };
-    if (e === "missing_org") return { tone: "error", text: "Organisation is required." };
-    if (e === "bad_org") return { tone: "error", text: "Invalid organisation selected." };
-    if (e === "bad_finish") return { tone: "error", text: "Finish date cannot be before start date." };
-    if (e === "bad_pm") return { tone: "error", text: "Invalid project manager selected." };
+    if (e === "delete_confirm")    return { tone: "error",   text: 'Type "DELETE" to confirm deletion.' };
+    if (e === "delete_forbidden")  return { tone: "error",   text: "Only the project owner can delete a project." };
+    if (e === "delete_blocked")    return { tone: "warn",    text: "Delete is blocked (protected artifacts). Use Abnormal close in the Delete modal." };
+    if (e === "abnormal_confirm")  return { tone: "error",   text: 'Type "ABNORMAL" to confirm abnormal close.' };
+    if (e === "no_permission")     return { tone: "error",   text: "You don't have permission to perform that action." };
+    if (e === "missing_project")   return { tone: "error",   text: "Missing project id." };
+    if (e === "missing_title")     return { tone: "error",   text: "Title is required." };
+    if (e === "missing_start")     return { tone: "error",   text: "Start date is required." };
+    if (e === "missing_org")       return { tone: "error",   text: "Organisation is required." };
+    if (e === "bad_org")           return { tone: "error",   text: "Invalid organisation selected." };
+    if (e === "bad_finish")        return { tone: "error",   text: "Finish date cannot be before start date." };
+    if (e === "bad_pm")            return { tone: "error",   text: "Invalid project manager selected." };
     return { tone: "error", text: safeStr(err) };
   }
-  if (m === "deleted") return { tone: "success", text: "Project deleted." };
-  if (m === "closed") return { tone: "success", text: "Project closed. It is now read-only." };
-  if (m === "reopened") return { tone: "success", text: "Project reopened. Editing is enabled." };
-  if (m === "renamed") return { tone: "success", text: "Project renamed." };
-  if (m === "abnormally_closed") return { tone: "success", text: "Project abnormally closed (audit trail kept)." };
+  if (m === "deleted")            return { tone: "success", text: "Project deleted." };
+  if (m === "closed")             return { tone: "success", text: "Project closed. It is now read-only." };
+  if (m === "reopened")           return { tone: "success", text: "Project reopened. Editing is enabled." };
+  if (m === "renamed")            return { tone: "success", text: "Project renamed." };
+  if (m === "abnormally_closed")  return { tone: "success", text: "Project abnormally closed (audit trail kept)." };
   return { tone: "info", text: safeStr(msg) };
 }
 
 function displayNameFromUser(user: any) {
-  const full = (user?.user_metadata?.full_name as string | undefined) || (user?.user_metadata?.name as string | undefined) || "";
+  const full =
+    (user?.user_metadata?.full_name as string | undefined) ||
+    (user?.user_metadata?.name as string | undefined) || "";
   return (full || user?.email || "Account").toString();
 }
 
 function formatMemberLabel(row: any): string {
   const p = row?.profiles || row?.profile || row?.user_profile || row?.users || row?.user || null;
-  const full = safeStr(p?.full_name || p?.name).trim();
+  const full  = safeStr(p?.full_name || p?.name).trim();
   const email = safeStr(p?.email).trim();
-  const base = full || email || safeStr(row?.user_id).slice(0, 8);
-  const role = safeStr(row?.role).trim();
+  const base  = full || email || safeStr(row?.user_id).slice(0, 8);
+  const role  = safeStr(row?.role).trim();
   return role ? `${base} (${role})` : base;
 }
 
 function isClosedProject(p: any) {
   const lifecycle = safeStr(p?.lifecycle_status).trim().toLowerCase();
-  const status = safeStr(p?.status).trim().toLowerCase();
-  if (lifecycle === "closed") return true;
-  if (status.includes("closed")) return true;
-  if (status.includes("complete")) return true;
+  const status    = safeStr(p?.status).trim().toLowerCase();
+  if (lifecycle === "closed")       return true;
+  if (status.includes("closed"))    return true;
+  if (status.includes("complete"))  return true;
   return false;
 }
 
@@ -112,16 +115,17 @@ export default async function ProjectsPage({
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect(`/login?next=${encodeURIComponent("/projects")}`);
 
-  const sp = (await (searchParams as any)) ?? {};
-  const banner = inviteBanner((sp as any)?.invite);
-  const q = norm((sp as any)?.q);
-  const view = norm((sp as any)?.view) === "grid" ? "grid" : "list";
-  const sort = norm((sp as any)?.sort) === "title_asc" ? "title_asc" : "created_desc";
+  const sp      = (await (searchParams as any)) ?? {};
+  const banner  = inviteBanner((sp as any)?.invite);
+  const q       = norm((sp as any)?.q);
+  const view    = norm((sp as any)?.view) === "grid" ? "grid" : "list";
+  const sort    = norm((sp as any)?.sort) === "title_asc" ? "title_asc" : "created_desc";
   const filterRaw = norm((sp as any)?.filter).toLowerCase();
-  const filter: "active" | "closed" | "all" = filterRaw === "closed" ? "closed" : filterRaw === "all" ? "all" : "active";
-  const err = norm((sp as any)?.err);
-  const msg = norm((sp as any)?.msg);
-  const pid = norm((sp as any)?.pid);
+  const filter: "active" | "closed" | "all" =
+    filterRaw === "closed" ? "closed" : filterRaw === "all" ? "all" : "active";
+  const err   = norm((sp as any)?.err);
+  const msg   = norm((sp as any)?.msg);
+  const pid   = norm((sp as any)?.pid);
   const flash = flashFromQuery(err, msg);
   const userId = user.id;
 
@@ -161,18 +165,18 @@ export default async function ProjectsPage({
         safeStr((r.projects as any)?.project_manager?.email).trim() ||
         null;
       return {
-        id: r.projects.id,
-        title: r.projects.title,
-        project_code: r.projects.project_code,
-        start_date: r.projects.start_date,
-        finish_date: r.projects.finish_date,
-        created_at: r.projects.created_at,
-        organisation_id: r.projects.organisation_id,
-        status: r.projects.status ?? "active",
-        myRole: r.role ?? "viewer",
-        lifecycle_status: (r.projects as any)?.lifecycle_status ?? null,
-        closed_at: (r.projects as any)?.closed_at ?? null,
-        project_manager_id: (r.projects as any)?.project_manager_id ?? null,
+        id:                   r.projects.id,
+        title:                r.projects.title,
+        project_code:         r.projects.project_code,
+        start_date:           r.projects.start_date,
+        finish_date:          r.projects.finish_date,
+        created_at:           r.projects.created_at,
+        organisation_id:      r.projects.organisation_id,
+        status:               r.projects.status ?? "active",
+        myRole:               r.role ?? "viewer",
+        lifecycle_status:     (r.projects as any)?.lifecycle_status ?? null,
+        closed_at:            (r.projects as any)?.closed_at ?? null,
+        project_manager_id:   (r.projects as any)?.project_manager_id ?? null,
         project_manager_name: pmName,
       } as any;
     })
@@ -188,15 +192,15 @@ export default async function ProjectsPage({
       .eq("user_id", userId)
       .in("organisation_id", orgIds);
     for (const m of memRows ?? []) {
-      const oid = String((m as any)?.organisation_id || "");
+      const oid  = String((m as any)?.organisation_id || "");
       const role = String((m as any)?.role || "").toLowerCase();
       if (oid && role === "admin") orgAdminSet.add(oid);
     }
   }
 
   const lifecycleFiltered = (() => {
-    if (filter === "all") return rows;
-    if (filter === "closed") return rows.filter((p: any) => isClosedProject(p));
+    if (filter === "all")    return rows;
+    if (filter === "closed") return rows.filter((p: any) =>  isClosedProject(p));
     return rows.filter((p: any) => !isClosedProject(p));
   })();
 
@@ -219,13 +223,12 @@ export default async function ProjectsPage({
     return arr;
   })();
 
-  const inviteParam = norm((sp as any)?.invite);
-  const dismissHref = `/projects${qsSafe({ invite: inviteParam || undefined, q: q || undefined, sort, view, filter })}`;
-
-  const panelGlow = ""; // passed as prop but we'll handle styling in page
-  const cookieOrgId = await getActiveOrgId().catch(() => null);
-  const activeOrgId = (cookieOrgId && String(cookieOrgId)) || (orgIds[0] ? String(orgIds[0]) : "");
-  const canCreate = !!activeOrgId;
+  const inviteParam  = norm((sp as any)?.invite);
+  const dismissHref  = `/projects${qsSafe({ invite: inviteParam || undefined, q: q || undefined, sort, view, filter })}`;
+  const panelGlow    = "";
+  const cookieOrgId  = await getActiveOrgId().catch(() => null);
+  const activeOrgId  = (cookieOrgId && String(cookieOrgId)) || (orgIds[0] ? String(orgIds[0]) : "");
+  const canCreate    = !!activeOrgId;
 
   const { data: orgRow } = activeOrgId
     ? await supabase.from("organisations").select("id,name").eq("id", activeOrgId).maybeSingle()
@@ -243,7 +246,11 @@ export default async function ProjectsPage({
     : { data: [] as any[] };
 
   const pmOptions: OrgMemberOption[] = (orgMemberRows ?? [])
-    .map((r: any) => ({ user_id: String(r?.user_id || ""), label: formatMemberLabel(r), role: (r?.role as string | null) ?? null }))
+    .map((r: any) => ({
+      user_id: String(r?.user_id || ""),
+      label:   formatMemberLabel(r),
+      role:    (r?.role as string | null) ?? null,
+    }))
     .filter((x) => !!x.user_id);
 
   const ownerLabel = displayNameFromUser(user);
@@ -437,11 +444,27 @@ export default async function ProjectsPage({
           text-transform: uppercase;
           color: #94a3b8;
         }
+
+        .pp-heatmap-divider {
+          border: none;
+          border-top: 1.5px dashed #e2e8f0;
+          margin: 4px 0 0;
+        }
+
+        .pp-heatmap-section-label {
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #00B8DB;
+          margin: 0 0 18px;
+        }
       `}</style>
 
       <main className="pp-root">
         <div className="pp-inner">
-          {/* Header (unchanged component) */}
+
+          {/* Header — unchanged */}
           <ProjectsHeader banner={banner} flash={flash} dismissHref={dismissHref} />
 
           {/* Create Project Panel */}
@@ -452,7 +475,9 @@ export default async function ProjectsPage({
                 Enterprise setup — define ownership and delivery lead for governance and reporting.
               </p>
               <div className="pp-org-tag">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" strokeWidth="2.5"
+                     strokeLinecap="round" strokeLinejoin="round">
                   <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
                   <polyline points="9 22 9 12 15 12 15 22"/>
                 </svg>
@@ -463,7 +488,9 @@ export default async function ProjectsPage({
             <div className="pp-create-body">
               {!canCreate && (
                 <div className="pp-warn-banner" style={{ marginBottom: "20px" }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                       stroke="currentColor" strokeWidth="2"
+                       strokeLinecap="round" strokeLinejoin="round">
                     <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
                     <line x1="12" y1="9" x2="12" y2="13"/>
                     <line x1="12" y1="17" x2="12.01" y2="17"/>
@@ -475,6 +502,7 @@ export default async function ProjectsPage({
               <form action={createProject} className="pp-form-grid">
                 <input type="hidden" name="organisation_id" value={activeOrgId} />
 
+                {/* ── Existing fields — unchanged ── */}
                 <div>
                   <label className="pp-field-label">Project owner</label>
                   <div className="pp-owner-display">{ownerLabel}</div>
@@ -514,20 +542,39 @@ export default async function ProjectsPage({
                   </div>
                 </div>
 
+                {/* ── New heatmap fields ── */}
+                <div>
+                  <hr className="pp-heatmap-divider" />
+                </div>
+
+                {/*
+                  HeatmapProjectFields is a "use client" component.
+                  It renders interactive colour picker + status toggle + win prob slider.
+                  All values are written to hidden inputs so they submit with this
+                  server action form automatically — no extra wiring needed.
+                */}
+                <HeatmapProjectFields />
+
+                {/* ── Submit — unchanged ── */}
                 <div>
                   <button type="submit" disabled={!canCreate} className="pp-submit-btn">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" strokeWidth="2.5"
+                         strokeLinecap="round" strokeLinejoin="round">
                       <line x1="12" y1="5" x2="12" y2="19"/>
                       <line x1="5" y1="12" x2="19" y2="12"/>
                     </svg>
                     Create project
                   </button>
+                  <p className="pp-field-hint" style={{ marginTop: "8px" }}>
+                    Add role requirements on the project page after creation.
+                  </p>
                 </div>
               </form>
             </div>
           </div>
 
-          {/* Results section */}
+          {/* Results section — unchanged */}
           <div className="pp-results-section">
             <div className="pp-section-label">Your projects</div>
             <ProjectsResults
@@ -544,8 +591,10 @@ export default async function ProjectsPage({
               panelGlow={panelGlow}
             />
           </div>
+
         </div>
       </main>
     </>
   );
 }
+

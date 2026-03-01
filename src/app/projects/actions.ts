@@ -31,7 +31,7 @@ function isoDateOrNull(raw: FormDataEntryValue | null) {
   if (!s) return null;
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return null;
-  return s; // YYYY-MM-DD
+  return s;
 }
 
 function isUuid(x: string) {
@@ -55,7 +55,6 @@ async function requireUser(supabase: any) {
   return auth.user;
 }
 
-// ✅ robust role gate: handles duplicates safely (owner/editor wins)
 async function getMyProjectRole(
   supabase: any,
   projectId: string,
@@ -99,10 +98,6 @@ function nonEmptyText(s: any) {
   return t.length > 0;
 }
 
-/**
- * Enterprise guard:
- * - Block delete if any artifact is submitted (approval_status != draft) OR contains info (content/content_json)
- */
 async function computeDeleteGuard(supabase: any, projectId: string) {
   const { data, error } = await supabase
     .from("artifacts")
@@ -123,7 +118,6 @@ async function computeDeleteGuard(supabase: any, projectId: string) {
     const status = safeStr((a as any)?.approval_status).trim().toLowerCase();
     const isSubmittedOrBeyond = !!status && status !== "draft";
     const hasInfo = nonEmptyText((a as any)?.content) || hasJsonContent((a as any)?.content_json);
-
     if (isSubmittedOrBeyond) submittedCount += 1;
     if (hasInfo) contentCount += 1;
   }
@@ -133,7 +127,6 @@ async function computeDeleteGuard(supabase: any, projectId: string) {
   if (contentCount > 0) reasons.push(`${contentCount} artifact(s) contain information`);
 
   const canDelete = submittedCount === 0 && contentCount === 0;
-
   return { canDelete, totalArtifacts: total, submittedCount, contentCount, reasons };
 }
 
@@ -145,25 +138,36 @@ export async function createProject(formData: FormData) {
   const supabase = await createClient();
   await requireUser(supabase);
 
-  const title = norm(formData.get("title"));
-  const start_date = isoDateOrNull(formData.get("start_date"));
-  const finish_date = isoDateOrNull(formData.get("finish_date"));
+  // ── Existing fields ───────────────────────────────────────────────────────
+  const title           = norm(formData.get("title"));
+  const start_date      = isoDateOrNull(formData.get("start_date"));
+  const finish_date     = isoDateOrNull(formData.get("finish_date"));
   const organisation_id = norm(formData.get("organisation_id"));
-
-  const pmRaw = norm(formData.get("project_manager_id"));
+  const pmRaw           = norm(formData.get("project_manager_id"));
   const project_manager_id = pmRaw && isUuid(pmRaw) ? pmRaw : "";
 
-  if (!title) redirect(`/projects${qs({ err: "missing_title" })}`);
-  if (!start_date) redirect(`/projects${qs({ err: "missing_start" })}`);
+  // ── New heatmap fields ────────────────────────────────────────────────────
+  const project_code    = norm(formData.get("project_code")) || null;
+  const department      = norm(formData.get("department"))   || null;
+  const colour          = norm(formData.get("colour"))       || "#0cb8b6";
+  const resource_status = norm(formData.get("resource_status")) === "pipeline"
+                            ? "pipeline" : "confirmed";
+  const win_probability = resource_status === "pipeline"
+                            ? Math.min(100, Math.max(0,
+                                parseInt(norm(formData.get("win_probability"))) || 80))
+                            : 100;
+
+  // ── Validation ────────────────────────────────────────────────────────────
+  if (!title)           redirect(`/projects${qs({ err: "missing_title" })}`);
+  if (!start_date)      redirect(`/projects${qs({ err: "missing_start" })}`);
   if (!organisation_id) redirect(`/projects${qs({ err: "missing_org" })}`);
   if (!isUuid(organisation_id)) redirect(`/projects${qs({ err: "bad_org" })}`);
 
   if (finish_date) {
-    const a = new Date(start_date).getTime();
+    const a = new Date(start_date!).getTime();
     const b = new Date(finish_date).getTime();
-    if (Number.isNaN(a) || Number.isNaN(b) || b < a) {
+    if (Number.isNaN(a) || Number.isNaN(b) || b < a)
       redirect(`/projects${qs({ err: "bad_finish" })}`);
-    }
   }
 
   if (project_manager_id) {
@@ -179,11 +183,17 @@ export async function createProject(formData: FormData) {
     if (!pmMem?.user_id) redirect(`/projects${qs({ err: "bad_pm" })}`);
   }
 
+  // ── RPC call with new params ──────────────────────────────────────────────
   const { data, error } = await supabase.rpc("create_project_and_owner", {
-    p_finish_date: finish_date || null,
+    p_finish_date:     finish_date || null,
     p_organisation_id: organisation_id,
-    p_start_date: start_date,
-    p_title: title,
+    p_start_date:      start_date,
+    p_title:           title,
+    p_project_code:    project_code,
+    p_department:      department,
+    p_colour:          colour,
+    p_resource_status: resource_status,
+    p_win_probability: win_probability,
   });
 
   if (error) throwDb(error, "rpc.create_project_and_owner");
@@ -195,17 +205,71 @@ export async function createProject(formData: FormData) {
       ? (data[0] as any)?.id ?? (data[0] as any)
       : (data as any)?.id;
 
-  if (!projectId || typeof projectId !== "string") {
+  if (!projectId || typeof projectId !== "string")
     throw new Error("Project creation succeeded but returned no id.");
-  }
 
+  // ── Set PM if provided ────────────────────────────────────────────────────
   if (project_manager_id) {
-    const { error: updErr } = await supabase.from("projects").update({ project_manager_id }).eq("id", projectId);
+    const { error: updErr } = await supabase
+      .from("projects")
+      .update({ project_manager_id })
+      .eq("id", projectId);
     if (updErr) throwDb(updErr, "projects.set_project_manager");
   }
 
   revalidatePath("/projects");
   redirect(`/projects/${projectId}`);
+}
+
+// ── New action: insert role requirements after project is created ─────────────
+export async function insertRoleRequirements(formData: FormData) {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
+
+  const project_id = norm(formData.get("project_id"));
+  if (!project_id || !isUuid(project_id))
+    redirect(`/projects${qs({ err: "missing_project" })}`);
+
+  const role = await getMyProjectRole(supabase, project_id, user.id);
+  if (!canEdit(role))
+    redirect(`/projects${qs({ err: "no_permission", pid: project_id })}`);
+
+  const rolesJson = norm(formData.get("roles_json"));
+  if (!rolesJson) return;
+
+  let roles: Array<{
+    role_title: string;
+    seniority_level: string;
+    required_days_per_week: number;
+    start_date: string;
+    end_date: string;
+  }>;
+
+  try {
+    roles = JSON.parse(rolesJson);
+  } catch {
+    return;
+  }
+
+  if (!Array.isArray(roles) || roles.length === 0) return;
+
+  const rows = roles
+    .filter(r => r.role_title && r.start_date && r.end_date)
+    .map(r => ({
+      project_id,
+      role_title:             r.role_title,
+      seniority_level:        r.seniority_level || "Senior",
+      required_days_per_week: Number(r.required_days_per_week) || 3,
+      start_date:             r.start_date,
+      end_date:               r.end_date,
+    }));
+
+  if (!rows.length) return;
+
+  const { error } = await supabase.from("role_requirements").insert(rows);
+  if (error) throwDb(error, "role_requirements.insert");
+
+  revalidatePath(`/projects/${project_id}`);
 }
 
 export async function updateProjectTitle(formData: FormData) {
@@ -221,7 +285,10 @@ export async function updateProjectTitle(formData: FormData) {
   const role = await getMyProjectRole(supabase, project_id, user.id);
   if (!canEdit(role)) redirect(`/projects${qs({ err: "no_permission", pid: project_id })}`);
 
-  const { error: updErr } = await supabase.from("projects").update({ title }).eq("id", project_id);
+  const { error: updErr } = await supabase
+    .from("projects")
+    .update({ title })
+    .eq("id", project_id);
   if (updErr) throwDb(updErr, "projects.update");
 
   revalidatePath("/projects");
@@ -265,11 +332,6 @@ export async function reopenProject(formData: FormData) {
   redirect(`/projects${qs({ msg: "reopened", pid: project_id })}`);
 }
 
-/**
- * ✅ DELETE (guarded)
- * - server enforces enterprise guard (cannot bypass)
- * - redirects with helpful msg codes
- */
 export async function deleteProject(formData: FormData) {
   const supabase = await createClient();
   const user = await requireUser(supabase);
@@ -284,9 +346,7 @@ export async function deleteProject(formData: FormData) {
   if (!canDelete(role)) redirect(`/projects${qs({ err: "delete_forbidden", pid: project_id })}`);
 
   const guard = await computeDeleteGuard(supabase, project_id);
-  if (!guard.canDelete) {
-    redirect(`/projects${qs({ err: "delete_blocked", pid: project_id })}`);
-  }
+  if (!guard.canDelete) redirect(`/projects${qs({ err: "delete_blocked", pid: project_id })}`);
 
   const { error } = await supabase
     .from("projects")
@@ -300,15 +360,6 @@ export async function deleteProject(formData: FormData) {
   redirect(`/projects${qs({ msg: "deleted", pid: project_id })}`);
 }
 
-/**
- * ✅ Enterprise: Abnormal close
- * - constraint-safe: status MUST be 'closed' (projects_status_check)
- * - we use closure_type='abnormal' to preserve semantics
- *
- * If you *must* use an RPC for RLS, update the RPC implementation to set:
- *   status='closed', lifecycle_status='closed', closure_type='abnormal'
- * and then switch the commented block below back on.
- */
 export async function abnormalCloseProject(formData: FormData) {
   const supabase = await createClient();
   const user = await requireUser(supabase);
@@ -322,7 +373,6 @@ export async function abnormalCloseProject(formData: FormData) {
   const role = await getMyProjectRole(supabase, project_id, user.id);
   if (!canEdit(role)) redirect(`/projects${qs({ err: "no_permission", pid: project_id })}`);
 
-  // ✅ Direct update (works with your check constraints)
   const patch: any = {
     status: "closed",
     lifecycle_status: "closed",
@@ -334,10 +384,6 @@ export async function abnormalCloseProject(formData: FormData) {
 
   const { error } = await supabase.from("projects").update(patch).eq("id", project_id);
   if (error) throwDb(error, "projects.abnormal_close");
-
-  // ---- If you require RPC for RLS, use this instead (after fixing the function):
-  // const { error } = await supabase.rpc("abnormal_close_project", { pid: project_id });
-  // if (error) throwDb(error, "rpc.abnormal_close_project");
 
   revalidatePath("/projects");
   revalidatePath(`/projects/${project_id}`);
