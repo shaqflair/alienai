@@ -54,6 +54,7 @@
     "react-day-picker": "^9.13.2",
     "react-dom": "19.2.1",
     "resend": "^6.6.0",
+    "stripe": "^20.4.0",
     "swr": "^2.4.0",
     "tailwind-merge": "^3.4.0",
     "xlsx": "^0.18.5",
