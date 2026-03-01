@@ -290,7 +290,7 @@ function PipelineSection({ data }: { data: DashboardData["pipeline"] }) {
         <a href="/heatmap" style={{
           fontSize: "11px", color: "#7c3aed", fontWeight: 700,
           textDecoration: "none",
-        }}>View heatmap -></a>
+        }}>View heatmap  {'->'}</a>
       }
     >
       {data.length === 0 ? (
@@ -356,7 +356,7 @@ function ActivitySection({ data }: { data: DashboardData["recentActivity"] }) {
         <a href="/allocations/new" style={{
           fontSize: "11px", color: "#00b8db", fontWeight: 700,
           textDecoration: "none",
-        }}>+ Allocate -></a>
+        }}>+ Allocate  {'->'}</a>
       }
     >
       {data.length === 0 ? (
@@ -375,7 +375,7 @@ function ActivitySection({ data }: { data: DashboardData["recentActivity"] }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: "12px", fontWeight: 600, color: "#334155" }}>
                   {a.personName.split(" ")[0]}
-                  <span style={{ color: "#94a3b8", fontWeight: 400 }}> -> </span>
+                  <span style={{ color: "#94a3b8", fontWeight: 400 }}>  {'->'}</span>
                   <span style={{ color: a.colour }}>{a.projectCode || a.projectTitle}</span>
                 </div>
                 <div style={{ fontSize: "11px", color: "#94a3b8" }}>
@@ -495,7 +495,7 @@ function HeadcountSection({ data }: { data: DashboardData["headcount"] }) {
         <a href="/people" style={{
           fontSize: "11px", color: "#00b8db", fontWeight: 700,
           textDecoration: "none",
-        }}>Manage -></a>
+        }}>Manage  {'->'}</a>
       }
     >
       {data.length === 0 ? (

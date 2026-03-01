@@ -1,4 +1,5 @@
 ﻿"use client";
+// FILE: src/app/scenarios/_components/ScenarioSimulator.tsx
 
 import { useState, useMemo, useTransition, useCallback } from "react";
 import {
@@ -63,12 +64,12 @@ function isoWeekNum(iso: string): number {
 }
 
 const CHANGE_LABELS: Record<string, string> = {
-  add_allocation:  "➕ Add allocation",
-  remove_allocation: "➖ Remove allocation",
-  swap_allocation: "🔄 Swap person",
-  change_capacity: "⚡ Change capacity",
-  shift_project:   "📅 Shift project",
-  add_project:     "🆕 Add project",
+  add_allocation:  " Add allocation",
+  remove_allocation: " Remove allocation",
+  swap_allocation: " Swap person",
+  change_capacity: "[!] Change capacity",
+  shift_project:   "[calendar] Shift project",
+  add_project:     " Add project",
 };
 
 const PROJECT_COLOURS = [
@@ -108,11 +109,11 @@ const labelStyle: React.CSSProperties = {
 ============================================================================= */
 
 function ConflictRing({ score, delta }: { score: number; delta: number }) {
-  const r         = 28;
-  const circ      = 2 * Math.PI * r;
-  const filled    = circ * (score / 100);
-  const colour    = score > 60 ? "#ef4444" : score > 30 ? "#f59e0b" : "#10b981";
-  const label     = score > 60 ? "High" : score > 30 ? "Med" : "Low";
+  const r        = 28;
+  const circ     = 2 * Math.PI * r;
+  const filled   = circ * (score / 100);
+  const colour   = score > 60 ? "#ef4444" : score > 30 ? "#f59e0b" : "#10b981";
+  const label    = score > 60 ? "High" : score > 30 ? "Med" : "Low";
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -148,7 +149,7 @@ function ConflictRing({ score, delta }: { score: number; delta: number }) {
           {delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : "No change"} vs live
         </div>
         <div style={{ fontSize: "10px", color: "#94a3b8", marginTop: "1px" }}>
-          Lower is better · 0–100
+          Lower is better . 0-100
         </div>
       </div>
     </div>
@@ -229,7 +230,7 @@ function DiffHeatmap({
             </div>
           ))}
           <div style={{ width: "60px", textAlign: "center", fontSize: "9px", color: "#94a3b8" }}>
-            Δ avg
+             avg
           </div>
         </div>
 
@@ -255,7 +256,7 @@ function DiffHeatmap({
                 </div>
                 {diff.scenarioCap !== diff.capacityDays && (
                   <div style={{ fontSize: "9px", color: "#f59e0b", fontWeight: 700 }}>
-                    {diff.capacityDays}d → {diff.scenarioCap}d
+                    {diff.capacityDays}d -> {diff.scenarioCap}d
                   </div>
                 )}
               </div>
@@ -275,8 +276,8 @@ function DiffHeatmap({
 
             {/* Scenario cells */}
             {visWeeks.map(w => {
-              const cell   = diff.cells.find(c => c.weekStart === w);
-              const pct    = cell?.scenarioPct ?? 0;
+              const cell  = diff.cells.find(c => c.weekStart === w);
+              const pct   = cell?.scenarioPct ?? 0;
               const changed = cell?.changed ?? false;
               return (
                 <Cell key={`sc-${w}`} pct={pct} highlight={changed} delta={cell?.delta} isToday={w === todayMon} />
@@ -304,7 +305,7 @@ function DiffHeatmap({
       }}>
         {[
           { col: "#10b981", label: "< 75%" },
-          { col: "#f59e0b", label: "75–95%" },
+          { col: "#f59e0b", label: "75-95%" },
           { col: "#ef4444", label: "> 100%" },
           { col: "#7c3aed", label: "> 110%" },
         ].map(l => (
@@ -353,7 +354,7 @@ function Cell({ pct, highlight, delta, isToday }: {
       boxShadow: highlight ? "0 0 0 1px rgba(0,184,219,0.3)" : "none",
       transition: "all 0.2s",
     }}
-      title={pct > 0 ? `${pct}%${delta !== undefined ? ` (${delta > 0 ? "+" : ""}${delta}%)` : ""}` : "—"}
+      title={pct > 0 ? `${pct}%${delta !== undefined ? ` (${delta > 0 ? "+" : ""}${delta}%)` : ""}` : "--"}
     >
       {pct > 0 ? `${pct}%` : ""}
       {highlight && pct > 0 && (
@@ -402,7 +403,7 @@ function AddAllocationForm({
         <Row label="Start"><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={inputStyle} /></Row>
         <Row label="End"><input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={inputStyle} /></Row>
       </TwoCol>
-      <Row label={`Days/week — ${daysPerWeek}d`}>
+      <Row label={`Days/week -- ${daysPerWeek}d`}>
         <DaysPicker value={daysPerWeek} onChange={setDaysPerWeek} max={5} />
       </Row>
     </FormShell>
@@ -475,7 +476,7 @@ function CapacityChangeForm({
         </select>
         {person && <p style={{ fontSize: "11px", color: "#94a3b8", marginTop: 3 }}>Current: {person.capacityDays}d/wk</p>}
       </Row>
-      <Row label={`New capacity — ${newCap}d/wk`}>
+      <Row label={`New capacity -- ${newCap}d/wk`}>
         <DaysPicker value={newCap} onChange={setNewCap} max={7} />
       </Row>
       <TwoCol>
@@ -517,11 +518,11 @@ function ShiftProjectForm({
                 background: direction === d ? "rgba(0,184,219,0.1)" : "white",
                 color: direction === d ? "#00b8db" : "#475569",
                 fontSize: "12px", fontWeight: 700, cursor: "pointer",
-              }}>{d === 1 ? "⏩ Push out" : "⏪ Pull in"}</button>
+              }}>{d === 1 ? " Push out" : " Pull in"}</button>
             ))}
           </div>
         </Row>
-        <Row label={`Weeks — ${shiftWeeks}w`}>
+        <Row label={`Weeks -- ${shiftWeeks}w`}>
           <input type="range" min={1} max={12} value={shiftWeeks}
             onChange={e => setShiftWeeks(Number(e.target.value))}
             style={{ width: "100%", accentColor: "#00b8db" }} />
@@ -540,12 +541,12 @@ function AddProjectForm({
   people: LivePerson[]; allocations: LiveAllocation[]; exceptions: LiveException[];
   onAdd: (c: ScenarioChange) => void; onCancel: () => void;
 }) {
-  const [title,       setTitle]      = useState("");
-  const [personId,    setPersonId]    = useState(people[0]?.personId ?? "");
-  const [startDate,   setStartDate]   = useState("");
-  const [endDate,     setEndDate]     = useState("");
-  const [daysPerWk,   setDaysPerWk]   = useState(3);
-  const [colour,      setColour]      = useState(PROJECT_COLOURS[4]);
+  const [title,      setTitle]      = useState("");
+  const [personId,   setPersonId]   = useState(people[0]?.personId ?? "");
+  const [startDate,  setStartDate]  = useState("");
+  const [endDate,    setEndDate]    = useState("");
+  const [daysPerWk,  setDaysPerWk]  = useState(3);
+  const [colour,     setColour]     = useState(PROJECT_COLOURS[4]);
   const [suggestions, setSuggestions] = useState<SuggestedPerson[]>([]);
 
   function runSuggest() {
@@ -559,8 +560,8 @@ function AddProjectForm({
     <FormShell title="Add pipeline project" onCancel={onCancel} onSubmit={() => {
       if (!title || !personId || !startDate || !endDate) return;
       onAdd({
-        type:         "add_project",
-        projectId:    crypto.randomUUID(),
+        type:        "add_project",
+        projectId:   crypto.randomUUID(),
         title, colour, startDate, endDate,
         daysPerWeek: daysPerWk,
         personId,
@@ -569,7 +570,7 @@ function AddProjectForm({
       <TwoCol>
         <Row label="Project title">
           <input type="text" value={title} onChange={e => setTitle(e.target.value)}
-            placeholder="New project…" style={inputStyle} />
+            placeholder="New project..." style={inputStyle} />
         </Row>
         <Row label="Colour">
           <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
@@ -587,7 +588,7 @@ function AddProjectForm({
         <Row label="Start"><input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); setSuggestions([]); }} style={inputStyle} /></Row>
         <Row label="End"><input type="date" value={endDate} onChange={e => { setEndDate(e.target.value); setSuggestions([]); }} style={inputStyle} /></Row>
       </TwoCol>
-      <Row label={`Days/week — ${daysPerWk}d`}>
+      <Row label={`Days/week -- ${daysPerWk}d`}>
         <DaysPicker value={daysPerWk} onChange={v => { setDaysPerWk(v); setSuggestions([]); }} max={5} />
       </Row>
 
@@ -599,7 +600,7 @@ function AddProjectForm({
             border: "1.5px solid #00b8db", background: "rgba(0,184,219,0.08)",
             color: "#00b8db", fontSize: "12px", fontWeight: 700, cursor: "pointer",
             marginBottom: "8px",
-          }}>✨ Auto-suggest best fit</button>
+          }}> Auto-suggest best fit</button>
 
           {suggestions.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
@@ -618,11 +619,11 @@ function AddProjectForm({
                       {s.fullName}
                       {s.canFullyCover && (
                         <span style={{ marginLeft: 6, fontSize: "10px", color: "#10b981",
-                                       fontWeight: 700 }}>✓ Full cover</span>
+                                       fontWeight: 700 }}>[check] Full cover</span>
                       )}
                     </div>
                     <div style={{ fontSize: "10px", color: "#94a3b8" }}>
-                      {s.avgAvailDays}d/wk available · {s.conflictWeeks} conflict wks
+                      {s.avgAvailDays}d/wk available . {s.conflictWeeks} conflict wks
                     </div>
                   </div>
                   <div style={{
@@ -647,7 +648,7 @@ function AddProjectForm({
   );
 }
 
-/* ── Form shell + helpers ── */
+/* -- Form shell + helpers -- */
 
 function FormShell({ title, children, onSubmit, onCancel }: {
   title: string; children: React.ReactNode;
@@ -720,11 +721,11 @@ function DaysPicker({ value, onChange, max }: { value: number; onChange: (v: num
 ============================================================================= */
 
 const ADD_BUTTONS = [
-  { type: "add_allocation",  icon: "➕", label: "Add allocation"  },
-  { type: "swap_allocation", icon: "🔄", label: "Swap person"     },
-  { type: "change_capacity", icon: "⚡", label: "Change capacity" },
-  { type: "shift_project",   icon: "📅", label: "Shift project"   },
-  { type: "add_project",     icon: "🆕", label: "New project"     },
+  { type: "add_allocation",  icon: "", label: "Add allocation"  },
+  { type: "swap_allocation", icon: "", label: "Swap person"     },
+  { type: "change_capacity", icon: "[!]", label: "Change capacity" },
+  { type: "shift_project",   icon: "[calendar]", label: "Shift project"   },
+  { type: "add_project",     icon: "", label: "New project"     },
 ] as const;
 
 export default function ScenarioSimulator({
@@ -737,12 +738,12 @@ export default function ScenarioSimulator({
 }: {
   people:          LivePerson[];
   projects:        LiveProject[];
-  allocations:      LiveAllocation[];
+  allocations:     LiveAllocation[];
   exceptions:      LiveException[];
   organisationId:  string;
   savedScenarios:  Scenario[];
 }) {
-  // ── Scenario state ────────────────────────────────────────────────────────
+  // -- Scenario state --------------------------------------------------------
   const [scenarioId,   setScenarioId]   = useState<string | null>(null);
   const [scenarioName, setScenarioName] = useState("New scenario");
   const [changes,      setChanges]      = useState<ScenarioChange[]>([]);
@@ -761,7 +762,7 @@ export default function ScenarioSimulator({
 
   const weeks = useMemo(() => weeksInRange(from, to).slice(0, 20), [from, to]);
 
-  // ── Compute states ────────────────────────────────────────────────────────
+  // -- Compute states --------------------------------------------------------
   const liveState = useMemo(() =>
     computeState(people, projects, allocations, exceptions, weeks, new Map()),
     [people, projects, allocations, exceptions, weeks]
@@ -782,11 +783,11 @@ export default function ScenarioSimulator({
     [liveState, scenarioState, weeks]
   );
 
-  const liveScore      = liveState.conflictScore;
+  const liveScore     = liveState.conflictScore;
   const scenarioScore = scenarioState.conflictScore;
-  const scoreDelta     = scenarioScore - liveScore;
+  const scoreDelta    = scenarioScore - liveScore;
 
-  // ── Save scenario ─────────────────────────────────────────────────────────
+  // -- Save scenario ---------------------------------------------------------
   async function handleSave() {
     const fd = new FormData();
     if (scenarioId) fd.set("scenario_id", scenarioId);
@@ -798,7 +799,7 @@ export default function ScenarioSimulator({
       try {
         const result = await saveScenario(fd) as any;
         if (result?.id) setScenarioId(result.id);
-        setSaveMsg("Saved ✓");
+        setSaveMsg("Saved [check]");
         setTimeout(() => setSaveMsg(null), 2000);
       } catch (err: any) {
         setSaveMsg(`Error: ${err.message}`);
@@ -806,210 +807,313 @@ export default function ScenarioSimulator({
     });
   }
 
-  // ── Load scenario ─────────────────────────────────────────────────────────
+  // -- Load scenario ---------------------------------------------------------
   function loadScenario(sc: Scenario) {
     setScenarioId(sc.id);
     setScenarioName(sc.name);
     setChanges(sc.changes);
+    setActiveForm(null);
+  }
+
+  function newScenario() {
+    setScenarioId(null);
+    setScenarioName("New scenario");
+    setChanges([]);
+    setActiveForm(null);
+  }
+
+  function removeChange(i: number) {
+    setChanges(cs => cs.filter((_, j) => j !== i));
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: "24px", height: "calc(100vh - 120px)" }}>
-      {/* Sidebar: Controls & Changes */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "20px", overflowY: "auto", paddingRight: "10px" }}>
-        
-        {/* Scenario Select */}
-        <div style={{ background: "white", borderRadius: "12px", border: "1.5px solid #e2e8f0", padding: "16px" }}>
-          <label style={labelStyle}>Saved Scenarios</label>
-          <select 
-            style={inputStyle} 
-            onChange={(e) => {
-              const sc = savedScenarios.find(s => s.id === e.target.value);
-              if (sc) loadScenario(sc);
-            }}
-            value={scenarioId || ""}
-          >
-            <option value="">— Current Draft —</option>
-            {savedScenarios.map(sc => (
-              <option key={sc.id} value={sc.id}>{sc.name}</option>
-            ))}
-          </select>
-          
-          <div style={{ marginTop: "12px" }}>
-            <label style={labelStyle}>Scenario Name</label>
-            <input 
-              type="text" 
-              value={scenarioName} 
-              onChange={(e) => setScenarioName(e.target.value)} 
-              style={inputStyle} 
-            />
-          </div>
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
+        @keyframes slideUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+      `}</style>
 
-          <div style={{ display: "flex", gap: "8px", marginTop: "16px" }}>
-            <button 
-              onClick={handleSave}
-              disabled={isPending}
-              style={{
-                flex: 1, padding: "8px", borderRadius: "8px", border: "none",
-                background: "#0f172a", color: "white", fontSize: "12px", fontWeight: 700,
-                cursor: "pointer", opacity: isPending ? 0.7 : 1
-              }}
-            >
-              {isPending ? "Saving..." : saveMsg || "Save Scenario"}
-            </button>
-            <button 
-              onClick={() => { setScenarioId(null); setChanges([]); setScenarioName("New scenario"); }}
-              style={{
-                padding: "8px 12px", borderRadius: "8px", border: "1.5px solid #e2e8f0",
-                background: "white", color: "#64748b", fontSize: "12px", fontWeight: 600,
-                cursor: "pointer"
-              }}
-            >
-              Reset
-            </button>
-          </div>
-        </div>
+      <div style={{
+        fontFamily: "'DM Sans', sans-serif",
+        minHeight: "100vh", background: "#f8fafc",
+        padding: "36px 28px",
+      }}>
+        <div style={{ maxWidth: "1300px", margin: "0 auto" }}>
 
-        {/* Change Actions */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          <label style={labelStyle}>Add Changes</label>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-            {ADD_BUTTONS.map(btn => (
-              <button
-                key={btn.type}
-                onClick={() => setActiveForm(btn.type)}
-                style={{
-                  padding: "10px", borderRadius: "10px", border: "1.5px solid #e2e8f0",
-                  background: activeForm === btn.type ? "rgba(0,184,219,0.05)" : "white",
-                  borderColor: activeForm === btn.type ? "#00b8db" : "#e2e8f0",
-                  color: "#334155", fontSize: "11px", fontWeight: 700, cursor: "pointer",
-                  display: "flex", flexDirection: "column", alignItems: "center", gap: "4px",
-                  transition: "all 0.15s"
-                }}
-              >
-                <span style={{ fontSize: "16px" }}>{btn.icon}</span>
-                {btn.label}
-              </button>
-            ))}
-          </div>
-        </div>
+          {/* -- Header -- */}
+          <div style={{
+            display: "flex", alignItems: "center",
+            justifyContent: "space-between", marginBottom: "24px",
+            flexWrap: "wrap", gap: "12px",
+          }}>
+            <div>
+              <h1 style={{ fontSize: "22px", fontWeight: 800, color: "#0f172a",
+                           margin: 0, marginBottom: "4px" }}>
+                What-if Simulator
+              </h1>
+              <p style={{ fontSize: "13px", color: "#94a3b8", margin: 0 }}>
+                Model changes without touching live data . {changes.length} change{changes.length !== 1 ? "s" : ""} in scenario
+              </p>
+            </div>
 
-        {/* Active Form Area */}
-        {activeForm && (
-          <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: "8px" }}>
-            {activeForm === "add_allocation" && (
-              <AddAllocationForm 
-                people={people} projects={projects} 
-                onAdd={(c) => { setChanges([...changes, c]); setActiveForm(null); }}
-                onCancel={() => setActiveForm(null)}
-              />
-            )}
-            {activeForm === "swap_allocation" && (
-              <SwapForm 
-                people={people} projects={projects}
-                onAdd={(c) => { setChanges([...changes, c]); setActiveForm(null); }}
-                onCancel={() => setActiveForm(null)}
-              />
-            )}
-            {activeForm === "change_capacity" && (
-              <CapacityChangeForm 
-                people={people}
-                onAdd={(c) => { setChanges([...changes, c]); setActiveForm(null); }}
-                onCancel={() => setActiveForm(null)}
-              />
-            )}
-            {activeForm === "shift_project" && (
-              <ShiftProjectForm 
-                projects={projects}
-                onAdd={(c) => { setChanges([...changes, c]); setActiveForm(null); }}
-                onCancel={() => setActiveForm(null)}
-              />
-            )}
-            {activeForm === "add_project" && (
-              <AddProjectForm 
-                people={people} allocations={allocations} exceptions={exceptions}
-                onAdd={(c) => { setChanges([...changes, c]); setActiveForm(null); }}
-                onCancel={() => setActiveForm(null)}
-              />
-            )}
-          </div>
-        )}
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              {/* Date range */}
+              <input type="date" value={from} onChange={e => setFrom(e.target.value)}
+                style={{ ...inputStyle, width: "130px" }} />
+              <span style={{ color: "#94a3b8", fontSize: "12px" }}> {'->'}</span>
+              <input type="date" value={to} onChange={e => setTo(e.target.value)}
+                style={{ ...inputStyle, width: "130px" }} />
 
-        {/* Change List */}
-        <div style={{ flex: 1 }}>
-          <label style={labelStyle}>Applied Changes ({changes.length})</label>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "8px" }}>
-            {changes.length === 0 && (
-              <div style={{ padding: "20px", textAlign: "center", border: "1.5px dashed #e2e8f0", borderRadius: "10px", color: "#94a3b8", fontSize: "12px" }}>
-                No changes yet.
-              </div>
-            )}
-            {changes.map((change, idx) => (
-              <div key={idx} style={{ 
-                background: "white", padding: "10px", borderRadius: "8px", border: "1.5px solid #f1f5f9",
-                display: "flex", alignItems: "center", justifyContent: "space-between"
+              <button type="button" onClick={newScenario} style={{
+                padding: "8px 14px", borderRadius: "8px",
+                border: "1.5px solid #e2e8f0", background: "white",
+                color: "#475569", fontSize: "12px", fontWeight: 600, cursor: "pointer",
+              }}>New</button>
+
+              <button type="button" onClick={handleSave} disabled={isPending || changes.length === 0} style={{
+                padding: "8px 18px", borderRadius: "8px", border: "none",
+                background: changes.length === 0 ? "#94a3b8" : "#00b8db",
+                color: "white", fontSize: "12px", fontWeight: 700,
+                cursor: changes.length === 0 ? "not-allowed" : "pointer",
+                boxShadow: "0 2px 10px rgba(0,184,219,0.25)",
               }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#475569" }}>
-                  {CHANGE_LABELS[change.type]}
+                {saveMsg || (isPending ? "Saving..." : " Save scenario")}
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: "20px" }}>
+
+            {/* -- LEFT: Control panel -- */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+
+              {/* Scenario name */}
+              <div style={{
+                background: "white", borderRadius: "12px",
+                border: "1.5px solid #e2e8f0", padding: "14px 16px",
+              }}>
+                <label style={labelStyle}>Scenario name</label>
+                <input type="text" value={scenarioName}
+                  onChange={e => setScenarioName(e.target.value)}
+                  style={inputStyle} />
+              </div>
+
+              {/* Conflict score */}
+              <div style={{
+                background: "white", borderRadius: "12px",
+                border: "1.5px solid #e2e8f0", padding: "14px 16px",
+              }}>
+                <ConflictRing score={scenarioScore} delta={scoreDelta} />
+
+                {scenarioState.warnings.length > 0 && (
+                  <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "5px" }}>
+                    {scenarioState.warnings.slice(0, 3).map((w, i) => (
+                      <div key={i} style={{
+                        fontSize: "11px", padding: "6px 9px", borderRadius: "6px",
+                        background: w.severity === "critical" ? "#fef2f2" : "#fffbeb",
+                        color: w.severity === "critical" ? "#dc2626" : "#d97706",
+                        border: `1px solid ${w.severity === "critical" ? "#fecaca" : "#fde68a"}`,
+                      }}>{w.message}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Add changes */}
+              <div style={{
+                background: "white", borderRadius: "12px",
+                border: "1.5px solid #e2e8f0", padding: "14px 16px",
+              }}>
+                <div style={{ fontSize: "13px", fontWeight: 800, color: "#0f172a",
+                              marginBottom: "10px" }}>Add change</div>
+
+                {activeForm === null ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+                    {ADD_BUTTONS.map(b => (
+                      <button key={b.type} type="button"
+                        onClick={() => setActiveForm(b.type)} style={{
+                        display: "flex", alignItems: "center", gap: "8px",
+                        padding: "8px 12px", borderRadius: "8px",
+                        border: "1.5px solid #e2e8f0", background: "white",
+                        color: "#334155", fontSize: "12px", fontWeight: 600,
+                        cursor: "pointer", textAlign: "left",
+                        transition: "all 0.15s",
+                      }}
+                        onMouseEnter={e => {
+                          (e.currentTarget as HTMLButtonElement).style.borderColor = "#00b8db";
+                          (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,184,219,0.04)";
+                        }}
+                        onMouseLeave={e => {
+                          (e.currentTarget as HTMLButtonElement).style.borderColor = "#e2e8f0";
+                          (e.currentTarget as HTMLButtonElement).style.background = "white";
+                        }}
+                      >
+                        <span style={{ fontSize: "14px" }}>{b.icon}</span>
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ animation: "slideUp 0.15s ease" }}>
+                    {activeForm === "add_allocation" && (
+                      <AddAllocationForm people={people} projects={[...projects, ...scProjects.filter(p => !projects.find(lp => lp.projectId === p.projectId))]}
+                        onAdd={c => { setChanges(cs => [...cs, c]); setActiveForm(null); }}
+                        onCancel={() => setActiveForm(null)} />
+                    )}
+                    {activeForm === "swap_allocation" && (
+                      <SwapForm people={people} projects={projects}
+                        onAdd={c => { setChanges(cs => [...cs, c]); setActiveForm(null); }}
+                        onCancel={() => setActiveForm(null)} />
+                    )}
+                    {activeForm === "change_capacity" && (
+                      <CapacityChangeForm people={people}
+                        onAdd={c => { setChanges(cs => [...cs, c]); setActiveForm(null); }}
+                        onCancel={() => setActiveForm(null)} />
+                    )}
+                    {activeForm === "shift_project" && (
+                      <ShiftProjectForm projects={projects}
+                        onAdd={c => { setChanges(cs => [...cs, c]); setActiveForm(null); }}
+                        onCancel={() => setActiveForm(null)} />
+                    )}
+                    {activeForm === "add_project" && (
+                      <AddProjectForm people={people} allocations={allocations} exceptions={exceptions}
+                        onAdd={c => { setChanges(cs => [...cs, c]); setActiveForm(null); }}
+                        onCancel={() => setActiveForm(null)} />
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Change list */}
+              {changes.length > 0 && (
+                <div style={{
+                  background: "white", borderRadius: "12px",
+                  border: "1.5px solid #e2e8f0", padding: "14px 16px",
+                }}>
+                  <div style={{ fontSize: "13px", fontWeight: 800, color: "#0f172a",
+                                marginBottom: "8px" }}>
+                    Changes ({changes.length})
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+                    {changes.map((c, i) => (
+                      <div key={i} style={{
+                        display: "flex", alignItems: "center", gap: "8px",
+                        padding: "7px 9px", borderRadius: "7px",
+                        background: "#f8fafc", border: "1px solid #e2e8f0",
+                        fontSize: "12px",
+                      }}>
+                        <span style={{ fontSize: "13px" }}>
+                          {ADD_BUTTONS.find(b => b.type === c.type)?.icon ?? "."}
+                        </span>
+                        <span style={{ flex: 1, color: "#334155", fontWeight: 600 }}>
+                          {CHANGE_LABELS[c.type]}
+                        </span>
+                        <button type="button" onClick={() => removeChange(i)} style={{
+                          background: "none", border: "none", color: "#cbd5e1",
+                          cursor: "pointer", fontSize: "13px", lineHeight: 1,
+                        }}>x</button>
+                      </div>
+                    ))}
+                  </div>
+                  <button type="button" onClick={() => setChanges([])} style={{
+                    marginTop: "8px", width: "100%",
+                    padding: "6px", borderRadius: "7px",
+                    border: "1.5px solid #fecaca", background: "white",
+                    color: "#ef4444", fontSize: "11px", fontWeight: 600, cursor: "pointer",
+                  }}>Clear all changes</button>
                 </div>
-                <button 
-                  onClick={() => setChanges(changes.filter((_, i) => i !== idx))}
-                  style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: "14px" }}
-                >
-                  ✕
-                </button>
+              )}
+
+              {/* Saved scenarios */}
+              {savedScenarios.length > 0 && (
+                <div style={{
+                  background: "white", borderRadius: "12px",
+                  border: "1.5px solid #e2e8f0", padding: "14px 16px",
+                }}>
+                  <div style={{ fontSize: "13px", fontWeight: 800, color: "#0f172a",
+                                marginBottom: "8px" }}>Saved scenarios</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+                    {savedScenarios.map(sc => (
+                      <button key={sc.id} type="button" onClick={() => loadScenario(sc)} style={{
+                        display: "flex", alignItems: "center", gap: "8px",
+                        padding: "8px 10px", borderRadius: "8px",
+                        border: "1.5px solid",
+                        borderColor: scenarioId === sc.id ? "#00b8db" : "#e2e8f0",
+                        background: scenarioId === sc.id ? "rgba(0,184,219,0.06)" : "white",
+                        cursor: "pointer", textAlign: "left",
+                      }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#0f172a",
+                                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {sc.name}
+                          </div>
+                          <div style={{ fontSize: "10px", color: "#94a3b8" }}>
+                            {sc.changes.length} change{sc.changes.length !== 1 ? "s" : ""}
+                          </div>
+                        </div>
+                        {scenarioId === sc.id && (
+                          <span style={{ fontSize: "10px", color: "#00b8db", fontWeight: 700 }}>Active</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* -- RIGHT: Diff heatmap -- */}
+            <div style={{
+              background: "white", borderRadius: "14px",
+              border: "1.5px solid #e2e8f0",
+              boxShadow: "0 1px 8px rgba(0,0,0,0.04)",
+              overflow: "hidden",
+            }}>
+              <div style={{
+                padding: "16px 20px 12px",
+                borderBottom: "1px solid #f1f5f9",
+                display: "flex", alignItems: "center", gap: "16px",
+                flexWrap: "wrap",
+              }}>
+                <div>
+                  <div style={{ fontSize: "14px", fontWeight: 800, color: "#0f172a" }}>
+                    Impact diff -- Live vs Scenario
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#94a3b8" }}>
+                    {diffs.filter(d => d.cells.some(c => c.changed)).length} people affected .{" "}
+                    {diffs.flatMap(d => d.cells).filter(c => c.changed).length} weeks changed
+                  </div>
+                </div>
+
+                {/* Score comparison */}
+                <div style={{
+                  display: "flex", gap: "16px", marginLeft: "auto",
+                  padding: "8px 14px", borderRadius: "10px",
+                  background: "#f8fafc", border: "1px solid #e2e8f0",
+                }}>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: "16px", fontWeight: 800,
+                                  color: "#64748b", fontFamily: "monospace" }}>{liveScore}</div>
+                    <div style={{ fontSize: "9px", color: "#94a3b8", textTransform: "uppercase",
+                                  letterSpacing: "0.05em" }}>Live</div>
+                  </div>
+                  <div style={{ fontSize: "18px", color: "#e2e8f0", alignSelf: "center" }}> {'->'}</div>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: "16px", fontWeight: 800,
+                                  color: scoreDelta > 0 ? "#ef4444" : scoreDelta < 0 ? "#10b981" : "#64748b",
+                                  fontFamily: "monospace" }}>{scenarioScore}</div>
+                    <div style={{ fontSize: "9px", color: "#94a3b8", textTransform: "uppercase",
+                                  letterSpacing: "0.05em" }}>Scenario</div>
+                  </div>
+                </div>
               </div>
-            ))}
+
+              <div style={{ padding: "16px 20px" }}>
+                <DiffHeatmap diffs={diffs} weeks={weeks} />
+              </div>
+            </div>
           </div>
         </div>
       </div>
-
-      {/* Main View: Diff Heatmap */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "24px", minWidth: 0 }}>
-        
-        {/* Header: KPIs */}
-        <div style={{ 
-          background: "white", borderRadius: "16px", border: "1.5px solid #e2e8f0", 
-          padding: "20px", display: "flex", alignItems: "center", justifyContent: "space-between" 
-        }}>
-          <ConflictRing score={scenarioScore} delta={scoreDelta} />
-          
-          <div style={{ display: "flex", gap: "32px" }}>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: "10px", fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Over-alloc weeks</div>
-              <div style={{ fontSize: "24px", fontWeight: 900, color: "#0f172a" }}>
-                {scenarioState.totalOverAlloc}
-                <span style={{ fontSize: "14px", color: scenarioState.totalOverAlloc > liveState.totalOverAlloc ? "#ef4444" : "#10b981", marginLeft: "6px" }}>
-                  {scenarioState.totalOverAlloc > liveState.totalOverAlloc ? "↑" : "↓"}
-                </span>
-              </div>
-            </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: "10px", fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Date Range</div>
-              <div style={{ fontSize: "14px", fontWeight: 700, color: "#334155", marginTop: "4px" }}>
-                {formatDate(from)} — {formatDate(to)}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* The Heatmap */}
-        <div style={{ 
-          flex: 1, background: "white", borderRadius: "16px", border: "1.5px solid #e2e8f0", 
-          padding: "20px", overflow: "hidden", display: "flex", flexDirection: "column"
-        }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-            <h3 style={{ fontSize: "15px", fontWeight: 800, color: "#0f172a", margin: 0 }}>Projected Impact Diff</h3>
-            <div style={{ display: "flex", gap: "8px" }}>
-               <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ ...inputStyle, width: "auto" }} />
-               <input type="date" value={to} onChange={e => setTo(e.target.value)} style={{ ...inputStyle, width: "auto" }} />
-            </div>
-          </div>
-          
-          <DiffHeatmap diffs={diffs} weeks={weeks} />
-        </div>
-
-      </div>
-    </div>
+    </>
   );
 }

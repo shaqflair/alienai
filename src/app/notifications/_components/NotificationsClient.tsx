@@ -11,28 +11,28 @@ import type { Alert, AlertSeverity, AlertType } from "../_lib/notifications-engi
 const SEVERITY_COLOUR: Record<AlertSeverity, string> = {
   critical: "#dc2626",
   warning:  "#d97706",
-  info:     "#0891b2",
+  info:      "#0891b2",
 };
 
 const SEVERITY_BG: Record<AlertSeverity, string> = {
   critical: "#fef2f2",
   warning:  "#fffbeb",
-  info:     "#f0f9ff",
+  info:      "#f0f9ff",
 };
 
 const SEVERITY_BORDER: Record<AlertSeverity, string> = {
   critical: "#fecaca",
   warning:  "#fde68a",
-  info:     "#bae6fd",
+  info:      "#bae6fd",
 };
 
 const TYPE_EMOJI: Record<AlertType, string> = {
-  over_allocation:   "",
-  under_utilisation: "",
-  upcoming_leave:    "[calendar]",
-  pipeline_starting: "[!]",
-  project_ending:    "[flag]",
-  budget_exhausted:  "[money]",
+  over_allocation:   "⚠️",
+  under_utilisation: "📉",
+  upcoming_leave:    "📅",
+  pipeline_starting: "🚀",
+  project_ending:    "🏁",
+  budget_exhausted:  "💰",
 };
 
 const TYPE_LABEL: Record<AlertType, string> = {
@@ -110,7 +110,7 @@ function AlertCard({ alert, dismissed, onDismiss }: {
           background: `${colour}08`,
           transition: "all 0.15s",
         }}>
-          View details ->
+          View details {'->'}
         </a>
       </div>
 
@@ -141,7 +141,7 @@ export default function NotificationsClient({
 }) {
   const [alerts,      setAlerts]      = useState(initialAlerts);
   const [dismissed,   setDismissed]   = useState<Set<string>>(new Set());
-  const [loading,     setLoading]     = useState(false);
+  const [loading,      setLoading]     = useState(false);
   const [filterSev,   setFilterSev]   = useState<AlertSeverity | "all">("all");
   const [filterType,  setFilterType]  = useState<AlertType | "all">("all");
   const [genAt,       setGenAt]       = useState(generatedAt);
@@ -180,7 +180,7 @@ export default function NotificationsClient({
   const grouped = {
     critical: filtered.filter(a => a.severity === "critical"),
     warning:  filtered.filter(a => a.severity === "warning"),
-    info:     filtered.filter(a => a.severity === "info"),
+    info:      filtered.filter(a => a.severity === "info"),
   };
 
   const genTime = new Date(genAt).toLocaleTimeString("en-GB", {
@@ -301,7 +301,7 @@ export default function NotificationsClient({
               border: "1.5px solid #e2e8f0",
               padding: "48px 0", textAlign: "center",
             }}>
-              <div style={{ fontSize: "32px", marginBottom: "10px" }}>[ok]</div>
+              <div style={{ fontSize: "32px", marginBottom: "10px" }}>✅</div>
               <div style={{ fontSize: "15px", fontWeight: 700, color: "#0f172a" }}>
                 {dismissed.size > 0 ? "All alerts dismissed" : "No active alerts"}
               </div>

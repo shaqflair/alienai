@@ -9,14 +9,14 @@ import { upsertExceptionRange, deleteException } from "../actions";
 ============================================================================= */
 
 export type ExceptionRow = {
-  id:             string;
-  personId:       string;
-  fullName:       string;
+  id:            string;
+  personId:      string;
+  fullName:      string;
   weekStartDate: string;
   availableDays: number;
-  reason:         string;
-  notes:          string | null;
-  defaultCap:     number;
+  reason:        string;
+  notes:         string | null;
+  defaultCap:    number;
 };
 
 export type PersonOption = {
@@ -39,12 +39,12 @@ export type WeekCol = {
 ============================================================================= */
 
 const REASON_META: Record<string, { label: string; colour: string; bg: string; emoji: string }> = {
-  annual_leave:   { label: "Annual leave",   colour: "#3b82f6", bg: "rgba(59,130,246,0.1)",  emoji: "🏖" },
-  public_holiday: { label: "Public holiday", colour: "#8b5cf6", bg: "rgba(139,92,246,0.1)",  emoji: "🎉" },
-  training:       { label: "Training",       colour: "#f59e0b", bg: "rgba(245,158,11,0.1)",  emoji: "📚" },
-  sick_leave:     { label: "Sick leave",     colour: "#ef4444", bg: "rgba(239,68,68,0.1)",   emoji: "🤒" },
-  parental_leave: { label: "Parental leave", colour: "#ec4899", bg: "rgba(236,72,153,0.1)",  emoji: "👶" },
-  other:          { label: "Other",          colour: "#64748b", bg: "rgba(100,116,139,0.1)", emoji: "📋" },
+  annual_leave:   { label: "Annual leave",   colour: "#3b82f6", bg: "rgba(59,130,246,0.1)",  emoji: "" },
+  public_holiday: { label: "Public holiday", colour: "#8b5cf6", bg: "rgba(139,92,246,0.1)",  emoji: "" },
+  training:       { label: "Training",       colour: "#f59e0b", bg: "rgba(245,158,11,0.1)",  emoji: "" },
+  sick_leave:     { label: "Sick leave",     colour: "#ef4444", bg: "rgba(239,68,68,0.1)",   emoji: "" },
+  parental_leave: { label: "Parental leave", colour: "#ec4899", bg: "rgba(236,72,153,0.1)",  emoji: "" },
+  other:          { label: "Other",          colour: "#64748b", bg: "rgba(100,116,139,0.1)", emoji: "[clipboard]" },
 };
 
 const AVAILABLE_DAYS_OPTIONS = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
@@ -249,14 +249,14 @@ function AddExceptionModal({
           <button type="button" onClick={onClose} style={{
             background: "none", border: "none", color: "#94a3b8",
             cursor: "pointer", fontSize: "18px", lineHeight: 1,
-          }}>✕</button>
+          }}>x</button>
         </div>
 
         <form onSubmit={handleSubmit} style={{
           padding: "20px 24px 24px",
           display: "flex", flexDirection: "column", gap: "16px",
         }}>
-          {/* Person picker */}
+          {/* Person picker -- only show if admin or more than one person */}
           {(isAdmin || people.length > 1) && (
             <div>
               <FieldLabel>Person</FieldLabel>
@@ -268,7 +268,7 @@ function AddExceptionModal({
                 {people.map(p => (
                   <option key={p.id} value={p.id}>
                     {p.fullName}{p.id === currentUserId ? " (me)" : ""}
-                    {p.department ? ` — ${p.department}` : ""}
+                    {p.department ? ` -- ${p.department}` : ""}
                   </option>
                 ))}
               </select>
@@ -327,17 +327,22 @@ function AddExceptionModal({
               fontSize: "12px", color: meta.colour, fontWeight: 600,
             }}>
               {weekCount} week{weekCount !== 1 ? "s" : ""}
-              {isRange ? ` (${formatDate(startDate)} → ${formatDate(endDate)})` : ` (${formatDate(startDate)})`}
+              {isRange ? ` (${formatDate(startDate)} -> ${formatDate(endDate)})` : ` (${formatDate(startDate)})`}
             </div>
           )}
 
           {/* Available days */}
           <div>
             <FieldLabel>
-              Available days that week —{" "}
+              Available days that week --{" "}
               <span style={{ color: meta.colour, fontFamily: "monospace" }}>
                 {availDays}d
               </span>
+              {person && availDays < person.defaultCap && (
+                <span style={{ color: "#94a3b8", fontWeight: 400, marginLeft: 6 }}>
+                  ({person.defaultCap - availDays}d reduction)
+                </span>
+              )}
             </FieldLabel>
             <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
               {AVAILABLE_DAYS_OPTIONS.filter(d => !person || d <= person.defaultCap + 0.1).map(d => (
@@ -351,10 +356,13 @@ function AddExceptionModal({
                   fontFamily: "monospace", padding: "0 6px",
                   transition: "all 0.1s",
                 }}>
-                  {d === 0 ? "Off" : `${d}d`}
+                  {d === 0 ? "Off" : d % 1 === 0 ? `${d}d` : `${d}d`}
                 </button>
               ))}
             </div>
+            <p style={{ fontSize: "11px", color: "#94a3b8", marginTop: "5px" }}>
+              0 = full day off. The heatmap will reflect this reduced capacity automatically.
+            </p>
           </div>
 
           {/* Notes */}
@@ -363,7 +371,7 @@ function AddExceptionModal({
             <input
               type="text" value={notes}
               onChange={e => setNotes(e.target.value)}
-              placeholder="e.g. School holidays..."
+              placeholder="e.g. School holidays, medical appointment..."
               style={inputStyle}
             />
           </div>
@@ -413,14 +421,15 @@ function CalendarGrid({
   organisationId,
   onAddClick,
 }: {
-  exceptions:      ExceptionRow[];
-  people:          PersonOption[];
-  weeks:           WeekCol[];
+  exceptions:     ExceptionRow[];
+  people:         PersonOption[];
+  weeks:          WeekCol[];
   organisationId: string;
-  onAddClick:      (personId: string, week: string) => void;
+  onAddClick:     (personId: string, week: string) => void;
 }) {
   const [deleting, startTransition] = useTransition();
 
+  // Build lookup: personId -> weekKey -> exception
   const lookup = new Map<string, Map<string, ExceptionRow>>();
   for (const ex of exceptions) {
     if (!lookup.has(ex.personId)) lookup.set(ex.personId, new Map());
@@ -434,6 +443,7 @@ function CalendarGrid({
     fd.set("person_id",       ex.personId);
     fd.set("organisation_id", organisationId);
     startTransition(async () => {
+      const { deleteException } = await import("../actions");
       await deleteException(fd);
     });
   }
@@ -474,38 +484,63 @@ function CalendarGrid({
         {/* Person rows */}
         {people.map(person => {
           const personExceptions = lookup.get(person.id) ?? new Map();
+          const hasAny = personExceptions.size > 0;
+
           return (
-            <div key={person.id} style={{ display: "flex", alignItems: "center", marginBottom: "4px" }}>
+            <div key={person.id} style={{
+              display: "flex", alignItems: "center",
+              marginBottom: "4px",
+            }}>
+              {/* Name col */}
               <div style={{
                 width: "180px", minWidth: "180px", flexShrink: 0,
-                display: "flex", alignItems: "center", gap: "8px", paddingRight: "10px",
+                display: "flex", alignItems: "center", gap: "8px",
+                paddingRight: "10px",
               }}>
                 <Avatar name={person.fullName} size={26} />
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: "12px", fontWeight: 600, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <div style={{
+                    fontSize: "12px", fontWeight: 600, color: "#0f172a",
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
                     {person.fullName.split(" ")[0]}
                   </div>
-                  <div style={{ fontSize: "10px", color: "#94a3b8" }}>{person.defaultCap}d default</div>
+                  <div style={{ fontSize: "10px", color: "#94a3b8" }}>
+                    {person.defaultCap}d default
+                  </div>
                 </div>
               </div>
 
+              {/* Week cells */}
               {weeks.map(w => {
                 const ex = personExceptions.get(w.key);
                 const meta = ex ? REASON_META[ex.reason] ?? REASON_META.other : null;
 
                 if (ex && meta) {
+                  const reductionPct = ex.availableDays === 0
+                    ? 100
+                    : Math.round(((person.defaultCap - ex.availableDays) / person.defaultCap) * 100);
+
                   return (
                     <div key={w.key} style={{
                       width: CELL_W - 2, minWidth: CELL_W - 2,
                       height: "40px", borderRadius: "6px", flexShrink: 0,
-                      marginRight: "2px", background: meta.bg,
+                      marginRight: "2px",
+                      background: meta.bg,
                       border: `1.5px solid ${meta.colour}35`,
                       display: "flex", flexDirection: "column",
                       alignItems: "center", justifyContent: "center",
                       cursor: "pointer", position: "relative",
-                    }} onClick={() => handleDelete(ex)}>
-                      <span style={{ fontSize: "12px" }}>{meta.emoji}</span>
-                      <span style={{ fontSize: "9px", fontWeight: 700, color: meta.colour, fontFamily: "monospace" }}>
+                      transition: "all 0.1s",
+                    }}
+                      title={`${meta.label} . ${ex.availableDays}d available${ex.notes ? ` . ${ex.notes}` : ""}`}
+                      onClick={() => handleDelete(ex)}
+                    >
+                      <span style={{ fontSize: "12px", lineHeight: 1 }}>{meta.emoji}</span>
+                      <span style={{
+                        fontSize: "9px", fontWeight: 700,
+                        color: meta.colour, fontFamily: "monospace",
+                      }}>
                         {ex.availableDays === 0 ? "Off" : `${ex.availableDays}d`}
                       </span>
                     </div>
@@ -519,9 +554,22 @@ function CalendarGrid({
                     marginRight: "2px",
                     background: w.isToday ? "rgba(0,184,219,0.04)" : "transparent",
                     border: `1px solid ${w.isToday ? "rgba(0,184,219,0.15)" : "#f1f5f9"}`,
-                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                  }} onClick={() => onAddClick(person.id, w.key)}>
-                    <span style={{ fontSize: "14px", color: "#e2e8f0", opacity: 0.5 }}>+</span>
+                    cursor: "pointer", transition: "all 0.1s",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}
+                    title="Click to add exception"
+                    onClick={() => onAddClick(person.id, w.key)}
+                    onMouseEnter={e => {
+                      (e.currentTarget as HTMLDivElement).style.background = "rgba(0,184,219,0.06)";
+                      (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(0,184,219,0.2)";
+                    }}
+                    onMouseLeave={e => {
+                      (e.currentTarget as HTMLDivElement).style.background = w.isToday ? "rgba(0,184,219,0.04)" : "transparent";
+                      (e.currentTarget as HTMLDivElement).style.borderColor = w.isToday ? "rgba(0,184,219,0.15)" : "#f1f5f9";
+                    }}
+                  >
+                    <span style={{ fontSize: "10px", color: "#e2e8f0", opacity: 0 }}
+                      className="cell-plus">+</span>
                   </div>
                 );
               })}
@@ -529,6 +577,142 @@ function CalendarGrid({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/* =============================================================================
+   LIST VIEW
+============================================================================= */
+
+function ListView({
+  exceptions,
+  organisationId,
+}: {
+  exceptions:     ExceptionRow[];
+  organisationId: string;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const today = new Date().toISOString().split("T")[0];
+
+  // Group by person
+  const byPerson = new Map<string, ExceptionRow[]>();
+  for (const ex of exceptions) {
+    if (!byPerson.has(ex.personId)) byPerson.set(ex.personId, []);
+    byPerson.get(ex.personId)!.push(ex);
+  }
+
+  const upcoming = exceptions.filter(e => e.weekStartDate >= today)
+    .sort((a, b) => a.weekStartDate.localeCompare(b.weekStartDate));
+  const past     = exceptions.filter(e => e.weekStartDate < today)
+    .sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate));
+
+  function handleDelete(ex: ExceptionRow) {
+    if (!confirm(`Remove this exception?`)) return;
+    const fd = new FormData();
+    fd.set("exception_id",    ex.id);
+    fd.set("person_id",       ex.personId);
+    fd.set("organisation_id", organisationId);
+    startTransition(async () => {
+      const { deleteException } = await import("../actions");
+      await deleteException(fd);
+    });
+  }
+
+  function ExRow({ ex }: { ex: ExceptionRow }) {
+    const meta = REASON_META[ex.reason] ?? REASON_META.other;
+    const reduction = ex.defaultCap - ex.availableDays;
+
+    return (
+      <div style={{
+        display: "flex", alignItems: "center", gap: "12px",
+        padding: "11px 14px", borderRadius: "10px",
+        background: "white", border: "1.5px solid #e2e8f0",
+        marginBottom: "6px", transition: "box-shadow 0.15s",
+      }}
+        onMouseEnter={e => (e.currentTarget.style.boxShadow = "0 2px 10px rgba(0,0,0,0.06)")}
+        onMouseLeave={e => (e.currentTarget.style.boxShadow = "none")}
+      >
+        <Avatar name={ex.fullName} size={30} />
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: "13px", fontWeight: 700, color: "#0f172a" }}>
+            {ex.fullName}
+          </div>
+          <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px" }}>
+            {formatDate(ex.weekStartDate)} week
+            {ex.notes && <span style={{ color: "#94a3b8" }}> . {ex.notes}</span>}
+          </div>
+        </div>
+
+        <div style={{
+          display: "flex", alignItems: "center", gap: "6px",
+          padding: "4px 10px", borderRadius: "20px",
+          background: meta.bg, border: `1px solid ${meta.colour}30`,
+        }}>
+          <span style={{ fontSize: "13px" }}>{meta.emoji}</span>
+          <span style={{ fontSize: "11px", fontWeight: 700, color: meta.colour }}>
+            {meta.label}
+          </span>
+        </div>
+
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div style={{
+            fontSize: "13px", fontWeight: 800,
+            fontFamily: "monospace",
+            color: ex.availableDays === 0 ? "#ef4444" : "#f59e0b",
+          }}>
+            {ex.availableDays === 0 ? "Full day off" : `${ex.availableDays}d`}
+          </div>
+          {reduction > 0 && (
+            <div style={{ fontSize: "10px", color: "#94a3b8" }}>
+              {reduction}d capacity
+            </div>
+          )}
+        </div>
+
+        <button type="button" onClick={() => handleDelete(ex)} disabled={isPending} style={{
+          background: "none", border: "1.5px solid #fecaca", borderRadius: "6px",
+          color: "#ef4444", cursor: "pointer", fontSize: "11px",
+          fontWeight: 600, padding: "4px 8px",
+        }}>Remove</button>
+      </div>
+    );
+  }
+
+  if (exceptions.length === 0) {
+    return (
+      <div style={{
+        padding: "48px 0", textAlign: "center",
+        color: "#94a3b8", fontSize: "14px",
+      }}>
+        No capacity exceptions in this period.
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {upcoming.length > 0 && (
+        <div style={{ marginBottom: "24px" }}>
+          <div style={{
+            fontSize: "11px", fontWeight: 800, color: "#94a3b8",
+            textTransform: "uppercase", letterSpacing: "0.08em",
+            marginBottom: "10px",
+          }}>Upcoming ({upcoming.length})</div>
+          {upcoming.map(ex => <ExRow key={ex.id} ex={ex} />)}
+        </div>
+      )}
+      {past.length > 0 && (
+        <div style={{ opacity: 0.7 }}>
+          <div style={{
+            fontSize: "11px", fontWeight: 800, color: "#94a3b8",
+            textTransform: "uppercase", letterSpacing: "0.08em",
+            marginBottom: "10px",
+          }}>Past ({past.length})</div>
+          {past.map(ex => <ExRow key={ex.id} ex={ex} />)}
+        </div>
+      )}
     </div>
   );
 }
@@ -546,18 +730,41 @@ export default function CapacityClient({
   dateFrom,
   dateTo,
 }: {
-  exceptions:      ExceptionRow[];
-  people:          PersonOption[];
+  exceptions:     ExceptionRow[];
+  people:         PersonOption[];
   organisationId: string;
   currentUserId:  string;
-  isAdmin:         boolean;
-  dateFrom:        string;
-  dateTo:          string;
+  isAdmin:        boolean;
+  dateFrom:       string;
+  dateTo:         string;
 }) {
-  const [view, setView] = useState<"calendar" | "list">("calendar");
-  const [showModal, setShowModal] = useState(false);
+  const [view,        setView]       = useState<"calendar" | "list">("calendar");
+  const [showModal,   setShowModal]  = useState(false);
   const [modalPerson, setModalPerson] = useState(currentUserId);
-  const [modalWeek, setModalWeek] = useState(() => getMondayOf(new Date().toISOString().split("T")[0]));
+  const [modalWeek,   setModalWeek]  = useState(() => {
+    const d = new Date();
+    const day = d.getDay();
+    d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+    return d.toISOString().split("T")[0];
+  });
+  const [from, setFrom] = useState(dateFrom);
+  const [to,   setTo]   = useState(dateTo);
+  const [deptFilter, setDeptFilter] = useState("");
+
+  const weeks = generateWeeks(from, to);
+
+  const departments = Array.from(
+    new Set(people.map(p => p.department).filter(Boolean))
+  ).sort() as string[];
+
+  const filteredPeople = deptFilter
+    ? people.filter(p => p.department === deptFilter)
+    : people;
+
+  const filteredExceptions = exceptions.filter(ex =>
+    filteredPeople.some(p => p.id === ex.personId) &&
+    ex.weekStartDate >= from && ex.weekStartDate <= to
+  );
 
   function openAdd(personId: string, week: string) {
     setModalPerson(personId);
@@ -565,36 +772,200 @@ export default function CapacityClient({
     setShowModal(true);
   }
 
+  // Summary stats
+  const totalExceptions  = filteredExceptions.length;
+  const fullDayOffs      = filteredExceptions.filter(e => e.availableDays === 0).length;
+  const uniquePeople     = new Set(filteredExceptions.map(e => e.personId)).size;
+  const upcomingCount    = filteredExceptions.filter(e =>
+    e.weekStartDate >= new Date().toISOString().split("T")[0]
+  ).length;
+
   return (
-    <div style={{ padding: "32px", background: "#f8fafc", minHeight: "100vh", fontFamily: "sans-serif" }}>
-      <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-          <h1 style={{ fontSize: "24px", fontWeight: 800 }}>Leave & Capacity</h1>
-          <button onClick={() => setShowModal(true)} style={{ background: "#00b8db", color: "white", padding: "10px 20px", borderRadius: "8px", border: "none", fontWeight: 700, cursor: "pointer" }}>
-            + Log Exception
-          </button>
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
+        @keyframes slideUp {
+          from { opacity: 0; transform: translateY(14px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+
+      <div style={{
+        fontFamily: "'DM Sans', sans-serif",
+        minHeight: "100vh", background: "#f8fafc",
+        padding: "36px 28px",
+      }}>
+        <div style={{ maxWidth: "1100px", margin: "0 auto" }}>
+
+          {/* Header */}
+          <div style={{
+            display: "flex", alignItems: "flex-start",
+            justifyContent: "space-between", marginBottom: "24px",
+            flexWrap: "wrap", gap: "12px",
+          }}>
+            <div>
+              <h1 style={{ fontSize: "22px", fontWeight: 800, color: "#0f172a",
+                           margin: 0, marginBottom: "4px" }}>
+                Leave & Capacity
+              </h1>
+              <p style={{ fontSize: "13px", color: "#94a3b8", margin: 0 }}>
+                {upcomingCount} upcoming exception{upcomingCount !== 1 ? "s" : ""} .{" "}
+                {uniquePeople} people affected
+              </p>
+            </div>
+            <button type="button" onClick={() => setShowModal(true)} style={{
+              padding: "9px 18px", borderRadius: "8px",
+              border: "none", background: "#00b8db", color: "white",
+              fontSize: "13px", fontWeight: 700, cursor: "pointer",
+              boxShadow: "0 2px 10px rgba(0,184,219,0.3)",
+            }}>
+              + Log exception
+            </button>
+          </div>
+
+          {/* Stats */}
+          <div style={{
+            display: "grid", gridTemplateColumns: "repeat(4, 1fr)",
+            gap: "12px", marginBottom: "20px",
+          }}>
+            {[
+              { l: "Total exceptions", v: totalExceptions,   c: "#0f172a" },
+              { l: "Full days off",    v: fullDayOffs,        c: fullDayOffs > 0 ? "#ef4444" : "#94a3b8" },
+              { l: "People affected",  v: uniquePeople,       c: "#0f172a" },
+              { l: "Upcoming",         v: upcomingCount,      c: "#00b8db" },
+            ].map(s => (
+              <div key={s.l} style={{
+                background: "white", borderRadius: "10px",
+                border: "1.5px solid #e2e8f0", padding: "12px 16px",
+              }}>
+                <div style={{ fontSize: "10px", color: "#94a3b8", textTransform: "uppercase",
+                              letterSpacing: "0.06em", marginBottom: "4px" }}>{s.l}</div>
+                <div style={{ fontSize: "20px", fontWeight: 800,
+                              color: s.c, fontFamily: "'DM Mono', monospace" }}>{s.v}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Toolbar */}
+          <div style={{
+            display: "flex", alignItems: "center", gap: "10px",
+            marginBottom: "16px", flexWrap: "wrap",
+          }}>
+            {/* View toggle */}
+            <div style={{
+              display: "flex", background: "#f1f5f9",
+              borderRadius: "8px", padding: "3px", gap: "2px",
+            }}>
+              {(["calendar", "list"] as const).map(v => (
+                <button key={v} type="button" onClick={() => setView(v)} style={{
+                  padding: "5px 14px", borderRadius: "6px", border: "none",
+                  fontSize: "12px", fontWeight: 600, cursor: "pointer",
+                  background: view === v ? "white" : "transparent",
+                  color: view === v ? "#0f172a" : "#64748b",
+                  boxShadow: view === v ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
+                  transition: "all 0.15s", textTransform: "capitalize",
+                }}>{v === "calendar" ? "[calendar] Calendar" : "[clipboard] List"}</button>
+              ))}
+            </div>
+
+            {/* Date range */}
+            <input type="date" value={from}
+              onChange={e => setFrom(e.target.value)}
+              style={{ ...inputStyle, width: "140px" }} />
+            <span style={{ fontSize: "12px", color: "#94a3b8" }}> {'->'}</span>
+            <input type="date" value={to}
+              onChange={e => setTo(e.target.value)}
+              style={{ ...inputStyle, width: "140px" }} />
+
+            {/* Dept filter */}
+            {departments.length > 0 && (
+              <select value={deptFilter}
+                onChange={e => setDeptFilter(e.target.value)}
+                style={{ ...inputStyle, width: "160px" }}>
+                <option value="">All departments</option>
+                {departments.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            )}
+
+            {/* Legend */}
+            <div style={{ marginLeft: "auto", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              {Object.entries(REASON_META).map(([key, m]) => (
+                <div key={key} style={{
+                  display: "flex", alignItems: "center", gap: "4px",
+                  fontSize: "11px", color: "#64748b",
+                }}>
+                  <span>{m.emoji}</span>
+                  <span style={{ display: "none" }}>{m.label}</span>
+                </div>
+              ))}
+              <span style={{ fontSize: "11px", color: "#94a3b8" }}>
+                {Object.values(REASON_META).map(m => m.emoji).join(" ")} = {
+                  Object.values(REASON_META).map(m => m.label).join(", ")
+                }
+              </span>
+            </div>
+          </div>
+
+          {/* Main card */}
+          <div style={{
+            background: "white", borderRadius: "14px",
+            border: "1.5px solid #e2e8f0",
+            boxShadow: "0 1px 8px rgba(0,0,0,0.04)",
+            padding: "20px 22px",
+          }}>
+            {view === "calendar" ? (
+              <CalendarGrid
+                exceptions={filteredExceptions}
+                people={filteredPeople}
+                weeks={weeks}
+                organisationId={organisationId}
+                onAddClick={openAdd}
+              />
+            ) : (
+              <ListView
+                exceptions={filteredExceptions}
+                organisationId={organisationId}
+              />
+            )}
+          </div>
+
+          {/* Legend card */}
+          <div style={{
+            marginTop: "12px", display: "flex", gap: "16px",
+            flexWrap: "wrap", padding: "12px 16px",
+            background: "white", borderRadius: "10px",
+            border: "1.5px solid #e2e8f0", fontSize: "12px",
+          }}>
+            {Object.entries(REASON_META).map(([key, m]) => (
+              <div key={key} style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                <div style={{
+                  width: "14px", height: "14px", borderRadius: "3px",
+                  background: m.bg, border: `1.5px solid ${m.colour}40`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: "9px",
+                }}>{m.emoji}</div>
+                <span style={{ color: "#475569" }}>{m.label}</span>
+              </div>
+            ))}
+            <div style={{ color: "#94a3b8", marginLeft: "auto", fontSize: "11px" }}>
+              Calendar: click empty cell to add . click exception to remove
+            </div>
+          </div>
+
         </div>
-
-        <CalendarGrid 
-          exceptions={exceptions} 
-          people={people} 
-          weeks={generateWeeks(dateFrom, dateTo)} 
-          organisationId={organisationId}
-          onAddClick={openAdd}
-        />
-
-        {showModal && (
-          <AddExceptionModal 
-            people={people}
-            organisationId={organisationId}
-            currentUserId={currentUserId}
-            isAdmin={isAdmin}
-            defaultPersonId={modalPerson}
-            defaultWeek={modalWeek}
-            onClose={() => setShowModal(false)}
-          />
-        )}
       </div>
-    </div>
+
+      {showModal && (
+        <AddExceptionModal
+          people={filteredPeople.length > 0 ? filteredPeople : people}
+          organisationId={organisationId}
+          currentUserId={currentUserId}
+          isAdmin={isAdmin}
+          defaultPersonId={modalPerson}
+          defaultWeek={modalWeek}
+          onClose={() => { setShowModal(false); window.location.reload(); }}
+        />
+      )}
+    </>
   );
 }

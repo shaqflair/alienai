@@ -307,7 +307,7 @@ function PersonHeatmapRow({
             transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
             transition: "transform 0.2s", display: "inline-block",
             width: "14px", flexShrink: 0,
-          }}>></span>
+          }}{'>'}></span>
           <Avatar name={person.fullName} size={28} />
           <div style={{ minWidth: 0 }}>
             <div style={{
@@ -780,7 +780,7 @@ export default function HeatmapClient({
                 Resource Heatmap
               </h1>
               <p style={{ fontSize: "13px", color: "#94a3b8", margin: 0 }}>
-                {data.dateFrom} -> {data.dateTo} .{" "}
+                {data.dateFrom}  {'->'} {data.dateTo} .{" "}
                 {data.people.length} people .{" "}
                 <span style={{ color: "#00b8db" }}>{GRAN_LABELS[data.granularity]} view</span>
                 {loading && (
@@ -848,7 +848,7 @@ export default function HeatmapClient({
                   outline: "none",
                 }}
               />
-              <span style={{ fontSize: "12px", color: "#94a3b8" }}>-></span>
+              <span style={{ fontSize: "12px", color: "#94a3b8" }}>{'->'}</span>
               <input
                 type="date" value={filters.dateTo}
                 onChange={e => setFilters(f => ({ ...f, dateTo: e.target.value }))}
