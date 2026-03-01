@@ -369,11 +369,38 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
   const rag = ragData?.rag||null;
   const client = safeStr(p?.client_name).trim();
   const dotColor = rag ? ragDotColor(rag) : "#d1d5db";
+  const [showRagTip, setShowRagTip] = React.useState(false);
+
+  // RAG scoring logic explanation
+  const ragLabel = rag==="G" ? "Green" : rag==="A" ? "Amber" : rag==="R" ? "Red" : "Unscored";
+  const ragLogic = rag==="G"
+    ? `Green: Health score ≥ 70% (${health}%). Schedule, RAID items, workflow activity and approvals all within acceptable thresholds.`
+    : rag==="A"
+    ? `Amber: Health score 55–69% (${health}%). One or more areas need attention — check schedule adherence, open risks or milestone slippage.`
+    : rag==="R"
+    ? `Red: Health score < 55% (${health}%). Significant issues detected across schedule, risks or delivery flow. Immediate review recommended.`
+    : `Unscored: No health data yet for this project.`;
 
   return (
     <button type="button" onClick={()=>{ if (routeRef) router.push(`/projects/${encodeURIComponent(routeRef)}`); }}
       className="w-full flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0 text-left group">
-      <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background:dotColor }}/>
+      {/* RAG dot with tooltip */}
+      <div className="relative shrink-0" onMouseEnter={()=>setShowRagTip(true)} onMouseLeave={()=>setShowRagTip(false)}>
+        <div className="h-2.5 w-2.5 rounded-full cursor-help" style={{ background:dotColor }}/>
+        {showRagTip && (
+          <div className="absolute left-4 top-1/2 -translate-y-1/2 z-50 w-64 rounded-xl shadow-lg border border-gray-100 bg-white p-3 text-left pointer-events-none"
+            style={{ boxShadow:"0 8px 24px rgba(0,0,0,0.12)" }}>
+            <div className="flex items-center gap-2 mb-1.5">
+              <div className="h-3 w-3 rounded-full shrink-0" style={{ background:dotColor }}/>
+              <span className="text-xs font-bold text-gray-900">{ragLabel} — {health!=null?`${health}% health`:"No score"}</span>
+            </div>
+            <p className="text-[11px] text-gray-500 leading-relaxed">{ragLogic}</p>
+            <div className="mt-2 pt-2 border-t border-gray-50 text-[10px] text-gray-400 font-medium">
+              Score: Green ≥ 70% · Amber 55–69% · Red &lt; 55%
+            </div>
+          </div>
+        )}
+      </div>
       <div className="min-w-0 flex-1">
         <div className="text-sm font-semibold text-gray-800 group-hover:text-blue-600 transition-colors truncate">{p?.title||"Project"}</div>
         {client && <div className="text-xs text-gray-400 mt-0.5">{client}</div>}
@@ -405,15 +432,25 @@ function MilestoneCard({ item, onClick }: { item: DueDigestItem; onClick: () => 
   const initials = item.ownerLabel ? item.ownerLabel.split(" ").map((w:string)=>w[0]).slice(0,2).join("").toUpperCase() : null;
   const avatarColors = ["bg-blue-100 text-blue-700","bg-purple-100 text-purple-700","bg-green-100 text-green-700","bg-orange-100 text-orange-700","bg-pink-100 text-pink-700"];
   const avatarColor = initials ? avatarColors[initials.charCodeAt(0)%avatarColors.length] : avatarColors[0];
+  // Extract project code + name from meta
+  const projectCode = safeStr(item.meta?.project_code||item.meta?.project_human_id||"").trim();
+  const projectName = safeStr(item.meta?.project_name||item.meta?.project_title||"").trim();
   return (
     <button type="button" onClick={onClick} className="w-full text-left rounded-xl border border-gray-100 bg-white p-4 hover:border-gray-200 hover:shadow-sm transition-all">
-      <div className="flex items-start justify-between gap-2 mb-2">
+      <div className="flex items-start justify-between gap-2 mb-1.5">
         <span className="text-sm font-semibold text-gray-800 line-clamp-1 flex-1">{item.title}</span>
         <span className={["text-[10px] font-semibold rounded-full px-2.5 py-0.5 whitespace-nowrap shrink-0", statusCfg.badge].join(" ")}>{statusCfg.text}</span>
       </div>
+      {/* Project code + name */}
+      {(projectCode||projectName) && (
+        <div className="flex items-center gap-1.5 mb-1.5">
+          {projectCode && <span className="text-[10px] font-mono font-bold text-gray-400 bg-gray-100 rounded px-1.5 py-0.5">{projectCode}</span>}
+          {projectName && <span className="text-[11px] text-gray-400 truncate">{projectName}</span>}
+        </div>
+      )}
       <div className="flex items-center gap-1 text-xs text-gray-400 mb-3">
         <Clock3 className="h-3 w-3"/>
-        {overdue?"Due today":daysLeft!=null&&daysLeft>0?`${daysLeft} days remaining`:"Due soon"}
+        {overdue?"Overdue":daysLeft!=null&&daysLeft>0?`${daysLeft} days remaining`:"Due soon"}
       </div>
       <div className="flex items-center justify-between">
         {initials ? (
@@ -476,7 +513,19 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   useEffect(() => { if (!ok) return; let c=false; runIdle(()=>{(async()=>{ try { setFpLoading(true); const j=await fetchJson<FinancialPlanSummary>("/api/portfolio/financial-plan-summary",{cache:"no-store"}); if (!c) setFpSummary(j??null); } catch {} finally { if (!c) setFpLoading(false); } })();}); return ()=>{c=true;}; }, [ok]);
 
-  useEffect(() => { if (!ok) return; let c=false; runIdle(()=>{(async()=>{ try { setWinsLoading(true); const j:any=await fetchJson(`/api/portfolio/success-stories?days=${numericWindowDays}&limit=5`,{cache:"no-store"}); if (!c) { const top=Array.isArray(j?.top)?j.top:Array.isArray(j?.summary?.top_wins)?j.summary.top_wins:Array.isArray(j?.items)?j.items:[]; setRecentWins(top.slice(0,5)); } } catch { if (!c) setRecentWins([]); } finally { if (!c) setWinsLoading(false); } })();}); return ()=>{c=true;}; }, [ok, numericWindowDays]);
+  useEffect(() => { if (!ok) return; let c=false; runIdle(()=>{(async()=>{ try { setWinsLoading(true); const j:any=await fetchJson(`/api/portfolio/success-stories?days=${numericWindowDays}&limit=10`,{cache:"no-store"}); if (!c) { // Try all known response shapes for top wins
+          const top = Array.isArray(j?.top)?j.top : Array.isArray(j?.summary?.top_wins)?j.summary.top_wins : Array.isArray(j?.items)?j.items : Array.isArray(j?.wins)?j.wins : [];
+          if (top.length > 0) { setRecentWins(top.slice(0,6)); return; }
+          // Fallback: synthesise wins from breakdown counts
+          const bd = j?.breakdown||j?.summary?.breakdown||{};
+          const synthetic: any[] = [];
+          if (num(bd.milestones_done) > 0) synthetic.push({ title:`${bd.milestones_done} milestone${num(bd.milestones_done)>1?"s":""} delivered`, category:"Milestone", type:"milestone" });
+          if (num(bd.wbs_done) > 0) synthetic.push({ title:`${bd.wbs_done} work item${num(bd.wbs_done)>1?"s":""} completed`, category:"Work Item", type:"wbs" });
+          if (num(bd.raid_resolved) > 0) synthetic.push({ title:`${bd.raid_resolved} risk/issue${num(bd.raid_resolved)>1?"s":""} resolved`, category:"RAID", type:"raid" });
+          if (num(bd.changes_delivered) > 0) synthetic.push({ title:`${bd.changes_delivered} change${num(bd.changes_delivered)>1?"s":""} delivered`, category:"Change", type:"change" });
+          if (num(bd.lessons_positive) > 0) synthetic.push({ title:`${bd.lessons_positive} positive lesson${num(bd.lessons_positive)>1?"s":""} captured`, category:"Lessons", type:"lesson" });
+          setRecentWins(synthetic.slice(0,6));
+        } } catch { if (!c) setRecentWins([]); } finally { if (!c) setWinsLoading(false); } })();}); return ()=>{c=true;}; }, [ok, numericWindowDays]);
 
   useEffect(() => {
     if (!ok) return; let c=false;
@@ -597,7 +646,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                   {([7,14,30,60] as const).map(d=>(
                     <button key={d} type="button" onClick={()=>setWindowDays(d)}
                       className={["px-3 py-1.5 rounded-lg text-xs font-semibold transition-all",windowDays===d?"bg-white text-gray-900 shadow-sm":"text-gray-500 hover:text-gray-700"].join(" ")}>
-                      Last {d} days
+                      Next {d} days
                     </button>
                   ))}
                 </div>
@@ -757,16 +806,31 @@ export default function HomePage({ data }: { data: HomeData }) {
                         </button>
                       ))}
                     </div>
+                    <button onClick={()=>router.push(`/milestones?days=${dueWindowDays}`)}
+                      className="ml-1 text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-0.5">
+                      All <ChevronRight className="h-3 w-3"/>
+                    </button>
                   </div>
                   <div className="p-4 space-y-2.5">
                     {dueLoading ? Array.from({length:3}).map((_,i)=><div key={i} className="h-24 rounded-xl bg-gray-50 animate-pulse"/>)
-                    : allDueItems.length===0 ? <div className="py-10 text-center"><CheckCircle2 className="h-7 w-7 text-gray-200 mx-auto mb-2"/><p className="text-sm text-gray-400">Nothing due in {dueWindowDays}d</p></div>
+                    : allDueItems.length===0 ? (
+                      <div className="py-8 text-center">
+                        <CheckCircle2 className="h-7 w-7 text-gray-200 mx-auto mb-2"/>
+                        <p className="text-sm text-gray-400">Nothing due in {dueWindowDays} days</p>
+                        <button onClick={()=>router.push(`/milestones?days=${dueWindowDays}`)} className="mt-2 text-xs text-blue-600 hover:text-blue-700 font-medium">View milestone list →</button>
+                      </div>
+                    )
                     : allDueItems.map((it,i)=>(
                       <m.div key={i} initial={{opacity:0}} animate={{opacity:1}} transition={{delay:i*0.04}}>
-                        <MilestoneCard item={it} onClick={()=>{ const href=safeStr(it?.link).trim(); if (href) router.push(href); }}/>
+                        <MilestoneCard item={it} onClick={()=>{ const href=safeStr(it?.link).trim(); if (href) router.push(href); else router.push(`/milestones?days=${dueWindowDays}`); }}/>
                       </m.div>
                     ))}
-                    {dueItems.length>8 && <button onClick={()=>router.push(`/milestones?days=${dueWindowDays}`)} className="w-full text-xs text-blue-600 hover:text-blue-700 font-medium py-1 text-center">View {dueItems.length-8} more →</button>}
+                    {dueItems.length>8 && (
+                      <button onClick={()=>router.push(`/milestones?days=${dueWindowDays}`)}
+                        className="w-full text-xs text-blue-600 hover:text-blue-700 font-medium py-2 text-center border-t border-gray-50 mt-1">
+                        View all {dueItems.length} milestones →
+                      </button>
+                    )}
                   </div>
                 </div>
 
