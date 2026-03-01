@@ -1,5 +1,6 @@
 ﻿"use client";
 // FILE: src/app/scenarios/_components/ScenarioSimulator.tsx
+import ScenarioAIPanel from "./ScenarioAIPanel";
 
 import { useState, useMemo, useTransition, useCallback } from "react";
 import {
@@ -756,6 +757,7 @@ export default function ScenarioSimulator({
   const [changes,      setChanges]      = useState<ScenarioChange[]>([]);
   const [activeForm,   setActiveForm]   = useState<string | null>(null);
   const [saveMsg,      setSaveMsg]      = useState<string | null>(null);
+  const [showAI,       setShowAI]       = useState(false);
   const [isPending,    startTransition] = useTransition();
 
   // Date range for the diff view
@@ -892,6 +894,22 @@ export default function ScenarioSimulator({
                 border: "1.5px solid #e2e8f0", background: "white",
                 color: "#475569", fontSize: "12px", fontWeight: 600, cursor: "pointer",
               }}>New</button>
+
+              {/* AI Advisor button */}
+              <button type="button" onClick={() => setShowAI(s => !s)} style={{
+                padding: "8px 16px", borderRadius: "9px", border: "1.5px solid",
+                borderColor: showAI ? "#00b8db" : "#e2e8f0",
+                background: showAI ? "rgba(0,184,219,0.1)" : "white",
+                color: showAI ? "#00b8db" : "#64748b",
+                fontSize: "12px", fontWeight: 800, cursor: "pointer",
+                display: "flex", alignItems: "center", gap: "6px",
+                fontFamily: "'DM Sans', sans-serif",
+              }}>
+                <span style={{ fontSize: "14px" }}>🤖</span>
+                AI Advisor
+                {showAI && <span style={{ fontSize: "9px", background: "#00b8db", color: "white",
+                  borderRadius: "4px", padding: "1px 5px", fontWeight: 900 }}>ON</span>}
+              </button>
 
               <button type="button" onClick={handleSave} disabled={isPending || changes.length === 0} style={{
                 padding: "8px 18px", borderRadius: "8px", border: "none",
@@ -1137,6 +1155,21 @@ export default function ScenarioSimulator({
           </div>
         </div>
       </div>
+
+      {/* AI Advisor Panel */}
+      {showAI && (
+        <ScenarioAIPanel
+          people={people}
+          projects={projects}
+          allocations={allocations}
+          liveState={liveState}
+          scenarioState={scenarioState}
+          diffs={diffs ?? []}
+          changes={changes}
+          onApplyChange={c => setChanges(cs => [...cs, c])}
+          onClose={() => setShowAI(false)}
+        />
+      )}
     </>
   );
 }
