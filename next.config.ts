@@ -2,6 +2,7 @@
 import type { NextConfig } from "next";
 
 const isVercel = !!process.env.VERCEL;
+const isWin = process.platform === "win32";
 
 const nextConfig: NextConfig = {
   /**
@@ -50,14 +51,17 @@ const nextConfig: NextConfig = {
   },
 
   /**
-   * ✅ IMPORTANT:
-   * `output: "standalone"` triggers file-tracing + copy into `.next/standalone`.
-   * On Windows, Turbopack can emit traced chunk names like `node:https` (contains `:`),
+   * ✅ Standalone output triggers file-tracing + copy into `.next/standalone`.
+   * On Windows, traced chunk names can include `node:fs` (contains `:`),
    * which causes `copyfile EINVAL` during the standalone copy step.
    *
-   * Vercel does NOT require standalone output, so keep standalone ONLY when NOT on Vercel.
+   * Fix:
+   * - NEVER use standalone on Windows local builds.
+   * - If you want standalone, enable it only on Vercel (Linux).
+   *
+   * NOTE: Vercel does NOT require standalone; this is optional.
    */
-  ...(isVercel ? {} : { output: "standalone" }),
+  ...(isVercel && !isWin ? { output: "standalone" } : {}),
 };
 
 export default nextConfig;

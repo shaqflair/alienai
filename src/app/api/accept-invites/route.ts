@@ -1,3 +1,4 @@
+//src\app\api\accept-invites
 import "server-only";
 import { NextResponse } from "next/server";
 import { acceptInvitesForCurrentUser } from "@/app/actions/accept-invites";

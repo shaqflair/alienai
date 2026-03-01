@@ -254,8 +254,8 @@ function TeamSection({
           No one allocated yet.{" "}
           <a href={`/allocations/new?project_id=${projectId}&return_to=/projects/${projectId}`}
             style={{ color: "#00b8db", fontWeight: 600 }}>
-            Add a person ->
-          </a>
+          Add a person {'>'}
+                    </a>
         </div>
       ) : (
         members.map(m => (
