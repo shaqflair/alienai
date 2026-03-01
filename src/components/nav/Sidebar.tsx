@@ -1,14 +1,13 @@
 ﻿"use client";
-// FILE: src/components/nav/Sidebar.tsx
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import GlobalSearch from "@/components/search/GlobalSearch";
 
 /* =============================================================================
    TYPES
 ============================================================================= */
-
 type NavItem = {
   href:    string;
   label:   string;
@@ -25,7 +24,6 @@ type NavGroup = {
 /* =============================================================================
    HELPERS
 ============================================================================= */
-
 function cx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -52,9 +50,8 @@ function useIsActive(href: string, exact = false) {
 }
 
 /* =============================================================================
-   ICONS  (inline SVG — no dep needed)
+   ICONS
 ============================================================================= */
-
 const Icons = {
   dashboard: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -157,155 +154,60 @@ const Icons = {
 };
 
 /* =============================================================================
-   NAV ITEM COMPONENT
+   SUB-COMPONENTS
 ============================================================================= */
-
-function SidebarItem({
-  item, collapsed,
-}: {
-  item:      NavItem;
-  collapsed: boolean;
-}) {
+function SidebarItem({ item, collapsed }: { item: NavItem; collapsed: boolean; }) {
   const active = useIsActive(item.href, item.exact);
-
   return (
     <Link
       href={item.href}
       title={collapsed ? item.label : undefined}
       className={cx(
-        "group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium",
-        "transition-all duration-150 relative",
-        "ring-1 ring-transparent",
-        active
-          ? "bg-cyan-500/12 text-cyan-200 ring-cyan-400/25 shadow-[0_0_0_1px_rgba(0,212,255,0.2)]"
-          : "text-slate-400 hover:text-slate-100 hover:bg-white/5"
+        "group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 relative",
+        active ? "bg-cyan-500/12 text-cyan-200 ring-1 ring-cyan-400/25" : "text-slate-400 hover:text-slate-100 hover:bg-white/5"
       )}
     >
-      {/* Active indicator bar */}
-      {active && (
-        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-cyan-400 rounded-r-full" />
-      )}
-
-      {/* Icon */}
-      <span className={cx(
-        "flex-shrink-0 transition-colors",
-        active ? "text-cyan-400" : "text-slate-500 group-hover:text-slate-300",
-      )}>
+      {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-cyan-400 rounded-r-full" />}
+      <span className={cx("flex-shrink-0 transition-colors", active ? "text-cyan-400" : "text-slate-500 group-hover:text-slate-300")}>
         {item.icon}
       </span>
-
-      {/* Label + badge */}
-      {!collapsed && (
-        <>
-          <span className="flex-1 truncate">{item.label}</span>
-          {item.badge && (
-            <span className={cx(
-              "text-[10px] font-bold px-1.5 py-0.5 rounded-md",
-              active
-                ? "bg-cyan-400/20 text-cyan-300"
-                : "bg-white/8 text-slate-400",
-            )}>
-              {item.badge}
-            </span>
-          )}
-        </>
-      )}
-
-      {/* Tooltip when collapsed */}
-      {collapsed && (
-        <span className={cx(
-          "absolute left-full ml-3 px-2.5 py-1.5 rounded-lg text-xs font-semibold",
-          "bg-slate-800 text-slate-100 border border-white/10",
-          "shadow-xl whitespace-nowrap z-50",
-          "opacity-0 group-hover:opacity-100 pointer-events-none",
-          "translate-x-1 group-hover:translate-x-0 transition-all duration-150",
-        )}>
-          {item.label}
-          {item.badge && (
-            <span className="ml-1.5 text-cyan-400">{item.badge}</span>
-          )}
-        </span>
-      )}
+      {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
     </Link>
   );
 }
 
-/* =============================================================================
-   NAV GROUP
-============================================================================= */
-
-function SidebarGroup({
-  group, collapsed,
-}: {
-  group:      NavGroup;
-  collapsed: boolean;
-}) {
+function SidebarGroup({ group, collapsed }: { group: NavGroup; collapsed: boolean; }) {
   return (
     <div className="flex flex-col gap-0.5">
-      {!collapsed && (
-        <div className="px-3 pb-1 pt-2">
-          <span className="text-[10px] font-bold tracking-widest uppercase text-slate-600">
-            {group.label}
-          </span>
-        </div>
-      )}
-      {collapsed && <div className="h-3" />}
-      {group.items.map(item => (
-        <SidebarItem key={item.href} item={item} collapsed={collapsed} />
-      ))}
+      {!collapsed && <div className="px-3 pb-1 pt-2 text-[10px] font-bold tracking-widest uppercase text-slate-600">{group.label}</div>}
+      {group.items.map(item => <SidebarItem key={item.href} item={item} collapsed={collapsed} />)}
     </div>
   );
 }
 
-/* =============================================================================
-   PROJECT CONTEXT STRIP
-   Shows when inside a project — quick links to project sub-pages
-============================================================================= */
-
-function ProjectContextStrip({
-  projectRef, collapsed,
-}: {
-  projectRef: string;
-  collapsed:  boolean;
-}) {
-  const pathname  = usePathname();
-  const base      = `/projects/${projectRef}`;
-
-  const subItems = [
-    { href: base,                        label: "Overview"  },
-    { href: `${base}/artifacts`,         label: "Artifacts" },
-    { href: `${base}/changes`,           label: "Changes"   },
-    { href: `${base}/approvals`,         label: "Approvals" },
-    { href: `${base}/members`,           label: "Members"   },
-  ];
-
+function ProjectContextStrip({ projectRef, collapsed }: { projectRef: string; collapsed: boolean; }) {
+  const pathname = usePathname();
+  const base = `/projects/${projectRef}`;
   if (collapsed) return null;
-
+  const subItems = [
+    { href: base, label: "Overview" },
+    { href: `${base}/artifacts`, label: "Artifacts" },
+    { href: `${base}/changes`, label: "Changes" },
+    { href: `${base}/members`, label: "Members" },
+  ];
   return (
     <div className="mx-2 mb-2 rounded-xl border border-white/8 bg-white/3 p-2">
-      <div className="px-1 pb-1.5">
-        <span className="text-[10px] font-bold tracking-widest uppercase text-slate-600">
-          Current project
-        </span>
-      </div>
+      <div className="px-1 pb-1.5 text-[10px] font-bold tracking-widest uppercase text-slate-600">Current project</div>
       <div className="flex flex-col gap-0.5">
-        {subItems.map(item => {
-          const active = pathname === item.href || pathname.startsWith(item.href + "/");
-          return (
-            <Link key={item.href} href={item.href} className={cx(
-              "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all",
-              active
-                ? "bg-cyan-500/10 text-cyan-300"
-                : "text-slate-500 hover:text-slate-300 hover:bg-white/5",
-            )}>
-              <span className={cx(
-                "w-1 h-1 rounded-full flex-shrink-0",
-                active ? "bg-cyan-400" : "bg-slate-600",
-              )} />
-              {item.label}
-            </Link>
-          );
-        })}
+        {subItems.map(item => (
+          <Link key={item.href} href={item.href} className={cx(
+            "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all",
+            pathname === item.href ? "bg-cyan-500/10 text-cyan-300" : "text-slate-500 hover:text-slate-300 hover:bg-white/5"
+          )}>
+            <span className={cx("w-1 h-1 rounded-full", pathname === item.href ? "bg-cyan-400" : "bg-slate-600")} />
+            {item.label}
+          </Link>
+        ))}
       </div>
     </div>
   );
@@ -314,169 +216,51 @@ function ProjectContextStrip({
 /* =============================================================================
    MAIN SIDEBAR
 ============================================================================= */
-
 const STORAGE_KEY = "resforce-sidebar-collapsed";
 
-export default function Sidebar({ userName, orgName }: {
-  userName?: string | null;
-  orgName?:  string | null;
-}) {
-  const pathname   = usePathname();
+export default function Sidebar({ userName, orgName }: { userName?: string | null; orgName?: string | null; }) {
+  const pathname = usePathname();
   const projectRef = getActiveProjectRef(pathname);
-
   const [collapsed, setCollapsed] = useState(false);
-  const [mounted,   setMounted]   = useState(false);
+  const [mounted, setMounted] = useState(false);
 
-  // Persist collapse state
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "1") setCollapsed(true);
+    if (localStorage.getItem(STORAGE_KEY) === "1") setCollapsed(true);
     setMounted(true);
   }, []);
 
-  function toggleCollapse() {
-    setCollapsed(c => {
-      const next = !c;
-      localStorage.setItem(STORAGE_KEY, next ? "1" : "0");
-      return next;
-    });
-  }
+  const toggleCollapse = () => setCollapsed(prev => {
+    localStorage.setItem(STORAGE_KEY, !prev ? "1" : "0");
+    return !prev;
+  });
 
   const NAV_GROUPS: NavGroup[] = [
-    {
-      label: "Overview",
-      items: [
-        { href: "/",         label: "Dashboard",   icon: Icons.dashboard,   exact: true },
-        { href: "/projects", label: "Projects",    icon: Icons.projects    },
-      ],
-    },
-    {
-      label: "Resource",
-      items: [
-        { href: "/heatmap",              label: "Heatmap",     icon: Icons.heatmap     },
-        { href: "/allocations/new",      label: "Allocate",    icon: Icons.allocations },
-        { href: "/people",               label: "People",      icon: Icons.people      },
-        { href: "/capacity",             label: "Leave / Cap", icon: Icons.leave       },
-      ],
-    },
-    {
-      label: "Project",
-      items: [
-        { href: "/artifacts", label: "Artifacts", icon: Icons.artifacts },
-        { href: "/members",   label: "Members",   icon: Icons.members   },
-      ],
-    },
+    { label: "Overview", items: [ { href: "/", label: "Dashboard", icon: Icons.dashboard, exact: true }, { href: "/projects", label: "Projects", icon: Icons.projects } ] },
+    { label: "Resource", items: [ { href: "/heatmap", label: "Heatmap", icon: Icons.heatmap }, { href: "/people", label: "People", icon: Icons.people } ] }
   ];
 
-  const BOTTOM_ITEMS: NavItem[] = [
-    { href: "/settings", label: "Settings", icon: Icons.settings },
-  ];
-
-  // Avoid flash of wrong collapse state during SSR
   const w = mounted ? (collapsed ? "64px" : "220px") : "220px";
 
   return (
-    <>
-      <style>{`
-        .sidebar-root {
-          width: ${w};
-          min-width: ${w};
-          transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
-                      min-width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-      `}</style>
-
-      <aside
-        className={cx(
-          "sidebar-root h-screen flex flex-col sticky top-0",
-          "bg-[#0a0d14] border-r border-white/6",
-          "overflow-hidden",
-        )}
-        style={{ width: w, minWidth: w }}
-      >
-        {/* ── Logo + brand ── */}
-        <div className={cx(
-          "flex items-center gap-3 px-4 border-b border-white/6",
-          "h-14 flex-shrink-0",
-        )}>
-          <div className="flex-shrink-0 text-cyan-400">
-            {Icons.logo}
-          </div>
-          {!collapsed && (
-            <div className="min-w-0">
-              <div className="text-sm font-black tracking-tight text-white truncate">
-                ResForce
-              </div>
-              {orgName && (
-                <div className="text-[10px] text-slate-500 truncate font-medium">
-                  {orgName}
-                </div>
-              )}
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={toggleCollapse}
-            className={cx(
-              "ml-auto flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center",
-              "text-slate-600 hover:text-slate-300 hover:bg-white/8",
-              "transition-all duration-150",
-            )}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            {collapsed ? Icons.chevronRight : Icons.chevronLeft}
-          </button>
+    <aside className="h-screen flex flex-col sticky top-0 bg-[#0a0d14] border-r border-white/6 overflow-hidden transition-all duration-200" style={{ width: w }}>
+      <div className="flex items-center gap-3 px-4 border-b border-white/6 h-14 flex-shrink-0">
+        <div className="text-cyan-400">{Icons.logo}</div>
+        {!collapsed && <div className="text-sm font-black text-white truncate">ResForce</div>}
+        <button onClick={toggleCollapse} className="ml-auto w-6 h-6 flex items-center justify-center text-slate-600 hover:text-slate-300">
+          {collapsed ? Icons.chevronRight : Icons.chevronLeft}
+        </button>
+      </div>
+      {!collapsed && <GlobalSearch />}
+      <div className="flex-1 overflow-y-auto py-3 px-2 flex flex-col gap-1">
+        {NAV_GROUPS.map(g => <SidebarGroup key={g.label} group={g} collapsed={collapsed} />)}
+        {projectRef && <ProjectContextStrip projectRef={projectRef} collapsed={collapsed} />}
+      </div>
+      <div className="p-2 border-t border-white/6">
+        <div className="flex items-center gap-3 px-3 py-2 bg-white/3 rounded-xl">
+           <div className="w-7 h-7 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold">{(userName || "U")[0]}</div>
+           {!collapsed && <div className="text-xs text-slate-300 truncate">{userName || "User"}</div>}
         </div>
-
-        {/* ── Scrollable nav ── */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden py-3 px-2 flex flex-col gap-1">
-
-          {/* Main nav groups */}
-          {NAV_GROUPS.map(group => (
-            <SidebarGroup key={group.label} group={group} collapsed={collapsed} />
-          ))}
-
-          {/* Project context strip — only when inside a project */}
-          {projectRef && (
-            <div className="mt-2">
-              <ProjectContextStrip projectRef={projectRef} collapsed={collapsed} />
-            </div>
-          )}
-        </div>
-
-        {/* ── Bottom: settings + user ── */}
-        <div className={cx(
-          "flex-shrink-0 border-t border-white/6 px-2 py-3",
-          "flex flex-col gap-1",
-        )}>
-          {BOTTOM_ITEMS.map(item => (
-            <SidebarItem key={item.href} item={item} collapsed={collapsed} />
-          ))}
-
-          {/* User strip */}
-          <div className={cx(
-            "mt-1 flex items-center gap-3 px-3 py-2.5 rounded-xl",
-            "bg-white/3 border border-white/6",
-          )}>
-            <div className={cx(
-              "flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center",
-              "bg-cyan-500/20 text-cyan-400 text-xs font-black",
-            )}>
-              {(userName || "U").charAt(0).toUpperCase()}
-            </div>
-            {!collapsed && (
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-semibold text-slate-300 truncate">
-                  {userName || "Account"}
-                </div>
-                <div className="text-[10px] text-slate-600 truncate">
-                  Signed in
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </aside>
-    </>
+      </div>
+    </aside>
   );
 }
