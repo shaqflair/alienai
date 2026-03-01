@@ -5,6 +5,8 @@
 // ✅ Project scope continues to send scope + projectId
 // ✅ Cards remain DB-driven with safe fallback
 // ✅ NEW: Governance Brain snapshot (org-scoped signals) surfaced in hub header
+// ✅ NEW (D): Delivery Governance link visible on hub pages
+// ✅ NEW (D): Ask Aliena response layout — Answer on top, Guidance below
 
 "use client";
 
@@ -546,6 +548,10 @@ export default function GovernanceHubClient({
     [scope, pid]
   );
 
+  // ✅ Delivery Governance Framework deep-link (global + project hub safe)
+  const deliveryFrameworkSlug = "delivery-governance-framework";
+  const deliveryFrameworkHref = useMemo(() => readHref(deliveryFrameworkSlug), [readHref]);
+
   /* =======================
      Governance Brain fetch
   ======================= */
@@ -601,6 +607,12 @@ export default function GovernanceHubClient({
     return [...list].sort((a, b) => Number(a.score) - Number(b.score)).slice(0, 3);
   }, [brainOrg]);
 
+  // Effective answer text (robust)
+  const renderedAnswer = useMemo(() => {
+    const a = safeStr(askResult?.answer || askAnswer).trim();
+    return a;
+  }, [askResult, askAnswer]);
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6 md:py-10">
       {/* Header */}
@@ -634,6 +646,16 @@ export default function GovernanceHubClient({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* ✅ Delivery Governance Framework link */}
+            <Link
+              href={deliveryFrameworkHref}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50"
+              title="Open the Delivery Governance Framework standard"
+            >
+              <Shield className="h-4 w-4" />
+              Delivery Governance
+            </Link>
+
             <button
               type="button"
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50"
@@ -664,7 +686,9 @@ export default function GovernanceHubClient({
                       <>Org-scoped governance signals</>
                     )}
                     {brain?.generated_at ? (
-                      <span className="ml-2 text-neutral-400">• Updated {new Date(brain.generated_at).toLocaleString()}</span>
+                      <span className="ml-2 text-neutral-400">
+                        • Updated {new Date(brain.generated_at).toLocaleString()}
+                      </span>
                     ) : null}
                   </div>
                 </div>
@@ -713,8 +737,7 @@ export default function GovernanceHubClient({
                       title="Total SLA breaches across approvals/tasks/WBS/RAID/changes"
                     >
                       <Flame className="h-3.5 w-3.5 text-neutral-500" />
-                      Breaches{" "}
-                      <span className="font-semibold text-neutral-900">{brainOrg.sla?.breached_total ?? 0}</span>
+                      Breaches <span className="font-semibold text-neutral-900">{brainOrg.sla?.breached_total ?? 0}</span>
                     </span>
 
                     <span
@@ -1039,11 +1062,37 @@ export default function GovernanceHubClient({
                 </div>
               ) : null}
 
-              {(askAnswer || askResult) && !askError ? (
+              {/* ✅ ANSWER FIRST */}
+              {renderedAnswer && !askError ? (
                 <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-xs font-semibold text-neutral-500">Aliena’s guidance</div>
+                      <div className="text-xs font-semibold text-neutral-500">Answer</div>
+                      <div className="mt-3 whitespace-pre-wrap text-sm text-neutral-900">{renderedAnswer}</div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAskAnswer("");
+                        setAskResult(null);
+                      }}
+                      className="text-xs font-medium text-neutral-500 hover:text-neutral-700"
+                      disabled={askLoading}
+                      title="Clear this answer"
+                    >
+                      Clear result
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* ✅ GUIDANCE BELOW */}
+              {((askResult && !askError) || (!!askResult?.confidence && !askError)) && (
+                <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-neutral-500">Guidance</div>
                       {askResult?.confidence != null ? (
                         <div className="mt-1 text-xs text-neutral-500">
                           Confidence:{" "}
@@ -1053,21 +1102,6 @@ export default function GovernanceHubClient({
                         </div>
                       ) : null}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAskAnswer("");
-                        setAskResult(null);
-                      }}
-                      className="text-xs font-medium text-neutral-500 hover:text-neutral-700"
-                      disabled={askLoading}
-                    >
-                      Clear result
-                    </button>
-                  </div>
-
-                  <div className="mt-3 whitespace-pre-wrap text-sm text-neutral-900">
-                    {safeStr(askResult?.answer || askAnswer)}
                   </div>
 
                   {askResult?.key_drivers?.length ? (
@@ -1094,12 +1128,8 @@ export default function GovernanceHubClient({
                           <div key={`blk:${idx}`} className="rounded-xl border border-neutral-200 bg-white p-3">
                             <div className="text-xs text-neutral-500">
                               {kindLabel(b.kind)}
-                              {typeof b.age_days === "number" ? (
-                                <span className="ml-2 text-neutral-400">• {b.age_days}d</span>
-                              ) : null}
-                              {typeof b.severity === "number" ? (
-                                <span className="ml-2 text-neutral-400">• Sev {b.severity}</span>
-                              ) : null}
+                              {typeof b.age_days === "number" ? <span className="ml-2 text-neutral-400">• {b.age_days}d</span> : null}
+                              {typeof b.severity === "number" ? <span className="ml-2 text-neutral-400">• Sev {b.severity}</span> : null}
                             </div>
                             <div className="mt-0.5 text-sm font-medium text-neutral-900">{b.title}</div>
                             <div className="mt-1 text-sm text-neutral-700">
@@ -1164,7 +1194,7 @@ export default function GovernanceHubClient({
                     </div>
                   ) : null}
                 </div>
-              ) : null}
+              )}
 
               <div className="space-y-2">
                 <div className="text-xs font-semibold text-neutral-500">Suggested</div>
@@ -1187,7 +1217,9 @@ export default function GovernanceHubClient({
               </div>
 
               {effectiveAdvisorScope === "project" ? (
-                <div className="text-[11px] text-neutral-500">Project-aware answers enabled {pid && looksLikeUuid(pid) ? "(ID hidden)" : ""}.</div>
+                <div className="text-[11px] text-neutral-500">
+                  Project-aware answers enabled {pid && looksLikeUuid(pid) ? "(ID hidden)" : ""}.
+                </div>
               ) : effectiveAdvisorScope === "kb" ? (
                 <div className="text-[11px] text-neutral-500">KB-aware answers: grounded in the selected governance article.</div>
               ) : (

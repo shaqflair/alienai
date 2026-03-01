@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 type AdvisorResult = {
   answer: string;
@@ -25,8 +26,14 @@ type AdvisorResult = {
   data_requests: string[];
 };
 
+type Scope = "global" | "kb";
+
 function safeStr(x: unknown) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function safeLower(x: unknown) {
+  return safeStr(x).trim().toLowerCase();
 }
 
 function clamp(s: string, n: number) {
@@ -43,24 +50,55 @@ function badge(label: string) {
 }
 
 export default function AskAlienaDrawer(props: {
-  articleSlug: string;
-  articleTitle: string;
+  scope?: Scope;
+
+  // KB mode
+  articleSlug?: string;
+  articleTitle?: string;
+
+  // UX
   defaultQuestion?: string;
   triggerClassName?: string;
   triggerLabel?: string;
+
+  // URL deep-linking
+  urlKey?: string; // default "ask"
 }) {
   const {
-    articleSlug,
-    articleTitle,
+    scope = "kb",
+    articleSlug = "",
+    articleTitle = "",
     defaultQuestion,
     triggerClassName,
     triggerLabel = "Ask Aliena →",
+    urlKey = "ask",
   } = props;
+
+  const searchParams = useSearchParams();
+
+  const urlAsk = safeLower(searchParams?.get(urlKey));
+  const urlArticle = safeLower(searchParams?.get("article") || "");
+
+  const resolvedArticleSlug = useMemo(() => {
+    // URL wins so /governance/<slug>?ask=help&article=<slug> works even if prop missing
+    return urlArticle || safeLower(articleSlug);
+  }, [urlArticle, articleSlug]);
+
+  const effectiveScope: Scope = useMemo(() => {
+    if (resolvedArticleSlug) return "kb";
+    return scope;
+  }, [scope, resolvedArticleSlug]);
+
+  const resolvedTitle = useMemo(() => {
+    return safeStr(articleTitle).trim() || (resolvedArticleSlug ? resolvedArticleSlug : "Governance");
+  }, [articleTitle, resolvedArticleSlug]);
 
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState(
     defaultQuestion ||
-      `What governance controls and evidence apply to “${articleTitle}”?`
+      (effectiveScope === "kb" && resolvedArticleSlug
+        ? `What governance controls and evidence apply to “${resolvedTitle}”?`
+        : "What are the biggest governance risks right now, and what should I do today?")
   );
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -68,6 +106,15 @@ export default function AskAlienaDrawer(props: {
 
   const canAsk = useMemo(() => q.trim().length >= 4, [q]);
   const lastReq = useRef<number>(0);
+
+  // ✅ Auto-open from URL:
+  // /governance?ask=help              -> opens drawer (global)
+  // /governance/<slug>?ask=help&article=<slug> -> opens drawer (kb)
+  useEffect(() => {
+    const wants = urlAsk === "help" || urlAsk === "1" || urlAsk === "true";
+    if (!wants) return;
+    setOpen(true);
+  }, [urlAsk]);
 
   // Escape closes
   useEffect(() => {
@@ -98,16 +145,25 @@ export default function AskAlienaDrawer(props: {
     setErr(null);
 
     try {
+      const payload: any =
+        effectiveScope === "kb" && resolvedArticleSlug
+          ? {
+              scope: "kb",
+              articleSlug: resolvedArticleSlug,
+              question: clamp(q.trim(), 1200),
+              mode: "kb",
+            }
+          : {
+              scope: "global",
+              question: clamp(q.trim(), 1200),
+              mode: "advisor",
+            };
+
       const res = await fetch("/api/ai/governance-advisor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
-        body: JSON.stringify({
-          scope: "kb",
-          articleSlug,
-          question: clamp(q.trim(), 1200),
-          mode: "kb",
-        }),
+        body: JSON.stringify(payload),
       });
 
       const json = await res.json().catch(() => null);
@@ -129,6 +185,14 @@ export default function AskAlienaDrawer(props: {
     }
   }
 
+  const confidencePct = useMemo(() => {
+    const c = Number(result?.confidence);
+    if (!Number.isFinite(c)) return null;
+    return Math.round(Math.max(0, Math.min(1, c)) * 100);
+  }, [result?.confidence]);
+
+  const deliveryFrameworkHref = "/governance/delivery-governance-framework";
+
   return (
     <>
       <button
@@ -137,17 +201,13 @@ export default function AskAlienaDrawer(props: {
           triggerClassName ||
           "inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/10"
         }
-        title="Ask Aliena about this article"
+        title="Ask Aliena"
         type="button"
       >
         {triggerLabel}
       </button>
 
-      {/* IMPORTANT:
-          We keep the overlay mounted, but when closed it becomes
-          completely non-interactive (pointer-events-none).
-          This prevents the “invisible overlay blocks clicks” bug.
-      */}
+      {/* Keep overlay mounted; when closed it becomes non-interactive */}
       <div
         className={[
           "fixed inset-0 z-[80] transition-opacity duration-150",
@@ -168,14 +228,21 @@ export default function AskAlienaDrawer(props: {
               <div className="min-w-0">
                 <div className="text-xs font-medium opacity-70">Ask Aliena</div>
                 <div className="mt-1 truncate text-base font-semibold">
-                  {articleTitle}
+                  {effectiveScope === "kb" && resolvedArticleSlug ? resolvedTitle : "Governance"}
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {badge("KB mode")}
-                  {badge(`Slug: ${articleSlug}`)}
-                  {result?.confidence != null
-                    ? badge(`Confidence: ${Math.round(result.confidence * 100)}%`)
-                    : null}
+                  {badge(effectiveScope === "kb" && resolvedArticleSlug ? "KB mode" : "Global mode")}
+                  {effectiveScope === "kb" && resolvedArticleSlug ? badge(`Slug: ${resolvedArticleSlug}`) : null}
+                  {confidencePct != null ? badge(`Confidence: ${confidencePct}%`) : null}
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link
+                    href={deliveryFrameworkHref}
+                    className="inline-flex items-center rounded-lg border px-3 py-1.5 text-xs hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/10"
+                  >
+                    Delivery Governance →
+                  </Link>
                 </div>
               </div>
 
@@ -222,10 +289,12 @@ export default function AskAlienaDrawer(props: {
 
             {!result ? (
               <div className="rounded-xl border bg-white/70 p-4 text-sm opacity-80 dark:border-white/10 dark:bg-white/5">
-                Ask a question to get a boardroom-ready answer grounded in this article.
+                Ask a question to get a boardroom-ready answer{" "}
+                {effectiveScope === "kb" && resolvedArticleSlug ? "grounded in this article." : "grounded in governance best-practice."}
               </div>
             ) : (
               <div className="space-y-4">
+                {/* ✅ ANSWER TOP */}
                 <div className="rounded-2xl border bg-white/70 p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
                   <div className="text-sm font-semibold">Answer</div>
                   <div className="mt-2 whitespace-pre-wrap text-sm opacity-85">
@@ -233,6 +302,7 @@ export default function AskAlienaDrawer(props: {
                   </div>
                 </div>
 
+                {/* ✅ GUIDANCE BELOW */}
                 {Array.isArray(result.key_drivers) && result.key_drivers.length ? (
                   <div className="rounded-2xl border bg-white/70 p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
                     <div className="text-sm font-semibold">Key drivers</div>
@@ -304,8 +374,7 @@ export default function AskAlienaDrawer(props: {
                   </div>
                 ) : null}
 
-                {Array.isArray(result.recommended_routes) &&
-                result.recommended_routes.length ? (
+                {Array.isArray(result.recommended_routes) && result.recommended_routes.length ? (
                   <div className="rounded-2xl border bg-white/70 p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
                     <div className="text-sm font-semibold">Recommended routes</div>
                     <div className="mt-3 flex flex-wrap gap-2">

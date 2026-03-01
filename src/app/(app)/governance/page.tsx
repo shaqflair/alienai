@@ -1,9 +1,9 @@
-// src/app/(app)/governance/page.tsx
 import "server-only";
 
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/server";
 import GovernanceSearchBox from "@/components/governance/GovernanceSearchBox";
+import AskAlienaDrawer from "@/components/governance/AskAlienaDrawer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,7 +46,9 @@ function fmtUpdated(x: unknown) {
   return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "2-digit" });
 }
 
-type SearchParamsLike = Record<string, string | string[] | undefined> | Promise<Record<string, string | string[] | undefined>>;
+type SearchParamsLike =
+  | Record<string, string | string[] | undefined>
+  | Promise<Record<string, string | string[] | undefined>>;
 
 type CatRow = {
   id: string;
@@ -136,6 +138,8 @@ export default async function GovernancePage({
   const pageSubtitle =
     "Boardroom-grade governance guidance: delivery discipline, approvals discipline, change control, RAID, and financial governance — all in one place.";
 
+  const deliveryFrameworkHref = "/governance/delivery-governance-framework";
+
   return (
     <div className="mx-auto max-w-7xl px-6 py-10">
       {/* Header */}
@@ -164,12 +168,18 @@ export default async function GovernancePage({
 
           <div className="flex items-center gap-2">
             <Link
-              href="/governance?ask=help"
+              href={deliveryFrameworkHref}
               className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
-              title="Ask Aliena about governance"
+              title="Open the Delivery Governance Framework standard"
             >
-              Ask Aliena →
+              Delivery Governance →
             </Link>
+
+            <AskAlienaDrawer
+              scope="global"
+              triggerLabel="Ask Aliena →"
+              triggerClassName="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
+            />
           </div>
         </div>
 
@@ -243,6 +253,15 @@ export default async function GovernancePage({
               This KB is the operating model for delivery assurance, approvals discipline, and
               audit-ready governance inside Aliena.
             </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link
+                href={deliveryFrameworkHref}
+                className="inline-flex rounded-lg border px-3 py-1.5 hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                Delivery Governance →
+              </Link>
+            </div>
           </div>
         </aside>
 
@@ -290,7 +309,7 @@ export default async function GovernancePage({
           ) : (
             <div className="rounded-xl border bg-white/70 p-6 text-sm opacity-80 dark:bg-white/5">
               No articles matched your filters.
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 flex flex-wrap gap-2">
                 <Link
                   href="/governance"
                   className="inline-flex rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
@@ -298,11 +317,16 @@ export default async function GovernancePage({
                   View all
                 </Link>
                 <Link
-                  href="/governance?ask=help"
+                  href={deliveryFrameworkHref}
                   className="inline-flex rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
                 >
-                  Ask Aliena
+                  Delivery Governance →
                 </Link>
+                <AskAlienaDrawer
+                  scope="global"
+                  triggerLabel="Ask Aliena →"
+                  triggerClassName="inline-flex rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10"
+                />
               </div>
             </div>
           )}
