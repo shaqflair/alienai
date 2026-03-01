@@ -18,10 +18,10 @@ export async function GET(req: NextRequest) {
   }
 
   const granularity  = (sp.get("granularity") ?? "weekly") as Granularity;
-  const dateFrom      = sp.get("dateFrom")     ?? new Date().toISOString().split("T")[0];
-  const dateTo       = sp.get("dateTo")       ?? "";
+  const dateFrom      = sp.get("dateFrom")    ?? new Date().toISOString().split("T")[0];
+  const dateTo        = sp.get("dateTo")      ?? "";
   const departments  = sp.getAll("dept");
-  const statuses     = sp.getAll("status");
+  const statuses      = sp.getAll("status");
   const personIds    = sp.getAll("person");
 
   // Default dateTo = 6 months from dateFrom
@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
     const data = await fetchHeatmapData(filters);
     return NextResponse.json(data, {
       headers: {
-        // Cache for 30 seconds — stale-while-revalidate for snappy feel
+        // Cache for 30 seconds -- stale-while-revalidate for snappy feel
         "Cache-Control": "private, max-age=30, stale-while-revalidate=60",
       },
     });

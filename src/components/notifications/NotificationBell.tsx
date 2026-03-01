@@ -1,10 +1,12 @@
-﻿"use client";
+"use client";
+
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { Alert, AlertSeverity, AlertType } from "@/app/notifications/_lib/notifications-engine";
 
 /* =============================================================================
-   HELPERS & CONSTANTS
+   HELPERS
 ============================================================================= */
+
 const SEVERITY_COLOUR: Record<AlertSeverity, string> = {
   critical: "#dc2626",
   warning:  "#d97706",
@@ -18,12 +20,12 @@ const SEVERITY_BG: Record<AlertSeverity, string> = {
 };
 
 const TYPE_EMOJI: Record<AlertType, string> = {
-  over_allocation:   "🔴",
-  under_utilisation: "🟡",
-  upcoming_leave:    "📅",
-  pipeline_starting: "⚡",
-  project_ending:    "🏁",
-  budget_exhausted:  "💸",
+  over_allocation:   "??",
+  under_utilisation: "??",
+  upcoming_leave:    "??",
+  pipeline_starting: "??",
+  project_ending:    "??",
+  budget_exhausted:  "??",
 };
 
 const TYPE_LABEL: Record<AlertType, string> = {
@@ -37,6 +39,10 @@ const TYPE_LABEL: Record<AlertType, string> = {
 
 const REFRESH_MS = 60_000;
 
+/* =============================================================================
+   BELL ICON
+============================================================================= */
+
 function BellIcon({ hasUnread }: { hasUnread: boolean }) {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
@@ -48,34 +54,55 @@ function BellIcon({ hasUnread }: { hasUnread: boolean }) {
   );
 }
 
+/* =============================================================================
+   ALERT ITEM
+============================================================================= */
+
 function AlertItem({ alert, onClick }: { alert: Alert; onClick: () => void }) {
   const colour = SEVERITY_COLOUR[alert.severity];
   const bg     = SEVERITY_BG[alert.severity];
 
   return (
-    <a href={alert.href} onClick={onClick}
+    <a
+      href={alert.href}
+      onClick={onClick}
       style={{
-        display: "block", padding: "10px 14px", background: bg,
-        borderLeft: `3px solid ${colour}`, textDecoration: "none", transition: "opacity 0.15s",
+        display: "block", padding: "10px 14px",
+        background: bg,
+        borderLeft: `3px solid ${colour}`,
+        textDecoration: "none",
+        transition: "opacity 0.15s",
       }}
       onMouseEnter={e => (e.currentTarget.style.opacity = "0.85")}
       onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
-        <span style={{ fontSize: "13px", flexShrink: 0, marginTop: "1px" }}>{TYPE_EMOJI[alert.type]}</span>
+        <span style={{ fontSize: "13px", flexShrink: 0, marginTop: "1px" }}>
+          {TYPE_EMOJI[alert.type]}
+        </span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: "12px", fontWeight: 700, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div style={{
+            fontSize: "12px", fontWeight: 700, color: "#0f172a",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>
             {alert.title}
           </div>
-          <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {alert.body}
           </div>
         </div>
-        <span style={{ fontSize: "10px", color: "#94a3b8", flexShrink: 0 }}>{TYPE_LABEL[alert.type]}</span>
+        <span style={{ fontSize: "10px", color: "#94a3b8", flexShrink: 0 }}>
+          {TYPE_LABEL[alert.type]}
+        </span>
       </div>
     </a>
   );
 }
+
+/* =============================================================================
+   MAIN COMPONENT
+============================================================================= */
 
 export default function NotificationBell() {
   const [alerts,  setAlerts]  = useState<Alert[]>([]);
@@ -104,8 +131,10 @@ export default function NotificationBell() {
   useEffect(() => {
     if (!open) return;
     function handler(e: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node) &&
-          buttonRef.current && !buttonRef.current.contains(e.target as Node)) setOpen(false);
+      if (
+        panelRef.current  && !panelRef.current.contains(e.target as Node) &&
+        buttonRef.current && !buttonRef.current.contains(e.target as Node)
+      ) setOpen(false);
     }
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -118,34 +147,44 @@ export default function NotificationBell() {
 
   function handleOpen() {
     setOpen(o => !o);
-    if (!open) setSeen(new Set(alerts.map(a => a.id)));
+    if (!open) {
+      setSeen(new Set(alerts.map(a => a.id)));
+    }
   }
 
   const grouped = {
     critical: alerts.filter(a => a.severity === "critical"),
     warning:  alerts.filter(a => a.severity === "warning"),
-    info:     alerts.filter(a => a.severity === "info"),
+    info:      alerts.filter(a => a.severity === "info"),
   };
 
   return (
     <div style={{ position: "relative" }}>
-      <button ref={buttonRef} type="button" onClick={handleOpen}
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={handleOpen}
         style={{
-          position: "relative", display: "flex", alignItems: "center", justifyContent: "center",
+          position: "relative",
+          display: "flex", alignItems: "center", justifyContent: "center",
           width: "34px", height: "34px", borderRadius: "8px",
           border: open ? "1.5px solid rgba(255,255,255,0.2)" : "1.5px solid transparent",
           background: open ? "rgba(255,255,255,0.08)" : "transparent",
-          color: "rgba(255,255,255,0.7)", cursor: "pointer", transition: "all 0.15s",
+          color: "rgba(255,255,255,0.7)",
+          cursor: "pointer", transition: "all 0.15s",
         }}
+        title="Notifications"
       >
         <BellIcon hasUnread={unreadCount > 0} />
         {unreadCount > 0 && (
           <div style={{
-            position: "absolute", top: "2px", right: "2px", minWidth: "16px", height: "16px",
+            position: "absolute", top: "2px", right: "2px",
+            minWidth: "16px", height: "16px",
             background: criticalCount > 0 ? "#dc2626" : "#d97706",
             borderRadius: "8px", border: "1.5px solid #0a0d14",
             display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: "9px", fontWeight: 900, color: "white", padding: "0 3px",
+            fontSize: "9px", fontWeight: 900, color: "white",
+            padding: "0 3px",
           }}>
             {unreadCount > 9 ? "9+" : unreadCount}
           </div>
@@ -153,35 +192,130 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div ref={panelRef} style={{
-            position: "absolute", top: "calc(100% + 8px)", right: 0, width: "380px",
-            background: "white", borderRadius: "14px", border: "1.5px solid #e2e8f0",
-            boxShadow: "0 16px 48px rgba(0,0,0,0.16)", overflow: "hidden", zIndex: 1000,
+        <div
+          ref={panelRef}
+          style={{
+            position: "absolute", top: "calc(100% + 8px)", right: 0,
+            width: "380px",
+            background: "white",
+            borderRadius: "14px",
+            border: "1.5px solid #e2e8f0",
+            boxShadow: "0 16px 48px rgba(0,0,0,0.16)",
+            overflow: "hidden",
+            zIndex: 1000,
             animation: "bellDrop 0.18s ease",
+          }}
+        >
+          <style>{`
+            @keyframes bellDrop {
+              from { opacity: 0; transform: translateY(-8px); }
+              to   { opacity: 1; transform: translateY(0); }
+            }
+          `}</style>
+
+          <div style={{
+            padding: "14px 16px 10px",
+            borderBottom: "1px solid #f1f5f9",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
           }}>
-          <style>{`@keyframes bellDrop { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }`}</style>
-          <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ fontSize: "14px", fontWeight: 800, color: "#0f172a" }}>Notifications</div>
-            <a href="/notifications" style={{ fontSize: "11px", color: "#0891b2", fontWeight: 700, textDecoration: "none" }} onClick={() => setOpen(false)}>See all →</a>
+            <div style={{ fontSize: "14px", fontWeight: 800, color: "#0f172a" }}>
+              Notifications
+            </div>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              {criticalCount > 0 && (
+                <span style={{
+                  fontSize: "11px", fontWeight: 700, color: "#dc2626",
+                  background: "#fef2f2", padding: "2px 7px", borderRadius: "5px",
+                }}>{criticalCount} critical</span>
+              )}
+              {warningCount > 0 && (
+                <span style={{
+                  fontSize: "11px", fontWeight: 700, color: "#d97706",
+                  background: "#fffbeb", padding: "2px 7px", borderRadius: "5px",
+                }}>{warningCount} warning{warningCount !== 1 ? "s" : ""}</span>
+              )}
+              <a href="/notifications" style={{
+                fontSize: "11px", color: "#0891b2", fontWeight: 700,
+                textDecoration: "none",
+              }} onClick={() => setOpen(false)}>
+                See all ->
+              </a>
+            </div>
           </div>
 
           <div style={{ maxHeight: "420px", overflowY: "auto" }}>
             {loading ? (
-              <div style={{ padding: "24px", textAlign: "center", color: "#94a3b8", fontSize: "13px" }}>Loading…</div>
+              <div style={{ padding: "24px", textAlign: "center", color: "#94a3b8", fontSize: "13px" }}>
+                Loading...
+              </div>
             ) : alerts.length === 0 ? (
               <div style={{ padding: "28px", textAlign: "center" }}>
-                <div style={{ fontSize: "24px", marginBottom: "8px" }}>✅</div>
-                <div style={{ fontSize: "13px", color: "#64748b", fontWeight: 600 }}>All clear</div>
+                <div style={{ fontSize: "24px", marginBottom: "8px" }}>?</div>
+                <div style={{ fontSize: "13px", color: "#64748b", fontWeight: 600 }}>
+                  All clear -- no active alerts
+                </div>
+                <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "3px" }}>
+                  Checks run automatically every 60s
+                </div>
               </div>
             ) : (
-              Object.entries(grouped).map(([sev, list]) => list.length > 0 && (
-                <div key={sev}>
-                  <div style={{ padding: "8px 14px 4px", fontSize: "10px", fontWeight: 800, textTransform: "uppercase", color: SEVERITY_COLOUR[sev as AlertSeverity], background: SEVERITY_BG[sev as AlertSeverity] }}>{sev}</div>
-                  {list.map(a => <AlertItem key={a.id} alert={a} onClick={() => setOpen(false)} />)}
-                </div>
-              ))
+              <>
+                {grouped.critical.length > 0 && (
+                  <div>
+                    <div style={{ padding: "8px 14px 4px", fontSize: "10px", fontWeight: 800,
+                                  color: "#dc2626", textTransform: "uppercase", letterSpacing: "0.06em",
+                                  background: "#fff5f5" }}>
+                      Critical
+                    </div>
+                    {grouped.critical.map(a => (
+                      <AlertItem key={a.id} alert={a} onClick={() => setOpen(false)} />
+                    ))}
+                  </div>
+                )}
+                {grouped.warning.length > 0 && (
+                  <div>
+                    <div style={{ padding: "8px 14px 4px", fontSize: "10px", fontWeight: 800,
+                                  color: "#d97706", textTransform: "uppercase", letterSpacing: "0.06em",
+                                  background: "#fffdf5" }}>
+                      Warnings
+                    </div>
+                    {grouped.warning.map(a => (
+                      <AlertItem key={a.id} alert={a} onClick={() => setOpen(false)} />
+                    ))}
+                  </div>
+                )}
+                {grouped.info.length > 0 && (
+                  <div>
+                    <div style={{ padding: "8px 14px 4px", fontSize: "10px", fontWeight: 800,
+                                  color: "#0891b2", textTransform: "uppercase", letterSpacing: "0.06em",
+                                  background: "#f0f9ff" }}>
+                      Info
+                    </div>
+                    {grouped.info.map(a => (
+                      <AlertItem key={a.id} alert={a} onClick={() => setOpen(false)} />
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
+
+          {alerts.length > 0 && (
+            <div style={{
+              padding: "10px 16px",
+              borderTop: "1px solid #f1f5f9",
+              background: "#fafafa",
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+            }}>
+              <span style={{ fontSize: "11px", color: "#94a3b8" }}>
+                Refreshes every 60s
+              </span>
+              <button type="button" onClick={() => { fetchAlerts(); setSeen(new Set()); }} style={{
+                background: "none", border: "none", color: "#0891b2",
+                fontSize: "11px", fontWeight: 700, cursor: "pointer",
+              }}> Refresh now</button>
+            </div>
+          )}
         </div>
       )}
     </div>
