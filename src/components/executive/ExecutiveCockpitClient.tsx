@@ -21,6 +21,8 @@
 //   ✅ FIX-ECC12: Never show UUIDs (user:uuid) — resolve person label to name/email only
 //   ✅ FIX-ECC13: Risk signal “corrupted HTML” hardened — detect HTML responses and show clean error
 //   ✅ FIX-ECC14: Remove “Scope: ORG” labels (tile + drawer)
+//   ✅ FIX-ECC15: Risk Signals uses correct endpoint (/api/executive/risk-signals, not /approvals/risk-signals)
+//   ✅ FIX-ECC16: Never show Brain fallback lists when primary endpoint returns ok:true with empty items
 
 "use client";
 
@@ -147,7 +149,6 @@ function isHtmlLike(text: string, contentType?: string | null) {
 function stripHtml(s: string) {
   const raw = safeStr(s);
   if (!raw) return "";
-  // remove tags + collapse whitespace
   return raw
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -160,9 +161,7 @@ function cleanErrorMessage(s: string) {
   const raw = safeStr(s).trim();
   if (!raw) return "Request failed";
   const cleaned = stripHtml(raw);
-  // if it was HTML-ish and stripping nuked meaning, fall back:
   if (!cleaned || cleaned.length < 3) return "Request failed";
-  // keep it short (avoid dumping pages into UI)
   return cleaned.length > 140 ? `${cleaned.slice(0, 140)}…` : cleaned;
 }
 
@@ -193,7 +192,6 @@ async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   try {
     json = text ? JSON.parse(text) : null;
   } catch {
-    // Non-HTML but still not JSON
     if (!res.ok) throw new Error(`Endpoint error (${res.status})`);
     throw new Error("Invalid JSON response");
   }
@@ -253,7 +251,6 @@ function extractUserIdFromUserTag(x: any) {
 }
 
 function resolvePersonLabel(it: any): string {
-  // Prefer explicit human-friendly fields first
   const candidates = [
     it?.display_name,
     it?.full_name,
@@ -269,19 +266,14 @@ function resolvePersonLabel(it: any): string {
     .map((v) => safeStr(v).trim())
     .filter(Boolean);
 
-  // If primary candidate is a uuid / user:uuid, try other candidates
   for (const c of candidates) {
     const uid = extractUserIdFromUserTag(c);
     if (uid && looksLikeUuid(uid)) continue;
     if (looksLikeUuid(c)) continue;
-    if (c.toLowerCase().startsWith("user:")) {
-      // non-uuid user tag (rare) → still avoid; continue searching
-      continue;
-    }
+    if (c.toLowerCase().startsWith("user:")) continue;
     return c;
   }
 
-  // If no good label, but we have an email somewhere, show it
   const emailish = candidates.find((c) => c.includes("@") && c.includes("."));
   if (emailish) return emailish;
 
@@ -364,11 +356,7 @@ function bestHref(item: any, fallbackHref: string): string {
   const kind = safeLower(item?.itemType || item?.kind || item?.type || "");
 
   const artifactId = safeStr(
-    meta?.sourceArtifactId ||
-      meta?.artifactId ||
-      item?.artifact_id ||
-      item?.artifactId ||
-      ""
+    meta?.sourceArtifactId || meta?.artifactId || item?.artifact_id || item?.artifactId || ""
   ).trim();
 
   if (projectRef && artifactId && looksLikeUuid(artifactId)) {
@@ -384,12 +372,7 @@ function bestHref(item: any, fallbackHref: string): string {
     if (kind.includes("change")) return `/projects/${projectRef}/change`;
   }
 
-  if (
-    kind.includes("approval") ||
-    kind.includes("approver") ||
-    kind.includes("bottleneck") ||
-    kind.includes("blocking")
-  ) {
+  if (kind.includes("approval") || kind.includes("approver") || kind.includes("bottleneck") || kind.includes("blocking")) {
     return "/approvals/bottlenecks";
   }
 
@@ -825,13 +808,7 @@ function MicroList({
     <div className="space-y-1.5 mt-3 pt-3 border-t border-slate-100/80">
       {items.slice(0, 3).map((it, i) => {
         const label = safeStr(
-          it?.[labelKey] ||
-            it?.title ||
-            it?.name ||
-            it?.label ||
-            it?.project_title ||
-            it?.project_name ||
-            "---"
+          it?.[labelKey] || it?.title || it?.name || it?.label || it?.project_title || it?.project_name || "---"
         );
         const sub = subKey ? safeStr(it?.[subKey]) : "";
         const age = ageKey ? timeAgo(safeStr(it?.[ageKey])) : ageFromItem(it);
@@ -1250,7 +1227,10 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
         fetchJson<Payload>("/api/executive/approvals/pending?limit=200", signal),
         fetchJson<Payload>("/api/executive/approvals/who-blocking", signal),
         fetchJson<Payload>("/api/executive/approvals/sla-radar", signal),
-        fetchJson<Payload>("/api/executive/approvals/risk-signals", signal),
+
+        // ✅ FIX-ECC15: correct risk endpoint (NOT under /approvals)
+        fetchJson<Payload>("/api/executive/risk-signals", signal),
+
         fetchJson<Payload>("/api/executive/approvals/portfolio", signal),
         fetchJson<Payload>("/api/executive/approvals/bottlenecks", signal),
       ]);
@@ -1303,6 +1283,11 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
     return null;
   }
 
+  // ✅ FIX-ECC16: only use brain fallbacks when primary is missing/errored (NOT when ok:true but empty)
+  function isOkPayload(p: Payload | null): boolean {
+    return !!p && !isErr(p);
+  }
+
   const paItems = getItems(pendingApprovals, ["items", "pending"]);
   const wbItems = getItems(whoBlocking, ["items", "blockers"]);
   const slaItems = getItems(slaRadar, ["items", "breaches"]);
@@ -1318,7 +1303,7 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
 
   const brainWhoBlocking = Array.isArray(org?.approvals?.top_blockers)
     ? org!.approvals!.top_blockers.map((b: any) => ({
-        name: b.label, // already human label
+        name: b.label,
         label: b.label,
         count: safeNum(b.count),
         pending_count: safeNum(b.count),
@@ -1403,13 +1388,16 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       count: pickCount(pendingApprovals, brainPendingCount),
       error: getError(pendingApprovals),
       href: "/approvals",
-      items: paItems.length ? paItems : [],
+
+      // Pending list: if primary ok but empty, show nothing (no brain list)
+      items: isOkPayload(pendingApprovals) ? paItems : [],
       fallbackItems: brainPortfolioItems,
-      body: paItems.length ? (
-        <PendingApprovalsBody items={paItems} />
-      ) : brainPortfolioItems.length ? (
-        <MicroList items={brainPortfolioItems} tone="emerald" labelKey="project_title" subKey="stage_key" />
-      ) : null,
+
+      body: isOkPayload(pendingApprovals)
+        ? (paItems.length ? <PendingApprovalsBody items={paItems} /> : null)
+        : (brainPortfolioItems.length ? (
+            <MicroList items={brainPortfolioItems} tone="emerald" labelKey="project_title" subKey="stage_key" />
+          ) : null),
     },
     {
       id: "blocking",
@@ -1420,12 +1408,12 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       count: pickCount(whoBlocking, brainWhoBlocking.length ? brainWhoBlocking.length : null),
       error: getError(whoBlocking),
       href: "/approvals/bottlenecks",
-      items: wbItems.length ? wbItems : brainWhoBlocking,
-      body: wbItems.length ? (
-        <WhoBlockingBody items={wbItems} />
-      ) : brainWhoBlocking.length ? (
-        <WhoBlockingBody items={brainWhoBlocking} />
-      ) : null,
+
+      // ✅ FIX-ECC16
+      items: isOkPayload(whoBlocking) ? wbItems : brainWhoBlocking,
+      body: isOkPayload(whoBlocking)
+        ? (wbItems.length ? <WhoBlockingBody items={wbItems} /> : null)
+        : (brainWhoBlocking.length ? <WhoBlockingBody items={brainWhoBlocking} /> : null),
     },
     {
       id: "sla",
@@ -1436,12 +1424,12 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       count: pickCount(slaRadar, brainSlaBreachedTotal),
       error: getError(slaRadar),
       href: "/approvals",
-      items: slaItems.length ? slaItems : brainSlaSample,
-      body: slaItems.length ? (
-        <SlaRadarBody items={slaItems} />
-      ) : brainSlaSample.length ? (
-        <SlaRadarBody items={brainSlaSample} />
-      ) : null,
+
+      // ✅ FIX-ECC16
+      items: isOkPayload(slaRadar) ? slaItems : brainSlaSample,
+      body: isOkPayload(slaRadar)
+        ? (slaItems.length ? <SlaRadarBody items={slaItems} /> : null)
+        : (brainSlaSample.length ? <SlaRadarBody items={brainSlaSample} /> : null),
     },
     {
       id: "risk",
@@ -1452,8 +1440,10 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       count: pickCount(riskSignals, brainRiskCount),
       error: getError(riskSignals),
       href: "/approvals",
-      items: rsItems,
-      body: rsItems.length ? <RiskSignalsBody items={rsItems} /> : null,
+
+      // Risk: if ok but empty, show nothing
+      items: isOkPayload(riskSignals) ? rsItems : [],
+      body: isOkPayload(riskSignals) ? (rsItems.length ? <RiskSignalsBody items={rsItems} /> : null) : null,
     },
     {
       id: "portfolio",
@@ -1464,12 +1454,12 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       count: pickCount(portfolioApprovals, org?.health?.projects?.length ? org!.health!.projects!.length : null),
       error: getError(portfolioApprovals),
       href: "/approvals/portfolio",
-      items: portItems.length ? portItems : brainPortfolioItems,
-      body: portItems.length ? (
-        <PortfolioApprovalsBody items={portItems} />
-      ) : brainPortfolioItems.length ? (
-        <PortfolioApprovalsBody items={brainPortfolioItems} />
-      ) : null,
+
+      // Portfolio: if primary ok but empty, show nothing (avoid odd mismatches)
+      items: isOkPayload(portfolioApprovals) ? portItems : brainPortfolioItems,
+      body: isOkPayload(portfolioApprovals)
+        ? (portItems.length ? <PortfolioApprovalsBody items={portItems} /> : null)
+        : (brainPortfolioItems.length ? <PortfolioApprovalsBody items={brainPortfolioItems} /> : null),
     },
     {
       id: "bottlenecks",
@@ -1480,12 +1470,12 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       count: pickCount(bottlenecks, brainBottlenecks.length ? brainBottlenecks.length : null),
       error: getError(bottlenecks),
       href: "/approvals/bottlenecks",
-      items: bottItems.length ? bottItems : brainBottlenecks,
-      body: bottItems.length ? (
-        <BottlenecksBody items={bottItems} />
-      ) : brainBottlenecks.length ? (
-        <BottlenecksBody items={brainBottlenecks} />
-      ) : null,
+
+      // ✅ FIX-ECC16
+      items: isOkPayload(bottlenecks) ? bottItems : brainBottlenecks,
+      body: isOkPayload(bottlenecks)
+        ? (bottItems.length ? <BottlenecksBody items={bottItems} /> : null)
+        : (brainBottlenecks.length ? <BottlenecksBody items={brainBottlenecks} /> : null),
     },
   ];
 
