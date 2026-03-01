@@ -1,9 +1,14 @@
-﻿import "server-only";
+﻿// FILE: src/app/api/assistant/route.ts
+//
+// Streaming chat API using OpenAI.
+// Requires: OPENAI_API_KEY env var + `pnpm add openai`
+// Model: gpt-4o
+
+import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
 import { buildAssistantContext, formatSystemPrompt } from "@/app/assistant/_lib/build-context";
-import OpenAI from "openai";
 
 export const runtime  = "nodejs";
 export const dynamic  = "force-dynamic";
@@ -14,36 +19,55 @@ function bad(msg: string, status = 400) {
   return NextResponse.json({ ok: false, error: msg }, { status });
 }
 
+function safeStr(x: unknown): string {
+  return typeof x === "string" ? x : "";
+}
+
 export async function POST(req: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return bad("OPENAI_API_KEY not configured", 500);
+  if (!apiKey) return bad("OPENAI_API_KEY not configured — add it to your environment variables", 500);
 
-  // 1. Authenticate the User
+  // Auth
   const sb = await createClient();
   const { data: { user }, error: authErr } = await sb.auth.getUser();
   if (authErr || !user) return bad("Not authenticated", 401);
 
-  // 2. Resolve the Active Organisation Context
-  const orgId = await getActiveOrgId().catch(() => null);
-  if (!orgId) return bad("No active organisation context found", 400);
+  // Active org
+  let orgId: string | null = null;
+  try { orgId = String(await getActiveOrgId()); } catch {}
+  if (!orgId) return bad("No active organisation", 400);
 
-  // 3. Parse and Validate Request Body
-  const body = await req.json().catch(() => ({}));
+  // Parse body
+  let body: any = {};
+  try { body = await req.json(); } catch {}
   const messages: Message[] = Array.isArray(body?.messages) ? body.messages : [];
-  if (!messages[messages.length - 1]?.content?.trim()) return bad("Empty message", 400);
+  const lastMessage = messages[messages.length - 1];
+  if (!lastMessage?.content?.trim()) return bad("Empty message", 400);
 
-  // 4. Inject Real-Time Resource Data into System Prompt
-  let context;
+  // Build context
+  let systemPrompt = "";
   try {
-    context = await buildAssistantContext(String(orgId));
+    const context = await buildAssistantContext(orgId);
+    systemPrompt = formatSystemPrompt(context);
   } catch (e: any) {
-    return bad(`Failed to load organisation data: ${e?.message}`, 500);
+    return bad(`Failed to load org data: ${e?.message}`, 500);
   }
 
-  const systemPrompt = formatSystemPrompt(context);
+  // Dynamically import openai so a missing package gives a clear error
+  let OpenAI: any;
+  try {
+    const mod = await import("openai");
+    OpenAI = mod.default;
+  } catch {
+    return bad(
+      "The 'openai' package is not installed. Run: pnpm add openai",
+      500
+    );
+  }
 
-  // 5. Build OpenAI Message Payload (Limiting to last 20 turns for token efficiency)
-  const openaiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+  const openai = new OpenAI({ apiKey });
+
+  const openaiMessages = [
     { role: "system", content: systemPrompt },
     ...messages.slice(-20).map((m: Message) => ({
       role:    m.role as "user" | "assistant",
@@ -51,18 +75,15 @@ export async function POST(req: Request) {
     })),
   ];
 
-  const openai = new OpenAI({ apiKey });
-
   try {
     const stream = await openai.chat.completions.create({
       model:       "gpt-4o",
       messages:    openaiMessages,
       max_tokens:  1500,
-      temperature: 0.3, 
+      temperature: 0.3,
       stream:      true,
     });
 
-    // 6. Return a ReadableStream for word-by-word UI updates
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
@@ -81,14 +102,20 @@ export async function POST(req: Request) {
 
     return new Response(readable, {
       headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Transfer-Encoding": "chunked",
-        "Cache-Control": "no-store",
+        "Content-Type":         "text/plain; charset=utf-8",
+        "Transfer-Encoding":    "chunked",
+        "Cache-Control":        "no-store",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (e: any) {
-    const msg = e?.message || "Internal Server Error";
-    if (msg.includes("quota")) return bad("OpenAI quota exceeded", 429);
-    return bad(`OpenAI service error: ${msg}`, 500);
+    const msg = safeStr(e?.message);
+    if (msg.includes("API key") || msg.includes("auth"))
+      return bad("Invalid OpenAI API key — check OPENAI_API_KEY in your env vars", 500);
+    if (msg.includes("quota") || msg.includes("429"))
+      return bad("OpenAI quota exceeded", 429);
+    if (msg.includes("model"))
+      return bad("Model not available — check your OpenAI plan supports gpt-4o", 500);
+    return bad(`OpenAI error: ${msg}`, 500);
   }
 }
