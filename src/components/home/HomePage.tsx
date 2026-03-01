@@ -5,7 +5,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import GovernanceIntelligence from "@/components/executive/GovernanceIntelligence";
-import BudgetHealthStrip from "@/components/executive/BudgetHealthStrip";
 import { LazyMotion, domAnimation, m, AnimatePresence } from "framer-motion";
 import {
   Bell, Sparkles, AlertTriangle, ShieldCheck, Clock3, Trophy,
@@ -675,13 +674,98 @@ export default function HomePage({ data }: { data: HomeData }) {
               </m.div>
             )}
 
-            {/* ── Budget Health Strip — BudgetHealthStrip widget ── */}
-            <m.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{delay:0.25}}>
-              <BudgetHealthStrip
-                summary={fpSummary}
-                loading={fpLoading}
-                projectRef={firstProjectRef}
-              />
+            {/* ── Budget Health Strip ── */}
+            <m.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{delay:0.25}}
+              className="relative overflow-hidden rounded-2xl"
+              style={{
+                background:"linear-gradient(145deg,rgba(255,255,255,0.99) 0%,rgba(248,250,255,0.97) 100%)",
+                border:`1.5px solid ${fpRag ? (fpRag==="G"?"#10b98144":fpRag==="A"?"#f59e0b44":"#f43f5e44") : "rgba(226,232,240,0.8)"}`,
+                boxShadow:`0 2px 8px rgba(0,0,0,0.04), 0 1px 0 rgba(255,255,255,1) inset`,
+              }}>
+              {/* Top accent bar */}
+              <div className="absolute top-0 inset-x-0 h-[3px] rounded-t-2xl"
+                style={{ background: fpRag ? `linear-gradient(90deg,transparent,${fpRag==="G"?"#10b981":fpRag==="A"?"#f59e0b":"#f43f5e"} 20%,${fpRag==="G"?"#10b981":fpRag==="A"?"#f59e0b":"#f43f5e"} 80%,transparent)` : "transparent" }}/>
+              {/* Left accent bar */}
+              <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl"
+                style={{ background: fpRag==="G"?"#10b981":fpRag==="A"?"#f59e0b":"#f43f5e", boxShadow:`0 0 20px ${fpRag==="G"?"rgba(16,185,129,0.3)":fpRag==="A"?"rgba(245,158,11,0.3)":"rgba(244,63,94,0.3)"}` }}/>
+              <div className="pl-5 pr-6 py-5">
+                {/* Header row */}
+                <div className="flex items-center gap-2.5 mb-4">
+                  <div className="h-4 w-0.5 rounded-full" style={{ background: fpRag==="G"?"#10b981":fpRag==="A"?"#f59e0b":"#f43f5e", boxShadow:`0 0 8px ${fpRag==="G"?"rgba(16,185,129,0.5)":fpRag==="A"?"rgba(245,158,11,0.5)":"rgba(244,63,94,0.5)"}` }}/>
+                  <span className="text-[11px] uppercase tracking-[0.22em] font-bold" style={{ color: fpRag==="G"?"#059669":fpRag==="A"?"#d97706":"#e11d48" }}>Budget Health</span>
+                </div>
+                {fpLoading && !fpHasData ? (
+                  <div className="flex gap-8 animate-pulse">
+                    {[0,1,2].map(i=><div key={i} className="flex flex-col gap-2"><div className="h-2 w-16 bg-gray-200 rounded"/><div className="h-8 w-24 bg-gray-200 rounded"/></div>)}
+                  </div>
+                ) : !fpHasData ? (
+                  <div className="flex items-center gap-4 py-2">
+                    <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center"><DollarSign className="w-5 h-5 text-gray-400"/></div>
+                    <div>
+                      <p className="text-sm font-bold text-gray-700">No Financial Plan linked</p>
+                      <p className="text-xs text-gray-400 mt-0.5">Create a Financial Plan artifact to track budget health</p>
+                    </div>
+                    <button onClick={()=>firstProjectRef&&router.push(`/projects/${firstProjectRef}/artifacts/new?type=FINANCIAL_PLAN`)}
+                      className="ml-auto flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 transition-colors">
+                      Create Plan <ArrowUpRight className="w-3.5 h-3.5"/>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-8 flex-wrap xl:flex-nowrap">
+                    {/* Icon + RAG badge */}
+                    <div className="flex items-center gap-4 flex-shrink-0">
+                      <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
+                        style={{ background:`linear-gradient(135deg,${fpRag==="G"?"#10b981,#059669":fpRag==="A"?"#f59e0b,#d97706":"#f43f5e,#e11d48"})`, boxShadow:`0 4px 20px ${fpRag==="G"?"rgba(16,185,129,0.3)":fpRag==="A"?"rgba(245,158,11,0.3)":"rgba(244,63,94,0.3)"}` }}>
+                        <DollarSign className="w-6 h-6 text-white"/>
+                      </div>
+                      <div>
+                        <div className={["inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-bold uppercase tracking-widest",
+                          fpRag==="G"?"bg-green-100 text-green-700 border-green-200":fpRag==="A"?"bg-amber-100 text-amber-700 border-amber-200":"bg-red-100 text-red-700 border-red-200"].join(" ")}>
+                          <span className="w-1.5 h-1.5 rounded-full" style={{ background: fpRag==="G"?"#10b981":fpRag==="A"?"#f59e0b":"#f43f5e" }}/>
+                          {fpRag==="G"?"On Budget":fpRag==="A"?"Watch":"Over Budget"}
+                        </div>
+                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Budget Health</div>
+                      </div>
+                    </div>
+                    <div className="hidden xl:block w-px self-stretch bg-gray-100"/>
+                    {/* Stats */}
+                    {[
+                      { label:"Approved Budget", value:(fpSummary as any).total_approved_budget!=null?`${(fpSummary as any).currency==="USD"?"$":(fpSummary as any).currency==="EUR"?"€":"£"}${Math.abs(Number((fpSummary as any).total_approved_budget))>=1_000_000?(Number((fpSummary as any).total_approved_budget)/1_000_000).toFixed(1)+"M":Math.abs(Number((fpSummary as any).total_approved_budget))>=1_000?(Number((fpSummary as any).total_approved_budget)/1_000).toFixed(0)+"k":Number((fpSummary as any).total_approved_budget).toFixed(0)}` : "—", sub:"total authorised", accent:"#0f172a" },
+                      { label:"Actual Spent", value:(fpSummary as any).total_spent!=null?`${(fpSummary as any).currency==="USD"?"$":(fpSummary as any).currency==="EUR"?"€":"£"}${Math.abs(Number((fpSummary as any).total_spent))>=1_000_000?(Number((fpSummary as any).total_spent)/1_000_000).toFixed(1)+"M":Math.abs(Number((fpSummary as any).total_spent))>=1_000?(Number((fpSummary as any).total_spent)/1_000).toFixed(0)+"k":Number((fpSummary as any).total_spent).toFixed(0)}` : "—", sub:(fpSummary as any).total_approved_budget&&(fpSummary as any).total_spent?`${Math.min(Math.round((Number((fpSummary as any).total_spent)/Number((fpSummary as any).total_approved_budget))*100),999)}% of budget`:undefined, accent:Number((fpSummary as any).total_spent)/Number((fpSummary as any).total_approved_budget)>0.9?"#f43f5e":"#0f172a" },
+                      { label:"Forecast Variance", value:fpVarianceLabel, sub:fpVarianceNum!=null&&fpVarianceNum!==0?`${fpVarianceNum>0?"over":"under"} by forecast`:"on target", accent:fpVarianceNum!=null&&fpVarianceNum>5?"#f43f5e":fpVarianceNum!=null&&fpVarianceNum>0?"#f59e0b":"#10b981" },
+                    ].map((cell,i)=>(
+                      <div key={i} className="flex flex-col gap-1">
+                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{cell.label}</div>
+                        <div className="text-3xl font-bold tabular-nums leading-none" style={{ color:cell.accent, fontFamily:"monospace" }}>{cell.value}</div>
+                        {cell.sub&&<div className="text-[11px] text-gray-400 font-medium">{cell.sub}</div>}
+                      </div>
+                    ))}
+                    <div className="hidden xl:block w-px self-stretch bg-gray-100"/>
+                    {/* Utilisation bar */}
+                    {Number((fpSummary as any).total_approved_budget)>0&&(fpSummary as any).total_spent!=null&&(
+                      <div className="flex-shrink-0 w-52">
+                        <div className="flex items-center justify-between text-[10px] text-gray-400 font-semibold mb-1.5">
+                          <span>Spend utilisation</span>
+                          <span className={Number((fpSummary as any).total_spent)/Number((fpSummary as any).total_approved_budget)>1?"text-red-600 font-bold":""}>{Math.min(Math.round((Number((fpSummary as any).total_spent)/Number((fpSummary as any).total_approved_budget))*100),110)}%</span>
+                        </div>
+                        <div className="h-2.5 rounded-full overflow-hidden bg-gray-100 relative">
+                          <m.div initial={{width:0}} animate={{width:`${Math.min(Math.round((Number((fpSummary as any).total_spent)/Number((fpSummary as any).total_approved_budget))*100),100)}%`}}
+                            transition={{duration:0.8}} className="absolute top-0 left-0 h-full rounded-full"
+                            style={{ background:fpRag==="G"?"#10b981":fpRag==="A"?"#f59e0b":"#f43f5e" }}/>
+                        </div>
+                      </div>
+                    )}
+                    {/* View Plan button */}
+                    <div className="flex-shrink-0 ml-auto">
+                      <button onClick={()=>{ if (fpHasData&&(fpSummary as any).artifact_id) router.push(`/projects/${firstProjectRef}/artifacts/${(fpSummary as any).artifact_id}?panel=intelligence`); else if (firstProjectRef) router.push(`/projects/${firstProjectRef}/artifacts/new?type=FINANCIAL_PLAN`); }}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-white text-xs font-bold hover:opacity-90 active:scale-95 transition-all"
+                        style={{ background:`linear-gradient(135deg,${fpRag==="G"?"#10b981,#059669":fpRag==="A"?"#f59e0b,#d97706":"#f43f5e,#e11d48"})`, boxShadow:`0 4px 14px ${fpRag==="G"?"rgba(16,185,129,0.35)":fpRag==="A"?"rgba(245,158,11,0.35)":"rgba(244,63,94,0.35)"}` }}>
+                        {(fpSummary as any)?.artifact_id?"View Plan":"Create Plan"} <ArrowUpRight className="w-3.5 h-3.5"/>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </m.div>
 
             {/* ── Chart + AI Insights ── */}
@@ -823,4 +907,3 @@ export default function HomePage({ data }: { data: HomeData }) {
     </>
   );
 }
-
