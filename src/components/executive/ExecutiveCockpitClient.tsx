@@ -21,8 +21,10 @@
 //   ✅ FIX-ECC12: Never show UUIDs (user:uuid) — resolve person label to name/email only
 //   ✅ FIX-ECC13: Risk signal “corrupted HTML” hardened — detect HTML responses and show clean error
 //   ✅ FIX-ECC14: Remove “Scope: ORG” labels (tile + drawer)
-//   ✅ FIX-ECC15: Risk Signals uses correct endpoint (/api/executive/risk-signals, not /approvals/risk-signals)
-//   ✅ FIX-ECC16: Never show Brain fallback lists when primary endpoint returns ok:true with empty items
+//
+// NEW (today):
+//   ✅ FIX-ECC15: Risk Signals endpoint corrected → /api/executive/risk-signals (not /approvals/risk-signals)
+//   ✅ FIX-ECC16: If primary endpoint returns 0 but Brain has data → show Brain fallback (count + items)
 
 "use client";
 
@@ -289,7 +291,6 @@ function timeAgo(iso: string) {
   return `${Math.floor(d / 86400)}d ago`;
 }
 
-// ✅ FIX-ECC4: derive display age from a wider set of timestamp fields
 function ageFromItem(it: any): string {
   const ts =
     it?.submitted_at ??
@@ -336,9 +337,6 @@ function extractProjectRefFromHref(href: string): string | null {
   return m?.[1] ? String(m[1]) : null;
 }
 
-/**
- * ✅ Best-effort deep link resolver for drawer items.
- */
 function bestHref(item: any, fallbackHref: string): string {
   const rawLink = safeStr(item?.link || item?.href || "").trim();
   const normalized = rawLink ? normalizeHref(rawLink) : "";
@@ -537,20 +535,11 @@ function Drawer({
             </div>
             <div className="mt-1 flex items-center gap-2 min-w-0">
               <span className="text-[15px] font-bold text-slate-950 truncate">{title}</span>
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ background: acc.bar, boxShadow: `0 0 10px ${acc.glow}` }}
-              />
+              <span className="h-2 w-2 rounded-full" style={{ background: acc.bar, boxShadow: `0 0 10px ${acc.glow}` }} />
             </div>
-            {subtitle && (
-              <div className="mt-1 text-[12px] text-slate-500 font-medium truncate">{subtitle}</div>
-            )}
+            {subtitle && <div className="mt-1 text-[12px] text-slate-500 font-medium truncate">{subtitle}</div>}
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-xl hover:bg-slate-100 transition-colors"
-            aria-label="Close"
-          >
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 transition-colors" aria-label="Close">
             <X className="h-4 w-4 text-slate-600" />
           </button>
         </div>
@@ -585,10 +574,7 @@ function Drawer({
                   <div
                     key={idx}
                     className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3"
-                    style={{
-                      backdropFilter: "blur(10px)",
-                      boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-                    }}
+                    style={{ backdropFilter: "blur(10px)", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -602,10 +588,7 @@ function Drawer({
                         )}
                       </div>
                       {age && (
-                        <div
-                          className="shrink-0 text-[10px] text-slate-400 font-semibold"
-                          style={{ fontFamily: "var(--font-mono, monospace)" }}
-                        >
+                        <div className="shrink-0 text-[10px] text-slate-400 font-semibold" style={{ fontFamily: "var(--font-mono, monospace)" }}>
                           {age}
                         </div>
                       )}
@@ -694,36 +677,11 @@ function CockpitTile({
         backdropFilter: "blur(28px) saturate(1.9)",
       }}
     >
-      <div
-        className="absolute inset-0 rounded-2xl pointer-events-none"
-        style={{
-          background: "linear-gradient(135deg, rgba(255,255,255,0.68) 0%, transparent 62%)",
-        }}
-      />
-      <div
-        className="absolute top-0 inset-x-0 h-[1px] rounded-t-2xl"
-        style={{
-          background:
-            "linear-gradient(90deg, transparent, rgba(255,255,255,1) 20%, rgba(255,255,255,1) 80%, transparent)",
-        }}
-      />
-      <div
-        className="absolute top-0 inset-x-0 h-24 rounded-t-2xl pointer-events-none"
-        style={{
-          background: "linear-gradient(180deg, rgba(255,255,255,0.82) 0%, transparent 100%)",
-        }}
-      />
-      <div
-        className="absolute -bottom-12 -right-12 w-40 h-40 rounded-full pointer-events-none"
-        style={{
-          background: `radial-gradient(ellipse, ${acc.orb} 0%, transparent 65%)`,
-          filter: "blur(2px)",
-        }}
-      />
-      <div
-        className="absolute left-0 top-5 bottom-5 w-[3px] rounded-r-full"
-        style={{ background: acc.bar, boxShadow: `0 0 14px ${acc.glow}` }}
-      />
+      <div className="absolute inset-0 rounded-2xl pointer-events-none" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.68) 0%, transparent 62%)" }} />
+      <div className="absolute top-0 inset-x-0 h-[1px] rounded-t-2xl" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,1) 20%, rgba(255,255,255,1) 80%, transparent)" }} />
+      <div className="absolute top-0 inset-x-0 h-24 rounded-t-2xl pointer-events-none" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.82) 0%, transparent 100%)" }} />
+      <div className="absolute -bottom-12 -right-12 w-40 h-40 rounded-full pointer-events-none" style={{ background: `radial-gradient(ellipse, ${acc.orb} 0%, transparent 65%)`, filter: "blur(2px)" }} />
+      <div className="absolute left-0 top-5 bottom-5 w-[3px] rounded-r-full" style={{ background: acc.bar, boxShadow: `0 0 14px ${acc.glow}` }} />
 
       <div className="relative pl-4 p-5 flex flex-col h-full">
         <div className="flex items-start justify-between gap-3 mb-3">
@@ -738,19 +696,12 @@ function CockpitTile({
               <div className="flex items-end gap-3">
                 <p
                   className="text-[38px] font-bold text-slate-950 leading-none tracking-tight"
-                  style={{
-                    fontFamily: "var(--font-mono, 'DM Mono', monospace)",
-                    letterSpacing: "-0.025em",
-                  }}
+                  style={{ fontFamily: "var(--font-mono, 'DM Mono', monospace)", letterSpacing: "-0.025em" }}
                 >
                   {count === null ? (
                     <span className="inline-flex gap-1 items-center pb-2">
                       {[0, 120, 240].map((d) => (
-                        <span
-                          key={d}
-                          className="h-1.5 w-1.5 rounded-full bg-slate-300 animate-bounce"
-                          style={{ animationDelay: `${d}ms` }}
-                        />
+                        <span key={d} className="h-1.5 w-1.5 rounded-full bg-slate-300 animate-bounce" style={{ animationDelay: `${d}ms` }} />
                       ))}
                     </span>
                   ) : (
@@ -762,10 +713,7 @@ function CockpitTile({
           </div>
           <div
             className="shrink-0 flex items-center justify-center w-11 h-11 rounded-xl text-white"
-            style={{
-              background: acc.iconBg,
-              boxShadow: `0 4px 16px ${acc.iconGlow}, 0 1px 0 rgba(255,255,255,0.22) inset`,
-            }}
+            style={{ background: acc.iconBg, boxShadow: `0 4px 16px ${acc.iconGlow}, 0 1px 0 rgba(255,255,255,0.22) inset` }}
           >
             {icon}
           </div>
@@ -774,10 +722,7 @@ function CockpitTile({
         {hasData && children && <div className="mt-auto">{children}</div>}
 
         {href && hasData && (
-          <div
-            className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider"
-            style={{ color: acc.bar }}
-          >
+          <div className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider" style={{ color: acc.bar }}>
             View details
             <ArrowUpRight className="h-3 w-3" />
           </div>
@@ -807,9 +752,7 @@ function MicroList({
   return (
     <div className="space-y-1.5 mt-3 pt-3 border-t border-slate-100/80">
       {items.slice(0, 3).map((it, i) => {
-        const label = safeStr(
-          it?.[labelKey] || it?.title || it?.name || it?.label || it?.project_title || it?.project_name || "---"
-        );
+        const label = safeStr(it?.[labelKey] || it?.title || it?.name || it?.label || it?.project_title || it?.project_name || "---");
         const sub = subKey ? safeStr(it?.[subKey]) : "";
         const age = ageKey ? timeAgo(safeStr(it?.[ageKey])) : ageFromItem(it);
         return (
@@ -819,24 +762,14 @@ function MicroList({
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.1 + i * 0.06 }}
             className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 bg-white/52 border border-slate-100/70 hover:bg-white/80 transition-all"
-            style={{
-              backdropFilter: "blur(8px)",
-              boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
-            }}
+            style={{ backdropFilter: "blur(8px)", boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}
           >
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${acc.listDot}`} />
             <div className="min-w-0 flex-1">
               <div className="text-xs font-semibold text-slate-800 truncate">{label}</div>
               {sub && <div className="text-[10px] text-slate-400 truncate">{sub}</div>}
             </div>
-            {age && (
-              <div
-                className="shrink-0 text-[10px] text-slate-400 font-medium"
-                style={{ fontFamily: "var(--font-mono, monospace)" }}
-              >
-                {age}
-              </div>
-            )}
+            {age && <div className="shrink-0 text-[10px] text-slate-400 font-medium" style={{ fontFamily: "var(--font-mono, monospace)" }}>{age}</div>}
           </m.div>
         );
       })}
@@ -848,43 +781,17 @@ function MicroList({
 
 function SeverityBar({ items }: { items: any[] }) {
   if (!items.length) return null;
-  const high = items.filter((it) =>
-    /high|critical|red|r/.test(safeStr(it?.severity || it?.level || it?.rag || "").toLowerCase())
-  ).length;
-  const medium = items.filter((it) =>
-    /med|medium|amber|a|warn|at_risk/.test(safeStr(it?.severity || it?.level || it?.rag || "").toLowerCase())
-  ).length;
+  const high = items.filter((it) => /high|critical|red|r/.test(safeStr(it?.severity || it?.level || it?.rag || "").toLowerCase())).length;
+  const medium = items.filter((it) => /med|medium|amber|a|warn|at_risk/.test(safeStr(it?.severity || it?.level || it?.rag || "").toLowerCase())).length;
   const low = items.length - high - medium;
   const total = items.length;
 
   return (
     <div className="mt-3 pt-3 border-t border-slate-100/80">
       <div className="h-1.5 w-full rounded-full overflow-hidden flex bg-slate-100/80 mb-2">
-        {high > 0 && (
-          <m.div
-            initial={{ width: 0 }}
-            animate={{ width: `${(high / total) * 100}%` }}
-            transition={{ duration: 0.7, delay: 0.2 }}
-            className="h-full bg-rose-400 rounded-l-full"
-            style={{ boxShadow: "0 0 6px rgba(244,63,94,0.35)" }}
-          />
-        )}
-        {medium > 0 && (
-          <m.div
-            initial={{ width: 0 }}
-            animate={{ width: `${(medium / total) * 100}%` }}
-            transition={{ duration: 0.7, delay: 0.3 }}
-            className="h-full bg-amber-400"
-          />
-        )}
-        {low > 0 && (
-          <m.div
-            initial={{ width: 0 }}
-            animate={{ width: `${(low / total) * 100}%` }}
-            transition={{ duration: 0.7, delay: 0.4 }}
-            className="h-full bg-emerald-400 rounded-r-full"
-          />
-        )}
+        {high > 0 && <m.div initial={{ width: 0 }} animate={{ width: `${(high / total) * 100}%` }} transition={{ duration: 0.7, delay: 0.2 }} className="h-full bg-rose-400 rounded-l-full" style={{ boxShadow: "0 0 6px rgba(244,63,94,0.35)" }} />}
+        {medium > 0 && <m.div initial={{ width: 0 }} animate={{ width: `${(medium / total) * 100}%` }} transition={{ duration: 0.7, delay: 0.3 }} className="h-full bg-amber-400" />}
+        {low > 0 && <m.div initial={{ width: 0 }} animate={{ width: `${(low / total) * 100}%` }} transition={{ duration: 0.7, delay: 0.4 }} className="h-full bg-emerald-400 rounded-r-full" />}
       </div>
       <div className="flex items-center gap-3 text-[10px] font-semibold">
         {high > 0 && <span className="text-rose-600">{high} critical</span>}
@@ -964,10 +871,7 @@ function WhoBlockingBody({ items }: { items: any[] }) {
                 <span className="text-xs font-semibold text-slate-800 truncate">{name}</span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <span
-                  className="text-[10px] font-bold text-amber-700 bg-amber-50/80 border border-amber-200/60 rounded-lg px-2 py-0.5"
-                  style={{ fontFamily: "var(--font-mono, monospace)" }}
-                >
+                <span className="text-[10px] font-bold text-amber-700 bg-amber-50/80 border border-amber-200/60 rounded-lg px-2 py-0.5" style={{ fontFamily: "var(--font-mono, monospace)" }}>
                   {count}
                 </span>
                 {maxWait > 0 && <span className="text-[10px] text-slate-400 font-medium">{maxWait}d</span>}
@@ -1019,10 +923,7 @@ function PortfolioApprovalsBody({ items }: { items: any[] }) {
             <span className="h-1.5 w-1.5 rounded-full bg-indigo-400 shrink-0" />
             <span className="text-xs font-semibold text-slate-800 truncate">{p.title}</span>
           </div>
-          <span
-            className="shrink-0 text-[10px] font-bold text-indigo-700 bg-indigo-50/80 border border-indigo-200/60 rounded-lg px-2 py-0.5"
-            style={{ fontFamily: "var(--font-mono, monospace)" }}
-          >
+          <span className="shrink-0 text-[10px] font-bold text-indigo-700 bg-indigo-50/80 border border-indigo-200/60 rounded-lg px-2 py-0.5" style={{ fontFamily: "var(--font-mono, monospace)" }}>
             {p.count}
           </span>
         </m.div>
@@ -1059,10 +960,7 @@ function BottlenecksBody({ items }: { items: any[] }) {
                 <Layers className="h-3 w-3 text-slate-400 shrink-0" />
                 <span className="text-xs font-semibold text-slate-800 truncate">{label}</span>
               </div>
-              <span
-                className="shrink-0 text-[10px] font-bold text-slate-600"
-                style={{ fontFamily: "var(--font-mono, monospace)" }}
-              >
+              <span className="shrink-0 text-[10px] font-bold text-slate-600" style={{ fontFamily: "var(--font-mono, monospace)" }}>
                 {count}
               </span>
             </div>
@@ -1148,10 +1046,7 @@ function CockpitHeader({
           onClick={onRefresh}
           disabled={loading}
           className="flex items-center gap-2 rounded-xl border border-slate-200/80 bg-white/72 px-4 py-2.5 text-sm text-slate-600 hover:bg-white/92 hover:text-slate-900 transition-all disabled:opacity-50"
-          style={{
-            backdropFilter: "blur(10px)",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-          }}
+          style={{ backdropFilter: "blur(10px)", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}
         >
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           {loading ? "Refreshing..." : "Refresh"}
@@ -1187,13 +1082,7 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
   const [drawerItems, setDrawerItems] = React.useState<any[]>([]);
   const [drawerHref, setDrawerHref] = React.useState<string>("/approvals");
 
-  const openDrawer = React.useCallback((args: {
-    title: string;
-    subtitle?: string;
-    tone: ToneKey;
-    items: any[];
-    href: string;
-  }) => {
+  const openDrawer = React.useCallback((args: { title: string; subtitle?: string; tone: ToneKey; items: any[]; href: string }) => {
     setDrawerTitle(args.title);
     setDrawerSubtitle(args.subtitle);
     setDrawerTone(args.tone);
@@ -1227,10 +1116,8 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
         fetchJson<Payload>("/api/executive/approvals/pending?limit=200", signal),
         fetchJson<Payload>("/api/executive/approvals/who-blocking", signal),
         fetchJson<Payload>("/api/executive/approvals/sla-radar", signal),
-
-        // ✅ FIX-ECC15: correct risk endpoint (NOT under /approvals)
+        // ✅ FIX-ECC15: risk signals endpoint is NOT under /approvals/
         fetchJson<Payload>("/api/executive/risk-signals", signal),
-
         fetchJson<Payload>("/api/executive/approvals/portfolio", signal),
         fetchJson<Payload>("/api/executive/approvals/bottlenecks", signal),
       ]);
@@ -1281,11 +1168,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
   function getError(p: Payload | null): string | null {
     if (p && isErr(p)) return (p as ApiErr).message ?? (p as ApiErr).error;
     return null;
-  }
-
-  // ✅ FIX-ECC16: only use brain fallbacks when primary is missing/errored (NOT when ok:true but empty)
-  function isOkPayload(p: Payload | null): boolean {
-    return !!p && !isErr(p);
   }
 
   const paItems = getItems(pendingApprovals, ["items", "pending"]);
@@ -1373,9 +1255,19 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
 
   // --- TILE MODEL -------------------------------------------------------------
 
+  // ✅ FIX-ECC16: if primary returns 0 but fallback has >0, show fallback
   function pickCount(primary: Payload | null, fallback: number | null): number | null {
     const c = getCount(primary);
-    return c != null ? c : fallback;
+    if (c == null) return fallback;
+    if (c === 0 && (fallback ?? 0) > 0) return fallback;
+    return c;
+  }
+
+  // ✅ FIX-ECC16: pick items with same rule (prefer fallback if primary empty)
+  function pickItems(primary: any[], fallback: any[]): any[] {
+    if (Array.isArray(primary) && primary.length) return primary;
+    if (Array.isArray(fallback) && fallback.length) return fallback;
+    return [];
   }
 
   const tiles = [
@@ -1388,16 +1280,12 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       count: pickCount(pendingApprovals, brainPendingCount),
       error: getError(pendingApprovals),
       href: "/approvals",
-
-      // Pending list: if primary ok but empty, show nothing (no brain list)
-      items: isOkPayload(pendingApprovals) ? paItems : [],
-      fallbackItems: brainPortfolioItems,
-
-      body: isOkPayload(pendingApprovals)
-        ? (paItems.length ? <PendingApprovalsBody items={paItems} /> : null)
-        : (brainPortfolioItems.length ? (
-            <MicroList items={brainPortfolioItems} tone="emerald" labelKey="project_title" subKey="stage_key" />
-          ) : null),
+      items: pickItems(paItems, brainPortfolioItems),
+      body: paItems.length ? (
+        <PendingApprovalsBody items={paItems} />
+      ) : brainPortfolioItems.length ? (
+        <MicroList items={brainPortfolioItems} tone="emerald" labelKey="project_title" subKey="stage_key" />
+      ) : null,
     },
     {
       id: "blocking",
@@ -1408,12 +1296,12 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       count: pickCount(whoBlocking, brainWhoBlocking.length ? brainWhoBlocking.length : null),
       error: getError(whoBlocking),
       href: "/approvals/bottlenecks",
-
-      // ✅ FIX-ECC16
-      items: isOkPayload(whoBlocking) ? wbItems : brainWhoBlocking,
-      body: isOkPayload(whoBlocking)
-        ? (wbItems.length ? <WhoBlockingBody items={wbItems} /> : null)
-        : (brainWhoBlocking.length ? <WhoBlockingBody items={brainWhoBlocking} /> : null),
+      items: pickItems(wbItems, brainWhoBlocking),
+      body: wbItems.length ? (
+        <WhoBlockingBody items={wbItems} />
+      ) : brainWhoBlocking.length ? (
+        <WhoBlockingBody items={brainWhoBlocking} />
+      ) : null,
     },
     {
       id: "sla",
@@ -1424,12 +1312,12 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       count: pickCount(slaRadar, brainSlaBreachedTotal),
       error: getError(slaRadar),
       href: "/approvals",
-
-      // ✅ FIX-ECC16
-      items: isOkPayload(slaRadar) ? slaItems : brainSlaSample,
-      body: isOkPayload(slaRadar)
-        ? (slaItems.length ? <SlaRadarBody items={slaItems} /> : null)
-        : (brainSlaSample.length ? <SlaRadarBody items={brainSlaSample} /> : null),
+      items: pickItems(slaItems, brainSlaSample),
+      body: slaItems.length ? (
+        <SlaRadarBody items={slaItems} />
+      ) : brainSlaSample.length ? (
+        <SlaRadarBody items={brainSlaSample} />
+      ) : null,
     },
     {
       id: "risk",
@@ -1440,10 +1328,8 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       count: pickCount(riskSignals, brainRiskCount),
       error: getError(riskSignals),
       href: "/approvals",
-
-      // Risk: if ok but empty, show nothing
-      items: isOkPayload(riskSignals) ? rsItems : [],
-      body: isOkPayload(riskSignals) ? (rsItems.length ? <RiskSignalsBody items={rsItems} /> : null) : null,
+      items: pickItems(rsItems, []),
+      body: rsItems.length ? <RiskSignalsBody items={rsItems} /> : null,
     },
     {
       id: "portfolio",
@@ -1454,12 +1340,12 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       count: pickCount(portfolioApprovals, org?.health?.projects?.length ? org!.health!.projects!.length : null),
       error: getError(portfolioApprovals),
       href: "/approvals/portfolio",
-
-      // Portfolio: if primary ok but empty, show nothing (avoid odd mismatches)
-      items: isOkPayload(portfolioApprovals) ? portItems : brainPortfolioItems,
-      body: isOkPayload(portfolioApprovals)
-        ? (portItems.length ? <PortfolioApprovalsBody items={portItems} /> : null)
-        : (brainPortfolioItems.length ? <PortfolioApprovalsBody items={brainPortfolioItems} /> : null),
+      items: pickItems(portItems, brainPortfolioItems),
+      body: portItems.length ? (
+        <PortfolioApprovalsBody items={portItems} />
+      ) : brainPortfolioItems.length ? (
+        <PortfolioApprovalsBody items={brainPortfolioItems} />
+      ) : null,
     },
     {
       id: "bottlenecks",
@@ -1470,21 +1356,17 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       count: pickCount(bottlenecks, brainBottlenecks.length ? brainBottlenecks.length : null),
       error: getError(bottlenecks),
       href: "/approvals/bottlenecks",
-
-      // ✅ FIX-ECC16
-      items: isOkPayload(bottlenecks) ? bottItems : brainBottlenecks,
-      body: isOkPayload(bottlenecks)
-        ? (bottItems.length ? <BottlenecksBody items={bottItems} /> : null)
-        : (brainBottlenecks.length ? <BottlenecksBody items={brainBottlenecks} /> : null),
+      items: pickItems(bottItems, brainBottlenecks),
+      body: bottItems.length ? (
+        <BottlenecksBody items={bottItems} />
+      ) : brainBottlenecks.length ? (
+        <BottlenecksBody items={brainBottlenecks} />
+      ) : null,
     },
   ];
 
   function onTileClick(t: (typeof tiles)[number]) {
-    const list = Array.isArray(t.items) ? t.items : [];
-    const fallbackList =
-      (t as any).fallbackItems && Array.isArray((t as any).fallbackItems) ? (t as any).fallbackItems : [];
-    const use = list.length ? list : fallbackList;
-
+    const use = Array.isArray(t.items) ? t.items : [];
     if (use.length) {
       openDrawer({
         title: t.label,
@@ -1495,7 +1377,6 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
       });
       return;
     }
-
     if (t.href) router.push(t.href);
   }
 
@@ -1558,7 +1439,7 @@ export default function ExecutiveCockpitClient(_props: { orgId?: string } = {}) 
                 <div key={t.id} className="flex items-center gap-1.5">
                   <span className={`h-2 w-2 rounded-full ${TONES[t.tone].listDot}`} />
                   <span className="font-semibold text-slate-800">{t.count ?? "---"}</span>
-                  <span className="font-medium text-[12px]">{(t as any).short ?? t.label}</span>
+                  <span className="font-medium text-[12px]">{t.short ?? t.label}</span>
                 </div>
               ))}
             </div>
