@@ -5,6 +5,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import GovernanceIntelligence from "@/components/executive/GovernanceIntelligence";
+import BudgetHealthStrip from "@/components/executive/BudgetHealthStrip";
 import { LazyMotion, domAnimation, m, AnimatePresence } from "framer-motion";
 import {
   Bell, Sparkles, AlertTriangle, ShieldCheck, Clock3, Trophy,
@@ -612,7 +613,8 @@ export default function HomePage({ data }: { data: HomeData }) {
 
             {/* ── KPI Cards ── */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <KpiCard label="Portfolio Health" value={`${phScoreForUi}%`} sub="vs last period"
+              <KpiCard label="Portfolio Health" value={`${phScoreForUi}%`}
+                sub={ragAgg.scored ? `${ragAgg.g} Green · ${ragAgg.a} Amber · ${ragAgg.r} Red` : "vs last period"}
                 icon={<Activity className="h-5 w-5"/>} colorKey={phColorKey}
                 trendLabel={phDelta!=null&&phDelta!==0?`${Math.abs(Math.round(phDelta))}`:undefined}
                 onClick={()=>router.push("/insights")} delay={0}/>
@@ -623,12 +625,64 @@ export default function HomePage({ data }: { data: HomeData }) {
               <KpiCard label="Milestones Due" value={`${milestonesDueLive}`} sub={`next ${windowDays==="all"?"60":windowDays} days`}
                 icon={<Clock3 className="h-5 w-5"/>} colorKey="blue"
                 onClick={()=>router.push(`/milestones?days=${numericWindowDays}`)} delay={0.1}/>
-              <KpiCard label="Budget Health" value={fpVarianceLabel} sub="variance"
+              <KpiCard label="Budget Health" value={fpVarianceLabel}
+                sub={fpHasData ? `${(fpSummary as any).total_approved_budget ? `Budget ${fpRag==="G"?"on track":fpRag==="A"?"watch":"over"}` : "variance"}` : "variance"}
                 icon={<DollarSign className="h-5 w-5"/>} colorKey={fpColorKey}
                 trendLabel={fpVarianceNum!=null&&fpVarianceNum!==0?fpVarianceLabel:undefined}
                 onClick={()=>{ if (fpHasData&&(fpSummary as any).artifact_id) router.push(`/projects/${firstProjectRef}/artifacts/${(fpSummary as any).artifact_id}?panel=intelligence`); else if (firstProjectRef) router.push(`/projects/${firstProjectRef}/artifacts/new?type=FINANCIAL_PLAN`); }}
                 delay={0.15}/>
             </div>
+
+            {/* ── Project Health RAG Strip ── */}
+            {ragAgg.scored > 0 && (
+              <m.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{delay:0.2}}
+                className="bg-white rounded-2xl border border-gray-100 px-6 py-5" style={{ boxShadow:"0 1px 3px rgba(0,0,0,0.05)" }}>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold text-gray-900 text-sm">Project Health (RAG Status)</h3>
+                  <button onClick={()=>router.push("/projects")} className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">
+                    View all <ChevronRight className="h-3 w-3"/>
+                  </button>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {/* GREEN */}
+                  <div className="rounded-xl bg-green-50 border border-green-100 p-4 cursor-pointer hover:bg-green-100/60 transition-colors" onClick={()=>router.push("/projects?rag=G")}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle2 className="h-4 w-4 text-green-600"/>
+                      <span className="text-xs font-bold text-green-700 uppercase tracking-wider">Green</span>
+                    </div>
+                    <div className="text-3xl font-bold text-green-700 leading-none mb-1">{ragAgg.g}</div>
+                    <div className="text-xs text-green-600/80">{ragAgg.scored > 0 ? `${Math.round((ragAgg.g/ragAgg.scored)*100)}% of total` : "—"}</div>
+                  </div>
+                  {/* AMBER */}
+                  <div className="rounded-xl bg-amber-50 border border-amber-100 p-4 cursor-pointer hover:bg-amber-100/60 transition-colors" onClick={()=>router.push("/projects?rag=A")}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <AlertTriangle className="h-4 w-4 text-amber-600"/>
+                      <span className="text-xs font-bold text-amber-700 uppercase tracking-wider">Amber</span>
+                    </div>
+                    <div className="text-3xl font-bold text-amber-700 leading-none mb-1">{ragAgg.a}</div>
+                    <div className="text-xs text-amber-600/80">{ragAgg.scored > 0 ? `${Math.round((ragAgg.a/ragAgg.scored)*100)}% of total` : "—"}</div>
+                  </div>
+                  {/* RED */}
+                  <div className="rounded-xl bg-red-50 border border-red-100 p-4 cursor-pointer hover:bg-red-100/60 transition-colors" onClick={()=>router.push("/projects?rag=R")}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <AlertTriangle className="h-4 w-4 text-red-500"/>
+                      <span className="text-xs font-bold text-red-600 uppercase tracking-wider">Red</span>
+                    </div>
+                    <div className="text-3xl font-bold text-red-600 leading-none mb-1">{ragAgg.r}</div>
+                    <div className="text-xs text-red-500/80">{ragAgg.scored > 0 ? `${Math.round((ragAgg.r/ragAgg.scored)*100)}% of total` : "—"}</div>
+                  </div>
+                </div>
+              </m.div>
+            )}
+
+            {/* ── Budget Health Strip — BudgetHealthStrip widget ── */}
+            <m.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{delay:0.25}}>
+              <BudgetHealthStrip
+                summary={fpSummary}
+                loading={fpLoading}
+                projectRef={firstProjectRef}
+              />
+            </m.div>
 
             {/* ── Chart + AI Insights ── */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
