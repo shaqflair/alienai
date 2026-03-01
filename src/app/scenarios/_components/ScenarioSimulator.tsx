@@ -256,7 +256,7 @@ function DiffHeatmap({
                 </div>
                 {diff.scenarioCap !== diff.capacityDays && (
                   <div style={{ fontSize: "9px", color: "#f59e0b", fontWeight: 700 }}>
-                    {diff.capacityDays}d -> {diff.scenarioCap}d
+                    {diff.capacityDays}d {"->"} {diff.scenarioCap}d
                   </div>
                 )}
               </div>
