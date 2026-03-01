@@ -153,6 +153,12 @@ const Icons = {
       <path d="M12 6v4M4 16v-4h16v4"/>
     </svg>
   ),
+  scenarios: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18"/>
+    </svg>
+  ),
   chevronLeft: (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
          strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -371,20 +377,27 @@ export default function Sidebar({ userName, orgName }: {
     {
       label: "Overview",
       items: [
-        { href: "/",         label: "Dashboard",   icon: Icons.dashboard,   exact: true },
-        { href: "/projects", label: "Projects",    icon: Icons.projects    },
+        { href: "/",        label: "Dashboard",  icon: Icons.dashboard, exact: true },
+        { href: "/projects",label: "Projects",   icon: Icons.projects  },
+        { href: "/reports", label: "Reports",    icon: Icons.artifacts },
       ],
     },
     {
       label: "Resource",
       items: [
-        { href: "/heatmap",              label: "Heatmap",     icon: Icons.heatmap     },
-        { href: "/allocations/new",      label: "Allocate",    icon: Icons.allocations },
-        { href: "/people",               label: "People",      icon: Icons.people      },
-        { href: "/org-chart",            label: "Org Chart",   icon: Icons.orgChart    },
-        { href: "/capacity",             label: "Leave / Cap", icon: Icons.leave       },
-        { href: "/assistant",            label: "AI Assistant", icon: Icons.assistant, badge: "AI" },
-        { href: "/timesheet",            label: "Timesheet",    icon: Icons.timesheet },
+        { href: "/heatmap",         label: "Heatmap",     icon: Icons.heatmap     },
+        { href: "/allocations/new", label: "Allocate",    icon: Icons.allocations },
+        { href: "/scenarios",       label: "What-If",     icon: Icons.scenarios, badge: "NEW" },
+        { href: "/timesheet",       label: "Timesheet",   icon: Icons.timesheet   },
+        { href: "/capacity",        label: "Leave / Cap", icon: Icons.leave       },
+      ],
+    },
+    {
+      label: "People",
+      items: [
+        { href: "/people",    label: "People",       icon: Icons.people   },
+        { href: "/org-chart", label: "Org Chart",    icon: Icons.orgChart },
+        { href: "/assistant", label: "AI Assistant", icon: Icons.assistant, badge: "AI" },
       ],
     },
     {
