@@ -1,4 +1,5 @@
 ﻿"use client";
+// FILE: src/components/nav/Sidebar.tsx
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
@@ -140,6 +141,16 @@ const Icons = {
          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="10"/>
       <polyline points="12 6 12 12 16 14"/>
+    </svg>
+  ),
+  orgChart: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="2" width="6" height="4" rx="1"/>
+      <rect x="1" y="16" width="6" height="4" rx="1"/>
+      <rect x="9" y="16" width="6" height="4" rx="1"/>
+      <rect x="17" y="16" width="6" height="4" rx="1"/>
+      <path d="M12 6v4M4 16v-4h16v4"/>
     </svg>
   ),
   chevronLeft: (
@@ -286,7 +297,7 @@ function ProjectContextStrip({
   const base      = `/projects/${projectRef}`;
 
   const subItems = [
-    { href: base,                        label: "Overview"  },
+    { href: base,                       label: "Overview"  },
     { href: `${base}/artifacts`,        label: "Artifacts" },
     { href: `${base}/changes`,          label: "Changes"   },
     { href: `${base}/approvals`,        label: "Approvals" },
@@ -367,10 +378,11 @@ export default function Sidebar({ userName, orgName }: {
     {
       label: "Resource",
       items: [
-        { href: "/heatmap",               label: "Heatmap",     icon: Icons.heatmap     },
-        { href: "/allocations/new",       label: "Allocate",    icon: Icons.allocations },
+        { href: "/heatmap",              label: "Heatmap",     icon: Icons.heatmap     },
+        { href: "/allocations/new",      label: "Allocate",    icon: Icons.allocations },
         { href: "/people",               label: "People",      icon: Icons.people      },
-        { href: "/capacity",             label: "Leave / Cap", icon: Icons.leave        },
+        { href: "/org-chart",            label: "Org Chart",   icon: Icons.orgChart    },
+        { href: "/capacity",             label: "Leave / Cap", icon: Icons.leave       },
         { href: "/assistant",            label: "AI Assistant", icon: Icons.assistant, badge: "AI" },
         { href: "/timesheet",            label: "Timesheet",    icon: Icons.timesheet },
       ],
