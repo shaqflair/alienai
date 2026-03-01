@@ -1,11 +1,11 @@
-﻿
-
-// FILE: src/app/organisations/invite/[token]/page.tsx
+﻿// FILE: src/app/organisations/invite/[token]/page.tsx
+import "server-only";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
 
-export const runtime   = "nodejs";
-export const dynamic   = "force-dynamic";
+export const runtime    = "nodejs";
+export const dynamic    = "force-dynamic";
 export const revalidate = 0;
 
 function safeParam(x: unknown): string {
@@ -23,12 +23,9 @@ async function acceptOrgInvite(token: string, cookieHeader: string) {
 
   const res = await fetch(url, {
     method:  "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Cookie: cookieHeader,
-    },
-    body:  JSON.stringify({ token }),
-    cache: "no-store",
+    headers: { "Content-Type": "application/json", Cookie: cookieHeader },
+    body:    JSON.stringify({ token }),
+    cache:   "no-store",
   });
 
   return res.json().catch(() => ({ ok: false, error: "Invalid response" }));
@@ -54,7 +51,6 @@ function Page({ title, body, actions, note }: {
         boxShadow: "0 8px 40px rgba(0,0,0,0.08)",
         overflow: "hidden",
       }}>
-        {/* Brand header */}
         <div style={{
           background: "linear-gradient(135deg,#0e7490 0%,#0891b2 100%)",
           padding: "24px 28px",
@@ -64,15 +60,12 @@ function Page({ title, body, actions, note }: {
           <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.65)",
                         marginTop: "2px" }}>Resource management</div>
         </div>
-
         <div style={{ padding: "28px" }}>
           <h1 style={{ fontSize: "18px", fontWeight: 800, color: "#0f172a",
                        margin: "0 0 10px" }}>{title}</h1>
           <p style={{ fontSize: "13px", color: "#475569", margin: "0 0 20px",
                       lineHeight: 1.6 }}>{body}</p>
-
           {actions && <div style={{ display: "flex", gap: "8px" }}>{actions}</div>}
-
           {note && (
             <div style={{
               marginTop: "16px", padding: "12px 14px",
@@ -87,7 +80,9 @@ function Page({ title, body, actions, note }: {
   );
 }
 
-function Btn({ href, children, primary }: { href: string; children: React.ReactNode; primary?: boolean }) {
+function Btn({ href, children, primary }: {
+  href: string; children: React.ReactNode; primary?: boolean;
+}) {
   return (
     <a href={href} style={{
       display: "inline-flex", alignItems: "center",
@@ -126,9 +121,7 @@ export default async function OrgInviteTokenPage({
     redirect(`/login?next=${encodeURIComponent(`/organisations/invite/${encodeURIComponent(token)}`)}`);
   }
 
-  // Forward auth cookies to the API route
-  const { cookies } = await import("next/headers");
-  const cookieStore = await cookies();
+  const cookieStore  = await cookies();
   const cookieHeader = cookieStore.getAll().map(c => `${c.name}=${c.value}`).join("; ");
 
   let result: any;
@@ -140,28 +133,24 @@ export default async function OrgInviteTokenPage({
         title="Something went wrong"
         body={String(e?.message ?? "Unable to process the invite.")}
         actions={<><Btn href="/login">Log in</Btn><Btn href="/projects" primary>Go to projects</Btn></>}
-        note="If this keeps happening, the invite may be expired, revoked, or intended for a different email address."
+        note="The invite may be expired, revoked, or intended for a different email address."
       />
     );
   }
 
   if (!result?.ok) {
-    const msg = String(result?.error || "Unable to accept invite.");
     return (
       <Page
         title="Couldn't accept invite"
-        body={msg}
+        body={String(result?.error || "Unable to accept invite.")}
         actions={<><Btn href="/login">Log in</Btn><Btn href="/projects" primary>Go to projects</Btn></>}
         note="The invite may be expired, revoked, already accepted, or intended for a different email."
       />
     );
   }
 
-  // Success -- redirect into the org
   const orgId = String(result?.organisation_id || "").trim();
-  if (orgId) {
-    redirect(`/people?joined=1`);
-  }
+  if (orgId) redirect("/people?joined=1");
 
   return (
     <Page
