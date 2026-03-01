@@ -770,28 +770,44 @@ export default function ScenarioSimulator({
   const weeks = useMemo(() => weeksInRange(from, to).slice(0, 20), [from, to]);
 
   // -- Compute states --------------------------------------------------------
-  const liveState = useMemo(() =>
-    computeState(people, projects, allocations, exceptions, weeks, new Map()),
-    [people, projects, allocations, exceptions, weeks]
-  );
+  const liveState = useMemo(() => {
+    try {
+      return computeState(people, projects, allocations, exceptions, weeks, new Map());
+    } catch {
+      return { people: [], conflictScore: 0, totalOverAlloc: 0, warnings: [] };
+    }
+  }, [people, projects, allocations, exceptions, weeks]);
 
-  const { allocations: scAllocs, projects: scProjects, scenarioCap } = useMemo(() =>
-    applyChanges(people, projects, allocations, exceptions, changes),
-    [people, projects, allocations, exceptions, changes]
-  );
+  const applyResult = useMemo(() => {
+    try {
+      return applyChanges(people, projects, allocations, exceptions, changes);
+    } catch {
+      return { allocations: allocations, projects: projects, scenarioCap: new Map() };
+    }
+  }, [people, projects, allocations, exceptions, changes]);
 
-  const scenarioState = useMemo(() =>
-    computeState(people, scProjects, scAllocs, exceptions, weeks, scenarioCap),
-    [people, scProjects, scAllocs, exceptions, weeks, scenarioCap]
-  );
+  const scAllocs   = applyResult?.allocations  ?? allocations;
+  const scProjects = applyResult?.projects     ?? projects;
+  const scenarioCap = applyResult?.scenarioCap ?? new Map<string, number>();
 
-  const diffs = useMemo(() =>
-    computeDiff(liveState, scenarioState, weeks),
-    [liveState, scenarioState, weeks]
-  );
+  const scenarioState = useMemo(() => {
+    try {
+      return computeState(people, scProjects, scAllocs, exceptions, weeks, scenarioCap);
+    } catch {
+      return { people: [], conflictScore: 0, totalOverAlloc: 0, warnings: [] };
+    }
+  }, [people, scProjects, scAllocs, exceptions, weeks, scenarioCap]);
 
-  const liveScore     = liveState.conflictScore;
-  const scenarioScore = scenarioState.conflictScore;
+  const diffs = useMemo(() => {
+    try {
+      return computeDiff(liveState, scenarioState, weeks);
+    } catch {
+      return [];
+    }
+  }, [liveState, scenarioState, weeks]);
+
+  const liveScore     = liveState?.conflictScore  ?? 0;
+  const scenarioScore = scenarioState?.conflictScore ?? 0;
   const scoreDelta    = scenarioScore - liveScore;
 
   // -- Save scenario ---------------------------------------------------------
@@ -912,9 +928,9 @@ export default function ScenarioSimulator({
               }}>
                 <ConflictRing score={scenarioScore} delta={scoreDelta} />
 
-                {scenarioState.warnings.length > 0 && (
+                {(scenarioState.warnings ?? []).length > 0 && (
                   <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "5px" }}>
-                    {scenarioState.warnings.slice(0, 3).map((w, i) => (
+                    {(scenarioState.warnings ?? []).slice(0, 3).map((w, i) => (
                       <div key={i} style={{
                         fontSize: "11px", padding: "6px 9px", borderRadius: "6px",
                         background: w.severity === "critical" ? "#fef2f2" : "#fffbeb",
@@ -1086,8 +1102,8 @@ export default function ScenarioSimulator({
                     Impact diff -- Live vs Scenario
                   </div>
                   <div style={{ fontSize: "11px", color: "#94a3b8" }}>
-                    {diffs.filter(d => d.cells.some(c => c.changed)).length} people affected .{" "}
-                    {diffs.flatMap(d => d.cells).filter(c => c.changed).length} weeks changed
+                    {(diffs ?? []).filter(d => d.cells.some(c => c.changed)).length} people affected .{" "}
+                    {(diffs ?? []).flatMap(d => d.cells).filter(c => c.changed).length} weeks changed
                   </div>
                 </div>
 
