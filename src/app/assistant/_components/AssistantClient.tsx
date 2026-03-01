@@ -25,14 +25,14 @@ type Stats = {
    SUGGESTED PROMPTS
 ============================================================================= */
 const SUGGESTIONS = [
-  { label: "Who's available?",        prompt: "Who has capacity available in the next 4 weeks?" },
-  { label: "Over-allocated",          prompt: "Which team members are over-allocated right now?" },
-  { label: "Understaffed projects",   prompt: "Which confirmed projects have no allocations in the next 4 weeks?" },
-  { label: "Team utilisation",        prompt: "What is the overall team utilisation this quarter?" },
-  { label: "Staffing recommendation", prompt: "We need someone for a new 3-month project starting next month. Who would you suggest and why?" },
-  { label: "Capacity overview",       prompt: "Give me a full capacity overview for the next 8 weeks." },
-  { label: "Pipeline risk",           prompt: "Which pipeline projects are at risk of not being staffed if they convert?" },
-  { label: "Bench report",            prompt: "Who is on the bench (under 20% utilised) right now?" },
+  { icon: "👥", label: "Who\'s available?",        prompt: "Who has capacity available in the next 4 weeks?" },
+  { icon: "⚠️", label: "Over-allocated",          prompt: "Which team members are over-allocated right now?" },
+  { icon: "📋", label: "Understaffed projects",   prompt: "Which confirmed projects have no allocations in the next 4 weeks?" },
+  { icon: "📊", label: "Team utilisation",        prompt: "What is the overall team utilisation this quarter?" },
+  { icon: "💡", label: "Staffing recommendation", prompt: "We need someone for a new 3-month project starting next month. Who would you suggest and why?" },
+  { icon: "🗓️", label: "Capacity overview",       prompt: "Give me a full capacity overview for the next 8 weeks." },
+  { icon: "🔮", label: "Pipeline risk",           prompt: "Which pipeline projects are at risk of not being staffed if they convert?" },
+  { icon: "🪑", label: "Bench report",            prompt: "Who is on the bench (under 20% utilised) right now?" },
 ];
 
 /* =============================================================================
@@ -421,9 +421,8 @@ export default function AssistantClient({
                       (e.currentTarget as HTMLElement).style.color = "#334155";
                     }}
                   >
-                    <span style={{ fontSize: "14px", display: "block", marginBottom: "3px" }}>
-                      {i % 8 === 0 ? "?" : i % 8 === 1 ? "!" : i % 8 === 2 ? "P" : i % 8 === 3 ? "%" :
-                       i % 8 === 4 ? "*" : i % 8 === 5 ? "~" : i % 8 === 6 ? "?" : "B"}
+                    <span style={{ fontSize: "16px", display: "block", marginBottom: "4px", lineHeight: 1 }}>
+                      {s.icon}
                     </span>
                     {s.label}
                   </button>
@@ -505,3 +504,4 @@ export default function AssistantClient({
     </>
   );
 }
+
