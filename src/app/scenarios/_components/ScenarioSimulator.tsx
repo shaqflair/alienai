@@ -256,7 +256,7 @@ function DiffHeatmap({
                 </div>
                 {diff.scenarioCap !== diff.capacityDays && (
                   <div style={{ fontSize: "9px", color: "#f59e0b", fontWeight: 700 }}>
-                 {diff.capacityDays}d {'→'} {diff.scenarioCap}d
+                    {diff.capacityDays}d -> {diff.scenarioCap}d
                   </div>
                 )}
               </div>
@@ -729,12 +729,12 @@ const ADD_BUTTONS = [
 ] as const;
 
 export default function ScenarioSimulator({
-  people,
-  projects,
-  allocations,
-  exceptions,
+  people: peopleProp,
+  projects: projectsProp,
+  allocations: allocationsProp,
+  exceptions: exceptionsProp,
   organisationId,
-  savedScenarios,
+  savedScenarios: savedScenariosProp,
 }: {
   people:          LivePerson[];
   projects:        LiveProject[];
@@ -743,6 +743,13 @@ export default function ScenarioSimulator({
   organisationId:  string;
   savedScenarios:  Scenario[];
 }) {
+  // Defensive defaults -- guard against undefined props
+  const people        = peopleProp        ?? [];
+  const projects      = projectsProp      ?? [];
+  const allocations   = allocationsProp   ?? [];
+  const exceptions    = exceptionsProp    ?? [];
+  const savedScenarios = savedScenariosProp ?? [];
+
   // -- Scenario state --------------------------------------------------------
   const [scenarioId,   setScenarioId]   = useState<string | null>(null);
   const [scenarioName, setScenarioName] = useState("New scenario");

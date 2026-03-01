@@ -1,4 +1,5 @@
-﻿import "server-only";
+﻿// FILE: src/app/scenarios/page.tsx
+import "server-only";
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
@@ -27,6 +28,16 @@ function addDays(iso: string, n: number): string {
   return d.toISOString().split("T")[0];
 }
 
+// Safe supabase query wrapper -- never throws, returns empty array on any error
+async function safeQuery<T>(promise: Promise<{ data: T[] | null; error: any }>): Promise<T[]> {
+  try {
+    const { data } = await promise;
+    return data ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export default async function ScenariosPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -36,97 +47,110 @@ export default async function ScenariosPage() {
   const organisationId = orgId ? String(orgId) : null;
   if (!organisationId) redirect("/projects?err=missing_org");
 
-  const today      = new Date().toISOString().split("T")[0];
-  const thisWeek   = getMondayOf(today);
-  const sixMoAhead = addDays(thisWeek, 182);
+  const today       = new Date().toISOString().split("T")[0];
+  const thisWeek    = getMondayOf(today);
+  const sixMoAhead  = addDays(thisWeek, 182);
   const eightWksAgo = addDays(thisWeek, -56);
 
-  const [memberRes, projectRes, allocRes, exceptionRes, scenarioRes] = await Promise.all([
-    supabase
-      .from("organisation_members")
-      .select(`
-        user_id,
-        profiles:profiles!organisation_members_user_id_fkey (
-          user_id, full_name, department, employment_type,
-          default_capacity_days, is_active
-        )
-      `)
-      .eq("organisation_id", organisationId)
-      .is("removed_at", null),
-
-    supabase
-      .from("projects")
-      .select("id, title, project_code, colour, start_date, finish_date, resource_status, win_probability")
-      .eq("organisation_id", organisationId)
-      .in("resource_status", ["confirmed", "pipeline"])
-      .is("deleted_at", null)
-      .order("title"),
-
-    supabase
-      .from("allocations")
-      .select("id, person_id, project_id, week_start_date, days_allocated, allocation_type, created_at")
-      .gte("week_start_date", eightWksAgo)
-      .lte("week_start_date", sixMoAhead),
-
-    supabase
-      .from("capacity_exceptions")
-      .select("person_id, week_start_date, available_days")
-      .gte("week_start_date", thisWeek)
-      .lte("week_start_date", sixMoAhead),
-
-    supabase
-      .from("scenarios")
-      .select("id, name, description, changes, created_at, updated_at")
-      .eq("organisation_id", organisationId)
-      .order("updated_at", { ascending: false })
-      .limit(10)
-      .then(r => r)
-      .catch(() => ({ data: [] })),
+  // Run all queries independently so one failure doesn't kill the page
+  const [memberRows, projectRows, allocRows, exceptionRows, scenarioRows] = await Promise.all([
+    safeQuery(
+      supabase
+        .from("organisation_members")
+        .select(`
+          user_id,
+          profiles:profiles!organisation_members_user_id_fkey (
+            user_id, full_name, department, employment_type,
+            default_capacity_days, is_active
+          )
+        `)
+        .eq("organisation_id", organisationId)
+        .is("removed_at", null)
+    ),
+    safeQuery(
+      supabase
+        .from("projects")
+        .select("id, title, project_code, colour, start_date, finish_date, resource_status, win_probability")
+        .eq("organisation_id", organisationId)
+        .in("resource_status", ["confirmed", "pipeline"])
+        .is("deleted_at", null)
+        .order("title")
+    ),
+    safeQuery(
+      supabase
+        .from("allocations")
+        .select("id, person_id, project_id, week_start_date, days_allocated, allocation_type, created_at")
+        .gte("week_start_date", eightWksAgo)
+        .lte("week_start_date", sixMoAhead)
+    ),
+    // capacity_exceptions may not exist -- safeQuery handles gracefully
+    safeQuery(
+      supabase
+        .from("capacity_exceptions")
+        .select("person_id, week_start_date, available_days")
+        .gte("week_start_date", thisWeek)
+        .lte("week_start_date", sixMoAhead)
+    ),
+    // scenarios table may not exist yet
+    safeQuery(
+      supabase
+        .from("scenarios")
+        .select("id, name, description, changes, created_at, updated_at")
+        .eq("organisation_id", organisationId)
+        .order("updated_at", { ascending: false })
+        .limit(10)
+    ),
   ]);
 
-  const people: LivePerson[] = (memberRes.data ?? [])
+  // -- Transform people -------------------------------------------------------
+  const people: LivePerson[] = memberRows
     .map((m: any) => {
       const p = m.profiles;
-      if (!p || p.is_active === false) return null;
+      if (!p) return null;
+      if (p.is_active === false) return null;
       return {
-        personId:     String(p.user_id || m.user_id),
+        personId:     String(p.user_id ?? m.user_id),
         fullName:     safeStr(p.full_name || "Unknown"),
         department:   p.department ? safeStr(p.department) : null,
         empType:      safeStr(p.employment_type || "full_time"),
-        capacityDays: parseFloat(String(p.default_capacity_days ?? 5)),
+        capacityDays: parseFloat(String(p.default_capacity_days ?? p.capacity_days ?? 5)),
       } satisfies LivePerson;
     })
     .filter(Boolean) as LivePerson[];
 
   people.sort((a, b) => a.fullName.localeCompare(b.fullName));
 
-  const projects: LiveProject[] = (projectRes.data ?? []).map((p: any) => ({
+  // -- Transform projects -----------------------------------------------------
+  const projects: LiveProject[] = (projectRows as any[]).map((p: any) => ({
     projectId:   String(p.id),
     title:       safeStr(p.title),
     projectCode: p.project_code ? safeStr(p.project_code) : null,
     colour:      safeStr(p.colour || "#00b8db"),
-    startDate:   p.start_date   ? safeStr(p.start_date)  : null,
-    endDate:     p.finish_date  ? safeStr(p.finish_date) : null,
+    startDate:   p.start_date  ? safeStr(p.start_date)  : null,
+    endDate:     p.finish_date ? safeStr(p.finish_date) : null,
     status:      safeStr(p.resource_status || "confirmed"),
     winProb:     parseFloat(String(p.win_probability ?? 50)),
   } satisfies LiveProject));
 
-  const allocations: LiveAllocation[] = (allocRes.data ?? []).map((a: any) => ({
-    id:             String(a.id),
-    personId:       String(a.person_id),
-    projectId:      String(a.project_id),
-    weekStart:      safeStr(a.week_start_date),
-    daysAllocated: parseFloat(String(a.days_allocated)),
-    allocType:      safeStr(a.allocation_type || "confirmed"),
+  // -- Transform allocations --------------------------------------------------
+  const allocations: LiveAllocation[] = (allocRows as any[]).map((a: any) => ({
+    id:            String(a.id),
+    personId:      String(a.person_id),
+    projectId:     String(a.project_id),
+    weekStart:     safeStr(a.week_start_date),
+    daysAllocated: parseFloat(String(a.days_allocated ?? 0)),
+    allocType:     safeStr(a.allocation_type || "confirmed"),
   } satisfies LiveAllocation));
 
-  const exceptions: LiveException[] = (exceptionRes.data ?? []).map((e: any) => ({
+  // -- Transform exceptions ---------------------------------------------------
+  const exceptions: LiveException[] = (exceptionRows as any[]).map((e: any) => ({
     personId:  String(e.person_id),
     weekStart: safeStr(e.week_start_date),
-    availDays: parseFloat(String(e.available_days)),
+    availDays: parseFloat(String(e.available_days ?? 0)),
   } satisfies LiveException));
 
-  const savedScenarios: Scenario[] = ((scenarioRes as any).data ?? []).map((s: any) => ({
+  // -- Transform saved scenarios ----------------------------------------------
+  const savedScenarios: Scenario[] = (scenarioRows as any[]).map((s: any) => ({
     id:          String(s.id),
     name:        safeStr(s.name),
     description: safeStr(s.description || ""),
@@ -146,3 +170,4 @@ export default async function ScenariosPage() {
     />
   );
 }
+
