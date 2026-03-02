@@ -88,16 +88,22 @@ export default async function TimesheetPage({
   const cutoffWeeks = (orgRes.data?.timesheet_cutoff_weeks as number) ?? 4;
   const isLocked    = !weekIsWithinCutoff(weekStart, cutoffWeeks);
 
-  // PROJECTS: only those the user has an allocation on (any time, active projects only)
+  // ─── PROJECTS ───────────────────────────────────────────────────────────────
+  // Fetch ALL allocations for this user (any week), plus this-week allocations
+  // separately so we can badge "ALLOC" on the current week's rows.
   const { data: allocRows } = await supabase
     .from("allocations")
     .select(`
-      project_id, week_start_date,
+      project_id,
+      week_start_date,
+      start_date,
+      end_date,
       projects:projects!allocations_project_id_fkey(
         id, title, project_code, colour, resource_status, deleted_at
       )
     `)
-    .eq("person_id", user.id);
+    .eq("person_id", user.id)
+    .eq("organisation_id", organisationId);   // ← added org filter
 
   const projectMap           = new Map<string, TimesheetProject>();
   const allocatedThisWeekIds = new Set<string>();
@@ -105,27 +111,46 @@ export default async function TimesheetPage({
   for (const a of allocRows ?? []) {
     const p = (a as any).projects;
     if (!p || p.deleted_at) continue;
-    // Only active/confirmed projects
-    const rs = safeStr(p.resource_status);
-    if (rs && !["confirmed", "pipeline"].includes(rs)) continue;
 
-    projectMap.set(safeStr(p.id), {
-      id:     safeStr(p.id),
+    // Only active/confirmed/pipeline projects
+    const rs = safeStr(p.resource_status).toLowerCase();
+    if (rs && !["confirmed", "pipeline", "active", ""].includes(rs)) continue;
+
+    const pid = safeStr(p.id);
+
+    projectMap.set(pid, {
+      id:     pid,
       title:  safeStr(p.title),
       code:   p.project_code ?? null,
       colour: safeStr(p.colour) || "#00b8db",
     });
 
-    const ws = safeStr((a as any).week_start_date);
-    if (ws >= weekStart && ws <= weekEnd) {
-      allocatedThisWeekIds.add(safeStr(p.id));
+    // Check if this allocation covers the viewed week.
+    // Support both week_start_date rows AND date-range allocations.
+    const allocWeekStart = safeStr((a as any).week_start_date);
+    const allocStart     = safeStr((a as any).start_date);
+    const allocEnd       = safeStr((a as any).end_date);
+
+    const coversThisWeek =
+      // Row-per-week style: week_start_date falls within Mon–Sun
+      (allocWeekStart && allocWeekStart >= weekStart && allocWeekStart <= weekEnd) ||
+      // Date-range style: allocation overlaps the viewed week
+      (allocStart && allocEnd && allocStart <= weekEnd && allocEnd >= weekStart) ||
+      // Date-range without end (open-ended)
+      (allocStart && !allocEnd && allocStart <= weekEnd);
+
+    if (coversThisWeek) {
+      allocatedThisWeekIds.add(pid);
     }
   }
 
+  // Sort: this-week allocations first, then the rest alphabetically
+  const allProjectsList = Array.from(projectMap.values());
   const projects: TimesheetProject[] = [
-    ...Array.from(projectMap.values()).filter(p => allocatedThisWeekIds.has(p.id)),
-    ...Array.from(projectMap.values()).filter(p => !allocatedThisWeekIds.has(p.id))
-      .sort((a, b) => a.title.localeCompare(b.title)),
+    ...allProjectsList.filter(p => allocatedThisWeekIds.has(p.id))
+                      .sort((a, b) => a.title.localeCompare(b.title)),
+    ...allProjectsList.filter(p => !allocatedThisWeekIds.has(p.id))
+                      .sort((a, b) => a.title.localeCompare(b.title)),
   ];
 
   // Load existing timesheet
@@ -157,7 +182,7 @@ export default async function TimesheetPage({
     reviewerNote: (ts as any)?.reviewer_note ?? null,
   };
 
-  // Build recent weeks sidebar — show all weeks within cutoff even if no timesheet
+  // Build recent weeks sidebar
   const { data: recentTs } = await supabase
     .from("timesheets")
     .select("id, week_start_date, status")
@@ -175,7 +200,6 @@ export default async function TimesheetPage({
     allWeeks.push({ weekStart: ws, status: safeStr(t.status), id: safeStr(t.id) });
   }
 
-  // Fill missing weeks up to cutoff
   for (let w = 0; w <= cutoffWeeks; w++) {
     const ws = toMonday(addDays(new Date().toISOString().slice(0, 10), -w * 7));
     if (!seenWeeks.has(ws)) {
@@ -202,4 +226,3 @@ export default async function TimesheetPage({
     />
   );
 }
-

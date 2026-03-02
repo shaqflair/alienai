@@ -57,7 +57,7 @@ function prevMonday(d: string) { return addDays(d, -7); }
 function nextMonday(d: string) { return addDays(d, 7);  }
 
 /* =============================================================================
-   GRID STATE — keyed by projectId OR category string
+   GRID STATE
 ============================================================================= */
 type GridState = Record<string, Record<number, number>>;
 
@@ -100,7 +100,7 @@ function gridToFormData(
 }
 
 /* =============================================================================
-   STATUS BADGE — small inline
+   STATUS BADGE
 ============================================================================= */
 function StatusBadge({ status }: { status: string }) {
   const meta = STATUS_META[status] ?? STATUS_META.draft;
@@ -108,8 +108,7 @@ function StatusBadge({ status }: { status: string }) {
     <span style={{
       fontSize: "10px", fontWeight: 800, padding: "3px 8px",
       borderRadius: "5px", background: meta.bg, color: meta.colour,
-      border: `1px solid ${meta.border}`,
-      whiteSpace: "nowrap",
+      border: `1px solid ${meta.border}`, whiteSpace: "nowrap",
     }}>
       {meta.icon} {meta.label}
     </span>
@@ -117,20 +116,15 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 /* =============================================================================
-   STATUS BANNER — prominent banner for current timesheet
+   STATUS BANNER
 ============================================================================= */
 function StatusBanner({
   status, reviewerNote, onRework, reworking,
 }: {
-  status: string;
-  reviewerNote: string | null;
-  onRework: () => void;
-  reworking: boolean;
+  status: string; reviewerNote: string | null; onRework: () => void; reworking: boolean;
 }) {
   if (status === "draft") return null;
-
   const meta = STATUS_META[status] ?? STATUS_META.draft;
-
   return (
     <div style={{
       padding: "14px 18px", borderRadius: "12px", marginBottom: "16px",
@@ -160,19 +154,13 @@ function StatusBanner({
           </div>
         )}
       </div>
-
       {status === "rejected" && (
-        <button
-          type="button"
-          onClick={onRework}
-          disabled={reworking}
-          style={{
-            padding: "8px 16px", borderRadius: "8px", border: "none",
-            background: "#dc2626", color: "white",
-            fontSize: "12px", fontWeight: 800, cursor: reworking ? "not-allowed" : "pointer",
-            whiteSpace: "nowrap", opacity: reworking ? 0.7 : 1,
-          }}
-        >
+        <button type="button" onClick={onRework} disabled={reworking} style={{
+          padding: "8px 16px", borderRadius: "8px", border: "none",
+          background: "#dc2626", color: "white",
+          fontSize: "12px", fontWeight: 800, cursor: reworking ? "not-allowed" : "pointer",
+          whiteSpace: "nowrap", opacity: reworking ? 0.7 : 1,
+        }}>
           {reworking ? "Opening..." : "✏️ Rework & resubmit"}
         </button>
       )}
@@ -206,9 +194,7 @@ function LockedBanner({ cutoffWeeks }: { cutoffWeeks: number }) {
 /* =============================================================================
    HOURS CELL
 ============================================================================= */
-function HoursCell({
-  value, onChange, disabled, isCategoryRow,
-}: {
+function HoursCell({ value, onChange, disabled, isCategoryRow }: {
   value: number; onChange: (v: number) => void; disabled: boolean; isCategoryRow?: boolean;
 }) {
   const [focused, setFocused] = useState(false);
@@ -246,9 +232,9 @@ function HoursCell({
 /* =============================================================================
    ADD ROW SELECTORS
 ============================================================================= */
-function AddProjectRow({
-  projects, usedIds, onAdd,
-}: { projects: TimesheetProject[]; usedIds: string[]; onAdd: (p: TimesheetProject) => void }) {
+function AddProjectRow({ projects, usedIds, onAdd }: {
+  projects: TimesheetProject[]; usedIds: string[]; onAdd: (p: TimesheetProject) => void;
+}) {
   const available = projects.filter(p => !usedIds.includes(p.id));
   if (available.length === 0) return null;
   return (
@@ -267,9 +253,9 @@ function AddProjectRow({
   );
 }
 
-function AddCategoryRow({
-  usedCategories, onAdd,
-}: { usedCategories: string[]; onAdd: (id: string) => void }) {
+function AddCategoryRow({ usedCategories, onAdd }: {
+  usedCategories: string[]; onAdd: (id: string) => void;
+}) {
   const available = NON_PROJECT_CATEGORIES.filter(c => !usedCategories.includes(c.id));
   if (available.length === 0) return null;
   return (
@@ -284,6 +270,41 @@ function AddCategoryRow({
         <option key={c.id} value={c.id}>{c.icon} {c.label}</option>
       ))}
     </select>
+  );
+}
+
+/* =============================================================================
+   EMPTY STATE — shown when no project rows and no saved entries
+============================================================================= */
+function NoProjectsHint({ hasProjects }: { hasProjects: boolean }) {
+  if (hasProjects) return null;
+  return (
+    <tr>
+      <td colSpan={9} style={{ padding: "24px 16px" }}>
+        <div style={{
+          display: "flex", alignItems: "center", gap: "12px",
+          padding: "14px 18px", borderRadius: "10px",
+          background: "rgba(14,116,144,0.04)",
+          border: "1.5px dashed rgba(14,116,144,0.2)",
+        }}>
+          <span style={{ fontSize: "20px" }}>📋</span>
+          <div>
+            <div style={{ fontSize: "13px", fontWeight: 700, color: "#0e7490", marginBottom: "3px" }}>
+              No projects allocated for this week
+            </div>
+            <div style={{ fontSize: "12px", color: "#64748b" }}>
+              You don't have any active allocations covering this week.
+              Use the <strong>"+ Add project row"</strong> dropdown below to manually add a project,
+              or ask your manager to allocate you to a project via the{" "}
+              <a href="/allocations/new" style={{ color: "#0e7490", fontWeight: 700 }}>
+                Allocate resource
+              </a>{" "}
+              page.
+            </div>
+          </div>
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -321,13 +342,23 @@ export default function TimesheetClient({
     buildInitialGrid(timesheetData.entries, initialWeekStart)
   );
 
-  // Separate project rows and category rows
+  // ─── FIX: initialise rowProjects from allocatedProjectIds (this week's allocs)
+  // PLUS any projects that already have saved entries for this week.
+  // If neither exist, the grid starts empty but projects are available in the
+  // "Add project row" dropdown — so the user can always add them manually.
   const [rowProjects, setRowProjects] = useState<TimesheetProject[]>(() => {
-    const usedIds = new Set([
-      ...allocatedProjectIds,
-      ...timesheetData.entries.map(e => e.projectId).filter(Boolean) as string[],
-    ]);
-    return projects.filter(p => usedIds.has(p.id));
+    // Projects with saved entries this week
+    const entryProjectIds = new Set(
+      timesheetData.entries.map(e => e.projectId).filter(Boolean) as string[]
+    );
+
+    // Prefer to show: this-week allocations first, then any with saved entries
+    const thisWeekProjects = projects.filter(p => allocatedProjectIds.includes(p.id));
+    const entryOnlyProjects = projects.filter(
+      p => entryProjectIds.has(p.id) && !allocatedProjectIds.includes(p.id)
+    );
+
+    return [...thisWeekProjects, ...entryOnlyProjects];
   });
 
   const [rowCategories, setRowCategories] = useState<string[]>(() =>
@@ -408,7 +439,6 @@ export default function TimesheetClient({
     setError(null); setSuccess(null);
     const id = await ensureTimesheetId();
     if (!id) return;
-    // Save first, then submit
     startSubmit(async () => {
       try {
         const fd = gridToFormData(grid, rowProjects, rowCategories, id, weekStart);
@@ -448,7 +478,7 @@ export default function TimesheetClient({
     });
   }
 
-  const exportUrl = `/api/timesheet/export?user_id=${userId}&from=${weekStart}&to=${weekStart}`;
+  const exportUrl  = `/api/timesheet/export?user_id=${userId}&from=${weekStart}&to=${weekStart}`;
   const futureWeek = weekStart > new Date().toISOString().slice(0, 10);
 
   return (
@@ -483,19 +513,10 @@ export default function TimesheetClient({
               )}
             </div>
           </div>
-
           <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-            <button type="button" onClick={() => navigate(prevMonday(weekStart))} style={navBtnStyle}>
-              &larr;
-            </button>
-            <button type="button"
-              onClick={() => navigate(new Date().toISOString().slice(0, 10))}
-              style={{ ...navBtnStyle, padding: "6px 12px", fontSize: "11px" }}>
-              This week
-            </button>
-            <button type="button" onClick={() => navigate(nextMonday(weekStart))} style={navBtnStyle}>
-              &rarr;
-            </button>
+            <button type="button" onClick={() => navigate(prevMonday(weekStart))} style={navBtnStyle}>&larr;</button>
+            <button type="button" onClick={() => navigate(new Date().toISOString().slice(0, 10))} style={{ ...navBtnStyle, padding: "6px 12px", fontSize: "11px" }}>This week</button>
+            <button type="button" onClick={() => navigate(nextMonday(weekStart))} style={navBtnStyle}>&rarr;</button>
           </div>
         </div>
 
@@ -503,10 +524,8 @@ export default function TimesheetClient({
         {error   && <div style={errorStyle}>{error}</div>}
         {success && <div style={successStyle}>{success}</div>}
 
-        {/* Locked banner */}
         {isLocked && <LockedBanner cutoffWeeks={cutoffWeeks} />}
 
-        {/* Status banner (submitted / approved / rejected) */}
         {!isLocked && (
           <StatusBanner
             status={tsData.status}
@@ -539,7 +558,10 @@ export default function TimesheetClient({
               </thead>
               <tbody>
 
-                {/* ---- PROJECT ROWS ---- */}
+                {/* Empty state when no project rows at all */}
+                <NoProjectsHint hasProjects={rowProjects.length > 0} />
+
+                {/* PROJECT ROWS */}
                 {rowProjects.map(project => (
                   <tr key={project.id} style={{ borderBottom: "1px solid #f8fafc" }}>
                     <td style={{ padding: "8px 16px" }}>
@@ -559,8 +581,23 @@ export default function TimesheetClient({
                         {allocatedProjectIds.includes(project.id) && (
                           <span style={{ fontSize: "8px", fontWeight: 800,
                                          background: "rgba(14,116,144,0.1)", color: "#0e7490",
-                                         padding: "1px 4px", borderRadius: "3px",
-                                         flexShrink: 0 }}>ALLOC</span>
+                                         padding: "1px 4px", borderRadius: "3px", flexShrink: 0 }}>
+                            ALLOC
+                          </span>
+                        )}
+                        {/* Allow removing manually-added rows (not this-week alloc rows) */}
+                        {!isReadOnly && !allocatedProjectIds.includes(project.id) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRowProjects(r => r.filter(p => p.id !== project.id));
+                              setGrid(g => { const next = { ...g }; delete next[project.id]; return next; });
+                            }}
+                            style={{ marginLeft: "auto", background: "none", border: "none",
+                                     color: "#cbd5e1", cursor: "pointer", fontSize: "14px",
+                                     padding: "0", lineHeight: 1 }}
+                            title="Remove row"
+                          >×</button>
                         )}
                       </div>
                     </td>
@@ -582,53 +619,34 @@ export default function TimesheetClient({
                   </tr>
                 ))}
 
-                {/* ---- NON-PROJECT CATEGORY ROWS ---- */}
+                {/* NON-PROJECT CATEGORY ROWS */}
                 {rowCategories.map(catId => {
                   const cat = NON_PROJECT_CATEGORIES.find(c => c.id === catId);
                   if (!cat) return null;
                   return (
-                    <tr key={catId} style={{
-                      borderBottom: "1px solid #f8fafc",
-                      background: "rgba(139,92,246,0.02)",
-                    }}>
+                    <tr key={catId} style={{ borderBottom: "1px solid #f8fafc", background: "rgba(139,92,246,0.02)" }}>
                       <td style={{ padding: "8px 16px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <div style={{ width: 8, height: 8, borderRadius: "50%",
-                                        background: cat.colour, flexShrink: 0 }} />
+                          <div style={{ width: 8, height: 8, borderRadius: "50%", background: cat.colour, flexShrink: 0 }} />
                           <div>
-                            <div style={{ fontSize: "12px", fontWeight: 700, color: "#475569" }}>
-                              {cat.icon} {cat.label}
-                            </div>
+                            <div style={{ fontSize: "12px", fontWeight: 700, color: "#475569" }}>{cat.icon} {cat.label}</div>
                             <div style={{ fontSize: "10px", color: "#94a3b8" }}>Non-project time</div>
                           </div>
                           {!isReadOnly && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setRowCategories(r => r.filter(c => c !== catId));
-                                setGrid(g => { const next = { ...g }; delete next[catId]; return next; });
-                              }}
-                              style={{ marginLeft: "auto", background: "none", border: "none",
-                                       color: "#cbd5e1", cursor: "pointer", fontSize: "14px",
-                                       padding: "0", lineHeight: 1 }}
-                              title="Remove row"
-                            >×</button>
+                            <button type="button" onClick={() => {
+                              setRowCategories(r => r.filter(c => c !== catId));
+                              setGrid(g => { const next = { ...g }; delete next[catId]; return next; });
+                            }} style={{ marginLeft: "auto", background: "none", border: "none", color: "#cbd5e1", cursor: "pointer", fontSize: "14px", padding: "0", lineHeight: 1 }} title="Remove row">×</button>
                           )}
                         </div>
                       </td>
                       {days.map((d, i) => (
                         <td key={i} style={{ padding: "6px", background: d.isWeekend ? "#f8fafc" : "transparent" }}>
-                          <HoursCell
-                            value={grid[catId]?.[i] ?? 0}
-                            onChange={v => setHours(catId, i, v)}
-                            disabled={isReadOnly}
-                            isCategoryRow
-                          />
+                          <HoursCell value={grid[catId]?.[i] ?? 0} onChange={v => setHours(catId, i, v)} disabled={isReadOnly} isCategoryRow />
                         </td>
                       ))}
                       <td style={{ padding: "6px 12px", textAlign: "center" }}>
-                        <span style={{ fontSize: "12px", fontWeight: 800,
-                                       color: rowTotal(catId) > 0 ? "#8b5cf6" : "#cbd5e1" }}>
+                        <span style={{ fontSize: "12px", fontWeight: 800, color: rowTotal(catId) > 0 ? "#8b5cf6" : "#cbd5e1" }}>
                           {rowTotal(catId) || "–"}
                         </span>
                       </td>
@@ -636,7 +654,7 @@ export default function TimesheetClient({
                   );
                 })}
 
-                {/* ---- ADD ROW CONTROLS ---- */}
+                {/* ADD ROW CONTROLS */}
                 {!isReadOnly && (
                   <tr>
                     <td colSpan={9} style={{ padding: "8px 12px" }}>
@@ -655,27 +673,20 @@ export default function TimesheetClient({
                   </tr>
                 )}
 
-                {/* ---- DAY TOTALS ROW ---- */}
+                {/* DAY TOTALS ROW */}
                 <tr style={{ borderTop: "1.5px solid #f1f5f9", background: "#f8fafc" }}>
                   <td style={{ padding: "8px 16px" }}>
-                    <span style={{ fontSize: "10px", fontWeight: 800, color: "#94a3b8",
-                                   textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                      Daily total
-                    </span>
+                    <span style={{ fontSize: "10px", fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Daily total</span>
                   </td>
                   {days.map((d, i) => (
-                    <td key={i} style={{ padding: "8px 6px", textAlign: "center",
-                                         background: d.isWeekend ? "#f1f5f9" : "#f8fafc" }}>
-                      <span style={{ fontSize: "12px", fontWeight: 800,
-                                     color: dayTotal(i) > 8 ? "#dc2626"
-                                          : dayTotal(i) > 0 ? "#0f172a" : "#e2e8f0" }}>
+                    <td key={i} style={{ padding: "8px 6px", textAlign: "center", background: d.isWeekend ? "#f1f5f9" : "#f8fafc" }}>
+                      <span style={{ fontSize: "12px", fontWeight: 800, color: dayTotal(i) > 8 ? "#dc2626" : dayTotal(i) > 0 ? "#0f172a" : "#e2e8f0" }}>
                         {dayTotal(i) || "–"}
                       </span>
                     </td>
                   ))}
                   <td style={{ padding: "8px 12px", textAlign: "center" }}>
-                    <span style={{ fontSize: "13px", fontWeight: 900,
-                                   color: weekTotal() > 0 ? "#0e7490" : "#e2e8f0" }}>
+                    <span style={{ fontSize: "13px", fontWeight: 900, color: weekTotal() > 0 ? "#0e7490" : "#e2e8f0" }}>
                       {weekTotal() || "–"}
                     </span>
                   </td>
@@ -685,45 +696,31 @@ export default function TimesheetClient({
           </div>
 
           {/* Footer actions */}
-          <div style={{ padding: "12px 16px", borderTop: "1.5px solid #f1f5f9",
-                        display: "flex", justifyContent: "space-between",
-                        alignItems: "center", gap: "10px", flexWrap: "wrap",
-                        background: "#fafafa" }}>
+          <div style={{ padding: "12px 16px", borderTop: "1.5px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap", background: "#fafafa" }}>
             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
               <span style={{ fontSize: "12px", color: "#94a3b8" }}>
                 Week total: <strong style={{ color: "#0f172a" }}>{weekTotal()}h</strong>
               </span>
-              <a href={exportUrl} style={{
-                fontSize: "11px", color: "#0e7490", fontWeight: 700,
-                textDecoration: "none", padding: "4px 10px",
-                border: "1.5px solid rgba(14,116,144,0.3)",
-                borderRadius: "6px", background: "rgba(14,116,144,0.05)",
-              }}>Export CSV</a>
+              <a href={exportUrl} style={{ fontSize: "11px", color: "#0e7490", fontWeight: 700, textDecoration: "none", padding: "4px 10px", border: "1.5px solid rgba(14,116,144,0.3)", borderRadius: "6px", background: "rgba(14,116,144,0.05)" }}>Export CSV</a>
             </div>
-
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
               {tsData.status === "draft" && !isLocked && !futureWeek && (
                 <>
-                  <button type="button" onClick={handleSave} disabled={saving}
-                    style={secondaryBtnStyle(saving)}>
+                  <button type="button" onClick={handleSave} disabled={saving} style={secondaryBtnStyle(saving)}>
                     {saving ? "Saving..." : "Save draft"}
                   </button>
-                  <button type="button" onClick={handleSubmit} disabled={saving || submitting}
-                    style={primaryBtnStyle(saving || submitting)}>
+                  <button type="button" onClick={handleSubmit} disabled={saving || submitting} style={primaryBtnStyle(saving || submitting)}>
                     {submitting ? "Submitting..." : "Submit for approval"}
                   </button>
                 </>
               )}
               {tsData.status === "submitted" && (
-                <button type="button" onClick={handleRecall} disabled={submitting}
-                  style={secondaryBtnStyle(submitting)}>
+                <button type="button" onClick={handleRecall} disabled={submitting} style={secondaryBtnStyle(submitting)}>
                   {submitting ? "..." : "↩ Recall to draft"}
                 </button>
               )}
               {isAdmin && tsData.id && (
-                <a href="/timesheet/review" style={{
-                  ...secondaryBtnStyle(false) as any, textDecoration: "none", display: "inline-flex",
-                }}>
+                <a href="/timesheet/review" style={{ ...secondaryBtnStyle(false) as any, textDecoration: "none", display: "inline-flex" }}>
                   Review team timesheets
                 </a>
               )}
@@ -731,30 +728,15 @@ export default function TimesheetClient({
           </div>
         </div>
 
-        {/* Recent weeks sidebar */}
-        <div style={{ background: "white", borderRadius: "12px",
-                      border: "1.5px solid #e2e8f0", padding: "16px" }}>
-          <div style={{ fontSize: "10px", fontWeight: 800, color: "#94a3b8",
-                        textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "10px" }}>
-            Recent weeks
-          </div>
+        {/* Recent weeks */}
+        <div style={{ background: "white", borderRadius: "12px", border: "1.5px solid #e2e8f0", padding: "16px" }}>
+          <div style={{ fontSize: "10px", fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "10px" }}>Recent weeks</div>
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
             {recentTimesheets.map((t, idx) => {
               const isCurrentWeek = t.weekStart === weekStart;
-              const withinCutoff  = new Date(t.weekStart).getTime() >=
-                Date.now() - cutoffWeeks * 7 * 86400000;
+              const withinCutoff  = new Date(t.weekStart).getTime() >= Date.now() - cutoffWeeks * 7 * 86400000;
               return (
-                <button key={t.weekStart + idx} type="button"
-                  onClick={() => navigate(t.weekStart)}
-                  style={{
-                    padding: "5px 10px", borderRadius: "7px",
-                    border: `1.5px solid ${isCurrentWeek ? "#0e7490" : "#e2e8f0"}`,
-                    background: isCurrentWeek ? "rgba(14,116,144,0.08)" : "white",
-                    cursor: "pointer", fontSize: "11px", fontWeight: 600,
-                    color: isCurrentWeek ? "#0e7490" : "#475569",
-                    display: "flex", gap: "6px", alignItems: "center",
-                    opacity: withinCutoff ? 1 : 0.5,
-                  }}>
+                <button key={t.weekStart + idx} type="button" onClick={() => navigate(t.weekStart)} style={{ padding: "5px 10px", borderRadius: "7px", border: `1.5px solid ${isCurrentWeek ? "#0e7490" : "#e2e8f0"}`, background: isCurrentWeek ? "rgba(14,116,144,0.08)" : "white", cursor: "pointer", fontSize: "11px", fontWeight: 600, color: isCurrentWeek ? "#0e7490" : "#475569", display: "flex", gap: "6px", alignItems: "center", opacity: withinCutoff ? 1 : 0.5 }}>
                   <span>{fmtDate(t.weekStart)}</span>
                   {t.status !== "draft" && <StatusBadge status={t.status} />}
                   {!withinCutoff && <span title="Locked" style={{ fontSize: "10px" }}>🔒</span>}
@@ -825,4 +807,3 @@ function secondaryBtnStyle(disabled: boolean): React.CSSProperties {
     cursor: disabled ? "not-allowed" : "pointer",
   };
 }
-

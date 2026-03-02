@@ -220,7 +220,7 @@ export async function submitTimesheetAction(formData: FormData) {
     .update({
       status:              "submitted",
       submitted_at:        new Date().toISOString(),
-      approved_by_user_id: lineManagerId ?? null,
+      line_manager_id: lineManagerId ?? null,
     })
     .eq("id", timesheetId);
 
