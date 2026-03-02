@@ -624,7 +624,7 @@ export async function fetchHeatmapFilterOptions(organisationId: string) {
 
     supabase
       .from("projects")
-      .select("id, title, project_code, resource_status")
+      .select("id, title, project_code, resource_status, colour")
       .eq("organisation_id", organisationId)
       .is("deleted_at", null)
       .in("resource_status", ["confirmed", "pipeline"])
@@ -654,6 +654,7 @@ export async function fetchHeatmapFilterOptions(organisationId: string) {
     title:  String(p.title || ""),
     code:   p.project_code ? String(p.project_code) : null,
     status: String(p.resource_status || "confirmed"),
+    colour: String(p.colour || "#00b8db"),
   }));
 
   // PMs = everyone in org with "manager" or "pm" in their job title

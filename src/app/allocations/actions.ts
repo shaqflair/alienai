@@ -81,7 +81,7 @@ async function getMyProjectRole(
 
 /* =========================
    createAllocation
-   Main action — validates, calls generate_allocations RPC,
+   Main action -- validates, calls generate_allocations RPC,
    redirects back with result info.
 ========================= */
 
@@ -89,7 +89,7 @@ export async function createAllocation(formData: FormData) {
   const supabase = await createClient();
   const user = await requireUser(supabase);
 
-  // ── Read fields ────────────────────────────────────────────────────────────
+  // -- Read fields ------------------------------------------------------------
   const person_id      = norm(formData.get("person_id"));
   const project_id     = norm(formData.get("project_id"));
   const start_date     = isoDateOrNull(formData.get("start_date"));
@@ -101,7 +101,7 @@ export async function createAllocation(formData: FormData) {
   const allocation_type = norm(formData.get("allocation_type")) || "confirmed";
   const return_to      = norm(formData.get("return_to")) || "/allocations";
 
-  // ── Validation ─────────────────────────────────────────────────────────────
+  // -- Validation -------------------------------------------------------------
   if (!person_id || !isUuid(person_id))
     redirect(`/allocations/new${qs({ err: "missing_person" })}`);
 
@@ -122,12 +122,12 @@ export async function createAllocation(formData: FormData) {
   if (endTs < startTs)
     redirect(`/allocations/new${qs({ err: "bad_dates", project_id })}`);
 
-  // ── Permission check — must be editor/owner on the project ─────────────────
+  // -- Permission check -- must be editor/owner on the project -----------------
   const role = await getMyProjectRole(supabase, project_id, user.id);
   if (role !== "owner" && role !== "editor")
     redirect(`/allocations/new${qs({ err: "no_permission", project_id })}`);
 
-  // ── Call RPC ───────────────────────────────────────────────────────────────
+  // -- Call RPC ---------------------------------------------------------------
   const { data, error } = await supabase.rpc("generate_allocations", {
     p_person_id:       person_id,
     p_project_id:      project_id,
@@ -167,7 +167,7 @@ export async function createAllocation(formData: FormData) {
 
 /* =========================
    deleteAllocation
-   Removes all allocation rows for a person × project
+   Removes all allocation rows for a person  project
    (or a specific week if week_start_date is provided).
 ========================= */
 
@@ -207,7 +207,7 @@ export async function deleteAllocation(formData: FormData) {
 
 /* =========================
    updateAllocationWeek
-   Updates days_allocated for a single person × project × week.
+   Updates days_allocated for a single person  project  week.
    Used by the inline edit on the heatmap swimlane.
 ========================= */
 
@@ -263,4 +263,81 @@ export async function updateAllocationWeek(formData: FormData) {
   revalidatePath("/heatmap");
 
   redirect(`${return_to}${qs({ msg: "week_updated" })}`);
+}
+
+/* =========================
+   updateAllocation
+   Updates days_per_week, start date, end date for all weekly rows
+   of a person↔project allocation. Replaces existing rows in the new range.
+========================= */
+
+export async function updateAllocation(formData: FormData) {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
+
+  const person_id      = norm(formData.get("person_id"));
+  const project_id     = norm(formData.get("project_id"));
+  const new_start      = norm(formData.get("start_date"));
+  const new_end        = norm(formData.get("end_date"));
+  const days_per_week  = parseFloat(norm(formData.get("days_per_week")));
+  const alloc_type     = norm(formData.get("allocation_type")) || "confirmed";
+  const return_to      = norm(formData.get("return_to")) || `/projects/${project_id}`;
+
+  if (!person_id || !project_id || !new_start || !new_end)
+    redirect(`${return_to}${qs({ err: "missing_fields" })}`);
+
+  if (Number.isNaN(days_per_week) || days_per_week < 0.5 || days_per_week > 7)
+    redirect(`${return_to}${qs({ err: "bad_days" })}`);
+
+  if (new_start > new_end)
+    redirect(`${return_to}${qs({ err: "bad_dates" })}`);
+
+  const role = await getMyProjectRole(supabase, project_id, user.id);
+  if (role !== "owner" && role !== "editor")
+    redirect(`${return_to}${qs({ err: "no_permission" })}`);
+
+  // Build new weekly rows
+  const rows: { person_id: string; project_id: string; week_start_date: string; days_allocated: number; allocation_type: string }[] = [];
+
+  // Generate Mondays from start to end
+  const start = new Date(new_start);
+  const end   = new Date(new_end);
+  // Snap start to Monday
+  const day = start.getUTCDay();
+  if (day !== 1) start.setUTCDate(start.getUTCDate() + (day === 0 ? -6 : 1 - day));
+
+  const cur = new Date(start);
+  while (cur <= end) {
+    rows.push({
+      person_id,
+      project_id,
+      week_start_date: cur.toISOString().slice(0, 10),
+      days_allocated:  days_per_week,
+      allocation_type: alloc_type,
+    });
+    cur.setUTCDate(cur.getUTCDate() + 7);
+  }
+
+  if (rows.length === 0)
+    redirect(`${return_to}${qs({ err: "no_weeks" })}`);
+
+  // Delete existing rows for this person↔project, then insert new ones
+  const { error: delErr } = await supabase
+    .from("allocations")
+    .delete()
+    .eq("person_id", person_id)
+    .eq("project_id", project_id);
+
+  if (delErr) throwDb(delErr, "allocations.update_delete");
+
+  const { error: insErr } = await supabase
+    .from("allocations")
+    .insert(rows);
+
+  if (insErr) throwDb(insErr, "allocations.update_insert");
+
+  revalidatePath(`/projects/${project_id}`);
+  revalidatePath("/heatmap");
+
+  redirect(`${return_to}${qs({ msg: "allocation_updated" })}`);
 }
