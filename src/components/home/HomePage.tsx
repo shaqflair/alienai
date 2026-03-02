@@ -52,14 +52,25 @@ function notifIcon(n: NotifRow) { const t = safeStr(n.type).toLowerCase(); const
 function tabMatch(tab: BellTab, n: NotifRow) { if (tab === "all") return true; if (tab === "approvals") return typeLooksApproval(n.type); if (tab === "ai") return typeLooksAI(n.type); if (tab === "action") return typeLooksAction(n.type); return true; }
 function runIdle(fn: () => void) { if (typeof window !== "undefined" && typeof (window as any).requestIdleCallback === "function") return (window as any).requestIdleCallback(fn, { timeout: 1200 }); return window.setTimeout(fn, 0); }
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> { try { const r = await fetch(url, init); if (!r.ok) return null; return (await r.json().catch(() => null)) as T | null; } catch { return null; } }
-function scoreToRag(score: number): RagLetter { const s = clamp01to100(score); if (s >= 70) return "G"; if (s >= 55) return "A"; return "R"; }
+
+// ✅ UPDATED RAG thresholds (requested):
+//   Green  ≥ 85
+//   Amber  70–84
+//   Red    < 70
+function scoreToRag(score: number): RagLetter {
+  const s = clamp01to100(score);
+  if (s >= 85) return "G";
+  if (s >= 70) return "A";
+  return "R";
+}
+
 function prevWindowDays(cur: 7 | 14 | 30 | 60): 7 | 14 | 30 | 60 { if (cur === 7) return 14; if (cur === 14) return 30; if (cur === 30) return 60; return 60; }
 function projectCodeLabel(pc: any): string { if (typeof pc === "string") return pc.trim(); if (typeof pc === "number" && Number.isFinite(pc)) return String(pc); if (pc && typeof pc === "object") { const v = safeStr(pc.project_code)||safeStr(pc.code)||safeStr(pc.value)||safeStr(pc.id); return v.trim(); } return ""; }
 function dueDateLabel(iso: string | null | undefined) { const s = safeStr(iso).trim(); if (!s) return "—"; const d = new Date(s); if (Number.isNaN(d.getTime())) return s; return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" }); }
 function isOverdue(iso: string | null | undefined) { const s = safeStr(iso).trim(); if (!s) return false; const t = new Date(s).getTime(); if (!Number.isFinite(t)) return false; return t < Date.now() - 30000; }
 function sumSuccessBreakdown(b?: SuccessStoriesBreakdown) { if (!b) return 0; return num(b.milestones_done)+num(b.wbs_done)+num(b.raid_resolved)+num(b.changes_delivered)+num(b.lessons_positive); }
 function normalizeSuccessSummary(raw: any, days: number, prevScore: number): SuccessStoriesSummary { const score = raw?.ok===true&&Number.isFinite(Number(raw?.score)) ? clamp01to100(Number(raw.score)) : raw?.ok===true&&Number.isFinite(Number(raw?.summary?.score)) ? clamp01to100(Number(raw.summary.score)) : 0; const breakdown = raw?.breakdown||raw?.summary?.breakdown||undefined; const top = Array.isArray(raw?.top)?raw.top:Array.isArray(raw?.summary?.top_wins)?raw.summary.top_wins:[]; const count = sumSuccessBreakdown(breakdown)||num(raw?.meta?.total_wins)||num(raw?.count); return { ok:true, days, score, prev_score:clamp01to100(prevScore), delta:score-clamp01to100(prevScore), count, breakdown, top, summary:raw?.summary, meta:raw?.meta }; }
-function calcRagAgg(rag: { project_id?: string; rag: RagLetter; health: number }[]|null|undefined, projects: { id: string }[]|null|undefined) { const proj=Array.isArray(projects)?projects:[]; const list=Array.isArray(rag)?rag:[]; const byPid=new Map<string,{rag:RagLetter;health:number}>(); for (const it of list) { const pid=String(it?.project_id||"").trim(); const letter=String(it?.rag||"").toUpperCase() as RagLetter; if (!pid||!["G","A","R"].includes(letter)) continue; byPid.set(pid,{rag:letter,health:Number(it?.health)}); } let g=0,a=0,r=0,scored=0; const vals:number[]=[]; for (const p of proj) { const pid=String((p as any)?.id||"").trim(); if (!pid) continue; const hit=byPid.get(pid); if (!hit) continue; scored++; if (hit.rag==="G") g++; else if (hit.rag==="A") a++; else if (hit.rag==="R") r++; const h=Number(hit.health); vals.push(Number.isFinite(h)?clamp01to100(h):hit.rag==="G"?90:hit.rag==="A"?65:35); } const avg=vals.length?Math.round(vals.reduce((s,v)=>s+v,0)/vals.length):0; return {avgHealth:clamp01to100(avg),g,a,r,scored,unscored:Math.max(0,proj.length-scored),projectsTotal:proj.length}; }
+function calcRagAgg(rag: { project_id?: string; rag: RagLetter; health: number }[]|null|undefined, projects: { id: string }[]|null|undefined) { const proj=Array.isArray(projects)?projects:[]; const list=Array.isArray(rag)?rag:[]; const byPid=new Map<string,{rag:RagLetter;health:number}>(); for (const it of list) { const pid=String(it?.project_id||"").trim(); const letter=String(it?.rag||"").toUpperCase() as RagLetter; if (!pid||!["G","A","R"].includes(letter)) continue; byPid.set(pid,{rag:letter,health:Number(it?.health)}); } let g=0,a=0,r=0,scored=0; const vals:number[]=[]; for (const p of proj) { const pid=String((p as any)?.id||"").trim(); if (!pid) continue; const hit=byPid.get(pid); if (!hit) continue; scored++; if (hit.rag==="G") g++; else if (hit.rag==="A") a++; else if (hit.rag==="R") r++; const h=Number(hit.health); vals.push(Number.isFinite(h)?clamp01to100(h):hit.rag==="G"?90:hit.rag==="A"?78:45); } const avg=vals.length?Math.round(vals.reduce((s,v)=>s+v,0)/vals.length):0; return {avgHealth:clamp01to100(avg),g,a,r,scored,unscored:Math.max(0,proj.length-scored),projectsTotal:proj.length}; }
 function fixInsightHref(x: Insight, days?: WindowDays): string|undefined { const title=safeStr(x?.title).toLowerCase(); const body=safeStr(x?.body).toLowerCase(); const href=safeStr(x?.href).trim(); const isWbs=title.includes("wbs")||body.includes("wbs")||href.includes("/wbs")||href.includes("type=wbs"); if (isWbs) { const sp=new URLSearchParams(); if (typeof days==="number"&&Number.isFinite(days)) sp.set("days",String(days)); const qs=sp.toString(); return qs?`/wbs/stats?${qs}`:"/wbs/stats"; } return href||undefined; }
 function orderBriefingInsights(xs: Insight[]) { return [...(Array.isArray(xs)?xs:[])].sort((a,b)=>(a?.id==="ai-warning"?0:1)-(b?.id==="ai-warning"?0:1)); }
 function ragDotColor(r: RagLetter) { return r==="G"?"#22c55e":r==="A"?"#f59e0b":"#ef4444"; }
@@ -101,7 +112,7 @@ function SmoothAreaChart({ days }: { days: number }) {
     for (let i = 0; i < ps.length - 1; i++) {
       const p0 = ps[Math.max(i-1,0)]; const p1 = ps[i]; const p2 = ps[i+1]; const p3 = ps[Math.min(i+2,ps.length-1)];
       const cp1x = p1[0]+(p2[0]-p0[0])/6; const cp1y = p1[1]+(p2[1]-p0[1])/6;
-      const cp2x = p2[0]-(p3[0]-p1[0])/6; const cp2y = p2[1]-(p3[1]-p1[1])/6;
+      const cp2x = p2[0]-(p3[0]-p1[0])/6; const cp2y = p2[1]-(p3[0]-p1[1])/6;
       d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2[0]} ${p2[1]}`;
     }
     if (close) d += ` L ${ps[ps.length-1][0]} ${PAD.t+cH} L ${ps[0][0]} ${PAD.t+cH} Z`;
@@ -371,12 +382,14 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
   const dotColor = rag ? ragDotColor(rag) : "#d1d5db";
 
   const ragLabel = rag==="G" ? "Green" : rag==="A" ? "Amber" : rag==="R" ? "Red" : "Unscored";
+
+  // ✅ UPDATED tooltip logic text to match new thresholds
   const ragLogic = rag==="G"
-    ? `Health ≥ 70% (${health}%). Schedule, RAID items, workflow and approvals all within acceptable thresholds.`
+    ? `Health ≥ 85% (${health}%). Delivery signals are strong across schedule, RAID, workflow approvals and activity.`
     : rag==="A"
-    ? `Health 55–69% (${health}%). One or more areas need attention — check schedule adherence, open risks or milestone slippage.`
+    ? `Health 70–84% (${health}%). Some signals need attention — review slippage, open risks/issues, or approval queues.`
     : rag==="R"
-    ? `Health < 55% (${health}%). Significant issues across schedule, risks or delivery. Immediate review recommended.`
+    ? `Health < 70% (${health}%). Significant delivery risk — prioritise an immediate review and corrective actions.`
     : "No health score calculated yet for this project.";
 
   return (
@@ -401,7 +414,10 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
           </div>
           <p className="text-[11px] text-gray-500 leading-relaxed">{ragLogic}</p>
           <div className="mt-2 pt-2 border-t border-gray-100 text-[10px] text-gray-400">
-            Thresholds: <span className="text-green-600 font-semibold">Green ≥ 70%</span> · <span className="text-amber-600 font-semibold">Amber 55–69%</span> · <span className="text-red-500 font-semibold">Red &lt; 55%</span>
+            Thresholds: <span className="text-green-600 font-semibold">Green ≥ 85%</span> · <span className="text-amber-600 font-semibold">Amber 70–84%</span> · <span className="text-red-500 font-semibold">Red &lt; 70%</span>
+          </div>
+          <div className="mt-2 text-[10px] text-gray-400">
+            Note: Budget/Resource plans can be added into the health model once their scoring is available.
           </div>
         </div>
       </div>
@@ -778,6 +794,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                         </div>
                         <div className="text-3xl font-bold text-green-700 leading-none mb-1">{ragAgg.g}</div>
                         <div className="text-xs text-green-600/80">{Math.round((ragAgg.g/ragAgg.scored)*100)}% of total</div>
+                        <div className="mt-2 text-[10px] text-green-700/70 font-semibold">≥ 85% health</div>
                       </div>
                       <div className="rounded-xl bg-amber-50 border border-amber-100 p-4 cursor-pointer hover:bg-amber-100/60 transition-colors" onClick={()=>router.push("/projects?rag=A")}>
                         <div className="flex items-center gap-2 mb-2">
@@ -786,6 +803,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                         </div>
                         <div className="text-3xl font-bold text-amber-700 leading-none mb-1">{ragAgg.a}</div>
                         <div className="text-xs text-amber-600/80">{Math.round((ragAgg.a/ragAgg.scored)*100)}% of total</div>
+                        <div className="mt-2 text-[10px] text-amber-700/70 font-semibold">70–84% health</div>
                       </div>
                       <div className="rounded-xl bg-red-50 border border-red-100 p-4 cursor-pointer hover:bg-red-100/60 transition-colors" onClick={()=>router.push("/projects?rag=R")}>
                         <div className="flex items-center gap-2 mb-2">
@@ -794,6 +812,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                         </div>
                         <div className="text-3xl font-bold text-red-600 leading-none mb-1">{ragAgg.r}</div>
                         <div className="text-xs text-red-500/80">{Math.round((ragAgg.r/ragAgg.scored)*100)}% of total</div>
+                        <div className="mt-2 text-[10px] text-red-600/70 font-semibold">&lt; 70% health</div>
                       </div>
                     </div>
                   </m.div>
