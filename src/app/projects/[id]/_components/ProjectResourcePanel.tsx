@@ -504,12 +504,11 @@ function TeamSection({
           color: "#94a3b8", fontSize: "13px",
         }}>
           No one allocated yet.{" "}
-          <a
-  href={`/allocations/new?project_id=${projectId}&return_to=/projects/${projectId}`}
-  style={{ color: "#00b8db", fontWeight: 600 }}
->
-  Add a person {"→"}
-</a>        </div>
+          <a href={`/allocations/new?project_id=${projectId}&return_to=/projects/${projectId}`}
+            style={{ color: "#00b8db", fontWeight: 600 }}>
+            Add a person {"→"}
+          </a>
+        </div>
       ) : (
         members.map(m => (
           <TeamMemberCard
@@ -994,19 +993,6 @@ function AddRoleForm({
     </form>
   );
 }
-
-const inputStyle: React.CSSProperties = {
-  width: "100%", padding: "8px 10px", borderRadius: "7px",
-  border: "1.5px solid #e2e8f0", background: "white",
-  fontSize: "13px", fontFamily: "'DM Sans', sans-serif",
-  color: "#0f172a", outline: "none", boxSizing: "border-box",
-};
-
-const labelStyle: React.CSSProperties = {
-  display: "block", fontSize: "10px", fontWeight: 700,
-  color: "#94a3b8", textTransform: "uppercase",
-  letterSpacing: "0.05em", marginBottom: "4px",
-};
 
 function RoleRequirementsSection({
   roles, projectId, startDate, endDate,
