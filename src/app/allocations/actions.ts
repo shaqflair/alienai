@@ -267,11 +267,11 @@ export async function updateAllocationWeek(formData: FormData) {
 
 /* =========================
    updateAllocation
-   Updates days_per_week, start date, end date for all weekly rows
-   of a person↔project allocation. Replaces existing rows in the new range.
+   Returns { ok: true } on success or throws a plain Error on failure.
+   Does NOT redirect — called from client components via useTransition.
 ========================= */
 
-export async function updateAllocation(formData: FormData) {
+export async function updateAllocation(formData: FormData): Promise<{ ok: true }> {
   const supabase = await createClient();
   const user = await requireUser(supabase);
 
@@ -281,25 +281,23 @@ export async function updateAllocation(formData: FormData) {
   const new_end        = norm(formData.get("end_date"));
   const days_per_week  = parseFloat(norm(formData.get("days_per_week")));
   const alloc_type     = norm(formData.get("allocation_type")) || "confirmed";
-  const return_to      = norm(formData.get("return_to")) || `/projects/${project_id}`;
 
   if (!person_id || !project_id || !new_start || !new_end)
-    redirect(`${return_to}${qs({ err: "missing_fields" })}`);
+    throw new Error("Missing required fields.");
 
   if (Number.isNaN(days_per_week) || days_per_week < 0.5 || days_per_week > 7)
-    redirect(`${return_to}${qs({ err: "bad_days" })}`);
+    throw new Error("Days per week must be between 0.5 and 7.");
 
   if (new_start > new_end)
-    redirect(`${return_to}${qs({ err: "bad_dates" })}`);
+    throw new Error("Start date must be before end date.");
 
   const role = await getMyProjectRole(supabase, project_id, user.id);
   if (role !== "owner" && role !== "editor")
-    redirect(`${return_to}${qs({ err: "no_permission" })}`);
+    throw new Error("You don't have permission to edit this allocation.");
 
-  // Build new weekly rows
+  // Build new weekly rows — generate Mondays from start to end
   const rows: { person_id: string; project_id: string; week_start_date: string; days_allocated: number; allocation_type: string }[] = [];
 
-  // Generate Mondays from start to end
   const start = new Date(new_start);
   const end   = new Date(new_end);
   // Snap start to Monday
@@ -319,7 +317,7 @@ export async function updateAllocation(formData: FormData) {
   }
 
   if (rows.length === 0)
-    redirect(`${return_to}${qs({ err: "no_weeks" })}`);
+    throw new Error("No weeks found in the selected date range.");
 
   // Delete existing rows for this person↔project, then insert new ones
   const { error: delErr } = await supabase
@@ -328,16 +326,50 @@ export async function updateAllocation(formData: FormData) {
     .eq("person_id", person_id)
     .eq("project_id", project_id);
 
-  if (delErr) throwDb(delErr, "allocations.update_delete");
+  if (delErr) throw new Error(`Failed to clear existing allocation: ${delErr.message}`);
 
   const { error: insErr } = await supabase
     .from("allocations")
     .insert(rows);
 
-  if (insErr) throwDb(insErr, "allocations.update_insert");
+  if (insErr) throw new Error(`Failed to save allocation: ${insErr.message}`);
 
   revalidatePath(`/projects/${project_id}`);
   revalidatePath("/heatmap");
 
-  redirect(`${return_to}${qs({ msg: "allocation_updated" })}`);
+  return { ok: true };
+}
+
+/* =========================
+   deleteAllocationDirect
+   Returns { ok: true } on success or throws a plain Error on failure.
+   Does NOT redirect — called from client components via useTransition.
+========================= */
+
+export async function deleteAllocationDirect(formData: FormData): Promise<{ ok: true }> {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
+
+  const person_id  = norm(formData.get("person_id"));
+  const project_id = norm(formData.get("project_id"));
+
+  if (!person_id || !project_id)
+    throw new Error("Missing person or project.");
+
+  const role = await getMyProjectRole(supabase, project_id, user.id);
+  if (role !== "owner" && role !== "editor")
+    throw new Error("You don't have permission to remove this allocation.");
+
+  const { error } = await supabase
+    .from("allocations")
+    .delete()
+    .eq("person_id", person_id)
+    .eq("project_id", project_id);
+
+  if (error) throw new Error(`Failed to remove allocation: ${error.message}`);
+
+  revalidatePath(`/projects/${project_id}`);
+  revalidatePath("/heatmap");
+
+  return { ok: true };
 }

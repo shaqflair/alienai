@@ -6,7 +6,7 @@ import type {
   HeatmapData, PersonRow, AllocationCell,
   Granularity, PeriodHeader, PipelineGapRow,
 } from "../_lib/heatmap-query";
-import { updateAllocation, deleteAllocation } from "../../allocations/actions";
+import { updateAllocation, deleteAllocationDirect } from "../../allocations/actions";
 
 /* =============================================================================
    CONSTANTS + HELPERS
@@ -156,7 +156,7 @@ function HeatmapEditModal({
     fd.set("return_to",  "/heatmap");
     startTransition(async () => {
       try {
-        await deleteAllocation(fd);
+        await deleteAllocationDirect(fd);
         onSaved();
         onClose();
       } catch (e: any) { setError(e.message || "Failed to remove"); }

@@ -1,12 +1,13 @@
 "use client";
 // FILE: src/app/projects/[id]/_components/ProjectResourcePanel.tsx
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import type {
   ProjectResourceData, TeamMember, AllocationRow,
   RoleRequirement, BudgetSummary, WeekPeriod,
 } from "../_lib/resource-data";
 import { insertRoleRequirements } from "../../actions";
+import { updateAllocation, deleteAllocationDirect } from "../../../allocations/actions";
 
 /* =============================================================================
    HELPERS + CONSTANTS
@@ -137,6 +138,244 @@ function StatPill({
 }
 
 /* =============================================================================
+   EDIT ALLOCATION MODAL
+============================================================================= */
+
+function EditAllocationModal({
+  member, projectId, onClose,
+}: {
+  member:    TeamMember;
+  projectId: string;
+  onClose:   () => void;
+}) {
+  const CAPACITY_OPTIONS = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
+
+  const [startDate,   setStartDate]   = useState(member.firstWeek ?? "");
+  const [endDate,     setEndDate]     = useState(member.lastWeek  ?? "");
+  const [daysPerWeek, setDaysPerWeek] = useState(member.avgDaysPerWeek || 5);
+  const [allocType,   setAllocType]   = useState(member.allocationType || "confirmed");
+  const [error,       setError]       = useState<string | null>(null);
+  const [isPending,   startTransition] = useTransition();
+  const [showDelete,  setShowDelete]  = useState(false);
+
+  const weekCount = (() => {
+    if (!startDate || !endDate || startDate > endDate) return 0;
+    return Math.round(
+      (new Date(endDate).getTime() - new Date(startDate).getTime()) / (7 * 86400000)
+    ) + 1;
+  })();
+
+  function handleSave() {
+    setError(null);
+    const fd = new FormData();
+    fd.set("person_id",       member.personId);
+    fd.set("project_id",      projectId);
+    fd.set("start_date",      startDate);
+    fd.set("end_date",        endDate);
+    fd.set("days_per_week",   String(daysPerWeek));
+    fd.set("allocation_type", allocType);
+    fd.set("return_to",       `/projects/${projectId}`);
+    startTransition(async () => {
+      try {
+        await updateAllocation(fd);
+        onClose();
+      } catch (e: any) {
+        setError(e.message || "Failed to update allocation");
+      }
+    });
+  }
+
+  function handleDelete() {
+    const fd = new FormData();
+    fd.set("person_id",  member.personId);
+    fd.set("project_id", projectId);
+    fd.set("return_to",  `/projects/${projectId}`);
+    startTransition(async () => {
+      try {
+        await deleteAllocationDirect(fd);
+        onClose();
+      } catch (e: any) {
+        setError(e.message || "Failed to remove allocation");
+      }
+    });
+  }
+
+  return (
+    <div
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{
+        position: "fixed", inset: 0, zIndex: 1000,
+        background: "rgba(15,23,42,0.55)", backdropFilter: "blur(3px)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: "20px",
+      }}
+    >
+      <div style={{
+        background: "white", borderRadius: "16px",
+        border: "1.5px solid #e2e8f0",
+        width: "100%", maxWidth: "420px",
+        boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
+        fontFamily: "'DM Sans', sans-serif",
+      }}>
+        {/* Header */}
+        <div style={{
+          padding: "18px 20px 14px",
+          borderBottom: "1px solid #f1f5f9",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+        }}>
+          <div>
+            <div style={{ fontSize: "15px", fontWeight: 800, color: "#0f172a" }}>
+              Edit allocation
+            </div>
+            <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "2px" }}>
+              {member.fullName} · {member.weekCount}w · {member.totalDaysAllocated}d total
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            background: "none", border: "none", color: "#94a3b8",
+            cursor: "pointer", fontSize: "18px", lineHeight: 1, padding: "4px",
+          }}>×</button>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: "14px" }}>
+
+          {error && (
+            <div style={{
+              padding: "8px 12px", borderRadius: "8px",
+              background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)",
+              color: "#dc2626", fontSize: "12px",
+            }}>{error}</div>
+          )}
+
+          {/* Date range */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+            <div>
+              <label style={labelStyle}>Start date</label>
+              <input type="date" value={startDate}
+                onChange={e => setStartDate(e.target.value)}
+                style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>End date</label>
+              <input type="date" value={endDate}
+                onChange={e => setEndDate(e.target.value)}
+                style={inputStyle} />
+            </div>
+          </div>
+          {weekCount > 0 && (
+            <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "-8px" }}>
+              {weekCount} week{weekCount !== 1 ? "s" : ""} · {Math.round(weekCount * daysPerWeek * 10) / 10}d total
+            </div>
+          )}
+
+          {/* Days per week */}
+          <div>
+            <label style={labelStyle}>Days / week</label>
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+              {CAPACITY_OPTIONS.map(d => (
+                <button
+                  key={d} type="button"
+                  onClick={() => setDaysPerWeek(d)}
+                  style={{
+                    padding: "6px 10px", borderRadius: "7px",
+                    border: `1.5px solid ${daysPerWeek === d ? "#00b8db" : "#e2e8f0"}`,
+                    background: daysPerWeek === d ? "rgba(0,184,219,0.1)" : "white",
+                    color: daysPerWeek === d ? "#0e7490" : "#475569",
+                    fontSize: "12px", fontWeight: daysPerWeek === d ? 800 : 500,
+                    cursor: "pointer",
+                  }}
+                >{d}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Allocation type */}
+          <div>
+            <label style={labelStyle}>Type</label>
+            <div style={{ display: "flex", gap: "8px" }}>
+              {(["confirmed", "soft"] as const).map(t => (
+                <button key={t} type="button"
+                  onClick={() => setAllocType(t)}
+                  style={{
+                    flex: 1, padding: "7px", borderRadius: "7px",
+                    border: `1.5px solid ${allocType === t ? "#00b8db" : "#e2e8f0"}`,
+                    background: allocType === t ? "rgba(0,184,219,0.08)" : "white",
+                    color: allocType === t ? "#0e7490" : "#64748b",
+                    fontSize: "12px", fontWeight: 700, cursor: "pointer",
+                    textTransform: "capitalize",
+                  }}
+                >{t === "confirmed" ? "✓ Confirmed" : "○ Soft"}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          padding: "12px 20px 16px",
+          borderTop: "1px solid #f1f5f9",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+        }}>
+          {!showDelete ? (
+            <button onClick={() => setShowDelete(true)} style={{
+              background: "none", border: "none", color: "#ef4444",
+              fontSize: "12px", fontWeight: 600, cursor: "pointer", padding: 0,
+            }}>🗑 Remove allocation</button>
+          ) : (
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <span style={{ fontSize: "12px", color: "#ef4444", fontWeight: 600 }}>Sure?</span>
+              <button onClick={handleDelete} disabled={isPending} style={{
+                padding: "5px 12px", borderRadius: "6px", border: "none",
+                background: "#ef4444", color: "white", fontSize: "12px",
+                fontWeight: 700, cursor: "pointer",
+              }}>Yes, remove</button>
+              <button onClick={() => setShowDelete(false)} style={{
+                padding: "5px 12px", borderRadius: "6px",
+                border: "1px solid #e2e8f0", background: "white",
+                fontSize: "12px", color: "#64748b", cursor: "pointer",
+              }}>Cancel</button>
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button onClick={onClose} style={{
+              padding: "8px 16px", borderRadius: "8px",
+              border: "1.5px solid #e2e8f0", background: "white",
+              fontSize: "12px", fontWeight: 600, color: "#475569", cursor: "pointer",
+            }}>Cancel</button>
+            <button onClick={handleSave} disabled={isPending || !startDate || !endDate} style={{
+              padding: "8px 18px", borderRadius: "8px", border: "none",
+              background: isPending || !startDate || !endDate ? "#e2e8f0" : "#00b8db",
+              color: isPending || !startDate || !endDate ? "#94a3b8" : "white",
+              fontSize: "12px", fontWeight: 800,
+              cursor: isPending || !startDate || !endDate ? "not-allowed" : "pointer",
+              boxShadow: "0 2px 8px rgba(0,184,219,0.2)",
+            }}>
+              {isPending ? "Saving..." : "Save changes"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const labelStyle: React.CSSProperties = {
+  display: "block", fontSize: "10px", fontWeight: 800,
+  color: "#94a3b8", textTransform: "uppercase",
+  letterSpacing: "0.06em", marginBottom: "6px",
+};
+
+const inputStyle: React.CSSProperties = {
+  width: "100%", boxSizing: "border-box",
+  padding: "8px 10px", borderRadius: "8px",
+  border: "1.5px solid #e2e8f0",
+  fontSize: "13px", color: "#0f172a",
+  fontFamily: "inherit", outline: "none",
+};
+
+/* =============================================================================
    1. TEAM MEMBERS WITH UTILISATION
 ============================================================================= */
 
@@ -147,78 +386,91 @@ function TeamMemberCard({
 }) {
   const tier = utilTier(member.avgUtilisationPct);
   const col  = UTIL_COLOURS[tier];
+  const [showEdit, setShowEdit] = useState(false);
 
   return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: "12px",
-      padding: "12px 0",
-      borderBottom: "1px solid #f1f5f9",
-    }}>
-      <Avatar name={member.fullName} size={36} />
+    <>
+      {showEdit && (
+        <EditAllocationModal
+          member={member}
+          projectId={projectId}
+          onClose={() => setShowEdit(false)}
+        />
+      )}
 
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: "14px", fontWeight: 600, color: "#0f172a" }}>
-          {member.fullName}
-          {member.allocationType === "soft" && (
-            <span style={{
-              marginLeft: "6px", fontSize: "10px", color: "#64748b",
-              background: "#f1f5f9", borderRadius: "4px", padding: "1px 5px",
-              fontWeight: 600,
-            }}>Soft</span>
-          )}
-        </div>
-        <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "1px" }}>
-          {member.roleOnProject || member.jobTitle || "--"}
-          {" . "}{member.weekCount}w . {member.totalDaysAllocated}d total
-          {member.employmentType === "part_time" && (
-            <span style={{ color: "#f59e0b", marginLeft: "4px", fontWeight: 600 }}>PT</span>
-          )}
-        </div>
+      <div style={{
+        display: "flex", alignItems: "center", gap: "12px",
+        padding: "12px 0",
+        borderBottom: "1px solid #f1f5f9",
+      }}>
+        <Avatar name={member.fullName} size={36} />
 
-        {/* Utilisation bar */}
-        <div style={{ marginTop: "6px" }}>
-          <div style={{
-            height: "5px", background: "#f1f5f9",
-            borderRadius: "3px", overflow: "hidden",
-          }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: "14px", fontWeight: 600, color: "#0f172a" }}>
+            {member.fullName}
+            {member.allocationType === "soft" && (
+              <span style={{
+                marginLeft: "6px", fontSize: "10px", color: "#64748b",
+                background: "#f1f5f9", borderRadius: "4px", padding: "1px 5px",
+                fontWeight: 600,
+              }}>Soft</span>
+            )}
+          </div>
+          <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "1px" }}>
+            {member.roleOnProject || member.jobTitle || "--"}
+            {" · "}{member.weekCount}w · {member.totalDaysAllocated}d total
+            {member.avgDaysPerWeek > 0 && (
+              <span style={{ color: "#64748b" }}> · {member.avgDaysPerWeek}d/wk</span>
+            )}
+            {member.employmentType === "part_time" && (
+              <span style={{ color: "#f59e0b", marginLeft: "4px", fontWeight: 600 }}>PT</span>
+            )}
+          </div>
+
+          {/* Utilisation bar */}
+          <div style={{ marginTop: "6px" }}>
             <div style={{
-              height: "100%", borderRadius: "3px",
-              width: `${Math.min(member.avgUtilisationPct, 100)}%`,
-              background: utilColour(member.avgUtilisationPct),
-              transition: "width 0.4s",
-            }} />
+              height: "5px", background: "#f1f5f9",
+              borderRadius: "3px", overflow: "hidden",
+            }}>
+              <div style={{
+                height: "100%", borderRadius: "3px",
+                width: `${Math.min(member.avgUtilisationPct, 100)}%`,
+                background: utilColour(member.avgUtilisationPct),
+                transition: "width 0.4s",
+              }} />
+            </div>
           </div>
         </div>
-      </div>
 
-      <div style={{ textAlign: "right", flexShrink: 0 }}>
-        <div style={{
-          fontSize: "14px", fontWeight: 800,
-          fontFamily: "'DM Mono', monospace",
-          color: utilColour(member.avgUtilisationPct),
-          background: col.bg,
-          border: `1px solid ${col.border}`,
-          borderRadius: "6px", padding: "3px 8px",
-        }}>
-          {member.avgUtilisationPct}%
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div style={{
+            fontSize: "14px", fontWeight: 800,
+            fontFamily: "'DM Mono', monospace",
+            color: utilColour(member.avgUtilisationPct),
+            background: col.bg,
+            border: `1px solid ${col.border}`,
+            borderRadius: "6px", padding: "3px 8px",
+          }}>
+            {member.avgUtilisationPct}%
+          </div>
+          <div style={{ fontSize: "10px", color: "#94a3b8", marginTop: "3px" }}>avg util</div>
         </div>
-        <div style={{ fontSize: "10px", color: "#94a3b8", marginTop: "3px" }}>
-          avg util
-        </div>
-      </div>
 
-      <a
-        href={`/allocations/new?person_id=${member.personId}&project_id=${projectId}&return_to=/projects/${projectId}`}
-        style={{
-          fontSize: "11px", color: "#00b8db", fontWeight: 600,
-          textDecoration: "none", padding: "5px 10px",
-          border: "1px solid #bae6f0", borderRadius: "6px",
-          whiteSpace: "nowrap", flexShrink: 0,
-        }}
-      >
-        Edit
-      </a>
-    </div>
+        <button
+          type="button"
+          onClick={() => setShowEdit(true)}
+          style={{
+            fontSize: "11px", color: "#00b8db", fontWeight: 600,
+            padding: "5px 10px", border: "1px solid #bae6f0",
+            borderRadius: "6px", whiteSpace: "nowrap", flexShrink: 0,
+            background: "white", cursor: "pointer",
+          }}
+        >
+          ✏️ Edit
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -230,7 +482,7 @@ function TeamSection({
   return (
     <Card>
       <SectionHeader
-        icon="[people]"
+        icon="👥"
         title="Team"
         subtitle={`${members.length} people allocated`}
         action={
@@ -254,8 +506,8 @@ function TeamSection({
           No one allocated yet.{" "}
           <a href={`/allocations/new?project_id=${projectId}&return_to=/projects/${projectId}`}
             style={{ color: "#00b8db", fontWeight: 600 }}>
-          Add a person {'>'}
-                    </a>
+            Add a person ->
+          </a>
         </div>
       ) : (
         members.map(m => (
