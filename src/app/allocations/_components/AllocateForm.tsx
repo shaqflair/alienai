@@ -35,6 +35,7 @@ type WeekRow = {
   utilisation_pct:   number;
   has_conflict:      boolean;
   conflict_severity: "none" | "warning" | "critical";
+  is_exception:      boolean;
 };
 
 type Alternative = {
@@ -167,9 +168,17 @@ function Select({
    Conflict Preview Table
 ========================= */
 
-function ConflictTable({ weeks }: { weeks: WeekRow[] }) {
-  const conflictCount = weeks.filter(w => w.has_conflict).length;
-  const maxUtil = Math.max(...weeks.map(w => w.utilisation_pct));
+function ConflictTable({ weeks, onSkipExceptionWeeks }: {
+  weeks: WeekRow[];
+  onSkipExceptionWeeks?: (newStart: string) => void;
+}) {
+  const conflictCount  = weeks.filter(w => w.has_conflict).length;
+  const maxUtil        = Math.max(...weeks.map(w => w.utilisation_pct));
+  // Exception-only conflicts: weeks where the ONLY reason for conflict is a capacity exception
+  const exceptionConflicts = weeks.filter(w => w.has_conflict && w.is_exception);
+  const pureConflicts      = weeks.filter(w => w.has_conflict && !w.is_exception);
+  // First non-exception week (to suggest skipping to)
+  const firstFullWeek = weeks.find(w => !w.is_exception);
 
   return (
     <div style={{
@@ -200,6 +209,43 @@ function ConflictTable({ weeks }: { weeks: WeekRow[] }) {
         ))}
       </div>
 
+      {/* Exception-only conflict banner */}
+      {exceptionConflicts.length > 0 && (
+        <div style={{
+          padding: "10px 14px",
+          background: "rgba(245,158,11,0.06)",
+          borderBottom: "1px solid #fde68a",
+          display: "flex", alignItems: "flex-start", gap: "10px",
+        }}>
+          <span style={{ fontSize: "14px", flexShrink: 0, marginTop: "1px" }}>⚠</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: "12px", fontWeight: 700, color: "#92400e", marginBottom: "2px" }}>
+              {exceptionConflicts.length === 1 ? "1 week has" : `${exceptionConflicts.length} weeks have`} reduced capacity due to leave or a public holiday
+            </div>
+            <div style={{ fontSize: "11px", color: "#b45309", lineHeight: 1.5 }}>
+              {exceptionConflicts.map(w => new Date(w.week_start).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })).join(", ")}
+              {" — "}capacity {exceptionConflicts.length === 1 ? "is" : "are"} {exceptionConflicts.map(w => w.capacity_days + "d").join(", ")} instead of full week.
+              {onSkipExceptionWeeks && firstFullWeek && pureConflicts.length === 0 && (
+                <span>
+                  {" "}
+                  <button
+                    type="button"
+                    onClick={() => onSkipExceptionWeeks(firstFullWeek.week_start)}
+                    style={{
+                      background: "none", border: "none", padding: 0,
+                      color: "#d97706", fontWeight: 700, fontSize: "11px",
+                      cursor: "pointer", textDecoration: "underline",
+                    }}
+                  >
+                    Start from {new Date(firstFullWeek.week_start).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })} instead →
+                  </button>
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Week rows */}
       <div style={{ maxHeight: "200px", overflowY: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -227,8 +273,7 @@ function ConflictTable({ weeks }: { weeks: WeekRow[] }) {
                     day: "2-digit", month: "short",
                   })}
                 </td>
-                {[row.existing_days+"d", row.proposed_days+"d",
-                  row.total_days+"d", row.capacity_days+"d"].map((v, j) => (
+                {[row.existing_days+"d", row.proposed_days+"d", row.total_days+"d"].map((v, j) => (
                   <td key={j} style={{
                     padding: "7px 10px", textAlign: "center",
                     fontSize: "12px", color: "#475569",
@@ -236,6 +281,15 @@ function ConflictTable({ weeks }: { weeks: WeekRow[] }) {
                     fontWeight: j === 2 ? 700 : 400,
                   }}>{v}</td>
                 ))}
+                {/* Capacity — flag when overridden by an exception */}
+                <td style={{ padding: "7px 10px", textAlign: "center",
+                             fontSize: "12px", fontFamily: "'DM Mono', monospace" }}>
+                  <span style={{ color: row.is_exception ? "#f59e0b" : "#475569" }}
+                        title={row.is_exception ? "Reduced capacity this week (leave / exception)" : undefined}>
+                    {row.capacity_days}d
+                    {row.is_exception && " ⚠"}
+                  </span>
+                </td>
                 <td style={{ padding: "7px 10px", textAlign: "center" }}>
                   <span style={{
                     fontSize: "12px", fontWeight: 700,
@@ -810,7 +864,10 @@ export default function AllocateForm({
 
           {checkResult && !checking && (
             <>
-              <ConflictTable weeks={checkResult.weeks} />
+              <ConflictTable
+                weeks={checkResult.weeks}
+                onSkipExceptionWeeks={(newStart) => setStartDate(newStart)}
+              />
 
               {/* Conflict callout */}
               {conflictCount > 0 && (
