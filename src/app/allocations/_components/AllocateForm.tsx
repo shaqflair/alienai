@@ -71,6 +71,11 @@ function utilBg(pct: number) {
   return "rgba(16,185,129,0.06)";
 }
 
+function utilLabel(pct: number) {
+  if (pct > 200) return ">200%";
+  return `${pct}%`;
+}
+
 function initials(name: string) {
   return name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
 }
@@ -183,7 +188,7 @@ function ConflictTable({ weeks }: { weeks: WeekRow[] }) {
         {[
           { l: "Weeks",       v: weeks.length,    c: "#475569" },
           { l: "Total days",  v: `${weeks.reduce((s, w) => s + w.proposed_days, 0)}d`, c: "#00b8db" },
-          { l: "Peak util",   v: `${maxUtil}%`,   c: utilColour(maxUtil) },
+          { l: "Peak util",   v: utilLabel(maxUtil), c: utilColour(maxUtil) },
           { l: "Conflicts",   v: conflictCount,   c: conflictCount > 0 ? "#ef4444" : "#10b981" },
         ].map(s => (
           <div key={s.l}>
@@ -239,7 +244,7 @@ function ConflictTable({ weeks }: { weeks: WeekRow[] }) {
                     background: utilBg(row.utilisation_pct),
                     borderRadius: "5px", padding: "2px 7px",
                   }}>
-                    {row.utilisation_pct}%
+                    {utilLabel(row.utilisation_pct)}
                     {row.has_conflict && " (!)"}
                   </span>
                 </td>
@@ -307,7 +312,7 @@ function AlternativesPanel({
                             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {alt.job_title || "--"} {" "}
                 <span style={{ color: utilColour(alt.avg_utilisation_pct), fontWeight: 600 }}>
-                  {alt.avg_utilisation_pct}% avg util
+                  {utilLabel(alt.avg_utilisation_pct)} avg util
                 </span>
               </div>
             </div>
@@ -366,59 +371,35 @@ export default function AllocateForm({
   returnTo?:        string;
   organisationId:   string;
 }) {
-  const [personId,       setPersonId]       = useState(defaultPersonId);
-  const [projectId,      setProjectId]      = useState(defaultProjectId);
-  const [startDate,      setStartDate]      = useState("");
-  const [endDate,        setEndDate]        = useState("");
-  const [daysPerWeek,    setDaysPerWeek]    = useState(3);
-  const [durationMode,   setDurationMode]   = useState<"per_week" | "total_project" | "total_duration">("per_week");
+  const [personId,      setPersonId]      = useState(defaultPersonId);
+  const [projectId,     setProjectId]     = useState(defaultProjectId);
+  const [startDate,     setStartDate]     = useState("");
+  const [endDate,       setEndDate]       = useState("");
+  const [daysPerWeek,   setDaysPerWeek]   = useState(3);
+  const [durationMode,  setDurationMode]  = useState<"per_week" | "total_project" | "total_duration">("per_week");
   const [totalDaysInput, setTotalDaysInput] = useState<string>("");
-  const [roleOnProject,  setRoleOnProject]  = useState("");
-  const [notes,          setNotes]          = useState("");
-  const [allocType,      setAllocType]      = useState<"confirmed" | "soft">("confirmed");
+  const [roleOnProject, setRoleOnProject] = useState("");
+  const [notes,         setNotes]         = useState("");
+  const [allocType,     setAllocType]     = useState<"confirmed"|"soft">("confirmed");
 
-  const [checkResult, setCheckResult] = useState<CheckResult | null>(null);
-  const [checking,    setChecking]    = useState(false);
-  const [isPending,   startTransition] = useTransition();
+  const [checkResult,   setCheckResult]   = useState<CheckResult | null>(null);
+  const [checking,      setChecking]      = useState(false);
+  const [isPending,     startTransition]  = useTransition();
 
   const selectedPerson  = people.find(p => p.user_id === personId);
   const selectedProject = projects.find(p => p.id === projectId);
 
-  // ── Derived values declared BEFORE useCallback so they're in scope ──────
-  const capacity = selectedPerson?.default_capacity_days ?? 5;
-
-  const conflictCount = checkResult?.weeks.filter(w => w.has_conflict).length ?? 0;
-  const weekCount     = checkResult?.weeks.length ?? weeksInRange(startDate, endDate);
-
-  const effectiveDaysPerWeek =
-    durationMode === "total_project" && weekCount > 0 && totalDaysInput
-      ? Math.min(Math.round((parseFloat(totalDaysInput) / weekCount) * 2) / 2, capacity)
-      : durationMode === "total_duration" && totalDaysInput
-      ? Math.min(parseFloat(totalDaysInput) || 0, capacity)
-      : daysPerWeek;
-
-  const totalDays =
-    durationMode === "total_project" && totalDaysInput
-      ? parseFloat(totalDaysInput) || 0
-      : durationMode === "total_duration" && totalDaysInput
-      ? (parseFloat(totalDaysInput) || 0) * weekCount
-      : effectiveDaysPerWeek * weekCount;
-
-  const formValid = !!personId && !!projectId && !!startDate && !!endDate && effectiveDaysPerWeek > 0;
-
-  const dayBtns = [1, 2, 3, 4, 5].filter(d => d <= capacity);
-
-  // ── Auto-fill dates from selected project ───────────────────────────────
+  // Auto-fill dates from selected project
   useEffect(() => {
     if (selectedProject) {
-      if (selectedProject.start_date)  setStartDate(selectedProject.start_date);
+      if (selectedProject.start_date) setStartDate(selectedProject.start_date);
       if (selectedProject.finish_date) setEndDate(selectedProject.finish_date);
     }
   }, [projectId]);
 
-  // ── Capacity check ───────────────────────────────────────────────────────
+  // Run capacity check whenever key fields change
   const runCheck = useCallback(async () => {
-    if (!personId || !projectId || !startDate || !endDate || effectiveDaysPerWeek <= 0) {
+    if (!personId || !projectId || !startDate || !endDate || daysPerWeek <= 0) {
       setCheckResult(null);
       return;
     }
@@ -429,11 +410,11 @@ export default function AllocateForm({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          person_id:       personId,
-          project_id:      projectId,
-          start_date:      startDate,
-          end_date:        endDate,
-          days_per_week:   effectiveDaysPerWeek,
+          person_id:      personId,
+          project_id:     projectId,
+          start_date:     startDate,
+          end_date:       endDate,
+          days_per_week:  effectiveDaysPerWeek,
           organisation_id: organisationId,
         }),
       });
@@ -442,7 +423,7 @@ export default function AllocateForm({
         setCheckResult(data);
       }
     } catch {
-      // fail silently — the server action will catch real errors
+      // fail silently -- the server action will catch real errors
     } finally {
       setChecking(false);
     }
@@ -453,10 +434,29 @@ export default function AllocateForm({
     return () => clearTimeout(t);
   }, [runCheck]);
 
+  const conflictCount  = checkResult?.weeks.filter(w => w.has_conflict).length ?? 0;
+  const weekCount      = checkResult?.weeks.length ?? weeksInRange(startDate, endDate);
+  const effectiveDaysPerWeek =
+    durationMode === "total_project" && weekCount > 0 && totalDaysInput
+      ? Math.min(Math.round((parseFloat(totalDaysInput) / weekCount) * 2) / 2, capacity)
+      : durationMode === "total_duration" && totalDaysInput
+      ? Math.min(parseFloat(totalDaysInput) || 0, capacity)
+      : daysPerWeek;
+  const totalDays =
+    durationMode === "total_project" && totalDaysInput
+      ? parseFloat(totalDaysInput) || 0
+      : durationMode === "total_duration" && totalDaysInput
+      ? (parseFloat(totalDaysInput) || 0) * weekCount
+      : effectiveDaysPerWeek * weekCount;
+  const formValid      = !!personId && !!projectId && !!startDate && !!endDate && effectiveDaysPerWeek > 0;
+
+  const capacity = selectedPerson?.default_capacity_days ?? 5;
+  const dayBtns  = [1, 2, 3, 4, 5].filter(d => d <= capacity);
+
   return (
     <form action={createAllocation} style={{ display: "flex", flexDirection: "column", gap: "22px" }}>
-      <input type="hidden" name="return_to"       value={returnTo} />
-      <input type="hidden" name="allocation_type" value={allocType} />
+      <input type="hidden" name="return_to"        value={returnTo} />
+      <input type="hidden" name="allocation_type"  value={allocType} />
 
       {/* -- Person + Project -- */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
@@ -474,6 +474,7 @@ export default function AllocateForm({
           </Select>
           <input type="hidden" name="person_id" value={personId} />
 
+          {/* Person capacity card */}
           {selectedPerson && (
             <div style={{
               marginTop: "8px", padding: "8px 12px", borderRadius: "8px",
@@ -513,6 +514,7 @@ export default function AllocateForm({
           </Select>
           <input type="hidden" name="project_id" value={projectId} />
 
+          {/* Project card */}
           {selectedProject && (
             <div style={{
               marginTop: "8px", padding: "8px 12px", borderRadius: "8px",
@@ -586,15 +588,13 @@ export default function AllocateForm({
       <div>
         <FieldLabel required>Duration</FieldLabel>
 
-        {/* Mode toggle */}
-        <div style={{
-          display: "flex", gap: "0", marginBottom: "12px", borderRadius: "9px",
-          border: "1.5px solid #e2e8f0", overflow: "hidden", width: "fit-content",
-        }}>
+        {/* Mode toggle — 3 options */}
+        <div style={{ display: "flex", gap: "0", marginBottom: "12px", borderRadius: "9px",
+                      border: "1.5px solid #e2e8f0", overflow: "hidden", width: "fit-content" }}>
           {([
-            { id: "per_week",       label: "Days / week" },
-            { id: "total_project",  label: "Total days (project)" },
-            { id: "total_duration", label: "Days / duration" },
+            { id: "per_week",        label: "Days / week" },
+            { id: "total_project",   label: "Total days (project)" },
+            { id: "total_duration",  label: "Days / duration" },
           ] as const).map(({ id, label }) => (
             <button key={id} type="button" onClick={() => { setDurationMode(id); setTotalDaysInput(""); }} style={{
               padding: "6px 14px", fontSize: "11px", fontWeight: 700,
@@ -812,6 +812,7 @@ export default function AllocateForm({
             <>
               <ConflictTable weeks={checkResult.weeks} />
 
+              {/* Conflict callout */}
               {conflictCount > 0 && (
                 <div style={{
                   padding: "12px 16px", borderRadius: "10px",
@@ -828,6 +829,7 @@ export default function AllocateForm({
                 </div>
               )}
 
+              {/* All OK */}
               {conflictCount === 0 && checkResult.weeks.length > 0 && (
                 <div style={{
                   padding: "10px 14px", borderRadius: "10px",
@@ -840,6 +842,7 @@ export default function AllocateForm({
                 </div>
               )}
 
+              {/* Alternatives */}
               {conflictCount > 0 && checkResult.alternatives.length > 0 && (
                 <AlternativesPanel
                   alternatives={checkResult.alternatives}
