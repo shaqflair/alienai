@@ -504,11 +504,12 @@ function TeamSection({
           color: "#94a3b8", fontSize: "13px",
         }}>
           No one allocated yet.{" "}
-          <a href={`/allocations/new?project_id=${projectId}&return_to=/projects/${projectId}`}
-            style={{ color: "#00b8db", fontWeight: 600 }}>
-            Add a person {"→"}
-          </a>
-        </div>
+          <a
+  href={`/allocations/new?project_id=${projectId}&return_to=/projects/${projectId}`}
+  style={{ color: "#00b8db", fontWeight: 600 }}
+>
+  Add a person {"→"}
+</a>        </div>
       ) : (
         members.map(m => (
           <TeamMemberCard
