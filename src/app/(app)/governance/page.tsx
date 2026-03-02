@@ -46,6 +46,16 @@ function fmtUpdated(x: unknown) {
   return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "2-digit" });
 }
 
+// ✅ Minimal: detect finance KB articles by slug prefix / canonical slug
+function isFinanceArticleSlug(slug: unknown) {
+  const s = safeStr(slug).trim().toLowerCase();
+  if (!s) return false;
+  if (s === "financial-governance") return true;
+  if (s === "finance-overview") return true;
+  if (s.startsWith("finance-")) return true;
+  return false;
+}
+
 type SearchParamsLike =
   | Record<string, string | string[] | undefined>
   | Promise<Record<string, string | string[] | undefined>>;
@@ -276,35 +286,49 @@ export default async function GovernancePage({
 
           {articles.length ? (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {articles.map((a) => (
-                <Link
-                  key={a.id}
-                  href={`/governance/${encodeURIComponent(a.slug)}`}
-                  className="group rounded-xl border bg-white/70 p-4 shadow-sm transition hover:-translate-y-0.5 hover:bg-white/90 dark:bg-white/5 dark:hover:bg-white/10"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-base font-semibold">{safeStr(a.title)}</div>
-                      {a.summary ? (
-                        <div className="mt-1 line-clamp-2 text-sm opacity-75">
-                          {safeStr(a.summary)}
-                        </div>
+              {articles.map((a) => {
+                const finance = isFinanceArticleSlug(a.slug);
+
+                return (
+                  <Link
+                    key={a.id}
+                    href={`/governance/${encodeURIComponent(a.slug)}`}
+                    className="group rounded-xl border bg-white/70 p-4 shadow-sm transition hover:-translate-y-0.5 hover:bg-white/90 dark:bg-white/5 dark:hover:bg-white/10"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-base font-semibold">{safeStr(a.title)}</div>
+
+                        {/* ✅ Minimal: finance pill so Finance Governance + Planner articles are obvious */}
+                        {finance ? (
+                          <div className="mt-2">
+                            <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium opacity-80">
+                              Finance
+                            </span>
+                          </div>
+                        ) : null}
+
+                        {a.summary ? (
+                          <div className="mt-2 line-clamp-2 text-sm opacity-75">
+                            {safeStr(a.summary)}
+                          </div>
+                        ) : null}
+                      </div>
+                      <span className="shrink-0 rounded-lg border px-2 py-1 text-xs opacity-70 group-hover:opacity-90">
+                        Open →
+                      </span>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs opacity-70">
+                      {a.updated_at ? (
+                        <span className="rounded-md border px-2 py-0.5">
+                          Updated {fmtUpdated(a.updated_at)}
+                        </span>
                       ) : null}
                     </div>
-                    <span className="shrink-0 rounded-lg border px-2 py-1 text-xs opacity-70 group-hover:opacity-90">
-                      Open →
-                    </span>
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs opacity-70">
-                    {a.updated_at ? (
-                      <span className="rounded-md border px-2 py-0.5">
-                        Updated {fmtUpdated(a.updated_at)}
-                      </span>
-                    ) : null}
-                  </div>
-                </Link>
-              ))}
+                  </Link>
+                );
+              })}
             </div>
           ) : (
             <div className="rounded-xl border bg-white/70 p-6 text-sm opacity-80 dark:bg-white/5">

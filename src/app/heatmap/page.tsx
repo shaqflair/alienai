@@ -1,3 +1,4 @@
+// FILE: src/app/heatmap/page.tsx
 import "server-only";
 
 import { redirect } from "next/navigation";
@@ -6,6 +7,7 @@ import { getActiveOrgId } from "@/utils/org/active-org";
 import {
   fetchHeatmapData,
   fetchHeatmapFilterOptions,
+  generatePeriods,
 } from "./_lib/heatmap-query";
 import HeatmapClient from "./_components/HeatmapClient";
 import type { Granularity, HeatmapFilters } from "./_lib/heatmap-query";
@@ -19,7 +21,6 @@ function norm(x: unknown) {
 
 function defaultDateFrom(): string {
   const d = new Date();
-  // Start from the Monday of current week
   const day  = d.getDay();
   const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
@@ -42,6 +43,8 @@ export default async function HeatmapPage({
     dept?:    string | string[];
     status?:  string | string[];
     person?:  string | string[];
+    project?: string | string[];
+    manager?: string;
   }> | {
     gran?:    string;
     from?:    string;
@@ -49,6 +52,8 @@ export default async function HeatmapPage({
     dept?:    string | string[];
     status?:  string | string[];
     person?:  string | string[];
+    project?: string | string[];
+    manager?: string;
   };
 }) {
   const supabase = await createClient();
@@ -57,12 +62,10 @@ export default async function HeatmapPage({
 
   const sp = (await (searchParams as any)) ?? {};
 
-  // -- Resolve org -----------------------------------------------------------
   const orgId = await getActiveOrgId().catch(() => null);
   const organisationId = orgId ? String(orgId) : null;
   if (!organisationId) redirect("/projects?err=missing_org");
 
-  // -- Parse search params ---------------------------------------------------
   const validGran: Granularity[] = ["weekly", "sprint", "monthly", "quarterly"];
   const rawGran = norm(sp?.gran);
   const granularity: Granularity = validGran.includes(rawGran as any)
@@ -82,6 +85,18 @@ export default async function HeatmapPage({
   const departments = asArray(sp?.dept);
   const statuses    = asArray(sp?.status);
   const personIds   = asArray(sp?.person);
+  const projectIds  = asArray(sp?.project);
+
+  // Manager filter -- show only direct reports
+  let effectivePersonIds = personIds;
+  if (sp?.manager) {
+    const { data: reports } = await supabase
+      .from("profiles")
+      .select("user_id")
+      .eq("line_manager_id", String(sp.manager));
+    const reportIds = (reports ?? []).map((r: any) => String(r.user_id));
+    effectivePersonIds = reportIds;
+  }
 
   const filters: HeatmapFilters = {
     granularity,
@@ -89,11 +104,11 @@ export default async function HeatmapPage({
     dateTo,
     departments,
     statuses,
-    personIds,
+    personIds:  effectivePersonIds,
+    projectIds,
     organisationId: organisationId!,
   };
 
-  // -- Fetch data in parallel ------------------------------------------------
   const [heatmapData, filterOptions] = await Promise.all([
     fetchHeatmapData(filters),
     fetchHeatmapFilterOptions(organisationId!),
@@ -104,14 +119,26 @@ export default async function HeatmapPage({
       initialData={heatmapData}
       allPeople={filterOptions.people}
       allDepartments={filterOptions.departments}
+      allProjects={filterOptions.projects ?? []}
+      allRoles={filterOptions.roles ?? []}
+      allPMs={filterOptions.pms ?? []}
       initialFilters={{
         granularity,
         dateFrom,
         dateTo,
         departments,
         statuses,
-        personIds,
+        personIds: effectivePersonIds,
+        projectIds,
+        roles: [],
+        pmIds: [],
       }}
+      managerFilter={sp?.manager ? {
+        active: true,
+        managerUserId: String(sp.manager),
+        managerName: null,
+        directReportIds: effectivePersonIds,
+      } : null}
     />
   );
 }

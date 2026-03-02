@@ -1,3 +1,4 @@
+// FILE: src/app/api/heatmap/data/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { fetchHeatmapData } from "@/app/heatmap/_lib/heatmap-query";
@@ -18,11 +19,12 @@ export async function GET(req: NextRequest) {
   }
 
   const granularity  = (sp.get("granularity") ?? "weekly") as Granularity;
-  const dateFrom      = sp.get("dateFrom")    ?? new Date().toISOString().split("T")[0];
-  const dateTo        = sp.get("dateTo")      ?? "";
+  const dateFrom     = sp.get("dateFrom")    ?? new Date().toISOString().split("T")[0];
+  const dateTo       = sp.get("dateTo")      ?? "";
   const departments  = sp.getAll("dept");
-  const statuses      = sp.getAll("status");
+  const statuses     = sp.getAll("status");
   const personIds    = sp.getAll("person");
+  const projectIds   = sp.getAll("project");
 
   // Default dateTo = 6 months from dateFrom
   const resolvedDateTo = dateTo || (() => {
@@ -38,6 +40,7 @@ export async function GET(req: NextRequest) {
     departments,
     statuses,
     personIds,
+    projectIds,
     organisationId,
   };
 

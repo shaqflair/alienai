@@ -10,19 +10,19 @@ import { createAllocation } from "../actions";
 
 export type PersonOption = {
   user_id:               string;
-  full_name:              string;
-  job_title:              string | null;
-  employment_type:        string;
+  full_name:             string;
+  job_title:             string | null;
+  employment_type:       string;
   default_capacity_days: number;
-  department:             string | null;
+  department:            string | null;
 };
 
 export type ProjectOption = {
-  id:           string;
-  title:        string;
+  id:          string;
+  title:       string;
   project_code: string | null;
-  colour:       string | null;
-  start_date:   string | null;
+  colour:      string | null;
+  start_date:  string | null;
   finish_date: string | null;
 };
 
@@ -183,7 +183,7 @@ function ConflictTable({ weeks }: { weeks: WeekRow[] }) {
         {[
           { l: "Weeks",       v: weeks.length,    c: "#475569" },
           { l: "Total days",  v: `${weeks.reduce((s, w) => s + w.proposed_days, 0)}d`, c: "#00b8db" },
-          { l: "Peak util",   v: `${maxUtil}%`,    c: utilColour(maxUtil) },
+          { l: "Peak util",   v: `${maxUtil}%`,   c: utilColour(maxUtil) },
           { l: "Conflicts",   v: conflictCount,   c: conflictCount > 0 ? "#ef4444" : "#10b981" },
         ].map(s => (
           <div key={s.l}>
@@ -240,7 +240,7 @@ function ConflictTable({ weeks }: { weeks: WeekRow[] }) {
                     borderRadius: "5px", padding: "2px 7px",
                   }}>
                     {row.utilisation_pct}%
-                    {row.has_conflict && " ⚠"}
+                    {row.has_conflict && " (!)"}
                   </span>
                 </td>
               </tr>
@@ -277,13 +277,13 @@ function AlternativesPanel({
         padding: "12px 16px", borderBottom: "1px solid #bae6f0",
         display: "flex", alignItems: "center", gap: "8px",
       }}>
-        <span style={{ fontSize: "16px" }}>💡</span>
+        <span style={{ fontSize: "16px" }}>[idea]</span>
         <div>
           <div style={{ fontSize: "13px", fontWeight: 700, color: "#0e7490" }}>
             Alternative people with capacity
           </div>
           <div style={{ fontSize: "11.5px", color: "#64748b" }}>
-            {canCover.length} can cover fully · {partial.length} partial coverage
+            {canCover.length} can cover fully  {partial.length} partial coverage
           </div>
         </div>
       </div>
@@ -305,7 +305,7 @@ function AlternativesPanel({
               </div>
               <div style={{ fontSize: "11px", color: "#64748b",
                             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {alt.job_title || "—"} ·{" "}
+                {alt.job_title || "--"} {" "}
                 <span style={{ color: utilColour(alt.avg_utilisation_pct), fontWeight: 600 }}>
                   {alt.avg_utilisation_pct}% avg util
                 </span>
@@ -321,7 +321,7 @@ function AlternativesPanel({
               </div>
               {alt.can_cover_fully && (
                 <div style={{ fontSize: "10px", color: "#10b981", fontWeight: 600 }}>
-                  ✓ Can cover fully
+                  [check] Can cover fully
                 </div>
               )}
             </div>
@@ -359,11 +359,11 @@ export default function AllocateForm({
   returnTo          = "/allocations",
   organisationId,
 }: {
-  people:            PersonOption[];
-  projects:          ProjectOption[];
+  people:           PersonOption[];
+  projects:         ProjectOption[];
   defaultPersonId?: string;
   defaultProjectId?: string;
-  returnTo?:         string;
+  returnTo?:        string;
   organisationId:   string;
 }) {
   const [personId,      setPersonId]      = useState(defaultPersonId);
@@ -371,6 +371,8 @@ export default function AllocateForm({
   const [startDate,     setStartDate]     = useState("");
   const [endDate,       setEndDate]       = useState("");
   const [daysPerWeek,   setDaysPerWeek]   = useState(3);
+  const [durationMode,  setDurationMode]  = useState<"per_week" | "total_project" | "total_duration">("per_week");
+  const [totalDaysInput, setTotalDaysInput] = useState<string>("");
   const [roleOnProject, setRoleOnProject] = useState("");
   const [notes,         setNotes]         = useState("");
   const [allocType,     setAllocType]     = useState<"confirmed"|"soft">("confirmed");
@@ -404,10 +406,10 @@ export default function AllocateForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           person_id:      personId,
-          project_id:      projectId,
-          start_date:      startDate,
-          end_date:        endDate,
-          days_per_week:  daysPerWeek,
+          project_id:     projectId,
+          start_date:     startDate,
+          end_date:       endDate,
+          days_per_week:  effectiveDaysPerWeek,
           organisation_id: organisationId,
         }),
       });
@@ -416,11 +418,11 @@ export default function AllocateForm({
         setCheckResult(data);
       }
     } catch {
-      // fail silently
+      // fail silently -- the server action will catch real errors
     } finally {
       setChecking(false);
     }
-  }, [personId, projectId, startDate, endDate, daysPerWeek, organisationId]);
+  }, [personId, projectId, startDate, endDate, effectiveDaysPerWeek, organisationId]);
 
   useEffect(() => {
     const t = setTimeout(runCheck, 400); // debounce
@@ -429,37 +431,51 @@ export default function AllocateForm({
 
   const conflictCount  = checkResult?.weeks.filter(w => w.has_conflict).length ?? 0;
   const weekCount      = checkResult?.weeks.length ?? weeksInRange(startDate, endDate);
-  const totalDays      = daysPerWeek * weekCount;
-  const formValid      = !!personId && !!projectId && !!startDate && !!endDate && daysPerWeek > 0;
+  const effectiveDaysPerWeek =
+    durationMode === "total_project" && weekCount > 0 && totalDaysInput
+      ? Math.min(Math.round((parseFloat(totalDaysInput) / weekCount) * 2) / 2, capacity)
+      : durationMode === "total_duration" && totalDaysInput
+      ? Math.min(parseFloat(totalDaysInput) || 0, capacity)
+      : daysPerWeek;
+  const totalDays =
+    durationMode === "total_project" && totalDaysInput
+      ? parseFloat(totalDaysInput) || 0
+      : durationMode === "total_duration" && totalDaysInput
+      ? (parseFloat(totalDaysInput) || 0) * weekCount
+      : effectiveDaysPerWeek * weekCount;
+  const formValid      = !!personId && !!projectId && !!startDate && !!endDate && effectiveDaysPerWeek > 0;
 
   const capacity = selectedPerson?.default_capacity_days ?? 5;
+  const dayBtns  = [1, 2, 3, 4, 5].filter(d => d <= capacity);
 
   return (
     <form action={createAllocation} style={{ display: "flex", flexDirection: "column", gap: "22px" }}>
       <input type="hidden" name="return_to"        value={returnTo} />
       <input type="hidden" name="allocation_type"  value={allocType} />
 
-      {/* ── Person + Project ── */}
+      {/* -- Person + Project -- */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
         <div>
           <FieldLabel required>Person</FieldLabel>
           <Select value={personId} onChange={setPersonId}>
-            <option value="">Select person…</option>
+            <option value="">Select person...</option>
             {people.map(p => (
               <option key={p.user_id} value={p.user_id}>
                 {p.full_name}
                 {p.employment_type === "part_time" ? " (PT)" : ""}
-                {" — "}{p.default_capacity_days}d/wk
+                {" -- "}{p.default_capacity_days}d/wk
               </option>
             ))}
           </Select>
           <input type="hidden" name="person_id" value={personId} />
 
+          {/* Person capacity card */}
           {selectedPerson && (
             <div style={{
               marginTop: "8px", padding: "8px 12px", borderRadius: "8px",
               background: "#f8fafc", border: "1px solid #e2e8f0",
               display: "flex", gap: "10px", alignItems: "center",
+              animation: "fadeIn 0.2s ease",
             }}>
               <Avatar name={selectedPerson.full_name} size={28} />
               <div style={{ flex: 1 }}>
@@ -467,14 +483,14 @@ export default function AllocateForm({
                   {selectedPerson.full_name}
                 </div>
                 <div style={{ fontSize: "11px", color: "#64748b" }}>
-                  {selectedPerson.job_title} ·{" "}
+                  {selectedPerson.job_title} {" "}
                   <span style={{
                     fontWeight: 600,
                     color: selectedPerson.employment_type === "part_time" ? "#f59e0b" : "#10b981",
                   }}>
                     {selectedPerson.employment_type === "part_time" ? "Part-time" : "Full-time"}
                   </span>
-                  {" · "}{selectedPerson.default_capacity_days}d/wk
+                  {"  "}{selectedPerson.default_capacity_days}d/wk
                 </div>
               </div>
             </div>
@@ -484,20 +500,22 @@ export default function AllocateForm({
         <div>
           <FieldLabel required>Project</FieldLabel>
           <Select value={projectId} onChange={setProjectId}>
-            <option value="">Select project…</option>
+            <option value="">Select project...</option>
             {projects.map(p => (
               <option key={p.id} value={p.id}>
-                {p.project_code ? `${p.project_code} — ` : ""}{p.title}
+                {p.project_code ? `${p.project_code} -- ` : ""}{p.title}
               </option>
             ))}
           </Select>
           <input type="hidden" name="project_id" value={projectId} />
 
+          {/* Project card */}
           {selectedProject && (
             <div style={{
               marginTop: "8px", padding: "8px 12px", borderRadius: "8px",
               background: "#f8fafc", border: "1px solid #e2e8f0",
               display: "flex", gap: "10px", alignItems: "center",
+              animation: "fadeIn 0.2s ease",
             }}>
               <div style={{
                 width: 4, height: 32, borderRadius: 2,
@@ -508,8 +526,8 @@ export default function AllocateForm({
                   {selectedProject.title}
                 </div>
                 <div style={{ fontSize: "11px", color: "#64748b", fontFamily: "'DM Mono', monospace" }}>
-                  {selectedProject.project_code || "—"} ·{" "}
-                  {selectedProject.start_date || "?"} → {selectedProject.finish_date || "?"}
+                  {selectedProject.project_code || "--"} {" "}
+                  {selectedProject.start_date || "?"} -> {selectedProject.finish_date || "?"}
                 </div>
               </div>
             </div>
@@ -517,7 +535,7 @@ export default function AllocateForm({
         </div>
       </div>
 
-      {/* ── Dates ── */}
+      {/* -- Dates -- */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
         <div>
           <FieldLabel required>Start date</FieldLabel>
@@ -533,6 +551,11 @@ export default function AllocateForm({
               color: "#0f172a", outline: "none", boxSizing: "border-box",
             }}
           />
+          {selectedProject?.start_date && startDate < selectedProject.start_date && (
+            <p style={{ fontSize: "11px", color: "#f59e0b", marginTop: "4px" }}>
+              (!) Before project start ({selectedProject.start_date})
+            </p>
+          )}
         </div>
         <div>
           <FieldLabel required>End date</FieldLabel>
@@ -548,66 +571,148 @@ export default function AllocateForm({
               color: "#0f172a", outline: "none", boxSizing: "border-box",
             }}
           />
+          {selectedProject?.finish_date && endDate > selectedProject.finish_date && (
+            <p style={{ fontSize: "11px", color: "#ef4444", marginTop: "4px" }}>
+              (!) After project end ({selectedProject.finish_date})
+            </p>
+          )}
         </div>
       </div>
 
-      {/* ── Days per week ── */}
+      {/* -- Duration -- */}
       <div>
-        <FieldLabel required>
-          Days per week —{" "}
-          <span style={{ color: "#00b8db", fontFamily: "'DM Mono', monospace" }}>
-            {daysPerWeek}d
-          </span>
-          {totalDays > 0 && (
-            <span style={{ color: "#94a3b8", fontWeight: 400, marginLeft: "8px" }}>
-              ({totalDays} days total over {weekCount} weeks)
-            </span>
-          )}
-        </FieldLabel>
+        <FieldLabel required>Duration</FieldLabel>
 
-        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-          {[0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5].filter(d => d <= capacity).map(d => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => setDaysPerWeek(d)}
-              style={{
-                width: d % 1 === 0 ? "38px" : "30px",
-                height: "38px",
-                borderRadius: "8px",
-                cursor: "pointer",
-                fontWeight: 700,
-                fontSize: d % 1 === 0 ? "14px" : "10px",
-                fontFamily: "'DM Mono', monospace",
-                background: daysPerWeek === d ? "#00b8db" : "#f8fafc",
-                border: `1.5px solid ${daysPerWeek === d ? "#00b8db" : "#e2e8f0"}`,
-                color: daysPerWeek === d ? "white" : "#64748b",
-                transition: "all 0.1s",
-              }}
-            >
-              {d % 1 === 0 ? d : `${d}`}
+        {/* Mode toggle — 3 options */}
+        <div style={{ display: "flex", gap: "0", marginBottom: "12px", borderRadius: "9px",
+                      border: "1.5px solid #e2e8f0", overflow: "hidden", width: "fit-content" }}>
+          {([
+            { id: "per_week",        label: "Days / week" },
+            { id: "total_project",   label: "Total days (project)" },
+            { id: "total_duration",  label: "Days / duration" },
+          ] as const).map(({ id, label }) => (
+            <button key={id} type="button" onClick={() => { setDurationMode(id); setTotalDaysInput(""); }} style={{
+              padding: "6px 14px", fontSize: "11px", fontWeight: 700,
+              cursor: "pointer", border: "none", fontFamily: "'DM Sans', sans-serif",
+              background: durationMode === id ? "#00b8db" : "white",
+              color: durationMode === id ? "white" : "#64748b",
+              transition: "all 0.15s",
+              borderRight: "1px solid #e2e8f0",
+            }}>
+              {label}
             </button>
           ))}
-          <input type="hidden" name="days_per_week" value={daysPerWeek} />
-
-          {selectedPerson && (
-            <div style={{ marginLeft: "10px", flex: 1 }}>
-              <div style={{ fontSize: "10px", color: "#94a3b8", marginBottom: "4px" }}>
-                {Math.round((daysPerWeek / capacity) * 100)}% of capacity
-              </div>
-              <div style={{ height: "6px", background: "#f1f5f9", borderRadius: "4px", overflow: "hidden" }}>
-                <div style={{
-                  height: "100%", borderRadius: "4px", transition: "width 0.3s",
-                  width: `${Math.min((daysPerWeek / capacity) * 100, 100)}%`,
-                  background: utilColour(Math.round((daysPerWeek / capacity) * 100)),
-                }} />
-              </div>
-            </div>
-          )}
         </div>
+
+        {durationMode === "per_week" && (
+          <div>
+            <div style={{ fontSize: "11px", color: "#94a3b8", marginBottom: "8px" }}>
+              <span style={{ color: "#00b8db", fontWeight: 700, fontFamily: "'DM Mono', monospace" }}>
+                {daysPerWeek}d
+              </span> per week
+              {totalDays > 0 && weekCount > 0 && (
+                <span style={{ marginLeft: "8px" }}>= {totalDays} days total over {weekCount} weeks</span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
+              {[0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5].filter(d => d <= capacity).map(d => (
+                <button key={d} type="button" onClick={() => setDaysPerWeek(d)} style={{
+                  width: d % 1 === 0 ? "38px" : "34px", height: "38px",
+                  borderRadius: "8px", cursor: "pointer", fontWeight: 700,
+                  fontSize: d % 1 === 0 ? "14px" : "10px",
+                  fontFamily: "'DM Mono', monospace",
+                  background: daysPerWeek === d ? "#00b8db" : "#f8fafc",
+                  border: `1.5px solid ${daysPerWeek === d ? "#00b8db" : "#e2e8f0"}`,
+                  color: daysPerWeek === d ? "white" : "#64748b",
+                  transition: "all 0.1s",
+                }}>
+                  {d % 1 === 0 ? d : `${d}`}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {durationMode === "total_project" && (
+          <div>
+            <div style={{ fontSize: "11px", color: "#94a3b8", marginBottom: "8px" }}>
+              Total days across the whole project — spread evenly week by week.
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <input
+                type="number" min="0.5" step="0.5"
+                value={totalDaysInput}
+                onChange={e => setTotalDaysInput(e.target.value)}
+                placeholder="e.g. 20"
+                style={{
+                  width: "100px", padding: "10px 12px", borderRadius: "9px",
+                  border: "1.5px solid #e2e8f0", fontSize: "14px",
+                  fontFamily: "'DM Mono', monospace", fontWeight: 700,
+                  outline: "none", color: "#0f172a",
+                }}
+              />
+              {weekCount > 0 && totalDaysInput && (
+                <div style={{ fontSize: "11px", color: "#64748b" }}>
+                  = <span style={{ color: "#00b8db", fontWeight: 700 }}>{effectiveDaysPerWeek}d/wk</span>{" "}
+                  across {weekCount} weeks
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {durationMode === "total_duration" && (
+          <div>
+            <div style={{ fontSize: "11px", color: "#94a3b8", marginBottom: "8px" }}>
+              Days allocated per week within this duration only (e.g. 2 days/week for a 3-week sprint).
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <input
+                type="number" min="0.5" max={capacity} step="0.5"
+                value={totalDaysInput}
+                onChange={e => setTotalDaysInput(e.target.value)}
+                placeholder="e.g. 2"
+                style={{
+                  width: "100px", padding: "10px 12px", borderRadius: "9px",
+                  border: "1.5px solid #e2e8f0", fontSize: "14px",
+                  fontFamily: "'DM Mono', monospace", fontWeight: 700,
+                  outline: "none", color: "#0f172a",
+                }}
+              />
+              <div style={{ fontSize: "11px", color: "#94a3b8" }}>days / week</div>
+              {weekCount > 0 && totalDaysInput && (
+                <div style={{ fontSize: "11px", color: "#64748b" }}>
+                  = <span style={{ color: "#00b8db", fontWeight: 700 }}>{totalDays}d total</span>{" "}
+                  over {weekCount} weeks
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <input type="hidden" name="days_per_week" value={effectiveDaysPerWeek} />
+
+        {/* Usage bar */}
+        {selectedPerson && effectiveDaysPerWeek > 0 && (
+          <div style={{ marginTop: "10px" }}>
+            <div style={{ fontSize: "10px", color: "#94a3b8", marginBottom: "4px" }}>
+              {Math.round((effectiveDaysPerWeek / capacity) * 100)}% of {selectedPerson.full_name.split(" ")[0]}'s weekly capacity
+            </div>
+            <div style={{ height: "6px", background: "#f1f5f9", borderRadius: "4px", overflow: "hidden" }}>
+              <div style={{
+                height: "100%", borderRadius: "4px", transition: "width 0.3s",
+                width: `${Math.min((effectiveDaysPerWeek / capacity) * 100, 100)}%`,
+                background: utilColour(Math.round((effectiveDaysPerWeek / capacity) * 100)),
+              }} />
+            </div>
+          </div>
+        )}
+        <FieldHint>
+          Capacity: {capacity}d/wk for {selectedPerson?.full_name?.split(" ")[0] || "this person"}.
+        </FieldHint>
       </div>
 
-      {/* ── Role + Allocation type ── */}
+      {/* -- Role + Allocation type -- */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
         <div>
           <FieldLabel>Role on this project</FieldLabel>
@@ -624,13 +729,14 @@ export default function AllocateForm({
               color: "#0f172a", outline: "none", boxSizing: "border-box",
             }}
           />
+          <FieldHint>Optional -- appears in heatmap swimlane rows.</FieldHint>
         </div>
         <div>
           <FieldLabel>Allocation type</FieldLabel>
           <div style={{ display: "flex", gap: "6px" }}>
             {([
-              { v: "confirmed", l: "Confirmed" },
-              { v: "soft",      l: "Soft" },
+              { v: "confirmed", l: "Confirmed", hint: "Hard" },
+              { v: "soft",      l: "Soft",      hint: "Tentative" },
             ] as const).map(opt => (
               <button
                 key={opt.v}
@@ -651,21 +757,22 @@ export default function AllocateForm({
                     : "#94a3b8",
                 }}
               >
-                {opt.v === "confirmed" ? "◼ " : "◻ "}{opt.l}
+                {opt.v === "confirmed" ? "* " : " "}{opt.l}
               </button>
             ))}
           </div>
+          <FieldHint>Soft allocations are visible but flagged as tentative on the heatmap.</FieldHint>
         </div>
       </div>
 
-      {/* ── Notes ── */}
+      {/* -- Notes -- */}
       <div>
         <FieldLabel>Notes</FieldLabel>
         <textarea
           name="notes"
           value={notes}
           onChange={e => setNotes(e.target.value)}
-          placeholder="Sprint focus, specific responsibilities..."
+          placeholder="Sprint focus, specific responsibilities, part-time schedule..."
           rows={2}
           style={{
             width: "100%", padding: "10px 14px", borderRadius: "8px",
@@ -677,7 +784,7 @@ export default function AllocateForm({
         />
       </div>
 
-      {/* ── Capacity check preview ── */}
+      {/* -- Capacity check preview -- */}
       {(checking || checkResult) && (
         <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -687,23 +794,50 @@ export default function AllocateForm({
             }}>
               Capacity preview
             </div>
-            {checking && <div className="spinner" />}
+            {checking && (
+              <div style={{
+                width: "14px", height: "14px", borderRadius: "50%",
+                border: "2px solid #e2e8f0", borderTopColor: "#00b8db",
+                animation: "spin 0.6s linear infinite",
+              }} />
+            )}
           </div>
 
           {checkResult && !checking && (
             <>
               <ConflictTable weeks={checkResult.weeks} />
+
+              {/* Conflict callout */}
               {conflictCount > 0 && (
                 <div style={{
                   padding: "12px 16px", borderRadius: "10px",
                   background: "rgba(239,68,68,0.05)",
                   border: "1.5px solid rgba(239,68,68,0.2)",
                 }}>
-                  <div style={{ fontSize: "13px", fontWeight: 700, color: "#dc2626" }}>
-                    ⚠ {conflictCount} week{conflictCount > 1 ? "s" : ""} over capacity
+                  <div style={{ fontSize: "13px", fontWeight: 700, color: "#dc2626", marginBottom: "4px" }}>
+                    (!) {conflictCount} week{conflictCount > 1 ? "s" : ""} over capacity
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#64748b", lineHeight: 1.5 }}>
+                    You can still save -- allocation rows will be created and conflicts flagged.
+                    Or choose an alternative person below.
                   </div>
                 </div>
               )}
+
+              {/* All OK */}
+              {conflictCount === 0 && checkResult.weeks.length > 0 && (
+                <div style={{
+                  padding: "10px 14px", borderRadius: "10px",
+                  background: "rgba(16,185,129,0.06)",
+                  border: "1.5px solid rgba(16,185,129,0.2)",
+                  fontSize: "13px", color: "#059669", fontWeight: 600,
+                }}>
+                  [check] No conflicts -- {selectedPerson?.full_name?.split(" ")[0]} has capacity across all{" "}
+                  {checkResult.weeks.length} weeks.
+                </div>
+              )}
+
+              {/* Alternatives */}
               {conflictCount > 0 && checkResult.alternatives.length > 0 && (
                 <AlternativesPanel
                   alternatives={checkResult.alternatives}
@@ -718,7 +852,7 @@ export default function AllocateForm({
         </div>
       )}
 
-      {/* ── Submit ── */}
+      {/* -- Submit -- */}
       <div style={{
         paddingTop: "16px", borderTop: "1.5px solid #f1f5f9",
         display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -726,33 +860,65 @@ export default function AllocateForm({
       }}>
         <div style={{ fontSize: "12px", color: "#94a3b8" }}>
           {formValid && weekCount > 0
-            ? `Will generate ${weekCount} allocation row${weekCount !== 1 ? "s" : ""} → Supabase`
-            : "Fill in all required fields"}
+            ? `Will generate ${weekCount} allocation row${weekCount !== 1 ? "s" : ""} -> Supabase`
+            : "Fill in all required fields to continue"}
         </div>
 
         <div style={{ display: "flex", gap: "10px" }}>
-          <a href={returnTo} style={{ padding: "9px 18px", color: "#64748b", textDecoration: "none" }}>Cancel</a>
+          <a
+            href={returnTo}
+            style={{
+              padding: "9px 18px", borderRadius: "8px",
+              border: "1.5px solid #e2e8f0", background: "white",
+              color: "#64748b", fontSize: "13px", fontWeight: 600,
+              fontFamily: "'DM Sans', sans-serif", textDecoration: "none",
+              display: "inline-flex", alignItems: "center",
+            }}
+          >
+            Cancel
+          </a>
+
           <button
             type="submit"
             disabled={!formValid || isPending}
             style={{
               padding: "9px 24px", borderRadius: "8px", border: "none",
-              background: !formValid || isPending ? "#94a3b8" : (conflictCount > 0 ? "#f59e0b" : "#00b8db"),
-              color: "white", fontSize: "13px", fontWeight: 700, cursor: "pointer",
+              background: !formValid || isPending ? "#94a3b8" : (
+                conflictCount > 0 ? "#f59e0b" : "#00b8db"
+              ),
+              color: "white", fontSize: "13px", fontWeight: 700,
+              fontFamily: "'DM Sans', sans-serif", cursor: !formValid ? "not-allowed" : "pointer",
+              display: "flex", alignItems: "center", gap: "7px",
+              boxShadow: formValid ? "0 2px 12px rgba(0,184,219,0.3)" : "none",
+              transition: "all 0.15s",
             }}
           >
-            {isPending ? "Saving..." : conflictCount > 0 ? "Save with conflicts" : "Allocate"}
+            {isPending ? (
+              <>
+                <span style={{
+                  width: "14px", height: "14px", borderRadius: "50%",
+                  border: "2px solid rgba(255,255,255,0.3)",
+                  borderTopColor: "white", animation: "spin 0.6s linear infinite",
+                  display: "inline-block",
+                }} />
+                Saving...
+              </>
+            ) : conflictCount > 0 ? (
+              `(!) Save with ${conflictCount} conflict${conflictCount > 1 ? "s" : ""}`
+            ) : (
+              <>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" strokeWidth="2.5"
+                     strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+                Allocate {weekCount > 0 ? `${weekCount} weeks` : ""}
+              </>
+            )}
           </button>
         </div>
       </div>
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .spinner {
-          width: 14px; height: 14px; border-radius: 50%;
-          border: 2px solid #e2e8f0; border-top-color: #00b8db;
-          animation: spin 0.6s linear infinite;
-        }
-      `}</style>
     </form>
   );
 }
+

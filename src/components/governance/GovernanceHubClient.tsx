@@ -7,6 +7,7 @@
 // ✅ NEW: Governance Brain snapshot (org-scoped signals) surfaced in hub header
 // ✅ NEW (D): Delivery Governance link visible on hub pages
 // ✅ NEW (D): Ask Aliena response layout — Answer on top, Guidance below
+// ✅ MIN: KB Integrity badge (warn-only) via /api/ai/kb-health
 
 "use client";
 
@@ -226,6 +227,26 @@ function ragPill(rag?: string) {
   return "border-neutral-200 bg-neutral-50 text-neutral-700";
 }
 
+/* =======================
+   KB Health (minimal)
+======================= */
+
+type KbHealthResponse = {
+  ok: boolean;
+  summary?: {
+    status: "ok" | "warning";
+    counts?: { warning?: number; total?: number };
+  };
+  issues?: Array<{
+    severity: "warning";
+    type: "duplicate_title_in_category" | "missing_category";
+    title: string;
+    detail: string;
+    rows: any[];
+  }>;
+  error?: string;
+};
+
 export default function GovernanceHubClient({
   scope,
   projectId,
@@ -262,6 +283,9 @@ export default function GovernanceHubClient({
   const [brainError, setBrainError] = useState<string>("");
   const [brain, setBrain] = useState<GovernanceBrainResponse | null>(null);
 
+  // KB Health state (minimal)
+  const [kbHealth, setKbHealth] = useState<KbHealthResponse | null>(null);
+
   // ✅ Keep in sync with URL (not just mount)
   useEffect(() => {
     const wantsAsk = urlAsk === "help" || urlAsk === "1" || urlAsk === "true";
@@ -274,6 +298,40 @@ export default function GovernanceHubClient({
     // If URL removes ask flag, we do not auto-close (user may be mid-answer).
     // That keeps UX stable.
   }, [urlAsk, urlArticle]);
+
+  // ✅ Minimal KB health check (warn-only pill)
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch("/api/ai/kb-health", { method: "GET", cache: "no-store" });
+        const json = (await res.json().catch(() => null)) as KbHealthResponse | null;
+        if (cancelled) return;
+
+        if (!res.ok || !json || json.ok !== true) {
+          // Silent fail — this should never block governance hub
+          setKbHealth(null);
+          return;
+        }
+
+        setKbHealth(json);
+      } catch {
+        if (!cancelled) setKbHealth(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const kbWarnings = useMemo(() => {
+    const n = Number(kbHealth?.summary?.counts?.warning ?? 0);
+    return Number.isFinite(n) ? n : 0;
+  }, [kbHealth]);
+
+  const kbHasWarnings = kbWarnings > 0 && kbHealth?.summary?.status === "warning";
 
   const fallbackCards: Card[] = useMemo(
     () => [
@@ -646,6 +704,18 @@ export default function GovernanceHubClient({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* ✅ MIN: KB Integrity badge (warn only) */}
+            {kbHasWarnings ? (
+              <Link
+                href="/governance"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+                title="Knowledge Base integrity warnings (duplicate titles / missing categories)"
+              >
+                <AlertTriangle className="h-4 w-4" />
+                KB integrity: {kbWarnings}
+              </Link>
+            ) : null}
+
             {/* ✅ Delivery Governance Framework link */}
             <Link
               href={deliveryFrameworkHref}
@@ -686,9 +756,7 @@ export default function GovernanceHubClient({
                       <>Org-scoped governance signals</>
                     )}
                     {brain?.generated_at ? (
-                      <span className="ml-2 text-neutral-400">
-                        • Updated {new Date(brain.generated_at).toLocaleString()}
-                      </span>
+                      <span className="ml-2 text-neutral-400">• Updated {new Date(brain.generated_at).toLocaleString()}</span>
                     ) : null}
                   </div>
                 </div>
@@ -1128,8 +1196,12 @@ export default function GovernanceHubClient({
                           <div key={`blk:${idx}`} className="rounded-xl border border-neutral-200 bg-white p-3">
                             <div className="text-xs text-neutral-500">
                               {kindLabel(b.kind)}
-                              {typeof b.age_days === "number" ? <span className="ml-2 text-neutral-400">• {b.age_days}d</span> : null}
-                              {typeof b.severity === "number" ? <span className="ml-2 text-neutral-400">• Sev {b.severity}</span> : null}
+                              {typeof b.age_days === "number" ? (
+                                <span className="ml-2 text-neutral-400">• {b.age_days}d</span>
+                              ) : null}
+                              {typeof b.severity === "number" ? (
+                                <span className="ml-2 text-neutral-400">• Sev {b.severity}</span>
+                              ) : null}
                             </div>
                             <div className="mt-0.5 text-sm font-medium text-neutral-900">{b.title}</div>
                             <div className="mt-1 text-sm text-neutral-700">

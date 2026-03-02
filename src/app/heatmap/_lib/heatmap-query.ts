@@ -1,14 +1,15 @@
+// FILE: src/app/heatmap/_lib/heatmap-query.ts
 import "server-only";
 import { createClient } from "@/utils/supabase/server";
 
 /* =============================================================================
-    TYPES
+   TYPES
 ============================================================================= */
 
 export type Granularity = "weekly" | "sprint" | "monthly" | "quarterly";
 
 export type PeriodHeader = {
-  key:        string;   // ISO date of period start
+  key:        string;   // ISO date of period start (Monday for week/sprint, 1st for month/quarter)
   label:      string;   // "3 Mar", "Mar 2025", "Q1 2025"
   subLabel?:  string;   // "W9" for weekly, "S4" for sprint
   startDate:  string;
@@ -28,30 +29,30 @@ export type ProjectRow = {
   projectId:    string;
   projectTitle: string;
   projectCode:  string | null;
-  colour:        string;
+  colour:       string;
   roleOnProject: string | null;
   cells:        AllocationCell[];
   totalDays:    number;
 };
 
 export type PersonRow = {
-  personId:      string;
-  fullName:      string;
-  jobTitle:      string | null;
-  department:    string | null;
+  personId:     string;
+  fullName:     string;
+  jobTitle:     string | null;
+  department:   string | null;
   employmentType: string;
   defaultCapacityDays: number;
   avgUtilisationPct:   number;
   peakUtilisationPct:  number;
-  projects:            ProjectRow[];
-  summaryCells:        AllocationCell[]; 
+  projects:     ProjectRow[];
+  summaryCells: AllocationCell[]; // collapsed row -- total util per period
 };
 
 export type PipelineGapRow = {
   projectId:    string;
   projectTitle: string;
   projectCode:  string | null;
-  colour:        string;
+  colour:       string;
   winProbability: number;
   cells: {
     periodKey:        string;
@@ -64,12 +65,12 @@ export type PipelineGapRow = {
 
 export type HeatmapData = {
   periods:        PeriodHeader[];
-  people:          PersonRow[];
-  pipelineGaps:    PipelineGapRow[];
-  fetchedAt:       string;
-  granularity:     Granularity;
-  dateFrom:        string;
-  dateTo:          string;
+  people:         PersonRow[];
+  pipelineGaps:   PipelineGapRow[];
+  fetchedAt:      string;
+  granularity:    Granularity;
+  dateFrom:       string;
+  dateTo:         string;
 };
 
 export type HeatmapFilters = {
@@ -79,11 +80,12 @@ export type HeatmapFilters = {
   departments:     string[];
   statuses:        string[];  // "confirmed" | "pipeline" | "all"
   personIds:       string[];
+  projectIds:      string[];  // filter by specific project
   organisationId:  string;
 };
 
 /* =============================================================================
-    DATE UTILITIES
+   DATE UTILITIES
 ============================================================================= */
 
 function getMondayOf(date: Date): Date {
@@ -123,6 +125,7 @@ function formatDate(iso: string, fmt: "short" | "month" | "quarter"): string {
   if (fmt === "month") {
     return d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
   }
+  // quarter
   const q = Math.floor(d.getMonth() / 3) + 1;
   return `Q${q} ${d.getFullYear()}`;
 }
@@ -136,7 +139,7 @@ function isoWeekNumber(date: Date): number {
 }
 
 /* =============================================================================
-    PERIOD GENERATION
+   PERIOD GENERATION
 ============================================================================= */
 
 export function generatePeriods(
@@ -151,24 +154,27 @@ export function generatePeriods(
 
   if (granularity === "weekly") {
     current = getMondayOf(new Date(dateFrom + "T00:00:00"));
+    let weekNum = 0;
     while (current <= end) {
       const periodEnd = addDays(current, 6);
       const key = toIso(current);
       const wn = isoWeekNumber(current);
       periods.push({
         key,
-        label:     formatDate(key, "short"),
+        label:    formatDate(key, "short"),
         subLabel: `W${wn}`,
         startDate: key,
         endDate:   toIso(periodEnd),
         isCurrentPeriod: today >= current && today <= periodEnd,
       });
       current = addDays(current, 7);
+      weekNum++;
     }
     return periods;
   }
 
   if (granularity === "sprint") {
+    // 2-week sprints
     current = getMondayOf(new Date(dateFrom + "T00:00:00"));
     let sprintNum = 1;
     while (current <= end) {
@@ -176,7 +182,7 @@ export function generatePeriods(
       const key = toIso(current);
       periods.push({
         key,
-        label:     formatDate(key, "short"),
+        label:    formatDate(key, "short"),
         subLabel: `S${sprintNum}`,
         startDate: key,
         endDate:   toIso(periodEnd),
@@ -195,7 +201,7 @@ export function generatePeriods(
       const key = toIso(current);
       periods.push({
         key,
-        label:     formatDate(key, "month"),
+        label:    formatDate(key, "month"),
         startDate: key,
         endDate:   toIso(periodEnd),
         isCurrentPeriod:
@@ -207,16 +213,18 @@ export function generatePeriods(
     return periods;
   }
 
+  // quarterly
   current = getQuarterStart(new Date(dateFrom + "T00:00:00"));
   while (current <= end) {
     const periodEnd = new Date(current.getFullYear(), current.getMonth() + 3, 0);
     const key = toIso(current);
     periods.push({
       key,
-      label:     formatDate(key, "quarter"),
+      label:    formatDate(key, "quarter"),
       startDate: key,
       endDate:   toIso(periodEnd),
-      isCurrentPeriod: today >= current && today <= periodEnd,
+      isCurrentPeriod:
+        today >= current && today <= periodEnd,
     });
     current = new Date(current.getFullYear(), current.getMonth() + 3, 1);
   }
@@ -224,7 +232,9 @@ export function generatePeriods(
 }
 
 /* =============================================================================
-    AGGREGATE WEEK ROWS INTO PERIODS
+   AGGREGATE WEEK ROWS INTO PERIODS
+   Weekly data from DB is always stored week-by-week.
+   For sprint/monthly/quarterly we sum the weekly rows that fall within each period.
 ============================================================================= */
 
 function aggregateIntoPeriods(
@@ -236,6 +246,7 @@ function aggregateIntoPeriods(
     let totalCapacity = 0;
     const allIds: string[] = [];
 
+    // iterate weekly rows and check if their week falls in this period
     for (const [weekKey, row] of weeklyRows) {
       if (weekKey >= period.startDate && weekKey <= period.endDate) {
         totalDays     += row.days;
@@ -259,7 +270,7 @@ function aggregateIntoPeriods(
 }
 
 /* =============================================================================
-    MAIN QUERY + TRANSFORM
+   MAIN QUERY + TRANSFORM
 ============================================================================= */
 
 export async function fetchHeatmapData(
@@ -268,29 +279,31 @@ export async function fetchHeatmapData(
   const supabase = await createClient();
   const { granularity, dateFrom, dateTo, departments, statuses, personIds, organisationId } = filters;
 
+  // Always fetch weekly rows from DB -- aggregate client-side for other granularities
   const periods = generatePeriods(dateFrom, dateTo, granularity);
   const weeklyPeriods = generatePeriods(dateFrom, dateTo, "weekly");
 
-  let peopleQuery = supabase
+  // -- 1. Fetch org members + profiles (two-step to avoid FK hint issues) ----
+  const { data: memberRows } = await supabase
     .from("organisation_members")
-    .select(`
-      user_id,
-      profiles:profiles!organisation_members_user_id_fkey (
-        user_id, full_name, job_title, department,
-        employment_type, default_capacity_days, is_active
-      )
-    `)
+    .select("user_id")
     .eq("organisation_id", organisationId)
     .is("removed_at", null);
 
-  const { data: memberRows } = await peopleQuery;
+  const memberUserIds = (memberRows ?? []).map((r: any) => String(r.user_id)).filter(Boolean);
 
-  let allPeople = (memberRows ?? [])
-    .map((r: any) => {
-      const p = r.profiles;
+  const { data: profileRows } = memberUserIds.length > 0
+    ? await supabase
+        .from("profiles")
+        .select("user_id, full_name, job_title, department, employment_type, default_capacity_days, is_active")
+        .in("user_id", memberUserIds)
+    : { data: [] };
+
+  let allPeople = (profileRows ?? [])
+    .map((p: any) => {
       if (!p || p.is_active === false) return null;
       return {
-        personId:            String(p.user_id || r.user_id),
+        personId:            String(p.user_id),
         fullName:            String(p.full_name || "Unknown"),
         jobTitle:            p.job_title   ? String(p.job_title)   : null,
         department:          p.department  ? String(p.department)  : null,
@@ -298,12 +311,19 @@ export async function fetchHeatmapData(
         defaultCapacityDays: parseFloat(String(p.default_capacity_days ?? 5)),
       };
     })
-    .filter(Boolean) as any[];
+    .filter(Boolean) as Array<{
+      personId: string; fullName: string; jobTitle: string | null;
+      department: string | null; employmentType: string; defaultCapacityDays: number;
+    }>;
 
+  // Apply department filter
   if (departments.length > 0) {
-    allPeople = allPeople.filter(p => p.department && departments.includes(p.department));
+    allPeople = allPeople.filter(p =>
+      p.department && departments.includes(p.department)
+    );
   }
 
+  // Apply person filter
   if (personIds.length > 0) {
     allPeople = allPeople.filter(p => personIds.includes(p.personId));
   }
@@ -317,6 +337,7 @@ export async function fetchHeatmapData(
     };
   }
 
+  // -- 2. Fetch capacity exceptions for the date range -----------------------
   const { data: exceptionRows } = await supabase
     .from("capacity_exceptions")
     .select("person_id, week_start_date, available_days")
@@ -324,6 +345,7 @@ export async function fetchHeatmapData(
     .gte("week_start_date", dateFrom)
     .lte("week_start_date", dateTo);
 
+  // Map: personId -> weekStart -> available_days
   const exceptionMap = new Map<string, Map<string, number>>();
   for (const ex of exceptionRows ?? []) {
     const pid = String(ex.person_id);
@@ -331,6 +353,7 @@ export async function fetchHeatmapData(
     exceptionMap.get(pid)!.set(String(ex.week_start_date), parseFloat(String(ex.available_days)));
   }
 
+  // -- 3. Fetch allocations --------------------------------------------------
   let allocQuery = supabase
     .from("allocations")
     .select(`
@@ -345,15 +368,30 @@ export async function fetchHeatmapData(
     .lte("week_start_date", dateTo)
     .is("projects.deleted_at", null);
 
+  // Status filter
   const showPipeline = statuses.length === 0 || statuses.includes("pipeline");
   const showConfirmed = statuses.length === 0 || statuses.includes("confirmed");
   if (!showPipeline) allocQuery = allocQuery.neq("projects.resource_status", "pipeline");
   if (!showConfirmed) allocQuery = allocQuery.neq("projects.resource_status", "confirmed");
 
+  // Project filter
+  if (filters.projectIds && filters.projectIds.length > 0) {
+    allocQuery = allocQuery.in("project_id", filters.projectIds);
+  }
+
   const { data: allocRows } = await allocQuery;
 
+  // -- 4. Transform into PersonRow[] ----------------------------------------
+  // Structure: personId -> projectId -> weekStart -> { days, capacity, ids }
   type WeekData = { days: number; capacity: number; ids: string[] };
-  const personProjectWeeks = new Map<string, Map<string, { project: any; weeks: Map<string, WeekData> }>>();
+
+  const personProjectWeeks = new Map<
+    string,
+    Map<string, { project: any; weeks: Map<string, WeekData> }>
+  >();
+
+  // Track role per person+project
+  const personProjectRole = new Map<string, string | null>();
 
   for (const alloc of allocRows ?? []) {
     const pid     = String(alloc.person_id);
@@ -363,12 +401,19 @@ export async function fetchHeatmapData(
     const proj    = (alloc as any).projects;
     if (!proj) continue;
 
+    // Store role (first non-null wins)
+    const roleKey = `${pid}::${projId}`;
+    if (!personProjectRole.has(roleKey)) {
+      personProjectRole.set(roleKey, (alloc as any).role_on_project ?? null);
+    }
+
     if (!personProjectWeeks.has(pid)) personProjectWeeks.set(pid, new Map());
     const byProject = personProjectWeeks.get(pid)!;
 
     if (!byProject.has(projId)) byProject.set(projId, { project: proj, weeks: new Map() });
     const entry = byProject.get(projId)!;
 
+    // Get effective capacity for this week
     const personData  = allPeople.find(p => p.personId === pid);
     const defaultCap  = personData?.defaultCapacityDays ?? 5;
     const exCap       = exceptionMap.get(pid)?.get(week);
@@ -382,31 +427,42 @@ export async function fetchHeatmapData(
     wd.ids.push(String(alloc.id));
   }
 
+  // Also build per-person total weekly capacity (for summary row)
+  // personId -> weekStart -> capacity
   const personWeekCapacity = new Map<string, Map<string, number>>();
   for (const person of allPeople) {
     const capMap = new Map<string, number>();
     for (const wp of weeklyPeriods) {
-      const exCap = exceptionMap.get(person.personId)?.get(wp.key);
+      const exCap  = exceptionMap.get(person.personId)?.get(wp.key);
       capMap.set(wp.key, exCap !== undefined ? exCap : person.defaultCapacityDays);
     }
     personWeekCapacity.set(person.personId, capMap);
   }
 
+  // Build PersonRow[]
   const people: PersonRow[] = allPeople.map(person => {
     const byProject = personProjectWeeks.get(person.personId) ?? new Map();
-    const projectRows: ProjectRow[] = [];
 
+    // Build project rows
+    const projectRows: ProjectRow[] = [];
     for (const [projId, entry] of byProject) {
       const proj = entry.project;
-      const cells = aggregateIntoPeriods(entry.weeks, periods);
+
+      // Build weekly data map for this personproject
+      const weeklyData = new Map<string, WeekData>();
+      for (const [week, wd] of entry.weeks) {
+        weeklyData.set(week, wd);
+      }
+
+      const cells = aggregateIntoPeriods(weeklyData, periods);
       const totalDays = cells.reduce((s, c) => s + c.daysAllocated, 0);
 
       projectRows.push({
-        projectId: projId,
+        projectId:    projId,
         projectTitle: String(proj.title || ""),
-        projectCode: proj.project_code ? String(proj.project_code) : null,
-        colour: String(proj.colour || "#00b8db"),
-        roleOnProject: null,
+        projectCode:  proj.project_code ? String(proj.project_code) : null,
+        colour:       String(proj.colour || "#00b8db"),
+        roleOnProject: personProjectRole.get(`${person.personId}::${projId}`) ?? null,
         cells,
         totalDays: Math.round(totalDays * 10) / 10,
       });
@@ -414,6 +470,8 @@ export async function fetchHeatmapData(
 
     projectRows.sort((a, b) => b.totalDays - a.totalDays);
 
+    // Build summary cells -- total allocation across all projects per period
+    // We need per-week totals first
     const summaryWeekly = new Map<string, WeekData>();
     const capMap = personWeekCapacity.get(person.personId)!;
 
@@ -429,24 +487,29 @@ export async function fetchHeatmapData(
     }
 
     const summaryCells = aggregateIntoPeriods(summaryWeekly, periods);
+
+    // Compute avg and peak utilisation
     const utilPcts = summaryCells.map(c => c.utilisationPct).filter(p => p > 0);
-    const avgUtil  = utilPcts.length ? Math.round(utilPcts.reduce((s, p) => s + p, 0) / utilPcts.length) : 0;
+    const avgUtil  = utilPcts.length
+      ? Math.round(utilPcts.reduce((s, p) => s + p, 0) / utilPcts.length)
+      : 0;
     const peakUtil = utilPcts.length ? Math.max(...utilPcts) : 0;
 
     return {
-      personId: person.personId,
-      fullName: person.fullName,
-      jobTitle: person.jobTitle,
-      department: person.department,
-      employmentType: person.employmentType,
+      personId:            person.personId,
+      fullName:            person.fullName,
+      jobTitle:            person.jobTitle,
+      department:          person.department,
+      employmentType:      person.employmentType,
       defaultCapacityDays: person.defaultCapacityDays,
-      avgUtilisationPct: avgUtil,
-      peakUtilisationPct: peakUtil,
-      projects: projectRows,
+      avgUtilisationPct:   avgUtil,
+      peakUtilisationPct:  peakUtil,
+      projects:            projectRows,
       summaryCells,
     };
   });
 
+  // -- 5. Pipeline gap analysis ----------------------------------------------
   const { data: pipelineProjects } = await supabase
     .from("projects")
     .select(`
@@ -467,13 +530,20 @@ export async function fetchHeatmapData(
     const roles   = (proj.role_requirements ?? []) as any[];
 
     const cells = periods.map(period => {
+      // Total demand days for this period from role requirements
       let demandDays = 0;
       for (const role of roles) {
         const roleStart = role.start_date || proj.start_date;
         const roleEnd   = role.end_date   || proj.finish_date;
         if (roleStart > period.endDate || roleEnd < period.startDate) continue;
 
-        let weekCursor = getMondayOf(new Date(Math.max(new Date(roleStart + "T00:00:00").getTime(), new Date(period.startDate + "T00:00:00").getTime())));
+        // How many weeks of this role fall in this period?
+        let weekCursor = getMondayOf(new Date(
+          Math.max(
+            new Date(roleStart + "T00:00:00").getTime(),
+            new Date(period.startDate + "T00:00:00").getTime()
+          )
+        ));
         const periodEndDate = new Date(period.endDate + "T00:00:00");
         const roleEndDate   = new Date(roleEnd + "T00:00:00");
         const effectiveEnd  = roleEndDate < periodEndDate ? roleEndDate : periodEndDate;
@@ -484,10 +554,18 @@ export async function fetchHeatmapData(
         }
       }
 
+      // Available capacity in this period (sum of unallocated days across all people)
+      const periodPeople = people.filter(p => {
+        // Include everyone -- or filter by dept if needed
+        return true;
+      });
       let availableDays = 0;
-      for (const p of people) {
+      for (const p of periodPeople) {
         const cell = p.summaryCells.find(c => c.periodKey === period.key);
-        availableDays += cell ? Math.max(0, cell.capacityDays - cell.daysAllocated) : 0;
+        const free = cell
+          ? Math.max(0, cell.capacityDays - cell.daysAllocated)
+          : 0;
+        availableDays += free;
       }
 
       return {
@@ -500,37 +578,88 @@ export async function fetchHeatmapData(
     });
 
     return {
-      projectId: String(proj.id),
-      projectTitle: String(proj.title),
-      projectCode: proj.project_code ? String(proj.project_code) : null,
-      colour: String(proj.colour || "#7c3aed"),
+      projectId:      String(proj.id),
+      projectTitle:   String(proj.title),
+      projectCode:    proj.project_code ? String(proj.project_code) : null,
+      colour:         String(proj.colour || "#7c3aed"),
       winProbability: proj.win_probability ?? 50,
       cells,
     };
   });
 
-  return { periods, people, pipelineGaps, fetchedAt: new Date().toISOString(), granularity, dateFrom, dateTo };
+  return {
+    periods,
+    people,
+    pipelineGaps,
+    fetchedAt: new Date().toISOString(),
+    granularity,
+    dateFrom,
+    dateTo,
+  };
 }
+
+/* =============================================================================
+   HELPERS FOR FILTERS
+============================================================================= */
 
 export async function fetchHeatmapFilterOptions(organisationId: string) {
   const supabase = await createClient();
+
+  // Two-step: members → profile user_ids → profiles (avoids FK hint issues)
   const { data: memberRows } = await supabase
     .from("organisation_members")
-    .select(`profiles:profiles!organisation_members_user_id_fkey (
-      user_id, full_name, department, is_active
-    )`)
+    .select("user_id")
     .eq("organisation_id", organisationId)
     .is("removed_at", null);
 
-  const people = (memberRows ?? [])
-    .map((r: any) => r.profiles)
+  const memberUserIds = (memberRows ?? []).map((r: any) => String(r.user_id)).filter(Boolean);
+
+  const [profileRes, projectRes] = await Promise.all([
+    memberUserIds.length > 0
+      ? supabase
+          .from("profiles")
+          .select("user_id, full_name, job_title, department, is_active")
+          .in("user_id", memberUserIds)
+      : Promise.resolve({ data: [] }),
+
+    supabase
+      .from("projects")
+      .select("id, title, project_code, resource_status")
+      .eq("organisation_id", organisationId)
+      .is("deleted_at", null)
+      .in("resource_status", ["confirmed", "pipeline"])
+      .order("title"),
+  ]);
+
+  const people = ((profileRes as any).data ?? [])
     .filter((p: any) => p && p.is_active !== false)
     .map((p: any) => ({
-      id: String(p.user_id),
-      name: String(p.full_name || "Unknown"),
+      id:         String(p.user_id),
+      name:       String(p.full_name || "Unknown"),
       department: p.department ? String(p.department) : null,
+      jobTitle:   p.job_title  ? String(p.job_title)  : null,
     }));
 
-  const departments = Array.from(new Set(people.map((p: any) => p.department).filter(Boolean))).sort() as string[];
-  return { people, departments };
+  const departments = Array.from(
+    new Set(people.map((p: any) => p.department).filter(Boolean))
+  ).sort() as string[];
+
+  // Unique roles (job titles) for filter
+  const roles = Array.from(
+    new Set(people.map((p: any) => p.jobTitle).filter(Boolean))
+  ).sort() as string[];
+
+  const projects = ((projectRes as any).data ?? []).map((p: any) => ({
+    id:     String(p.id),
+    title:  String(p.title || ""),
+    code:   p.project_code ? String(p.project_code) : null,
+    status: String(p.resource_status || "confirmed"),
+  }));
+
+  // PMs = everyone in org with "manager" or "pm" in their job title
+  const pms = people.filter((p: any) =>
+    p.jobTitle && /manager|pm|director|lead|head/i.test(p.jobTitle)
+  );
+
+  return { people, departments, roles, projects, pms };
 }

@@ -1,4 +1,5 @@
-﻿import "server-only";
+﻿// FILE: src/app/allocations/new/page.tsx
+import "server-only";
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
@@ -50,7 +51,7 @@ export default async function NewAllocationPage({
   const sp             = (await (searchParams as any)) ?? {};
   const defaultProject = norm(sp?.project_id);
   const defaultPerson  = norm(sp?.person_id);
-  const returnTo       = norm(sp?.return_to) || "/allocations";
+  const returnTo       = norm(sp?.return_to) || "/heatmap";
   const err            = norm(sp?.err);
   const errorMsg       = flashFromErr(err);
 
@@ -61,31 +62,36 @@ export default async function NewAllocationPage({
     redirect("/projects?err=missing_org");
   }
 
-  // ── Fetch people in org ───────────────────────────────────────────────────
-  const { data: memberRows, error: memberErr } = await supabase
+  // Fetch org name for display
+  const { data: orgData } = await supabase
+    .from("organisations")
+    .select("name")
+    .eq("id", activeOrgId)
+    .maybeSingle();
+  const orgName = orgData?.name ?? activeOrgId.slice(0, 8) + "...";
+
+  // -- Fetch people in org (two-step to avoid FK hint issues) ---------------
+  const { data: memberUserRows } = await supabase
     .from("organisation_members")
-    .select(`
-      user_id,
-      profiles:profiles!organisation_members_user_id_fkey (
-        user_id,
-        full_name,
-        job_title,
-        employment_type,
-        default_capacity_days,
-        department,
-        is_active
-      )
-    `)
+    .select("user_id")
     .eq("organisation_id", activeOrgId)
     .is("removed_at", null);
 
-  const people: PersonOption[] = (memberRows ?? [])
-    .map((r: any) => {
-      const p = r.profiles;
+  const memberUserIds = (memberUserRows ?? []).map((r: any) => String(r.user_id)).filter(Boolean);
+
+  const { data: profileRows } = memberUserIds.length > 0
+    ? await supabase
+        .from("profiles")
+        .select("user_id, full_name, job_title, employment_type, default_capacity_days, department, is_active")
+        .in("user_id", memberUserIds)
+    : { data: [] };
+
+  const people: PersonOption[] = (profileRows ?? [])
+    .map((p: any) => {
       if (!p || p.is_active === false) return null;
       return {
-        user_id:               String(p.user_id || r.user_id),
-        full_name:             safeStr(p.full_name || p.email || r.user_id).trim(),
+        user_id:               String(p.user_id),
+        full_name:             safeStr(p.full_name || p.email || p.user_id).trim(),
         job_title:             safeStr(p.job_title).trim() || null,
         employment_type:       safeStr(p.employment_type || "full_time"),
         default_capacity_days: parseFloat(String(p.default_capacity_days ?? 5)),
@@ -96,13 +102,12 @@ export default async function NewAllocationPage({
 
   people.sort((a, b) => a.full_name.localeCompare(b.full_name));
 
-  // ── Fetch active projects in org ──────────────────────────────────────────
+  // -- Fetch active projects in org ------------------------------------------
   const { data: projectRows, error: projectErr } = await supabase
     .from("projects")
-    .select("id, title, project_code, colour, start_date, finish_date, status, lifecycle_status, deleted_at")
+    .select("id, title, project_code, colour, start_date, finish_date, status, resource_status, lifecycle_status, deleted_at")
     .eq("organisation_id", activeOrgId)
     .is("deleted_at", null)
-    .in("resource_status", ["confirmed", "pipeline"])
     .order("title", { ascending: true });
 
   const projects: ProjectOption[] = (projectRows ?? [])
@@ -203,11 +208,11 @@ export default async function NewAllocationPage({
           {/* Breadcrumb */}
           <nav className="alloc-breadcrumb">
             <a href="/projects">Projects</a>
-            <span>›</span>
+            <span>></span>
             {defaultProject ? (
               <>
                 <a href={`/projects/${defaultProject}`}>Project</a>
-                <span>›</span>
+                <span>></span>
               </>
             ) : null}
             <span>Allocate resource</span>
@@ -221,7 +226,7 @@ export default async function NewAllocationPage({
                   background: "rgba(0,184,219,0.1)", border: "1px solid rgba(0,184,219,0.2)",
                   display: "flex", alignItems: "center", justifyContent: "center",
                   fontSize: "18px",
-                }}>⇢</div>
+                }}></div>
                 <div>
                   <h1 style={{ fontSize: "17px", fontWeight: 800, color: "#0f172a",
                                margin: 0, marginBottom: "3px" }}>
@@ -241,7 +246,7 @@ export default async function NewAllocationPage({
                 {[
                   { l: "People available", v: people.length },
                   { l: "Active projects",  v: projects.length },
-                  { l: "Organisation",     v: activeOrgId.slice(0, 8) + "…" },
+                  { l: "Organisation",     v: orgName },
                 ].map(s => (
                   <div key={s.l}>
                     <div style={{ fontSize: "10px", color: "#94a3b8", textTransform: "uppercase",
@@ -283,3 +288,4 @@ export default async function NewAllocationPage({
     </>
   );
 }
+

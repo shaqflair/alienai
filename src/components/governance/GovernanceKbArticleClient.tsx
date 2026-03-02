@@ -51,6 +51,8 @@ function isoDateOnly(x: unknown) {
 
 function iconForSlug(slug: string) {
   const s = safeStr(slug).trim().toLowerCase();
+
+  // Core governance pillars
   if (s === "delivery-governance-framework") return <Shield className="h-5 w-5" />;
   if (s === "roles-ownership") return <Users className="h-5 w-5" />;
   if (s === "approvals-decision-control") return <FileCheck className="h-5 w-5" />;
@@ -58,6 +60,17 @@ function iconForSlug(slug: string) {
   if (s === "risk-raid-discipline") return <AlertTriangle className="h-5 w-5" />;
   if (s === "ai-assistance") return <Sparkles className="h-5 w-5" />;
   if (s === "executive-oversight") return <BarChart3 className="h-5 w-5" />;
+
+  // ✅ Finance KB (minimal integration)
+  // Covers:
+  // - "financial-governance"
+  // - "finance-overview"
+  // - "finance-resources-tab", etc.
+  // - any future "finance-*" articles
+  if (s === "financial-governance") return <BarChart3 className="h-5 w-5" />;
+  if (s === "finance-overview") return <BarChart3 className="h-5 w-5" />;
+  if (s.startsWith("finance-")) return <BarChart3 className="h-5 w-5" />;
+
   return <Shield className="h-5 w-5" />;
 }
 
@@ -170,8 +183,7 @@ export default function GovernanceKbArticleClient({
               <button
                 type="button"
                 onClick={() => {
-                  // Let URL-based auto-open work too, without navigating away
-                  // This is a nice deep-link anchor for sharing: /governance/<slug>?ask=help&article=<slug>
+                  // Deep-link share anchor: /governance/<slug>?ask=help&article=<slug>
                   try {
                     const url = new URL(window.location.href);
                     url.searchParams.set("ask", "help");
