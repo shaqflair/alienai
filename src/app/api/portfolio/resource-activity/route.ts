@@ -39,10 +39,10 @@ export async function GET(req: NextRequest) {
 
     const days = Math.min(90, Math.max(7, parseInt(req.nextUrl.searchParams.get("days") ?? "30", 10)));
 
-    // Build week range
+    // Build week range: start from THIS week, look forward by `days`
     const today = new Date();
-    const startMonday = getMondayOf(addDays(today, -(days - 1)));
-    const endMonday   = getMondayOf(today);
+    const startMonday = getMondayOf(today);
+    const endMonday   = getMondayOf(addDays(today, days - 1));
 
     const weeks: string[] = [];
     let cur = new Date(startMonday);

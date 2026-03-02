@@ -436,6 +436,8 @@ export default function AllocateForm({
 
   const conflictCount  = checkResult?.weeks.filter(w => w.has_conflict).length ?? 0;
   const weekCount      = checkResult?.weeks.length ?? weeksInRange(startDate, endDate);
+  const capacity = selectedPerson?.default_capacity_days ?? 5;
+  const dayBtns  = [1, 2, 3, 4, 5].filter(d => d <= capacity);
   const effectiveDaysPerWeek =
     durationMode === "total_project" && weekCount > 0 && totalDaysInput
       ? Math.min(Math.round((parseFloat(totalDaysInput) / weekCount) * 2) / 2, capacity)
@@ -449,9 +451,6 @@ export default function AllocateForm({
       ? (parseFloat(totalDaysInput) || 0) * weekCount
       : effectiveDaysPerWeek * weekCount;
   const formValid      = !!personId && !!projectId && !!startDate && !!endDate && effectiveDaysPerWeek > 0;
-
-  const capacity = selectedPerson?.default_capacity_days ?? 5;
-  const dayBtns  = [1, 2, 3, 4, 5].filter(d => d <= capacity);
 
   return (
     <form action={createAllocation} style={{ display: "flex", flexDirection: "column", gap: "22px" }}>
