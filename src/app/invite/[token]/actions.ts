@@ -1,3 +1,4 @@
+//src\app\invite\[token]
 "use server";
 
 import { redirect } from "next/navigation";

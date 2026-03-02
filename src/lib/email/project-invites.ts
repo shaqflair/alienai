@@ -1,3 +1,4 @@
+//src\lib\email
 import { sendEmail } from "./send";
 
 export async function sendProjectInviteEmail(args: {
