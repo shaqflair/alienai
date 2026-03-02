@@ -1,228 +1,129 @@
-﻿// FILE: src/app/timesheet/page.tsx
+﻿// FILE: src/app/capacity/page.tsx
 import "server-only";
 
-import { redirect }        from "next/navigation";
-import { createClient }    from "@/utils/supabase/server";
-import { getActiveOrgId }  from "@/utils/org/active-org";
-import TimesheetClient     from "./_components/TimesheetClient";
+import { redirect } from "next/navigation";
+import { createClient } from "@/utils/supabase/server";
+import { getActiveOrgId } from "@/utils/org/active-org";
+import CapacityClient from "./_components/CapacityClient";
+import type { ExceptionRow, PersonOption } from "./_components/CapacityClient";
 
-export const dynamic  = "force-dynamic";
-export const metadata = { title: "Timesheet | ResForce" };
+export const metadata = { title: "Leave & Capacity | ResForce" };
 
-function safeStr(x: unknown): string { return typeof x === "string" ? x : ""; }
-
-function addDays(dateStr: string, n: number): string {
-  const d = new Date(dateStr);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
+function safeStr(x: unknown) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
-function toMonday(dateStr: string): string {
-  const d   = new Date(dateStr);
-  const day = d.getUTCDay();
-  d.setUTCDate(d.getUTCDate() + (day === 0 ? -6 : 1 - day));
-  return d.toISOString().slice(0, 10);
+function defaultDateFrom() {
+  const d = new Date();
+  const day = d.getDay();
+  d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+  return d.toISOString().split("T")[0];
 }
 
-function weekIsWithinCutoff(weekStart: string, cutoffWeeks: number): boolean {
-  return new Date(weekStart).getTime() >= Date.now() - cutoffWeeks * 7 * 86400000;
+function defaultDateTo(from: string) {
+  const d = new Date(from);
+  d.setMonth(d.getMonth() + 3);
+  return d.toISOString().split("T")[0];
 }
 
-export type TimesheetProject = {
-  id: string; title: string; code: string | null; colour: string;
-};
-
-export type TimesheetEntry = {
-  id:                  string;
-  projectId:           string | null;
-  nonProjectCategory:  string | null;
-  workDate:            string;
-  hours:               number;
-  description:         string | null;
-};
-
-export type TimesheetData = {
-  id:           string | null;
-  status:       string;
-  weekStart:    string;
-  entries:      TimesheetEntry[];
-  reviewerNote: string | null;
-};
-
-export default async function TimesheetPage({
+export default async function CapacityPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ week?: string }> | { week?: string };
+  searchParams?: Promise<{ from?: string; to?: string; dept?: string }>;
 }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login?next=/timesheet");
+  if (!user) redirect("/login?next=/capacity");
 
   const orgId = await getActiveOrgId().catch(() => null);
-  if (!orgId) redirect("/projects?err=missing_org");
-  const organisationId = String(orgId);
+  const organisationId = orgId ? String(orgId) : null;
+  if (!organisationId) redirect("/projects?err=missing_org");
 
-  const sp        = await (searchParams as any ?? {});
-  const raw       = safeStr(sp?.week);
-  const weekStart = toMonday(raw || new Date().toISOString().slice(0, 10));
-  const weekEnd   = addDays(weekStart, 6);
+  const sp         = (await searchParams) ?? {};
+  const dateFrom   = safeStr(sp?.from) || defaultDateFrom();
+  const dateTo     = safeStr(sp?.to)   || defaultDateTo(dateFrom);
 
-  // Org role + cutoff setting
-  const [memberRes, orgRes] = await Promise.all([
-    supabase
-      .from("organisation_members")
-      .select("role")
-      .eq("organisation_id", organisationId)
-      .eq("user_id", user.id)
-      .is("removed_at", null)
-      .maybeSingle(),
-    supabase
-      .from("organisations")
-      .select("timesheet_cutoff_weeks")
-      .eq("id", organisationId)
-      .maybeSingle(),
-  ]);
-
-  const myRole      = safeStr(memberRes.data?.role).toLowerCase();
-  const isAdmin     = myRole === "admin" || myRole === "owner";
-  const cutoffWeeks = (orgRes.data?.timesheet_cutoff_weeks as number) ?? 4;
-  const isLocked    = !weekIsWithinCutoff(weekStart, cutoffWeeks);
-
-  // ─── PROJECTS ───────────────────────────────────────────────────────────────
-  // Fetch ALL allocations for this user (any week), plus this-week allocations
-  // separately so we can badge "ALLOC" on the current week's rows.
-  const { data: allocRows } = await supabase
-    .from("allocations")
-    .select(`
-      project_id,
-      week_start_date,
-      start_date,
-      end_date,
-      projects:projects!allocations_project_id_fkey(
-        id, title, project_code, colour, resource_status, deleted_at
-      )
-    `)
-    .eq("person_id", user.id)
-    .eq("organisation_id", organisationId);   // ← added org filter
-
-  const projectMap           = new Map<string, TimesheetProject>();
-  const allocatedThisWeekIds = new Set<string>();
-
-  for (const a of allocRows ?? []) {
-    const p = (a as any).projects;
-    if (!p || p.deleted_at) continue;
-
-    // Only active/confirmed/pipeline projects
-    const rs = safeStr(p.resource_status).toLowerCase();
-    if (rs && !["confirmed", "pipeline", "active", ""].includes(rs)) continue;
-
-    const pid = safeStr(p.id);
-
-    projectMap.set(pid, {
-      id:     pid,
-      title:  safeStr(p.title),
-      code:   p.project_code ?? null,
-      colour: safeStr(p.colour) || "#00b8db",
-    });
-
-    // Check if this allocation covers the viewed week.
-    // Support both week_start_date rows AND date-range allocations.
-    const allocWeekStart = safeStr((a as any).week_start_date);
-    const allocStart     = safeStr((a as any).start_date);
-    const allocEnd       = safeStr((a as any).end_date);
-
-    const coversThisWeek =
-      // Row-per-week style: week_start_date falls within Mon–Sun
-      (allocWeekStart && allocWeekStart >= weekStart && allocWeekStart <= weekEnd) ||
-      // Date-range style: allocation overlaps the viewed week
-      (allocStart && allocEnd && allocStart <= weekEnd && allocEnd >= weekStart) ||
-      // Date-range without end (open-ended)
-      (allocStart && !allocEnd && allocStart <= weekEnd);
-
-    if (coversThisWeek) {
-      allocatedThisWeekIds.add(pid);
-    }
-  }
-
-  // Sort: this-week allocations first, then the rest alphabetically
-  const allProjectsList = Array.from(projectMap.values());
-  const projects: TimesheetProject[] = [
-    ...allProjectsList.filter(p => allocatedThisWeekIds.has(p.id))
-                      .sort((a, b) => a.title.localeCompare(b.title)),
-    ...allProjectsList.filter(p => !allocatedThisWeekIds.has(p.id))
-                      .sort((a, b) => a.title.localeCompare(b.title)),
-  ];
-
-  // Load existing timesheet
-  const { data: ts } = await supabase
-    .from("timesheets")
-    .select(`
-      id, status, week_start_date, reviewer_note,
-      timesheet_entries(id, project_id, non_project_category, work_date, hours, description)
-    `)
+  // -- Check caller role ----------------------------------------------------
+  const { data: myMem } = await supabase
+    .from("organisation_members")
+    .select("role")
     .eq("organisation_id", organisationId)
     .eq("user_id", user.id)
-    .eq("week_start_date", weekStart)
+    .is("removed_at", null)
     .maybeSingle();
 
-  const entries: TimesheetEntry[] = ((ts as any)?.timesheet_entries ?? []).map((e: any) => ({
-    id:                 safeStr(e.id),
-    projectId:          e.project_id ?? null,
-    nonProjectCategory: e.non_project_category ?? null,
-    workDate:           safeStr(e.work_date),
-    hours:              Number(e.hours) || 0,
-    description:        e.description ?? null,
-  }));
+  const isAdmin = safeStr(myMem?.role).toLowerCase() === "admin";
 
-  const timesheetData: TimesheetData = {
-    id:           ts?.id ?? null,
-    status:       safeStr(ts?.status) || "draft",
-    weekStart,
-    entries,
-    reviewerNote: (ts as any)?.reviewer_note ?? null,
-  };
-
-  // Build recent weeks sidebar
-  const { data: recentTs } = await supabase
-    .from("timesheets")
-    .select("id, week_start_date, status")
+  // -- Fetch people (two-step to avoid FK hint issues) ------------------------
+  const { data: memberUserRows } = await supabase
+    .from("organisation_members")
+    .select("user_id")
     .eq("organisation_id", organisationId)
-    .eq("user_id", user.id)
-    .order("week_start_date", { ascending: false })
-    .limit(12);
+    .is("removed_at", null);
 
-  const seenWeeks = new Set<string>();
-  const allWeeks: { weekStart: string; status: string; id: string | null }[] = [];
+  const memberUserIds = (memberUserRows ?? []).map((r: any) => String(r.user_id)).filter(Boolean);
 
-  for (const t of recentTs ?? []) {
-    const ws = safeStr(t.week_start_date);
-    seenWeeks.add(ws);
-    allWeeks.push({ weekStart: ws, status: safeStr(t.status), id: safeStr(t.id) });
-  }
+  const [profileRes, exceptionsRes] = await Promise.all([
+    memberUserIds.length > 0
+      ? supabase
+          .from("profiles")
+          .select("user_id, full_name, department, is_active, default_capacity_days")
+          .in("user_id", memberUserIds)
+      : Promise.resolve({ data: [] as any[] }),
 
-  for (let w = 0; w <= cutoffWeeks; w++) {
-    const ws = toMonday(addDays(new Date().toISOString().slice(0, 10), -w * 7));
-    if (!seenWeeks.has(ws)) {
-      allWeeks.push({ weekStart: ws, status: "draft", id: null });
-      seenWeeks.add(ws);
-    }
-  }
+    supabase
+      .from("capacity_exceptions")
+      .select("id, person_id, week_start_date, available_days, reason, notes")
+      .gte("week_start_date", dateFrom)
+      .lte("week_start_date", dateTo)
+      .order("week_start_date", { ascending: true }),
+  ]);
 
-  allWeeks.sort((a, b) => b.weekStart.localeCompare(a.weekStart));
+  // Build a profile lookup map for exceptions
+  const profileMap = new Map<string, any>(
+    (profileRes.data ?? []).map((p: any) => [String(p.user_id), p])
+  );
+
+  // -- Build people list -----------------------------------------------------
+  const people: PersonOption[] = (profileRes.data ?? [])
+    .map((p: any) => {
+      if (!p || p.is_active === false) return null;
+      return {
+        id:         String(p.user_id),
+        fullName:   safeStr(p.full_name || "Unknown"),
+        department: p.department ? safeStr(p.department) : null,
+        defaultCap: parseFloat(String(p.default_capacity_days ?? 5)),
+      } satisfies PersonOption;
+    })
+    .filter(Boolean) as PersonOption[];
+
+  people.sort((a, b) => a.fullName.localeCompare(b.fullName));
+
+  // -- Build exceptions list -------------------------------------------------
+  const exceptions: ExceptionRow[] = (exceptionsRes.data ?? [])
+    .map((e: any) => {
+      const profile = profileMap.get(String(e.person_id));
+      return {
+        id:            String(e.id),
+        personId:      String(e.person_id),
+        fullName:      safeStr(profile?.full_name || "Unknown"),
+        weekStartDate: safeStr(e.week_start_date),
+        availableDays: parseFloat(String(e.available_days)),
+        reason:        safeStr(e.reason || "annual_leave"),
+        notes:         e.notes ? safeStr(e.notes) : null,
+        defaultCap:    parseFloat(String(profile?.default_capacity_days ?? 5)),
+      } satisfies ExceptionRow;
+    });
 
   return (
-    <TimesheetClient
-      weekStart={weekStart}
-      projects={projects}
-      allocatedProjectIds={[...allocatedThisWeekIds]}
-      timesheetData={timesheetData}
-      recentTimesheets={allWeeks.slice(0, 12)}
-      isAdmin={isAdmin}
-      isLocked={isLocked}
-      cutoffWeeks={cutoffWeeks}
+    <CapacityClient
+      exceptions={exceptions}
+      people={people}
       organisationId={organisationId}
-      userId={user.id}
-      userName={safeStr(user.email)}
+      currentUserId={user.id}
+      isAdmin={isAdmin}
+      dateFrom={dateFrom}
+      dateTo={dateTo}
     />
   );
 }
