@@ -24,9 +24,7 @@ import {
 
 import {
   AlertCircle,
-  CheckCircle2,
   ChevronDown,
-  Clock,
   Download,
   File,
   FileText,
@@ -34,7 +32,6 @@ import {
   Save,
   Send,
   Wand2,
-  Zap,
   Shield,
   Sparkles,
 } from "lucide-react";
@@ -304,17 +301,32 @@ function LegacyLinks({ legacy }: { legacy?: LegacyExports | null }) {
     <div className="flex items-center gap-3 text-xs text-slate-400">
       <span className="font-medium text-slate-500 uppercase tracking-wider text-[10px]">Legacy:</span>
       {legacy?.pdf ? (
-        <a className="text-indigo-500 hover:text-indigo-700 transition-colors font-medium" href={legacy.pdf} target="_blank" rel="noreferrer">
+        <a
+          className="text-indigo-500 hover:text-indigo-700 transition-colors font-medium"
+          href={legacy.pdf}
+          target="_blank"
+          rel="noreferrer"
+        >
           PDF
         </a>
       ) : null}
       {legacy?.docx ? (
-        <a className="text-indigo-500 hover:text-indigo-700 transition-colors font-medium" href={legacy.docx} target="_blank" rel="noreferrer">
+        <a
+          className="text-indigo-500 hover:text-indigo-700 transition-colors font-medium"
+          href={legacy.docx}
+          target="_blank"
+          rel="noreferrer"
+        >
           DOCX
         </a>
       ) : null}
       {legacy?.xlsx ? (
-        <a className="text-indigo-500 hover:text-indigo-700 transition-colors font-medium" href={legacy.xlsx} target="_blank" rel="noreferrer">
+        <a
+          className="text-indigo-500 hover:text-indigo-700 transition-colors font-medium"
+          href={legacy.xlsx}
+          target="_blank"
+          rel="noreferrer"
+        >
           XLSX
         </a>
       ) : null}
@@ -444,6 +456,33 @@ function applyAiResultToDoc(prevDoc: any, sectionKey: string, data: any) {
   return ensureCanonicalCharter(prevDoc);
 }
 
+/* ---------------------------------------------
+   Robustly read capabilities response
+   - supports both {full,...} and {capabilities:{full,...}}
+---------------------------------------------- */
+function coerceWireCaps(payload: any): WireCaps | null {
+  if (!payload || typeof payload !== "object") return null;
+  const root = payload.capabilities && typeof payload.capabilities === "object" ? payload.capabilities : payload;
+  if (!root || typeof root !== "object") return null;
+
+  const full = (root as any).full;
+  const section = (root as any).section;
+  const suggest = (root as any).suggest;
+  const validate = (root as any).validate;
+
+  // only accept if at least one key exists
+  if (typeof full !== "boolean" && typeof section !== "boolean" && typeof suggest !== "boolean" && typeof validate !== "boolean") {
+    return null;
+  }
+
+  return {
+    full: typeof full === "boolean" ? full : true,
+    section: typeof section === "boolean" ? section : true,
+    suggest: typeof suggest === "boolean" ? suggest : true,
+    validate: typeof validate === "boolean" ? validate : true,
+  };
+}
+
 export default function ProjectCharterEditorFormLazy({
   projectId,
   artifactId,
@@ -502,11 +541,12 @@ export default function ProjectCharterEditorFormLazy({
   const [pmBrief, setPmBrief] = useState<string>(() => getPmBrief((ensureCanonicalCharter(initialJson) as any)?.meta));
   const [aiFullBusy, setAiFullBusy] = useState(false);
 
+  // Default to "true" to avoid dead UX. Server errors will give real reasons.
   const [wireCaps, setWireCaps] = useState<WireCaps>({
     full: true,
-    section: false,
-    suggest: false,
-    validate: false,
+    section: true,
+    suggest: true,
+    validate: true,
   });
 
   const [exportBusy, setExportBusy] = useState<null | "pdf" | "docx">(null);
@@ -553,15 +593,8 @@ export default function ProjectCharterEditorFormLazy({
         const res = await fetch("/api/wireai/capabilities", { method: "GET", cache: "no-store" });
         if (!res.ok) return;
         const data = await res.json().catch(() => null);
-        if (!data || typeof data !== "object") return;
-
-        const next: WireCaps = {
-          full: !!(data as any).full,
-          section: !!(data as any).section,
-          suggest: !!(data as any).suggest,
-          validate: !!(data as any).validate,
-        };
-
+        const next = coerceWireCaps(data);
+        if (!next) return;
         if (!cancelled) setWireCaps(next);
       } catch {}
     }
@@ -823,9 +856,7 @@ export default function ProjectCharterEditorFormLazy({
   const submitWired = !!submitForApprovalAction;
 
   const submitLabel =
-    String(approvalStatus || "").toLowerCase() === "changes_requested"
-      ? "Resubmit for approval"
-      : "Submit for approval";
+    String(approvalStatus || "").toLowerCase() === "changes_requested" ? "Resubmit for approval" : "Submit for approval";
 
   const submitDisabled = !submitWired || !canSubmitOrResubmit || readOnly || lockLayout || isPending;
 
@@ -843,9 +874,14 @@ export default function ProjectCharterEditorFormLazy({
 
   async function generateFullCharter() {
     if (!canEdit) return;
-    if (!wireCaps.full) return;
 
-    setAiError("");
+    // Soft warning only — do NOT block.
+    if (wireCaps.full === false) {
+      setAiError("AI generation appears disabled (capability off). Trying anyway…");
+    } else {
+      setAiError("");
+    }
+
     setAiState("generating");
     setAiLoadingKey("__full__");
     setAiFullBusy(true);
@@ -898,6 +934,7 @@ export default function ProjectCharterEditorFormLazy({
       setDoc((prev: any) => mergeAiFullIntoCharter(prev, data));
       lastLocalEditAtRef.current = Date.now();
       setDirty(true);
+      setAiError("");
     } catch (e: any) {
       setAiState("error");
       setAiError(String(e?.message ?? "AI full generation failed"));
@@ -913,13 +950,13 @@ export default function ProjectCharterEditorFormLazy({
     const key = String(sectionKey || "").trim();
     if (!key) return;
 
-    if (!wireCaps.section) {
-      setAiState("error");
-      setAiError("Section regeneration is not available (capability off).");
-      return;
+    // Soft warning only — do NOT block.
+    if (wireCaps.section === false) {
+      setAiError("Section regeneration appears disabled (capability off). Trying anyway…");
+    } else {
+      setAiError("");
     }
 
-    setAiError("");
     setAiState("generating");
     setAiLoadingKey(key);
 
@@ -953,6 +990,7 @@ export default function ProjectCharterEditorFormLazy({
       setDoc((prev: any) => applyAiResultToDoc(prev, key, data));
       lastLocalEditAtRef.current = Date.now();
       setDirty(true);
+      setAiError("");
     } catch (e: any) {
       setAiState("error");
       setAiError(String(e?.message ?? "AI regeneration failed"));
@@ -964,16 +1002,17 @@ export default function ProjectCharterEditorFormLazy({
 
   async function improveSection(payload: ImproveSectionPayload) {
     if (!canEdit) return;
-    if (!wireCaps.suggest && !wireCaps.section) {
-      setAiState("error");
-      setAiError("Improve is not available (capability off).");
-      return;
+
+    // Soft warning only — do NOT block.
+    if (wireCaps.suggest === false && wireCaps.section === false) {
+      setAiError("Improve appears disabled (capability off). Trying anyway…");
+    } else {
+      setAiError("");
     }
 
     const key = String(payload?.sectionKey ?? "").trim();
     if (!key) return;
 
-    setAiError("");
     setAiState("generating");
     setAiLoadingKey(key);
 
@@ -1011,6 +1050,7 @@ export default function ProjectCharterEditorFormLazy({
       setDoc((prev: any) => applyAiResultToDoc(prev, key, data));
       lastLocalEditAtRef.current = Date.now();
       setDirty(true);
+      setAiError("");
     } catch (e: any) {
       setAiState("error");
       setAiError(String(e?.message ?? "AI improve failed"));
@@ -1023,23 +1063,14 @@ export default function ProjectCharterEditorFormLazy({
   const pmBriefEmpty = !isNonEmptyString(pmBrief);
 
   return (
-    <div
-      className="space-y-6 max-w-7xl mx-auto px-4 py-6"
-      style={{ fontFamily: "'DM Sans', system-ui, -apple-system, sans-serif" }}
-    >
+    <div className="space-y-6 max-w-7xl mx-auto px-4 py-6" style={{ fontFamily: "'DM Sans', system-ui, -apple-system, sans-serif" }}>
       {/* Inject fonts */}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&display=swap');
 
-        .charter-form * {
-          font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
-        }
-        .charter-form .font-display {
-          font-family: 'Fraunces', Georgia, serif;
-        }
-        .charter-form .font-mono {
-          font-family: 'DM Mono', 'SF Mono', monospace;
-        }
+        .charter-form * { font-family: 'DM Sans', system-ui, -apple-system, sans-serif; }
+        .charter-form .font-display { font-family: 'Fraunces', Georgia, serif; }
+        .charter-form .font-mono { font-family: 'DM Mono', 'SF Mono', monospace; }
 
         .glass-card {
           background: rgba(255, 255, 255, 0.82);
@@ -1079,10 +1110,7 @@ export default function ProjectCharterEditorFormLazy({
           50% { background-position: 100% 50%; }
         }
 
-        .view-toggle {
-          background: rgba(241, 245, 249, 0.8);
-          backdrop-filter: blur(8px);
-        }
+        .view-toggle { background: rgba(241, 245, 249, 0.8); backdrop-filter: blur(8px); }
 
         .brief-card {
           background: linear-gradient(135deg, rgba(238, 242, 255, 0.5) 0%, rgba(224, 231, 255, 0.3) 100%);
@@ -1094,17 +1122,10 @@ export default function ProjectCharterEditorFormLazy({
           border: 1px solid rgba(252, 165, 165, 0.4);
         }
 
-        .fade-in {
-          animation: fadeIn 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(6px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
+        .fade-in { animation: fadeIn 0.35s cubic-bezier(0.4, 0, 0.2, 1); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
-        .charter-brief-textarea {
-          transition: all 0.2s ease;
-        }
+        .charter-brief-textarea { transition: all 0.2s ease; }
         .charter-brief-textarea:focus {
           box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.08), 0 2px 8px rgba(99, 102, 241, 0.04);
         }
@@ -1128,10 +1149,7 @@ export default function ProjectCharterEditorFormLazy({
                 {approvalEnabled ? (
                   <span
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide uppercase"
-                    style={{
-                      background: "linear-gradient(135deg, #1e1b4b, #312e81)",
-                      color: "white",
-                    }}
+                    style={{ background: "linear-gradient(135deg, #1e1b4b, #312e81)", color: "white" }}
                   >
                     <Shield className="h-3 w-3" />
                     {String(approvalStatus || "draft").replace(/_/g, " ")}
@@ -1140,11 +1158,7 @@ export default function ProjectCharterEditorFormLazy({
               </div>
 
               <p className="text-sm text-slate-500 leading-relaxed">
-                {readOnly
-                  ? "View-only mode"
-                  : lockLayout
-                    ? "Layout locked after submission"
-                    : "Edit and manage your project charter"}
+                {readOnly ? "View-only mode" : lockLayout ? "Layout locked after submission" : "Edit and manage your project charter"}
               </p>
 
               <LegacyLinks legacy={legacyExports ?? null} />
@@ -1226,11 +1240,7 @@ export default function ProjectCharterEditorFormLazy({
                       className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border border-slate-200/80 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 transition-all"
                       disabled={!!exportBusy}
                     >
-                      {exportBusy ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Download className="h-4 w-4 text-slate-500" />
-                      )}
+                      {exportBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4 text-slate-500" />}
                       {exportBusy ? "Exporting…" : "Export"}
                       <ChevronDown className="h-3 w-3 opacity-40" />
                     </button>
@@ -1263,10 +1273,7 @@ export default function ProjectCharterEditorFormLazy({
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : (
-                <button
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border border-slate-200/80 bg-white text-slate-500"
-                  disabled
-                >
+                <button className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border border-slate-200/80 bg-white text-slate-500" disabled>
                   <Download className="h-4 w-4" />
                   Export
                   <ChevronDown className="h-3 w-3 opacity-40" />
@@ -1328,21 +1335,17 @@ export default function ProjectCharterEditorFormLazy({
                   <button
                     type="button"
                     className="btn-ai-generate inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white disabled:cursor-not-allowed"
-                    disabled={!canEdit || isPending || aiState === "generating" || aiFullBusy || !wireCaps.full}
+                    disabled={!canEdit || isPending || aiState === "generating" || aiFullBusy}
                     onClick={() => generateFullCharter()}
                     title={
-                      !wireCaps.full
-                        ? "Full AI generation is not available."
+                      wireCaps.full === false
+                        ? "AI capability appears off — click to try anyway (env/permissions may be missing)."
                         : pmBriefEmpty
                           ? "Add a brief first (recommended)"
                           : "Generate the full charter from your brief"
                     }
                   >
-                    {aiFullBusy ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Wand2 className="h-4 w-4" />
-                    )}
+                    {aiFullBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
                     Generate
                   </button>
                 </div>
@@ -1373,11 +1376,7 @@ export default function ProjectCharterEditorFormLazy({
           {/* Footer info */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="font-mono text-[11px] text-slate-400 tracking-wide">
-              {lastSavedIso ? (
-                <>Last saved {fmtWhenLocal(lastSavedIso)}</>
-              ) : (
-                "—"
-              )}
+              {lastSavedIso ? <>Last saved {fmtWhenLocal(lastSavedIso)}</> : "—"}
             </div>
 
             {aiState === "error" && aiError ? (
@@ -1417,10 +1416,7 @@ export default function ProjectCharterEditorFormLazy({
               onChange={(sections: any) => {
                 markDirty();
                 setDoc((prev: any) =>
-                  applyProjectMetaDefaults(ensureCanonicalCharter({ ...prev, sections }), {
-                    projectTitle,
-                    projectManagerName,
-                  })
+                  applyProjectMetaDefaults(ensureCanonicalCharter({ ...prev, sections }), { projectTitle, projectManagerName })
                 );
               }}
               readOnly={sectionReadOnly}
