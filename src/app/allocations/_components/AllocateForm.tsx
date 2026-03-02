@@ -397,6 +397,25 @@ export default function AllocateForm({
     }
   }, [projectId]);
 
+  // ── Derived values (must be declared BEFORE useCallback that references them) ──
+  const conflictCount  = checkResult?.weeks.filter(w => w.has_conflict).length ?? 0;
+  const weekCount      = checkResult?.weeks.length ?? weeksInRange(startDate, endDate);
+  const capacity = selectedPerson?.default_capacity_days ?? 5;
+  const dayBtns  = [1, 2, 3, 4, 5].filter(d => d <= capacity);
+  const effectiveDaysPerWeek =
+    durationMode === "total_project" && weekCount > 0 && totalDaysInput
+      ? Math.min(Math.round((parseFloat(totalDaysInput) / weekCount) * 2) / 2, capacity)
+      : durationMode === "total_duration" && totalDaysInput
+      ? Math.min(parseFloat(totalDaysInput) || 0, capacity)
+      : daysPerWeek;
+  const totalDays =
+    durationMode === "total_project" && totalDaysInput
+      ? parseFloat(totalDaysInput) || 0
+      : durationMode === "total_duration" && totalDaysInput
+      ? (parseFloat(totalDaysInput) || 0) * weekCount
+      : effectiveDaysPerWeek * weekCount;
+  const formValid = !!personId && !!projectId && !!startDate && !!endDate && effectiveDaysPerWeek > 0;
+
   // Run capacity check whenever key fields change
   const runCheck = useCallback(async () => {
     if (!personId || !projectId || !startDate || !endDate || daysPerWeek <= 0) {
@@ -433,24 +452,6 @@ export default function AllocateForm({
     const t = setTimeout(runCheck, 400); // debounce
     return () => clearTimeout(t);
   }, [runCheck]);
-
-  const conflictCount  = checkResult?.weeks.filter(w => w.has_conflict).length ?? 0;
-  const weekCount      = checkResult?.weeks.length ?? weeksInRange(startDate, endDate);
-  const capacity = selectedPerson?.default_capacity_days ?? 5;
-  const dayBtns  = [1, 2, 3, 4, 5].filter(d => d <= capacity);
-  const effectiveDaysPerWeek =
-    durationMode === "total_project" && weekCount > 0 && totalDaysInput
-      ? Math.min(Math.round((parseFloat(totalDaysInput) / weekCount) * 2) / 2, capacity)
-      : durationMode === "total_duration" && totalDaysInput
-      ? Math.min(parseFloat(totalDaysInput) || 0, capacity)
-      : daysPerWeek;
-  const totalDays =
-    durationMode === "total_project" && totalDaysInput
-      ? parseFloat(totalDaysInput) || 0
-      : durationMode === "total_duration" && totalDaysInput
-      ? (parseFloat(totalDaysInput) || 0) * weekCount
-      : effectiveDaysPerWeek * weekCount;
-  const formValid      = !!personId && !!projectId && !!startDate && !!endDate && effectiveDaysPerWeek > 0;
 
   return (
     <form action={createAllocation} style={{ display: "flex", flexDirection: "column", gap: "22px" }}>
