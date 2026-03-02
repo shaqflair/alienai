@@ -30,6 +30,7 @@ function utilTier(pct: number): keyof typeof UTIL_COLOURS {
 
 function utilLabel(pct: number) {
   if (pct === 0) return "";
+  if (pct > 200) return ">200%";
   return `${pct}%`;
 }
 
@@ -143,8 +144,7 @@ function HeatmapEditModal({
     startTransition(async () => {
       try {
         await updateAllocation(fd);
-        onSaved();
-        onClose();
+        onSaved(); // onSaved now closes modal + triggers background refetch
       } catch (e: any) { setError(e.message || "Failed to update"); }
     });
   }
@@ -157,8 +157,7 @@ function HeatmapEditModal({
     startTransition(async () => {
       try {
         await deleteAllocationDirect(fd);
-        onSaved();
-        onClose();
+        onSaved(); // onSaved now closes modal + triggers background refetch
       } catch (e: any) { setError(e.message || "Failed to remove"); }
     });
   }
@@ -468,7 +467,7 @@ function UtilBadge({ pct }: { pct: number }) {
       fontSize: "10px", fontWeight: 700, fontFamily: "'DM Mono', monospace",
       background: col.bg, color: col.text, border: `1px solid ${col.border}`,
       borderRadius: "4px", padding: "1px 5px",
-    }}>{pct}%</span>
+    }}>{utilLabel(pct)}</span>
   );
 }
 
@@ -558,9 +557,9 @@ function HeatmapCell({
       position: "relative",
       flexShrink: 0,
     }}
-      title={cell ? `${cell.daysAllocated}d / ${cell.capacityDays}d capacity` : "No allocation"}
+      title={cell ? `${cell.daysAllocated}d allocated / ${cell.capacityDays}d capacity (${pct}%)` : "No allocation"}
     >
-      {pct > 0 ? `${pct}%` : "--"}
+      {pct > 0 ? utilLabel(pct) : "--"}
       {/* Util bar at bottom */}
       {pct > 0 && (
         <div style={{
@@ -1579,7 +1578,11 @@ export default function HeatmapClient({
           allPeople={allPeople}
           allProjects={allProjects}
           onClose={() => setEditCell(null)}
-          onSaved={() => fetchData(filters)}
+      onSaved={() => {
+                        // Close modal immediately for snappy UX, refetch silently in background
+                        setEditCell(null);
+                        fetchData(filters);
+                      }}
         />
       )}
     </>
