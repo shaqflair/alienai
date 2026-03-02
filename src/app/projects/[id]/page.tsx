@@ -1,4 +1,4 @@
-// // FILE: src/app/projects/[id]/page.tsx
+// FILE: src/app/projects/[id]/page.tsx
 import "server-only";
 
 import Link from "next/link";
@@ -6,7 +6,6 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { fetchProjectResourceData, projectWeekPeriods } from "./_lib/resource-data";
 import ProjectResourcePanel from "./_components/ProjectResourcePanel";
-import { convertPipelineToConfirmed } from "../../actions";
 
 /* =========================================================
    small helpers
@@ -84,11 +83,7 @@ async function resolveProjectUuidFast(supabase: any, identifier: string) {
   const normalized = normalizeProjectIdentifier(raw);
 
   for (const col of HUMAN_COL_CANDIDATES) {
-    const { data, error } = await supabase
-      .from("projects")
-      .select("*")
-      .eq(col, normalized)
-      .maybeSingle();
+    const { data, error } = await supabase.from("projects").select("*").eq(col, normalized).maybeSingle();
     if (error) {
       if (isMissingColumnError(error.message, col)) continue;
       if (isInvalidInputSyntaxError(error)) continue;
@@ -101,9 +96,7 @@ async function resolveProjectUuidFast(supabase: any, identifier: string) {
 }
 
 function bestProjectRole(rows: Array<{ role?: string | null }> | null | undefined) {
-  const roles = (rows ?? [])
-    .map((r) => String(r?.role ?? "").toLowerCase())
-    .filter(Boolean);
+  const roles = (rows ?? []).map((r) => String(r?.role ?? "").toLowerCase()).filter(Boolean);
   if (!roles.length) return "";
   if (roles.includes("owner")) return "owner";
   if (roles.includes("editor")) return "editor";
@@ -119,16 +112,61 @@ function flashText(msg: string | undefined, conflicts: string | undefined) {
   if (!msg) return null;
   if (msg === "allocated") {
     const c = conflicts ? parseInt(conflicts) : 0;
-    return c > 0
-      ? `✓ Allocated — ${c} conflict week${c > 1 ? "s" : ""} flagged`
-      : "✓ Resource allocated successfully";
+    return c > 0 ? `✓ Allocated — ${c} conflict week${c > 1 ? "s" : ""} flagged` : "✓ Resource allocated successfully";
   }
   if (msg === "allocation_removed") return "Allocation removed.";
   if (msg === "week_removed") return "Week removed.";
   if (msg === "week_updated") return "Week updated.";
-  if (msg === "converted_to_confirmed")
-    return "✓ Project converted to Confirmed — now live on the capacity heatmap.";
+  if (msg === "converted_to_confirmed") return "✓ Project converted to Confirmed — now live on the capacity heatmap.";
   return null;
+}
+
+/* =========================================================
+   Server Action (local) — fixes missing ../../actions import
+========================================================= */
+
+async function convertPipelineToConfirmed(formData: FormData) {
+  "use server";
+
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+    error: uErr,
+  } = await supabase.auth.getUser();
+
+  if (uErr) throw uErr;
+  if (!user) redirect("/login");
+
+  const projectId = safeStr(formData.get("project_id")).trim();
+  const returnTo = safeStr(formData.get("return_to")).trim() || "/projects";
+
+  if (!projectId) redirect(`${returnTo}?err=missing_project_id`);
+
+  // Permission check (must be owner/editor on active membership)
+  const { data: memRows, error: memErr } = await supabase
+    .from("project_members")
+    .select("role")
+    .eq("project_id", projectId)
+    .eq("user_id", user.id)
+    .eq("is_active", true);
+
+  if (memErr) throw memErr;
+
+  const myRole = bestProjectRole(memRows as any);
+  const canEdit = myRole === "owner" || myRole === "editor";
+  if (!canEdit) redirect(`${returnTo}?err=forbidden`);
+
+  // Update project status (defensive: only flip if currently pipeline)
+  const { error: upErr } = await supabase
+    .from("projects")
+    .update({ resource_status: "confirmed" })
+    .eq("id", projectId)
+    .eq("resource_status", "pipeline");
+
+  if (upErr) throw upErr;
+
+  redirect(`${returnTo}?msg=converted_to_confirmed`);
 }
 
 /* =========================================================
@@ -197,9 +235,7 @@ export default async function ProjectPage({
   const [resourceData] = await Promise.allSettled([fetchProjectResourceData(projectUuid)]);
 
   const resource = resourceData.status === "fulfilled" ? resourceData.value : null;
-  const periods = resource
-    ? projectWeekPeriods(resource.project.start_date, resource.project.finish_date)
-    : [];
+  const periods = resource ? projectWeekPeriods(resource.project.start_date, resource.project.finish_date) : [];
 
   const canEdit = myRole === "owner" || myRole === "editor";
 
@@ -263,7 +299,7 @@ export default async function ProjectPage({
                 fontWeight: 500,
               }}
             >
-              ← Projects
+              {"<-"} Projects
             </Link>
 
             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -298,6 +334,7 @@ export default async function ProjectPage({
               >
                 {myRole}
               </span>
+
               {project?.resource_status === "pipeline" && (
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                   <span
@@ -313,9 +350,11 @@ export default async function ProjectPage({
                   >
                     ◎ Pipeline
                   </span>
+
                   {canEdit && (
                     <form action={convertPipelineToConfirmed}>
                       <input type="hidden" name="project_id" value={project.id} />
+                      <input type="hidden" name="return_to" value={`/projects/${projectRefForUrls}`} />
                       <button
                         type="submit"
                         style={{
@@ -386,9 +425,7 @@ export default async function ProjectPage({
                   flexShrink: 0,
                 }}
               />
-              <h1 style={{ fontSize: "26px", fontWeight: 800, color: "#0f172a", margin: 0 }}>
-                {projectTitle}
-              </h1>
+              <h1 style={{ fontSize: "26px", fontWeight: 800, color: "#0f172a", margin: 0 }}>{projectTitle}</h1>
             </div>
 
             {/* Nav tabs */}
@@ -409,7 +446,7 @@ export default async function ProjectPage({
                 Members
               </Link>
               <Link className="pp-nav-link" href="/heatmap" style={{ marginLeft: "auto" }}>
-                # Full heatmap →
+                # Full heatmap {"->"}
               </Link>
             </nav>
           </header>
@@ -430,10 +467,7 @@ export default async function ProjectPage({
             </div>
             <p style={{ fontSize: "13px", color: "#475569", margin: 0 }}>
               Go to{" "}
-              <Link
-                href={`/projects/${projectRefForUrls}/artifacts`}
-                style={{ color: "#00b8db", fontWeight: 600, textDecoration: "none" }}
-              >
+              <Link href={`/projects/${projectRefForUrls}/artifacts`} style={{ color: "#00b8db", fontWeight: 600, textDecoration: "none" }}>
                 Artifacts
               </Link>{" "}
               to create and manage documentation.
@@ -444,7 +478,7 @@ export default async function ProjectPage({
                     href={`/allocations/new?project_id=${projectUuid}&return_to=/projects/${projectRefForUrls}`}
                     style={{ color: "#00b8db", fontWeight: 600, textDecoration: "none" }}
                   >
-                    Allocate a resource →
+                    Allocate a resource {"->"}
                   </a>
                 </>
               )}
@@ -467,8 +501,7 @@ export default async function ProjectPage({
                 fontSize: "13px",
               }}
             >
-              Resource data could not be loaded. Run the <code>allocations_migration.sql</code> migration to enable
-              this section.
+              Resource data could not be loaded. Run the <code>allocations_migration.sql</code> migration to enable this section.
             </div>
           )}
         </div>
