@@ -20,11 +20,7 @@ function norm(x: unknown) {
 }
 
 function defaultDateFrom(): string {
-  const d = new Date();
-  const day  = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  return d.toISOString().split("T")[0];
+  return new Date().toISOString().split("T")[0];
 }
 
 function defaultDateTo(from: string): string {
