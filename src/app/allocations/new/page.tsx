@@ -208,11 +208,11 @@ export default async function NewAllocationPage({
           {/* Breadcrumb */}
           <nav className="alloc-breadcrumb">
             <a href="/projects">Projects</a>
-            <span>></span>
+            <span>{">"}</span>
             {defaultProject ? (
               <>
                 <a href={`/projects/${defaultProject}`}>Project</a>
-                <span>></span>
+                <span>{">"}</span>
               </>
             ) : null}
             <span>Allocate resource</span>

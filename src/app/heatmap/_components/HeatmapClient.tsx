@@ -311,7 +311,7 @@ function PersonHeatmapRow({
             transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
             transition: "transform 0.2s", display: "inline-block",
             width: "14px", flexShrink: 0,
-          }}{'>'}></span>
+          }}>{">"}</span>
           <Avatar name={person.fullName} size={28} />
           <div style={{ minWidth: 0 }}>
             <div style={{
@@ -1175,3 +1175,4 @@ export default function HeatmapClient({
     </>
   );
 }
+
