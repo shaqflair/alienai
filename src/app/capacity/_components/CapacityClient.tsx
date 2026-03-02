@@ -44,7 +44,7 @@ const REASON_META: Record<string, { label: string; colour: string; bg: string; e
   training:       { label: "Training",       colour: "#f59e0b", bg: "rgba(245,158,11,0.1)",  emoji: "" },
   sick_leave:     { label: "Sick leave",     colour: "#ef4444", bg: "rgba(239,68,68,0.1)",   emoji: "" },
   parental_leave: { label: "Parental leave", colour: "#ec4899", bg: "rgba(236,72,153,0.1)",  emoji: "" },
-  other:          { label: "Other",          colour: "#64748b", bg: "rgba(100,116,139,0.1)", emoji: "[clipboard]" },
+  other:          { label: "Other",          colour: "#64748b", bg: "rgba(100,116,139,0.1)", emoji: "📋" },
 };
 
 const AVAILABLE_DAYS_OPTIONS = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
@@ -864,7 +864,7 @@ export default function CapacityClient({
                   color: view === v ? "#0f172a" : "#64748b",
                   boxShadow: view === v ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
                   transition: "all 0.15s", textTransform: "capitalize",
-                }}>{v === "calendar" ? "[calendar] Calendar" : "[clipboard] List"}</button>
+                }}>{v === "calendar" ? "📅 Calendar" : "📋 List"}</button>
               ))}
             </div>
 
@@ -872,7 +872,7 @@ export default function CapacityClient({
             <input type="date" value={from}
               onChange={e => setFrom(e.target.value)}
               style={{ ...inputStyle, width: "140px" }} />
-            <span style={{ fontSize: "12px", color: "#94a3b8" }}> {'->'}</span>
+            <span style={{ fontSize: "12px", color: "#94a3b8" }}>{"→"}</span>
             <input type="date" value={to}
               onChange={e => setTo(e.target.value)}
               style={{ ...inputStyle, width: "140px" }} />
