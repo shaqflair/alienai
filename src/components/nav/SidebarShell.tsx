@@ -1,6 +1,7 @@
-﻿"use client";
+﻿// "use client";
 // FILE: src/components/nav/SidebarShell.tsx
 
+import React from "react";
 import { usePathname } from "next/navigation";
 import Sidebar from "./Sidebar";
 
@@ -14,9 +15,7 @@ const NO_SIDEBAR_PREFIXES = [
 ];
 
 function shouldShowSidebar(pathname: string): boolean {
-  return !NO_SIDEBAR_PREFIXES.some(
-    p => pathname === p || pathname.startsWith(p + "/")
-  );
+  return !NO_SIDEBAR_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
 export default function SidebarShell({
@@ -24,11 +23,11 @@ export default function SidebarShell({
   userName,
   orgName,
 }: {
-  children:  React.ReactNode;
-  userName:  string | null;
-  orgName:   string | null;
+  children: React.ReactNode;
+  userName: string | null;
+  orgName: string | null;
 }) {
-  const pathname    = usePathname();
+  const pathname = usePathname();
   const showSidebar = shouldShowSidebar(pathname);
 
   if (!showSidebar) {
@@ -36,25 +35,25 @@ export default function SidebarShell({
   }
 
   return (
-    <div style={{
-      display: "flex",
-      // Takes remaining height after AppHeader.
-      // If your AppHeader is h-14 (56px), set this to calc(100vh - 56px).
-      // Adjust the value to match your actual header height.
-      height: "calc(100vh - 56px)",
-      overflow: "hidden",
-    }}>
-      {/* Sidebar — sticky, fills remaining height */}
+    <div
+      style={{
+        display: "flex",
+        height: "calc(100vh - 56px)",
+        overflow: "hidden",
+        background: "#f8fafc",
+      }}
+    >
       <Sidebar userName={userName} orgName={orgName} />
 
-      {/* Main content — scrollable */}
-      <main style={{
-        flex: 1,
-        overflowY: "auto",
-        overflowX: "hidden",
-        background: "#f8fafc",
-        minWidth: 0,
-      }}>
+      <main
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          overflowX: "hidden",
+          background: "#f8fafc",
+          minWidth: 0,
+        }}
+      >
         {children}
       </main>
     </div>
