@@ -117,7 +117,6 @@ export type ArtifactDetailClientHostProps = {
   approvalStatus?: string | null;
 
   submitForApprovalAction?: any | null;
-  organisationId?: string;
 
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
 };
@@ -138,7 +137,6 @@ function getArtifactVersion(typedInitialJson: any) {
    ----------------------------------------------------------------------- */
 function FinancialPlanEditorHost({
   projectId,
-  organisationId,
   artifactId,
   initialJson,
   readOnly,
@@ -148,7 +146,6 @@ function FinancialPlanEditorHost({
   artifactId: string;
   initialJson: any;
   readOnly: boolean;
-  organisationId?: string;
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
 }) {
   // ✅ Safe initialisation — fall back to emptyFinancialPlan() if null/invalid
@@ -191,8 +188,8 @@ function FinancialPlanEditorHost({
   return (
     <FinancialPlanEditor
       content={content}
-      organisationId={organisationId}
       onChange={handleChange}
+       organisationId={activeOrgId} 
       readOnly={readOnly}
     />
   );
@@ -213,7 +210,6 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     approvalEnabled, canSubmitOrResubmit, approvalStatus,
     submitForApprovalAction,
     updateArtifactJsonAction,
-    organisationId,
   } = props;
 
   const [openAI, setOpenAI] = useState(false);
@@ -372,7 +368,6 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 initialJson={typedInitialJson ?? rawContentJson ?? null}
                 readOnly={!isEditable}
                 updateArtifactJsonAction={updateArtifactJsonAction}
-                organisationId={organisationId}
               />
             ) : mode === "financial_plan" ? (
               // ✅ Uses FinancialPlanEditorHost to safely handle null initialJson
@@ -382,7 +377,6 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 initialJson={typedInitialJson ?? rawContentJson ?? null}
                 readOnly={!isEditable}
                 updateArtifactJsonAction={updateArtifactJsonAction}
-                organisationId={organisationId}
               />
             ) : (
               <div className="grid gap-2">
@@ -456,7 +450,4 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     </div>
   );
 }
-
-
-
 

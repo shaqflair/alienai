@@ -491,6 +491,21 @@ export default async function ArtifactDetailPage({
                 href={`/projects/${projectRefForPaths}/artifacts/${artifactId}/compare`}
                 className="px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm"
               >
+              <Link
+  href={`/projects/${projectRefForPaths}/governance`}
+  className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm"
+  title="Open Delivery Governance (project scope)"
+>
+  Delivery Governance
+</Link>
+
+<Link
+  href="/governance"
+  className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm"
+  title="Open Governance Knowledge Base"
+>
+  Governance KB
+</Link>
                 Compare versions
               </Link>
             ) : null}

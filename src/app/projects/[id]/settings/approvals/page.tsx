@@ -1,3 +1,4 @@
+//src\app\projects\[id]\settings\approvals
 import "server-only";
 import HolidayCoverPanel from "@/components/approvals/HolidayCoverPanel";
 

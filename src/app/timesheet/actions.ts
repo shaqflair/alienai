@@ -12,7 +12,6 @@ function isUuid(x: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test((x||"").trim());
 }
 
-// Monday of any given date string
 function toMonday(dateStr: string): string {
   const d = new Date(dateStr);
   const day = d.getUTCDay();
@@ -21,41 +20,72 @@ function toMonday(dateStr: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-async function requireOrgMember(sb: any, organisationId: string, userId: string) {
+function weekIsWithinCutoff(weekStart: string, cutoffWeeks: number): boolean {
+  const week   = new Date(weekStart).getTime();
+  const cutoff = Date.now() - cutoffWeeks * 7 * 24 * 60 * 60 * 1000;
+  return week >= cutoff;
+}
+
+async function getOrgCutoffWeeks(sb: any, organisationId: string): Promise<number> {
   const { data } = await sb
+    .from("organisations")
+    .select("timesheet_cutoff_weeks")
+    .eq("id", organisationId)
+    .maybeSingle();
+  return data?.timesheet_cutoff_weeks ?? 4;
+}
+
+async function requireAdminOrLineManager(
+  sb: any,
+  organisationId: string,
+  reviewerId: string,
+  timesheetUserId: string
+) {
+  const { data: mem } = await sb
     .from("organisation_members")
     .select("role")
     .eq("organisation_id", organisationId)
-    .eq("user_id", userId)
+    .eq("user_id", reviewerId)
     .is("removed_at", null)
     .maybeSingle();
-  if (!data) throw new Error("Not a member of this organisation");
-  return safeStr(data.role).toLowerCase() as "owner" | "admin" | "member";
-}
 
-async function requireAdmin(sb: any, organisationId: string, userId: string) {
-  const role = await requireOrgMember(sb, organisationId, userId);
-  if (role !== "admin" && role !== "owner") throw new Error("Admin access required");
+  const role = safeStr(mem?.role).toLowerCase();
+  if (role === "admin" || role === "owner") return "admin";
+
+  const { data: profile } = await sb
+    .from("profiles")
+    .select("line_manager_id")
+    .eq("user_id", timesheetUserId)
+    .maybeSingle();
+
+  if (profile?.line_manager_id === reviewerId) return "line_manager";
+  throw new Error("You don't have permission to review this timesheet");
 }
 
 /* =============================================================================
-   GET OR CREATE TIMESHEET for a given week
+   GET OR CREATE TIMESHEET
 ============================================================================= */
 export async function getOrCreateTimesheetAction(formData: FormData) {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) redirect("/login");
 
-  const orgId     = await getActiveOrgId().catch(() => null);
+  const orgId = await getActiveOrgId().catch(() => null);
   if (!orgId) throw new Error("No active organisation");
+  const organisationId = String(orgId);
 
   const weekRaw   = safeStr(formData.get("week_start_date")).trim();
   const weekStart = toMonday(weekRaw || new Date().toISOString().slice(0, 10));
 
+  const cutoffWeeks = await getOrgCutoffWeeks(sb, organisationId);
+  if (!weekIsWithinCutoff(weekStart, cutoffWeeks)) {
+    throw new Error(`This week is beyond the ${cutoffWeeks}-week window and is locked.`);
+  }
+
   const { data: existing } = await sb
     .from("timesheets")
     .select("id, status")
-    .eq("organisation_id", String(orgId))
+    .eq("organisation_id", organisationId)
     .eq("user_id", user.id)
     .eq("week_start_date", weekStart)
     .maybeSingle();
@@ -65,7 +95,7 @@ export async function getOrCreateTimesheetAction(formData: FormData) {
   const { data, error } = await sb
     .from("timesheets")
     .insert({
-      organisation_id: String(orgId),
+      organisation_id: organisationId,
       user_id:         user.id,
       week_start_date: weekStart,
       status:          "draft",
@@ -78,7 +108,7 @@ export async function getOrCreateTimesheetAction(formData: FormData) {
 }
 
 /* =============================================================================
-   SAVE TIMESHEET ENTRIES (upsert all entries for the week grid)
+   SAVE TIMESHEET ENTRIES — supports project rows AND non-project category rows
 ============================================================================= */
 export async function saveTimesheetEntriesAction(formData: FormData) {
   const sb = await createClient();
@@ -88,49 +118,60 @@ export async function saveTimesheetEntriesAction(formData: FormData) {
   const timesheetId = safeStr(formData.get("timesheet_id")).trim();
   if (!isUuid(timesheetId)) throw new Error("Invalid timesheet_id");
 
-  // Verify ownership + draft status
   const { data: ts } = await sb
     .from("timesheets")
-    .select("id, status, user_id")
+    .select("id, status, user_id, organisation_id, week_start_date")
     .eq("id", timesheetId)
     .maybeSingle();
 
   if (!ts || ts.user_id !== user.id) throw new Error("Timesheet not found");
   if (ts.status !== "draft") throw new Error("Can only edit draft timesheets");
 
-  // Parse entries from formData: entries[projectId][date] = hours
-  // Field names: entry_{projectId}_{date}
+  const cutoffWeeks = await getOrgCutoffWeeks(sb, String(ts.organisation_id));
+  if (!weekIsWithinCutoff(safeStr(ts.week_start_date), cutoffWeeks)) {
+    throw new Error("This timesheet is locked — beyond the submission window");
+  }
+
+  const VALID_CATEGORIES = new Set([
+    "annual_leave", "public_holiday", "sick_leave", "training", "other_admin",
+  ]);
+
   const entries: Array<{
-    timesheet_id:  string;
-    project_id:    string | null;
-    work_date:     string;
-    hours:         number;
-    description:   string | null;
+    timesheet_id:         string;
+    project_id:           string | null;
+    non_project_category: string | null;
+    work_date:            string;
+    hours:                number;
+    description:          string | null;
   }> = [];
 
   for (const [key, value] of formData.entries()) {
     if (!key.startsWith("entry_")) continue;
-    const parts = key.split("_");
-    if (parts.length < 3) continue;
-
-    const projectId = parts[1] === "none" ? null : parts[1];
-    const workDate  = parts.slice(2).join("-");  // e.g. 2025-03-10
-    const hours     = Math.max(0, Math.min(24, safeNum(value)));
+    const withoutPrefix = key.slice(6);
+    const workDate      = withoutPrefix.slice(-10);
+    const rowKey        = withoutPrefix.slice(0, withoutPrefix.length - 11);
 
     if (!workDate.match(/^\d{4}-\d{2}-\d{2}$/)) continue;
+    const hours = Math.max(0, Math.min(24, safeNum(value)));
+
+    let projectId: string | null = null;
+    let category: string | null  = null;
+
+    if (isUuid(rowKey))            { projectId = rowKey; }
+    else if (VALID_CATEGORIES.has(rowKey)) { category  = rowKey; }
+    else continue;
 
     entries.push({
-      timesheet_id:  timesheetId,
-      project_id:    projectId && isUuid(projectId) ? projectId : null,
-      work_date:     workDate,
+      timesheet_id:         timesheetId,
+      project_id:           projectId,
+      non_project_category: category,
+      work_date:            workDate,
       hours,
-      description:   safeStr(formData.get(`desc_${projectId ?? "none"}_${workDate}`)) || null,
+      description: safeStr(formData.get(`desc_${rowKey}_${workDate}`)) || null,
     });
   }
 
-  // Delete existing entries then re-insert
   await sb.from("timesheet_entries").delete().eq("timesheet_id", timesheetId);
-
   const toInsert = entries.filter(e => e.hours > 0);
   if (toInsert.length > 0) {
     const { error } = await sb.from("timesheet_entries").insert(toInsert);
@@ -142,7 +183,7 @@ export async function saveTimesheetEntriesAction(formData: FormData) {
 }
 
 /* =============================================================================
-   SUBMIT TIMESHEET FOR APPROVAL
+   SUBMIT FOR APPROVAL — routes to line manager, falls back to org admins
 ============================================================================= */
 export async function submitTimesheetAction(formData: FormData) {
   const sb = await createClient();
@@ -154,25 +195,74 @@ export async function submitTimesheetAction(formData: FormData) {
 
   const { data: ts } = await sb
     .from("timesheets")
-    .select("id, status, user_id")
+    .select("id, status, user_id, organisation_id, week_start_date")
     .eq("id", timesheetId)
     .maybeSingle();
 
   if (!ts || ts.user_id !== user.id) throw new Error("Timesheet not found");
   if (ts.status !== "draft") throw new Error("Only draft timesheets can be submitted");
 
+  const cutoffWeeks = await getOrgCutoffWeeks(sb, String(ts.organisation_id));
+  if (!weekIsWithinCutoff(safeStr(ts.week_start_date), cutoffWeeks)) {
+    throw new Error("This timesheet is locked — beyond the submission window");
+  }
+
+  const { data: profile } = await sb
+    .from("profiles")
+    .select("line_manager_id, full_name")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const lineManagerId: string | null = profile?.line_manager_id ?? null;
+
   const { error } = await sb
     .from("timesheets")
-    .update({ status: "submitted", submitted_at: new Date().toISOString() })
+    .update({
+      status:              "submitted",
+      submitted_at:        new Date().toISOString(),
+      approved_by_user_id: lineManagerId ?? null,
+    })
     .eq("id", timesheetId);
 
   if (error) throw new Error(error.message);
+
+  // Notification — fire and forget
+  try {
+    const orgId        = String(ts.organisation_id);
+    const submitter    = safeStr(profile?.full_name || user.email);
+    const weekStr      = safeStr(ts.week_start_date);
+    const notifPayload = {
+      organisation_id: orgId,
+      type:            "timesheet_submitted",
+      title:           "Timesheet awaiting your approval",
+      body:            `${submitter} submitted their timesheet for w/c ${weekStr}`,
+      link:            "/timesheet/review",
+      read:            false,
+    };
+
+    if (lineManagerId) {
+      await sb.from("notifications").insert({ ...notifPayload, user_id: lineManagerId });
+    } else {
+      const { data: admins } = await sb
+        .from("organisation_members")
+        .select("user_id")
+        .eq("organisation_id", orgId)
+        .in("role", ["admin", "owner"])
+        .is("removed_at", null);
+      if (admins?.length) {
+        await sb.from("notifications").insert(
+          admins.map((a: any) => ({ ...notifPayload, user_id: a.user_id }))
+        );
+      }
+    }
+  } catch { /* silent */ }
+
   revalidatePath("/timesheet");
-  return { submitted: true };
+  return { submitted: true, lineManagerId };
 }
 
 /* =============================================================================
-   RECALL SUBMITTED TIMESHEET (back to draft)
+   RECALL (submitted → draft, user-initiated)
 ============================================================================= */
 export async function recallTimesheetAction(formData: FormData) {
   const sb = await createClient();
@@ -193,7 +283,7 @@ export async function recallTimesheetAction(formData: FormData) {
 
   const { error } = await sb
     .from("timesheets")
-    .update({ status: "draft", submitted_at: null })
+    .update({ status: "draft", submitted_at: null, approved_by_user_id: null })
     .eq("id", timesheetId);
 
   if (error) throw new Error(error.message);
@@ -201,7 +291,48 @@ export async function recallTimesheetAction(formData: FormData) {
 }
 
 /* =============================================================================
-   APPROVE / REJECT TIMESHEET (admin)
+   REWORK REJECTED TIMESHEET (rejected → draft, user-initiated)
+============================================================================= */
+export async function reworkTimesheetAction(formData: FormData) {
+  const sb = await createClient();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) redirect("/login");
+
+  const timesheetId = safeStr(formData.get("timesheet_id")).trim();
+  if (!isUuid(timesheetId)) throw new Error("Invalid timesheet_id");
+
+  const { data: ts } = await sb
+    .from("timesheets")
+    .select("id, status, user_id, organisation_id, week_start_date")
+    .eq("id", timesheetId)
+    .maybeSingle();
+
+  if (!ts || ts.user_id !== user.id) throw new Error("Not your timesheet");
+  if (ts.status !== "rejected") throw new Error("Only rejected timesheets can be reworked");
+
+  const cutoffWeeks = await getOrgCutoffWeeks(sb, String(ts.organisation_id));
+  if (!weekIsWithinCutoff(safeStr(ts.week_start_date), cutoffWeeks)) {
+    throw new Error("This timesheet is outside the submission window. Ask your manager to unlock it.");
+  }
+
+  const { error } = await sb
+    .from("timesheets")
+    .update({
+      status:        "draft",
+      submitted_at:  null,
+      reviewed_at:   null,
+      reviewer_note: null,
+      reviewed_by:   null,
+    })
+    .eq("id", timesheetId);
+
+  if (error) throw new Error(error.message);
+  revalidatePath("/timesheet");
+  return { reworked: true };
+}
+
+/* =============================================================================
+   APPROVE / REJECT — accessible to line managers AND org admins
 ============================================================================= */
 export async function reviewTimesheetAction(formData: FormData) {
   const sb = await createClient();
@@ -209,7 +340,7 @@ export async function reviewTimesheetAction(formData: FormData) {
   if (!user) redirect("/login");
 
   const timesheetId = safeStr(formData.get("timesheet_id")).trim();
-  const action      = safeStr(formData.get("action")).trim();  // approve | reject
+  const action      = safeStr(formData.get("action")).trim();
   const note        = safeStr(formData.get("reviewer_note")).trim() || null;
 
   if (!isUuid(timesheetId)) throw new Error("Invalid timesheet_id");
@@ -217,28 +348,47 @@ export async function reviewTimesheetAction(formData: FormData) {
 
   const { data: ts } = await sb
     .from("timesheets")
-    .select("id, status, organisation_id")
+    .select("id, status, organisation_id, user_id")
     .eq("id", timesheetId)
     .maybeSingle();
 
   if (!ts) throw new Error("Timesheet not found");
   if (ts.status !== "submitted") throw new Error("Can only review submitted timesheets");
 
-  const orgId = String(ts.organisation_id);
-  await requireAdmin(sb, orgId, user.id);
+  await requireAdminOrLineManager(sb, String(ts.organisation_id), user.id, String(ts.user_id));
 
   const newStatus = action === "approve" ? "approved" : "rejected";
   const { error } = await sb
     .from("timesheets")
     .update({
-      status:        newStatus,
-      reviewed_at:   new Date().toISOString(),
-      reviewed_by:   user.id,
-      reviewer_note: note,
+      status:               newStatus,
+      reviewed_at:          new Date().toISOString(),
+      reviewed_by:          user.id,
+      reviewer_note:        note,
+      approved_by_user_id:  action === "approve" ? user.id : null,
     })
     .eq("id", timesheetId);
 
   if (error) throw new Error(error.message);
+
+  // Notify the submitter
+  try {
+    const { data: reviewer } = await sb
+      .from("profiles").select("full_name").eq("user_id", user.id).maybeSingle();
+    const reviewerName = safeStr(reviewer?.full_name || "Your manager");
+    await sb.from("notifications").insert({
+      organisation_id: String(ts.organisation_id),
+      user_id:         String(ts.user_id),
+      type:            action === "approve" ? "timesheet_approved" : "timesheet_rejected",
+      title:           action === "approve" ? "Timesheet approved ✓" : "Timesheet needs rework",
+      body:            action === "approve"
+        ? `${reviewerName} approved your timesheet`
+        : `${reviewerName} rejected your timesheet${note ? ` — "${note}"` : ""}. Please rework and resubmit.`,
+      link:  "/timesheet",
+      read:  false,
+    });
+  } catch { /* silent */ }
+
   revalidatePath("/timesheet");
   revalidatePath("/timesheet/review");
   return { status: newStatus };
