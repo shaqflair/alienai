@@ -52,21 +52,25 @@ export default async function ScenariosPage() {
   const sixMoAhead  = addDays(thisWeek, 182);
   const eightWksAgo = addDays(thisWeek, -56);
 
-  // Run all queries independently so one failure doesn't kill the page
+  // Fetch member user_ids first, then profiles separately (avoids FK hint issues)
+  const memberUserIdRows = await safeQuery(
+    supabase
+      .from("organisation_members")
+      .select("user_id")
+      .eq("organisation_id", organisationId)
+      .is("removed_at", null)
+  );
+  const memberUserIds = (memberUserIdRows as any[]).map((r: any) => String(r.user_id)).filter(Boolean);
+
   const [memberRows, projectRows, allocRows, exceptionRows, scenarioRows] = await Promise.all([
-    safeQuery(
-      supabase
-        .from("organisation_members")
-        .select(`
-          user_id,
-          profiles:profiles!organisation_members_user_id_fkey (
-            user_id, full_name, department, employment_type,
-            default_capacity_days, is_active
-          )
-        `)
-        .eq("organisation_id", organisationId)
-        .is("removed_at", null)
-    ),
+    memberUserIds.length > 0
+      ? safeQuery(
+          supabase
+            .from("profiles")
+            .select("user_id, full_name, department, employment_type, default_capacity_days, is_active")
+            .in("user_id", memberUserIds)
+        )
+      : Promise.resolve([]),
     safeQuery(
       supabase
         .from("projects")
@@ -103,13 +107,12 @@ export default async function ScenariosPage() {
   ]);
 
   // -- Transform people -------------------------------------------------------
-  const people: LivePerson[] = memberRows
-    .map((m: any) => {
-      const p = m.profiles;
+  const people: LivePerson[] = (memberRows as any[])
+    .map((p: any) => {
       if (!p) return null;
       if (p.is_active === false) return null;
       return {
-        personId:     String(p.user_id ?? m.user_id),
+        personId:     String(p.user_id),
         fullName:     safeStr(p.full_name || "Unknown"),
         department:   p.department ? safeStr(p.department) : null,
         empType:      safeStr(p.employment_type || "full_time"),
@@ -170,4 +173,3 @@ export default async function ScenariosPage() {
     />
   );
 }
-

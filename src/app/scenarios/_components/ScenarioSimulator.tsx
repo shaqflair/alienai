@@ -65,12 +65,12 @@ function isoWeekNum(iso: string): number {
 }
 
 const CHANGE_LABELS: Record<string, string> = {
-  add_allocation:  " Add allocation",
-  remove_allocation: " Remove allocation",
-  swap_allocation: " Swap person",
-  change_capacity: "[!] Change capacity",
-  shift_project:   "[calendar] Shift project",
-  add_project:     " Add project",
+  add_allocation:    "➕ Add allocation",
+  remove_allocation: "🗑️ Remove allocation",
+  swap_allocation:   "🔄 Swap person",
+  change_capacity:   "⚡ Change capacity",
+  shift_project:     "📅 Shift project",
+  add_project:       "🗂️ Add project",
 };
 
 const PROJECT_COLOURS = [
@@ -722,11 +722,11 @@ function DaysPicker({ value, onChange, max }: { value: number; onChange: (v: num
 ============================================================================= */
 
 const ADD_BUTTONS = [
-  { type: "add_allocation",  icon: "", label: "Add allocation"  },
-  { type: "swap_allocation", icon: "", label: "Swap person"     },
-  { type: "change_capacity", icon: "[!]", label: "Change capacity" },
-  { type: "shift_project",   icon: "[calendar]", label: "Shift project"   },
-  { type: "add_project",     icon: "", label: "New project"     },
+  { type: "add_allocation",  icon: "➕", label: "Add allocation"  },
+  { type: "swap_allocation", icon: "🔄", label: "Swap person"     },
+  { type: "change_capacity", icon: "⚡", label: "Change capacity" },
+  { type: "shift_project",   icon: "📅", label: "Shift project"   },
+  { type: "add_project",     icon: "🗂️", label: "New project"     },
 ] as const;
 
 export default function ScenarioSimulator({
@@ -911,14 +911,22 @@ export default function ScenarioSimulator({
                   borderRadius: "4px", padding: "1px 5px", fontWeight: 900 }}>ON</span>}
               </button>
 
-              <button type="button" onClick={handleSave} disabled={isPending || changes.length === 0} style={{
-                padding: "8px 18px", borderRadius: "8px", border: "none",
-                background: changes.length === 0 ? "#94a3b8" : "#00b8db",
-                color: "white", fontSize: "12px", fontWeight: 700,
-                cursor: changes.length === 0 ? "not-allowed" : "pointer",
-                boxShadow: "0 2px 10px rgba(0,184,219,0.25)",
-              }}>
-                {saveMsg || (isPending ? "Saving..." : " Save scenario")}
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={isPending || changes.length === 0}
+                title={changes.length === 0 ? "Add at least one change to save" : "Save this scenario"}
+                style={{
+                  padding: "8px 18px", borderRadius: "8px", border: "none",
+                  background: changes.length === 0 ? "#cbd5e1" : "#00b8db",
+                  color: changes.length === 0 ? "#94a3b8" : "white",
+                  fontSize: "12px", fontWeight: 700,
+                  cursor: changes.length === 0 ? "not-allowed" : "pointer",
+                  boxShadow: changes.length > 0 ? "0 2px 10px rgba(0,184,219,0.25)" : "none",
+                  transition: "all 0.15s",
+                }}
+              >
+                {saveMsg || (isPending ? "Saving..." : "💾 Save scenario")}
               </button>
             </div>
           </div>
