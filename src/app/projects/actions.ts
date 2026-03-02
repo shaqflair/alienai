@@ -138,7 +138,7 @@ export async function createProject(formData: FormData) {
   const supabase = await createClient();
   await requireUser(supabase);
 
-  // ── Existing fields ───────────────────────────────────────────────────────
+  // -- Existing fields -------------------------------------------------------
   const title           = norm(formData.get("title"));
   const start_date      = isoDateOrNull(formData.get("start_date"));
   const finish_date     = isoDateOrNull(formData.get("finish_date"));
@@ -146,7 +146,7 @@ export async function createProject(formData: FormData) {
   const pmRaw           = norm(formData.get("project_manager_id"));
   const project_manager_id = pmRaw && isUuid(pmRaw) ? pmRaw : "";
 
-  // ── New heatmap fields ────────────────────────────────────────────────────
+  // -- New heatmap fields ----------------------------------------------------
   const project_code    = norm(formData.get("project_code")) || null;
   const department      = norm(formData.get("department"))   || null;
   const colour          = norm(formData.get("colour"))       || "#0cb8b6";
@@ -157,7 +157,7 @@ export async function createProject(formData: FormData) {
                                 parseInt(norm(formData.get("win_probability"))) || 80))
                             : 100;
 
-  // ── Validation ────────────────────────────────────────────────────────────
+  // -- Validation ------------------------------------------------------------
   if (!title)           redirect(`/projects${qs({ err: "missing_title" })}`);
   if (!start_date)      redirect(`/projects${qs({ err: "missing_start" })}`);
   if (!organisation_id) redirect(`/projects${qs({ err: "missing_org" })}`);
@@ -183,7 +183,7 @@ export async function createProject(formData: FormData) {
     if (!pmMem?.user_id) redirect(`/projects${qs({ err: "bad_pm" })}`);
   }
 
-  // ── RPC call with new params ──────────────────────────────────────────────
+  // -- RPC call with new params ----------------------------------------------
   const { data, error } = await supabase.rpc("create_project_and_owner", {
     p_finish_date:     finish_date || null,
     p_organisation_id: organisation_id,
@@ -208,7 +208,7 @@ export async function createProject(formData: FormData) {
   if (!projectId || typeof projectId !== "string")
     throw new Error("Project creation succeeded but returned no id.");
 
-  // ── Set PM if provided ────────────────────────────────────────────────────
+  // -- Set PM if provided ----------------------------------------------------
   if (project_manager_id) {
     const { error: updErr } = await supabase
       .from("projects")
@@ -221,7 +221,7 @@ export async function createProject(formData: FormData) {
   redirect(`/projects/${projectId}`);
 }
 
-// ── New action: insert role requirements after project is created ─────────────
+// -- New action: insert role requirements after project is created -------------
 export async function insertRoleRequirements(formData: FormData) {
   const supabase = await createClient();
   const user = await requireUser(supabase);
@@ -388,4 +388,47 @@ export async function abnormalCloseProject(formData: FormData) {
   revalidatePath("/projects");
   revalidatePath(`/projects/${project_id}`);
   redirect(`/projects${qs({ msg: "abnormally_closed", pid: project_id })}`);
+}
+
+/* =============================================================================
+   CONVERT PIPELINE → CONFIRMED
+   Sets resource_status = "confirmed" and clears win_probability.
+   From this point the project appears on the live capacity heatmap.
+============================================================================= */
+export async function convertPipelineToConfirmed(formData: FormData) {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
+
+  const project_id = norm(formData.get("project_id"));
+  if (!project_id) redirect(`/projects${qs({ err: "missing_project" })}`);
+
+  const role = await getMyProjectRole(supabase, project_id, user.id);
+  if (!canEdit(role)) redirect(`/projects${qs({ err: "no_permission", pid: project_id })}`);
+
+  // Verify it is actually pipeline
+  const { data: proj } = await supabase
+    .from("projects")
+    .select("resource_status")
+    .eq("id", project_id)
+    .maybeSingle();
+
+  if (!proj || proj.resource_status !== "pipeline") {
+    redirect(`/projects/${project_id}${qs({ err: "not_pipeline" })}`);
+  }
+
+  const { error } = await supabase
+    .from("projects")
+    .update({
+      resource_status:  "confirmed",
+      win_probability:  null,
+      updated_at:       new Date().toISOString(),
+    })
+    .eq("id", project_id);
+
+  if (error) throwDb(error, "projects.convert_to_confirmed");
+
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${project_id}`);
+  revalidatePath("/heatmap");
+  redirect(`/projects/${project_id}${qs({ msg: "converted_to_confirmed" })}`);
 }

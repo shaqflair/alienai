@@ -6,6 +6,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { fetchProjectResourceData, projectWeekPeriods } from "./_lib/resource-data";
 import ProjectResourcePanel from "./_components/ProjectResourcePanel";
+import { convertPipelineToConfirmed } from "../../actions";
 
 /* =========================================================
    small helpers
@@ -104,9 +105,10 @@ function flashText(msg: string | undefined, conflicts: string | undefined) {
       ? `✓ Allocated — ${c} conflict week${c > 1 ? "s" : ""} flagged`
       : "✓ Resource allocated successfully";
   }
-  if (msg === "allocation_removed") return "Allocation removed.";
-  if (msg === "week_removed")       return "Week removed.";
-  if (msg === "week_updated")       return "Week updated.";
+  if (msg === "allocation_removed")     return "Allocation removed.";
+  if (msg === "week_removed")           return "Week removed.";
+  if (msg === "week_updated")           return "Week updated.";
+  if (msg === "converted_to_confirmed") return "✓ Project converted to Confirmed — now live on the capacity heatmap.";
   return null;
 }
 
@@ -172,7 +174,7 @@ export default async function ProjectPage({
   const flash    = flashText(sp?.msg, sp?.conflicts);
   const flashErr = sp?.err ? `Error: ${sp.err}` : null;
 
-  // Resource data — fetch in parallel, fail gracefully
+  // Resource data -- fetch in parallel, fail gracefully
   const [resourceData] = await Promise.allSettled([
     fetchProjectResourceData(projectUuid),
   ]);
@@ -219,7 +221,7 @@ export default async function ProjectPage({
       }}>
         <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "40px 28px" }}>
 
-          {/* ── Top bar ── */}
+          {/* -- Top bar -- */}
           <div style={{
             display: "flex", alignItems: "center",
             justifyContent: "space-between", marginBottom: "28px",
@@ -230,7 +232,7 @@ export default async function ProjectPage({
               fontSize: "13px", color: "#64748b", textDecoration: "none",
               fontWeight: 500,
             }}>
-              ← Projects
+              <- Projects
             </Link>
 
             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -252,17 +254,36 @@ export default async function ProjectPage({
                 textTransform: "capitalize",
               }}>{myRole}</span>
               {project?.resource_status === "pipeline" && (
-                <span style={{
-                  padding: "4px 10px", borderRadius: "20px",
-                  background: "rgba(124,58,237,0.08)",
-                  border: "1.5px solid rgba(124,58,237,0.2)",
-                  fontSize: "11px", color: "#7c3aed", fontWeight: 700,
-                }}>◌ Pipeline</span>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  <span style={{
+                    padding: "4px 10px", borderRadius: "20px",
+                    background: "rgba(124,58,237,0.08)",
+                    border: "1.5px solid rgba(124,58,237,0.2)",
+                    fontSize: "11px", color: "#7c3aed", fontWeight: 700,
+                  }}>◎ Pipeline</span>
+                  {canEdit && (
+                    <form action={convertPipelineToConfirmed}>
+                      <input type="hidden" name="project_id" value={project.id} />
+                      <button
+                        type="submit"
+                        style={{
+                          padding: "4px 12px", borderRadius: "20px", cursor: "pointer",
+                          background: "#00b8db", border: "1.5px solid #00b8db",
+                          fontSize: "11px", color: "white", fontWeight: 700,
+                          fontFamily: "inherit",
+                        }}
+                        title="Mark this project as confirmed — it will appear on the live capacity heatmap"
+                      >
+                        ✓ Convert to confirmed
+                      </button>
+                    </form>
+                  )}
+                </div>
               )}
             </div>
           </div>
 
-          {/* ── Flash banners ── */}
+          {/* -- Flash banners -- */}
           {flash && (
             <div style={{
               marginBottom: "16px", padding: "11px 16px",
@@ -284,7 +305,7 @@ export default async function ProjectPage({
             </div>
           )}
 
-          {/* ── Header ── */}
+          {/* -- Header -- */}
           <header style={{ marginBottom: "24px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
               <div style={{
@@ -315,12 +336,12 @@ export default async function ProjectPage({
                 Members
               </Link>
               <Link className="pp-nav-link" href="/heatmap" style={{ marginLeft: "auto" }}>
-                ▦ Full heatmap →
+                # Full heatmap ->
               </Link>
             </nav>
           </header>
 
-          {/* ── Quick links (existing section, unchanged) ── */}
+          {/* -- Quick links (existing section, unchanged) -- */}
           <section style={{
             borderRadius: "12px", border: "1.5px solid #e2e8f0",
             padding: "20px 22px", background: "white",
@@ -348,14 +369,14 @@ export default async function ProjectPage({
                     href={`/allocations/new?project_id=${projectUuid}&return_to=/projects/${projectRefForUrls}`}
                     style={{ color: "#00b8db", fontWeight: 600, textDecoration: "none" }}
                   >
-                    Allocate a resource →
+                    Allocate a resource ->
                   </a>
                 </>
               )}
             </p>
           </section>
 
-          {/* ── Resource planning sections ── */}
+          {/* -- Resource planning sections -- */}
           {resource ? (
             <ProjectResourcePanel data={resource} periods={periods} />
           ) : (
