@@ -1,4 +1,5 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+﻿// FILE: src/app/api/portfolio/resource-activity/route.ts
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 function getMondayOf(date: Date): Date {
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-    // Get organisation context
+    // Get organisation
     const { data: memRow } = await supabase
       .from("organisation_members")
       .select("organisation_id")
@@ -33,13 +34,12 @@ export async function GET(req: NextRequest) {
       .is("removed_at", null)
       .limit(1)
       .maybeSingle();
-
     const orgId = memRow?.organisation_id;
     if (!orgId) return NextResponse.json({ ok: false, error: "No org" }, { status: 400 });
 
-    // Range logic: default to 30 days, capped at 90
     const days = Math.min(90, Math.max(7, parseInt(req.nextUrl.searchParams.get("days") ?? "30", 10)));
 
+    // Build week range
     const today = new Date();
     const startMonday = getMondayOf(addDays(today, -(days - 1)));
     const endMonday   = getMondayOf(today);
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
     const dateFrom = weeks[0];
     const dateTo   = weeks[weeks.length - 1];
 
-    // 1. Fetch active org members
+    // ── 1. Get all active org members ─────────────────────────────────────
     const { data: members } = await supabase
       .from("organisation_members")
       .select("user_id")
@@ -66,19 +66,19 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: true, weeks: [], dateFrom, dateTo });
     }
 
-    // 2. Fetch profiles for default capacity (e.g., 5 days/week)
+    // ── 2. Get profiles for default capacity ─────────────────────────────
     const { data: profiles } = await supabase
       .from("profiles")
       .select("user_id, default_capacity_days, is_active")
       .in("user_id", memberUserIds);
 
-    const activePeopleProfiles = (profiles ?? []).filter((p: any) => p.is_active !== false);
-    const defaultCapMap = new Map<string, number>();
-    for (const p of activePeopleProfiles) {
-      defaultCapMap.set(String(p.user_id), parseFloat(String(p.default_capacity_days ?? 5)));
+    const activePeople = (profiles ?? []).filter((p: any) => p.is_active !== false);
+    const defaultCap = new Map<string, number>();
+    for (const p of activePeople) {
+      defaultCap.set(String(p.user_id), parseFloat(String(p.default_capacity_days ?? 5)));
     }
 
-    // 3. Fetch capacity exceptions (e.g., leave or temporary increases)
+    // ── 3. Capacity exceptions ────────────────────────────────────────────
     const { data: exceptions } = await supabase
       .from("capacity_exceptions")
       .select("person_id, week_start_date, available_days")
@@ -93,7 +93,7 @@ export async function GET(req: NextRequest) {
       exMap.get(pid)!.set(String(ex.week_start_date), parseFloat(String(ex.available_days)));
     }
 
-    // 4. Fetch Allocations (Confirmed vs Soft)
+    // ── 4. Allocations ────────────────────────────────────────────────────
     const { data: allocs } = await supabase
       .from("allocations")
       .select("person_id, week_start_date, days_allocated, allocation_type")
@@ -101,38 +101,40 @@ export async function GET(req: NextRequest) {
       .gte("week_start_date", dateFrom)
       .lte("week_start_date", dateTo);
 
+    // Map: weekStart → { confirmed, soft }
     const weekAllocMap = new Map<string, { confirmed: number; soft: number }>();
     for (const w of weeks) weekAllocMap.set(w, { confirmed: 0, soft: 0 });
 
     for (const a of allocs ?? []) {
       const w = String(a.week_start_date);
       if (!weekAllocMap.has(w)) continue;
-      const amount = parseFloat(String(a.days_allocated ?? 0));
-      const type   = String(a.allocation_type ?? "confirmed").toLowerCase();
-      const entry  = weekAllocMap.get(w)!;
+      const days2 = parseFloat(String(a.days_allocated ?? 0));
+      const type  = String(a.allocation_type ?? "confirmed").toLowerCase();
+      const entry = weekAllocMap.get(w)!;
       if (type === "soft" || type === "pipeline") {
-        entry.soft += amount;
+        entry.soft += days2;
       } else {
-        entry.confirmed += amount;
+        entry.confirmed += days2;
       }
     }
 
-    // 5. Aggregate totals per week
+    // ── 5. Assemble per-week output ───────────────────────────────────────
     const result = weeks.map(w => {
+      // Total capacity = sum of each person's capacity for this week
       let totalCap = 0;
-      for (const [pid, baseCap] of defaultCapMap) {
+      for (const [pid, cap] of defaultCap) {
         const override = exMap.get(pid)?.get(w);
-        totalCap += override !== undefined ? override : baseCap;
+        totalCap += override !== undefined ? override : cap;
       }
 
       const { confirmed, soft } = weekAllocMap.get(w) ?? { confirmed: 0, soft: 0 };
       const utilisationPct = totalCap > 0 ? Math.round((confirmed / totalCap) * 100) : 0;
 
       return {
-        weekLabel: w, // Used by chart component
-        capacity:  Math.round(totalCap * 10) / 10,
-        allocated: Math.round(confirmed * 10) / 10,
-        pipeline:  Math.round(soft * 10) / 10,
+        weekStart:      w,
+        capacity:       Math.round(totalCap * 10) / 10,
+        allocated:      Math.round(confirmed * 10) / 10,
+        pipeline:       Math.round(soft * 10) / 10,
         utilisationPct,
       };
     });
