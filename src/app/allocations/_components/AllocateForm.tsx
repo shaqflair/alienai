@@ -527,7 +527,7 @@ export default function AllocateForm({
                 </div>
                 <div style={{ fontSize: "11px", color: "#64748b", fontFamily: "'DM Mono', monospace" }}>
                   {selectedProject.project_code || "--"} {" "}
-                  {selectedProject.start_date || "?"} -> {selectedProject.finish_date || "?"}
+                  {selectedProject.start_date || "?"} {"→"} {selectedProject.finish_date || "?"}
                 </div>
               </div>
             </div>
