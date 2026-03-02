@@ -22,7 +22,7 @@ export default async function PeoplePage() {
   const organisationId = orgId ? String(orgId) : null;
   if (!organisationId) redirect("/projects?err=missing_org");
 
-  // ── Check caller role ──────────────────────────────────────────────────────
+  // -- Check caller role ------------------------------------------------------
   const { data: myMem } = await supabase
     .from("organisation_members")
     .select("role")
@@ -33,23 +33,31 @@ export default async function PeoplePage() {
 
   const isAdmin = safeStr(myMem?.role).toLowerCase() === "admin";
 
-  // ── Fetch org members + profiles + rate cards in parallel ─────────────────
-  const [memberRes, rateCardRes, allocRes] = await Promise.all([
-    supabase
-      .from("organisation_members")
-      .select(`
-        user_id, role,
-        profiles:profiles!organisation_members_user_id_fkey (
-          user_id, full_name, job_title, department,
-          employment_type, default_capacity_days,
-          is_active, available_from, rate_card_id,
-          rate_cards:rate_cards!profiles_rate_card_id_fkey (
-            id, label, rate_per_day, currency
-          )
-        )
-      `)
-      .eq("organisation_id", organisationId!)
-      .is("removed_at", null),
+  // -- Fetch org member IDs first (two-step to avoid FK hint issues) ----------
+  const { data: memberIdRows } = await supabase
+    .from("organisation_members")
+    .select("user_id, role")
+    .eq("organisation_id", organisationId!)
+    .is("removed_at", null);
+
+  const memberUserIds = (memberIdRows ?? []).map((r: any) => String(r.user_id)).filter(Boolean);
+  const memberRoleMap = new Map((memberIdRows ?? []).map((r: any) => [String(r.user_id), safeStr(r.role)]));
+
+  // -- Fetch profiles + rate cards + allocations in parallel -----------------
+  const [profileRes, rateCardRes, allocRes] = await Promise.all([
+    memberUserIds.length > 0
+      ? supabase
+          .from("profiles")
+          .select(`
+            user_id, full_name, job_title, department,
+            employment_type, default_capacity_days,
+            is_active, available_from, rate_card_id,
+            rate_cards:rate_cards!profiles_rate_card_id_fkey (
+              id, label, rate_per_day, currency
+            )
+          `)
+          .in("user_id", memberUserIds)
+      : Promise.resolve({ data: [] }),
 
     supabase
       .from("rate_cards")
@@ -69,7 +77,7 @@ export default async function PeoplePage() {
       .lte("week_start_date", new Date().toISOString().split("T")[0]),
   ]);
 
-  // ── Build rate cards list ─────────────────────────────────────────────────
+  // -- Build rate cards list -------------------------------------------------
   const rateCards: RateCard[] = (rateCardRes.data ?? []).map((r: any) => ({
     id:         String(r.id),
     label:      safeStr(r.label),
@@ -79,8 +87,8 @@ export default async function PeoplePage() {
     isActive:   r.is_active !== false,
   }));
 
-  // ── Build utilisation map from recent allocations ─────────────────────────
-  // personId → { totalDays, projectIds, weeklyUtils }
+  // -- Build utilisation map from recent allocations -------------------------
+  // personId -> { totalDays, projectIds, weeklyUtils }
   const utilMap = new Map<string, { totalDays: number; projectIds: Set<string>; utils: number[] }>();
   for (const a of allocRes.data ?? []) {
     const pid  = String(a.person_id);
@@ -91,13 +99,12 @@ export default async function PeoplePage() {
     entry.projectIds.add(String(a.project_id));
   }
 
-  // ── Build PersonRow[] ─────────────────────────────────────────────────────
-  const people: PersonRow[] = (memberRes.data ?? [])
-    .map((m: any) => {
-      const p = m.profiles;
+  // -- Build PersonRow[] -----------------------------------------------------
+  const people: PersonRow[] = (profileRes.data ?? [])
+    .map((p: any) => {
       if (!p) return null;
 
-      const pid      = String(p.user_id || m.user_id);
+      const pid      = String(p.user_id);
       const utilData = utilMap.get(pid);
       const cap      = parseFloat(String(p.default_capacity_days ?? 5));
 
@@ -133,12 +140,23 @@ export default async function PeoplePage() {
     return a.fullName.localeCompare(b.fullName);
   });
 
+  // Derive unique job titles and departments for autocomplete suggestions
+  const existingJobTitles = [...new Set(
+    (profileRes.data ?? []).map((p: any) => p.job_title).filter(Boolean)
+  )].sort() as string[];
+
+  const existingDepartments = [...new Set(
+    (profileRes.data ?? []).map((p: any) => p.department).filter(Boolean)
+  )].sort() as string[];
+
   return (
     <PeopleClient
       people={people}
       rateCards={rateCards}
       organisationId={organisationId!}
       isAdmin={isAdmin}
+      jobTitleSuggestions={existingJobTitles}
+      departmentSuggestions={existingDepartments}
     />
   );
 }

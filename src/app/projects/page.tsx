@@ -44,11 +44,11 @@ type Banner = { tone: "success" | "warn" | "error"; msg: string } | null;
 function inviteBanner(invite: unknown): Banner {
   const v = norm(invite).toLowerCase();
   if (!v) return null;
-  if (v === "accepted")      return { tone: "success", msg: "✅ You've joined the organisation." };
-  if (v === "expired")       return { tone: "warn",    msg: "⚠️ Invite expired. Ask the owner to resend the invite." };
-  if (v === "invalid")       return { tone: "error",   msg: "❌ Invite invalid or already used." };
-  if (v === "email-mismatch")return { tone: "error",   msg: "❌ Invite was sent to a different email. Sign in with the invited email." };
-  if (v === "failed")        return { tone: "error",   msg: "❌ Invite acceptance failed. Please try again." };
+  if (v === "accepted")      return { tone: "success", msg: "[ok] You've joined the organisation." };
+  if (v === "expired")       return { tone: "warn",    msg: "(!) Invite expired. Ask the owner to resend the invite." };
+  if (v === "invalid")       return { tone: "error",   msg: "[x] Invite invalid or already used." };
+  if (v === "email-mismatch")return { tone: "error",   msg: "[x] Invite was sent to a different email. Sign in with the invited email." };
+  if (v === "failed")        return { tone: "error",   msg: "[x] Invite acceptance failed. Please try again." };
   return null;
 }
 
@@ -236,22 +236,38 @@ export default async function ProjectsPage({
 
   const activeOrgName = safeStr(orgRow?.name).trim();
 
-  const { data: orgMemberRows } = activeOrgId
+  // -- Fetch org members for PM picker (two-step to avoid FK hint issues) ----
+  const { data: orgMemberUserRows } = activeOrgId
     ? await supabase
         .from("organisation_members")
-        .select(`user_id, role, profiles:profiles ( user_id, full_name, email )`)
+        .select("user_id, role")
         .eq("organisation_id", activeOrgId)
         .is("removed_at", null)
-        .order("role", { ascending: true })
     : { data: [] as any[] };
 
-  const pmOptions: OrgMemberOption[] = (orgMemberRows ?? [])
-    .map((r: any) => ({
-      user_id: String(r?.user_id || ""),
-      label:   formatMemberLabel(r),
-      role:    (r?.role as string | null) ?? null,
+  const orgMemberUserIds = (orgMemberUserRows ?? []).map((r: any) => String(r.user_id)).filter(Boolean);
+  const orgRoleMap = new Map((orgMemberUserRows ?? []).map((r: any) => [String(r.user_id), String(r.role)]));
+
+  const { data: orgProfileRows } = orgMemberUserIds.length > 0
+    ? await supabase
+        .from("profiles")
+        .select("user_id, full_name, email, department")
+        .in("user_id", orgMemberUserIds)
+    : { data: [] as any[] };
+
+  const pmOptions: OrgMemberOption[] = (orgProfileRows ?? [])
+    .map((p: any) => ({
+      user_id: String(p.user_id),
+      label:   safeStr(p.full_name || p.email || p.user_id).trim(),
+      role:    orgRoleMap.get(String(p.user_id)) ?? null,
     }))
-    .filter((x) => !!x.user_id);
+    .filter(x => !!x.user_id && !!x.label)
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  // Derive unique departments from org profiles for the department combobox
+  const existingDepartments = [...new Set(
+    (orgProfileRows ?? []).map((p: any) => p.department).filter(Boolean)
+  )].sort() as string[];
 
   const ownerLabel = displayNameFromUser(user);
 
@@ -464,7 +480,7 @@ export default async function ProjectsPage({
       <main className="pp-root">
         <div className="pp-inner">
 
-          {/* Header — unchanged */}
+          {/* Header -- unchanged */}
           <ProjectsHeader banner={banner} flash={flash} dismissHref={dismissHref} />
 
           {/* Create Project Panel */}
@@ -472,7 +488,7 @@ export default async function ProjectsPage({
             <div className="pp-create-header">
               <h2 className="pp-create-title">Create a Project</h2>
               <p className="pp-create-desc">
-                Enterprise setup — define ownership and delivery lead for governance and reporting.
+                Enterprise setup -- define ownership and delivery lead for governance and reporting.
               </p>
               <div className="pp-org-tag">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
@@ -502,11 +518,11 @@ export default async function ProjectsPage({
               <form action={createProject} className="pp-form-grid">
                 <input type="hidden" name="organisation_id" value={activeOrgId} />
 
-                {/* ── Existing fields — unchanged ── */}
+                {/* -- Existing fields -- unchanged -- */}
                 <div>
                   <label className="pp-field-label">Project owner</label>
                   <div className="pp-owner-display">{ownerLabel}</div>
-                  <p className="pp-field-hint">Accountable governance lead — auto-set to you.</p>
+                  <p className="pp-field-hint">Accountable governance lead -- auto-set to you.</p>
                 </div>
 
                 <div>
@@ -528,7 +544,7 @@ export default async function ProjectsPage({
                       <option key={m.user_id} value={m.user_id}>{m.label}</option>
                     ))}
                   </select>
-                  <p className="pp-field-hint">Assign now or later — used for delivery accountability.</p>
+                  <p className="pp-field-hint">Assign now or later -- used for delivery accountability.</p>
                 </div>
 
                 <div className="pp-form-row">
@@ -542,7 +558,7 @@ export default async function ProjectsPage({
                   </div>
                 </div>
 
-                {/* ── New heatmap fields ── */}
+                {/* -- New heatmap fields -- */}
                 <div>
                   <hr className="pp-heatmap-divider" />
                 </div>
@@ -551,11 +567,11 @@ export default async function ProjectsPage({
                   HeatmapProjectFields is a "use client" component.
                   It renders interactive colour picker + status toggle + win prob slider.
                   All values are written to hidden inputs so they submit with this
-                  server action form automatically — no extra wiring needed.
+                  server action form automatically -- no extra wiring needed.
                 */}
-                <HeatmapProjectFields />
+                <HeatmapProjectFields departmentSuggestions={existingDepartments} />
 
-                {/* ── Submit — unchanged ── */}
+                {/* -- Submit -- unchanged -- */}
                 <div>
                   <button type="submit" disabled={!canCreate} className="pp-submit-btn">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -574,7 +590,7 @@ export default async function ProjectsPage({
             </div>
           </div>
 
-          {/* Results section — unchanged */}
+          {/* Results section -- unchanged */}
           <div className="pp-results-section">
             <div className="pp-section-label">Your projects</div>
             <ProjectsResults
@@ -597,4 +613,3 @@ export default async function ProjectsPage({
     </>
   );
 }
-

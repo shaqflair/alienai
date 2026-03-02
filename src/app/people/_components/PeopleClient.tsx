@@ -38,9 +38,21 @@ export type RateCard = {
    CONSTANTS
 ============================================================================= */
 
-const DEPARTMENTS = [
+// DEPARTMENTS removed — now dynamically sourced from org data + common fallbacks
+const COMMON_DEPARTMENTS = [
   "Design","Engineering","Analytics","Delivery",
-  "Product","Marketing","Operations","Finance",
+  "Product","Marketing","Operations","Finance","HR","Legal","Sales",
+];
+
+const COMMON_JOB_TITLES = [
+  "Designer","Senior Designer","Lead Designer",
+  "Engineer","Senior Engineer","Lead Engineer","Engineering Manager",
+  "Product Manager","Senior Product Manager",
+  "Analyst","Senior Analyst","Data Analyst",
+  "Delivery Manager","Project Manager","Programme Manager",
+  "Director","Head of","VP","CTO","CPO","COO",
+  "Consultant","Senior Consultant","Principal Consultant",
+  "Developer","Frontend Developer","Backend Developer","Full Stack Developer",
 ];
 
 const EMPLOYMENT_TYPES = [
@@ -151,11 +163,15 @@ function PersonModal({
   rateCards,
   organisationId,
   onClose,
+  jobTitleSuggestions = [],
+  departmentSuggestions = [],
 }: {
-  person:         PersonRow | null; // null = add new
-  rateCards:      RateCard[];
-  organisationId: string;
-  onClose:        () => void;
+  person:                PersonRow | null; // null = add new
+  rateCards:             RateCard[];
+  organisationId:        string;
+  onClose:               () => void;
+  jobTitleSuggestions?:  string[];
+  departmentSuggestions?: string[];
 }) {
   const isNew = !person;
 
@@ -236,7 +252,7 @@ function PersonModal({
           <button type="button" onClick={onClose} style={{
             background: "none", border: "none", color: "#94a3b8",
             cursor: "pointer", fontSize: "18px", lineHeight: 1, padding: "4px",
-          }}>✕</button>
+          }}>x</button>
         </div>
 
         {/* Form */}
@@ -259,11 +275,20 @@ function PersonModal({
             </div>
             <div>
               <FieldLabel>Job title</FieldLabel>
-              <Input
+              <input
+                list="job-title-suggestions"
                 value={jobTitle}
                 onChange={e => setJobTitle(e.target.value)}
                 placeholder="Senior Designer"
+                style={inputStyle}
+                onFocus={e => { (e.target as HTMLInputElement).style.borderColor = "#00b8db"; }}
+                onBlur={e  => { (e.target as HTMLInputElement).style.borderColor = "#e2e8f0"; }}
               />
+              <datalist id="job-title-suggestions">
+                {[...new Set([...jobTitleSuggestions, ...COMMON_JOB_TITLES])].map(t => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
             </div>
           </div>
 
@@ -271,10 +296,20 @@ function PersonModal({
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
             <div>
               <FieldLabel>Department</FieldLabel>
-              <Select value={department} onChange={e => setDepartment(e.target.value)}>
-                <option value="">Select…</option>
-                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-              </Select>
+              <input
+                list="department-suggestions"
+                value={department}
+                onChange={e => setDepartment(e.target.value)}
+                placeholder="e.g. Engineering"
+                style={inputStyle}
+                onFocus={e => { (e.target as HTMLInputElement).style.borderColor = "#00b8db"; }}
+                onBlur={e  => { (e.target as HTMLInputElement).style.borderColor = "#e2e8f0"; }}
+              />
+              <datalist id="department-suggestions">
+                {[...new Set([...departmentSuggestions, ...COMMON_DEPARTMENTS])].map(d => (
+                  <option key={d} value={d} />
+                ))}
+              </datalist>
             </div>
             <div>
               <FieldLabel>Employment type</FieldLabel>
@@ -289,7 +324,7 @@ function PersonModal({
           {/* Capacity */}
           <div>
             <FieldLabel required>
-              Default capacity —{" "}
+              Default capacity --{" "}
               <span style={{ color: "#00b8db", fontFamily: "'DM Mono', monospace" }}>
                 {capacity}d/week
               </span>
@@ -326,7 +361,7 @@ function PersonModal({
               <option value="">No rate card</option>
               {rateCards.filter(r => r.isActive).map(r => (
                 <option key={r.id} value={r.id}>
-                  {r.label} — {r.currency} {r.ratePerDay.toLocaleString()}/day
+                  {r.label} -- {r.currency} {r.ratePerDay.toLocaleString()}/day
                 </option>
               ))}
             </Select>
@@ -432,7 +467,7 @@ function PersonModal({
               fontFamily: "'DM Sans', sans-serif",
               boxShadow: "0 2px 10px rgba(0,184,219,0.25)",
             }}>
-              {isPending ? "Saving…" : isNew ? "Add person" : "Save changes"}
+              {isPending ? "Saving..." : isNew ? "Add person" : "Save changes"}
             </button>
           </div>
         </form>
@@ -521,7 +556,7 @@ function RateCardPanel({
           <button type="button" onClick={onClose} style={{
             background: "none", border: "none", color: "#94a3b8",
             cursor: "pointer", fontSize: "18px",
-          }}>✕</button>
+          }}>x</button>
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 22px" }}>
@@ -554,7 +589,7 @@ function RateCardPanel({
               <button type="button" onClick={() => handleDelete(rc.id)} style={{
                 background: "none", border: "none", color: "#cbd5e1",
                 cursor: "pointer", fontSize: "14px",
-              }}>✕</button>
+              }}>x</button>
             </div>
           ))}
 
@@ -605,7 +640,7 @@ function RateCardPanel({
                   fontSize: "12px", fontWeight: 700, color: "white",
                   cursor: "pointer", fontFamily: "'DM Sans', sans-serif",
                 }}>
-                  {isPending ? "Saving…" : "Add"}
+                  {isPending ? "Saving..." : "Add"}
                 </button>
               </div>
             </form>
@@ -690,7 +725,7 @@ function PersonCard({
           )}
         </div>
         <div style={{ fontSize: "12px", color: "#64748b", marginTop: "2px" }}>
-          {[person.jobTitle, person.department].filter(Boolean).join(" · ") || "—"}
+          {[person.jobTitle, person.department].filter(Boolean).join(" . ") || "--"}
         </div>
         <div style={{
           display: "flex", gap: "12px", marginTop: "6px",
@@ -769,7 +804,7 @@ function PersonCard({
           cursor: isPending ? "not-allowed" : "pointer",
           fontFamily: "'DM Sans', sans-serif",
         }}>
-          {isPending ? "…" : person.isActive ? "Deactivate" : "Activate"}
+          {isPending ? "..." : person.isActive ? "Deactivate" : "Activate"}
         </button>
       </div>
     </div>
@@ -785,11 +820,15 @@ export default function PeopleClient({
   rateCards,
   organisationId,
   isAdmin,
+  jobTitleSuggestions = [],
+  departmentSuggestions = [],
 }: {
-  people:         PersonRow[];
-  rateCards:      RateCard[];
-  organisationId: string;
-  isAdmin:        boolean;
+  people:                 PersonRow[];
+  rateCards:              RateCard[];
+  organisationId:         string;
+  isAdmin:                boolean;
+  jobTitleSuggestions?:   string[];
+  departmentSuggestions?: string[];
 }) {
   const [editPerson,    setEditPerson]    = useState<PersonRow | null | "new">(null);
   const [showRateCards, setShowRateCards] = useState(false);
@@ -840,7 +879,7 @@ export default function PeopleClient({
         padding: "36px 28px", maxWidth: "900px", margin: "0 auto",
       }}>
 
-        {/* ── Header ── */}
+        {/* -- Header -- */}
         <div style={{
           display: "flex", alignItems: "flex-start",
           justifyContent: "space-between", marginBottom: "24px",
@@ -850,7 +889,7 @@ export default function PeopleClient({
             <h1 style={{ fontSize: "22px", fontWeight: 800, color: "#0f172a",
                          margin: 0, marginBottom: "4px" }}>People</h1>
             <p style={{ fontSize: "13px", color: "#94a3b8", margin: 0 }}>
-              {activeCount} active · {inactiveCount} inactive
+              {activeCount} active . {inactiveCount} inactive
             </p>
           </div>
           <div style={{ display: "flex", gap: "8px" }}>
@@ -861,7 +900,7 @@ export default function PeopleClient({
                 color: "#475569", fontSize: "13px", fontWeight: 600,
                 cursor: "pointer", fontFamily: "'DM Sans', sans-serif",
               }}>
-                💷 Rate cards
+                [GBP] Rate cards
               </button>
             )}
             <button type="button" onClick={() => setEditPerson("new")} style={{
@@ -876,7 +915,7 @@ export default function PeopleClient({
           </div>
         </div>
 
-        {/* ── Filters ── */}
+        {/* -- Filters -- */}
         <div style={{
           display: "flex", gap: "10px", marginBottom: "20px",
           flexWrap: "wrap", alignItems: "center",
@@ -884,7 +923,7 @@ export default function PeopleClient({
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search people…"
+            placeholder="Search people..."
             style={{
               ...inputStyle, width: "220px",
               backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E\")",
@@ -922,7 +961,7 @@ export default function PeopleClient({
               fontSize: "12px", fontWeight: 600, cursor: "pointer",
               fontFamily: "'DM Sans', sans-serif",
             }}>
-              ✕ Clear
+              x Clear
             </button>
           )}
 
@@ -931,7 +970,7 @@ export default function PeopleClient({
           </span>
         </div>
 
-        {/* ── List ── */}
+        {/* -- List -- */}
         {filtered.length === 0 ? (
           <div style={{
             padding: "48px 0", textAlign: "center",
@@ -955,13 +994,15 @@ export default function PeopleClient({
         )}
       </div>
 
-      {/* ── Modals ── */}
+      {/* -- Modals -- */}
       {editPerson !== null && (
         <PersonModal
           person={editPerson === "new" ? null : editPerson}
           rateCards={rateCards}
           organisationId={organisationId}
           onClose={() => { setEditPerson(null); window.location.reload(); }}
+          jobTitleSuggestions={jobTitleSuggestions}
+          departmentSuggestions={departmentSuggestions}
         />
       )}
 
