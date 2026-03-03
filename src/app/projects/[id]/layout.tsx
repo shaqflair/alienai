@@ -1,9 +1,7 @@
-// src/app/projects/[id]/layout.tsx
 import "server-only";
 
-import React, { Suspense } from "react";
+import React from "react";
 import { redirect } from "next/navigation";
-import ArtifactsSidebar from "./artifacts/ArtifactsSidebar";
 
 /* =========================================================
    helpers
@@ -34,7 +32,6 @@ function normalizeId(raw: string) {
 }
 
 function looksLikeProjectCode(input: string) {
-  // Accept: UUID, "100011", "00001", "P-00001", "p00001"
   const s = normalizeId(input).toUpperCase();
   if (!s) return false;
   if (looksLikeUuid(s)) return true;
@@ -73,29 +70,17 @@ export default async function ProjectLayout({
 
   const projectId = normalizeId(safeParam(id));
 
-  // ✅ Always bounce invalid/missing IDs back to /projects (avoid NEXT_HTTP_ERROR_FALLBACK;404)
   if (!projectId) redirect("/projects");
 
-  // ✅ Guard: /projects/artifacts, /projects/members etc should not be treated as a project id
   const lower = projectId.toLowerCase();
   if (RESERVED.has(lower)) redirect("/projects");
 
-  // ✅ Guard: prevent 22P02 spam by only allowing uuid or numeric-ish codes
   if (!looksLikeProjectCode(projectId)) redirect("/projects");
 
+  // ✅ NO MORE RIGHT SIDEBAR
   return (
-    <div className="flex min-h-[calc(100vh-64px)] overflow-x-hidden">
-      <Suspense
-        fallback={
-          <aside className="w-[320px] shrink-0 border-r border-gray-200 bg-white">
-            <div className="p-4 text-sm text-gray-500">Loading sidebar…</div>
-          </aside>
-        }
-      >
-        <ArtifactsSidebar projectId={projectId} />
-      </Suspense>
-
-      <section className="min-w-0 flex-1 overflow-auto p-6">{children}</section>
-    </div>
+    <section className="min-h-[calc(100vh-64px)] overflow-auto p-6">
+      {children}
+    </section>
   );
 }
