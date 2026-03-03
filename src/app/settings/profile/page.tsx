@@ -5,7 +5,6 @@ import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Org Profile | Settings" };
 
 const TIMEZONES = [
   "Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Amsterdam",
