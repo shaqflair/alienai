@@ -2,6 +2,7 @@
 // FILE: src/app/heatmap/_components/HeatmapClient.tsx
 
 import { useState, useCallback, useRef, useEffect, useTransition } from "react";
+import { useRouter } from "next/navigation"; // ✅ FIX 2: added for router.refresh()
 import type { HeatmapData, PersonRow, AllocationCell, Granularity, PeriodHeader, PipelineGapRow } from "../_lib/heatmap-query";
 import { updateAllocation, deleteAllocationDirect } from "../../allocations/actions";
 
@@ -154,24 +155,39 @@ export default function HeatmapClient({initialData,allPeople,allDepartments,allP
   const[edit,setEdit]=useState<CS|null>(null);
   const abrt=useRef<AbortController|null>(null);
   const cw=CW[filters.granularity];
+  const router=useRouter(); // ✅ FIX 2
 
   function bp(f:Filters){const p=new URLSearchParams();p.set("granularity",f.granularity);p.set("dateFrom",f.dateFrom);p.set("dateTo",f.dateTo);f.departments.forEach(d=>p.append("dept",d));f.statuses.forEach(s=>p.append("status",s));[...new Set([...f.personIds,...f.pmIds])].forEach(id=>p.append("person",id));(f.projectIds??[]).forEach(id=>p.append("project",id));return p;}
 
   const fetchData=useCallback(async(f:Filters)=>{
     if(abrt.current)abrt.current.abort();abrt.current=new AbortController();
     setLoading(true);setFerr(null);
-    try{const res=await fetch(`/api/heatmap/data?${bp(f)}`,{signal:abrt.current.signal});if(!res.ok)throw new Error(`HTTP ${res.status}`);const json=await res.json();if((f.roles??[]).length>0){json.people=(json.people??[]).filter((p:any)=>(f.roles??[]).some(r=>p.jobTitle&&p.jobTitle.toLowerCase().includes(r.toLowerCase())));}setData(json);}
+    // ✅ FIX 2: _t busts Next.js Route Handler GET cache on every fetch
+    try{const res=await fetch(`/api/heatmap/data?${bp(f)}&_t=${Date.now()}`,{signal:abrt.current.signal});if(!res.ok)throw new Error(`HTTP ${res.status}`);const json=await res.json();if((f.roles??[]).length>0){json.people=(json.people??[]).filter((p:any)=>(f.roles??[]).some(r=>p.jobTitle&&p.jobTitle.toLowerCase().includes(r.toLowerCase())));}setData(json);}
     catch(e:any){if(e.name!=="AbortError")setFerr(e.message);}finally{setLoading(false);}
   },[]);
 
   useEffect(()=>{fetchData(filters);},[filters,fetchData]);
 
-  // FIX: close modal instantly, refetch silently in background (no loading flash)
+  // ✅ FIX 2: close modal, bust page cache, refetch silently in background
   function onSaved(_a:string,_b:string,_c:string,_d:string,_e:number,_f:string){
     setEdit(null);
-    if(abrt.current)abrt.current.abort();abrt.current=new AbortController();
+    router.refresh(); // invalidates RSC page-level cache
+    if(abrt.current)abrt.current.abort();
+    abrt.current=new AbortController();
     const f=filters;
-    fetch(`/api/heatmap/data?${bp(f)}`,{signal:abrt.current.signal}).then(r=>r.ok?r.json():null).then(json=>{if(!json)return;if((f.roles??[]).length>0){json.people=(json.people??[]).filter((p:any)=>(f.roles??[]).some(r=>p.jobTitle&&p.jobTitle.toLowerCase().includes(r.toLowerCase())));}setData(json);}).catch(()=>{});
+    fetch(`/api/heatmap/data?${bp(f)}&_t=${Date.now()}`,{signal:abrt.current.signal})
+      .then(r=>r.ok?r.json():null)
+      .then(json=>{
+        if(!json)return;
+        if((f.roles??[]).length>0){
+          json.people=(json.people??[]).filter(
+            (p:any)=>(f.roles??[]).some(r=>p.jobTitle&&p.jobTitle.toLowerCase().includes(r.toLowerCase()))
+          );
+        }
+        setData(json);
+      })
+      .catch(()=>{});
   }
 
   const tD=(d:string)=>setFilters(f=>({...f,departments:f.departments.includes(d)?f.departments.filter(x=>x!==d):[...f.departments,d]}));

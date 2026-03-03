@@ -233,9 +233,13 @@ export async function updateAllocationWeek(formData: FormData) {
 
 /* =========================
    updateAllocation
-   FIX: Only delete/replace weeks WITHIN the new date range.
-   Previously deleted ALL weeks for person↔project, wiping allocations
-   on other periods (e.g. editing week 5 would delete weeks 1-4 and 6+).
+
+   FIX 1 (original): Only delete/replace weeks WITHIN the new date range —
+   prevents wiping allocations outside the edited window.
+
+   FIX 2 (this PR): Use upsert not insert so that if any week_start_date
+   survives the delete step (timezone edge-case, RLS, concurrent request),
+   we don't crash with a unique-constraint violation — we overwrite cleanly.
 ========================= */
 
 export async function updateAllocation(formData: FormData): Promise<{ ok: true }> {
@@ -262,11 +266,12 @@ export async function updateAllocation(formData: FormData): Promise<{ ok: true }
 
   // Build new weekly rows
   const rows: {
-    person_id: string;
-    project_id: string;
+    person_id:       string;
+    project_id:      string;
     week_start_date: string;
-    days_allocated: number;
+    days_allocated:  number;
     allocation_type: string;
+    updated_at:      string;
   }[] = [];
 
   const start = new Date(new_start + "T00:00:00Z");
@@ -284,6 +289,7 @@ export async function updateAllocation(formData: FormData): Promise<{ ok: true }
       week_start_date: cur.toISOString().slice(0, 10),
       days_allocated:  days_per_week,
       allocation_type: alloc_type,
+      updated_at:      new Date().toISOString(),
     });
     cur.setUTCDate(cur.getUTCDate() + 7);
   }
@@ -291,8 +297,7 @@ export async function updateAllocation(formData: FormData): Promise<{ ok: true }
   if (rows.length === 0)
     throw new Error("No weeks found in the selected date range.");
 
-  // KEY FIX: only delete the specific weeks we are about to replace,
-  // not the entire person↔project allocation history.
+  // Only delete the specific weeks we are about to replace
   const weekKeys = rows.map(r => r.week_start_date);
 
   const { error: delErr } = await supabase
@@ -304,9 +309,10 @@ export async function updateAllocation(formData: FormData): Promise<{ ok: true }
 
   if (delErr) throw new Error(`Failed to clear existing weeks: ${delErr.message}`);
 
+  // ✅ upsert — idempotent if any row survived the delete above
   const { error: insErr } = await supabase
     .from("allocations")
-    .insert(rows);
+    .upsert(rows, { onConflict: "person_id,project_id,week_start_date" });
 
   if (insErr) throw new Error(`Failed to save allocation: ${insErr.message}`);
 
