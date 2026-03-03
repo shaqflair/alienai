@@ -290,17 +290,15 @@ const ALIENA_LOGO_URL =
   "https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png";
 
 function AlienaWordmarkTop() {
-  // ΛLIΞNΛ with Λ + I in blue
+  // ΛLIΞNΛ with ONLY the I (after L) in blue
   return (
     <span className="inline-flex items-baseline leading-none">
-      <span className="text-sky-600">Λ</span>
-      <span>LI</span>
+      <span>ΛL</span>
       <span className="text-sky-600">I</span>
       <span>ΞNΛ</span>
     </span>
   );
 }
-
 /* =============================================================================
    NAV ITEM COMPONENT
 ============================================================================= */
