@@ -20,11 +20,7 @@ function sbErrText(e: any) {
   if (typeof e === "string") return e;
   if (e instanceof Error) return e.message;
   if (typeof e?.message === "string") return e.message;
-  try {
-    return JSON.stringify(e);
-  } catch {
-    return String(e);
-  }
+  try { return JSON.stringify(e); } catch { return String(e); }
 }
 
 function normalizeRole(x: any): Role {
@@ -34,24 +30,30 @@ function normalizeRole(x: any): Role {
   return "member";
 }
 
-function roleBadge(role: Role) {
-  if (role === "owner") return { label: "Owner", cls: "bg-gray-50 border-gray-200" };
-  if (role === "admin") return { label: "Admin", cls: "bg-blue-50 border-blue-200" };
-  return { label: "Member", cls: "bg-yellow-50 border-yellow-200" };
-}
+/* Colour tokens that match the rest of the app */
+const ROLE_STYLES: Record<Role, { label: string; bg: string; color: string; border: string }> = {
+  owner:  { label: "Owner",  bg: "#faf5ff", color: "#7c3aed", border: "#e9d5ff" },
+  admin:  { label: "Admin",  bg: "#eff6ff", color: "#1d4ed8", border: "#bfdbfe" },
+  member: { label: "Member", bg: "#f8fafc", color: "#64748b", border: "#e2e8f0" },
+};
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+export const runtime  = "nodejs";
+export const dynamic  = "force-dynamic";
 export const revalidate = 0;
+
+/* ── Org initial avatar colour (same palette as rest of app) ── */
+const AVATAR_COLS = ["#06b6d4","#3b82f6","#8b5cf6","#ec4899","#f59e0b","#10b981","#ef4444"];
+function avatarCol(name: string) {
+  return AVATAR_COLS[(name?.charCodeAt(0) ?? 0) % AVATAR_COLS.length];
+}
+function orgInitial(name: string) {
+  return (name ?? "?")[0].toUpperCase();
+}
 
 export default async function SettingsPage() {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: authErr,
-  } = await supabase.auth.getUser();
-
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
   if (authErr) throw new Error(sbErrText(authErr));
   if (!user) redirect("/login");
 
@@ -59,16 +61,7 @@ export default async function SettingsPage() {
 
   const { data, error: memErr } = await supabase
     .from("organisation_members")
-    .select(
-      `
-      organisation_id,
-      role,
-      organisations:organisations (
-        id,
-        name
-      )
-    `
-    )
+    .select(`organisation_id, role, organisations:organisations ( id, name )`)
     .eq("user_id", user.id)
     .is("removed_at", null);
 
@@ -77,11 +70,7 @@ export default async function SettingsPage() {
   const memberships = ((data ?? []) as unknown as OrgRow[])
     .map((r) => {
       if (!r.organisations?.id) return null;
-      return {
-        orgId:   r.organisations.id,
-        orgName: r.organisations.name,
-        role:    normalizeRole(r.role),
-      };
+      return { orgId: r.organisations.id, orgName: r.organisations.name, role: normalizeRole(r.role) };
     })
     .filter(Boolean) as Array<{ orgId: string; orgName: string; role: Role }>;
 
@@ -89,190 +78,320 @@ export default async function SettingsPage() {
   const myRole  = active?.role ?? null;
   const isAdmin = myRole === "admin" || myRole === "owner";
 
+  /* ── Inline styles (keeps the file self-contained, no Tailwind drift) ── */
+  const page: React.CSSProperties = {
+    minHeight: "100vh",
+    background: "#f8fafc",
+    fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
+    padding: "36px 24px 60px",
+  };
+  const wrap: React.CSSProperties = { maxWidth: 680, margin: "0 auto" };
+
+  const pageTitle: React.CSSProperties = {
+    fontSize: 26, fontWeight: 800, color: "#0f172a",
+    letterSpacing: "-0.5px", margin: "0 0 28px",
+  };
+
+  const card: React.CSSProperties = {
+    background: "white", borderRadius: 16,
+    border: "1.5px solid #e2e8f0",
+    boxShadow: "0 1px 6px rgba(0,0,0,0.04)",
+    padding: "24px 24px 20px",
+    marginBottom: 16,
+  };
+
+  const sectionLabel: React.CSSProperties = {
+    fontSize: 11, fontWeight: 800, color: "#94a3b8",
+    textTransform: "uppercase", letterSpacing: "0.08em",
+    marginBottom: 16,
+  };
+
+  const orgCard = (isActive: boolean): React.CSSProperties => ({
+    display: "flex", alignItems: "center", justifyContent: "space-between",
+    flexWrap: "wrap", gap: 12,
+    padding: "14px 16px", borderRadius: 12,
+    border: `1.5px solid ${isActive ? "#a5f3fc" : "#e2e8f0"}`,
+    background: isActive ? "#ecfeff" : "#fafbfc",
+    marginBottom: 8,
+    transition: "border-color 0.15s",
+  });
+
+  const actionBtn: React.CSSProperties = {
+    display: "inline-flex", alignItems: "center", gap: 5,
+    padding: "6px 12px", borderRadius: 8,
+    border: "1.5px solid #e2e8f0", background: "white",
+    fontSize: 12, fontWeight: 600, color: "#475569",
+    textDecoration: "none", whiteSpace: "nowrap",
+    cursor: "pointer",
+  };
+
+  const primaryBtn: React.CSSProperties = {
+    ...actionBtn,
+    background: "#06b6d4", border: "none",
+    color: "white", fontWeight: 700,
+  };
+
+  const setActiveBtn: React.CSSProperties = {
+    ...actionBtn,
+    borderColor: "#a5f3fc", color: "#0891b2",
+    background: "white",
+  };
+
+  function RoleBadge({ role }: { role: Role }) {
+    const s = ROLE_STYLES[role];
+    return (
+      <span style={{
+        fontSize: 10, fontWeight: 700, padding: "2px 7px",
+        borderRadius: 6, border: `1px solid ${s.border}`,
+        background: s.bg, color: s.color,
+        letterSpacing: "0.03em",
+      }}>{s.label}</span>
+    );
+  }
+
+  function ActiveBadge() {
+    return (
+      <span style={{
+        fontSize: 10, fontWeight: 700, padding: "2px 7px",
+        borderRadius: 6, border: "1px solid #a5f3fc",
+        background: "#ecfeff", color: "#0891b2",
+        letterSpacing: "0.03em",
+      }}>Active</span>
+    );
+  }
+
+  function AdminChip() {
+    return (
+      <span style={{
+        fontSize: 9, fontWeight: 800, padding: "2px 5px",
+        borderRadius: 4, background: "#eff6ff",
+        color: "#1d4ed8", border: "1px solid #bfdbfe",
+        marginLeft: 4, letterSpacing: "0.04em",
+      }}>Admin</span>
+    );
+  }
+
   return (
-    <main className="mx-auto max-w-3xl p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">Settings</h1>
+    <main style={page}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
+        .settings-action-btn:hover { background: #f1f5f9 !important; border-color: #cbd5e1 !important; }
+        .settings-set-active:hover { background: #ecfeff !important; }
+        .settings-input:focus { border-color: #06b6d4 !important; outline: none; box-shadow: 0 0 0 3px rgba(6,182,212,0.12); }
+        .settings-create-btn:hover { background: #0891b2 !important; }
+        .settings-org-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+      `}</style>
 
-      {/* ── Your organisations ── */}
-      <section className="rounded-lg border bg-white p-5 space-y-3">
-        <div className="text-sm font-medium">Your organisations</div>
+      <div style={wrap}>
+        <h1 style={pageTitle}>Settings</h1>
 
-        {memberships.length === 0 ? (
-          <div className="text-sm text-gray-700">
-            You are not a member of any organisation yet.
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {memberships.map((m) => {
-              const isActive      = active?.orgId === m.orgId;
-              const badge         = roleBadge(m.role);
-              const memberIsAdmin = m.role === "admin" || m.role === "owner";
+        {/* ── Your organisations ── */}
+        <div style={card}>
+          <div style={sectionLabel}>Your organisations</div>
 
-              return (
-                <div
-                  key={m.orgId}
-                  className={`flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 ${
-                    isActive ? "bg-gray-50 border-gray-300" : "bg-white"
-                  }`}
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <div className="text-sm font-medium truncate">{m.orgName}</div>
-                      <span className={`text-xs rounded border px-2 py-0.5 ${badge.cls}`}>
-                        {badge.label}
-                      </span>
-                      {isActive ? (
-                        <span className="text-xs rounded border px-2 py-0.5 bg-green-50 border-green-200 text-green-800">
-                          Active
-                        </span>
-                      ) : null}
+          {memberships.length === 0 ? (
+            <p style={{ fontSize: 13, color: "#64748b", margin: 0 }}>
+              You are not a member of any organisation yet.
+            </p>
+          ) : (
+            <>
+              {memberships.map((m) => {
+                const isActiveOrg   = active?.orgId === m.orgId;
+                const memberIsAdmin = m.role === "admin" || m.role === "owner";
+
+                return (
+                  <div key={m.orgId} className="settings-org-card" style={orgCard(isActiveOrg)}>
+                    {/* Left: avatar + name */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                      <div style={{
+                        width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+                        background: avatarCol(m.orgName),
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 15, fontWeight: 800, color: "white",
+                      }}>
+                        {orgInitial(m.orgName)}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>
+                            {m.orgName}
+                          </span>
+                          <RoleBadge role={m.role} />
+                          {isActiveOrg && <ActiveBadge />}
+                        </div>
+                        <div style={{
+                          fontSize: 10, color: "#94a3b8", marginTop: 2,
+                          fontFamily: "'DM Mono', monospace",
+                        }}>
+                          {m.orgId}
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-xs opacity-60 font-mono">org_id: {m.orgId}</div>
-                  </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    {!isActive ? (
-                      <form method="post" action="/api/active-org">
-                        <input type="hidden" name="org_id"  value={m.orgId} />
-                        <input type="hidden" name="next"    value="/settings" />
-                        <button
-                          className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
-                          type="submit"
-                        >
-                          Set active
-                        </button>
-                      </form>
-                    ) : null}
-
-                    <Link
-                      href={`/organisations/${m.orgId}/members`}
-                      className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
-                    >
-                      Members
-                    </Link>
-
-                    <Link
-                      href={`/organisations/${m.orgId}/settings?tab=settings`}
-                      className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
-                    >
-                      Settings
-                    </Link>
-
-                    <Link
-                      href={`/organisations/${m.orgId}/settings?tab=approvals`}
-                      className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
-                      title="Configure organisation approvals"
-                    >
-                      Approvals
-                    </Link>
-
-                    {/*
-                      Rate Cards — visible to all members so they can see rates,
-                      but only admins/owners can create or edit entries (enforced
-                      by RLS on the resource_rates table and by RateCardTab itself).
-                    */}
-                    <Link
-                      href={`/organisations/${m.orgId}/settings?tab=rate-cards`}
-                      className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 inline-flex items-center gap-1.5"
-                      title="View and manage resource rate cards used in Financial Plans"
-                    >
-                      Rate Cards
-                      {memberIsAdmin && (
-                        <span className="text-[10px] rounded px-1.5 py-0.5 bg-blue-100 text-blue-700 font-semibold leading-none">
-                          Admin
-                        </span>
+                    {/* Right: actions */}
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, flexShrink: 0 }}>
+                      {!isActiveOrg && (
+                        <form method="post" action="/api/active-org" style={{ display: "contents" }}>
+                          <input type="hidden" name="org_id" value={m.orgId} />
+                          <input type="hidden" name="next"   value="/settings" />
+                          <button type="submit" className="settings-set-active" style={setActiveBtn}>
+                            Set active
+                          </button>
+                        </form>
                       )}
-                    </Link>
+                      <Link href={`/organisations/${m.orgId}/members`}
+                        className="settings-action-btn" style={actionBtn}>Members</Link>
+                      <Link href={`/organisations/${m.orgId}/settings?tab=settings`}
+                        className="settings-action-btn" style={actionBtn}>Settings</Link>
+                      <Link href={`/organisations/${m.orgId}/settings?tab=approvals`}
+                        className="settings-action-btn" style={actionBtn}>Approvals</Link>
+                      <Link href={`/organisations/${m.orgId}/settings?tab=rate-cards`}
+                        className="settings-action-btn" style={actionBtn}>
+                        Rate Cards
+                        {memberIsAdmin && <AdminChip />}
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+
+              <p style={{ fontSize: 11, color: "#94a3b8", margin: "10px 0 0" }}>
+                Governance actions (transfer ownership / leave org) live in{" "}
+                <strong style={{ color: "#64748b" }}>Organisation settings</strong>.
+              </p>
+            </>
+          )}
+        </div>
+
+        {/* ── Active organisation ── */}
+        <div style={card}>
+          <div style={sectionLabel}>Active organisation</div>
+
+          {active ? (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+                <div style={{
+                  width: 44, height: 44, borderRadius: 12, flexShrink: 0,
+                  background: avatarCol(active.orgName),
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 18, fontWeight: 800, color: "white",
+                }}>
+                  {orgInitial(active.orgName)}
+                </div>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 16, fontWeight: 700, color: "#0f172a" }}>
+                      {active.orgName}
+                    </span>
+                    {myRole && <RoleBadge role={myRole} />}
+                  </div>
+                  <div style={{
+                    fontSize: 10, color: "#94a3b8", marginTop: 3,
+                    fontFamily: "'DM Mono', monospace",
+                  }}>
+                    {active.orgId}
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
+              </div>
 
-        <div className="text-xs opacity-60">
-          Governance actions (transfer ownership / leave org) live in{" "}
-          <b>Organisation settings</b>.
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <Link href={`/organisations/${active.orgId}/members`}
+                  className="settings-action-btn" style={actionBtn}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                    <circle cx="9" cy="7" r="4" stroke="#64748b" strokeWidth="1.8"/>
+                    <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" stroke="#64748b" strokeWidth="1.8" strokeLinecap="round"/>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75M21 21v-2a4 4 0 0 0-3-3.85" stroke="#64748b" strokeWidth="1.8" strokeLinecap="round"/>
+                  </svg>
+                  Members
+                </Link>
+                <Link href={`/organisations/${active.orgId}/settings?tab=settings`}
+                  className="settings-action-btn" style={actionBtn}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="3" stroke="#64748b" strokeWidth="1.8"/>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="#64748b" strokeWidth="1.8"/>
+                  </svg>
+                  Organisation settings
+                </Link>
+                <Link href={`/organisations/${active.orgId}/settings?tab=approvals`}
+                  className="settings-action-btn" style={actionBtn}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                    <polyline points="20 6 9 17 4 12" stroke="#64748b" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Approvals
+                </Link>
+                <Link href={`/organisations/${active.orgId}/settings?tab=rate-cards`}
+                  className="settings-action-btn" style={actionBtn}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                    <rect x="2" y="6" width="20" height="13" rx="2" stroke="#64748b" strokeWidth="1.8"/>
+                    <path d="M2 10h20" stroke="#64748b" strokeWidth="1.8" strokeLinecap="round"/>
+                    <path d="M6 15h2M10 15h2" stroke="#64748b" strokeWidth="1.8" strokeLinecap="round"/>
+                  </svg>
+                  Rate Cards
+                  {isAdmin && <AdminChip />}
+                </Link>
+              </div>
+            </>
+          ) : (
+            <p style={{ fontSize: 13, color: "#64748b", margin: 0 }}>No organisation selected.</p>
+          )}
         </div>
-      </section>
 
-      {/* ── Active organisation ── */}
-      <section className="rounded-lg border bg-white p-5 space-y-3">
-        <div className="text-sm font-medium">Active organisation</div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="text-sm">{active?.orgName ?? "No organisation selected"}</div>
-          {myRole ? (
-            <span className={`text-xs rounded border px-2 py-0.5 ${roleBadge(myRole).cls}`}>
-              {roleBadge(myRole).label}
-            </span>
-          ) : null}
-        </div>
-
-        {active ? (
-          <div className="flex flex-wrap gap-2 pt-2">
-            <Link
-              href={`/organisations/${active.orgId}/members`}
-              className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
-            >
-              Members
-            </Link>
-
-            <Link
-              href={`/organisations/${active.orgId}/settings?tab=settings`}
-              className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
-            >
-              Organisation settings
-            </Link>
-
-            <Link
-              href={`/organisations/${active.orgId}/settings?tab=approvals`}
-              className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
-            >
-              Approvals
-            </Link>
-
-            <Link
-              href={`/organisations/${active.orgId}/settings?tab=rate-cards`}
-              className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 inline-flex items-center gap-1.5"
-              title="View and manage resource rate cards used in Financial Plans"
-            >
-              Rate Cards
-              {isAdmin && (
-                <span className="text-[10px] rounded px-1.5 py-0.5 bg-blue-100 text-blue-700 font-semibold leading-none">
-                  Admin
-                </span>
-              )}
-            </Link>
+        {/* ── Create organisation ── */}
+        <div style={card}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+            <div style={{
+              width: 34, height: 34, borderRadius: 9,
+              background: "#ecfeff", border: "1px solid #a5f3fc",
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+            }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke="#06b6d4" strokeWidth="1.8"/>
+                <polyline points="9 22 9 12 15 12 15 22" stroke="#06b6d4" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>Create organisation</div>
+              <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 1 }}>
+                Set up a new workspace for your team
+              </div>
+            </div>
           </div>
-        ) : null}
-      </section>
 
-      {/* ── Create organisation ── */}
-      {/* Creating an org should not depend on being admin/owner of an active org */}
-      <section className="rounded-lg border bg-white p-5 space-y-4">
-        <h2 className="text-lg font-medium">Create organisation</h2>
+          <form action={createOrganisation}>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                name="name"
+                placeholder="e.g. Vodafone UK"
+                required
+                className="settings-input"
+                style={{
+                  flex: 1, padding: "9px 13px", borderRadius: 10,
+                  border: "1.5px solid #e2e8f0", fontSize: 13,
+                  color: "#0f172a", background: "white",
+                  fontFamily: "inherit", outline: "none",
+                  transition: "border-color 0.15s",
+                }}
+              />
+              <button
+                type="submit"
+                className="settings-create-btn"
+                style={primaryBtn}
+              >
+                <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+                  <path d="M7 1v12M1 7h12" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+                Create
+              </button>
+            </div>
+          </form>
 
-        <form action={createOrganisation} className="space-y-2">
-          <div className="text-sm font-medium">New organisation</div>
-          <div className="flex gap-2">
-            <input
-              name="name"
-              placeholder="e.g. Vodafone UK"
-              className="flex-1 rounded-md border px-3 py-2 text-sm"
-              required
-            />
-            <button className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50" type="submit">
-              Create
-            </button>
-          </div>
-        </form>
-
-        <div className="text-xs opacity-60">
-          After creating, use the org's <b>Settings</b> page for governance and membership
-          management.
+          <p style={{ fontSize: 11, color: "#94a3b8", margin: "10px 0 0" }}>
+            After creating, use the org's{" "}
+            <strong style={{ color: "#64748b" }}>Settings</strong>{" "}
+            page for governance and membership management.
+          </p>
         </div>
-      </section>
+      </div>
     </main>
   );
 }

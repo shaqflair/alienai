@@ -1,7 +1,9 @@
-﻿// src/app/api/portfolio/milestones/panel/route.ts — REBUILT v2
+﻿// src/app/api/portfolio/milestones/panel/route.ts — REBUILT v3
 // Fixes:
-//   ✅ FIX-SMK1: clampDays now handles "all" → 60 (was silently falling back to 30)
-//               HomePage sends ?days=all → was returning 30d data with no indication
+//   ✅ FIX-SMK1: clampDays handles "all" → 60 (HomePage sends ?days=all)
+// Keeps:
+//   ✅ resolveActiveProjectScope (permission-safe)
+//   ✅ no-store caching
 
 import "server-only";
 import { NextResponse } from "next/server";
@@ -12,10 +14,10 @@ export const runtime = "nodejs";
 
 /* ---------------- helpers ---------------- */
 
-// ✅ FIX-SMK1: intercept "all" before Number() conversion
+// ✅ intercept "all" before Number() conversion
 function clampDays(x: string | null, fallback = 30): 7 | 14 | 30 | 60 {
   const s = String(x ?? "").trim().toLowerCase();
-  if (s === "all") return 60; // normalise "all" → broadest meaningful window
+  if (s === "all") return 60;
   const n = Number(s);
   const allowed = new Set([7, 14, 30, 60]);
   return Number.isFinite(n) && allowed.has(n) ? (n as any) : (fallback as any);
@@ -31,6 +33,7 @@ function ok(data: any, status = 200) {
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;
 }
+
 function err(message: string, status = 400, meta?: any) {
   const res = NextResponse.json({ ok: false, error: message, meta }, { status });
   res.headers.set("Cache-Control", "no-store, max-age=0");
@@ -53,7 +56,6 @@ export async function GET(req: Request) {
     const supabase = await createClient();
     const url = new URL(req.url);
 
-    // ✅ FIX-SMK1: handles "all" → 60
     const days = clampDays(url.searchParams.get("days"), 30);
 
     const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -101,7 +103,7 @@ export async function GET(req: Request) {
       meta: { scope: scoped?.meta ?? null, projectCount: projectIds.length },
     });
   } catch (e: any) {
-    console.error("[GET /api/ai/schedule-milestones/kpis]", e);
+    console.error("[GET /api/portfolio/milestones/panel]", e);
     return err(String(e?.message || e || "Failed"), 500);
   }
 }

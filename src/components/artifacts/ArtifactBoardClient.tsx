@@ -4,29 +4,29 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
- import {
-   CheckCircle2,
-   Loader2,
-   Trash2,
-   Sparkles,
-   Calendar,
-   AlertCircle,
-   X,
-   Search,
-   Copy,
-   Shield,
-   Clock,
-   ArrowUpRight,
-   Layers,
-    BarChart3,
+import {
+  CheckCircle2,
+  Loader2,
+  Trash2,
+  Sparkles,
+  Calendar,
+  AlertCircle,
+  X,
+  Search,
+  Copy,
+  Shield,
+  Clock,
+  ArrowUpRight,
+  Layers,
+  BarChart3,
   Zap,
   Target,
-     Flag,
-   GitBranch,
-   FileCheck,
-   ChevronDown,
-   Filter,
- } from "lucide-react";
+  Flag,
+  GitBranch,
+  FileCheck,
+  ChevronDown,
+  Filter,
+} from "lucide-react";
 import {
   cloneArtifact as cloneArtifactAction,
   deleteDraftArtifact as deleteDraftArtifactAction,
@@ -136,10 +136,10 @@ function normalizeArtifactLink(href: string) {
     qIdx >= 0 && hashIdx >= 0
       ? Math.min(qIdx, hashIdx)
       : qIdx >= 0
-        ? qIdx
-        : hashIdx >= 0
-          ? hashIdx
-          : -1;
+      ? qIdx
+      : hashIdx >= 0
+      ? hashIdx
+      : -1;
 
   const path = cutIdx >= 0 ? raw.slice(0, cutIdx) : raw;
   const tail = cutIdx >= 0 ? raw.slice(cutIdx) : "";
@@ -169,26 +169,40 @@ function extractProjectRefFromHref(href: string): string | null {
   return m?.[1] ? String(m[1]) : null;
 }
 
+function safeNum(x: any, fb = 0) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : fb;
+}
+
 /**
  * ✅ Prefer server-provided link for due items.
  * Falls back to building a safe project route if link is missing.
+ *
+ * IMPORTANT:
+ * - Always trust `item.href`/`item.link` if it is app-relative
+ * - Prefer project UUID routing when available
+ * - When we have an artifactId, route via artifacts board query (future-proof)
  */
 function aiItemHref(args: { item: any; fallbackProjectRef: string }) {
   const { item, fallbackProjectRef } = args;
 
-  const rawLink = safeStr(item?.link || item?.href || "").trim();
+  const rawLink = safeStr(item?.href || item?.link || "").trim();
   const normalized = rawLink ? normalizeArtifactLink(rawLink) : "";
-  if (normalized.startsWith("/projects/")) return normalized;
+  if (normalized.startsWith("/")) return normalized;
 
-  // If API returned meta with project id/code, prefer that for fallback routes
   const meta = item?.meta ?? {};
-  const metaProjectRef =
+
+  const projectUuid =
+    safeStr(meta?.project_id).trim() || safeStr(item?.project_id).trim() || "";
+  const projectHuman =
     safeStr(meta?.project_human_id).trim() ||
     safeStr(meta?.project_code).trim() ||
     extractProjectRefFromHref(normalized) ||
-    fallbackProjectRef;
+    "";
+  const projectRef = projectUuid || projectHuman || fallbackProjectRef;
 
   const kind = safeLower(item?.itemType || item?.kind || item?.type || "");
+
   const artifactId = safeStr(
     meta?.sourceArtifactId ||
       meta?.artifactId ||
@@ -196,27 +210,37 @@ function aiItemHref(args: { item: any; fallbackProjectRef: string }) {
       item?.artifactId ||
       ""
   ).trim();
-  if (artifactId && looksLikeUuid(artifactId))
-    return `/projects/${metaProjectRef}/artifacts/${artifactId}`;
+
+  // If we have project + artifactId, go via artifacts board (stable)
+  if (projectRef && artifactId && looksLikeUuid(artifactId)) {
+    const qs = new URLSearchParams();
+    qs.set("artifactId", artifactId);
+
+    if (kind.includes("milestone") || kind.includes("schedule")) qs.set("panel", "schedule");
+    else if (kind.includes("work_item") || kind.includes("work item") || kind.includes("wbs")) qs.set("panel", "wbs");
+    else if (kind.includes("change")) qs.set("panel", "change");
+
+    return `/projects/${projectRef}/artifacts?${qs.toString()}`;
+  }
 
   if (kind.includes("milestone") || kind.includes("schedule"))
-    return `/projects/${metaProjectRef}/schedule`;
+    return `/projects/${projectRef}/artifacts?panel=schedule`;
   if (
     kind.includes("work_item") ||
     kind.includes("work item") ||
     kind.includes("wbs")
   )
-    return `/projects/${metaProjectRef}/wbs`;
+    return `/projects/${projectRef}/artifacts?panel=wbs`;
   if (
     kind.includes("raid") ||
     kind.includes("risk") ||
     kind.includes("issue") ||
     kind.includes("dependency")
   )
-    return `/projects/${metaProjectRef}/raid`;
-  if (kind.includes("change")) return `/projects/${metaProjectRef}/change`;
+    return `/projects/${projectRef}/raid`;
+  if (kind.includes("change")) return `/projects/${projectRef}/change`;
 
-  return `/projects/${metaProjectRef}`;
+  return `/projects/${projectRef}`;
 }
 
 /* =========================================================
@@ -889,6 +913,23 @@ function AiPanel({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
+  function extractDueSoon(data: any): any[] {
+    const a = data?.ai ?? data ?? {};
+    const cand =
+      a?.dueSoon ??
+      a?.due_soon ??
+      a?.items ??
+      a?.events ??
+      a?.ai?.dueSoon ??
+      a?.ai?.due_soon ??
+      [];
+    return Array.isArray(cand) ? cand : [];
+  }
+
+  function extractCounts(data: any): any {
+    return data?.counts ?? data?.ai?.counts ?? data?.stats ?? data?.ai?.stats ?? null;
+  }
+
   async function runCheck() {
     if (scope === "project" && !canProject) {
       setError("Invalid project UUID");
@@ -899,22 +940,18 @@ function AiPanel({
     setError("");
 
     try {
-      const payload: any = {
-        eventType: "artifact_due",
-        windowDays: 14,
-      };
+      // ✅ New canonical API usage: GET /api/ai/events (due soon in next 14 days)
+      const qs = new URLSearchParams();
+      qs.set("windowDays", "14");
+      // eventType kept for backward compatibility (route can ignore it)
+      qs.set("eventType", "artifact_due");
+      if (scope === "project") qs.set("project_id", projectUuid);
 
-      // ✅ If project scope: pass project_id (project-scoped response)
-      // ✅ If org scope: omit project fields (org/global dashboard response)
-      if (scope === "project") {
-        payload.project_id = projectUuid;
-      }
-
-      const res = await fetch("/api/ai/events", {
-        method: "POST",
+      const res = await fetch(`/api/ai/events?${qs.toString()}`, {
+        method: "GET",
         credentials: "include",
-        headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify(payload),
+        headers: { accept: "application/json" },
+        cache: "no-store",
       });
 
       const text = await res.text();
@@ -936,11 +973,10 @@ function AiPanel({
 
   if (!open) return null;
 
-  const ai = result?.ai ?? null;
-  const items: any[] = Array.isArray(ai?.dueSoon) ? ai.dueSoon : [];
-  const projectRef = projectHumanId || projectCode || projectUuid;
+  const items = extractDueSoon(result);
+  const counts = extractCounts(result);
 
-  const stats = result?.stats ?? null;
+  const projectRef = projectHumanId || projectCode || projectUuid;
   const scopeLabel = scope === "org" ? "All projects" : "This project";
 
   // Group by project (only meaningful in org scope)
@@ -1033,17 +1069,33 @@ function AiPanel({
         </div>
 
         <div className="flex-1 overflow-auto p-4">
-          {/* Optional tiny stats header (org scope only) */}
-          {scope === "org" && stats && (
+          {/* Optional tiny counts header (org scope only) */}
+          {scope === "org" && counts && (
             <div className="mb-3 p-3 rounded-lg border border-[#EEF2FF]" style={{ background: "#FAFBFF" }}>
               <div className="flex items-center justify-between">
                 <div className="text-[12px] font-semibold text-[#111827]">{scopeLabel}</div>
                 <div className="text-[11px] text-[#6B7280]">
-                  Projects: <span className="font-semibold text-[#111827]">{stats?.projects ?? "—"}</span>
+                  Due soon: <span className="font-semibold text-[#111827]">{safeNum(counts?.dueSoon ?? counts?.due_soon ?? items.length)}</span>
                 </div>
               </div>
-              <div className="mt-1 text-[11px] text-[#6B7280]">
-                Milestones due 30d: <span className="font-semibold text-[#111827]">{stats?.milestones_due_30d ?? "—"}</span>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {[
+                  ["Milestones", counts?.schedule_milestones ?? counts?.milestones ?? counts?.milestone],
+                  ["Work items", counts?.work_items ?? counts?.workItems ?? counts?.wbs],
+                  ["RAID", counts?.raid_items ?? counts?.raidItems ?? counts?.raid],
+                  ["Change", counts?.change_requests ?? counts?.changeRequests ?? counts?.changes],
+                ].map(([label, val]) => {
+                  const n = safeNum(val, 0);
+                  if (!n) return null;
+                  return (
+                    <span
+                      key={String(label)}
+                      className="text-[11px] font-semibold text-[#374151] bg-white border border-[#E5E7EB] rounded-md px-2 py-1"
+                    >
+                      {label}: {n}
+                    </span>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1098,10 +1150,11 @@ function AiPanel({
                   </div>
                   <div className="p-3 space-y-2">
                     {g.items.slice(0, 25).map((item: any, idx: number) => {
-                      const days = daysUntil(item?.dueDate);
+                      const days = daysUntil(item?.dueDate || item?.due_date);
                       const isOverdue = days !== null && days < 0;
                       const href = aiItemHref({ item, fallbackProjectRef: projectRef });
-                      const label = safeStr(item?.itemType || "item").replace(/_/g, " ");
+                      const label = safeStr(item?.itemType || item?.type || "item").replace(/_/g, " ");
+                      const dueRaw = safeStr(item?.dueDate || item?.due_date).trim();
                       return (
                         <div
                           key={`${g.key}:${idx}`}
@@ -1119,8 +1172,7 @@ function AiPanel({
                           </div>
                           <h4 className="text-[13px] font-medium text-[#111827] mb-1">{item?.title}</h4>
                           <div className="flex items-center gap-1.5 text-[11px] text-[#9CA3AF] mb-2.5">
-                            <Calendar className="h-3 w-3" />{" "}
-                            {safeStr(item?.dueDate).trim() ? fmtUkDateOnly(item.dueDate) : "No due date"}
+                            <Calendar className="h-3 w-3" /> {dueRaw ? fmtUkDateOnly(dueRaw) : "No due date"}
                           </div>
                           <div className="flex gap-2">
                             <Link
@@ -1132,9 +1184,7 @@ function AiPanel({
                             <button
                               onClick={() =>
                                 navigator.clipboard.writeText(
-                                  `Reminder: ${safeStr(item?.title)} due ${
-                                    safeStr(item?.dueDate).trim() ? fmtUkDateOnly(item.dueDate) : "TBC"
-                                  }`
+                                  `Reminder: ${safeStr(item?.title)} due ${dueRaw ? fmtUkDateOnly(dueRaw) : "TBC"}`
                                 )
                               }
                               className="px-3 py-1.5 rounded-md text-[11px] font-medium text-white bg-violet-600 hover:bg-violet-700 transition-colors"
@@ -1152,10 +1202,11 @@ function AiPanel({
           ) : (
             <div className="space-y-2">
               {items.map((item: any, idx: number) => {
-                const days = daysUntil(item?.dueDate);
+                const days = daysUntil(item?.dueDate || item?.due_date);
                 const isOverdue = days !== null && days < 0;
                 const href = aiItemHref({ item, fallbackProjectRef: projectRef });
-                const label = safeStr(item?.itemType || "item").replace(/_/g, " ");
+                const label = safeStr(item?.itemType || item?.type || "item").replace(/_/g, " ");
+                const dueRaw = safeStr(item?.dueDate || item?.due_date).trim();
                 return (
                   <div key={idx} className="p-3 rounded-lg border border-[#F1F5F9] hover:border-[#E5E7EB] transition-colors">
                     <div className="flex items-center justify-between mb-1.5">
@@ -1170,8 +1221,7 @@ function AiPanel({
                     </div>
                     <h4 className="text-[13px] font-medium text-[#111827] mb-1">{item?.title}</h4>
                     <div className="flex items-center gap-1.5 text-[11px] text-[#9CA3AF] mb-2.5">
-                      <Calendar className="h-3 w-3" />{" "}
-                      {safeStr(item?.dueDate).trim() ? fmtUkDateOnly(item.dueDate) : "No due date"}
+                      <Calendar className="h-3 w-3" /> {dueRaw ? fmtUkDateOnly(dueRaw) : "No due date"}
                     </div>
                     <div className="flex gap-2">
                       <Link
@@ -1183,7 +1233,7 @@ function AiPanel({
                       <button
                         onClick={() =>
                           navigator.clipboard.writeText(
-                            `Reminder: ${safeStr(item?.title)} due ${safeStr(item?.dueDate).trim() ? fmtUkDateOnly(item.dueDate) : "TBC"}`
+                            `Reminder: ${safeStr(item?.title)} due ${dueRaw ? fmtUkDateOnly(dueRaw) : "TBC"}`
                           )
                         }
                         className="px-3 py-1.5 rounded-md text-[11px] font-medium text-white bg-violet-600 hover:bg-violet-700 transition-colors"

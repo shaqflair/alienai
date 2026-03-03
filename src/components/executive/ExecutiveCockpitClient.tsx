@@ -338,18 +338,27 @@ function extractProjectRefFromHref(href: string): string | null {
 }
 
 function bestHref(item: any, fallbackHref: string): string {
-  const rawLink = safeStr(item?.link || item?.href || "").trim();
+  // 1) Trust explicit href/link if it's already a valid app-relative path
+  const rawLink = safeStr(item?.href || item?.link || "").trim();
   const normalized = rawLink ? normalizeHref(rawLink) : "";
   if (normalized.startsWith("/")) return normalized;
 
   const meta = item?.meta ?? {};
-  const projectRef =
+
+  // 2) Prefer UUID project_id for routing (canonical)
+  const projectUuid =
+    safeStr(meta?.project_id).trim() ||
+    safeStr(item?.project_id).trim() ||
+    "";
+
+  // Legacy human id (avoid using unless we have nothing else)
+  const projectHuman =
     safeStr(meta?.project_human_id).trim() ||
     safeStr(meta?.project_code).trim() ||
     safeStr(item?.project_code).trim() ||
-    safeStr(item?.project_name).trim() ||
-    extractProjectRefFromHref(normalized) ||
     "";
+
+  const projectRef = projectUuid || projectHuman || extractProjectRefFromHref(normalized) || "";
 
   const kind = safeLower(item?.itemType || item?.kind || item?.type || "");
 
@@ -357,14 +366,23 @@ function bestHref(item: any, fallbackHref: string): string {
     meta?.sourceArtifactId || meta?.artifactId || item?.artifact_id || item?.artifactId || ""
   ).trim();
 
+  // 3) If we have project + artifact, use the artifacts board route (matches your app)
   if (projectRef && artifactId && looksLikeUuid(artifactId)) {
-    return `/projects/${projectRef}/artifacts/${artifactId}`;
+    const qs = new URLSearchParams();
+    qs.set("artifactId", artifactId);
+
+    // panel hint if we can infer it
+    if (kind.includes("milestone") || kind.includes("schedule")) qs.set("panel", "schedule");
+    else if (kind.includes("work_item") || kind.includes("work item") || kind.includes("wbs")) qs.set("panel", "wbs");
+    else if (kind.includes("change")) qs.set("panel", "change");
+
+    return `/projects/${projectRef}/artifacts?${qs.toString()}`;
   }
 
+  // 4) Otherwise route by feature
   if (projectRef) {
-    if (kind.includes("milestone") || kind.includes("schedule")) return `/projects/${projectRef}/schedule`;
-    if (kind.includes("work_item") || kind.includes("work item") || kind.includes("wbs"))
-      return `/projects/${projectRef}/wbs`;
+    if (kind.includes("milestone") || kind.includes("schedule")) return `/projects/${projectRef}/artifacts?panel=schedule`;
+    if (kind.includes("work_item") || kind.includes("work item") || kind.includes("wbs")) return `/projects/${projectRef}/artifacts?panel=wbs`;
     if (kind.includes("raid") || kind.includes("risk") || kind.includes("issue") || kind.includes("dependency"))
       return `/projects/${projectRef}/raid`;
     if (kind.includes("change")) return `/projects/${projectRef}/change`;
@@ -376,7 +394,6 @@ function bestHref(item: any, fallbackHref: string): string {
 
   return fallbackHref || "/approvals";
 }
-
 // --- DESIGN SYSTEM -----------------------------------------------------------
 
 type ToneKey = "indigo" | "amber" | "emerald" | "rose" | "cyan" | "slate";

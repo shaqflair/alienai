@@ -1,7 +1,7 @@
-// src/app/api/wbs/pulse/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
+import { resolveActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
 
 export const runtime = "nodejs";
 
@@ -36,28 +36,6 @@ function safeJson(x: any): any {
 
 function safeArr(x: any): any[] {
   return Array.isArray(x) ? x : [];
-}
-
-function uniqStrings(xs: any[]): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const x of xs || []) {
-    const s = String(x || "").trim();
-    if (!s) continue;
-    if (seen.has(s)) continue;
-    seen.add(s);
-    out.push(s);
-  }
-  return out;
-}
-
-function looksMissingRelation(err: any) {
-  const msg = String(err?.message || err || "").toLowerCase();
-  return msg.includes("does not exist") || msg.includes("relation") || msg.includes("42p01");
-}
-function looksMissingColumn(err: any) {
-  const msg = String(err?.message || err || "").toLowerCase();
-  return msg.includes("column") && msg.includes("does not exist");
 }
 
 /* ---------------- WBS model helpers ---------------- */
@@ -171,10 +149,9 @@ function rowHasEffort(row: WbsRow): boolean {
  * Window behaviour:
  * - days = null => ALL (no window filter)
  * - days = 7/14/30/60 => scope by due-date:
- *   - core totals (total/done/remaining/missing_effort) include only leaves
- *     with due date <= today+days OR overdue (past due)
+ *   - core totals include only leaves with due date <= today+days OR overdue
  *   - overdue counts overdue leaves (not done)
- *   - due buckets also respect the chosen window:
+ *   - due buckets respect chosen window:
  *       e.g. days=7 => due_14/30/60 will be 0
  */
 function calcWbsStatsFromDoc(doc: any, days: number | null) {
@@ -202,7 +179,7 @@ function calcWbsStatsFromDoc(doc: any, days: number | null) {
   const d60 = addDaysUTC(today, 60);
 
   const bucketAllowed = (bucketEnd: Date) => {
-    if (!scopeEnd) return true; // ALL
+    if (!scopeEnd) return true;
     return bucketEnd.getTime() <= scopeEnd.getTime();
   };
 
@@ -219,13 +196,12 @@ function calcWbsStatsFromDoc(doc: any, days: number | null) {
   let missingEffort = 0;
 
   for (let i = 0; i < rows.length; i++) {
-    if (rowHasChildren(rows, i)) continue; // parent
+    if (rowHasChildren(rows, i)) continue;
 
     const row = rows[i];
     const isDone = isDoneStatus(row);
     const due = getDueDate(row);
 
-    // ALL: include everything in totals regardless of due date
     if (days == null) {
       totalLeaves++;
       if (isDone) done++;
@@ -244,7 +220,6 @@ function calcWbsStatsFromDoc(doc: any, days: number | null) {
       continue;
     }
 
-    // windowed: must have due date to be in scope
     if (!due) continue;
 
     const dueDay = startOfDayUTC(due);
@@ -284,92 +259,6 @@ function calcWbsStatsFromDoc(doc: any, days: number | null) {
   };
 }
 
-/* ---------------- scope helpers ---------------- */
-
-/**
- * membership ids (best-effort with removed_at)
- */
-async function fetchMemberProjectIds(supabase: any, userId: string) {
-  try {
-    const { data, error } = await supabase
-      .from("project_members")
-      .select("project_id, removed_at")
-      .eq("user_id", userId)
-      .is("removed_at", null);
-
-    if (error) {
-      if (looksMissingColumn(error)) throw error;
-      return { ok: false, error: error.message, projectIds: [] as string[] };
-    }
-
-    return { ok: true, error: null as string | null, projectIds: uniqStrings((data || []).map((r: any) => r?.project_id)) };
-  } catch {
-    const { data, error } = await supabase.from("project_members").select("project_id").eq("user_id", userId);
-    if (error) return { ok: false, error: error.message, projectIds: [] as string[] };
-
-    return { ok: true, error: null as string | null, projectIds: uniqStrings((data || []).map((r: any) => r?.project_id)) };
-  }
-}
-
-/**
- * active-only filter using your schema:
- * - status: 'active' | 'closed'
- * - deleted_at: timestamp|null
- * - closed_at: timestamp|null
- *
- * If projects query fails (RLS/missing cols), fallback to existence-only or keep membership ids.
- */
-async function filterActiveProjectIds(supabase: any, projectIds: string[]) {
-  const ids = uniqStrings(projectIds);
-  if (!ids.length) return { ok: true, error: null as string | null, projectIds: [] as string[] };
-
-  try {
-    const { data, error } = await supabase
-      .from("projects")
-      .select("id, status, deleted_at, closed_at")
-      .in("id", ids)
-      .limit(10000);
-
-    if (error) {
-      if (looksMissingRelation(error) || looksMissingColumn(error)) throw error;
-      // RLS/etc -> keep ids so UI still works
-      return { ok: false, error: error.message, projectIds: ids };
-    }
-
-    const rows = Array.isArray(data) ? data : [];
-    const out: string[] = [];
-
-    for (const r of rows) {
-      const id = String((r as any)?.id || "").trim();
-      if (!id) continue;
-
-      const status = String((r as any)?.status || "").trim().toLowerCase();
-      const deletedAt = (r as any)?.deleted_at;
-      const closedAt = (r as any)?.closed_at;
-
-      if (deletedAt) continue;
-      if (closedAt) continue;
-      if (status && status !== "active") continue;
-
-      out.push(id);
-    }
-
-    return { ok: true, error: null, projectIds: uniqStrings(out) };
-  } catch {
-    try {
-      // existence-only fallback
-      const { data, error } = await supabase.from("projects").select("id").in("id", ids).limit(10000);
-      if (error) return { ok: false, error: error.message, projectIds: ids };
-
-      const rows = Array.isArray(data) ? data : [];
-      const out = rows.map((r: any) => String(r?.id || "").trim()).filter(Boolean);
-      return { ok: true, error: null, projectIds: uniqStrings(out) };
-    } catch (e: any) {
-      return { ok: false, error: String(e?.message || e || "projects filter failed"), projectIds: ids };
-    }
-  }
-}
-
 /* ---------------- route ---------------- */
 
 export async function GET(req: Request) {
@@ -386,13 +275,13 @@ export async function GET(req: Request) {
     const daysParam = clampDays(url.searchParams.get("days"));
     const days = daysParam === "all" ? null : daysParam;
 
-    // ✅ member projects
-    const mem = await fetchMemberProjectIds(supabase, userId);
-    if (!mem.ok) return jsonErr(mem.error || "Failed to resolve membership", 500);
+    // ✅ canonical scope (org + membership aware)
+    const scoped = await resolveActiveProjectScope(supabase, userId);
+    const scopedIds = Array.isArray(scoped?.projectIds) ? scoped.projectIds : [];
 
-    // ✅ active-only (exclude closed/deleted)
-    const filtered = await filterActiveProjectIds(supabase, mem.projectIds);
-    const projectIds = filtered.projectIds;
+    // ✅ canonical active filter
+    const filtered = await filterActiveProjectIds(supabase, scopedIds);
+    const projectIds = Array.isArray(filtered?.projectIds) ? filtered.projectIds : [];
 
     if (!projectIds.length) {
       return jsonOk({
@@ -400,14 +289,18 @@ export async function GET(req: Request) {
         meta: {
           projectCount: 0,
           days: daysParam,
-          filter: { ok: filtered.ok, error: filtered.error || null, before: mem.projectIds.length, after: 0 },
+          scope: scoped?.meta ?? null,
+          filter: {
+            ok: filtered?.ok ?? true,
+            error: filtered?.error ?? null,
+            before: scopedIds.length,
+            after: 0,
+          },
           active_only: true,
         },
       });
     }
 
-    // ✅ pull WBS artifacts (scoped)
-    // keep a sensible cap
     const { data: rows, error } = await supabase
       .from("artifacts")
       .select("id, project_id, type, content_json, content")
@@ -450,14 +343,19 @@ export async function GET(req: Request) {
       missingEffort += s.missing_effort;
     }
 
-    // if no usable WBS docs found
     if (!usableDocs) {
       return jsonOk({
         stats: null,
         meta: {
           projectCount: projectIds.length,
           days: daysParam,
-          filter: { ok: filtered.ok, error: filtered.error || null, before: mem.projectIds.length, after: projectIds.length },
+          scope: scoped?.meta ?? null,
+          filter: {
+            ok: filtered?.ok ?? true,
+            error: filtered?.error ?? null,
+            before: scopedIds.length,
+            after: projectIds.length,
+          },
           active_only: true,
           note: "No WBS v1 docs found.",
         },
@@ -480,7 +378,13 @@ export async function GET(req: Request) {
         projectCount: projectIds.length,
         days: daysParam,
         active_only: true,
-        filter: { ok: filtered.ok, error: filtered.error || null, before: mem.projectIds.length, after: projectIds.length },
+        scope: scoped?.meta ?? null,
+        filter: {
+          ok: filtered?.ok ?? true,
+          error: filtered?.error ?? null,
+          before: scopedIds.length,
+          after: projectIds.length,
+        },
         rowsFetched: (rows || []).length,
         usableDocs,
       },

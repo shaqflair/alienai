@@ -1,7 +1,7 @@
-// src/app/api/wbs/items/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
+import { resolveActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
 
 export const runtime = "nodejs";
 
@@ -36,29 +36,8 @@ function clampInt(x: any, fallback: number, min: number, max: number) {
   if (!Number.isFinite(n)) return fallback;
   return Math.max(min, Math.min(max, Math.floor(n)));
 }
-function uniqStrings(xs: any[]): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const x of xs || []) {
-    const s = String(x || "").trim();
-    if (!s) continue;
-    if (seen.has(s)) continue;
-    seen.add(s);
-    out.push(s);
-  }
-  return out;
-}
-function looksMissingRelation(err: any) {
-  const msg = String(err?.message || err || "").toLowerCase();
-  return msg.includes("does not exist") || msg.includes("relation") || msg.includes("42p01");
-}
-function looksMissingColumn(err: any) {
-  const msg = String(err?.message || err || "").toLowerCase();
-  return msg.includes("column") && msg.includes("does not exist");
-}
 
 type DaysParam = 7 | 14 | 30 | 60 | "all";
-
 function clampDays(v: string | null): DaysParam {
   const s = String(v ?? "").trim().toLowerCase();
   if (s === "all") return "all";
@@ -68,7 +47,6 @@ function clampDays(v: string | null): DaysParam {
 }
 
 type Bucket = "overdue" | "due_7" | "due_14" | "due_30" | "due_60" | "";
-
 function clampBucket(v: string | null): Bucket {
   const s = String(v ?? "").trim().toLowerCase();
   if (s === "overdue") return "overdue";
@@ -80,7 +58,6 @@ function clampBucket(v: string | null): Bucket {
 }
 
 type StatusFilter = "open" | "done" | "";
-
 function clampStatus(v: string | null): StatusFilter {
   const s = String(v ?? "").trim().toLowerCase();
   if (s === "open") return "open";
@@ -137,7 +114,6 @@ type WbsRow = {
 
   title?: any;
   name?: any;
-  description?: any;
 
   status?: any;
   state?: any;
@@ -169,17 +145,14 @@ function asLevel(x: any) {
   const n = Number(x);
   return Number.isFinite(n) ? n : 0;
 }
-
 function rowHasChildren(rows: WbsRow[], idx: number) {
   const cur = rows[idx];
   const next = rows[idx + 1];
   return !!(cur && next && asLevel((next as any).level) > asLevel((cur as any).level));
 }
-
 function normStr(x: any) {
   return String(x ?? "").trim().toLowerCase();
 }
-
 function isDoneStatus(row: WbsRow): boolean {
   const s = normStr((row as any)?.status || (row as any)?.state);
   if (s === "done" || s === "closed" || s === "complete" || s === "completed") return true;
@@ -190,7 +163,6 @@ function isDoneStatus(row: WbsRow): boolean {
 
   return false;
 }
-
 function getDueDate(row: WbsRow): Date | null {
   return (
     safeDate((row as any)?.due_date) ||
@@ -202,7 +174,6 @@ function getDueDate(row: WbsRow): Date | null {
     null
   );
 }
-
 function rowHasEffort(row: WbsRow): boolean {
   const keys = [
     "estimated_effort_hours",
@@ -225,7 +196,6 @@ function rowHasEffort(row: WbsRow): boolean {
   const e = String((row as any)?.effort ?? "").trim().toUpperCase();
   return e === "S" || e === "M" || e === "L";
 }
-
 function rowTitle(row: WbsRow, idx: number) {
   const t = safeStr((row as any)?.title).trim();
   if (t) return t;
@@ -233,7 +203,6 @@ function rowTitle(row: WbsRow, idx: number) {
   if (n) return n;
   return `Work package ${idx + 1}`;
 }
-
 function rowOwner(row: WbsRow) {
   const o = safeStr((row as any)?.owner_label).trim();
   if (o) return o;
@@ -261,108 +230,29 @@ function decodeCursor(s: string | null) {
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* ✅ project scope helpers (exclude closed/deleted)                    */
-/* ------------------------------------------------------------------ */
+/* ---------------- routing helper ---------------- */
 
-async function fetchMemberProjectIds(supabase: any, userId: string) {
-  // best-effort with removed_at (fallback if missing)
-  try {
-    const { data, error } = await supabase
-      .from("project_members")
-      .select("project_id, removed_at")
-      .eq("user_id", userId)
-      .is("removed_at", null);
-
-    if (error) {
-      if (looksMissingColumn(error)) throw error;
-      return { ok: false, error: error.message, projectIds: [] as string[] };
-    }
-
-    return { ok: true, error: null as string | null, projectIds: uniqStrings((data || []).map((r: any) => r?.project_id)) };
-  } catch {
-    const { data, error } = await supabase.from("project_members").select("project_id").eq("user_id", userId);
-    if (error) return { ok: false, error: error.message, projectIds: [] as string[] };
-
-    return { ok: true, error: null as string | null, projectIds: uniqStrings((data || []).map((r: any) => r?.project_id)) };
-  }
-}
-
-/**
- * Filter membership ids down to ACTIVE projects using your projects schema:
- * - status: 'active' | 'closed'
- * - deleted_at: timestamp|null
- * - closed_at: timestamp|null
- *
- * If projects query fails (RLS/missing cols), fallback safely.
- */
-async function filterActiveProjectIds(supabase: any, projectIds: string[]) {
-  const ids = uniqStrings(projectIds);
-  if (!ids.length) return { ok: true, error: null as string | null, projectIds: [] as string[] };
-
-  try {
-    const { data, error } = await supabase
-      .from("projects")
-      .select("id, status, deleted_at, closed_at")
-      .in("id", ids)
-      .limit(10000);
-
-    if (error) {
-      if (looksMissingColumn(error) || looksMissingRelation(error)) throw error;
-      // RLS / other: keep ids (avoid blank UI)
-      return { ok: false, error: error.message, projectIds: ids };
-    }
-
-    const rows = Array.isArray(data) ? data : [];
-    const out: string[] = [];
-
-    for (const r of rows) {
-      const id = String((r as any)?.id || "").trim();
-      if (!id) continue;
-
-      const status = String((r as any)?.status || "").trim().toLowerCase();
-      const deletedAt = (r as any)?.deleted_at;
-      const closedAt = (r as any)?.closed_at;
-
-      if (deletedAt) continue;
-      if (closedAt) continue;
-      if (status && status !== "active") continue;
-
-      out.push(id);
-    }
-
-    return { ok: true, error: null, projectIds: uniqStrings(out) };
-  } catch {
-    // fallback: existence-only
-    try {
-      const { data, error } = await supabase.from("projects").select("id").in("id", ids).limit(10000);
-      if (error) return { ok: false, error: error.message, projectIds: ids };
-
-      const rows = Array.isArray(data) ? data : [];
-      const out = rows.map((r: any) => String(r?.id || "").trim()).filter(Boolean);
-      return { ok: true, error: null, projectIds: uniqStrings(out) };
-    } catch (e: any) {
-      return { ok: false, error: String(e?.message || e || "projects filter failed"), projectIds: ids };
-    }
-  }
+function routeProjectKey(projectId: string, projectCode: any) {
+  const code = String(projectCode ?? "").trim();
+  if (code) return code; // ✅ human id
+  return projectId; // ✅ fallback
 }
 
 /* ---------------- main handler ---------------- */
 
 type Item = {
   project_id: string;
+  project_human_id?: string | null; // ✅ NEW
   project_title: string;
   project_code?: string | null;
 
   artifact_id: string;
 
-  /** ✅ UK dates only in primary fields */
   artifact_updated_at: string | null; // dd/mm/yyyy
   due_date: string | null; // dd/mm/yyyy
 
-  /** ✅ keep ISO copies for sorting / deep logic */
-  artifact_updated_at_iso?: string | null; // yyyy-mm-dd or full ISO
-  due_date_iso?: string | null; // yyyy-mm-dd
+  artifact_updated_at_iso?: string | null;
+  due_date_iso?: string | null;
 
   wbs_row_id: string;
   wbs_row_index: number;
@@ -397,7 +287,6 @@ export async function GET(req: Request) {
     const status = clampStatus(url.searchParams.get("status"));
 
     const missingEffort = url.searchParams.get("missingEffort") === "1";
-
     const q = String(url.searchParams.get("q") ?? "").trim().toLowerCase();
 
     const limit = clampInt(url.searchParams.get("limit"), 100, 10, 500);
@@ -405,12 +294,11 @@ export async function GET(req: Request) {
     const cursor = decodeCursor(cursorRaw);
     const offset = clampInt(cursor?.offset, 0, 0, 1_000_000);
 
-    // memberships -> project IDs
-    const mem = await fetchMemberProjectIds(supabase, userId);
-    if (!mem.ok) return jsonErr(mem.error || "Failed to resolve membership", 500);
-
-    const filtered = await filterActiveProjectIds(supabase, mem.projectIds);
-    const projectIds = filtered.projectIds;
+    // ✅ canonical scope + active filter
+    const scoped = await resolveActiveProjectScope(supabase, userId);
+    const scopedIds = Array.isArray(scoped?.projectIds) ? scoped.projectIds : [];
+    const filtered = await filterActiveProjectIds(supabase, scopedIds);
+    const projectIds = Array.isArray(filtered?.projectIds) ? filtered.projectIds : [];
 
     if (!projectIds.length) {
       const res = jsonOk({
@@ -418,7 +306,8 @@ export async function GET(req: Request) {
         nextCursor: null,
         meta: {
           projectCount: 0,
-          filter: { ok: filtered.ok, error: filtered.error || null, before: mem.projectIds.length, after: 0 },
+          scope: scoped?.meta ?? null,
+          filter: { ok: filtered?.ok ?? true, error: filtered?.error ?? null, before: scopedIds.length, after: 0 },
           active_only: true,
         },
       });
@@ -454,7 +343,6 @@ export async function GET(req: Request) {
     const today = startOfDayUTC(new Date());
     const scopeEnd = days == null ? null : addDaysUTC(today, days);
 
-    // due bucket boundaries (pressure from today)
     const d7 = addDaysUTC(today, 7);
     const d14 = addDaysUTC(today, 14);
     const d30 = addDaysUTC(today, 30);
@@ -471,6 +359,9 @@ export async function GET(req: Request) {
       const project_title = proj?.title ?? "Untitled project";
       const project_code = proj?.project_code ?? null;
 
+      const project_human_id = project_code == null ? null : String(project_code).trim() || null;
+      const projectKey = routeProjectKey(projectId, project_code);
+
       const artifactUpdatedIso = (a as any)?.updated_at ? String((a as any).updated_at) : null;
       const artifactUpdatedUk = artifactUpdatedIso ? fmtDateUK(artifactUpdatedIso) : null;
 
@@ -482,7 +373,7 @@ export async function GET(req: Request) {
       const rows = safeArr(doc?.rows) as WbsRow[];
 
       for (let i = 0; i < rows.length; i++) {
-        if (rowHasChildren(rows, i)) continue; // leaf only
+        if (rowHasChildren(rows, i)) continue;
 
         const row = rows[i];
         const isDone = isDoneStatus(row);
@@ -493,16 +384,12 @@ export async function GET(req: Request) {
         const effortMissing = !rowHasEffort(row);
 
         const inScopeWindow = (() => {
-          if (days == null) return true; // ALL
+          if (days == null) return true;
           if (!dueDay) return false;
           return dueDay.getTime() < today.getTime() || dueDay.getTime() <= (scopeEnd as Date).getTime();
         })();
 
-        // -------------------------
-        // APPLY FILTERS
-        // -------------------------
-
-        // Bucket filters (explicit)
+        // Bucket filters
         if (bucket) {
           if (!dueDay) continue;
           if (isDone) continue;
@@ -538,23 +425,24 @@ export async function GET(req: Request) {
         }
 
         const rowId = row?.id ? String(row.id) : `${artifactId}:${i}`;
-        const href = `/projects/${projectId}/artifacts/${artifactId}?focus=wbs&row=${encodeURIComponent(rowId)}`;
+
+        // ✅ Use project human id if available, otherwise UUID
+        const href = `/projects/${projectKey}/artifacts/${artifactId}?focus=wbs&row=${encodeURIComponent(rowId)}`;
 
         const dueIso = dueDay ? isoDateOnly(dueDay) : null;
         const dueUk = dueIso ? fmtDateUK(dueIso) : null;
 
         itemsAll.push({
           project_id: projectId,
+          project_human_id,
           project_title,
           project_code: project_code == null ? null : String(project_code),
 
           artifact_id: artifactId,
 
-          // ✅ UK-first fields
           artifact_updated_at: artifactUpdatedUk,
           due_date: dueUk,
 
-          // ✅ ISO copies for sorting/logic (optional but recommended)
           artifact_updated_at_iso: artifactUpdatedIso,
           due_date_iso: dueIso,
 
@@ -594,7 +482,6 @@ export async function GET(req: Request) {
     const nextOffset = offset + slice.length;
     const nextCursor = nextOffset < total ? encodeCursor({ offset: nextOffset }) : null;
 
-    // ✅ meta dates in UK too
     const generatedAtIso = new Date().toISOString();
     const generatedAtUk = fmtDateUK(generatedAtIso);
 
@@ -602,7 +489,7 @@ export async function GET(req: Request) {
       items: slice,
       nextCursor,
       meta: {
-        generated_at: generatedAtUk, // ✅ UK
+        generated_at: generatedAtUk,
         generated_at_iso: generatedAtIso,
 
         days: daysParam,
@@ -617,10 +504,11 @@ export async function GET(req: Request) {
         offset,
 
         active_only: true,
+        scope: scoped?.meta ?? null,
         filter: {
-          ok: filtered.ok,
-          error: filtered.error || null,
-          before: mem.projectIds.length,
+          ok: filtered?.ok ?? true,
+          error: filtered?.error ?? null,
+          before: scopedIds.length,
           after: projectIds.length,
         },
       },

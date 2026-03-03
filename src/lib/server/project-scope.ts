@@ -38,12 +38,18 @@ function looksMissingColumn(err: any) {
 // Anything NOT in this set is treated as active (open for project work).
 // This preserves: planning, in_progress, on_hold, paused, draft, active, "" (no status set)
 const INACTIVE_STATUSES = new Set([
-  "closed", "close",
-  "archived", "archive",
+  "closed",
+  "close",
+  "archived",
+  "archive",
   "deleted",
-  "cancelled", "canceled",
+  "cancelled",
+  "canceled",
   "inactive",
-  "done", "completed", "complete", "finished",
+  "done",
+  "completed",
+  "complete",
+  "finished",
   "suspended",
 ]);
 
@@ -69,10 +75,7 @@ export async function fetchMemberProjectIds(supabase: any, userId: string) {
     const ids = uniqStrings((data ?? []).map((r: any) => r?.project_id).filter(Boolean));
     return { ok: true, error: null as string | null, projectIds: ids };
   } catch {
-    const { data, error } = await supabase
-      .from("project_members")
-      .select("project_id")
-      .eq("user_id", userId);
+    const { data, error } = await supabase.from("project_members").select("project_id").eq("user_id", userId);
 
     if (error) return { ok: false, error: error.message, projectIds: [] as string[] };
 
@@ -136,11 +139,7 @@ export async function filterActiveProjectIds(supabase: any, projectIds: string[]
   } catch {
     // Fallback: confirm the project still exists at minimum
     try {
-      const { data, error } = await supabase
-        .from("projects")
-        .select("id")
-        .in("id", ids)
-        .limit(10000);
+      const { data, error } = await supabase.from("projects").select("id").in("id", ids).limit(10000);
 
       if (error) return { ok: false, error: error.message, projectIds: ids };
 
