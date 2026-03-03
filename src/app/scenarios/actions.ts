@@ -3,11 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
-import type { Scenario } from "./_lib/scenario-engine";
-
-// NOTE:
-// "use server" modules may ONLY export async functions.
-// Any constants/strings (like migration SQL) must live in a non-"use server" module.
 
 function safeStr(x: unknown) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
@@ -69,7 +64,6 @@ export async function saveScenario(formData: FormData) {
       .single();
 
     if (error) throwDb(error, "scenarios.insert");
-
     revalidatePath("/scenarios");
     return { id: data.id };
   }
