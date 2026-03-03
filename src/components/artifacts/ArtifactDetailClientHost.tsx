@@ -189,8 +189,8 @@ function FinancialPlanEditorHost({
     <FinancialPlanEditor
       content={content}
       onChange={handleChange}
-       organisationId={activeOrgId} 
-      readOnly={readOnly}
+       organisationId={projectId}
+             readOnly={readOnly}
     />
   );
 }
