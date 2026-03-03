@@ -1,3 +1,4 @@
+// src/app/projects/[id]/layout.tsx
 import "server-only";
 
 import React from "react";
@@ -32,6 +33,7 @@ function normalizeId(raw: string) {
 }
 
 function looksLikeProjectCode(input: string) {
+  // Accept: UUID, "100011", "00001", "P-00001", "p00001"
   const s = normalizeId(input).toUpperCase();
   if (!s) return false;
   if (looksLikeUuid(s)) return true;
@@ -67,20 +69,18 @@ export default async function ProjectLayout({
   params: Promise<{ id?: string | string[] }>;
 }) {
   const { id } = await params;
-
   const projectId = normalizeId(safeParam(id));
 
+  // ✅ Always bounce invalid/missing IDs back to /projects
   if (!projectId) redirect("/projects");
 
+  // ✅ Guard: /projects/artifacts, /projects/members etc should not be treated as a project id
   const lower = projectId.toLowerCase();
   if (RESERVED.has(lower)) redirect("/projects");
 
+  // ✅ Guard: prevent 22P02 spam by only allowing uuid or numeric-ish codes
   if (!looksLikeProjectCode(projectId)) redirect("/projects");
 
-  // ✅ NO MORE RIGHT SIDEBAR
-  return (
-    <section className="min-h-[calc(100vh-64px)] overflow-auto p-6">
-      {children}
-    </section>
-  );
+  // ✅ IMPORTANT: do NOT render ArtifactsSidebar here anymore (merged into main Sidebar)
+  return <>{children}</>;
 }

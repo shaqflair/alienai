@@ -31,10 +31,10 @@ export type ActualsByLine = Record<string, Record<string, number>>;
  * computeActuals
  *
  * For each timesheet entry:
- * cost = approved_days × rate_card_rate
- * where rate_card_rate = resource.day_rate (if rate_type === "day_rate")
- * = resource.monthly_cost / 20 (if rate_type === "monthly_cost",
- * normalised to a daily equivalent using 20 working days/month)
+ *   cost = approved_days × rate_card_rate
+ *   where rate_card_rate = resource.day_rate (if rate_type === "day_rate")
+ *                        = resource.monthly_cost / 20 (if rate_type === "monthly_cost",
+ *                          normalised to a daily equivalent using 20 working days/month)
  *
  * Results are accumulated per (cost_line_id, month_key).
  * Resources with no cost_line_id are ignored.
