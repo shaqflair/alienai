@@ -4,29 +4,29 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  CheckCircle2,
-  Loader2,
-  Trash2,
-  Sparkles,
-  Calendar,
-  AlertCircle,
-  X,
-  Search,
-  Copy,
-  Shield,
-  Clock,
-  ArrowUpRight,
-  Layers,
-  BarChart3,
-  Target,
-  Flag,
-  GitBranch,
-  FileCheck,
-  ChevronDown,
-  Filter,
-} from "lucide-react";
-
+ import {
+   CheckCircle2,
+   Loader2,
+   Trash2,
+   Sparkles,
+   Calendar,
+   AlertCircle,
+   X,
+   Search,
+   Copy,
+   Shield,
+   Clock,
+   ArrowUpRight,
+   Layers,
+   BarChart3,
++  Zap,
+   Target,
+   Flag,
+   GitBranch,
+   FileCheck,
+   ChevronDown,
+   Filter,
+ } from "lucide-react";
 import {
   cloneArtifact as cloneArtifactAction,
   deleteDraftArtifact as deleteDraftArtifactAction,
