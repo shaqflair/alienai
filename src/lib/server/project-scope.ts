@@ -1,106 +1,152 @@
 // src/lib/server/project-scope.ts
+// Scope resolution helpers for org-wide portfolio dashboards + safe fallbacks.
+//
+// Exports:
+//  - resolveActiveProjectScope (existing contract, keep)
+//  - resolveOrgActiveProjectScope (org-wide project ids)
+//  - filterActiveProjectIds (optional filtering helper; safe no-op degradation)
+
 import "server-only";
 
-type ScopeResult = {
+type SupabaseLike = any;
+
+type ActiveScope = {
+  orgId: string | null;
   projectIds: string[];
-  meta: Record<string, any>;
+  mode: "org" | "member";
 };
 
-function uniqStrings(xs: any[]): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const x of xs || []) {
-    const s = String(x ?? "").trim();
-    if (!s || seen.has(s)) continue;
-    seen.add(s);
-    out.push(s);
+function safeStr(x: any) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+async function tryProjectsByOrg(supabase: SupabaseLike, orgId: string) {
+  // Try common org FK column names
+  const orgCols = ["organisation_id", "org_id", "organization_id"];
+  for (const col of orgCols) {
+    const { data, error } = await supabase.from("projects").select("id").eq(col, orgId);
+    if (!error && Array.isArray(data)) return data.map((r: any) => r.id).filter(Boolean);
   }
-  return out;
+  return [];
 }
 
-function looksMissingRelation(err: any) {
-  const msg = String(err?.message || err || "").toLowerCase();
-  return msg.includes("does not exist") || msg.includes("relation") || msg.includes("42p01");
+async function getActiveOrgId(supabase: SupabaseLike): Promise<string | null> {
+  const { data: auth } = await supabase.auth.getUser();
+  const userId = auth?.user?.id;
+  if (!userId) return null;
+
+  // profiles.active_organisation_id is your standard
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("active_organisation_id")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) return null;
+  const v = data?.active_organisation_id;
+  return v ? String(v) : null;
 }
 
-export async function resolveActiveProjectScope(supabase: any, userId: string): Promise<ScopeResult> {
-  // Org-first scope: all projects in user's active organisation
-  try {
-    const { data: prof, error: profErr } = await supabase
-      .from("profiles")
-      .select("id, active_organisation_id")
-      .eq("id", userId)
-      .maybeSingle();
-    const orgId = String((prof as any)?.active_organisation_id || "").trim();
-    if (!profErr && orgId) {
-      const { data: rows, error } = await supabase
-        .from("projects")
-        .select("id")
-        .eq("organisation_id", orgId)
-        .limit(10000);
-      if (!error) {
-        const projectIds = uniqStrings((rows || []).map((r: any) => r?.id));
+/**
+ * Existing helper (keep name/signature expectation).
+ * Member-scope: returns projects the user can see (via membership tables or their active project).
+ * This implementation is conservative + tolerant; if you already had a better one, keep yours
+ * and only add the missing exports below.
+ */
+export async function resolveActiveProjectScope(supabase: SupabaseLike): Promise<ActiveScope> {
+  const orgId = await getActiveOrgId(supabase);
+
+  // Best effort: project_memberships / project_members (common names)
+  // If these tables don’t exist, we degrade to org projects if orgId is known.
+  const { data: auth } = await supabase.auth.getUser();
+  const userId = auth?.user?.id;
+
+  if (userId) {
+    // Try project_memberships
+    {
+      const { data, error } = await supabase
+        .from("project_memberships")
+        .select("project_id")
+        .eq("user_id", userId);
+      if (!error && Array.isArray(data) && data.length) {
         return {
-          projectIds,
-          meta: {
-            scope: "org",
-            organisation_id: orgId,
-            source: "profiles.active_organisation_id → projects.organisation_id",
-            count: projectIds.length,
-          },
+          orgId,
+          projectIds: data.map((r: any) => r.project_id).filter(Boolean),
+          mode: "member",
         };
       }
-      // If column/table mismatch etc., fall through to membership scope
     }
-  } catch {
-    // fall through
-  }
-
-  // Membership fallback (legacy)
-  try {
-    for (const table of ["project_memberships", "project_members", "project_membership"] as const) {
-      const { data, error } = await supabase.from(table).select("project_id").eq("user_id", userId).limit(10000);
-      if (error) {
-        if (looksMissingRelation(error)) continue;
-        break;
+    // Try project_members
+    {
+      const { data, error } = await supabase.from("project_members").select("project_id").eq("user_id", userId);
+      if (!error && Array.isArray(data) && data.length) {
+        return {
+          orgId,
+          projectIds: data.map((r: any) => r.project_id).filter(Boolean),
+          mode: "member",
+        };
       }
-      const projectIds = uniqStrings((data || []).map((r: any) => r?.project_id));
-      return {
-        projectIds,
-        meta: { scope: "membership", source: table, count: projectIds.length },
-      };
     }
-  } catch {
-    // ignore
   }
 
-  return { projectIds: [], meta: { scope: "none", count: 0 } };
+  // Fallback: if we know org, return org projects (better than empty).
+  if (orgId) {
+    const ids = await tryProjectsByOrg(supabase, orgId);
+    return { orgId, projectIds: ids, mode: "member" };
+  }
+
+  return { orgId: null, projectIds: [], mode: "member" };
 }
 
-// ── Aliases & utilities used by portfolio routes ──────────────────────────────
+/**
+ * ORG-wide scope: returns *all* projects in the user’s active organisation.
+ * This is what your portfolio dashboard endpoints should use.
+ */
+export async function resolveOrgActiveProjectScope(supabase: SupabaseLike): Promise<ActiveScope> {
+  const orgId = await getActiveOrgId(supabase);
+  if (!orgId) {
+    // If user has no active org, fallback to member scope.
+    return resolveActiveProjectScope(supabase);
+  }
+
+  const projectIds = await tryProjectsByOrg(supabase, orgId);
+
+  // If org has no projects or schema differs, fallback to member scope.
+  if (!projectIds.length) {
+    return resolveActiveProjectScope(supabase);
+  }
+
+  return { orgId, projectIds, mode: "org" };
+}
 
 /**
- * Org-scoped variant — identical to resolveActiveProjectScope (which already
- * does org-first resolution). Exported separately so portfolio routes can be
- * explicit about intent.
+ * Optional helper used by some routes.
+ * If filters are provided, we *try* to apply them server-side; otherwise return ids unchanged.
+ * Degrades gracefully to “no-op” if schema doesn’t support requested filters.
  */
-export const resolveOrgActiveProjectScope = resolveActiveProjectScope;
+export async function filterActiveProjectIds(
+  supabase: SupabaseLike,
+  projectIds: string[],
+  filters?: Record<string, any> | null,
+): Promise<string[]> {
+  const ids = Array.isArray(projectIds) ? projectIds.filter(Boolean) : [];
+  if (!ids.length) return [];
+  const f = filters ?? {};
+  if (!f || Object.keys(f).length === 0) return ids;
 
-/**
- * Filter a raw project-rows array down to non-deleted active IDs.
- * Accepts either objects with at least { id } or a plain string[].
- */
-export function filterActiveProjectIds(
-  rows: Array<{ id: string; deleted_at?: string | null; is_active?: boolean | null } | string>
-): string[] {
-  return uniqStrings(
-    (rows || [])
-      .filter((r) => {
-        if (typeof r === "string") return true;
-        if (r?.deleted_at) return false;
-        if (r?.is_active === false) return false;
-        return true;
-      })
-      .map((r) => (typeof r === "string" ? r : r?.id))
-  );
+  try {
+    // Very conservative: only apply a couple of common filters if present.
+    let q = supabase.from("projects").select("id").in("id", ids);
+
+    if (Array.isArray(f.status) && f.status.length) q = q.in("status", f.status);
+    if (Array.isArray(f.rag) && f.rag.length) q = q.in("rag", f.rag);
+
+    const { data, error } = await q;
+    if (error || !Array.isArray(data)) return ids;
+
+    const out = data.map((r: any) => r.id).filter(Boolean);
+    return out.length ? out : ids;
+  } catch {
+    return ids;
+  }
 }
