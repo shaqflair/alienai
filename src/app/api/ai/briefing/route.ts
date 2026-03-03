@@ -1,30 +1,41 @@
-﻿// src/app/api/ai/briefing/route.ts — REBUILT v2
+﻿// src/app/api/ai/briefing/route.ts — REBUILT v3 (ORG-wide + no-store + dedupe + URL filters)
 // Fixes applied:
-//   ✅ FIX-B1: filterActiveProjectIds — status exclusion list instead of allowlist
-//              was: exclude anything status !== 'active' (killed 'planning', 'in_progress', 'on_hold')
-//              now: only exclude deleted/closed/cancelled/archived
+//   ✅ FIX-B1: Uses shared filterActiveProjectIds (exclusion list: closed/deleted/cancelled/archived etc.)
+//              (planning / in_progress / on_hold remain active)
 //   ✅ FIX-B2: computeFeedSignals — guard undefined projectCreatedAtMap
-//              was: if map undefined, all projects counted as eligible → over-reported stale
-//              now: if map missing, stale_projects_7d returns 0, limited: true
-//   ✅ FIX-B3: wbs_quality Warning (from flow) deduplicated against wbs-missing-effort Insight
-//              wbs_quality warning suppressed from buildFlowWarnings — insight-level signal owns it
+//              if map missing → stale_projects_7d = 0, limited: true
+//   ✅ FIX-B3: wbs_quality Warning deduplicated against wbs-missing-effort Insight
+//              removed from buildFlowWarnings — insight-level signal owns it
 //   ✅ FIX-B4: ai-warning insight href uses daysParam (normalised) not hardcoded 30
-//   ✅ FIX-B5: wbsPulseSev body text: clarify overdue is windowed, pressure buckets are always absolute
+//   ✅ FIX-B5: wbsPulseSev body text clarifies: overdue is windowed, pressure buckets are always absolute
+//   ✅ FIX-B6: ORG-WIDE active project scope (all projects in user's organisation) with membership fallback
+//   ✅ FIX-B7: Cache-Control: no-store on ALL responses (ok + err)
+//   ✅ FIX-B8: Apply org-portfolio URL filters (q, projectId, projectCode, pm, dept) server-side
 
 import "server-only";
+
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveActiveProjectScope } from "@/lib/server/project-scope";
+import {
+  resolveOrgActiveProjectScope,
+  resolveActiveProjectScope,
+  filterActiveProjectIds,
+} from "@/lib/server/project-scope";
 
 export const runtime = "nodejs";
 
 /* ---------------- response helpers ---------------- */
 
+function withNoStore(res: NextResponse) {
+  res.headers.set("Cache-Control", "no-store, max-age=0");
+  return res;
+}
+
 function jsonOk(data: any, status = 200) {
-  return NextResponse.json({ ok: true, ...data }, { status });
+  return withNoStore(NextResponse.json({ ok: true, ...data }, { status }));
 }
 function jsonErr(error: string, status = 400, meta?: any) {
-  return NextResponse.json({ ok: false, error, meta }, { status });
+  return withNoStore(NextResponse.json({ ok: false, error, meta }, { status }));
 }
 
 function clampDays(v: string | null): 7 | 14 | 30 | 60 | "all" {
@@ -106,7 +117,7 @@ function changesHref(params?: Record<string, any>) {
 }
 
 /* ------------------------------------------------------------------ */
-/* project scope helpers                                               */
+/* project scope + portfolio filters helpers                            */
 /* ------------------------------------------------------------------ */
 
 function uniqStrings(xs: any[]): string[] {
@@ -114,8 +125,10 @@ function uniqStrings(xs: any[]): string[] {
   const seen = new Set<string>();
   for (const x of xs || []) {
     const s = String(x || "").trim();
-    if (!s || seen.has(s)) continue;
-    seen.add(s);
+    if (!s) continue;
+    const k = s.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
     out.push(s);
   }
   return out;
@@ -130,72 +143,122 @@ function looksMissingColumn(err: any) {
   return msg.includes("column") && msg.includes("does not exist");
 }
 
-// ✅ FIX-B1: Exclusion-list approach instead of allowlist.
-// Previously: status !== 'active' excluded planning, in_progress, on_hold, etc.
-// Now: only exclude terminal/inactive states. Anything else is treated as active.
-const INACTIVE_STATUSES = new Set([
-  "closed",
-  "close",
-  "archived",
-  "archive",
-  "deleted",
-  "cancelled",
-  "canceled",
-  "inactive",
-  "done",
-  "completed",
-  "complete",
-  "finished",
-  "suspended",
-]);
+function safeStr(x: any) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+function uniqList(input: any): string[] {
+  const arr: string[] = [];
+  const push = (v: any) => {
+    const s = safeStr(v).trim();
+    if (!s) return;
+    arr.push(s);
+  };
+  if (Array.isArray(input)) for (const x of input) push(x);
+  else if (typeof input === "string") for (const part of input.split(",")) push(part);
+  else if (input != null) push(input);
+  return Array.from(new Set(arr));
+}
 
-async function filterActiveProjectIds(supabase: any, projectIds: string[]) {
-  const ids = uniqStrings(projectIds);
-  if (!ids.length) return { ok: true, error: null as string | null, projectIds: [] as string[] };
+type PortfolioFilters = {
+  q?: string;
+  projectId?: string[];
+  projectCode?: string[];
+  pm?: string[];   // project_manager_id
+  dept?: string[]; // department (string match)
+};
 
+function readPortfolioFiltersFromUrl(url: URL): PortfolioFilters {
+  const q = safeStr(url.searchParams.get("q")).trim() || undefined;
+  const projectId = uniqList(url.searchParams.getAll("projectId").flatMap((x) => x.split(",")));
+  const projectCode = uniqList(url.searchParams.getAll("projectCode").flatMap((x) => x.split(",")));
+  const pm = uniqList(url.searchParams.getAll("pm").flatMap((x) => x.split(",")));
+  const dept = uniqList(url.searchParams.getAll("dept").flatMap((x) => x.split(",")));
+
+  const out: PortfolioFilters = {};
+  if (q) out.q = q;
+  if (projectId.length) out.projectId = projectId;
+  if (projectCode.length) out.projectCode = projectCode;
+  if (pm.length) out.pm = pm;
+  if (dept.length) out.dept = dept;
+  return out;
+}
+
+function hasActiveFilters(f: PortfolioFilters) {
+  return Boolean(
+    (f.q && f.q.trim()) ||
+      (f.projectId && f.projectId.length) ||
+      (f.projectCode && f.projectCode.length) ||
+      (f.pm && f.pm.length) ||
+      (f.dept && f.dept.length),
+  );
+}
+
+async function applyPortfolioFiltersToProjectIds(args: {
+  supabase: any;
+  baseProjectIds: string[];
+  filters: PortfolioFilters;
+}): Promise<{ projectIds: string[]; limited: boolean; reason?: string | null }> {
+  const { supabase, baseProjectIds, filters } = args;
+  const ids = uniqStrings(baseProjectIds);
+  if (!ids.length) return { projectIds: [], limited: false };
+
+  if (!hasActiveFilters(filters)) return { projectIds: ids, limited: false };
+
+  // We filter on these fields; if any are missing in your schema, we degrade gracefully.
+  let rows: any[] = [];
   try {
     const { data, error } = await supabase
       .from("projects")
-      .select("id, status, deleted_at, closed_at, created_at")
+      .select("id, title, project_code, project_manager_id, department")
       .in("id", ids)
       .limit(10000);
 
     if (error) {
-      if (looksMissingColumn(error) || looksMissingRelation(error)) throw error;
-      // can't read projects (RLS etc) → keep ids
-      return { ok: false, error: error.message, projectIds: ids };
+      // If RLS/column issues, keep base scope (better than empty dashboard)
+      if (looksMissingRelation(error) || looksMissingColumn(error)) {
+        return { projectIds: ids, limited: true, reason: error.message || "projects select failed" };
+      }
+      return { projectIds: ids, limited: true, reason: error.message || "projects select failed" };
     }
 
-    const rows = Array.isArray(data) ? data : [];
-    const out: string[] = [];
-    for (const r of rows) {
-      const id = String((r as any)?.id || "").trim();
-      if (!id) continue;
-      const status = String((r as any)?.status || "").trim().toLowerCase();
-      const deletedAt = (r as any)?.deleted_at;
-      const closedAt = (r as any)?.closed_at;
-      // ✅ FIX-B1: exclude only known terminal states — not everything that isn't "active"
-      if (deletedAt) continue;
-      if (closedAt) continue;
-      if (status && INACTIVE_STATUSES.has(status)) continue;
-      out.push(id);
-    }
-    return { ok: true, error: null, projectIds: uniqStrings(out) };
-  } catch {
-    try {
-      const { data, error } = await supabase.from("projects").select("id").in("id", ids).limit(10000);
-      if (error) return { ok: false, error: error.message, projectIds: ids };
-      const rows = Array.isArray(data) ? data : [];
-      const out = rows.map((r: any) => String(r?.id || "").trim()).filter(Boolean);
-      return { ok: true, error: null, projectIds: uniqStrings(out) };
-    } catch (e: any) {
-      return { ok: false, error: String(e?.message || e || "projects filter failed"), projectIds: ids };
-    }
+    rows = Array.isArray(data) ? data : [];
+  } catch (e: any) {
+    return { projectIds: ids, limited: true, reason: String(e?.message || e || "projects select failed") };
   }
+
+  const q = safeStr(filters.q).trim().toLowerCase();
+  const idSet = new Set((filters.projectId || []).map((s) => safeStr(s).trim()).filter(Boolean));
+  const codeNeedles = (filters.projectCode || []).map((s) => safeStr(s).trim().toLowerCase()).filter(Boolean);
+  const pmSet = new Set((filters.pm || []).map((s) => safeStr(s).trim()).filter(Boolean));
+  const deptNeedles = (filters.dept || []).map((s) => safeStr(s).trim().toLowerCase()).filter(Boolean);
+
+  const out = rows
+    .filter((p) => {
+      const pid = safeStr(p?.id).trim();
+      const title = safeStr(p?.title).toLowerCase();
+      const code = safeStr(p?.project_code).toLowerCase();
+      const pm = safeStr(p?.project_manager_id).trim();
+      const dept = safeStr(p?.department).toLowerCase().trim();
+
+      if (idSet.size && !idSet.has(pid)) return false;
+      if (codeNeedles.length && !codeNeedles.some((c) => code.includes(c))) return false;
+      if (pmSet.size && (!pm || !pmSet.has(pm))) return false;
+      if (deptNeedles.length && (!dept || !deptNeedles.some((d) => dept.includes(d)))) return false;
+
+      if (q) {
+        const hay = `${title} ${code} ${dept}`.trim();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    })
+    .map((p) => safeStr(p?.id).trim())
+    .filter(Boolean);
+
+  return { projectIds: uniqStrings(out), limited: false };
 }
 
 /* ------------------------------------------------------------------ */
-/* WBS stats computed from artifacts.content_json                     */
+/* WBS stats computed from artifacts.content_json                      */
 /* ------------------------------------------------------------------ */
 
 type WbsRow = {
@@ -514,7 +577,7 @@ async function detectFirstExistingActivityTable(supabase: any, candidates: strin
 async function computeFeedSignals(
   supabase: any,
   projectIds: string[],
-  projectCreatedAtMap?: Map<string, Date>
+  projectCreatedAtMap?: Map<string, Date>,
 ): Promise<FeedSignals> {
   const empty: FeedSignals = {
     table: null,
@@ -559,18 +622,14 @@ async function computeFeedSignals(
     if (ts && ts.getTime() >= since24h.getTime()) total24++;
   }
 
-  // ✅ FIX-B2: if projectCreatedAtMap is undefined, we cannot reliably compute stale count
-  // Return stale=0 + limited=true to signal the caller that stale data is unavailable
+  // ✅ FIX-B2: if projectCreatedAtMap is undefined, stale is unknown → 0 + limited=true
   let staleCount = 0;
   if (projectCreatedAtMap !== undefined) {
     const sevenDaysAgo = since7;
     let eligibleForStaleCount = 0;
     for (const pid of projectIds) {
       const createdAt = projectCreatedAtMap.get(pid);
-      // Only projects old enough to be expected to have activity are "eligible" for stale
-      if (!createdAt || createdAt.getTime() <= sevenDaysAgo.getTime()) {
-        eligibleForStaleCount++;
-      }
+      if (!createdAt || createdAt.getTime() <= sevenDaysAgo.getTime()) eligibleForStaleCount++;
     }
     staleCount = Math.max(0, eligibleForStaleCount - activeProjects.size);
   }
@@ -617,8 +676,7 @@ type Warning = {
     | "wip_queue_expansion"
     | "linked_risk_to_due_milestone"
     | "feed_cadence"
-    | "approvals"
-    | "wbs_quality";
+    | "approvals";
   severity: "high" | "medium" | "info";
   title: string;
   detail: string;
@@ -728,7 +786,8 @@ function buildExecutiveAiWarningBody(args: { windowLabel: string; warnings: Warn
   const topWarning = warnings[0];
   let action = "Review flagged items and assign owners.";
 
-  if (topWarning.kind === "blockers" || topWarning.kind === "cycle_time_outliers") action = "Escalate blockers and assign owners to at-risk items immediately.";
+  if (topWarning.kind === "blockers" || topWarning.kind === "cycle_time_outliers")
+    action = "Escalate blockers and assign owners to at-risk items immediately.";
   else if (topWarning.kind === "bottleneck" || topWarning.kind === "wip_queue_expansion")
     action = "Reduce WIP limits and rebalance capacity to unblock downstream flow.";
   else if (topWarning.kind === "throughput_forecast")
@@ -738,14 +797,9 @@ function buildExecutiveAiWarningBody(args: { windowLabel: string; warnings: Warn
   return `AI Predictions & Warnings (Next ${windowLabel} Days)\n\n${(lines.join("\n\n") + `\n\n👉 Action: ${action}`).trim()}`;
 }
 
-// ✅ FIX-B3: wbs_quality Warning removed from this function.
-// It was redundant with the wbs-missing-effort Insight added in the GET handler.
-// Having both meant the frontend received the same problem signal twice (once inside
-// the ai-warning block, once as a standalone insight). The insight-level signal
-// is more actionable (it carries a direct link + distinct id for deduplication).
+// ✅ FIX-B3: wbs_quality warning intentionally excluded here
 function buildFlowWarnings(args: {
   daysParam: 7 | 14 | 30 | 60 | "all";
-  projectCount: number;
   flow: FlowSignals;
   approvalsPending: number;
   feeds: FeedSignals;
@@ -877,54 +931,90 @@ function buildFlowWarnings(args: {
 }
 
 /* ------------------------------------------------------------------ */
+/* handler                                                             */
+/* ------------------------------------------------------------------ */
 
 export async function GET(req: Request) {
   try {
     const supabase = await createClient();
     const { data: auth, error: authErr } = await supabase.auth.getUser();
     if (authErr || !auth?.user) return jsonErr("Not authenticated", 401);
-    const userId = auth.user.id;
 
+    const userId = auth.user.id;
     const url = new URL(req.url);
+
     const daysParam = clampDays(url.searchParams.get("days"));
     const days: number | null = daysParam === "all" ? null : daysParam;
 
-    const scoped = await resolveActiveProjectScope(supabase, userId);
-    const scopedIdsRaw = uniqStrings(scoped?.projectIds || []);
+    // ✅ FIX-B8: URL-driven portfolio filters (same as HomePage)
+    const filters = readPortfolioFiltersFromUrl(url);
+    const filtersActive = hasActiveFilters(filters);
+
+    // ✅ FIX-B6: ORG-WIDE scope first (all projects in org), fallback to membership scope
+    let scoped: any = null;
+    let scopedIdsRaw: string[] = [];
+
+    try {
+      scoped = await resolveOrgActiveProjectScope(supabase, userId);
+      scopedIdsRaw = uniqStrings(scoped?.projectIds || []);
+    } catch (e: any) {
+      scoped = { ok: false, error: String(e?.message || e || "org scope failed"), meta: null, projectIds: [] };
+      scopedIdsRaw = [];
+    }
+
+    if (!scopedIdsRaw.length) {
+      const fallback = await resolveActiveProjectScope(supabase, userId);
+      scoped = fallback;
+      scopedIdsRaw = uniqStrings(fallback?.projectIds || []);
+    }
+
+    // ✅ FIX-B1: shared active filter (exclusion list)
     const activeFilter = await filterActiveProjectIds(supabase, scopedIdsRaw);
-    const projectIds = activeFilter.projectIds;
+    const activeProjectIds = uniqStrings(activeFilter?.projectIds || []);
+
+    // ✅ FIX-B8: apply filters after "active" exclusion, so everything stays consistent
+    const filteredRes = await applyPortfolioFiltersToProjectIds({
+      supabase,
+      baseProjectIds: activeProjectIds,
+      filters,
+    });
+    const projectIds = uniqStrings(filteredRes?.projectIds || []);
 
     if (!projectIds.length) {
-      const res = jsonOk({
+      return jsonOk({
         insights: [
           {
-            id: "no-projects",
+            id: filtersActive ? "no-projects-after-filters" : "no-projects",
             severity: "info",
-            title: "No projects in scope",
-            body: "You don't have any active project memberships yet. Join an active project to see insights.",
-            href: "/projects",
+            title: filtersActive ? "No projects match your filters" : "No projects in scope",
+            body: filtersActive
+              ? "Your current portfolio filters returned zero active projects. Clear filters to see the full organisation portfolio."
+              : "You don't have any active projects yet in your organisation. Create or join an active project to see insights.",
+            href: filtersActive ? "/home" : "/projects",
           },
         ],
         meta: {
           days: daysParam,
           projectCount: 0,
+          filters: filtersActive ? filters : {},
           scope: {
             ...(scoped?.meta || {}),
             scopedIds: scopedIdsRaw.length,
-            activeIds: 0,
-            active_filter_ok: activeFilter.ok,
-            active_filter_error: activeFilter.error || null,
+            activeIds: activeProjectIds.length,
+            filteredIds: 0,
+            filtered_limited: Boolean(filteredRes?.limited),
+            filtered_reason: filteredRes?.reason || null,
+            active_filter_ok: Boolean(activeFilter?.ok),
+            active_filter_error: activeFilter?.error || null,
           },
         },
       });
-      res.headers.set("Cache-Control", "no-store, max-age=0");
-      return res;
     }
 
-    // ✅ FIX-B4: normalised href days — used in ai-warning insight
+    // ✅ FIX-B4: normalised href days — used in ai-warning insight + approvals link
     const hrefDays = daysParam === "all" ? 60 : daysParam;
-
     const rpcDays = daysParam === "all" ? 60 : daysParam;
+
     const { data, error } = await supabase.rpc("get_portfolio_insights", { p_project_ids: projectIds, p_days: rpcDays });
     if (error) throw new Error(error.message);
 
@@ -942,13 +1032,13 @@ export async function GET(req: Request) {
       if (Array.isArray(projRows)) {
         projectCreatedAtMap = new Map<string, Date>();
         for (const r of projRows) {
-          const id = String(r?.id || "").trim();
-          const ts = safeDate(r?.created_at);
+          const id = String((r as any)?.id || "").trim();
+          const ts = safeDate((r as any)?.created_at);
           if (id && ts) projectCreatedAtMap.set(id, ts);
         }
       }
     } catch {
-      // Non-critical — computeFeedSignals handles undefined map gracefully (✅ FIX-B2)
+      // computeFeedSignals handles undefined map (✅ FIX-B2)
     }
 
     const [approvalsPending, feeds, flow] = await Promise.all([
@@ -972,7 +1062,15 @@ export async function GET(req: Request) {
     const wbsMissingEffort = num(wbsFromArtifacts.missing_effort);
     const wbsStalled = num(rpcWbs?.stalled_inprogress);
 
-    type Insight = { id: string; severity: "high" | "medium" | "info"; title: string; body: string; href?: string | null; meta?: any };
+    type Insight = {
+      id: string;
+      severity: "high" | "medium" | "info";
+      title: string;
+      body: string;
+      href?: string | null;
+      meta?: any;
+    };
+
     const insights: Insight[] = [];
 
     /* ─────────────────────────────────────────────────────────────
@@ -982,8 +1080,7 @@ export async function GET(req: Request) {
      * ───────────────────────────────────────────────────────────── */
     {
       const windowLabel = String(hrefDays);
-
-      const warnings = buildFlowWarnings({ daysParam, projectCount: projectIds.length, flow, approvalsPending, feeds });
+      const warnings = buildFlowWarnings({ daysParam, flow, approvalsPending, feeds });
 
       const sevRank = (s: Insight["severity"]) => (s === "high" ? 3 : s === "medium" ? 2 : 1);
       const severity: Insight["severity"] =
@@ -1087,6 +1184,7 @@ export async function GET(req: Request) {
           },
         });
       }
+
       if (wbsStalled > 0) {
         insights.push({
           id: "wbs-stalled",
@@ -1098,7 +1196,7 @@ export async function GET(req: Request) {
         });
       }
 
-      // ✅ FIX-B5: Clarify scope of each bucket in the body text
+      // ✅ FIX-B5: Clarify bucket scopes in body text
       const wbsPulseSev: Insight["severity"] = wbsOverdue > 0 ? "high" : wbsDue7 + wbsDue14 > 0 ? "medium" : "info";
       const overdueNote =
         daysParam === "all"
@@ -1143,19 +1241,23 @@ export async function GET(req: Request) {
       });
     }
 
-    const res = jsonOk({
+    return jsonOk({
       insights,
       meta: {
         days: daysParam,
         projectCount: projectIds.length,
+        filters: filtersActive ? filters : {},
         rpc_data_missing: rpcMissing,
         wbs_stalled_from_rpc: !rpcMissing,
         scope: {
           ...(scoped?.meta || {}),
           scopedIds: scopedIdsRaw.length,
-          activeIds: projectIds.length,
-          active_filter_ok: activeFilter.ok,
-          active_filter_error: activeFilter.error || null,
+          activeIds: activeProjectIds.length,
+          filteredIds: projectIds.length,
+          filtered_limited: Boolean(filteredRes?.limited),
+          filtered_reason: filteredRes?.reason || null,
+          active_filter_ok: Boolean(activeFilter?.ok),
+          active_filter_error: activeFilter?.error || null,
         },
         raw: safePanel,
         wbs_computed: wbsFromArtifacts,
@@ -1164,13 +1266,8 @@ export async function GET(req: Request) {
         flow_warning_signals: { ok: flow.ok, days: flow.days, error: flow.error || null },
       },
     });
-
-    res.headers.set("Cache-Control", "no-store, max-age=0");
-    return res;
   } catch (e: any) {
     console.error("[GET /api/ai/briefing]", e);
-    const res = jsonErr(String(e?.message || e || "Briefing failed"), 500);
-    res.headers.set("Cache-Control", "no-store, max-age=0");
-    return res;
+    return jsonErr(String(e?.message || e || "Briefing failed"), 500);
   }
 }

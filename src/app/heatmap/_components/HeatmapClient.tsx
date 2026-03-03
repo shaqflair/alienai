@@ -2,7 +2,7 @@
 // FILE: src/app/heatmap/_components/HeatmapClient.tsx
 
 import { useState, useCallback, useRef, useEffect, useTransition } from "react";
-import { useRouter } from "next/navigation"; // ✅ FIX 2: added for router.refresh()
+import { useRouter } from "next/navigation";
 import type { HeatmapData, PersonRow, AllocationCell, Granularity, PeriodHeader, PipelineGapRow } from "../_lib/heatmap-query";
 import { updateAllocation, deleteAllocationDirect } from "../../allocations/actions";
 
@@ -32,7 +32,22 @@ const DDS:React.CSSProperties={position:"absolute",top:"100%",left:0,right:0,zIn
 const DIS:React.CSSProperties={width:"100%",textAlign:"left",padding:"8px 12px",border:"none",borderBottom:"1px solid #f8fafc",background:"white",cursor:"pointer",fontSize:"12px",display:"flex",alignItems:"center",gap:"4px",fontFamily:"inherit"};
 
 /* ── Edit Modal ─────────────────────────────────────────────────────── */
-function EditModal({cell,people,projects,onClose,onSaved}:{cell:CS;people:PersonOption[];projects:PO[];onClose:()=>void;onSaved:(a:string,b:string,c:string,d:string,e:number,f:string)=>void;}){
+function EditModal({
+  cell,
+  people,
+  projects,
+  onClose,
+  onSaved,
+  onSaveError,
+}: {
+  cell: CS;
+  people: PersonOption[];
+  projects: PO[];
+  onClose: () => void;
+  onSaved: (a:string,b:string,c:string,d:string,e:number,f:string) => void;
+  /** Called if the background save fails so parent can surface the error */
+  onSaveError?: (msg: string) => void;
+}) {
   const CAPS=[0.5,1,1.5,2,2.5,3,3.5,4,4.5,5];
   const[pid,setPid]=useState(cell.personId);
   const[prid,setPrid]=useState(cell.projectId);
@@ -41,7 +56,7 @@ function EditModal({cell,people,projects,onClose,onSaved}:{cell:CS;people:Person
   const[dpw,setDpw]=useState(cell.daysAllocated>0?cell.daysAllocated:5);
   const[at,setAt]=useState<"confirmed"|"soft">("confirmed");
   const[err,setErr]=useState<string|null>(null);
-  const[pend,startT]=useTransition();
+  const[,startT]=useTransition();
   const[showDel,setShowDel]=useState(false);
   const[ps,setPs]=useState(cell.personName);
   const[prs,setPrs]=useState(cell.projectCode?`${cell.projectCode} - ${cell.projectTitle}`:cell.projectTitle);
@@ -50,8 +65,53 @@ function EditModal({cell,people,projects,onClose,onSaved}:{cell:CS;people:Person
   const fp=people.filter(p=>p.name.toLowerCase().includes(ps.toLowerCase())||(p.jobTitle??"").toLowerCase().includes(ps.toLowerCase())).slice(0,8);
   const fpr=projects.filter(p=>p.title.toLowerCase().includes(prs.toLowerCase())||(p.code??"").toLowerCase().includes(prs.toLowerCase())).slice(0,8);
   const wk=(()=>{if(!sd||!ed||sd>ed)return 0;return Math.round((new Date(ed).getTime()-new Date(sd).getTime())/(7*86400000))+1;})();
-  function save(){setErr(null);const fd=new FormData();fd.set("person_id",pid);fd.set("project_id",prid);fd.set("start_date",sd);fd.set("end_date",ed);fd.set("days_per_week",String(dpw));fd.set("allocation_type",at);fd.set("return_to","/heatmap");startT(async()=>{try{await updateAllocation(fd);onSaved(pid,prid,sd,ed,dpw,at);}catch(e:any){setErr(e.message||"Failed");}});}
-  function del(){const fd=new FormData();fd.set("person_id",cell.personId);fd.set("project_id",cell.projectId);fd.set("return_to","/heatmap");startT(async()=>{try{await deleteAllocationDirect(fd);onSaved(cell.personId,cell.projectId,"","",0,"");}catch(e:any){setErr(e.message||"Failed");}});}
+
+  // ── OPTIMISTIC SAVE ───────────────────────────────────────────────────────
+  // 1. Close the modal immediately so the UI feels instant
+  // 2. Fire the server action in the background
+  // 3. If it fails, surface the error via onSaveError (toast / banner in parent)
+  function save() {
+    setErr(null);
+    const fd = new FormData();
+    fd.set("person_id", pid);
+    fd.set("project_id", prid);
+    fd.set("start_date", sd);
+    fd.set("end_date", ed);
+    fd.set("days_per_week", String(dpw));
+    fd.set("allocation_type", at);
+    fd.set("return_to", "/heatmap");
+
+    // Close + start background refresh NOW — don't wait for the server
+    onSaved(pid, prid, sd, ed, dpw, at);
+
+    startT(async () => {
+      try {
+        await updateAllocation(fd);
+      } catch (e: any) {
+        // Save failed — let the parent know so it can show a toast/banner
+        onSaveError?.(e.message || "Save failed — please try again");
+      }
+    });
+  }
+
+  function del() {
+    const fd = new FormData();
+    fd.set("person_id", cell.personId);
+    fd.set("project_id", cell.projectId);
+    fd.set("return_to", "/heatmap");
+
+    // Optimistic: close immediately
+    onSaved(cell.personId, cell.projectId, "", "", 0, "");
+
+    startT(async () => {
+      try {
+        await deleteAllocationDirect(fd);
+      } catch (e: any) {
+        onSaveError?.(e.message || "Delete failed — please try again");
+      }
+    });
+  }
+
   const ac=projects.find(p=>p.id===prid)?.colour??cell.colour??"#00b8db";
   return(
     <div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:"fixed",inset:0,zIndex:2000,background:"rgba(15,23,42,0.5)",backdropFilter:"blur(3px)",display:"flex",alignItems:"center",justifyContent:"center",padding:"20px",fontFamily:"'DM Sans',sans-serif"}}>
@@ -70,8 +130,24 @@ function EditModal({cell,people,projects,onClose,onSaved}:{cell:CS;people:Person
           <div><label style={MLS}>Type</label><div style={{display:"flex",gap:"8px"}}>{(["confirmed","soft"] as const).map(t=><button key={t} type="button" onClick={()=>setAt(t)} style={{flex:1,padding:"7px",borderRadius:"7px",border:`1.5px solid ${at===t?"#00b8db":"#e2e8f0"}`,background:at===t?"rgba(0,184,219,0.08)":"white",color:at===t?"#0e7490":"#64748b",fontSize:"12px",fontWeight:700,cursor:"pointer"}}>{t==="confirmed"?"Confirmed":"Soft"}</button>)}</div></div>
         </div>
         <div style={{padding:"12px 20px 16px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          {!showDel?<button onClick={()=>setShowDel(true)} style={{background:"none",border:"none",color:"#ef4444",fontSize:"12px",fontWeight:600,cursor:"pointer",padding:0}}>Remove allocation</button>:<div style={{display:"flex",gap:"8px",alignItems:"center"}}><span style={{fontSize:"12px",color:"#ef4444",fontWeight:600}}>Remove all weeks?</span><button onClick={del} disabled={pend} style={{padding:"5px 12px",borderRadius:"6px",border:"none",background:"#ef4444",color:"white",fontSize:"12px",fontWeight:700,cursor:"pointer"}}>Yes</button><button onClick={()=>setShowDel(false)} style={{padding:"5px 12px",borderRadius:"6px",border:"1px solid #e2e8f0",background:"white",fontSize:"12px",color:"#64748b",cursor:"pointer"}}>Cancel</button></div>}
-          <div style={{display:"flex",gap:"8px"}}><button onClick={onClose} style={{padding:"8px 16px",borderRadius:"8px",border:"1.5px solid #e2e8f0",background:"white",fontSize:"12px",fontWeight:600,color:"#475569",cursor:"pointer"}}>Cancel</button><button onClick={save} disabled={pend||!pid||!prid||!sd||!ed} style={{padding:"8px 18px",borderRadius:"8px",border:"none",background:pend||!pid||!prid?"#e2e8f0":"#00b8db",color:pend||!pid||!prid?"#94a3b8":"white",fontSize:"12px",fontWeight:800,cursor:pend||!pid||!prid?"not-allowed":"pointer"}}>{pend?"Saving...":"Save changes"}</button></div>
+          {!showDel
+            ?<button onClick={()=>setShowDel(true)} style={{background:"none",border:"none",color:"#ef4444",fontSize:"12px",fontWeight:600,cursor:"pointer",padding:0}}>Remove allocation</button>
+            :<div style={{display:"flex",gap:"8px",alignItems:"center"}}>
+              <span style={{fontSize:"12px",color:"#ef4444",fontWeight:600}}>Remove all weeks?</span>
+              <button onClick={del} style={{padding:"5px 12px",borderRadius:"6px",border:"none",background:"#ef4444",color:"white",fontSize:"12px",fontWeight:700,cursor:"pointer"}}>Yes</button>
+              <button onClick={()=>setShowDel(false)} style={{padding:"5px 12px",borderRadius:"6px",border:"1px solid #e2e8f0",background:"white",fontSize:"12px",color:"#64748b",cursor:"pointer"}}>Cancel</button>
+            </div>
+          }
+          <div style={{display:"flex",gap:"8px"}}>
+            <button onClick={onClose} style={{padding:"8px 16px",borderRadius:"8px",border:"1.5px solid #e2e8f0",background:"white",fontSize:"12px",fontWeight:600,color:"#475569",cursor:"pointer"}}>Cancel</button>
+            <button
+              onClick={save}
+              disabled={!pid||!prid||!sd||!ed}
+              style={{padding:"8px 18px",borderRadius:"8px",border:"none",background:!pid||!prid?"#e2e8f0":"#00b8db",color:!pid||!prid?"#94a3b8":"white",fontSize:"12px",fontWeight:800,cursor:!pid||!prid?"not-allowed":"pointer"}}
+            >
+              Save changes
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -84,7 +160,6 @@ function UtilBadge({pct}:{pct:number}){const c=UC[tier(pct)];if(pct===0)return n
 function GranToggle({value,onChange}:{value:Granularity;onChange:(g:Granularity)=>void}){return<div style={{display:"flex",background:"#f1f5f9",borderRadius:"8px",padding:"3px",gap:"2px"}}>{(["weekly","sprint","monthly","quarterly"] as Granularity[]).map(g=><button key={g} type="button" onClick={()=>onChange(g)} style={{padding:"5px 12px",borderRadius:"6px",border:"none",fontSize:"12px",fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",background:value===g?"white":"transparent",color:value===g?"#0f172a":"#64748b",boxShadow:value===g?"0 1px 4px rgba(0,0,0,0.08)":"none"}}>{GL[g]}</button>)}</div>;}
 function Chip({label,active,colour,onClick}:{label:string;active:boolean;colour?:string;onClick:()=>void}){const c=colour||"#00b8db";return<button type="button" onClick={onClick} style={{display:"inline-flex",alignItems:"center",gap:"5px",padding:"4px 10px",borderRadius:"20px",border:"1.5px solid",borderColor:active?c:"#e2e8f0",background:active?`${c}15`:"white",color:active?c:"#64748b",fontSize:"12px",fontWeight:600,fontFamily:"'DM Sans',sans-serif",cursor:"pointer"}}>{label}</button>;}
 
-/* HeatmapCell: shows utilisation % + indigo dot for leave/exception */
 function HCell({cell,cw,cur}:{cell:AllocationCell|null;cw:number;cur:boolean}){
   const pct=cell?.utilisationPct??0,c=UC[tier(pct)],ex=cell?.hasException??false;
   return<div title={cell?`${cell.daysAllocated}d / ${cell.capacityDays}d (${pct}%)${ex?" - Reduced capacity (leave/exception)":""}`:ex?"Reduced capacity":"No allocation"} style={{width:cw-2,minWidth:cw-2,height:"34px",borderRadius:"5px",background:cur&&pct===0?"rgba(0,184,219,0.04)":c.bg,border:`1px solid ${ex?"rgba(99,102,241,0.35)":cur?"rgba(0,184,219,0.2)":c.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"11px",fontWeight:700,fontFamily:"'DM Mono',monospace",color:pct===0?(ex?"#a5b4fc":"#e2e8f0"):c.text,cursor:cell&&cell.allocationIds.length>0?"pointer":"default",transition:"all 0.1s",position:"relative",flexShrink:0}}>
@@ -153,26 +228,33 @@ export default function HeatmapClient({initialData,allPeople,allDepartments,allP
   const[ferr,setFerr]=useState<string|null>(null);
   const[showF,setShowF]=useState(false);
   const[edit,setEdit]=useState<CS|null>(null);
+  // ── error toast for background save failures ──────────────────────────────
+  const[saveErr,setSaveErr]=useState<string|null>(null);
+  const saveErrTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
+  function showSaveErr(msg:string){
+    setSaveErr(msg);
+    if(saveErrTimer.current)clearTimeout(saveErrTimer.current);
+    saveErrTimer.current=setTimeout(()=>setSaveErr(null),5000);
+  }
+  // ─────────────────────────────────────────────────────────────────────────
   const abrt=useRef<AbortController|null>(null);
   const cw=CW[filters.granularity];
-  const router=useRouter(); // ✅ FIX 2
+  const router=useRouter();
 
   function bp(f:Filters){const p=new URLSearchParams();p.set("granularity",f.granularity);p.set("dateFrom",f.dateFrom);p.set("dateTo",f.dateTo);f.departments.forEach(d=>p.append("dept",d));f.statuses.forEach(s=>p.append("status",s));[...new Set([...f.personIds,...f.pmIds])].forEach(id=>p.append("person",id));(f.projectIds??[]).forEach(id=>p.append("project",id));return p;}
 
   const fetchData=useCallback(async(f:Filters)=>{
     if(abrt.current)abrt.current.abort();abrt.current=new AbortController();
     setLoading(true);setFerr(null);
-    // ✅ FIX 2: _t busts Next.js Route Handler GET cache on every fetch
     try{const res=await fetch(`/api/heatmap/data?${bp(f)}&_t=${Date.now()}`,{signal:abrt.current.signal});if(!res.ok)throw new Error(`HTTP ${res.status}`);const json=await res.json();if((f.roles??[]).length>0){json.people=(json.people??[]).filter((p:any)=>(f.roles??[]).some(r=>p.jobTitle&&p.jobTitle.toLowerCase().includes(r.toLowerCase())));}setData(json);}
     catch(e:any){if(e.name!=="AbortError")setFerr(e.message);}finally{setLoading(false);}
   },[]);
 
   useEffect(()=>{fetchData(filters);},[filters,fetchData]);
 
-  // ✅ FIX 2: close modal, bust page cache, refetch silently in background
   function onSaved(_a:string,_b:string,_c:string,_d:string,_e:number,_f:string){
     setEdit(null);
-    router.refresh(); // invalidates RSC page-level cache
+    router.refresh();
     if(abrt.current)abrt.current.abort();
     abrt.current=new AbortController();
     const f=filters;
@@ -180,11 +262,7 @@ export default function HeatmapClient({initialData,allPeople,allDepartments,allP
       .then(r=>r.ok?r.json():null)
       .then(json=>{
         if(!json)return;
-        if((f.roles??[]).length>0){
-          json.people=(json.people??[]).filter(
-            (p:any)=>(f.roles??[]).some(r=>p.jobTitle&&p.jobTitle.toLowerCase().includes(r.toLowerCase()))
-          );
-        }
+        if((f.roles??[]).length>0){json.people=(json.people??[]).filter((p:any)=>(f.roles??[]).some(r=>p.jobTitle&&p.jobTitle.toLowerCase().includes(r.toLowerCase())));}
         setData(json);
       })
       .catch(()=>{});
@@ -216,8 +294,19 @@ export default function HeatmapClient({initialData,allPeople,allDepartments,allP
       .hmleg{display:flex;gap:16px;flex-wrap:wrap;padding:10px 16px;border-top:1px solid #f1f5f9;background:#fafafa;}
       .hmli{display:flex;align-items:center;gap:6px;font-size:11px;color:#64748b;}
       @keyframes spin{to{transform:rotate(360deg);}}
+      @keyframes slideUp{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
     `}</style>
     <div className="hmr"><div className="hmi">
+
+      {/* ── Background-save error toast ── */}
+      {saveErr&&(
+        <div style={{position:"fixed",bottom:"24px",left:"50%",transform:"translateX(-50%)",zIndex:3000,padding:"12px 20px",borderRadius:"10px",background:"#1e293b",color:"white",fontSize:"13px",fontWeight:600,boxShadow:"0 8px 24px rgba(0,0,0,0.2)",display:"flex",alignItems:"center",gap:"12px",animation:"slideUp 0.2s ease",fontFamily:"'DM Sans',sans-serif"}}>
+          <span style={{color:"#f87171"}}>⚠</span>
+          {saveErr}
+          <button onClick={()=>setSaveErr(null)} style={{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:"16px",padding:"0 0 0 4px",lineHeight:1}}>×</button>
+        </div>
+      )}
+
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:"24px",flexWrap:"wrap",gap:"12px"}}>
         <div><h1 style={{fontSize:"22px",fontWeight:800,color:"#0f172a",margin:0,marginBottom:"4px"}}>Resource Heatmap</h1>
         <p style={{fontSize:"13px",color:"#94a3b8",margin:0}}>{data.dateFrom?new Date(data.dateFrom).toLocaleDateString("en-GB"):""} to {data.dateTo?new Date(data.dateTo).toLocaleDateString("en-GB"):""} - {data.people.length} people - <span style={{color:"#00b8db"}}>{GL[data.granularity]} view</span>{loading&&<span style={{marginLeft:"10px",display:"inline-block",width:"12px",height:"12px",borderRadius:"50%",border:"2px solid #e2e8f0",borderTopColor:"#00b8db",animation:"spin 0.6s linear infinite",verticalAlign:"middle"}}/>}</p></div>
@@ -256,6 +345,15 @@ export default function HeatmapClient({initialData,allPeople,allDepartments,allP
       </div>
       <PipeSection gaps={data.pipelineGaps} periods={data.periods} cw={cw}/>
     </div></div>
-    {edit&&<EditModal cell={edit} people={allPeople} projects={allProjects} onClose={()=>setEdit(null)} onSaved={onSaved}/>}
+    {edit&&(
+      <EditModal
+        cell={edit}
+        people={allPeople}
+        projects={allProjects}
+        onClose={()=>setEdit(null)}
+        onSaved={onSaved}
+        onSaveError={showSaveErr}
+      />
+    )}
   </>);
 }

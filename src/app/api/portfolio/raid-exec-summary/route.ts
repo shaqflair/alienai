@@ -1,17 +1,23 @@
-﻿// src/app/api/portfolio/raid-exec-summary/route.ts — REBUILT v3
+﻿// src/app/api/portfolio/raid-exec-summary/route.ts — REBUILT v5 (Org view + filter-ready)
 // Fixes / Adds:
-//   ✅ RES-F1: Permission-safe project scope via resolveActiveProjectScope (replaces raw project_members join)
+//   ✅ RES-F1: ORG-WIDE project scope via resolveOrgActiveProjectScope (all projects in user's organisation) with safe fallback to membership scope
 //   ✅ RES-F2: clampDays supports "all" → 60 (HomePage sends days=all)
 //   ✅ RES-F3: Cache-Control: no-store across ALL responses (json + md/pdf/pptx downloads)
+//   ✅ RES-F4: Supports dashboard filters (GET + POST-ready via URL for now): name, code, pm, dept
+//   ✅ RES-F5: Project links prefer project_code (human id) over UUID
 // Keeps:
-//   ✅ FIX-RES1: Active project filter added (filterActiveProjectIds) to exclude closed/deleted projects
-//   ✅ FIX-RES2: TypeScript bug in resolveClientNameFromProjects fixed (select("id, client_name"))
+//   ✅ Active project filter (filterActiveProjectIds) to exclude closed/deleted projects
+//   ✅ FIX-RES2: resolveClientNameFromProjects fixed select("id, client_name")
 
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
+import {
+  resolveOrgActiveProjectScope,
+  resolveActiveProjectScope,
+  filterActiveProjectIds,
+} from "@/lib/server/project-scope";
 
 // Puppeteer / Chromium
 import puppeteer from "puppeteer";
@@ -128,12 +134,138 @@ function sanitizeFilename(name: string) {
     .replace(/^_|_$/g, "");
 }
 
+function uniqStrings(xs: any): string[] {
+  const arr = Array.isArray(xs) ? xs : xs == null ? [] : [xs];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const v of arr) {
+    const s = safeStr(v).trim();
+    if (!s) continue;
+    const k = s.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+}
+
+function projectCodeLabel(pc: any): string {
+  if (typeof pc === "string") return pc.trim();
+  if (typeof pc === "number" && Number.isFinite(pc)) return String(pc);
+  if (pc && typeof pc === "object") {
+    const v = safeStr(pc.project_code) || safeStr(pc.code) || safeStr(pc.value) || safeStr(pc.id);
+    return v.trim();
+  }
+  return "";
+}
+
+/* ---------------- filters ---------------- */
+
+type PortfolioFilters = {
+  projectName?: string[];
+  projectCode?: string[];
+  projectManagerId?: string[];
+  department?: string[];
+};
+
+function hasAnyFilters(f: PortfolioFilters) {
+  return (
+    (f.projectName && f.projectName.length) ||
+    (f.projectCode && f.projectCode.length) ||
+    (f.projectManagerId && f.projectManagerId.length) ||
+    (f.department && f.department.length)
+  );
+}
+
+function parseFiltersFromUrl(url: URL): PortfolioFilters {
+  const name = uniqStrings(url.searchParams.getAll("name").flatMap((x) => x.split(",")).map((s) => s.trim()));
+  const code = uniqStrings(url.searchParams.getAll("code").flatMap((x) => x.split(",")).map((s) => s.trim()));
+  const pm = uniqStrings(url.searchParams.getAll("pm").flatMap((x) => x.split(",")).map((s) => s.trim()));
+  const dept = uniqStrings(url.searchParams.getAll("dept").flatMap((x) => x.split(",")).map((s) => s.trim()));
+
+  const out: PortfolioFilters = {};
+  if (name.length) out.projectName = name;
+  if (code.length) out.projectCode = code;
+  if (pm.length) out.projectManagerId = pm;
+  if (dept.length) out.department = dept;
+  return out;
+}
+
+// Filter projects within candidate scope (best-effort if optional cols don't exist)
+async function applyProjectFilters(supabase: any, scopedProjectIds: string[], filters: PortfolioFilters) {
+  const meta: any = { applied: false, filters, notes: [] as string[] };
+  if (!scopedProjectIds.length) return { projectIds: [], meta: { ...meta, applied: true } };
+  if (!hasAnyFilters(filters)) return { projectIds: scopedProjectIds, meta };
+
+  const selectSets = [
+    "id, title, project_code, project_manager_id, department",
+    "id, title, project_code, project_manager_id",
+    "id, title, project_code, department",
+    "id, title, project_code",
+  ];
+
+  let rows: any[] = [];
+  let lastErr: any = null;
+
+  for (const sel of selectSets) {
+    const { data, error } = await supabase.from("projects").select(sel).in("id", scopedProjectIds).limit(20000);
+    if (!error && Array.isArray(data)) {
+      rows = data;
+      lastErr = null;
+      break;
+    }
+    lastErr = error;
+    // If RLS blocks or table is missing, we fall back to unfiltered.
+    break;
+  }
+
+  if (!rows.length) {
+    meta.applied = true;
+    meta.notes.push("Could not read projects for filtering; falling back to unfiltered scope.");
+    if (lastErr?.message) meta.notes.push(lastErr.message);
+    return { projectIds: scopedProjectIds, meta };
+  }
+
+  const nameNeedles = (filters.projectName ?? []).map((s) => s.toLowerCase());
+  const codeNeedles = (filters.projectCode ?? []).map((s) => s.toLowerCase());
+  const pmSet = new Set((filters.projectManagerId ?? []).map((s) => s));
+  const deptNeedles = (filters.department ?? []).map((s) => s.toLowerCase());
+
+  const filtered = rows.filter((p) => {
+    const title = safeStr(p?.title).toLowerCase();
+    const code = projectCodeLabel(p?.project_code).toLowerCase();
+
+    if (nameNeedles.length && !nameNeedles.some((n) => title.includes(n))) return false;
+    if (codeNeedles.length && !codeNeedles.some((c) => code.includes(c))) return false;
+
+    if (pmSet.size) {
+      const pm = safeStr(p?.project_manager_id).trim();
+      if (!pm) return false;
+      if (!pmSet.has(pm)) return false;
+    }
+
+    if (deptNeedles.length) {
+      const dept = safeStr(p?.department).toLowerCase().trim();
+      if (!dept) return false;
+      if (!deptNeedles.some((d) => dept.includes(d))) return false;
+    }
+
+    return true;
+  });
+
+  const outIds = filtered.map((p) => String(p?.id || "").trim()).filter(Boolean);
+  meta.applied = true;
+  meta.counts = { before: scopedProjectIds.length, after: outIds.length };
+  return { projectIds: outIds, meta };
+}
+
 /* ---------------- types ---------------- */
 
 type ExecItem = {
   id: string;
   project_id?: string | null;
   project_title?: string | null;
+  project_code_label?: string | null;
   type?: string | null;
   title?: string | null;
   score?: number | null;
@@ -170,6 +302,7 @@ type ExecSummary = {
   };
   wow?: { week_start?: string | null; prev_week_start?: string | null; narrative?: string[] } | null;
   sections: ExecSection[];
+  meta?: any;
 };
 
 /* ---------------- data helpers ---------------- */
@@ -193,7 +326,7 @@ async function resolveOrgName(supabase: any, userId: string) {
   }
 }
 
-// ✅ FIX-RES2: Fixed .select() — removed invalid TypeScript cast in column selector
+// ✅ FIX-RES2: Fixed .select()
 async function resolveClientNameFromProjects(supabase: any, projectIds: string[]) {
   try {
     const { data, error } = await supabase.from("projects").select("id, client_name").in("id", projectIds).limit(2000);
@@ -219,28 +352,86 @@ async function buildExecSummary(args: {
   scope: string;
   days: number;
   top: number;
-}): Promise<ExecSummary | { ok: false; error: string }> {
-  const { supabase, userId, scope, days, top } = args;
+  filters: PortfolioFilters;
+}): Promise<ExecSummary | { ok: false; error: string; meta?: any }> {
+  const { supabase, userId, scope, days, top, filters } = args;
 
-  // ✅ RES-F1: permission-safe scope (replaces raw project_members join)
-  const scoped = await resolveActiveProjectScope(supabase, userId);
-  const rawProjectIds = (Array.isArray(scoped?.projectIds) ? scoped.projectIds : []).filter(Boolean) as string[];
+  const meta: any = { scope_source: null, filters: null };
 
-  if (!rawProjectIds.length) return { ok: false, error: "No accessible projects found." };
+  // ✅ RES-F1: ORG-WIDE scope (dashboard-aligned) with membership fallback
+  let baseProjectIds: string[] = [];
+  try {
+    const orgScoped = await resolveOrgActiveProjectScope(supabase, userId);
+    const ids = (Array.isArray(orgScoped?.projectIds) ? orgScoped.projectIds : []).filter(Boolean) as string[];
+    baseProjectIds = ids;
+    meta.scope_source = { kind: "org_scope_helper", ok: Boolean(ids.length), meta: orgScoped?.meta ?? null };
+  } catch (e: any) {
+    meta.scope_source = { kind: "org_scope_helper", ok: false, error: safeStr(e?.message || e) };
+    baseProjectIds = [];
+  }
 
-  // ✅ FIX-RES1: filter to active projects only (excludes closed/deleted)
-  const activeFilter = await filterActiveProjectIds(supabase, rawProjectIds);
-  const projectIds = activeFilter.projectIds;
+  if (!baseProjectIds.length) {
+    const scoped = await resolveActiveProjectScope(supabase, userId);
+    const ids = (Array.isArray(scoped?.projectIds) ? scoped.projectIds : []).filter(Boolean) as string[];
+    meta.scope_source = {
+      kind: "membership_fallback",
+      ok: Boolean(ids.length),
+      error: scoped?.error || null,
+      membershipMeta: scoped?.meta ?? null,
+    };
+    baseProjectIds = ids;
+  }
 
-  if (!projectIds.length) return { ok: false, error: "No active projects found." };
+  if (!baseProjectIds.length) return { ok: false, error: "No accessible projects found.", meta };
 
-  // header context
+  // Active-only filter (terminal state exclusion)
+  const activeFilter = await filterActiveProjectIds(supabase, baseProjectIds);
+  const activeProjectIds = (Array.isArray(activeFilter?.projectIds) ? activeFilter.projectIds : []).filter(Boolean);
+
+  if (!activeProjectIds.length)
+    return { ok: false, error: "No active projects found.", meta: { ...meta, activeFilter: activeFilter?.error || null } };
+
+  // Apply dashboard filters (best-effort)
+  const filtered = await applyProjectFilters(supabase, activeProjectIds, filters);
+  meta.filters = filtered.meta;
+
+  const projectIds = filtered.projectIds;
+  if (!projectIds.length) {
+    return {
+      ok: true,
+      org_name:
+        (await resolveOrgName(supabase, userId)) ||
+        safeStr(process.env.ORG_NAME || process.env.NEXT_PUBLIC_ORG_NAME).trim() ||
+        null,
+      client_name: null,
+      scope,
+      days,
+      top,
+      summary: {
+        headline: hasAnyFilters(filters)
+          ? "No RAID items: no projects matched the selected filters."
+          : "No RAID items match the selected horizon.",
+        generated_at: new Date().toISOString(),
+      },
+      kpis: { total_items: 0, overdue_open: 0, high_score: 0, sla_hot: 0, exposure_total: 0, exposure_total_fmt: moneyGBP(0) },
+      wow: null,
+      sections: [
+        { key: "top_score", title: "Top Risks by Score", items: [] },
+        { key: "sla_hot", title: "SLA Breach Watchlist", items: [] },
+        { key: "exposure", title: "Financial Exposure Hotspots", items: [] },
+        { key: "decisions", title: "Decisions Required (Next Actions)", items: [] },
+      ],
+      meta: { ...meta, projectCounts: { base: baseProjectIds.length, active: activeProjectIds.length, filtered: 0 } },
+    };
+  }
+
+  // Header context
   const [dbOrg, dbClient] = await Promise.all([resolveOrgName(supabase, userId), resolveClientNameFromProjects(supabase, projectIds)]);
 
   const org_name = dbOrg || safeStr(process.env.ORG_NAME || process.env.NEXT_PUBLIC_ORG_NAME).trim() || null;
   const client_name = (dbClient || null) as string | null;
 
-  // window dates
+  // Window dates
   const today = new Date();
   const todayStr = isoDateUTC(today);
   const to = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + days));
@@ -262,7 +453,7 @@ async function buildExecSummary(args: {
       due_date,
       owner_label,
       ai_rollup,
-      projects:projects ( id, title )
+      projects:projects ( id, title, project_code )
     `,
     )
     .in("project_id", projectIds);
@@ -276,7 +467,7 @@ async function buildExecSummary(args: {
   }
 
   const { data: raidRows, error: raidErr } = await raidQ.limit(5000);
-  if (raidErr) return { ok: false, error: raidErr.message };
+  if (raidErr) return { ok: false, error: raidErr.message, meta };
 
   const rows = raidRows || [];
   const raidItemIds = rows.map((r: any) => r.id).filter(Boolean);
@@ -349,10 +540,14 @@ async function buildExecSummary(args: {
     const exposure_total = (n(cost, 0) || 0) + (n(rev, 0) || 0) + (n(pen, 0) || 0);
     const exposure_total_fmt = exposure_total > 0 ? moneyGBP(exposure_total) : null;
 
+    const codeLabel = projectCodeLabel(r?.projects?.project_code) || null;
+    const ref = codeLabel || safeStr(r.project_id).trim();
+
     return {
       id: String(r.id),
       project_id: r.project_id,
       project_title: r?.projects?.title || "Project",
+      project_code_label: codeLabel,
       type: r.type || null,
       title: r.title || r.description?.slice(0, 120) || "RAID item",
       due_date: due,
@@ -365,7 +560,8 @@ async function buildExecSummary(args: {
       exposure_total_fmt,
       overdue,
       note: r.ai_rollup ? String(r.ai_rollup).slice(0, 240) : null,
-      href: `/projects/${r.project_id}/raid`,
+      // ✅ RES-F5: prefer project_code for routes
+      href: ref ? `/projects/${encodeURIComponent(ref)}/raid` : null,
     };
   });
 
@@ -406,9 +602,7 @@ async function buildExecSummary(args: {
       ...x,
       note:
         x.sla_breach_probability != null
-          ? `SLA breach probability ${x.sla_breach_probability}%${
-              x.sla_days_to_breach != null ? ` • ~${x.sla_days_to_breach} day(s)` : ""
-            }.`
+          ? `SLA breach probability ${x.sla_breach_probability}%${x.sla_days_to_breach != null ? ` • ~${x.sla_days_to_breach} day(s)` : ""}.`
           : x.note,
     }));
 
@@ -433,7 +627,7 @@ async function buildExecSummary(args: {
       prompt: x.overdue ? `Confirm owner/action plan and rebaseline due date.` : `Confirm mitigation and next update before ${x.due_date}.`,
     }));
 
-  // optional WoW snapshots
+  // Optional WoW snapshots
   let wow: ExecSummary["wow"] = null;
   try {
     const { data: snaps, error: snapErr } = await supabase
@@ -483,7 +677,9 @@ async function buildExecSummary(args: {
             `${sign(deltas.overdue_open)} Overdue: ${cur.overdue_open} (${deltas.overdue_open >= 0 ? "+" : ""}${deltas.overdue_open} WoW)`,
             `${sign(deltas.high_score)} High score: ${cur.high_score} (${deltas.high_score >= 0 ? "+" : ""}${deltas.high_score} WoW)`,
             `${sign(deltas.sla_hot)} SLA hot: ${cur.sla_hot} (${deltas.sla_hot >= 0 ? "+" : ""}${deltas.sla_hot} WoW)`,
-            `${sign(deltas.exposure_total)} Exposure: ${moneyGBP(cur.exposure_total)} (${deltas.exposure_total >= 0 ? "+" : ""}${moneyGBP(deltas.exposure_total)})`,
+            `${sign(deltas.exposure_total)} Exposure: ${moneyGBP(cur.exposure_total)} (${deltas.exposure_total >= 0 ? "+" : ""}${moneyGBP(
+              deltas.exposure_total,
+            )})`,
           ],
         };
       } else {
@@ -517,10 +713,11 @@ async function buildExecSummary(args: {
       { key: "exposure", title: "Financial Exposure Hotspots", items: byExposure },
       { key: "decisions", title: "Decisions Required (Next Actions)", items: decisions },
     ],
+    meta: { ...meta, projectCounts: { base: baseProjectIds.length, active: activeProjectIds.length, filtered: projectIds.length } },
   };
 }
 
-/* ---------------- HTML renderer (PDF) — unchanged from original ---------------- */
+/* ---------------- HTML renderer (PDF) ---------------- */
 
 function esc(s: any) {
   return String(s ?? "")
@@ -577,9 +774,7 @@ function renderPdfHtml(summary: ExecSummary) {
                 const note = x.note || x.prompt ? `<div class="note">${esc(x.note || x.prompt)}</div>` : "";
                 return `<div class="item"><div class="item-meta">${esc(x.project_title || "Project")} • ${esc(
                   x.type || "RAID",
-                )}</div><div class="item-title">${esc(x.title || "Untitled")}</div><div class="pills">${pills.join(
-                  "",
-                )}</div>${note}</div>`;
+                )}</div><div class="item-title">${esc(x.title || "Untitled")}</div><div class="pills">${pills.join("")}</div>${note}</div>`;
               })
               .join("");
       return `<div class="card"><div class="card-title-row"><div class="card-title">${esc(sec.title)}</div><div class="muted">${
@@ -611,7 +806,7 @@ function renderPdfHtml(summary: ExecSummary) {
   )}</div></div></div></body></html>`;
 }
 
-/* ---------------- puppeteer (chromium) — unchanged ---------------- */
+/* ---------------- puppeteer (chromium) ---------------- */
 
 async function renderPdfFromHtml(html: string) {
   const isProd = process.env.NODE_ENV === "production";
@@ -641,7 +836,7 @@ async function renderPdfFromHtml(html: string) {
   }
 }
 
-/* ---------------- PPTX renderer — unchanged from original ---------------- */
+/* ---------------- PPTX renderer ---------------- */
 
 async function fetchAsDataUri(url: string, fallbackMime = "image/png"): Promise<string | null> {
   try {
@@ -675,205 +870,102 @@ function priorityFromScore(score: any) {
   return { label: "Low Priority", kind: "neutral" as const };
 }
 
+function firstN(items: ExecItem[], max: number) {
+  return (Array.isArray(items) ? items : []).slice(0, Math.max(0, max));
+}
+
+function itemLine(it: ExecItem) {
+  const due = it.due_date ? fmtUKShortDate(it.due_date) : "—";
+  const sc = it.score == null ? "—" : String(it.score);
+  const sla =
+    it.sla_breach_probability != null
+      ? `${it.sla_breach_probability}%${it.sla_days_to_breach != null ? ` (~${it.sla_days_to_breach}d)` : ""}`
+      : "—";
+  const exp = it.exposure_total_fmt || "—";
+  const proj = it.project_code_label || it.project_title || "Project";
+  return `${proj} • ${it.type || "RAID"} • Due ${due} • Score ${sc} • SLA ${sla} • Exp ${exp}\n${safeStr(it.title).trim()}`;
+}
+
 async function renderPptxFromSummary(summary: ExecSummary) {
   const mod = await import("pptxgenjs");
   const PptxGenJS = (mod as any).default || (mod as any);
   const pptx = new PptxGenJS();
   pptx.layout = "LAYOUT_WIDE";
-  const SLIDE_W = 13.333;
-  const SLIDE_H = 7.5;
-  const C = {
-    bg: "F8FAFC",
-    grid: "E5E7EB",
-    card: "FFFFFF",
-    border: "E5E7EB",
-    text: "0F172A",
-    muted: "64748B",
-    teal: "14B8A6",
-    indigo: "6366F1",
-    warn: "F59E0B",
-    danger: "EF4444",
-    pillBg: "F1F5F9",
-  };
-  const safe = (x: any) => (x == null ? "" : String(x));
-  const nn = (x: any, fb = 0) => (Number.isFinite(Number(x)) ? Number(x) : fb);
-  const topScoreSec = (summary.sections || []).find((s) => s.key === "top_score") || (summary.sections || [])[0];
-  const featured = topScoreSec?.items?.[0] || null;
-  const featuredScore = featured?.score ?? null;
-  const pr = priorityFromScore(featuredScore);
-  const client = summary.client_name || "Client";
-  const org = summary.org_name || "My Organisation";
-  const windowLabel = `Next ${summary.days} Days`;
-  const genStamp = summary.summary?.generated_at ? new Date(summary.summary.generated_at) : new Date();
-  const genText = genStamp.toLocaleString("en-GB", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const k = summary.kpis || ({} as any);
-  const kTotal = nn(k.total_items, 0);
-  const kOverdue = nn(k.overdue_open, 0);
-  const kHigh = nn(k.high_score, 0);
-  const kSla = nn(k.sla_hot, 0);
-  const kExposureFmt = safe(k.exposure_total_fmt || "—");
+
   const logoUrl = safeStr(process.env.BRANDING_LOGO_URL || process.env.NEXT_PUBLIC_BRANDING_LOGO_URL).trim() || BRAND_LOGO_URL;
-  const logoDataUri = await fetchAsDataUri(logoUrl);
+  const logoData = await fetchAsDataUri(logoUrl);
 
-  const slide = pptx.addSlide();
-  slide.addShape("rect", { x: 0, y: 0, w: SLIDE_W, h: SLIDE_H, fill: { color: C.bg } });
+  const title = "Portfolio RAID Brief";
+  const subtitle = `${summary.client_name || "—"} • ${summary.org_name || "—"} • next ${summary.days} days • scope: ${
+    summary.scope
+  }`;
+  const generated = `Generated: ${fmtUkDateTime(summary.summary.generated_at)}`;
 
-  const gridStep = 0.55;
-  for (let x = 0; x <= SLIDE_W; x += gridStep)
-    slide.addShape("line", { x, y: 0, w: 0, h: SLIDE_H, line: { color: C.grid, width: 0.5, transparency: 80 } });
-  for (let y = 0; y <= SLIDE_H; y += gridStep)
-    slide.addShape("line", { x: 0, y, w: SLIDE_W, h: 0, line: { color: C.grid, width: 0.5, transparency: 80 } });
+  // Slide 1: Cover
+  {
+    const s = pptx.addSlide();
+    s.addText(title, { x: 0.6, y: 0.5, w: 12.2, h: 0.6, fontSize: 34, bold: true });
+    s.addText(subtitle, { x: 0.6, y: 1.25, w: 12.2, h: 0.4, fontSize: 14 });
+    s.addText(summary.summary.headline || "", { x: 0.6, y: 1.75, w: 12.2, h: 1.2, fontSize: 12 });
+    s.addText(generated, { x: 0.6, y: 3.05, w: 12.2, h: 0.35, fontSize: 10 });
 
-  const addCard = (x: number, y: number, w: number, h: number, opts?: { fill?: string; border?: string }) => {
-    slide.addShape("roundRect", { x, y, w, h, fill: { color: opts?.fill || C.card }, line: { color: opts?.border || C.border, width: 1 } });
-  };
+    if (logoData) {
+      s.addImage({ data: logoData, x: 12.6, y: 0.45, w: 0.9, h: 0.9 });
+    }
 
-  const addPill = (x: number, y: number, w: number, h: number, text: string, kind: "neutral" | "warn" | "danger") => {
-    const fill = kind === "warn" ? "FFF7ED" : kind === "danger" ? "FEF2F2" : C.pillBg;
-    const line = kind === "warn" ? "FED7AA" : kind === "danger" ? "FECACA" : C.border;
-    const color = kind === "warn" ? "92400E" : kind === "danger" ? "991B1B" : C.muted;
-    slide.addShape("roundRect", { x, y, w, h, fill: { color: fill }, line: { color: line, width: 1 } });
-    slide.addText(text, { x, y: y + 0.08, w, h, fontSize: 11, color, align: "center", valign: "mid", bold: true });
-  };
+    const k = summary.kpis;
+    const kpiText = `Total: ${k.total_items}   •   Overdue: ${k.overdue_open}   •   High score: ${k.high_score}   •   SLA hot: ${k.sla_hot}   •   Exposure: ${
+      k.exposure_total_fmt || "—"
+    }`;
+    s.addText(kpiText, { x: 0.6, y: 3.5, w: 12.8, h: 0.4, fontSize: 12, bold: true });
 
-  const margin = 0.55,
-    gutter = 0.35,
-    leftX = margin,
-    rightX = 6.95,
-    topY = margin,
-    leftW = 6.05,
-    rightW = SLIDE_W - rightX - margin;
-
-  const logoBoxX = leftX,
-    logoBoxY = topY,
-    logoBoxW = 0.62,
-    logoBoxH = 0.62;
-
-  slide.addShape("roundRect", { x: logoBoxX, y: logoBoxY, w: logoBoxW, h: logoBoxH, fill: { color: "FFFFFF" }, line: { color: C.border, width: 1 } });
-
-  if (logoDataUri) {
-    slide.addImage({ data: logoDataUri, x: logoBoxX + 0.07, y: logoBoxY + 0.07, w: logoBoxW - 0.14, h: logoBoxH - 0.14 });
-  } else {
-    slide.addShape("roundRect", { x: logoBoxX, y: logoBoxY, w: logoBoxW, h: logoBoxH, fill: { color: C.indigo }, line: { color: C.indigo, width: 1 } });
-    slide.addText("A", { x: logoBoxX, y: logoBoxY + 0.06, w: logoBoxW, h: logoBoxH, fontSize: 18, color: "FFFFFF", bold: true, align: "center", valign: "mid" });
+    if (summary.wow?.prev_week_start) {
+      const wowLines = (summary.wow.narrative || []).join("  •  ");
+      s.addText(`WoW (${fmtUKShortDate(summary.wow.week_start)} vs ${fmtUKShortDate(summary.wow.prev_week_start)}): ${wowLines}`, {
+        x: 0.6,
+        y: 4.0,
+        w: 12.8,
+        h: 0.5,
+        fontSize: 10,
+      });
+    }
   }
 
-  slide.addText("Portfolio RAID Brief", { x: leftX + 0.75, y: topY - 0.02, w: 5.0, h: 0.4, fontSize: 20, bold: true, color: C.text });
-  slide.addText(`${org}  •  ${client}`, { x: leftX + 0.75, y: topY + 0.33, w: 5.5, h: 0.3, fontSize: 10.5, color: C.muted });
+  // Slides per section
+  for (const sec of summary.sections || []) {
+    const items = Array.isArray(sec.items) ? sec.items : [];
+    const pageSize = 6;
+    for (let i = 0; i < items.length || i === 0; i += pageSize) {
+      const s = pptx.addSlide();
+      const chunk = items.length ? items.slice(i, i + pageSize) : [];
 
-  addCard(rightX + rightW - 2.75, topY - 0.02, 2.75, 0.65, { fill: C.card });
-  slide.addText("ANALYSIS WINDOW", { x: rightX + rightW - 2.65, y: topY + 0.06, w: 2.55, h: 0.2, fontSize: 8.5, color: C.muted, bold: true, align: "right" });
-  slide.addText(windowLabel, { x: rightX + rightW - 2.65, y: topY + 0.28, w: 2.55, h: 0.3, fontSize: 12.5, color: C.text, bold: true, align: "right" });
+      s.addText(sec.title, { x: 0.6, y: 0.5, w: 12.8, h: 0.5, fontSize: 24, bold: true });
+      s.addText(subtitle, { x: 0.6, y: 1.05, w: 12.8, h: 0.3, fontSize: 10 });
+      if (logoData) s.addImage({ data: logoData, x: 12.9, y: 0.45, w: 0.6, h: 0.6 });
 
-  const statusY = topY + 0.9;
-  addCard(leftX, statusY, leftW, 1.55);
-  slide.addText("PORTFOLIO STATUS", { x: leftX + 0.3, y: statusY + 0.18, w: leftW - 0.6, h: 0.2, fontSize: 9, color: C.teal, bold: true });
-  slide.addText(safe(summary.summary?.headline || ""), { x: leftX + 0.3, y: statusY + 0.45, w: leftW - 0.6, h: 0.9, fontSize: 11, color: C.text });
+      if (!chunk.length) {
+        s.addText("No items in this section.", { x: 0.8, y: 1.6, w: 12.2, h: 0.5, fontSize: 14 });
+        continue;
+      }
 
-  const kpiY = statusY + 1.75,
-    tileW = (leftW - gutter) / 2,
-    tileH = 0.95;
+      let y = 1.45;
+      for (const it of chunk) {
+        const pr = priorityFromScore(it.score);
+        const header = `${pr.label}${it.overdue ? " • OVERDUE" : ""}`;
+        const meta = `${it.project_code_label || it.project_title || "Project"} • ${it.type || "RAID"} • Due ${
+          it.due_date ? fmtUKShortDate(it.due_date) : "—"
+        } • Score ${it.score == null ? "—" : it.score}`;
 
-  const addKpiTile = (x: number, y: number, value: number, label: string) => {
-    addCard(x, y, tileW, tileH);
-    slide.addText(String(value), { x, y: y + 0.15, w: tileW, h: 0.4, fontSize: 22, bold: true, color: C.text, align: "center" });
-    slide.addText(label.toUpperCase(), { x, y: y + 0.62, w: tileW, h: 0.25, fontSize: 9, color: C.muted, align: "center", bold: true });
-  };
+        s.addText(header, { x: 0.8, y, w: 12.2, h: 0.25, fontSize: 11, bold: true });
+        s.addText(meta, { x: 0.8, y: y + 0.25, w: 12.2, h: 0.25, fontSize: 9 });
+        s.addText(safeStr(it.title || "Untitled"), { x: 0.8, y: y + 0.5, w: 12.2, h: 0.35, fontSize: 12, bold: true });
+        const note = safeStr(it.note || it.prompt || "").trim();
+        if (note) s.addText(note, { x: 0.8, y: y + 0.85, w: 12.2, h: 0.4, fontSize: 10 });
 
-  addKpiTile(leftX, kpiY, kTotal, "Total Open");
-  addKpiTile(leftX + tileW + gutter, kpiY, kOverdue, "Overdue");
-  addKpiTile(leftX, kpiY + tileH + gutter, kHigh, "High Score");
-  addKpiTile(leftX + tileW + gutter, kpiY + tileH + gutter, kSla, "SLA Hot");
-
-  const exposureY = kpiY + tileH * 2 + gutter + 0.1;
-  addCard(leftX, exposureY, leftW, 0.85, { fill: "EEF2FF" });
-  slide.addText(`Exposure: ${kExposureFmt}`, { x: leftX + 0.75, y: exposureY + 0.18, w: leftW - 1.0, h: 0.25, fontSize: 12, bold: true, color: C.text });
-  slide.addText(nn(k.exposure_total, 0) > 0 ? "Financial exposure detected — review hotspots." : "No immediate financial exposure detected", {
-    x: leftX + 0.75,
-    y: exposureY + 0.46,
-    w: leftW - 1.0,
-    h: 0.25,
-    fontSize: 10,
-    color: C.muted,
-  });
-
-  const rightTopY = statusY;
-  slide.addText("Top Risks by Score", { x: rightX, y: rightTopY, w: rightW - 2.4, h: 0.35, fontSize: 14, bold: true, color: C.text });
-  addPill(rightX + rightW - 2.2, rightTopY + 0.02, 2.2, 0.35, pr.label, pr.kind);
-
-  const featY = rightTopY + 0.5;
-  addCard(rightX, featY, rightW, 1.8);
-  slide.addShape("roundRect", {
-    x: rightX + 0.18,
-    y: featY + 0.22,
-    w: 0.08,
-    h: 1.36,
-    fill: { color: pr.kind === "danger" ? C.danger : pr.kind === "warn" ? C.warn : C.teal },
-    line: { color: pr.kind === "danger" ? C.danger : pr.kind === "warn" ? C.warn : C.teal },
-  });
-
-  const projType = `${safe(featured?.project_title || "PROJECT")} • ${safe(featured?.type || "RAID")}`.toUpperCase();
-  slide.addText(projType, { x: rightX + 0.35, y: featY + 0.23, w: rightW - 2.0, h: 0.2, fontSize: 8.5, color: C.indigo, bold: true });
-  slide.addText(safe(featured?.title || "—"), { x: rightX + 0.35, y: featY + 0.48, w: rightW - 2.2, h: 0.3, fontSize: 14, color: C.text, bold: true });
-
-  const desc = safe(featured?.note || featured?.prompt || "");
-  slide.addText(desc || " ", { x: rightX + 0.35, y: featY + 0.82, w: rightW - 2.2, h: 0.35, fontSize: 10.5, color: C.muted });
-
-  const scoreBoxX = rightX + rightW - 1.55;
-  slide.addText("RISK SCORE", { x: scoreBoxX, y: featY + 0.42, w: 1.3, h: 0.18, fontSize: 8, color: C.muted, bold: true, align: "right" });
-  slide.addText(String(nn(featuredScore, 0)), {
-    x: scoreBoxX,
-    y: featY + 0.6,
-    w: 1.3,
-    h: 0.5,
-    fontSize: 26,
-    bold: true,
-    color: pr.kind === "danger" ? C.danger : pr.kind === "warn" ? C.warn : C.teal,
-    align: "right",
-  });
-
-  const metaY = featY + 1.35;
-  const due = featured?.due_date ? fmtUKShortDate(featured.due_date) : "—";
-  const owner = safe(featured?.owner_label || "—");
-  const exposure = safe(featured?.exposure_total_fmt || "—");
-  slide.addText(`Due  ${due}`, { x: rightX + 0.35, y: metaY, w: 2.0, h: 0.25, fontSize: 10, color: C.text });
-  slide.addText(`Owner  ${owner}`, { x: rightX + 2.55, y: metaY, w: 2.3, h: 0.25, fontSize: 10, color: C.text });
-  slide.addText(`Exposure  ${exposure}`, { x: rightX + 4.95, y: metaY, w: rightW - 5.3, h: 0.25, fontSize: 10, color: C.text });
-
-  const bottomTilesY = featY + 2.05,
-    bottomTileH = 1.25,
-    bottomTileW = (rightW - gutter) / 2;
-
-  addCard(rightX, bottomTilesY, bottomTileW, bottomTileH);
-  slide.addText("SLA BREACH WATCHLIST", { x: rightX + 0.25, y: bottomTilesY + 0.2, w: bottomTileW - 0.5, h: 0.2, fontSize: 9, color: C.muted, bold: true });
-  slide.addText(kSla > 0 ? `${kSla} item(s) look SLA-hot` : "No active breaches", {
-    x: rightX + 0.25,
-    y: bottomTilesY + 0.55,
-    w: bottomTileW - 0.5,
-    h: 0.3,
-    fontSize: 10.5,
-    color: C.text,
-  });
-
-  addCard(rightX + bottomTileW + gutter, bottomTilesY, bottomTileW, bottomTileH);
-  slide.addText("FINANCIAL HOTSPOTS", { x: rightX + bottomTileW + gutter + 0.25, y: bottomTilesY + 0.2, w: bottomTileW - 0.5, h: 0.2, fontSize: 9, color: C.muted, bold: true });
-  slide.addText(nn(k.exposure_total, 0) > 0 ? `Exposure ${kExposureFmt}` : "No hotspots detected", {
-    x: rightX + bottomTileW + gutter + 0.25,
-    y: bottomTilesY + 0.55,
-    w: bottomTileW - 0.5,
-    h: 0.3,
-    fontSize: 10.5,
-    color: C.text,
-  });
-
-  slide.addText(`Generated: ${genText}`, { x: leftX, y: SLIDE_H - 0.4, w: 5.0, h: 0.25, fontSize: 9, color: C.muted });
-  slide.addText("Week-on-week trend analysis will appear after 2+ snapshots", { x: rightX, y: SLIDE_H - 0.4, w: rightW, h: 0.25, fontSize: 9, color: C.muted, align: "right" });
+        y += 1.25;
+      }
+    }
+  }
 
   const buf = await pptx.write({ outputType: "nodebuffer" });
   return Buffer.from(buf);
@@ -896,8 +988,11 @@ export async function GET(req: NextRequest) {
     const download = safeStr(url.searchParams.get("download")).trim() === "1";
     const format = clampFormat(url.searchParams.get("format"));
 
-    const exec = await buildExecSummary({ supabase, userId: auth.user.id, scope, days, top });
-    if (!(exec as any).ok) return jsonErr((exec as any).error || "Failed", 500);
+    // ✅ RES-F4: filters
+    const filters = parseFiltersFromUrl(url);
+
+    const exec = await buildExecSummary({ supabase, userId: auth.user.id, scope, days, top, filters });
+    if (!(exec as any).ok) return jsonErr((exec as any).error || "Failed", 500, (exec as any).meta);
 
     const summary = exec as ExecSummary;
 
@@ -936,7 +1031,8 @@ export async function GET(req: NextRequest) {
 
     if (format === "pptx") {
       const pptxBuf = await renderPptxFromSummary(summary);
-      const base = sanitizeFilename(summary.client_name || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
+      const base =
+        sanitizeFilename(summary.client_name || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
       return new NextResponse(Buffer.from(pptxBuf), {
         status: 200,
         headers: {
@@ -949,7 +1045,8 @@ export async function GET(req: NextRequest) {
 
     const html = renderPdfHtml(summary);
     const pdf = await renderPdfFromHtml(html);
-    const base = sanitizeFilename(summary.client_name || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
+    const base =
+      sanitizeFilename(summary.client_name || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
     return new NextResponse(Buffer.from(pdf), {
       status: 200,
       headers: {

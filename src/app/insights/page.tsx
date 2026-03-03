@@ -3,10 +3,20 @@ import "server-only";
 
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/server";
-import { resolveActiveProjectScope } from "@/lib/server/project-scope";
+import { resolveOrgActiveProjectScope } from "@/lib/server/project-scope";
 
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function projectCodeLabel(pc: any): string {
+  if (typeof pc === "string") return pc.trim();
+  if (typeof pc === "number" && Number.isFinite(pc)) return String(pc);
+  if (pc && typeof pc === "object") {
+    const v = safeStr(pc.project_code) || safeStr(pc.code) || safeStr(pc.value) || safeStr(pc.id);
+    return v.trim();
+  }
+  return "";
 }
 
 type Insight = {
@@ -38,6 +48,7 @@ type ExecItem = {
   // internal only (for assembling notes)
   ai_rollup?: string | null;
   project_id?: string | null;
+  project_code?: string | null;
 };
 
 type ExecSection = {
@@ -158,18 +169,18 @@ export default async function InsightsPage() {
   const { data: auth } = await supabase.auth.getUser();
   const userId = auth?.user?.id || null;
 
-  // ✅ ACTIVE + ACCESSIBLE project scope (single source of truth)
+  // ✅ ORG-WIDE + ACTIVE project scope (dashboard-aligned)
   let scopedProjectIds: string[] = [];
   let scopeMeta: any = null;
 
   if (userId) {
     try {
-      const scoped = await resolveActiveProjectScope(supabase, userId);
+      const scoped = await resolveOrgActiveProjectScope(supabase, userId);
       scopedProjectIds = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
       scopeMeta = scoped?.meta ?? null;
     } catch {
       scopedProjectIds = [];
-      scopeMeta = { error: "resolveActiveProjectScope failed" };
+      scopeMeta = { error: "resolveOrgActiveProjectScope failed" };
     }
   }
 
@@ -211,8 +222,8 @@ export default async function InsightsPage() {
             due_date,
             owner_label,
             ai_rollup,
-            projects:projects ( id, title )
-          `
+            projects:projects ( id, title, project_code )
+          `,
         )
         .in("project_id", projectIds)
         .gte("due_date", todayStr)
@@ -297,9 +308,13 @@ export default async function InsightsPage() {
           const pen = fin?.est_penalties ?? 0;
           const exposure_total = (n(cost, 0) || 0) + (n(rev, 0) || 0) + (n(pen, 0) || 0);
 
+          const code = projectCodeLabel(r?.projects?.project_code);
+          const projectRef = code || safeStr(r.project_id).trim();
+
           return {
             id: r.id,
             project_id: r.project_id,
+            project_code: code || null,
             project_title: r?.projects?.title || "Project",
             type: r.type,
             title: r.title || r.description?.slice(0, 80) || "RAID item",
@@ -313,7 +328,7 @@ export default async function InsightsPage() {
             exposure_total,
             exposure_total_fmt: exposure_total ? moneyGBP(exposure_total) : null,
             overdue,
-            href: `/projects/${r.project_id}/raid`,
+            href: projectRef ? `/projects/${encodeURIComponent(projectRef)}/raid` : null,
           };
         });
 
@@ -331,8 +346,8 @@ export default async function InsightsPage() {
           total_items === 0
             ? "No RAID items match the selected window."
             : overdue_open > 0 || high_score > 0 || sla_hot > 0
-            ? `Priority focus: ${overdue_open} overdue, ${high_score} high-scoring, ${sla_hot} SLA-hot items in the next ${days} days.`
-            : `Stable window: ${total_items} items reviewed with no critical flags for the next ${days} days.`;
+              ? `Priority focus: ${overdue_open} overdue, ${high_score} high-scoring, ${sla_hot} SLA-hot items in the next ${days} days.`
+              : `Stable window: ${total_items} items reviewed with no critical flags for the next ${days} days.`;
 
         const byScore = [...enriched]
           .filter((x) => x.score != null)
@@ -443,7 +458,7 @@ export default async function InsightsPage() {
                   `${sign(deltas.high_score)} High score: ${cur.high_score} (${deltas.high_score >= 0 ? "+" : ""}${deltas.high_score} WoW)`,
                   `${sign(deltas.sla_hot)} SLA hot: ${cur.sla_hot} (${deltas.sla_hot >= 0 ? "+" : ""}${deltas.sla_hot} WoW)`,
                   `${sign(deltas.exposure_total)} Exposure: ${moneyGBP(cur.exposure_total)} (${deltas.exposure_total >= 0 ? "+" : ""}${moneyGBP(
-                    deltas.exposure_total
+                    deltas.exposure_total,
                   )})`,
                 ],
               };
@@ -517,18 +532,14 @@ export default async function InsightsPage() {
               </div>
 
               {(exec as any).ok ? (
-                <div className="mt-2 text-sm text-gray-500">
-                  Generated: {fmtDateTimeUK((exec as any).summary?.generated_at)}
-                </div>
+                <div className="mt-2 text-sm text-gray-500">Generated: {fmtDateTimeUK((exec as any).summary?.generated_at)}</div>
               ) : (exec as any).error ? (
                 <div className="mt-2 text-sm text-rose-700">{safeStr((exec as any).error)}</div>
               ) : null}
 
               {/* Optional scope debug line (safe, small) */}
               {scopeMeta ? (
-                <div className="mt-2 text-xs text-gray-400">
-                  Active projects in scope: {scopedProjectIds.length}
-                </div>
+                <div className="mt-2 text-xs text-gray-400">Active projects in scope: {scopedProjectIds.length}</div>
               ) : null}
             </div>
 
@@ -576,11 +587,7 @@ export default async function InsightsPage() {
               >
                 High score: {(exec as any).kpis?.high_score ?? 0}
               </span>
-              <span
-                className={`rounded-full border px-3 py-1.5 font-medium ${
-                  (exec as any).kpis?.sla_hot ? chip("warn") : chip("neutral")
-                }`}
-              >
+              <span className={`rounded-full border px-3 py-1.5 font-medium ${(exec as any).kpis?.sla_hot ? chip("warn") : chip("neutral")}`}>
                 SLA hot: {(exec as any).kpis?.sla_hot ?? 0}
               </span>
               <span
@@ -599,8 +606,7 @@ export default async function InsightsPage() {
               <div className="flex items-center justify-between gap-4">
                 <div className="font-semibold text-gray-900">Week-on-week</div>
                 <div className="text-sm text-gray-500">
-                  {fmtDateUK((exec as any).wow?.week_start || null)} vs{" "}
-                  {fmtDateUK((exec as any).wow?.prev_week_start || null)}
+                  {fmtDateUK((exec as any).wow?.week_start || null)} vs {fmtDateUK((exec as any).wow?.prev_week_start || null)}
                 </div>
               </div>
               <div className="mt-4 space-y-2 text-gray-700">
@@ -613,8 +619,7 @@ export default async function InsightsPage() {
             </div>
           ) : (exec as any).ok ? (
             <div className="mt-8 rounded-xl border border-gray-200 bg-gray-50 p-6 text-gray-600">
-              Week-on-week will appear after at least{" "}
-              <span className="font-medium text-gray-900">2 weekly snapshots</span> exist.
+              Week-on-week will appear after at least <span className="font-medium text-gray-900">2 weekly snapshots</span> exist.
             </div>
           ) : null}
 
@@ -654,9 +659,7 @@ export default async function InsightsPage() {
                                     Due: {x.due_date ? fmtDateUK(x.due_date) : "—"}
                                   </span>
 
-                                  {sc != null ? (
-                                    <span className={`rounded-full border px-3 py-1.5 ${badge}`}>Score: {sc}</span>
-                                  ) : null}
+                                  {sc != null ? <span className={`rounded-full border px-3 py-1.5 ${badge}`}>Score: {sc}</span> : null}
 
                                   {bp != null ? (
                                     <span className={`rounded-full border px-3 py-1.5 ${bp >= 70 ? chip("warn") : chip("neutral")}`}>
@@ -673,22 +676,15 @@ export default async function InsightsPage() {
                                   ) : null}
 
                                   {x.owner_label ? (
-                                    <span className={`rounded-full border px-3 py-1.5 ${chip("neutral")}`}>
-                                      Owner: {safeStr(x.owner_label)}
-                                    </span>
+                                    <span className={`rounded-full border px-3 py-1.5 ${chip("neutral")}`}>Owner: {safeStr(x.owner_label)}</span>
                                   ) : null}
                                 </div>
 
-                                {x.note || x.prompt ? (
-                                  <div className="mt-3 text-sm text-gray-600">{safeStr(x.note || x.prompt)}</div>
-                                ) : null}
+                                {x.note || x.prompt ? <div className="mt-3 text-sm text-gray-600">{safeStr(x.note || x.prompt)}</div> : null}
                               </div>
 
                               {x.href ? (
-                                <Link
-                                  href={safeStr(x.href)}
-                                  className="shrink-0 text-sm font-medium text-blue-600 hover:text-blue-800 transition"
-                                >
+                                <Link href={safeStr(x.href)} className="shrink-0 text-sm font-medium text-blue-600 hover:text-blue-800 transition">
                                   Open →
                                 </Link>
                               ) : null}
@@ -697,18 +693,14 @@ export default async function InsightsPage() {
                         );
                       })
                     ) : (
-                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 text-gray-600">
-                        No items in this section.
-                      </div>
+                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 text-gray-600">No items in this section.</div>
                     )}
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="mt-8 rounded-xl border border-gray-200 bg-gray-50 p-6 text-gray-600">
-              Executive summary not available yet.
-            </div>
+            <div className="mt-8 rounded-xl border border-gray-200 bg-gray-50 p-6 text-gray-600">Executive summary not available yet.</div>
           )}
         </div>
 
@@ -723,10 +715,7 @@ export default async function InsightsPage() {
                     <div className="mt-2 text-gray-700">{x.body}</div>
                   </div>
                   {x.href ? (
-                    <Link
-                      href={safeStr(x.href)}
-                      className="shrink-0 text-sm font-medium text-blue-600 hover:text-blue-800 transition"
-                    >
+                    <Link href={safeStr(x.href)} className="shrink-0 text-sm font-medium text-blue-600 hover:text-blue-800 transition">
                       View →
                     </Link>
                   ) : null}
@@ -735,9 +724,7 @@ export default async function InsightsPage() {
             ))
           ) : (
             <div className="rounded-xl border border-gray-200 bg-gray-50 p-8 text-gray-600 text-center">
-              {userId
-                ? "No insights yet — add RAID due dates / priorities to generate signals."
-                : "Please sign in to view insights."}
+              {userId ? "No insights yet — add RAID due dates / priorities to generate signals." : "Please sign in to view insights."}
             </div>
           )}
         </div>

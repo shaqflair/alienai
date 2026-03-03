@@ -1,8 +1,10 @@
-// src/app/api/portfolio/health/route.ts — REBUILT v4 (Org view + filter-ready)
-// Adds:
+// src/app/api/portfolio/health/route.ts — REBUILT v7 (Org-wide scope + filter-ready + active project filter)
+// Adds / Fixes:
 //   ✅ PH-F1 filters (GET + POST)
-//   ✅ PH-F2 filters applied within resolveActiveProjectScope
+//   ✅ PH-F2 filters applied within ORG scope (resolveOrgActiveProjectScope)
 //   ✅ PH-F3 best-effort degradation
+//   ✅ PH-F4 better “missing column” tolerance in filter pre-read (projects select fallbacks)
+//   ✅ PH-F5 shared active project filter (filterActiveProjectIds) to exclude closed/deleted/cancelled/archived, etc.
 // Keeps:
 //   ✅ FIX-PH1 stale cadence excludes projects created < 7 days ago
 //   ✅ no-store caching
@@ -11,7 +13,10 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveActiveProjectScope } from "@/lib/server/project-scope";
+import {
+  resolveOrgActiveProjectScope,
+  filterActiveProjectIds,
+} from "@/lib/server/project-scope";
 
 export const runtime = "nodejs";
 
@@ -33,6 +38,11 @@ function jsonErr(error: string, status = 400, meta?: any) {
 function looksMissingRelation(err: any) {
   const msg = String(err?.message || err || "").toLowerCase();
   return msg.includes("does not exist") || msg.includes("relation") || msg.includes("42p01");
+}
+
+function looksMissingColumn(err: any) {
+  const msg = String(err?.message || err || "").toLowerCase();
+  return msg.includes("column") && msg.includes("does not exist");
 }
 
 // ✅ Consistent with other endpoints: accepts "all" and returns union
@@ -218,19 +228,21 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
     "id, title, project_code, created_at, project_manager_id",
     "id, title, project_code, created_at, department",
     "id, title, project_code, created_at",
+    "id, title, project_code",
   ];
 
   let rows: any[] = [];
   let lastErr: any = null;
+
   for (const sel of selectSets) {
-    const { data, error } = await supabase.from("projects").select(sel).in("id", scopedProjectIds).limit(10000);
+    const { data, error } = await supabase.from("projects").select(sel).in("id", scopedProjectIds).limit(20000);
     if (!error && Array.isArray(data)) {
       rows = data;
       lastErr = null;
       break;
     }
     lastErr = error;
-    if (!looksMissingRelation(error)) break;
+    if (!(looksMissingRelation(error) || looksMissingColumn(error))) break;
   }
 
   if (!rows.length) {
@@ -273,7 +285,7 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
   return { projectIds: outIds, meta };
 }
 
-/* ---------------- best-effort fetchers (same as your version) ---------------- */
+/* ---------------- best-effort fetchers ---------------- */
 
 async function fetchScheduleAgg(supabase: any, projectIds: string[], windowDays: number) {
   const today = ymd(new Date());
@@ -284,15 +296,22 @@ async function fetchScheduleAgg(supabase: any, projectIds: string[], windowDays:
       .from("schedule_milestones")
       .select("project_id, end_date, baseline_end, status, critical_path_flag, ai_delay_prob")
       .in("project_id", projectIds)
-      .limit(10000);
+      .limit(20000);
 
     if (error) {
-      if (looksMissingRelation(error)) return { ok: false, error: "schedule_milestones missing", data: null as ScheduleAgg | null };
+      if (looksMissingRelation(error))
+        return { ok: false, error: "schedule_milestones missing", data: null as ScheduleAgg | null };
       return { ok: false, error: error.message, data: null as ScheduleAgg | null };
     }
 
     const rows = Array.isArray(data) ? data : [];
-    let dueWindow = 0, overdue = 0, critOverdue = 0, aiHigh = 0, slipSum = 0, slipCount = 0, maxSlip = 0;
+    let dueWindow = 0,
+      overdue = 0,
+      critOverdue = 0,
+      aiHigh = 0,
+      slipSum = 0,
+      slipCount = 0,
+      maxSlip = 0;
 
     for (const r of rows) {
       const st = String((r as any)?.status || "").toLowerCase();
@@ -341,12 +360,13 @@ async function fetchRaidStats(supabase: any, projectIds: string[]) {
     .from("raid_items")
     .select("id, project_id, status, due_date, probability, severity")
     .in("project_id", projectIds)
-    .limit(10000);
+    .limit(20000);
 
   if (rErr) return { ok: false, error: rErr.message, open_high: 0, overdue: 0, sla_high: 0 };
 
   const rows = Array.isArray(raidRows) ? raidRows : [];
-  let overdue = 0, openHigh = 0;
+  let overdue = 0,
+    openHigh = 0;
 
   for (const r of rows) {
     const st = String((r as any)?.status || "").toLowerCase();
@@ -356,7 +376,8 @@ async function fetchRaidStats(supabase: any, projectIds: string[]) {
 
     const p = clamp0to100((r as any)?.probability);
     const s = clamp0to100((r as any)?.severity);
-    const score = (r as any)?.probability == null || (r as any)?.severity == null ? null : Math.round((p * s) / 100);
+    const score =
+      (r as any)?.probability == null || (r as any)?.severity == null ? null : Math.round((p * s) / 100);
     if (!closed && score != null && score >= 70) openHigh++;
   }
 
@@ -369,7 +390,7 @@ async function fetchRaidStats(supabase: any, projectIds: string[]) {
         .select("raid_item_id, breach_probability, predicted_at")
         .in("raid_item_id", raidIds)
         .order("predicted_at", { ascending: false })
-        .limit(10000);
+        .limit(20000);
 
       if (!pErr && Array.isArray(preds)) {
         const seen = new Set<string>();
@@ -389,7 +410,11 @@ async function fetchRaidStats(supabase: any, projectIds: string[]) {
 
 async function fetchApprovalsPending(supabase: any, projectIds: string[]) {
   try {
-    const { data, error } = await supabase.from("approval_steps").select("id, project_id, status, decided_at").in("project_id", projectIds);
+    const { data, error } = await supabase
+      .from("approval_steps")
+      .select("id, project_id, status, decided_at")
+      .in("project_id", projectIds);
+
     if (error) {
       if (looksMissingRelation(error)) return { ok: false, pending: 0, error: "approval_steps missing" };
       return { ok: false, pending: 0, error: error.message };
@@ -413,8 +438,14 @@ async function fetchActivityStaleProjects7d(supabase: any, projectIds: string[])
 
   for (const t of candidates) {
     const { error } = await supabase.from(t).select("id", { head: true, count: "exact" }).limit(1);
-    if (!error) { table = t; break; }
-    if (!looksMissingRelation(error)) { table = t; break; }
+    if (!error) {
+      table = t;
+      break;
+    }
+    if (!looksMissingRelation(error)) {
+      table = t;
+      break;
+    }
   }
 
   if (!table) return { ok: false, table: null, stale_projects_7d: 0, error: "no activity table found" };
@@ -428,7 +459,7 @@ async function fetchActivityStaleProjects7d(supabase: any, projectIds: string[])
     .in("project_id", projectIds)
     .gte("created_at", since7Iso)
     .order("created_at", { ascending: false })
-    .limit(10000);
+    .limit(20000);
 
   if (error) return { ok: false, table, stale_projects_7d: 0, error: error.message };
 
@@ -441,7 +472,7 @@ async function fetchActivityStaleProjects7d(supabase: any, projectIds: string[])
   // exclude newly created projects from stale denominator
   let eligibleIds = projectIds;
   try {
-    const { data: projRows } = await supabase.from("projects").select("id, created_at").in("id", projectIds).limit(10000);
+    const { data: projRows } = await supabase.from("projects").select("id, created_at").in("id", projectIds).limit(20000);
     if (Array.isArray(projRows)) {
       eligibleIds = projRows
         .filter((p: any) => {
@@ -455,7 +486,13 @@ async function fetchActivityStaleProjects7d(supabase: any, projectIds: string[])
 
   const stale = Math.max(0, eligibleIds.filter((id) => !active.has(id)).length);
 
-  return { ok: true, table, stale_projects_7d: stale, error: null, meta: { eligible: eligibleIds.length, active: active.size, total: projectIds.length } };
+  return {
+    ok: true,
+    table,
+    stale_projects_7d: stale,
+    error: null,
+    meta: { eligible: eligibleIds.length, active: active.size, total: projectIds.length },
+  };
 }
 
 async function fetchFlowScore(supabase: any, projectIds: string[], days = 30) {
@@ -468,7 +505,10 @@ async function fetchFlowScore(supabase: any, projectIds: string[], days = 30) {
 
     const j = typeof data === "string" ? null : data;
     const projects = Array.isArray((j as any)?.projects) ? (j as any).projects : [];
-    let worstSlip = 0, worstBlockedRatio = 0, worstStageShare = 0, worstCycleVar = 0;
+    let worstSlip = 0,
+      worstBlockedRatio = 0,
+      worstStageShare = 0,
+      worstCycleVar = 0;
 
     for (const p of projects) {
       worstSlip = Math.max(worstSlip, clamp0to100(p?.forecast?.slip_probability));
@@ -486,7 +526,12 @@ async function fetchFlowScore(supabase: any, projectIds: string[], days = 30) {
     else if (worstStageShare >= 40) score -= 8;
     if (worstCycleVar >= 25) score -= 10;
 
-    return { ok: true, score: clamp0to100(score), error: null, worst: { worstSlip, worstBlockedRatio, worstStageShare, worstCycleVar } };
+    return {
+      ok: true,
+      score: clamp0to100(score),
+      error: null,
+      worst: { worstSlip, worstBlockedRatio, worstStageShare, worstCycleVar },
+    };
   } catch (e: any) {
     return { ok: false, score: 85, error: String(e?.message || e || "flow RPC failed") };
   }
@@ -501,8 +546,13 @@ async function handle(req: Request, opts: { daysParam: 7 | 14 | 30 | 60 | "all";
 
   const windowDays = normalizeWindowDays(opts.daysParam);
 
-  const scoped = await resolveActiveProjectScope(supabase, auth.user.id);
-  const scopedProjectIds = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
+  // ✅ ORG-WIDE scope for dashboards
+  const scoped = await resolveOrgActiveProjectScope(supabase, auth.user.id);
+  const scopedProjectIdsRaw = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
+
+  // ✅ PH-F5: shared active filter (exclude closed/deleted/cancelled/archived etc.)
+  const activeFilter = await filterActiveProjectIds(supabase, scopedProjectIdsRaw);
+  const scopedProjectIds = Array.isArray(activeFilter?.projectIds) ? activeFilter.projectIds.filter(Boolean) : [];
 
   const filtered = await applyProjectFilters(supabase, scopedProjectIds, opts.filters);
   const projectIds = filtered.projectIds;
@@ -518,7 +568,14 @@ async function handle(req: Request, opts: { daysParam: 7 | 14 | 30 | 60 | "all";
       schedule: null,
       meta: {
         note: hasAnyFilters(opts.filters) ? "No projects matched the selected filters." : "No active projects in scope.",
-        scope: scoped.meta,
+        organisationId: scoped.organisationId ?? null,
+        scope: {
+          ...(scoped?.meta || {}),
+          scopedIdsRaw: scopedProjectIdsRaw.length,
+          scopedIdsActive: scopedProjectIds.length,
+          active_filter_ok: Boolean(activeFilter?.ok),
+          active_filter_error: activeFilter?.error || null,
+        },
         filters: filtered.meta,
       },
     });
@@ -533,7 +590,10 @@ async function handle(req: Request, opts: { daysParam: 7 | 14 | 30 | 60 | "all";
   ]);
 
   const scheduleKpis = scheduleAgg.ok ? scheduleAgg.data : null;
-  const schedulePart = scheduleKpis ? computeScheduleScore(scheduleKpis) : { score: 85, note: scheduleAgg.error || "Schedule data unavailable." };
+  const schedulePart = scheduleKpis
+    ? computeScheduleScore(scheduleKpis)
+    : { score: 85, note: scheduleAgg.error || "Schedule data unavailable." };
+
   const raidPart = raid.ok ? computeRaidScore({ open_high: raid.open_high, overdue: raid.overdue, sla_high: raid.sla_high }) : 85;
   const approvalsPart = approvals.ok ? computeApprovalsScore(approvals.pending) : 90;
   const activityPart = activity.ok ? computeActivityScore(activity.stale_projects_7d) : 90;
@@ -553,13 +613,39 @@ async function handle(req: Request, opts: { daysParam: 7 | 14 | 30 | 60 | "all";
       label: "Schedule",
       score: schedulePart.score,
       detail: scheduleKpis
-        ? `Due: ${num(scheduleKpis.milestones_due_window)} • Overdue: ${num(scheduleKpis.milestones_overdue)} • CP overdue: ${num(scheduleKpis.critical_overdue)} • Avg slip: ${num(scheduleKpis.avg_slip_days)}d • AI high-risk due: ${num(scheduleKpis.ai_high_risk_due_window)}`
+        ? `Due: ${num(scheduleKpis.milestones_due_window)} • Overdue: ${num(scheduleKpis.milestones_overdue)} • CP overdue: ${num(
+            scheduleKpis.critical_overdue,
+          )} • Avg slip: ${num(scheduleKpis.avg_slip_days)}d • AI high-risk due: ${num(scheduleKpis.ai_high_risk_due_window)}`
         : schedulePart.note || "No schedule signal.",
     },
-    { key: "raid", label: "RAID", score: raidPart, detail: raid.ok ? `High exposure open: ${raid.open_high} • Overdue: ${raid.overdue} • SLA ≥70%: ${raid.sla_high}` : raid.error || "RAID signal unavailable." },
-    { key: "flow", label: "Flow", score: flowPart, detail: (flow as any)?.ok ? "Derived from flow warning signals (30d predictors)." : (flow as any)?.error || "Flow signal unavailable." },
-    { key: "approvals", label: "Approvals", score: approvalsPart, detail: approvals.ok ? `Pending: ${approvals.pending}` : approvals.error || "Approvals signal unavailable." },
-    { key: "activity", label: "Cadence", score: activityPart, detail: activity.ok ? `Stale projects (7d): ${activity.stale_projects_7d}${(activity as any).meta ? ` (eligible: ${(activity as any).meta.eligible})` : ""}` : activity.error || "Cadence signal unavailable." },
+    {
+      key: "raid",
+      label: "RAID",
+      score: raidPart,
+      detail: raid.ok
+        ? `High exposure open: ${raid.open_high} • Overdue: ${raid.overdue} • SLA ≥70%: ${raid.sla_high}`
+        : raid.error || "RAID signal unavailable.",
+    },
+    {
+      key: "flow",
+      label: "Flow",
+      score: flowPart,
+      detail: (flow as any)?.ok ? "Derived from flow warning signals (30d predictors)." : (flow as any)?.error || "Flow signal unavailable.",
+    },
+    {
+      key: "approvals",
+      label: "Approvals",
+      score: approvalsPart,
+      detail: approvals.ok ? `Pending: ${approvals.pending}` : approvals.error || "Approvals signal unavailable.",
+    },
+    {
+      key: "activity",
+      label: "Cadence",
+      score: activityPart,
+      detail: activity.ok
+        ? `Stale projects (7d): ${activity.stale_projects_7d}${(activity as any).meta ? ` (eligible: ${(activity as any).meta.eligible})` : ""}`
+        : activity.error || "Cadence signal unavailable.",
+    },
   ].sort((a, b) => a.score - b.score);
 
   return jsonOk({
@@ -573,13 +659,25 @@ async function handle(req: Request, opts: { daysParam: 7 | 14 | 30 | 60 | "all";
     meta: {
       notes: { schedule: schedulePart.note },
       inputs: { windowDays, projectIdsCount: projectIds.length },
-      scope: scoped.meta,
+      organisationId: scoped.organisationId ?? null,
+      scope: {
+        ...(scoped?.meta || {}),
+        scopedIdsRaw: scopedProjectIdsRaw.length,
+        scopedIdsActive: scopedProjectIds.length,
+        active_filter_ok: Boolean(activeFilter?.ok),
+        active_filter_error: activeFilter?.error || null,
+      },
       filters: filtered.meta,
       queries: {
         schedule: { ok: scheduleAgg.ok, error: scheduleAgg.error || null },
         raid: { ok: raid.ok, error: raid.error || null },
         approvals: { ok: approvals.ok, error: approvals.error || null },
-        activity: { ok: activity.ok, error: activity.error || null, table: (activity as any).table ?? null, meta: (activity as any).meta ?? null },
+        activity: {
+          ok: activity.ok,
+          error: activity.error || null,
+          table: (activity as any).table ?? null,
+          meta: (activity as any).meta ?? null,
+        },
         flow: { ok: (flow as any).ok ?? false, error: (flow as any).error || null, worst: (flow as any).worst || null },
       },
     },

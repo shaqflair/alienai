@@ -1,0 +1,39 @@
+﻿diff --git a/src/app/api/portfolio/health/route.ts b/src/app/api/portfolio/health/route.ts
+index 0000000..0000000 100644
+--- a/src/app/api/portfolio/health/route.ts
++++ b/src/app/api/portfolio/health/route.ts
+@@ -1,13 +1,13 @@
+ import "server-only";
+
+ import { NextResponse } from "next/server";
+ import { createClient } from "@/utils/supabase/server";
+-import { resolveOrgActiveProjectScope } from "@/lib/server/project-scope";
++import { resolveOrgActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
+
+ export const runtime = "nodejs";
+@@
+   // ✅ ORG-WIDE scope for dashboards
+   const scoped = await resolveOrgActiveProjectScope(supabase, auth.user.id);
+-  const scopedProjectIds = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
++  const scopedIdsRaw = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
++
++  // ✅ align with other org-wide endpoints: exclude closed/deleted/cancelled/archived etc.
++  const activeFilter = await filterActiveProjectIds(supabase, scopedIdsRaw);
++  const scopedProjectIds = Array.isArray(activeFilter?.projectIds) ? activeFilter.projectIds.filter(Boolean) : [];
+
+   const filtered = await applyProjectFilters(supabase, scopedProjectIds, opts.filters);
+   const projectIds = filtered.projectIds;
+@@
+         note: hasAnyFilters(opts.filters) ? "No projects matched the selected filters." : "No active projects in scope.",
+         organisationId: scoped.organisationId ?? null,
+         scope: scoped.meta,
++        active_filter: {
++          ok: Boolean(activeFilter?.ok),
++          error: (activeFilter as any)?.error ?? null,
++          before: scopedIdsRaw.length,
++          after: scopedProjectIds.length,
++        },
+         filters: filtered.meta,
+       },
+     });
+   }

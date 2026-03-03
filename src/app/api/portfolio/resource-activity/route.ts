@@ -1,6 +1,6 @@
-﻿// src/app/api/portfolio/resource-activity/route.ts — REBUILT v3 (Org view + filter-ready)
+﻿// src/app/api/portfolio/resource-activity/route.ts — REBUILT v4 (ORG-WIDE + filter-ready)
 // Adds:
-//   ✅ RA-F1: Scope aligned with resolveActiveProjectScope (permission-safe)
+//   ✅ RA-F1: Scope aligned with resolveOrgActiveProjectScope (org-wide dashboard)
 //   ✅ RA-F2: Supports filters (GET + POST)
 //   ✅ RA-F3: Allocation filtering by project_id if available; graceful fallback if not
 // Keeps:
@@ -11,7 +11,7 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveActiveProjectScope } from "@/lib/server/project-scope";
+import { resolveOrgActiveProjectScope } from "@/lib/server/project-scope";
 
 export const runtime = "nodejs";
 
@@ -218,24 +218,16 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
   const dateFrom = weeks[0] || isoDate(startMonday);
   const dateTo = weeks[weeks.length - 1] || isoDate(endMonday);
 
-  // ── permission-safe project scope
-  const scoped = await resolveActiveProjectScope(supabase, user.id);
+  // ── ORG-WIDE project scope (dashboard)
+  const scoped = await resolveOrgActiveProjectScope(supabase, user.id);
   const scopedProjectIds: string[] = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
 
-  // Apply dashboard filters (within scope)
+  // Apply dashboard filters (within org scope)
   const filtered = await applyProjectFilters(supabase, scopedProjectIds, opts.filters);
   const projectIds = filtered.projectIds;
 
   // ── Org members (capacity is org-wide)
-  const { data: memRow } = await supabase
-    .from("organisation_members")
-    .select("organisation_id")
-    .eq("user_id", user.id)
-    .is("removed_at", null)
-    .limit(1)
-    .maybeSingle();
-
-  const orgId = memRow?.organisation_id;
+  const orgId = scoped?.organisationId ?? null;
   if (!orgId) {
     const res = NextResponse.json({ ok: false, error: "No org" }, { status: 400 });
     res.headers.set("Cache-Control", "no-store, max-age=0");
@@ -255,7 +247,7 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
       weeks: [],
       dateFrom,
       dateTo,
-      meta: { scope: scoped?.meta ?? null, filters: filtered.meta },
+      meta: { organisationId: orgId, scope: scoped?.meta ?? null, filters: filtered.meta },
     });
     res.headers.set("Cache-Control", "no-store, max-age=0");
     return res;
@@ -375,6 +367,7 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
     dateFrom,
     dateTo,
     meta: {
+      organisationId: orgId,
       scope: scoped?.meta ?? null,
       filters: filtered.meta,
       projects: { scoped: scopedProjectIds.length, filtered: projectIds.length },

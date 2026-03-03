@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/milestones-due/route.ts — REBUILT v3 (Org view + filter-ready)
+﻿// src/app/api/portfolio/milestones-due/route.ts — REBUILT v4 (ORG-WIDE + filter-ready)
 // Adds:
 //   ✅ MD-F1: Supports dashboard filters (project name, code, PM, department)
 //            - POST (recommended): { days, filters }
@@ -6,13 +6,14 @@
 // Keeps:
 //   ✅ clampDays handles "all" → 60
 //   ✅ no-store caching
-//   ✅ scope via resolveActiveProjectScope
+// Changes:
+//   ✅ ORG-WIDE scope via resolveOrgActiveProjectScope (still RLS-safe)
 
 import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveActiveProjectScope } from "@/lib/server/project-scope";
+import { resolveOrgActiveProjectScope } from "@/lib/server/project-scope";
 
 export const runtime = "nodejs";
 
@@ -216,14 +217,23 @@ async function handle(req: Request, opts: { days: 7 | 14 | 30 | 60; filters: Por
   const userId = auth?.user?.id || null;
   if (authErr || !userId) return err("Not authenticated", 401);
 
-  const scoped = await resolveActiveProjectScope(supabase, userId);
+  // ✅ ORG-WIDE scope for dashboards
+  const scoped = await resolveOrgActiveProjectScope(supabase, userId);
   const scopedProjectIds = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
 
   const filtered = await applyProjectFilters(supabase, scopedProjectIds, opts.filters);
   const projectIds = filtered.projectIds;
 
   if (!projectIds.length) {
-    return ok({ days: opts.days, count: 0, meta: { scope: scoped?.meta ?? null, filters: filtered.meta } });
+    return ok({
+      days: opts.days,
+      count: 0,
+      meta: {
+        organisationId: scoped?.organisationId ?? null,
+        scope: scoped?.meta ?? null,
+        filters: filtered.meta,
+      },
+    });
   }
 
   const r = await computeCount(supabase, projectIds, opts.days);
@@ -233,6 +243,7 @@ async function handle(req: Request, opts: { days: 7 | 14 | 30 | 60; filters: Por
     days: opts.days,
     count: r.count,
     meta: {
+      organisationId: scoped?.organisationId ?? null,
       scope: scoped?.meta ?? null,
       filters: filtered.meta,
       projectCount: projectIds.length,

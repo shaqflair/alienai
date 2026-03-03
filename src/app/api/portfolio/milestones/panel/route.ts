@@ -1,14 +1,15 @@
-﻿// src/app/api/portfolio/milestones/panel/route.ts — REBUILT v3
+﻿// src/app/api/portfolio/milestones/panel/route.ts — REBUILT v4 (ORG-WIDE)
 // Fixes:
 //   ✅ FIX-SMK1: clampDays handles "all" → 60 (HomePage sends ?days=all)
+// Changes:
+//   ✅ ORG-WIDE dashboard scope via resolveOrgActiveProjectScope (still RLS-safe)
 // Keeps:
-//   ✅ resolveActiveProjectScope (permission-safe)
 //   ✅ no-store caching
 
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveActiveProjectScope } from "@/lib/server/project-scope";
+import { resolveOrgActiveProjectScope } from "@/lib/server/project-scope";
 
 export const runtime = "nodejs";
 
@@ -62,11 +63,20 @@ export async function GET(req: Request) {
     const userId = auth?.user?.id || null;
     if (authErr || !userId) return err("Not authenticated", 401);
 
-    const scoped = await resolveActiveProjectScope(supabase, userId);
+    // ✅ ORG-WIDE scope for dashboards
+    const scoped = await resolveOrgActiveProjectScope(supabase, userId);
     const projectIds = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
 
     if (!projectIds.length) {
-      return ok({ days, panel: emptyPanel(days), count: 0, meta: { scope: scoped?.meta ?? null } });
+      return ok({
+        days,
+        panel: emptyPanel(days),
+        count: 0,
+        meta: {
+          organisationId: scoped?.organisationId ?? null,
+          scope: scoped?.meta ?? null,
+        },
+      });
     }
 
     const { data, error } = await supabase.rpc("get_schedule_milestones_kpis_portfolio", {
@@ -100,7 +110,11 @@ export async function GET(req: Request) {
       days,
       panel,
       count: due_count,
-      meta: { scope: scoped?.meta ?? null, projectCount: projectIds.length },
+      meta: {
+        organisationId: scoped?.organisationId ?? null,
+        scope: scoped?.meta ?? null,
+        projectCount: projectIds.length,
+      },
     });
   } catch (e: any) {
     console.error("[GET /api/portfolio/milestones/panel]", e);

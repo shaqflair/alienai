@@ -1,8 +1,9 @@
-﻿// src/app/api/portfolio/financial-plan-summary/route.ts — REBUILT v3 (scope-safe + filter-ready)
+﻿// src/app/api/portfolio/financial-plan-summary/route.ts — REBUILT v4 (ORG-WIDE + filter-ready)
 // Used by: What-if Simulator (portfolio-level financial impact)
 //
-// Fixes / Adds:
-//   ✅ FPS-F1: Permission-safe scoping via resolveActiveProjectScope (org/project membership aware)
+// Changes:
+//   ✅ FPS-F1: ORG-wide dashboard scope via resolveOrgActiveProjectScope (still RLS-safe)
+// Keeps:
 //   ✅ FPS-F2: Supports dashboard filters (project name, code, PM, department)
 //            - POST (recommended): { filters }
 //            - GET (compat): ?name=...&code=...&pm=...&dept=...
@@ -13,7 +14,7 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveActiveProjectScope } from "@/lib/server/project-scope";
+import { resolveOrgActiveProjectScope } from "@/lib/server/project-scope";
 
 export const runtime = "nodejs";
 
@@ -200,8 +201,8 @@ async function handle(req: Request, filters: PortfolioFilters) {
 
   if (authErr || !user) return noStoreJson({ ok: false, error: "Unauthorized" }, 401);
 
-  // 1) permission-safe scope
-  const scoped = await resolveActiveProjectScope(supabase, user.id);
+  // 1) ORG-wide dashboard scope
+  const scoped = await resolveOrgActiveProjectScope(supabase, user.id);
   const scopedProjectIds = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
 
   // 2) apply filters (within scope)
@@ -213,7 +214,7 @@ async function handle(req: Request, filters: PortfolioFilters) {
       ok: true,
       portfolio: { totalBudget: 0, totalForecast: 0, totalActual: 0, projectCount: 0, withPlanCount: 0 },
       projects: [],
-      meta: { scope: scoped?.meta ?? null, filters: filtered.meta },
+      meta: { organisationId: scoped?.organisationId ?? null, scope: scoped?.meta ?? null, filters: filtered.meta },
     });
   }
 
@@ -347,7 +348,7 @@ async function handle(req: Request, filters: PortfolioFilters) {
     ok: true,
     portfolio,
     projects: summaries,
-    meta: { scope: scoped?.meta ?? null, filters: filtered.meta },
+    meta: { organisationId: scoped?.organisationId ?? null, scope: scoped?.meta ?? null, filters: filtered.meta },
   });
 }
 

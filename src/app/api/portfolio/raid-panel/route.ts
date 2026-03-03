@@ -1,7 +1,7 @@
-// src/app/api/portfolio/raid-panel/route.ts — REBUILT v3 (Org view + filter-ready)
+// src/app/api/portfolio/raid-panel/route.ts — REBUILT v4 (ORG-WIDE + filter-ready)
 // Adds:
 //   ✅ RP-F1 filters (GET + POST)
-//   ✅ RP-F2 filters applied within resolveActiveProjectScope
+//   ✅ RP-F2 filters applied within resolveOrgActiveProjectScope (org-wide dashboard)
 //   ✅ RP-F3 typed-count guardrail
 // Fixes:
 //   ✅ RP-F4 clampDays handles "all" → 60
@@ -14,7 +14,7 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveActiveProjectScope } from "@/lib/server/project-scope";
+import { resolveOrgActiveProjectScope } from "@/lib/server/project-scope";
 
 export const runtime = "nodejs";
 
@@ -320,7 +320,8 @@ async function handle(req: Request, opts: { days: number; filters: PortfolioFilt
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr || !auth?.user) return err("Not authenticated", 401);
 
-  const scoped = await resolveActiveProjectScope(supabase, auth.user.id);
+  // ✅ ORG-WIDE scope for dashboards
+  const scoped = await resolveOrgActiveProjectScope(supabase, auth.user.id);
   const scopedIds: string[] = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
 
   const filtered = await applyProjectFilters(supabase, scopedIds, opts.filters);
@@ -329,7 +330,13 @@ async function handle(req: Request, opts: { days: number; filters: PortfolioFilt
   if (!projectIds.length) {
     return ok({
       panel: emptyPanel(opts.days),
-      meta: { project_count: 0, active_only: true, scope: scoped.meta, filters: filtered.meta },
+      meta: {
+        project_count: 0,
+        active_only: true,
+        organisationId: scoped.organisationId ?? null,
+        scope: scoped.meta,
+        filters: filtered.meta,
+      },
     });
   }
 
@@ -359,16 +366,28 @@ async function handle(req: Request, opts: { days: number; filters: PortfolioFilt
   if (!panelErr) {
     const panel = normalizePanel(panelData, "get_portfolio_raid_panel") ?? {};
     const due_total =
-      num(typed.risk_due) + num(typed.issue_due) + num(typed.dependency_due) + num(typed.assumption_due) ||
+      num(typed.risk_due) +
+        num(typed.issue_due) +
+        num(typed.dependency_due) +
+        num(typed.assumption_due) ||
       num(pickFirstFinite(panel, ["due_total", "due_count"]), 0);
 
     const overdue_total =
-      num(typed.risk_overdue) + num(typed.issue_overdue) + num(typed.dependency_overdue) + num(typed.assumption_overdue) ||
+      num(typed.risk_overdue) +
+        num(typed.issue_overdue) +
+        num(typed.dependency_overdue) +
+        num(typed.assumption_overdue) ||
       num(pickFirstFinite(panel, ["overdue_total", "overdue_count"]), 0);
 
     return ok({
       panel: { ...emptyPanel(opts.days), ...panel, ...typed, due_total, overdue_total },
-      meta: { project_count: projectIds.length, active_only: true, scope: scoped.meta, filters: filtered.meta },
+      meta: {
+        project_count: projectIds.length,
+        active_only: true,
+        organisationId: scoped.organisationId ?? null,
+        scope: scoped.meta,
+        filters: filtered.meta,
+      },
     });
   }
 
@@ -387,7 +406,8 @@ async function handle(req: Request, opts: { days: number; filters: PortfolioFilt
       ...emptyPanel(opts.days),
       ...typed,
       due_total: num(typed.risk_due) + num(typed.issue_due) + num(typed.dependency_due) + num(typed.assumption_due),
-      overdue_total: num(typed.risk_overdue) + num(typed.issue_overdue) + num(typed.dependency_overdue) + num(typed.assumption_overdue),
+      overdue_total:
+        num(typed.risk_overdue) + num(typed.issue_overdue) + num(typed.dependency_overdue) + num(typed.assumption_overdue),
       risk_hi: num(hiPanel?.risk_hi),
       issue_hi: num(hiPanel?.issue_hi),
       dependency_hi: num(hiPanel?.dependency_hi),
@@ -397,6 +417,7 @@ async function handle(req: Request, opts: { days: number; filters: PortfolioFilt
     meta: {
       project_count: projectIds.length,
       active_only: true,
+      organisationId: scoped.organisationId ?? null,
       used_fallback: true,
       rpc_error: panelErr.message,
       scope: scoped.meta,

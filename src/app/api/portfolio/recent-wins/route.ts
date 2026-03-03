@@ -1,6 +1,6 @@
-﻿// src/app/api/portfolio/recent-wins/route.ts — REBUILT v2 (Org view + filter-ready)
+﻿// src/app/api/portfolio/recent-wins/route.ts — REBUILT v3 (ORG-WIDE + filter-ready)
 // Adds:
-//   ✅ RW-F1: Uses resolveActiveProjectScope (permission-safe org/project scoping)
+//   ✅ RW-F1: Uses resolveOrgActiveProjectScope (org-wide dashboard scope, still RLS-safe)
 //   ✅ RW-F2: Supports dashboard filters (project name, code, PM, department)
 //            - POST (recommended): { days, limit, filters }
 //            - GET (compat): ?days=7&limit=8&name=...&code=...&pm=...&dept=...
@@ -13,7 +13,7 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveActiveProjectScope } from "@/lib/server/project-scope";
+import { resolveOrgActiveProjectScope } from "@/lib/server/project-scope";
 
 /* ---------------- utils ---------------- */
 
@@ -180,8 +180,8 @@ async function handle(req: NextRequest, opts: { days: number; limit: number; fil
   const days = Math.min(30, Math.max(1, Number.isFinite(opts.days) ? opts.days : 7));
   const limit = Math.min(20, Math.max(1, Number.isFinite(opts.limit) ? opts.limit : 8));
 
-  // Scope projects using canonical resolver
-  const scoped = await resolveActiveProjectScope(supabase, user.id);
+  // ORG-wide dashboard scope
+  const scoped = await resolveOrgActiveProjectScope(supabase, user.id);
   const scopedProjectIds: string[] = Array.isArray(scoped?.projectIds) ? scoped.projectIds : [];
 
   // Apply dashboard filters within scope
@@ -195,7 +195,7 @@ async function handle(req: NextRequest, opts: { days: number; limit: number; fil
         wins: [],
         days,
         count: 0,
-        meta: { scope: scoped?.meta ?? null, filters: filtered.meta },
+        meta: { organisationId: scoped?.organisationId ?? null, scope: scoped?.meta ?? null, filters: filtered.meta },
       },
       { status: 200 },
     );
@@ -290,6 +290,7 @@ async function handle(req: NextRequest, opts: { days: number; limit: number; fil
     days,
     count: wins.length,
     meta: {
+      organisationId: scoped?.organisationId ?? null,
       scope: scoped?.meta ?? null,
       filters: filtered.meta,
       join: { ok: joinOk, error: joinAttempt.error ? safeStr(joinAttempt.error.message) : null },
@@ -312,7 +313,9 @@ export async function GET(req: NextRequest) {
     return await handle(req, { days, limit, filters });
   } catch (e: any) {
     console.error("[recent-wins][GET]", e);
-    return NextResponse.json({ ok: false, error: safeStr(e?.message || e) }, { status: 500 });
+    const res = NextResponse.json({ ok: false, error: safeStr(e?.message || e) }, { status: 500 });
+    res.headers.set("Cache-Control", "no-store, max-age=0");
+    return res;
   }
 }
 
@@ -325,6 +328,8 @@ export async function POST(req: NextRequest) {
     return await handle(req, { days, limit, filters });
   } catch (e: any) {
     console.error("[recent-wins][POST]", e);
-    return NextResponse.json({ ok: false, error: safeStr(e?.message || e) }, { status: 500 });
+    const res = NextResponse.json({ ok: false, error: safeStr(e?.message || e) }, { status: 500 });
+    res.headers.set("Cache-Control", "no-store, max-age=0");
+    return res;
   }
 }
