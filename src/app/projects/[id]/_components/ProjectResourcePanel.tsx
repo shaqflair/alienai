@@ -78,7 +78,7 @@ function Avatar({ name, size = 32 }: { name: string; size?: number }) {
 function SectionHeader({
   icon, title, subtitle, action,
 }: {
-  icon: string; title: string; subtitle?: string;
+  icon: React.ReactNode; title: string; subtitle?: string;
   action?: React.ReactNode;
 }) {
   return (
@@ -87,7 +87,7 @@ function SectionHeader({
       justifyContent: "space-between", marginBottom: "16px",
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-        <span style={{ fontSize: "18px" }}>{icon}</span>
+        <span style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>{icon}</span>
         <div>
           <div style={{ fontSize: "15px", fontWeight: 800, color: "#0f172a" }}>{title}</div>
           {subtitle && (
@@ -376,6 +376,35 @@ const inputStyle: React.CSSProperties = {
 };
 
 /* =============================================================================
+   ICON COMPONENTS  (replaces broken string placeholders)
+============================================================================= */
+
+const IconBudget = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+    <rect x="2" y="6" width="20" height="13" rx="2" stroke="#64748b" strokeWidth="1.8"/>
+    <path d="M2 10h20" stroke="#64748b" strokeWidth="1.8" strokeLinecap="round"/>
+    <path d="M6 15h2M10 15h2" stroke="#64748b" strokeWidth="1.8" strokeLinecap="round"/>
+  </svg>
+);
+
+const IconClipboard = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
+      stroke="#64748b" strokeWidth="1.8" strokeLinecap="round"/>
+    <rect x="8" y="2" width="8" height="4" rx="1"
+      stroke="#64748b" strokeWidth="1.8"/>
+    <path d="M9 12h6M9 16h4" stroke="#64748b" strokeWidth="1.8" strokeLinecap="round"/>
+  </svg>
+);
+
+const IconGrid = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+    <path d="M3 9h18M3 15h18M9 3v18M15 3v18"
+      stroke="#64748b" strokeWidth="1.8" strokeLinecap="round"/>
+  </svg>
+);
+
+/* =============================================================================
    1. TEAM MEMBERS WITH UTILISATION
 ============================================================================= */
 
@@ -482,7 +511,13 @@ function TeamSection({
   return (
     <Card>
       <SectionHeader
-        icon="👥"
+        icon={
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <circle cx="9" cy="7" r="4" stroke="#64748b" strokeWidth="1.8"/>
+            <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" stroke="#64748b" strokeWidth="1.8" strokeLinecap="round"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75M21 21v-2a4 4 0 0 0-3-3.85" stroke="#64748b" strokeWidth="1.8" strokeLinecap="round"/>
+          </svg>
+        }
         title="Team"
         subtitle={`${members.length} people allocated`}
         action={
@@ -528,12 +563,17 @@ function TeamSection({
 ============================================================================= */
 
 function BudgetSection({ budget, colour }: { budget: BudgetSummary; colour: string }) {
-  const pct     = budget.utilisationPct ?? 0;
+  const pct        = budget.utilisationPct ?? 0;
   const overBudget = budget.remainingDays != null && budget.remainingDays < 0;
 
   return (
     <Card>
-      <SectionHeader icon="[GBP]" title="Budget" subtitle="Days allocated vs budget" />
+      {/* ✅ FIX: replaced broken "[GBP]" string with a clean SVG icon */}
+      <SectionHeader
+        icon={<IconBudget />}
+        title="Budget"
+        subtitle="Days allocated vs budget"
+      />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px", marginBottom: "16px" }}>
         <StatPill label="Budget days"    value={budget.budgetDays    != null ? `${budget.budgetDays}d`    : "--"} />
@@ -565,7 +605,7 @@ function BudgetSection({ budget, colour }: { budget: BudgetSummary; colour: stri
           </div>
           {overBudget && (
             <p style={{ fontSize: "11px", color: "#ef4444", marginTop: "5px", fontWeight: 600 }}>
-              (!) {Math.abs(budget.remainingDays!)}d over budget
+              ⚠ {Math.abs(budget.remainingDays!)}d over budget
             </p>
           )}
         </div>
@@ -587,10 +627,10 @@ function BudgetSection({ budget, colour }: { budget: BudgetSummary; colour: stri
         {budget.budgetAmount != null && (
           <div>
             <div style={{ fontSize: "10px", color: "#94a3b8", textTransform: "uppercase",
-                          letterSpacing: "0.06em", marginBottom: "2px" }}>Budget (GBP)</div>
+                          letterSpacing: "0.06em", marginBottom: "2px" }}>Budget (£)</div>
             <div style={{ fontSize: "14px", fontWeight: 700, color: "#0f172a",
                           fontFamily: "'DM Mono', monospace" }}>
-              GBP{budget.budgetAmount.toLocaleString()}
+              £{budget.budgetAmount.toLocaleString()}
             </div>
           </div>
         )}
@@ -613,21 +653,20 @@ function MiniHeatmap({
 }) {
   const today = new Date().toISOString().split("T")[0];
 
-  // Build lookup: personId -> weekKey -> AllocationRow
   const lookup = new Map<string, Map<string, AllocationRow>>();
   for (const a of allocations) {
     if (!lookup.has(a.personId)) lookup.set(a.personId, new Map());
     lookup.get(a.personId)!.set(a.weekStartDate, a);
   }
 
-  // Show up to 16 weeks for readability
   const visiblePeriods = periods.slice(0, 16);
   const cellW = 36;
 
   return (
     <Card style={{ overflowX: "auto" }}>
+      {/* ✅ FIX: replaced "#" string with a clean grid SVG icon */}
       <SectionHeader
-        icon="#"
+        icon={<IconGrid />}
         title="Weekly allocation"
         subtitle={`${visiblePeriods.length} weeks shown`}
       />
@@ -667,7 +706,6 @@ function MiniHeatmap({
               display: "flex", alignItems: "center",
               marginBottom: "4px",
             }}>
-              {/* Name */}
               <div style={{
                 width: "140px", minWidth: "140px", flexShrink: 0,
                 display: "flex", alignItems: "center", gap: "6px",
@@ -682,7 +720,6 @@ function MiniHeatmap({
                 </div>
               </div>
 
-              {/* Cells */}
               {visiblePeriods.map(p => {
                 const alloc = lookup.get(member.personId)?.get(p.key);
                 const pct   = alloc?.utilisationPct ?? 0;
@@ -766,7 +803,7 @@ type NewRole = {
 };
 
 function RoleRequirementRow({ role }: { role: RoleRequirement }) {
-  const weeks    = Math.round(
+  const weeks = Math.round(
     (new Date(role.endDate).getTime() - new Date(role.startDate).getTime())
     / (7 * 86400000)
   );
@@ -776,7 +813,6 @@ function RoleRequirementRow({ role }: { role: RoleRequirement }) {
       display: "flex", alignItems: "center", gap: "12px",
       padding: "11px 0", borderBottom: "1px solid #f1f5f9",
     }}>
-      {/* Status dot */}
       <div style={{
         width: "8px", height: "8px", borderRadius: "50%", flexShrink: 0,
         background: role.isFilled ? "#10b981" : "#f59e0b",
@@ -788,7 +824,7 @@ function RoleRequirementRow({ role }: { role: RoleRequirement }) {
           {role.seniorityLevel} {role.roleTitle}
         </div>
         <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "2px" }}>
-          {role.startDate} {'->'} {role.endDate} . {weeks}w . {role.requiredDaysPerWeek}d/wk
+          {role.startDate} → {role.endDate} · {weeks}w · {role.requiredDaysPerWeek}d/wk
         </div>
         {role.notes && (
           <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px",
@@ -806,7 +842,7 @@ function RoleRequirementRow({ role }: { role: RoleRequirement }) {
         </div>
         {role.isFilled ? (
           <div style={{ fontSize: "10px", color: "#10b981", marginTop: "2px", fontWeight: 600 }}>
-            [check] {role.filledByName || "Filled"}
+            ✓ {role.filledByName || "Filled"}
           </div>
         ) : (
           <div style={{
@@ -897,7 +933,6 @@ function AddRoleForm({
           border: "1.5px solid #e2e8f0", padding: "14px",
           display: "flex", flexDirection: "column", gap: "10px",
         }}>
-          {/* Row 1: seniority + role title */}
           <div style={{ display: "grid", gridTemplateColumns: "140px 1fr auto", gap: "8px" }}>
             <select
               value={role.seniority_level}
@@ -922,11 +957,10 @@ function AddRoleForm({
                   background: "none", border: "none",
                   color: "#94a3b8", cursor: "pointer",
                   fontSize: "16px", lineHeight: 1, padding: "0 4px",
-                }}>x</button>
+                }}>×</button>
             )}
           </div>
 
-          {/* Row 2: dates + days/week */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 120px", gap: "8px" }}>
             <div>
               <label style={labelStyle}>Start</label>
@@ -1005,14 +1039,15 @@ function RoleRequirementsSection({
   const [showForm, setShowForm] = useState(false);
 
   const unfilled = roles.filter(r => !r.isFilled).length;
-  const filled   = roles.filter(r => r.isFilled).length;
+  const filled   = roles.filter(r =>  r.isFilled).length;
 
   return (
     <Card>
+      {/* ✅ FIX: replaced broken "[clipboard]" string with a clean SVG icon */}
       <SectionHeader
-        icon="[clipboard]"
+        icon={<IconClipboard />}
         title="Role requirements"
-        subtitle={`${roles.length} roles . ${unfilled} unfilled . ${filled} filled`}
+        subtitle={`${roles.length} roles · ${unfilled} unfilled · ${filled} filled`}
         action={
           <button type="button" onClick={() => setShowForm(s => !s)} style={{
             display: "inline-flex", alignItems: "center", gap: "5px",
@@ -1023,7 +1058,7 @@ function RoleRequirementsSection({
             fontSize: "12px", fontWeight: 700, cursor: "pointer",
             fontFamily: "'DM Sans', sans-serif",
           }}>
-            {showForm ? "x Cancel" : "+ Add roles"}
+            {showForm ? "× Cancel" : "+ Add roles"}
           </button>
         }
       />
@@ -1039,7 +1074,6 @@ function RoleRequirementsSection({
         roles.map(r => <RoleRequirementRow key={r.id} role={r} />)
       )}
 
-      {/* Totals strip */}
       {roles.length > 0 && (
         <div style={{
           display: "flex", gap: "16px",
@@ -1062,7 +1096,6 @@ function RoleRequirementsSection({
         </div>
       )}
 
-      {/* Inline add form */}
       {showForm && (
         <AddRoleForm
           projectId={projectId}
@@ -1070,7 +1103,6 @@ function RoleRequirementsSection({
           endDate={endDate}
           onSaved={() => {
             setShowForm(false);
-            // Trigger page refresh to show new roles
             window.location.reload();
           }}
         />
@@ -1104,10 +1136,7 @@ export default function ProjectResourcePanel({
         marginTop: "24px",
       }}>
 
-        {/* Section divider */}
-        <div style={{
-          display: "flex", alignItems: "center", gap: "12px",
-        }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <div style={{
             height: "1.5px", flex: 1,
             background: "linear-gradient(90deg, #e2e8f0, transparent)",
@@ -1129,7 +1158,6 @@ export default function ProjectResourcePanel({
           }} />
         </div>
 
-        {/* Top row: Team + Budget */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: "14px" }}>
           <TeamSection
             members={teamMembers}
@@ -1139,7 +1167,6 @@ export default function ProjectResourcePanel({
           <BudgetSection budget={budgetSummary} colour={project.colour} />
         </div>
 
-        {/* Mini heatmap */}
         <MiniHeatmap
           allocations={allocations}
           members={teamMembers}
@@ -1147,7 +1174,6 @@ export default function ProjectResourcePanel({
           colour={project.colour}
         />
 
-        {/* Role requirements */}
         <RoleRequirementsSection
           roles={roleRequirements}
           projectId={project.id}

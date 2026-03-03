@@ -1,615 +1,351 @@
-﻿// src/app/projects/page.tsx
-import "server-only";
+﻿"use client";
+import { useState, useRef, useEffect } from "react";
 
-import { redirect } from "next/navigation";
-import { createClient } from "@/utils/supabase/server";
-import { getActiveOrgId } from "@/utils/org/active-org";
-
-import { createProject } from "./actions";
-
-import ProjectsHeader from "./_components/ProjectsHeader";
-import ProjectsResults from "./_components/ProjectsResults";
-import HeatmapProjectFields from "./_components/HeatmapProjectFields";
-
-import type { MemberProjectRow, ProjectListRow, FlashTone } from "./_lib/projects-utils";
-
-type OrgMemberOption = {
-  user_id: string;
-  label: string;
-  role?: string | null;
+type Project = {
+  id: string; name: string; code: string; status: "Active" | "Closed";
+  pm: string | null; createdAt: string; startDate: string | null;
+  endDate: string | null; colour: string;
 };
 
-function safeStr(x: unknown) {
-  return typeof x === "string" ? x : x == null ? "" : String(x);
-}
+const INIT: Project[] = [
+  { id:"1", name:"Project Saturn",  code:"100019", status:"Active", pm:null, createdAt:"06/01/2026", startDate:"25/12/2025", endDate:"30/06/2026", colour:"#06b6d4" },
+  { id:"2", name:"Project Comfort", code:"100009", status:"Active", pm:null, createdAt:"18/12/2025", startDate:null, endDate:null, colour:"#8b5cf6" },
+  { id:"3", name:"Project Neptune", code:"100008", status:"Active", pm:null, createdAt:"18/12/2025", startDate:null, endDate:null, colour:"#f59e0b" },
+  { id:"4", name:"Project Nebula",  code:"100007", status:"Active", pm:null, createdAt:"18/12/2025", startDate:null, endDate:null, colour:"#10b981" },
+];
 
-function norm(x: unknown) {
-  return safeStr(x).trim();
-}
+const COLOURS = ["#06b6d4","#3b82f6","#8b5cf6","#ec4899","#f59e0b","#10b981","#ef4444","#f97316"];
 
-function qsSafe(params: Record<string, unknown>) {
-  const sp = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) {
-    if (v == null) continue;
-    const s = String(v).trim();
-    if (!s) continue;
-    sp.set(k, s);
-  }
-  const out = sp.toString();
-  return out ? `?${out}` : "";
-}
+export default function ProjectsPage() {
+  const [projects, setProjects]   = useState(INIT);
+  const [filter, setFilter]       = useState("Active");
+  const [search, setSearch]       = useState("");
+  const [sort, setSort]           = useState("Newest");
+  const [showModal, setShowModal] = useState(false);
 
-type Banner = { tone: "success" | "warn" | "error"; msg: string } | null;
+  const filtered = projects
+    .filter(p => filter === "All" || p.status === filter)
+    .filter(p => p.name.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => sort === "A-Z" ? a.name.localeCompare(b.name) : b.createdAt.localeCompare(a.createdAt));
 
-function inviteBanner(invite: unknown): Banner {
-  const v = norm(invite).toLowerCase();
-  if (!v) return null;
-  if (v === "accepted")      return { tone: "success", msg: "[ok] You've joined the organisation." };
-  if (v === "expired")       return { tone: "warn",    msg: "(!) Invite expired. Ask the owner to resend the invite." };
-  if (v === "invalid")       return { tone: "error",   msg: "[x] Invite invalid or already used." };
-  if (v === "email-mismatch")return { tone: "error",   msg: "[x] Invite was sent to a different email. Sign in with the invited email." };
-  if (v === "failed")        return { tone: "error",   msg: "[x] Invite acceptance failed. Please try again." };
-  return null;
-}
-
-function flashFromQuery(err: unknown, msg: unknown): { tone: FlashTone; text: string } | null {
-  const e = norm(err).toLowerCase();
-  const m = norm(msg).toLowerCase();
-  if (!e && !m) return null;
-  if (e) {
-    if (e === "delete_confirm")    return { tone: "error",   text: 'Type "DELETE" to confirm deletion.' };
-    if (e === "delete_forbidden")  return { tone: "error",   text: "Only the project owner can delete a project." };
-    if (e === "delete_blocked")    return { tone: "warn",    text: "Delete is blocked (protected artifacts). Use Abnormal close in the Delete modal." };
-    if (e === "abnormal_confirm")  return { tone: "error",   text: 'Type "ABNORMAL" to confirm abnormal close.' };
-    if (e === "no_permission")     return { tone: "error",   text: "You don't have permission to perform that action." };
-    if (e === "missing_project")   return { tone: "error",   text: "Missing project id." };
-    if (e === "missing_title")     return { tone: "error",   text: "Title is required." };
-    if (e === "missing_start")     return { tone: "error",   text: "Start date is required." };
-    if (e === "missing_org")       return { tone: "error",   text: "Organisation is required." };
-    if (e === "bad_org")           return { tone: "error",   text: "Invalid organisation selected." };
-    if (e === "bad_finish")        return { tone: "error",   text: "Finish date cannot be before start date." };
-    if (e === "bad_pm")            return { tone: "error",   text: "Invalid project manager selected." };
-    return { tone: "error", text: safeStr(err) };
-  }
-  if (m === "deleted")            return { tone: "success", text: "Project deleted." };
-  if (m === "closed")             return { tone: "success", text: "Project closed. It is now read-only." };
-  if (m === "reopened")           return { tone: "success", text: "Project reopened. Editing is enabled." };
-  if (m === "renamed")            return { tone: "success", text: "Project renamed." };
-  if (m === "abnormally_closed")  return { tone: "success", text: "Project abnormally closed (audit trail kept)." };
-  return { tone: "info", text: safeStr(msg) };
-}
-
-function displayNameFromUser(user: any) {
-  const full =
-    (user?.user_metadata?.full_name as string | undefined) ||
-    (user?.user_metadata?.name as string | undefined) || "";
-  return (full || user?.email || "Account").toString();
-}
-
-function formatMemberLabel(row: any): string {
-  const p = row?.profiles || row?.profile || row?.user_profile || row?.users || row?.user || null;
-  const full  = safeStr(p?.full_name || p?.name).trim();
-  const email = safeStr(p?.email).trim();
-  const base  = full || email || safeStr(row?.user_id).slice(0, 8);
-  const role  = safeStr(row?.role).trim();
-  return role ? `${base} (${role})` : base;
-}
-
-function isClosedProject(p: any) {
-  const lifecycle = safeStr(p?.lifecycle_status).trim().toLowerCase();
-  const status    = safeStr(p?.status).trim().toLowerCase();
-  if (lifecycle === "closed")       return true;
-  if (status.includes("closed"))    return true;
-  if (status.includes("complete"))  return true;
-  return false;
-}
-
-export default async function ProjectsPage({
-  searchParams,
-}: {
-  searchParams?:
-    | Promise<{ invite?: string; q?: string; view?: string; sort?: string; filter?: string; err?: string; msg?: string; pid?: string; }>
-    | { invite?: string; q?: string; view?: string; sort?: string; filter?: string; err?: string; msg?: string; pid?: string; };
-}) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect(`/login?next=${encodeURIComponent("/projects")}`);
-
-  const sp      = (await (searchParams as any)) ?? {};
-  const banner  = inviteBanner((sp as any)?.invite);
-  const q       = norm((sp as any)?.q);
-  const view    = norm((sp as any)?.view) === "grid" ? "grid" : "list";
-  const sort    = norm((sp as any)?.sort) === "title_asc" ? "title_asc" : "created_desc";
-  const filterRaw = norm((sp as any)?.filter).toLowerCase();
-  const filter: "active" | "closed" | "all" =
-    filterRaw === "closed" ? "closed" : filterRaw === "all" ? "all" : "active";
-  const err   = norm((sp as any)?.err);
-  const msg   = norm((sp as any)?.msg);
-  const pid   = norm((sp as any)?.pid);
-  const flash = flashFromQuery(err, msg);
-  const userId = user.id;
-
-  const { data, error } = await supabase
-    .from("project_members")
-    .select(`
-      project_id,
-      role,
-      projects:projects!project_members_project_id_fkey (
-        id, title, project_code, start_date, finish_date, created_at, organisation_id,
-        status, lifecycle_status, closed_at, deleted_at, project_manager_id,
-        project_manager:profiles!projects_project_manager_id_fkey (
-          user_id, full_name, email
-        )
-      )
-    `)
-    .eq("user_id", userId)
-    .is("projects.deleted_at", null)
-    .order("created_at", { foreignTable: "projects", ascending: false });
-
-  if (error) {
-    return (
-      <main style={{ minHeight: "100vh", background: "#f8fafc", fontFamily: "'DM Sans', sans-serif" }}>
-        <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "48px 24px" }}>
-          <h1 style={{ fontSize: "24px", fontWeight: 700, color: "#0f172a" }}>Projects</h1>
-          <p style={{ marginTop: "12px", fontSize: "14px", color: "#ef4444" }}>Error: {error.message}</p>
+  return (
+    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"'Inter',-apple-system,sans-serif", padding:"32px 40px", color:"#0f172a" }}>
+      {/* Header */}
+      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:24 }}>
+        <div style={{ display:"flex", alignItems:"flex-start", gap:14 }}>
+          <div style={{ width:42, height:42, borderRadius:12, background:"#e0f7fa", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:2 }}>
+            <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><path stroke="#06b6d4" strokeWidth="2" strokeLinecap="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </div>
+          <div>
+            <h1 style={{ fontSize:26, fontWeight:800, margin:0, letterSpacing:"-.5px" }}>Projects</h1>
+            <p style={{ fontSize:13, color:"#64748b", margin:"3px 0 0" }}>Your portfolio entry point — search, filter, and jump into governance.</p>
+          </div>
         </div>
-      </main>
+        <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+          <button style={{ background:"white", color:"#0f172a", border:"1px solid #e2e8f0", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:600, cursor:"pointer" }}>
+            Global artifacts
+          </button>
+          <button onClick={() => setShowModal(true)}
+            style={{ background:"#06b6d4", color:"white", border:"none", borderRadius:10, padding:"9px 18px", fontSize:13, fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", gap:7 }}>
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="white" strokeWidth="2" strokeLinecap="round"/></svg>
+            New project
+          </button>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div style={{ display:"flex", gap:8, marginBottom:20 }}>
+        {[
+          { label:"Total",  value:projects.length,                                colour:"#06b6d4" },
+          { label:"Active", value:projects.filter(p=>p.status==="Active").length, colour:"#10b981" },
+          { label:"Closed", value:projects.filter(p=>p.status==="Closed").length, colour:"#94a3b8" },
+        ].map(s => (
+          <div key={s.label} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 14px", background:"white", border:"1px solid #e2e8f0", borderRadius:10, fontSize:13, color:"#64748b" }}>
+            <span style={{ width:7, height:7, borderRadius:"50%", background:s.colour, display:"inline-block" }} />
+            <span style={{ fontWeight:700, color:"#0f172a", marginRight:2 }}>{s.value}</span>{s.label}
+          </div>
+        ))}
+      </div>
+
+      {/* Toolbar */}
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12, flexWrap:"wrap" }}>
+        <div style={{ display:"flex", gap:4 }}>
+          {["Active","Closed","All"].map(f => (
+            <button key={f} onClick={() => setFilter(f)}
+              style={{ background:filter===f?"#06b6d4":"white", border:`1px solid ${filter===f?"#06b6d4":"#e2e8f0"}`, borderRadius:8, padding:"7px 14px", fontSize:13, fontWeight:filter===f?700:500, cursor:"pointer", color:filter===f?"white":"#64748b" }}>
+              {f}
+            </button>
+          ))}
+        </div>
+        <div style={{ position:"relative", flex:1, maxWidth:280 }}>
+          <svg style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)" }} width="13" height="13" viewBox="0 0 24 24" fill="none">
+            <circle cx="11" cy="11" r="8" stroke="#94a3b8" strokeWidth="2"/><path d="m21 21-4.35-4.35" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+          <input style={{ width:"100%", border:"1px solid #e2e8f0", borderRadius:8, padding:"8px 10px 8px 30px", fontSize:13, outline:"none", background:"white", boxSizing:"border-box" }}
+            placeholder="Search projects…" value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        <div style={{ display:"flex", gap:4, marginLeft:"auto" }}>
+          {["Newest","A-Z"].map(s => (
+            <button key={s} onClick={() => setSort(s)}
+              style={{ background:sort===s?"#06b6d4":"white", border:`1px solid ${sort===s?"#06b6d4":"#e2e8f0"}`, borderRadius:8, padding:"7px 14px", fontSize:13, fontWeight:sort===s?700:500, cursor:"pointer", color:sort===s?"white":"#64748b" }}>
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <p style={{ fontSize:13, color:"#94a3b8", fontWeight:500, margin:"0 0 10px" }}>
+        {filtered.length} project{filtered.length !== 1 ? "s" : ""}
+      </p>
+
+      {/* List */}
+      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+        {filtered.map(p => (
+          <ProjectRow key={p.id} project={p}
+            onClose={() => setProjects(prev => prev.map(x => x.id===p.id ? {...x,status:"Closed"} : x))} />
+        ))}
+        {filtered.length === 0 && (
+          <div style={{ textAlign:"center", padding:"40px 0", color:"#94a3b8", fontSize:14 }}>No projects match your filters.</div>
+        )}
+      </div>
+
+      {showModal && (
+        <CreateModal onClose={() => setShowModal(false)}
+          onCreate={p => { setProjects(prev => [p,...prev]); setShowModal(false); }} />
+      )}
+    </div>
+  );
+}
+
+function ProjectRow({ project: p, onClose }) {
+  const dateRange = p.startDate && p.endDate ? `${p.startDate} — ${p.endDate}` : "— — —";
+  const actions = [
+    { label:"Overview",  icon:<svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#64748b" strokeWidth="2"/><path d="M12 8v4l3 3" stroke="#64748b" strokeWidth="2" strokeLinecap="round"/></svg> },
+    { label:"Artifacts", icon:<svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="#64748b" strokeWidth="2"/><path d="M14 2v6h6" stroke="#64748b" strokeWidth="2" strokeLinecap="round"/></svg> },
+    { label:"Members",   icon:<svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="7" r="4" stroke="#64748b" strokeWidth="2"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" stroke="#64748b" strokeWidth="2" strokeLinecap="round"/></svg> },
+    { label:"Approvals", icon:<svg width="13" height="13" viewBox="0 0 24 24" fill="none"><polyline points="20 6 9 17 4 12" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg> },
+  ];
+
+  return (
+    <div style={{ background:"white", border:"1px solid #e2e8f0", borderRadius:14, padding:"16px 20px", display:"flex", alignItems:"center", gap:14 }}>
+      <span style={{ width:10, height:10, borderRadius:"50%", background:p.colour, flexShrink:0 }} />
+      <div style={{ flex:1, display:"flex", flexDirection:"column", gap:5 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+          <span style={{ fontSize:15, fontWeight:700 }}>{p.name}</span>
+          <span style={{ fontSize:11, fontWeight:700, background:"#f1f5f9", color:"#64748b", borderRadius:6, padding:"2px 7px", border:"1px solid #e2e8f0" }}>{p.code}</span>
+          <span style={{ fontSize:11, fontWeight:700, borderRadius:6, padding:"2px 7px",
+            background:p.status==="Active"?"#dcfce7":"#f1f5f9", color:p.status==="Active"?"#15803d":"#64748b" }}>
+            {p.status}
+          </span>
+        </div>
+        <div style={{ fontSize:12, color:"#94a3b8", display:"flex", alignItems:"center", gap:6 }}>
+          PM: <span style={{ color:p.pm?"#0f172a":"#06b6d4" }}>{p.pm ?? "Unassigned"}</span>
+          <span style={{ width:3, height:3, borderRadius:"50%", background:"#cbd5e1" }} />
+          Created {p.createdAt}
+        </div>
+        <div style={{ fontSize:12, color:"#94a3b8", display:"flex", alignItems:"center" }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ marginRight:4, opacity:.5 }}>
+            <rect x="3" y="4" width="18" height="18" rx="2" stroke="#64748b" strokeWidth="2"/>
+            <path d="M16 2v4M8 2v4M3 10h18" stroke="#64748b" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+          {dateRange}
+        </div>
+      </div>
+      <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0, flexWrap:"wrap" }}>
+        {actions.map(a => (
+          <a key={a.label} href="#" style={{ display:"flex", alignItems:"center", gap:5, padding:"6px 11px", border:"1px solid #e2e8f0", borderRadius:8, fontSize:12, fontWeight:500, color:"#475569", textDecoration:"none", background:"white" }}>
+            {a.icon}<span>{a.label}</span>
+          </a>
+        ))}
+        <button onClick={onClose} style={{ padding:"6px 14px", border:"1px solid #fde68a", borderRadius:8, fontSize:12, fontWeight:700, color:"#92400e", background:"#fffbeb", cursor:"pointer" }}>Close</button>
+        <button style={{ padding:"6px 8px", border:"1px solid #e2e8f0", borderRadius:8, background:"white", cursor:"pointer", display:"flex", alignItems:"center" }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="5" r="1.5" fill="#64748b"/><circle cx="12" cy="12" r="1.5" fill="#64748b"/><circle cx="12" cy="19" r="1.5" fill="#64748b"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CreateModal({ onClose, onCreate }) {
+  const [name, setName]           = useState("");
+  const [pm, setPm]               = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate]     = useState("");
+  const [code, setCode]           = useState("");
+  const [dept, setDept]           = useState("");
+  const [resStatus, setResStatus] = useState("Confirmed");
+  const [colour, setColour]       = useState(COLOURS[0]);
+  const [step, setStep]           = useState(1);
+  const overlayRef = useRef(null);
+
+  useEffect(() => {
+    if (!name) { setCode(""); return; }
+    const slug = name.replace(/[^a-zA-Z0-9\s]/g,"").trim()
+      .split(/\s+/).map(w => w.slice(0,3).toUpperCase()).join("-");
+    setCode(slug || "");
+  }, [name]);
+
+  const inputStyle = { border:"1px solid #e2e8f0", borderRadius:10, padding:"9px 12px", fontSize:13, outline:"none", width:"100%", boxSizing:"border-box", background:"white", color:"#0f172a" };
+  const hintStyle  = { fontSize:11, color:"#94a3b8", margin:"2px 0 0" };
+
+  function Field({ label, children }) {
+    return (
+      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+        <label style={{ fontSize:11, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", color:"#64748b" }}>{label}</label>
+        {children}
+      </div>
     );
   }
 
-  const rows: ProjectListRow[] = ((data ?? []) as unknown as MemberProjectRow[])
-    .map((r) => {
-      if (!r.projects) return null;
-      const pmName =
-        safeStr((r.projects as any)?.project_manager?.full_name).trim() ||
-        safeStr((r.projects as any)?.project_manager?.email).trim() ||
-        null;
-      return {
-        id:                   r.projects.id,
-        title:                r.projects.title,
-        project_code:         r.projects.project_code,
-        start_date:           r.projects.start_date,
-        finish_date:          r.projects.finish_date,
-        created_at:           r.projects.created_at,
-        organisation_id:      r.projects.organisation_id,
-        status:               r.projects.status ?? "active",
-        myRole:               r.role ?? "viewer",
-        lifecycle_status:     (r.projects as any)?.lifecycle_status ?? null,
-        closed_at:            (r.projects as any)?.closed_at ?? null,
-        project_manager_id:   (r.projects as any)?.project_manager_id ?? null,
-        project_manager_name: pmName,
-      } as any;
-    })
-    .filter(Boolean) as ProjectListRow[];
-
-  const orgIds = Array.from(new Set(rows.map((r) => String(r.organisation_id || "")).filter(Boolean)));
-  const orgAdminSet = new Set<string>();
-
-  if (orgIds.length) {
-    const { data: memRows } = await supabase
-      .from("organisation_members")
-      .select("organisation_id, role")
-      .eq("user_id", userId)
-      .in("organisation_id", orgIds);
-    for (const m of memRows ?? []) {
-      const oid  = String((m as any)?.organisation_id || "");
-      const role = String((m as any)?.role || "").toLowerCase();
-      if (oid && role === "admin") orgAdminSet.add(oid);
-    }
-  }
-
-  const lifecycleFiltered = (() => {
-    if (filter === "all")    return rows;
-    if (filter === "closed") return rows.filter((p: any) =>  isClosedProject(p));
-    return rows.filter((p: any) => !isClosedProject(p));
-  })();
-
-  const textFiltered = (() => {
-    if (!q) return lifecycleFiltered;
-    const nq = q.toLowerCase();
-    return lifecycleFiltered.filter((p) => {
-      const hay = `${safeStr(p.title)} ${safeStr((p as any).project_code ?? "")} ${safeStr(p.id)}`.toLowerCase();
-      return hay.includes(nq);
-    });
-  })();
-
-  const sorted = (() => {
-    const arr = [...textFiltered];
-    if (sort === "title_asc") {
-      arr.sort((a, b) => safeStr(a.title).localeCompare(safeStr(b.title)));
-    } else {
-      arr.sort((a, b) => safeStr((b as any).created_at).localeCompare(safeStr((a as any).created_at)));
-    }
-    return arr;
-  })();
-
-  const inviteParam  = norm((sp as any)?.invite);
-  const dismissHref  = `/projects${qsSafe({ invite: inviteParam || undefined, q: q || undefined, sort, view, filter })}`;
-  const panelGlow    = "";
-  const cookieOrgId  = await getActiveOrgId().catch(() => null);
-  const activeOrgId  = (cookieOrgId && String(cookieOrgId)) || (orgIds[0] ? String(orgIds[0]) : "");
-  const canCreate    = !!activeOrgId;
-
-  const { data: orgRow } = activeOrgId
-    ? await supabase.from("organisations").select("id,name").eq("id", activeOrgId).maybeSingle()
-    : { data: null as any };
-
-  const activeOrgName = safeStr(orgRow?.name).trim();
-
-  // -- Fetch org members for PM picker (two-step to avoid FK hint issues) ----
-  const { data: orgMemberUserRows } = activeOrgId
-    ? await supabase
-        .from("organisation_members")
-        .select("user_id, role")
-        .eq("organisation_id", activeOrgId)
-        .is("removed_at", null)
-    : { data: [] as any[] };
-
-  const orgMemberUserIds = (orgMemberUserRows ?? []).map((r: any) => String(r.user_id)).filter(Boolean);
-  const orgRoleMap = new Map((orgMemberUserRows ?? []).map((r: any) => [String(r.user_id), String(r.role)]));
-
-  const { data: orgProfileRows } = orgMemberUserIds.length > 0
-    ? await supabase
-        .from("profiles")
-        .select("user_id, full_name, email, department")
-        .in("user_id", orgMemberUserIds)
-    : { data: [] as any[] };
-
-  const pmOptions: OrgMemberOption[] = (orgProfileRows ?? [])
-    .map((p: any) => ({
-      user_id: String(p.user_id),
-      label:   safeStr(p.full_name || p.email || p.user_id).trim(),
-      role:    orgRoleMap.get(String(p.user_id)) ?? null,
-    }))
-    .filter(x => !!x.user_id && !!x.label)
-    .sort((a, b) => a.label.localeCompare(b.label));
-
-  // Derive unique departments from org profiles for the department combobox
-  const existingDepartments = [...new Set(
-    (orgProfileRows ?? []).map((p: any) => p.department).filter(Boolean)
-  )].sort() as string[];
-
-  const ownerLabel = displayNameFromUser(user);
-
   return (
-    <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
+    <div ref={overlayRef} onClick={e => { if (e.target===overlayRef.current) onClose(); }}
+      style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.45)", backdropFilter:"blur(4px)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:20 }}>
+      <div style={{ background:"white", borderRadius:20, width:"100%", maxWidth:560, boxShadow:"0 24px 60px rgba(0,0,0,.18)", display:"flex", flexDirection:"column", maxHeight:"90vh", overflow:"hidden" }}>
 
-        .pp-root {
-          font-family: 'DM Sans', sans-serif;
-          min-height: 100vh;
-          background: #f8fafc;
-          color: #0f172a;
-        }
-
-        .pp-inner {
-          max-width: 1100px;
-          margin: 0 auto;
-          padding: 48px 28px;
-          display: flex;
-          flex-direction: column;
-          gap: 32px;
-        }
-
-        .pp-create-panel {
-          background: white;
-          border-radius: 18px;
-          border: 1.5px solid #e2e8f0;
-          box-shadow: 0 2px 16px rgba(0,184,219,0.08), 0 1px 4px rgba(0,0,0,0.04);
-          overflow: hidden;
-        }
-
-        .pp-create-header {
-          padding: 24px 28px 20px;
-          border-bottom: 1px solid #f1f5f9;
-          background: linear-gradient(135deg, rgba(0,184,219,0.04) 0%, transparent 60%);
-        }
-
-        .pp-create-title {
-          font-size: 16px;
-          font-weight: 700;
-          color: #0f172a;
-          margin: 0 0 4px;
-        }
-
-        .pp-create-desc {
-          font-size: 13px;
-          color: #94a3b8;
-          margin: 0;
-          line-height: 1.5;
-        }
-
-        .pp-org-tag {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          margin-top: 10px;
-          padding: 4px 10px;
-          border-radius: 20px;
-          background: #f0fdff;
-          border: 1px solid #bae6f0;
-          font-size: 12px;
-          color: #0e7490;
-          font-weight: 500;
-        }
-
-        .pp-org-tag strong { font-weight: 700; }
-
-        .pp-create-body {
-          padding: 24px 28px 28px;
-        }
-
-        .pp-field-label {
-          display: block;
-          font-size: 12.5px;
-          font-weight: 700;
-          color: #475569;
-          letter-spacing: 0.02em;
-          margin-bottom: 6px;
-          text-transform: uppercase;
-        }
-
-        .pp-owner-display {
-          padding: 10px 14px;
-          border-radius: 8px;
-          background: #f8fafc;
-          border: 1.5px solid #e2e8f0;
-          font-size: 14px;
-          color: #334155;
-          font-weight: 500;
-        }
-
-        .pp-input, .pp-select {
-          width: 100%;
-          padding: 10px 14px;
-          border-radius: 8px;
-          border: 1.5px solid #e2e8f0;
-          background: white;
-          font-size: 14px;
-          font-family: 'DM Sans', sans-serif;
-          color: #0f172a;
-          outline: none;
-          transition: all 0.15s ease;
-          box-sizing: border-box;
-        }
-
-        .pp-input::placeholder { color: #cbd5e1; }
-
-        .pp-input:focus, .pp-select:focus {
-          border-color: #00B8DB;
-          box-shadow: 0 0 0 3px rgba(0,184,219,0.12);
-        }
-
-        .pp-field-hint {
-          font-size: 11.5px;
-          color: #94a3b8;
-          margin-top: 5px;
-          line-height: 1.4;
-        }
-
-        .pp-form-grid {
-          display: grid;
-          gap: 18px;
-          max-width: 640px;
-        }
-
-        .pp-form-row {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 14px;
-        }
-
-        @media (max-width: 600px) {
-          .pp-form-row { grid-template-columns: 1fr; }
-        }
-
-        .pp-submit-btn {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          padding: 10px 24px;
-          border-radius: 9px;
-          background: #00B8DB;
-          color: white;
-          font-size: 14px;
-          font-weight: 700;
-          font-family: 'DM Sans', sans-serif;
-          border: none;
-          cursor: pointer;
-          transition: all 0.15s ease;
-          box-shadow: 0 2px 12px rgba(0,184,219,0.3);
-          letter-spacing: 0.01em;
-        }
-
-        .pp-submit-btn:hover:not(:disabled) {
-          background: #00a0bf;
-          box-shadow: 0 4px 16px rgba(0,184,219,0.4);
-          transform: translateY(-1px);
-        }
-
-        .pp-submit-btn:disabled {
-          opacity: 0.45;
-          cursor: not-allowed;
-          box-shadow: none;
-        }
-
-        .pp-warn-banner {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 12px 16px;
-          border-radius: 9px;
-          background: #fffbeb;
-          border: 1px solid #fde68a;
-          color: #92400e;
-          font-size: 13px;
-          font-weight: 500;
-        }
-
-        .pp-results-section {
-          display: flex;
-          flex-direction: column;
-          gap: 14px;
-        }
-
-        .pp-section-label {
-          font-size: 11px;
-          font-weight: 800;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
-          color: #94a3b8;
-        }
-
-        .pp-heatmap-divider {
-          border: none;
-          border-top: 1.5px dashed #e2e8f0;
-          margin: 4px 0 0;
-        }
-
-        .pp-heatmap-section-label {
-          font-size: 11px;
-          font-weight: 800;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-          color: #00B8DB;
-          margin: 0 0 18px;
-        }
-      `}</style>
-
-      <main className="pp-root">
-        <div className="pp-inner">
-
-          {/* Header -- unchanged */}
-          <ProjectsHeader banner={banner} flash={flash} dismissHref={dismissHref} />
-
-          {/* Create Project Panel */}
-          <div className="pp-create-panel">
-            <div className="pp-create-header">
-              <h2 className="pp-create-title">Create a Project</h2>
-              <p className="pp-create-desc">
-                Enterprise setup -- define ownership and delivery lead for governance and reporting.
-              </p>
-              <div className="pp-org-tag">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" strokeWidth="2.5"
-                     strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-                  <polyline points="9 22 9 12 15 12 15 22"/>
-                </svg>
-                Active organisation: <strong>{activeOrgName || "Not set"}</strong>
-              </div>
-            </div>
-
-            <div className="pp-create-body">
-              {!canCreate && (
-                <div className="pp-warn-banner" style={{ marginBottom: "20px" }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                       stroke="currentColor" strokeWidth="2"
-                       strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                    <line x1="12" y1="9" x2="12" y2="13"/>
-                    <line x1="12" y1="17" x2="12.01" y2="17"/>
-                  </svg>
-                  You don't have an active organisation. Select one first, then create a project.
-                </div>
-              )}
-
-              <form action={createProject} className="pp-form-grid">
-                <input type="hidden" name="organisation_id" value={activeOrgId} />
-
-                {/* -- Existing fields -- unchanged -- */}
-                <div>
-                  <label className="pp-field-label">Project owner</label>
-                  <div className="pp-owner-display">{ownerLabel}</div>
-                  <p className="pp-field-hint">Accountable governance lead -- auto-set to you.</p>
-                </div>
-
-                <div>
-                  <label className="pp-field-label" htmlFor="pp-title">Project name</label>
-                  <input
-                    id="pp-title"
-                    name="title"
-                    placeholder="e.g. Project Venus"
-                    required
-                    className="pp-input"
-                  />
-                </div>
-
-                <div>
-                  <label className="pp-field-label" htmlFor="pp-pm">Project manager</label>
-                  <select id="pp-pm" name="project_manager_id" defaultValue="" className="pp-select">
-                    <option value="">Unassigned</option>
-                    {pmOptions.map((m) => (
-                      <option key={m.user_id} value={m.user_id}>{m.label}</option>
-                    ))}
-                  </select>
-                  <p className="pp-field-hint">Assign now or later -- used for delivery accountability.</p>
-                </div>
-
-                <div className="pp-form-row">
-                  <div>
-                    <label className="pp-field-label" htmlFor="pp-start">Start date</label>
-                    <input id="pp-start" name="start_date" type="date" required className="pp-input" />
-                  </div>
-                  <div>
-                    <label className="pp-field-label" htmlFor="pp-finish">Finish date</label>
-                    <input id="pp-finish" name="finish_date" type="date" className="pp-input" />
-                  </div>
-                </div>
-
-                {/* -- New heatmap fields -- */}
-                <div>
-                  <hr className="pp-heatmap-divider" />
-                </div>
-
-                {/*
-                  HeatmapProjectFields is a "use client" component.
-                  It renders interactive colour picker + status toggle + win prob slider.
-                  All values are written to hidden inputs so they submit with this
-                  server action form automatically -- no extra wiring needed.
-                */}
-                <HeatmapProjectFields departmentSuggestions={existingDepartments} />
-
-                {/* -- Submit -- unchanged -- */}
-                <div>
-                  <button type="submit" disabled={!canCreate} className="pp-submit-btn">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                         stroke="currentColor" strokeWidth="2.5"
-                         strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="12" y1="5" x2="12" y2="19"/>
-                      <line x1="5" y1="12" x2="19" y2="12"/>
-                    </svg>
-                    Create project
-                  </button>
-                  <p className="pp-field-hint" style={{ marginTop: "8px" }}>
-                    Add role requirements on the project page after creation.
-                  </p>
-                </div>
-              </form>
+        {/* Header */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", padding:"24px 28px 0" }}>
+          <div>
+            <h2 style={{ fontSize:20, fontWeight:800, margin:0, letterSpacing:"-.3px" }}>Create a project</h2>
+            <p style={{ fontSize:13, color:"#64748b", margin:"4px 0 10px" }}>Enterprise setup — define ownership and delivery lead.</p>
+            <div style={{ display:"inline-flex", alignItems:"center", gap:6, background:"#ecfeff", border:"1px solid #a5f3fc", borderRadius:20, padding:"4px 10px", fontSize:11, fontWeight:600, color:"#0891b2" }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke="#0891b2" strokeWidth="2"/></svg>
+              Active organisation: Aliena HQ
             </div>
           </div>
-
-          {/* Results section -- unchanged */}
-          <div className="pp-results-section">
-            <div className="pp-section-label">Your projects</div>
-            <ProjectsResults
-              rows={sorted}
-              view={view}
-              q={q}
-              sort={sort}
-              filter={filter}
-              pid={pid}
-              err={err}
-              msg={msg}
-              orgAdminOrgIds={Array.from(orgAdminSet)}
-              baseHrefForDismiss={dismissHref}
-              panelGlow={panelGlow}
-            />
-          </div>
-
+          <button onClick={onClose} style={{ background:"none", border:"none", cursor:"pointer", padding:4 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M18 6 6 18M6 6l12 12" stroke="#64748b" strokeWidth="2" strokeLinecap="round"/></svg>
+          </button>
         </div>
-      </main>
-    </>
+
+        {/* Steps */}
+        <div style={{ display:"flex", alignItems:"center", gap:8, padding:"20px 28px 0" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:7 }}>
+            <div style={{ width:24, height:24, borderRadius:"50%", background:"#06b6d4", color:"white", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700 }}>
+              {step > 1 ? "✓" : "1"}
+            </div>
+            <span style={{ fontSize:12, fontWeight:600, color:step===1?"#06b6d4":"#94a3b8", textTransform:"uppercase", letterSpacing:".05em" }}>Basics</span>
+          </div>
+          <div style={{ flex:1, height:1, background:step>1?"#06b6d4":"#e2e8f0", transition:"background .3s" }} />
+          <div style={{ display:"flex", alignItems:"center", gap:7 }}>
+            <div style={{ width:24, height:24, borderRadius:"50%", background:step>=2?"#06b6d4":"#f1f5f9", color:step>=2?"white":"#94a3b8", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, transition:"all .3s" }}>2</div>
+            <span style={{ fontSize:12, fontWeight:600, color:step===2?"#06b6d4":"#94a3b8", textTransform:"uppercase", letterSpacing:".05em" }}>Heatmap</span>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding:"20px 28px", display:"flex", flexDirection:"column", gap:16, overflowY:"auto", flex:1 }}>
+          {step === 1 ? (
+            <>
+              <Field label="Project owner">
+                <input style={{ ...inputStyle, background:"#f8fafc", color:"#64748b" }} value="paapa51@hotmail.com" readOnly />
+                <p style={hintStyle}>Accountable governance lead — auto-set to you.</p>
+              </Field>
+              <Field label="Project name">
+                <input style={inputStyle} placeholder="e.g. Project Venus" value={name}
+                  onChange={e => setName(e.target.value)} autoFocus />
+              </Field>
+              <Field label="Project manager">
+                <select style={inputStyle} value={pm} onChange={e => setPm(e.target.value)}>
+                  <option value="">Unassigned</option>
+                  <option>Alice</option><option>Bob</option>
+                </select>
+                <p style={hintStyle}>Assign now or later — used for delivery accountability.</p>
+              </Field>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <Field label="Start date">
+                  <input style={inputStyle} type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                </Field>
+                <Field label="Finish date">
+                  <input style={inputStyle} type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                </Field>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 14px", background:"#ecfeff", borderRadius:10, border:"1px solid #a5f3fc" }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="3" width="18" height="18" rx="2" stroke="#06b6d4" strokeWidth="2"/>
+                  <path d="M3 9h18M9 9v12M15 9v12" stroke="#06b6d4" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+                <span style={{ fontSize:11, fontWeight:700, letterSpacing:".07em", color:"#06b6d4", textTransform:"uppercase" }}>Resource heatmap settings</span>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <Field label="Project code">
+                  <input style={inputStyle} placeholder="e.g. ATL-01" value={code} onChange={e => setCode(e.target.value)} />
+                  <p style={hintStyle}><span style={{ color:"#06b6d4", fontWeight:600 }}>✦ Auto-generated</span> from name — edit to override.</p>
+                </Field>
+                <Field label="Department">
+                  <input style={inputStyle} placeholder="e.g. Engineering" value={dept} onChange={e => setDept(e.target.value)} />
+                  <p style={hintStyle}>Used in heatmap filter bar.</p>
+                </Field>
+              </div>
+              <Field label="Resource status">
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                  {["Confirmed","Pipeline"].map(s => (
+                    <button key={s} onClick={() => setResStatus(s)}
+                      style={{ border:"1px solid", borderRadius:10, padding:"10px 14px", fontSize:13, cursor:"pointer",
+                        display:"flex", alignItems:"center", justifyContent:"center", gap:6, transition:"all .15s",
+                        background:  resStatus===s ? (s==="Confirmed"?"#06b6d4":"#f1f5f9") : "white",
+                        color:       resStatus===s ? (s==="Confirmed"?"white":"#0f172a") : "#64748b",
+                        borderColor: resStatus===s ? (s==="Confirmed"?"#06b6d4":"#cbd5e1") : "#e2e8f0",
+                        fontWeight:  resStatus===s ? 700 : 500 }}>
+                      {s==="Confirmed"
+                        ? <><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><polyline points="20 6 9 17 4 12" stroke={resStatus==="Confirmed"?"white":"#64748b"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>Confirmed</>
+                        : <><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#64748b" strokeWidth="2"/></svg>Pipeline</>}
+                    </button>
+                  ))}
+                </div>
+                <p style={hintStyle}>{resStatus==="Confirmed" ? "Confirmed projects affect the live capacity heatmap immediately." : "Pipeline projects appear as demand forecasts on the heatmap."}</p>
+              </Field>
+              <Field label="Project colour">
+                <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+                  {COLOURS.map(c => (
+                    <button key={c} onClick={() => setColour(c)} style={{
+                      width:30, height:30, borderRadius:"50%", background:c, border:"none", cursor:"pointer",
+                      outline:colour===c?`3px solid ${c}`:"none", outlineOffset:2,
+                      transform:colour===c?"scale(1.15)":"scale(1)", transition:"transform .15s" }} />
+                  ))}
+                  <span style={{ fontSize:11, fontWeight:700, background:"#f1f5f9", color:"#64748b", borderRadius:6, padding:"2px 7px", border:"1px solid #e2e8f0", marginLeft:4 }}>{code||"PRJ-01"}</span>
+                </div>
+                <p style={hintStyle}>Identifies this project in heatmap swimlane rows.</p>
+              </Field>
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding:"16px 28px", borderTop:"1px solid #f1f5f9", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          {step === 1 ? (
+            <>
+              <button onClick={onClose} style={{ background:"none", border:"1px solid #e2e8f0", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:600, cursor:"pointer", color:"#64748b" }}>
+                Cancel
+              </button>
+              <button onClick={() => name.trim() && setStep(2)}
+                style={{ background:"#06b6d4", color:"white", border:"none", borderRadius:10, padding:"9px 18px", fontSize:13, fontWeight:700, cursor:"pointer", opacity:name.trim()?1:.45 }}>
+                Next: Heatmap settings →
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => setStep(1)} style={{ background:"none", border:"1px solid #e2e8f0", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:600, cursor:"pointer", color:"#64748b" }}>
+                ← Back
+              </button>
+              <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                <span style={{ fontSize:11, color:"#94a3b8" }}>Add role requirements after creation.</span>
+                <button onClick={() => {
+                  if (!name.trim()) return;
+                  onCreate({ id:Date.now().toString(), name:name.trim(), code:code||"PRJ", status:"Active", pm:pm||null,
+                    createdAt:new Date().toLocaleDateString("en-GB"), startDate:startDate||null, endDate:endDate||null, colour });
+                }} style={{ background:"#06b6d4", color:"white", border:"none", borderRadius:10, padding:"9px 18px", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+                  + Create project
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

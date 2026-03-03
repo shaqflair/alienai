@@ -321,7 +321,7 @@ export default async function ProjectPage({
                 )}
               </Link>
               <Link className="pp-nav-link" href={`/projects/${projectRefForUrls}/members`}>Members</Link>
-              <Link className="pp-nav-link" href="/heatmap" style={{ marginLeft: "auto" }}># Full heatmap →</Link>
+              <Link className="pp-nav-link" href="/heatmap" style={{ marginLeft: "auto" }}>Full heatmap →</Link>
             </nav>
           </header>
 
@@ -484,3 +484,4 @@ export default async function ProjectPage({
     </>
   );
 }
+
