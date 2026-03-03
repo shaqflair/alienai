@@ -1,4 +1,4 @@
-﻿"use server";
+use server";
 
 // src/app/actions/financial-plan-timesheets.ts
 // Fetches approved timesheet entries for all resources in a financial plan.

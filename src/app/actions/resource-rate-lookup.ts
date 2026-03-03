@@ -1,4 +1,4 @@
-﻿"use server";
+use server";
 import { createClient } from "@/utils/supabase/server";
 import type { ResourceRateType, ResourceType } from "@/components/artifacts/FinancialPlanEditor";
 
