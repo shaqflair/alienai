@@ -1,8 +1,9 @@
 ﻿"use client";
 // FILE: src/components/nav/Sidebar.tsx
 
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import GlobalSearch from "@/components/search/GlobalSearch";
 
@@ -279,29 +280,10 @@ const Icons = {
       <polyline points="9 18 15 12 9 6" />
     </svg>
   ),
-  logo: (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="3" width="4" height="4" rx="1" />
-      <rect x="10" y="3" width="4" height="4" rx="1" opacity="0.6" />
-      <rect x="17" y="3" width="4" height="4" rx="1" opacity="0.3" />
-      <rect x="3" y="10" width="4" height="4" rx="1" opacity="0.7" />
-      <rect x="10" y="10" width="4" height="4" rx="1" />
-      <rect x="17" y="10" width="4" height="4" rx="1" opacity="0.5" />
-      <rect x="3" y="17" width="4" height="4" rx="1" opacity="0.4" />
-      <rect x="10" y="17" width="4" height="4" rx="1" opacity="0.8" />
-      <rect x="17" y="17" width="4" height="4" rx="1" />
-    </svg>
-  ),
 };
+
+const ALIENA_LOGO_URL =
+  "https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png";
 
 /* =============================================================================
    NAV ITEM COMPONENT
@@ -698,28 +680,29 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
           </div>
 
           <div className="space-y-1">
-            {(showGovernanceFallback ? [{ key: "__delivery_governance__", label: "Delivery Governance", href: governanceFallbackHref }] : governanceItems).map(
-              (it: any) => {
-                const href = safeStr(it?.href) || governanceFallbackHref;
-                const label = safeStr(it?.label) || "Delivery Governance";
-                const isActive = activeHref.includes(`/projects/${projectRef}/governance`);
+            {(showGovernanceFallback
+              ? [{ key: "__delivery_governance__", label: "Delivery Governance", href: governanceFallbackHref }]
+              : governanceItems
+            ).map((it: any) => {
+              const href = safeStr(it?.href) || governanceFallbackHref;
+              const label = safeStr(it?.label) || "Delivery Governance";
+              const isActive = activeHref.includes(`/projects/${projectRef}/governance`);
 
-                return (
-                  <Link
-                    key={it.key}
-                    href={href}
-                    prefetch={false}
-                    className={cx(
-                      "block rounded-lg border px-2.5 py-2 transition",
-                      isActive ? "border-sky-200 bg-sky-50" : "border-transparent hover:bg-slate-50"
-                    )}
-                  >
-                    <div className="text-xs font-semibold text-slate-900">{label}</div>
-                    <div className="mt-0.5 text-[10px] text-slate-500">Hub</div>
-                  </Link>
-                );
-              }
-            )}
+              return (
+                <Link
+                  key={it.key}
+                  href={href}
+                  prefetch={false}
+                  className={cx(
+                    "block rounded-lg border px-2.5 py-2 transition",
+                    isActive ? "border-sky-200 bg-sky-50" : "border-transparent hover:bg-slate-50"
+                  )}
+                >
+                  <div className="text-xs font-semibold text-slate-900">{label}</div>
+                  <div className="mt-0.5 text-[10px] text-slate-500">Hub</div>
+                </Link>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -731,7 +714,19 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
    MAIN SIDEBAR
 ============================================================================= */
 
-const STORAGE_KEY = "resforce-sidebar-collapsed";
+const STORAGE_KEY = "aliena-sidebar-collapsed";
+
+function AlienaWordmark() {
+  // "ALIENA" with A + I in blue (per request)
+  return (
+    <span className="inline-flex items-baseline leading-none">
+      <span className="text-sky-600">A</span>
+      <span>LI</span>
+      <span className="text-sky-600">I</span>
+      <span>ENA</span>
+    </span>
+  );
+}
 
 export default function Sidebar({
   userName,
@@ -815,13 +810,34 @@ export default function Sidebar({
       >
         {/* -- Logo + brand -- */}
         <div className={cx("flex items-center gap-3 px-4 border-b border-slate-200", "h-14 flex-shrink-0")}>
-          <div className="flex-shrink-0 text-sky-600">{Icons.logo}</div>
+          {/* ✅ Replace old circle logo with Aliena logo */}
+          <div className="flex-shrink-0">
+            <div className="w-7 h-7 rounded-xl overflow-hidden ring-1 ring-slate-200 bg-white">
+              <Image
+                src={ALIENA_LOGO_URL}
+                alt="Aliena"
+                width={28}
+                height={28}
+                priority
+                className="w-full h-full object-cover"
+              />
+            </div>
+          </div>
+
           {!collapsed && (
             <div className="min-w-0">
-              <div className="text-sm font-black tracking-tight text-slate-900 truncate">ResForce</div>
+              {/* ✅ Replace ResForce with ΛLIΞNΛ */}
+              <div className="text-sm font-black tracking-tight text-slate-900 truncate">ΛLIΞNΛ</div>
+
+              {/* ✅ Also show ALIENA wordmark with A + I in blue */}
+              <div className="mt-0.5 text-[11px] font-extrabold tracking-[0.12em] text-slate-800 truncate">
+                <AlienaWordmark />
+              </div>
+
               {orgName && <div className="text-[10px] text-slate-500 truncate font-medium">{orgName}</div>}
             </div>
           )}
+
           <button
             type="button"
             onClick={toggleCollapse}
