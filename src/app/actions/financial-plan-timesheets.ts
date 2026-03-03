@@ -1,4 +1,6 @@
-﻿// src/app/actions/financial-plan-timesheets.ts
+﻿"use server";
+
+// src/app/actions/financial-plan-timesheets.ts
 // Fetches approved timesheet entries for all resources in a financial plan.
 // Returns TimesheetEntry[] shaped for computeActuals().
 //
@@ -17,8 +19,6 @@
 //
 // Only rows with status = 'approved' are returned.
 
-"use server";
-
 import { createClient } from "@/utils/supabase/server";
 import type { TimesheetEntry } from "@/components/artifacts/computeActuals";
 
@@ -26,16 +26,6 @@ export type FetchTimesheetResult =
   | { ok: true;  entries: TimesheetEntry[] }
   | { ok: false; error: string };
 
-/**
- * getApprovedTimesheetEntries
- *
- * Fetches all approved timesheet entries for a given project.
- * Pass the full resource list so we can filter to resource_ids that belong
- * to this plan (avoids cross-plan leakage if resource IDs are reused).
- *
- * @param projectId   - The project UUID.
- * @param resourceIds - Array of Resource.id values from the plan JSON.
- */
 export async function getApprovedTimesheetEntries(
   projectId: string,
   resourceIds: string[],
@@ -68,12 +58,6 @@ export async function getApprovedTimesheetEntries(
   return { ok: true, entries };
 }
 
-/**
- * submitTimesheetEntry
- *
- * Creates or updates a draft timesheet entry for a resource + month.
- * PM approval is handled separately (approveTimesheetEntry).
- */
 export async function submitTimesheetEntry({
   projectId,
   resourceId,
@@ -109,13 +93,6 @@ export async function submitTimesheetEntry({
   return { ok: true };
 }
 
-/**
- * approveTimesheetEntry
- *
- * Approves a submitted timesheet entry. Only PMs / owners should call this.
- * After approval the entry will be picked up by getApprovedTimesheetEntries
- * and flow into the actuals computation.
- */
 export async function approveTimesheetEntry({
   projectId,
   resourceId,
@@ -140,7 +117,7 @@ export async function approveTimesheetEntry({
     .eq("project_id",  projectId)
     .eq("resource_id", resourceId)
     .eq("month_key",   monthKey)
-    .eq("status",      "submitted"); // safety: only approve if currently submitted
+    .eq("status",      "submitted");
 
   if (error) return { ok: false, error: error.message };
   return { ok: true };
