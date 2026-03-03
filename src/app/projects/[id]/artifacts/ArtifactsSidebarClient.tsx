@@ -1,5 +1,6 @@
 // src/app/projects/[id]/artifacts/ArtifactsSidebarClient.tsx
 // ✅ FINANCIAL_PLAN: added to Plan group, isFinancialKey helper
+// ✅ ROUTING FIX: use projectHumanId (route ref) for all hrefs; keep projectId (uuid) for mutations
 "use client";
 
 import Link from "next/link";
@@ -35,8 +36,13 @@ export type GroupName = "Plan" | "Control" | "Close";
 export type ArtifactsSidebarClientProps = {
   items: SidebarItem[];
   role: Role;
+
+  /** ✅ projectId MUST be UUID for server actions */
   projectId: string;
+
+  /** ✅ human route ref e.g. "P-00001" (or whatever user typed) */
   projectHumanId?: string | null;
+
   projectName?: string | null;
   projectCode?: string | null;
 };
@@ -256,11 +262,20 @@ const GroupSection = React.memo(function GroupSection({
    INNER
 ═══════════════════════════════════════════════════════════════ */
 
-function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCode }: ArtifactsSidebarClientProps) {
+function ArtifactsSidebarInner({ items, role, projectId, projectHumanId, projectName, projectCode }: ArtifactsSidebarClientProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const newTypeRaw = searchParams?.get("type") ?? null;
+
+  // ✅ ROUTE REF: prefer human id for URLs, keep UUID for actions/localStorage keys
+  const projectRef = useMemo(() => {
+    const h = safeStr(projectHumanId).trim();
+    if (h) return h;
+    const c = safeStr(projectCode).trim();
+    if (c) return c;
+    return safeStr(projectId).trim();
+  }, [projectHumanId, projectCode, projectId]);
 
   const [collapsed, setCollapsed] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -273,6 +288,7 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
   const rowRefs = useRef<Array<HTMLAnchorElement | null>>([]);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
+  // ✅ keep storage keys stable by UUID
   const SKEY = `alienai:lastArtifact:${projectId}`;
   const GKEY = `alienai:artifactGroups:${projectId}`;
 
@@ -312,16 +328,16 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
 
     const hasChange = out.some((it) => isChangeKey(canonicalKeyUpper(it)));
     if (!hasChange) {
-      out.push({ key: "CHANGE", ui_kind: "CHANGE", label: "Change Requests", current: null, href: `/projects/${projectId}/change`, canCreate: canEdit, canEdit });
+      out.push({ key: "CHANGE", ui_kind: "CHANGE", label: "Change Requests", current: null, href: `/projects/${projectRef}/change`, canCreate: canEdit, canEdit });
     }
 
     const hasGov = out.some((it) => isGovernanceKey(canonicalKeyUpper(it)));
     if (!hasGov) {
-      out.push({ key: "DELIVERY_GOVERNANCE", ui_kind: "DELIVERY_GOVERNANCE", label: "Delivery Governance", current: null, href: `/projects/${projectId}/governance`, canCreate: false, canEdit: true });
+      out.push({ key: "DELIVERY_GOVERNANCE", ui_kind: "DELIVERY_GOVERNANCE", label: "Delivery Governance", current: null, href: `/projects/${projectRef}/governance`, canCreate: false, canEdit: true });
     }
 
     return out;
-  }, [safeItems, role, projectId]);
+  }, [safeItems, role, projectRef]);
 
   const enhanced: EnhancedItem[] = useMemo(() => {
     const urlId = artifactIdFromPath(pathname);
@@ -331,7 +347,6 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
     return itemsWithRequired.map((it) => {
       const itKey = canonicalKeyUpper(it);
       const isGov = isGovernanceKey(itKey);
-      const isFinancial = isFinancialKey(itKey);
 
       const active =
         (isGov && String(pathname ?? "").includes("/governance")) ||
@@ -342,16 +357,17 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
 
       const status = normStatus(it.current?.approval_status);
 
+      // ✅ ROUTING: all URLs use projectRef
       const openUrl =
         isGov
-          ? `/projects/${projectId}/governance`
+          ? `/projects/${projectRef}/governance`
           : it.current?.id
-            ? `/projects/${projectId}/artifacts/${it.current.id}`
+            ? `/projects/${projectRef}/artifacts/${it.current.id}`
             : isChangeKey(itKey)
-              ? `/projects/${projectId}/change`
+              ? `/projects/${projectRef}/change`
               : isRaidKey(itKey)
-                ? `/projects/${projectId}/raid`
-                : it.href || `/projects/${projectId}/artifacts`;
+                ? `/projects/${projectRef}/raid`
+                : it.href || `/projects/${projectRef}/artifacts`;
 
       const isLocked = Boolean(it.current?.is_locked);
       const isDeleted = Boolean(it.current?.deleted_at);
@@ -363,7 +379,7 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
 
       return { ...it, openUrl, active, status, badge: getBadge(status), keyUpper: itKey, isLocked, isDeleted, canDeleteDraft };
     });
-  }, [itemsWithRequired, pathname, newTypeRaw, storedId, mounted, projectId]);
+  }, [itemsWithRequired, pathname, newTypeRaw, storedId, mounted, projectRef]);
 
   const counts = useMemo(() => {
     let submitted = 0;
@@ -449,6 +465,7 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
     startTransition(async () => {
       try {
         const fd = new FormData();
+        // ✅ server action MUST receive UUID
         fd.set("projectId", projectId);
         fd.set("artifactId", artifactId);
         const res = await deleteDraftArtifactAction(fd);
@@ -476,15 +493,15 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
         <div className={["shrink-0 border-b border-neutral-200 transition-all duration-300", collapsed ? "px-2 py-3" : "px-4 pt-5 pb-4"].join(" ")}>
           {collapsed ? (
             <div className="flex flex-col items-center gap-2">
-              <Link href={`/projects/${projectId}`} title={projectName ?? "Project"}
+              <Link href={`/projects/${projectRef}`} title={projectName ?? "Project"}
                 className="w-10 h-10 rounded-xl bg-neutral-100 border border-neutral-200 flex items-center justify-center text-neutral-900 font-bold text-sm hover:bg-neutral-200 transition-all">
                 {initial}
               </Link>
-              <Link href={`/projects/${projectId}/artifacts`} title="Artifact Board"
+              <Link href={`/projects/${projectRef}/artifacts`} title="Artifact Board"
                 className="w-9 h-9 rounded-lg flex items-center justify-center text-neutral-500 hover:text-neutral-700 hover:bg-neutral-100 transition-all text-xs font-bold">
                 ☰
               </Link>
-              <Link href={`/projects/${projectId}/artifacts/new`} title="New Artifact"
+              <Link href={`/projects/${projectRef}/artifacts/new`} title="New Artifact"
                 className="w-9 h-9 rounded-lg bg-neutral-900 text-white flex items-center justify-center hover:bg-neutral-800 transition-all text-sm font-bold">
                 +
               </Link>
@@ -492,12 +509,12 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
           ) : (
             <>
               <div className="flex items-center gap-3 mb-4">
-                <Link href={`/projects/${projectId}`}
+                <Link href={`/projects/${projectRef}`}
                   className="w-10 h-10 rounded-xl bg-neutral-100 border border-neutral-200 flex items-center justify-center text-neutral-900 font-bold text-sm hover:bg-neutral-200 transition-all shrink-0">
                   {initial}
                 </Link>
                 <div className="flex-1 min-w-0">
-                  <Link href={`/projects/${projectId}`} prefetch={false} title={projectName ?? ""}
+                  <Link href={`/projects/${projectRef}`} prefetch={false} title={projectName ?? ""}
                     className="block text-sm font-semibold text-neutral-900 truncate hover:text-blue-600 transition-colors">
                     {safeStr(projectName).trim() || "Untitled Project"}
                   </Link>
@@ -515,11 +532,11 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
               </div>
 
               <div className="flex flex-wrap items-center gap-1.5 mb-2">
-                <Link href={`/projects/${projectId}/artifacts`} prefetch={false}
+                <Link href={`/projects/${projectRef}/artifacts`} prefetch={false}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-neutral-200 bg-white text-xs font-medium text-neutral-700 hover:bg-neutral-50 transition-all">
                   Board
                 </Link>
-                <Link href={`/projects/${projectId}/artifacts/new`} prefetch={false}
+                <Link href={`/projects/${projectRef}/artifacts/new`} prefetch={false}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-neutral-900 text-white text-xs font-medium hover:bg-neutral-800 transition-all">
                   + New Artifact
                 </Link>
@@ -533,7 +550,7 @@ function ArtifactsSidebarInner({ items, role, projectId, projectName, projectCod
               )}
 
               <div className="mt-2">
-                <Link href={`/projects/${projectId}/change`}
+                <Link href={`/projects/${projectRef}/change`}
                   className="inline-flex items-center px-2.5 py-1.5 rounded-lg border border-neutral-200 bg-white text-xs font-medium text-neutral-600 hover:bg-neutral-50 transition-all">
                   Change Requests board
                 </Link>

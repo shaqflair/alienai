@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export async function POST(req: NextRequest) {
@@ -28,11 +28,12 @@ export async function POST(req: NextRequest) {
   }
 
   // -- Capacity check (week-by-week preview) ---------------------------------
+  // Utilises a database-level RPC for high-performance date-range calculations
   const { data: weekRows, error: weekErr } = await supabase.rpc("check_capacity", {
-    p_person_id:    person_id,
-    p_project_id:   project_id,
-    p_start_date:   start_date,
-    p_end_date:     end_date,
+    p_person_id:     person_id,
+    p_project_id:    project_id,
+    p_start_date:    start_date,
+    p_end_date:      end_date,
     p_days_per_week: days_per_week,
   });
 
@@ -43,13 +44,14 @@ export async function POST(req: NextRequest) {
 
   const weeks = (weekRows ?? []) as Array<{
     week_start:        string;
-    existing_days:     number;
-    proposed_days:     number;
-    total_days:        number;
-    capacity_days:     number;
-    utilisation_pct:   number;
-    has_conflict:      boolean;
+    existing_days:      number;
+    proposed_days:      number;
+    total_days:         number;
+    capacity_days:      number;
+    utilisation_pct:    number;
+    has_conflict:       boolean;
     conflict_severity: string;
+    is_exception:       boolean;
   }>;
 
   const hasConflicts = weeks.some(w => w.has_conflict);

@@ -203,7 +203,12 @@ async function queryArtifacts(sb: any, projectUuid: string) {
   return { list: Array.isArray(data) ? data : [], error };
 }
 
-function buildSidebarItems(dbArtifacts: any[], projectUuid: string): SidebarItem[] {
+/**
+ * ✅ ROUTING FIX:
+ * - build hrefs using projectRef (human route id)
+ * - keep current.id as UUID for artifact detail
+ */
+function buildSidebarItems(dbArtifacts: any[], projectUuid: string, projectRef: string): SidebarItem[] {
   const byDbType = new Map<string, any>();
 
   for (const a of dbArtifacts) {
@@ -219,12 +224,12 @@ function buildSidebarItems(dbArtifacts: any[], projectUuid: string): SidebarItem
 
     // Change Requests: always board route
     if (dbTypeLower === "change") {
-      return { key: def.key, label: def.label, ui_kind: def.key, current: null, href: `/projects/${projectUuid}/change`, canCreate: false, canEdit: true };
+      return { key: def.key, label: def.label, ui_kind: def.key, current: null, href: `/projects/${projectRef}/change`, canCreate: false, canEdit: true };
     }
 
     // Legacy board routes (RAID, Lessons)
     if (def.legacyRoute) {
-      return { key: def.key, label: def.label, ui_kind: def.key, current: null, href: `/projects/${projectUuid}/${def.legacyRoute}`, canCreate: false, canEdit: true };
+      return { key: def.key, label: def.label, ui_kind: def.key, current: null, href: `/projects/${projectRef}/${def.legacyRoute}`, canCreate: false, canEdit: true };
     }
 
     const artifact = byDbType.get(dbTypeLower) ?? null;
@@ -240,8 +245,8 @@ function buildSidebarItems(dbArtifacts: any[], projectUuid: string): SidebarItem
       : null;
 
     const href = artifact
-      ? `/projects/${projectUuid}/artifacts/${artifact.id}`
-      : `/projects/${projectUuid}/artifacts/new?type=${def.dbType}`;
+      ? `/projects/${projectRef}/artifacts/${artifact.id}`
+      : `/projects/${projectRef}/artifacts/new?type=${def.dbType}`;
 
     return { key: def.key, label: def.label, ui_kind: def.key, current, href, canCreate: true, canEdit: true };
   });
@@ -251,7 +256,7 @@ function buildSidebarItems(dbArtifacts: any[], projectUuid: string): SidebarItem
     label: "Delivery Governance",
     ui_kind: "DELIVERY_GOVERNANCE",
     current: null,
-    href: `/projects/${projectUuid}/governance`,
+    href: `/projects/${projectRef}/governance`,
     canCreate: false,
     canEdit: true,
   };
@@ -266,7 +271,7 @@ export default async function ArtifactsSidebar({
   projectId,
   currentArtifactId,
 }: {
-  projectId: string;
+  projectId: string; // ✅ this is the route param (human id or uuid)
   currentArtifactId?: string;
 }) {
   const sb = await createClient();
@@ -296,15 +301,18 @@ export default async function ArtifactsSidebar({
   const { list, error: artErr } = await queryArtifacts(sb, projectUuid);
   if (artErr) logSbError("[ArtifactsSidebar] Artifacts query error", artErr, { projectUuid, projectId });
 
-  const items = buildSidebarItems(list, projectUuid);
+  // ✅ build hrefs using route param (human id), not uuid
+  const projectRef = safeStr(projectId) || projectCodeHuman || projectUuid;
+
+  const items = buildSidebarItems(list, projectUuid, projectRef);
   const role: Role = await resolveRoleBestEffort(sb, projectUuid, auth.user.id);
 
   return (
     <ArtifactsSidebarClient
       items={items}
       role={role}
-      projectId={projectUuid}
-      projectHumanId={projectId}
+      projectId={projectUuid}          // ✅ UUID for actions
+      projectHumanId={projectRef}      // ✅ route ref for navigation
       projectName={projectTitle}
       projectCode={projectCodeHuman}
     />
