@@ -140,7 +140,7 @@ function generateWeeks(from: string, to: string): WeekCol[] {
 
   const cols: WeekCol[] = [];
   let cur = getMondayOf(from);
-  const end = getMondayOf(to); // ✅ include final week reliably
+  const end = getMondayOf(to);
 
   while (cur <= end && cols.length < 52) {
     const nextMon = addDays(cur, 7);
@@ -237,7 +237,9 @@ function AddExceptionModal({
   const [personId, setPersonId] = useState(defaultPersonId);
   const [startDate, setStartDate] = useState(defaultWeek);
   const [endDate, setEndDate] = useState(defaultWeek);
-  const [availDays, setAvailDays] = useState(0);
+  const [availDays, setAvailDays] = useState(
+    () => people.find((p) => p.id === defaultPersonId)?.defaultCap ?? 5
+  );
   const [reason, setReason] = useState("annual_leave");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -356,7 +358,15 @@ function AddExceptionModal({
           {(isAdmin || people.length > 1) && (
             <div>
               <FieldLabel>Person</FieldLabel>
-              <select value={personId} onChange={(e) => setPersonId(e.target.value)} style={inputStyle}>
+              <select
+                value={personId}
+                onChange={(e) => {
+                  setPersonId(e.target.value);
+                  const cap = people.find((p) => p.id === e.target.value)?.defaultCap ?? 5;
+                  setAvailDays(cap);
+                }}
+                style={inputStyle}
+              >
                 {people.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.fullName}
@@ -1128,7 +1138,7 @@ export default function CapacityClient({
           defaultWeek={modalWeek}
           onClose={() => {
             setShowModal(false);
-            router.refresh(); // ✅ no full reload
+            router.refresh();
           }}
         />
       )}

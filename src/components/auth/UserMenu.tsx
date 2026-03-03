@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { setActiveOrg } from "@/app/actions/org";
+import { setActiveOrg, clearActiveOrg } from "@/app/actions/active-org";
 import { signOutAction } from "@/app/actions/auth";
 
 type OrgRole = "admin" | "member";

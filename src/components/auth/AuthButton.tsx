@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/utils/supabase/client";
+import { createClient } from "@/utils/supabase/server";
 import { signOutAction } from "@/app/actions/auth";
 
 export default async function AuthButton() {
@@ -24,12 +24,10 @@ export default async function AuthButton() {
 
   return (
     <div className="flex items-center gap-3">
-      {/* User email */}
       <span className="text-sm text-gray-600 truncate max-w-[220px]">
         {email}
       </span>
 
-      {/* Logout */}
       <form action={signOutAction}>
         <button
           type="submit"
