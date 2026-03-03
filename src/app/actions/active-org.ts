@@ -7,30 +7,35 @@ import { createClient } from "@/utils/supabase/server";
 
 const COOKIE_NAME = "active_org_id";
 
+function safeStr(x: unknown) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
 export async function setActiveOrg(formData: FormData) {
-  const orgId = String(formData.get("orgId") ?? "").trim();
-  const nextPath = String(formData.get("nextPath") ?? "/projects").trim() || "/projects";
+  const orgId = safeStr(formData.get("orgId")).trim();
+  const nextPath = safeStr(formData.get("nextPath")).trim() || "/projects";
 
   if (!orgId) redirect(nextPath);
 
   const supabase = await createClient();
   const {
     data: { user },
+    error: authErr,
   } = await supabase.auth.getUser();
 
-  if (!user) redirect("/login");
+  if (authErr || !user) redirect("/login");
 
   // ✅ validate membership via organisation_members
-  const { data: membership } = await supabase
+  const { data: membership, error: memErr } = await supabase
     .from("organisation_members")
     .select("organisation_id")
     .eq("organisation_id", orgId)
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (!membership) redirect(nextPath);
+  if (memErr || !membership) redirect(nextPath);
 
-  // ✅ Next.js 16: cookies() is async-typed -> await it
+  // ✅ cookies() is async-typed in some Next builds -> awaiting is safe
   const cookieStore = await cookies();
   cookieStore.set(COOKIE_NAME, orgId, {
     httpOnly: true,

@@ -1,34 +1,16 @@
-use server";
+﻿"use server";
 
 // src/app/actions/financial-plan-timesheets.ts
 // Fetches approved timesheet entries for all resources in a financial plan.
 // Returns TimesheetEntry[] shaped for computeActuals().
-//
-// DB schema assumed:
-//   timesheet_entries (
-//     id            uuid pk
-//     resource_id   text        -- matches Resource.id in the plan JSON
-//     project_id    uuid        -- FK → projects.id
-//     month_key     text        -- YYYY-MM
-//     approved_days numeric
-//     status        text        -- 'draft' | 'submitted' | 'approved' | 'rejected'
-//     submitted_at  timestamptz
-//     approved_at   timestamptz
-//     approved_by   uuid        -- FK → auth.users.id
-//   )
-//
-// Only rows with status = 'approved' are returned.
 
 import { createClient } from "@/utils/supabase/server";
 import type { TimesheetEntry } from "@/components/artifacts/computeActuals";
-
-export type FetchTimesheetResult =
-  | { ok: true;  entries: TimesheetEntry[] }
-  | { ok: false; error: string };
+import type { FetchTimesheetResult } from "./financial-plan-timesheets.shared";
 
 export async function getApprovedTimesheetEntries(
   projectId: string,
-  resourceIds: string[],
+  resourceIds: string[]
 ): Promise<FetchTimesheetResult> {
   if (!projectId || resourceIds.length === 0) {
     return { ok: true, entries: [] };
@@ -45,13 +27,11 @@ export async function getApprovedTimesheetEntries(
     .gt("approved_days", 0)
     .order("month_key", { ascending: true });
 
-  if (error) {
-    return { ok: false, error: error.message };
-  }
+  if (error) return { ok: false, error: error.message };
 
-  const entries: TimesheetEntry[] = (data ?? []).map(row => ({
-    resource_id:   String(row.resource_id),
-    month_key:     String(row.month_key),
+  const entries: TimesheetEntry[] = (data ?? []).map((row: any) => ({
+    resource_id: String(row.resource_id),
+    month_key: String(row.month_key),
     approved_days: Number(row.approved_days),
   }));
 
@@ -64,30 +44,32 @@ export async function submitTimesheetEntry({
   monthKey,
   days,
 }: {
-  projectId:  string;
+  projectId: string;
   resourceId: string;
-  monthKey:   string;
-  days:       number;
+  monthKey: string;
+  days: number;
 }): Promise<{ ok: boolean; error?: string }> {
   const supabase = await createClient();
 
-  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  const {
+    data: { user },
+    error: authErr,
+  } = await supabase.auth.getUser();
+
   if (authErr || !user) return { ok: false, error: "Not authenticated" };
 
-  const { error } = await supabase
-    .from("timesheet_entries")
-    .upsert(
-      {
-        project_id:    projectId,
-        resource_id:   resourceId,
-        month_key:     monthKey,
-        approved_days: days,
-        status:        "submitted",
-        submitted_at:  new Date().toISOString(),
-        submitted_by:  user.id,
-      },
-      { onConflict: "project_id,resource_id,month_key" }
-    );
+  const { error } = await supabase.from("timesheet_entries").upsert(
+    {
+      project_id: projectId,
+      resource_id: resourceId,
+      month_key: monthKey,
+      approved_days: days,
+      status: "submitted",
+      submitted_at: new Date().toISOString(),
+      submitted_by: user.id,
+    },
+    { onConflict: "project_id,resource_id,month_key" }
+  );
 
   if (error) return { ok: false, error: error.message };
   return { ok: true };
@@ -98,26 +80,30 @@ export async function approveTimesheetEntry({
   resourceId,
   monthKey,
 }: {
-  projectId:  string;
+  projectId: string;
   resourceId: string;
-  monthKey:   string;
+  monthKey: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const supabase = await createClient();
 
-  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  const {
+    data: { user },
+    error: authErr,
+  } = await supabase.auth.getUser();
+
   if (authErr || !user) return { ok: false, error: "Not authenticated" };
 
   const { error } = await supabase
     .from("timesheet_entries")
     .update({
-      status:      "approved",
+      status: "approved",
       approved_at: new Date().toISOString(),
       approved_by: user.id,
     })
-    .eq("project_id",  projectId)
+    .eq("project_id", projectId)
     .eq("resource_id", resourceId)
-    .eq("month_key",   monthKey)
-    .eq("status",      "submitted");
+    .eq("month_key", monthKey)
+    .eq("status", "submitted");
 
   if (error) return { ok: false, error: error.message };
   return { ok: true };
