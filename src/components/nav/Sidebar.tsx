@@ -105,7 +105,16 @@ function safeUpper(x: unknown) {
 
 const Icons = {
   dashboard: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <rect x="3" y="3" width="7" height="7" />
       <rect x="14" y="3" width="7" height="7" />
       <rect x="14" y="14" width="7" height="7" />
@@ -113,12 +122,30 @@ const Icons = {
     </svg>
   ),
   projects: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
     </svg>
   ),
   heatmap: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <rect x="3" y="3" width="4" height="4" rx="1" />
       <rect x="10" y="3" width="4" height="4" rx="1" />
       <rect x="17" y="3" width="4" height="4" rx="1" />
@@ -131,7 +158,16 @@ const Icons = {
     </svg>
   ),
   allocations: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
       <circle cx="9" cy="7" r="4" />
       <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
@@ -139,13 +175,31 @@ const Icons = {
     </svg>
   ),
   people: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
       <circle cx="12" cy="7" r="4" />
     </svg>
   ),
   leave: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
       <line x1="16" y1="2" x2="16" y2="6" />
       <line x1="8" y1="2" x2="8" y2="6" />
@@ -154,34 +208,88 @@ const Icons = {
     </svg>
   ),
   settings: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <circle cx="12" cy="12" r="3" />
       <path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M4.93 19.07l1.41-1.41M19.07 19.07l-1.41-1.41M12 2v2M12 20v2M2 12h2M20 12h2" />
     </svg>
   ),
   timesheet: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <circle cx="12" cy="12" r="10" />
       <polyline points="12 6 12 12 16 14" />
     </svg>
   ),
   scenarios: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18" />
     </svg>
   ),
   chevronLeft: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <polyline points="15 18 9 12 15 6" />
     </svg>
   ),
   chevronRight: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <polyline points="9 18 15 12 9 6" />
     </svg>
   ),
   logo: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <rect x="3" y="3" width="4" height="4" rx="1" />
       <rect x="10" y="3" width="4" height="4" rx="1" opacity="0.6" />
       <rect x="17" y="3" width="4" height="4" rx="1" opacity="0.3" />
@@ -215,9 +323,16 @@ function SidebarItem({ item, collapsed }: { item: NavItem; collapsed: boolean })
           : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
       )}
     >
-      {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-sky-500 rounded-r-full" />}
+      {active && (
+        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-sky-500 rounded-r-full" />
+      )}
 
-      <span className={cx("flex-shrink-0 transition-colors", active ? "text-sky-600" : "text-slate-400 group-hover:text-slate-600")}>
+      <span
+        className={cx(
+          "flex-shrink-0 transition-colors",
+          active ? "text-sky-600" : "text-slate-400 group-hover:text-slate-600"
+        )}
+      >
         {item.icon}
       </span>
 
@@ -225,7 +340,12 @@ function SidebarItem({ item, collapsed }: { item: NavItem; collapsed: boolean })
         <>
           <span className="flex-1 truncate">{item.label}</span>
           {item.badge && (
-            <span className={cx("text-[10px] font-bold px-1.5 py-0.5 rounded-md", active ? "bg-sky-100 text-sky-700" : "bg-slate-100 text-slate-600")}>
+            <span
+              className={cx(
+                "text-[10px] font-bold px-1.5 py-0.5 rounded-md",
+                active ? "bg-sky-100 text-sky-700" : "bg-slate-100 text-slate-600"
+              )}
+            >
               {item.badge}
             </span>
           )}
@@ -259,7 +379,9 @@ function SidebarGroup({ group, collapsed }: { group: NavGroup; collapsed: boolea
     <div className="flex flex-col gap-0.5">
       {!collapsed && (
         <div className="px-3 pb-1 pt-2">
-          <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">{group.label}</span>
+          <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">
+            {group.label}
+          </span>
         </div>
       )}
       {collapsed && <div className="h-3" />}
@@ -278,20 +400,25 @@ function ProjectContextStrip({ projectRef, collapsed }: { projectRef: string; co
   const pathname = usePathname();
   const base = `/projects/${projectRef}`;
 
+  // ✅ Ensure delivery governance is always present
   const subItems = [
     { href: base, label: "Overview" },
     { href: `${base}/artifacts`, label: "Artifacts" },
     { href: `${base}/changes`, label: "Changes" },
     { href: `${base}/approvals`, label: "Approvals" },
     { href: `${base}/members`, label: "Members" },
+    { href: `${base}/governance`, label: "Delivery governance" },
   ];
 
   if (collapsed) return null;
 
+  // ✅ Fix: make links clickable even if some overlay exists above
   return (
-    <div className="mx-2 mb-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+    <div className="relative z-20 pointer-events-auto mx-2 mb-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
       <div className="px-1 pb-1.5">
-        <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Current project</span>
+        <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">
+          Current project
+        </span>
       </div>
       <div className="flex flex-col gap-0.5">
         {subItems.map((item) => {
@@ -352,8 +479,11 @@ function isGovernanceKey(kUpper: string) {
 
 function groupForKey(kUpper: string): GroupName {
   const u = safeUpper(kUpper);
-  if (["PROJECT_CHARTER", "STAKEHOLDER_REGISTER", "WBS", "SCHEDULE", "FINANCIAL_PLAN", "WEEKLY_REPORT"].includes(u)) return "Plan";
-  if (isRaidKey(u) || isChangeKey(u)) return "Control";
+  if (
+    ["PROJECT_CHARTER", "STAKEHOLDER_REGISTER", "WBS", "SCHEDULE", "FINANCIAL_PLAN", "WEEKLY_REPORT"].includes(u)
+  )
+    return "Plan";
+  if (isRaidKey(u) || isChangeKey(u) || isGovernanceKey(u)) return "Control";
   return "Close";
 }
 
@@ -368,13 +498,7 @@ function badgeForStatus(status: string | null | undefined) {
   return { label: s, cls: "border-slate-200 bg-white text-slate-600" };
 }
 
-function ProjectArtifactsInline({
-  projectRef,
-  collapsed,
-}: {
-  projectRef: string;
-  collapsed: boolean;
-}) {
+function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string; collapsed: boolean }) {
   const pathname = usePathname();
 
   const [data, setData] = useState<ArtifactSidebarPayload | null>(null);
@@ -385,7 +509,6 @@ function ProjectArtifactsInline({
     setErr(null);
     setData(null);
 
-    // IMPORTANT: projectRef is the URL param (uuid or human)
     fetch(`/api/projects/${encodeURIComponent(projectRef)}/artifacts/sidebar`, { cache: "no-store" })
       .then(async (r) => {
         const j = (await r.json()) as ArtifactSidebarPayload;
@@ -405,11 +528,9 @@ function ProjectArtifactsInline({
 
   const items = useMemo(() => (Array.isArray(data?.items) ? data!.items : []), [data]);
 
-  const visible = useMemo(() => {
-    // keep it simple in the merged sidebar (no search box here)
-    return items;
-  }, [items]);
+  const visible = useMemo(() => items, [items]);
 
+  // Split governance vs normal artifacts
   const artifactItems = useMemo(() => visible.filter((it) => !isGovernanceKey(it.ui_kind || it.key)), [visible]);
   const governanceItems = useMemo(() => visible.filter((it) => isGovernanceKey(it.ui_kind || it.key)), [visible]);
 
@@ -422,13 +543,9 @@ function ProjectArtifactsInline({
     return out;
   }, [artifactItems]);
 
-  const activeHref = useMemo(() => {
-    // highlight current page by route matching
-    return String(pathname || "");
-  }, [pathname]);
+  const activeHref = useMemo(() => String(pathname || ""), [pathname]);
 
   if (collapsed) {
-    // when collapsed, just show a single compact entry to jump to board
     return (
       <div className="mx-2 mt-2">
         <Link
@@ -441,6 +558,9 @@ function ProjectArtifactsInline({
       </div>
     );
   }
+
+  const governanceFallbackHref = `/projects/${projectRef}/governance`;
+  const showGovernanceFallback = governanceItems.length === 0;
 
   return (
     <div className="mx-2 mt-2 rounded-xl border border-slate-200 bg-white overflow-hidden">
@@ -456,18 +576,15 @@ function ProjectArtifactsInline({
           </Link>
         </div>
 
-        {data?.projectName && (
-          <div className="mt-1 text-xs font-semibold text-slate-900 truncate">{data.projectName}</div>
-        )}
+        {data?.projectName && <div className="mt-1 text-xs font-semibold text-slate-900 truncate">{data.projectName}</div>}
+
         <div className="mt-1 flex items-center gap-2">
           {data?.projectCode && (
             <code className="font-mono text-[10px] text-slate-600 bg-white border border-slate-200 px-1.5 py-0.5 rounded">
               {data.projectCode}
             </code>
           )}
-          {data?.role && (
-            <span className="text-[10px] font-semibold capitalize text-slate-500">{data.role}</span>
-          )}
+          {data?.role && <span className="text-[10px] font-semibold capitalize text-slate-500">{data.role}</span>}
         </div>
 
         <div className="mt-2 flex items-center gap-2">
@@ -500,9 +617,7 @@ function ProjectArtifactsInline({
 
       <div className="px-2 py-2">
         {err && (
-          <div className="px-2 py-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg">
-            {err}
-          </div>
+          <div className="px-2 py-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg">{err}</div>
         )}
 
         {!err && items.length === 0 && (
@@ -514,8 +629,7 @@ function ProjectArtifactsInline({
           const list = grouped[g];
           if (!list?.length) return null;
 
-          const colour =
-            g === "Plan" ? "text-sky-700" : g === "Control" ? "text-amber-700" : "text-rose-700";
+          const colour = g === "Plan" ? "text-sky-700" : g === "Control" ? "text-amber-700" : "text-rose-700";
 
           return (
             <div key={g} className="mb-2">
@@ -557,7 +671,12 @@ function ProjectArtifactsInline({
                             {it.current?.is_locked ? <span className="ml-1.5 text-slate-400">🔒</span> : null}
                           </div>
                         </div>
-                        <span className={cx("shrink-0 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold", badge.cls)}>
+                        <span
+                          className={cx(
+                            "shrink-0 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold",
+                            badge.cls
+                          )}
+                        >
                           {it.current ? badge.label : it.canCreate ? "Create" : "View"}
                         </span>
                       </div>
@@ -569,33 +688,40 @@ function ProjectArtifactsInline({
           );
         })}
 
-        {/* Governance */}
-        {governanceItems.length > 0 && (
-          <div className="mt-2 pt-2 border-t border-slate-200">
-            <div className="px-2 pb-1">
-              <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Governance</span>
-            </div>
-            <div className="space-y-1">
-              {governanceItems.map((it) => {
-                const isActive = activeHref.includes(`/governance`);
+        {/* ✅ Governance (Delivery Governance) — ALWAYS SHOW (fallback to /governance if API doesn't return a governance item) */}
+        <div className="mt-2 pt-2 border-t border-slate-200">
+          <div className="px-2 pb-1 flex items-center justify-between">
+            <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Delivery governance</span>
+            <span className="text-[10px] font-semibold text-slate-400 tabular-nums">
+              {governanceItems.length ? governanceItems.length : 1}
+            </span>
+          </div>
+
+          <div className="space-y-1">
+            {(showGovernanceFallback ? [{ key: "__delivery_governance__", label: "Delivery Governance", href: governanceFallbackHref }] : governanceItems).map(
+              (it: any) => {
+                const href = safeStr(it?.href) || governanceFallbackHref;
+                const label = safeStr(it?.label) || "Delivery Governance";
+                const isActive = activeHref.includes(`/projects/${projectRef}/governance`);
+
                 return (
                   <Link
                     key={it.key}
-                    href={it.href}
+                    href={href}
                     prefetch={false}
                     className={cx(
                       "block rounded-lg border px-2.5 py-2 transition",
                       isActive ? "border-sky-200 bg-sky-50" : "border-transparent hover:bg-slate-50"
                     )}
                   >
-                    <div className="text-xs font-semibold text-slate-900">{it.label}</div>
+                    <div className="text-xs font-semibold text-slate-900">{label}</div>
                     <div className="mt-0.5 text-[10px] text-slate-500">Hub</div>
                   </Link>
                 );
-              })}
-            </div>
+              }
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -727,9 +853,7 @@ export default function Sidebar({
           )}
 
           {/* ✅ MERGED: Artifacts sidebar content inside left sidebar */}
-          {projectRef && (
-            <ProjectArtifactsInline projectRef={projectRef} collapsed={collapsed} />
-          )}
+          {projectRef && <ProjectArtifactsInline projectRef={projectRef} collapsed={collapsed} />}
         </div>
 
         {/* -- Bottom: settings + user -- */}
@@ -739,7 +863,12 @@ export default function Sidebar({
           ))}
 
           <div className={cx("mt-1 flex items-center gap-3 px-3 py-2.5 rounded-xl", "bg-slate-50 border border-slate-200")}>
-            <div className={cx("flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center", "bg-sky-100 text-sky-700 text-xs font-black")}>
+            <div
+              className={cx(
+                "flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center",
+                "bg-sky-100 text-sky-700 text-xs font-black"
+              )}
+            >
               {(userName || "U").charAt(0).toUpperCase()}
             </div>
             {!collapsed && (
