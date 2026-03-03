@@ -282,8 +282,24 @@ const Icons = {
   ),
 };
 
+/* =============================================================================
+   BRAND
+============================================================================= */
+
 const ALIENA_LOGO_URL =
   "https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png";
+
+function AlienaWordmarkTop() {
+  // ΛLIΞNΛ with Λ + I in blue
+  return (
+    <span className="inline-flex items-baseline leading-none">
+      <span className="text-sky-600">Λ</span>
+      <span>LI</span>
+      <span className="text-sky-600">I</span>
+      <span>ΞNΛ</span>
+    </span>
+  );
+}
 
 /* =============================================================================
    NAV ITEM COMPONENT
@@ -645,7 +661,12 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <div className={cx("text-xs font-semibold truncate", it.current ? "text-slate-900" : "text-slate-600")}>
+                          <div
+                            className={cx(
+                              "text-xs font-semibold truncate",
+                              it.current ? "text-slate-900" : "text-slate-600"
+                            )}
+                          >
                             {it.label}
                           </div>
                           <div className="mt-0.5 text-[10px] text-slate-500">
@@ -715,18 +736,6 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
 ============================================================================= */
 
 const STORAGE_KEY = "aliena-sidebar-collapsed";
-
-function AlienaWordmark() {
-  // "ALIENA" with A + I in blue (per request)
-  return (
-    <span className="inline-flex items-baseline leading-none">
-      <span className="text-sky-600">A</span>
-      <span>LI</span>
-      <span className="text-sky-600">I</span>
-      <span>ENA</span>
-    </span>
-  );
-}
 
 export default function Sidebar({
   userName,
@@ -810,14 +819,14 @@ export default function Sidebar({
       >
         {/* -- Logo + brand -- */}
         <div className={cx("flex items-center gap-3 px-4 border-b border-slate-200", "h-14 flex-shrink-0")}>
-          {/* ✅ Replace old circle logo with Aliena logo */}
+          {/* ✅ Replace old logo with Aliena logo */}
           <div className="flex-shrink-0">
-            <div className="w-7 h-7 rounded-xl overflow-hidden ring-1 ring-slate-200 bg-white">
+            <div className="w-8 h-8 rounded-xl overflow-hidden ring-1 ring-slate-200 bg-white">
               <Image
                 src={ALIENA_LOGO_URL}
                 alt="Aliena"
-                width={28}
-                height={28}
+                width={32}
+                height={32}
                 priority
                 className="w-full h-full object-cover"
               />
@@ -826,12 +835,9 @@ export default function Sidebar({
 
           {!collapsed && (
             <div className="min-w-0">
-              {/* ✅ Replace ResForce with ΛLIΞNΛ */}
-              <div className="text-sm font-black tracking-tight text-slate-900 truncate">ΛLIΞNΛ</div>
-
-              {/* ✅ Also show ALIENA wordmark with A + I in blue */}
-              <div className="mt-0.5 text-[11px] font-extrabold tracking-[0.12em] text-slate-800 truncate">
-                <AlienaWordmark />
+              {/* ✅ Replace any ResForce with ΛLIΞNΛ */}
+              <div className="text-sm font-black tracking-tight text-slate-900 truncate">
+                <AlienaWordmarkTop />
               </div>
 
               {orgName && <div className="text-[10px] text-slate-500 truncate font-medium">{orgName}</div>}
