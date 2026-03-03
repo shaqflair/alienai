@@ -31,17 +31,13 @@ export async function resolveActiveProjectScope(supabase: any, userId: string): 
       .select("id, active_organisation_id")
       .eq("id", userId)
       .maybeSingle();
-
     const orgId = String((prof as any)?.active_organisation_id || "").trim();
-
     if (!profErr && orgId) {
-      // Assumes projects has organisation_id (common in your schema)
       const { data: rows, error } = await supabase
         .from("projects")
         .select("id")
         .eq("organisation_id", orgId)
         .limit(10000);
-
       if (!error) {
         const projectIds = uniqStrings((rows || []).map((r: any) => r?.id));
         return {
@@ -54,7 +50,6 @@ export async function resolveActiveProjectScope(supabase: any, userId: string): 
           },
         };
       }
-
       // If column/table mismatch etc., fall through to membership scope
     }
   } catch {
@@ -63,7 +58,6 @@ export async function resolveActiveProjectScope(supabase: any, userId: string): 
 
   // Membership fallback (legacy)
   try {
-    // Try common membership tables (project_memberships / project_members)
     for (const table of ["project_memberships", "project_members", "project_membership"] as const) {
       const { data, error } = await supabase.from(table).select("project_id").eq("user_id", userId).limit(10000);
       if (error) {
@@ -81,4 +75,32 @@ export async function resolveActiveProjectScope(supabase: any, userId: string): 
   }
 
   return { projectIds: [], meta: { scope: "none", count: 0 } };
+}
+
+// ── Aliases & utilities used by portfolio routes ──────────────────────────────
+
+/**
+ * Org-scoped variant — identical to resolveActiveProjectScope (which already
+ * does org-first resolution). Exported separately so portfolio routes can be
+ * explicit about intent.
+ */
+export const resolveOrgActiveProjectScope = resolveActiveProjectScope;
+
+/**
+ * Filter a raw project-rows array down to non-deleted active IDs.
+ * Accepts either objects with at least { id } or a plain string[].
+ */
+export function filterActiveProjectIds(
+  rows: Array<{ id: string; deleted_at?: string | null; is_active?: boolean | null } | string>
+): string[] {
+  return uniqStrings(
+    (rows || [])
+      .filter((r) => {
+        if (typeof r === "string") return true;
+        if (r?.deleted_at) return false;
+        if (r?.is_active === false) return false;
+        return true;
+      })
+      .map((r) => (typeof r === "string" ? r : r?.id))
+  );
 }
