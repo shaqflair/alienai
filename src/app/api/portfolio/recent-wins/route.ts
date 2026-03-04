@@ -89,7 +89,11 @@ async function handle(req: NextRequest, days: number, limit: number) {
   }
 
   const summary = await summaryRes.json();
-  const topWins: any[] = Array.isArray(summary?.top) ? summary.top : [];
+  const topWins: any[] = (Array.isArray(summary?.top) ? summary.top : []).map((w: any) => ({
+  ...w,
+  type: w?.type ?? w?.category ?? "other",
+  category: w?.category ?? w?.type ?? "other",
+}));
 
   // Build projById map from top wins for budget lookup
   const scoped = await resolveOrgActiveProjectScope(supabase, user.id);
@@ -158,3 +162,4 @@ export async function POST(req: NextRequest) {
     return res;
   }
 }
+
