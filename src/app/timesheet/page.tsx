@@ -144,6 +144,34 @@ export default async function TimesheetPage({
     }
   }
 
+  // Fix: also load projects via project_members (users may be members without allocations)
+  if (projectMap.size === 0) {
+    const { data: memberProjectRows } = await supabase
+      .from("project_members")
+      .select("project_id, projects:projects!project_members_project_id_fkey(id, title, project_code, colour, resource_status, deleted_at, organisation_id)")
+      .eq("user_id", user.id)
+      .is("removed_at", null);
+
+    for (const r of memberProjectRows ?? []) {
+      const p = (r as any).projects;
+      if (!p || p.deleted_at) continue;
+      if (safeStr(p.organisation_id) !== organisationId) continue;
+      const rs = safeStr(p.resource_status).toLowerCase();
+      if (rs && !["confirmed", "pipeline", "active", ""].includes(rs)) continue;
+      const pid = safeStr(p.id);
+      if (!projectMap.has(pid)) {
+        projectMap.set(pid, {
+          id: pid,
+          title: safeStr(p.title),
+          code: p.project_code ?? null,
+          colour: safeStr(p.colour) || "#00b8db",
+        });
+        // Mark as covering this week since they're a member
+        allocatedThisWeekIds.add(pid);
+      }
+    }
+  }
+
   // Sort: this-week allocations first, then the rest alphabetically
   const allProjectsList = Array.from(projectMap.values());
   const projects: TimesheetProject[] = [
