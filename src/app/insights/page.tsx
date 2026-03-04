@@ -3,7 +3,7 @@ import "server-only";
 
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/server";
-import { resolveOrgActiveProjectScope } from "@/lib/server/project-scope";
+import { resolveOrgActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
 
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
@@ -60,7 +60,6 @@ type ExecSection = {
 type ExecSummary = {
   ok: true;
 
-  // header context (optional; route has these)
   org_name?: string | null;
   client_name?: string | null;
 
@@ -170,17 +169,31 @@ export default async function InsightsPage() {
   const userId = auth?.user?.id || null;
 
   // ✅ ORG-WIDE + ACTIVE project scope (dashboard-aligned)
+  let scopedProjectIdsRaw: string[] = [];
   let scopedProjectIds: string[] = [];
   let scopeMeta: any = null;
 
   if (userId) {
     try {
       const scoped = await resolveOrgActiveProjectScope(supabase, userId);
-      scopedProjectIds = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
+      scopedProjectIdsRaw = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
       scopeMeta = scoped?.meta ?? null;
-    } catch {
+
+      // ✅ apply ACTIVE filter (exclude closed/cancelled/archived/deleted etc.)
+      const active = await filterActiveProjectIds(supabase, scopedProjectIdsRaw);
+      scopedProjectIds = Array.isArray(active?.projectIds) ? active.projectIds.filter(Boolean) : [];
+
+      scopeMeta = {
+        ...(scopeMeta || {}),
+        active_filter: active?.meta || null,
+        scope_counts: { raw: scopedProjectIdsRaw.length, active: scopedProjectIds.length },
+        active_filter_ok: Boolean(active?.ok),
+        active_filter_error: active?.error || null,
+      };
+    } catch (e: any) {
+      scopedProjectIdsRaw = [];
       scopedProjectIds = [];
-      scopeMeta = { error: "resolveOrgActiveProjectScope failed" };
+      scopeMeta = { error: "scope resolution failed", detail: safeStr(e?.message || e) };
     }
   }
 
@@ -370,9 +383,7 @@ export default async function InsightsPage() {
             ...x,
             note:
               x.sla_breach_probability != null
-                ? `SLA breach probability ${x.sla_breach_probability}%${
-                    x.sla_days_to_breach != null ? ` • ~${x.sla_days_to_breach} days` : ""
-                  }.`
+                ? `SLA breach probability ${x.sla_breach_probability}%${x.sla_days_to_breach != null ? ` • ~${x.sla_days_to_breach} days` : ""}.`
                 : null,
           }));
 
@@ -380,10 +391,7 @@ export default async function InsightsPage() {
           .filter((x) => (n(x.exposure_total, 0) || 0) > 0)
           .sort((a, b) => (n(b.exposure_total, 0) || 0) - (n(a.exposure_total, 0) || 0))
           .slice(0, top)
-          .map((x) => ({
-            ...x,
-            note: `Exposure ${x.exposure_total_fmt || "—"} (cost + revenue risk + penalties).`,
-          }));
+          .map((x) => ({ ...x, note: `Exposure ${x.exposure_total_fmt || "—"} (cost + revenue risk + penalties).` }));
 
         const decisions = [...enriched]
           .filter((x) => x.overdue || (x.due_date && x.due_date <= toStr))
@@ -400,76 +408,6 @@ export default async function InsightsPage() {
             prompt: x.overdue ? `Confirm owner/action plan and rebaseline due date.` : `Confirm mitigation and next update before ${x.due_date}.`,
           }));
 
-        // WoW from raid_weekly_snapshots.snapshot (optional)
-        let wow: ExecSummary["wow"] = null;
-        try {
-          const { data: snaps, error: snapErr } = await supabase
-            .from("raid_weekly_snapshots")
-            .select("project_id, week_start, snapshot")
-            .in("project_id", projectIds)
-            .order("week_start", { ascending: false })
-            .limit(5000);
-
-          if (!snapErr && (snaps || []).length) {
-            const byWeek = new Map<
-              string,
-              { total_items: number; overdue_open: number; high_score: number; sla_hot: number; exposure_total: number }
-            >();
-
-            for (const row of snaps || []) {
-              const wk = String((row as any).week_start || "").slice(0, 10);
-              if (!wk) continue;
-              const snap = (row as any).snapshot || {};
-              const agg = byWeek.get(wk) || {
-                total_items: 0,
-                overdue_open: 0,
-                high_score: 0,
-                sla_hot: 0,
-                exposure_total: 0,
-              };
-              agg.total_items += n(snap.total_items, 0) || 0;
-              agg.overdue_open += n(snap.overdue_open, 0) || 0;
-              agg.high_score += n(snap.high_score, 0) || 0;
-              agg.sla_hot += n(snap.sla_hot, 0) || 0;
-              agg.exposure_total += n(snap.exposure_total, 0) || 0;
-              byWeek.set(wk, agg);
-            }
-
-            const weeks = Array.from(byWeek.keys()).sort().reverse();
-            const week_start = weeks[0] || null;
-            const prev_week_start = weeks[1] || null;
-
-            if (week_start && prev_week_start) {
-              const cur = byWeek.get(week_start)!;
-              const prev = byWeek.get(prev_week_start)!;
-              const deltas = {
-                overdue_open: cur.overdue_open - prev.overdue_open,
-                high_score: cur.high_score - prev.high_score,
-                sla_hot: cur.sla_hot - prev.sla_hot,
-                exposure_total: cur.exposure_total - prev.exposure_total,
-              };
-              const sign = (d: number) => (d > 0 ? "↑" : d < 0 ? "↓" : "→");
-
-              wow = {
-                week_start,
-                prev_week_start,
-                narrative: [
-                  `${sign(deltas.overdue_open)} Overdue: ${cur.overdue_open} (${deltas.overdue_open >= 0 ? "+" : ""}${deltas.overdue_open} WoW)`,
-                  `${sign(deltas.high_score)} High score: ${cur.high_score} (${deltas.high_score >= 0 ? "+" : ""}${deltas.high_score} WoW)`,
-                  `${sign(deltas.sla_hot)} SLA hot: ${cur.sla_hot} (${deltas.sla_hot >= 0 ? "+" : ""}${deltas.sla_hot} WoW)`,
-                  `${sign(deltas.exposure_total)} Exposure: ${moneyGBP(cur.exposure_total)} (${deltas.exposure_total >= 0 ? "+" : ""}${moneyGBP(
-                    deltas.exposure_total,
-                  )})`,
-                ],
-              };
-            } else {
-              wow = { week_start: week_start || null, prev_week_start: null, narrative: [] };
-            }
-          }
-        } catch {
-          wow = null;
-        }
-
         exec = {
           ok: true,
           scope,
@@ -484,7 +422,7 @@ export default async function InsightsPage() {
             exposure_total,
             exposure_total_fmt: moneyGBP(exposure_total),
           },
-          wow,
+          wow: null,
           sections: [
             { key: "top_score", title: "Top Risks by Score", items: byScore },
             { key: "sla_hot", title: "SLA Breach Watchlist", items: bySla },
@@ -511,7 +449,6 @@ export default async function InsightsPage() {
     }
   }
 
-  // ✅ Download links (no dropdown)
   const downloadPdfHref = `/api/portfolio/raid-exec-summary?days=${days}&scope=${scope}&top=${top}&download=1&format=pdf`;
   const downloadPptxHref = `/api/portfolio/raid-exec-summary?days=${days}&scope=${scope}&top=${top}&download=1&format=pptx`;
 
@@ -521,7 +458,7 @@ export default async function InsightsPage() {
         <h1 className="text-4xl font-bold tracking-tight text-gray-900">Insights</h1>
         <p className="mt-3 text-lg text-gray-600">Decision intelligence generated from RAID and delivery signals.</p>
 
-        {/* ───────────────────────────────── Executive Summary ───────────────────────────────── */}
+        {/* Executive Summary */}
         <div className="mt-10 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
           <div className="flex items-start justify-between gap-6">
             <div className="min-w-0">
@@ -537,9 +474,11 @@ export default async function InsightsPage() {
                 <div className="mt-2 text-sm text-rose-700">{safeStr((exec as any).error)}</div>
               ) : null}
 
-              {/* Optional scope debug line (safe, small) */}
+              {/* Small debug line */}
               {scopeMeta ? (
-                <div className="mt-2 text-xs text-gray-400">Active projects in scope: {scopedProjectIds.length}</div>
+                <div className="mt-2 text-xs text-gray-400">
+                  Projects in scope: {scopedProjectIdsRaw.length} • Active: {scopedProjectIds.length}
+                </div>
               ) : null}
             </div>
 
@@ -597,29 +536,6 @@ export default async function InsightsPage() {
               >
                 Exposure: {safeStr((exec as any).kpis?.exposure_total_fmt || "—")}
               </span>
-            </div>
-          ) : null}
-
-          {/* Week-on-week */}
-          {(exec as any).ok && (exec as any).wow?.prev_week_start ? (
-            <div className="mt-8 rounded-xl border border-gray-200 bg-gray-50 p-6">
-              <div className="flex items-center justify-between gap-4">
-                <div className="font-semibold text-gray-900">Week-on-week</div>
-                <div className="text-sm text-gray-500">
-                  {fmtDateUK((exec as any).wow?.week_start || null)} vs {fmtDateUK((exec as any).wow?.prev_week_start || null)}
-                </div>
-              </div>
-              <div className="mt-4 space-y-2 text-gray-700">
-                {Array.isArray((exec as any).wow?.narrative) && (exec as any).wow.narrative.length ? (
-                  (exec as any).wow.narrative.map((t: string, i: number) => <div key={i}>• {t}</div>)
-                ) : (
-                  <div className="text-gray-600">No week-on-week narrative yet.</div>
-                )}
-              </div>
-            </div>
-          ) : (exec as any).ok ? (
-            <div className="mt-8 rounded-xl border border-gray-200 bg-gray-50 p-6 text-gray-600">
-              Week-on-week will appear after at least <span className="font-medium text-gray-900">2 weekly snapshots</span> exist.
             </div>
           ) : null}
 
@@ -704,7 +620,7 @@ export default async function InsightsPage() {
           )}
         </div>
 
-        {/* ───────────────────────────────── Existing insight cards ───────────────────────────────── */}
+        {/* Existing insight cards */}
         <div className="mt-12 grid grid-cols-1 gap-6">
           {insights.length ? (
             insights.map((x) => (
