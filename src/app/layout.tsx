@@ -3,11 +3,18 @@
 // Root layout -- wraps all pages with the sidebar shell.
 // The sidebar is only shown for authenticated routes.
 // Auth pages (/login, /signup, /invite/*, /auth/*) get no sidebar.
+//
+// ΛLIΞNΛ Enterprise Upgrade:
+// ✓ Neon AI branding
+// ✓ Custom favicon
+// ✓ PWA install support
+// ✓ Cosmic AI background
+// ✓ Enterprise metadata
 
 import type { Metadata } from "next";
 import { DM_Sans, DM_Mono } from "next/font/google";
 import { createClient } from "@/utils/supabase/server";
-import Sidebar from "@/components/nav/Sidebar";
+import SidebarShell from "@/components/nav/SidebarShell";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -25,10 +32,31 @@ const dmMono = DM_Mono({
 
 export const metadata: Metadata = {
   title: {
-    template: "%s | ResForce",
-    default:  "ResForce",
+    template: "%s | ΛLIΞNΛ",
+    default: "ΛLIΞNΛ",
   },
-  description: "Resource capacity management for enterprise delivery teams",
+  description:
+    "ΛLIΞNΛ — AI Governance & Delivery Intelligence Platform",
+
+  icons: {
+    icon: "https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png",
+    shortcut:
+      "https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png",
+    apple:
+      "https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png",
+  },
+
+  openGraph: {
+    title: "ΛLIΞNΛ",
+    description: "AI Governance Intelligence Platform",
+    images: [
+      "https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png",
+    ],
+  },
+
+  themeColor: "#0a0d14",
+
+  manifest: "/manifest.json",
 };
 
 // Routes that should NOT show the sidebar
@@ -42,7 +70,7 @@ const AUTH_PREFIXES = [
 ];
 
 function isAuthRoute(pathname: string): boolean {
-  return AUTH_PREFIXES.some(p => pathname.startsWith(p));
+  return AUTH_PREFIXES.some((p) => pathname.startsWith(p));
 }
 
 export default async function RootLayout({
@@ -51,21 +79,22 @@ export default async function RootLayout({
   children: React.ReactNode;
 }) {
   let userName: string | null = null;
-  let orgName:  string | null = null;
-  let activeProjectCount: number = 0;
+  let orgName: string | null = null;
+  let activeProjectCount = 0;
 
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
     if (user) {
       userName =
         (user.user_metadata?.full_name as string | undefined) ||
-        (user.user_metadata?.name     as string | undefined) ||
+        (user.user_metadata?.name as string | undefined) ||
         user.email ||
         null;
 
-      // Try to get active org name -- two-step to avoid FK hint issues
       try {
         const { data: memRow } = await supabase
           .from("organisation_members")
@@ -86,7 +115,6 @@ export default async function RootLayout({
 
           orgName = orgRow?.name ?? null;
 
-          // Count active (non-closed) projects for badge
           const { count } = await supabase
             .from("projects")
             .select("id", { count: "exact", head: true })
@@ -103,41 +131,36 @@ export default async function RootLayout({
 
   return (
     <html lang="en" className={`${dmSans.variable} ${dmMono.variable}`}>
-      <body className="bg-[#0a0d14] text-slate-100 antialiased font-sans">
-        <AppShell userName={userName} orgName={orgName} projectCount={activeProjectCount}>
+      <head>
+        {/* Cosmic theme */}
+        <meta name="theme-color" content="#0a0d14" />
+
+        {/* PWA */}
+        <link rel="manifest" href="/manifest.json" />
+
+        {/* Preload logo */}
+        <link
+          rel="preload"
+          href="https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png"
+          as="image"
+        />
+      </head>
+
+      <body
+        className="bg-[#0a0d14] text-slate-100 antialiased font-sans"
+        style={{
+          background:
+            "radial-gradient(circle at 20% 20%, rgba(0,184,219,0.15), transparent 40%), radial-gradient(circle at 80% 70%, rgba(99,102,241,0.12), transparent 40%), #0a0d14",
+        }}
+      >
+        <SidebarShell
+          userName={userName}
+          orgName={orgName}
+          projectCount={activeProjectCount}
+        >
           {children}
-        </AppShell>
+        </SidebarShell>
       </body>
     </html>
   );
 }
-
-/* =============================================================================
-   AppShell -- server component wrapper
-   Can't use usePathname here (server), so we use a client wrapper below.
-============================================================================= */
-
-function AppShell({
-  children,
-  userName,
-  orgName,
-  projectCount,
-}: {
-  children:     React.ReactNode;
-  userName:     string | null;
-  orgName:      string | null;
-  projectCount: number;
-}) {
-  return (
-    <SidebarShell userName={userName} orgName={orgName} projectCount={projectCount}>
-      {children}
-    </SidebarShell>
-  );
-}
-
-/* =============================================================================
-   SidebarShell -- the actual flex container
-   Conditionally shows sidebar based on route.
-============================================================================= */
-
-import SidebarShell from "@/components/nav/SidebarShell";

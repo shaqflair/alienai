@@ -1,4 +1,4 @@
-﻿// src/components/editors/WBSEditor.tsx
+﻿// // src/components/editors/WBSEditor.tsx
 "use client";
 
 import React, {
@@ -8,10 +8,14 @@ import React, {
   useRef,
   useState,
   useTransition,
+  useCallback,
+  useReducer,
 } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
+
+import VirtualizedWbsList from "./wbs/VirtualizedWbsList";
 
 type WbsStatus = "not_started" | "in_progress" | "done" | "blocked";
 type Effort = "S" | "M" | "L" | "";
@@ -504,6 +508,440 @@ async function tryCreateArtifactViaEndpoints(body: any): Promise<any> {
   throw lastErr instanceof Error ? lastErr : new Error("Artifact create failed (no create endpoint accepted POST)");
 }
 
+/* =============================================================================
+   NORMALIZED ROW STATE (Steps 5/6)
+============================================================================= */
+
+type RowsState = {
+  byId: Record<string, WbsRow>;
+  order: string[];
+};
+
+type RowsAction =
+  | { type: "HYDRATE"; rows: WbsRow[] }
+  | { type: "UPDATE"; id: string; patch: Partial<WbsRow> }
+  | { type: "INSERT_AT"; index: number; row: WbsRow }
+  | { type: "REMOVE_SUBTREE"; id: string }
+  | { type: "INDENT"; id: string }
+  | { type: "OUTDENT"; id: string }
+  | { type: "REPLACE_ALL"; rows: WbsRow[] };
+
+function rowsArrayFrom(state: RowsState): WbsRow[] {
+  const out: WbsRow[] = [];
+  for (const id of state.order) {
+    const r = state.byId[id];
+    if (r) out.push(r);
+  }
+  return out;
+}
+
+function removeSubtreeFromState(state: RowsState, id: string): RowsState {
+  const rows = rowsArrayFrom(state);
+  const idx = rows.findIndex((r) => r.id === id);
+  if (idx < 0) return state;
+
+  const target = rows[idx];
+  let end = idx + 1;
+  for (let i = idx + 1; i < rows.length; i++) {
+    if (rows[i].level <= target.level) break;
+    end = i + 1;
+  }
+
+  const idsToRemove = new Set<string>();
+  for (let i = idx; i < end; i++) idsToRemove.add(rows[i].id);
+
+  const nextOrder = state.order.filter((x) => !idsToRemove.has(x));
+  const nextById: Record<string, WbsRow> = { ...state.byId };
+  idsToRemove.forEach((x) => delete nextById[x]);
+
+  // Ensure at least one row
+  if (!nextOrder.length) {
+    const nid = uuidish();
+    nextById[nid] = { id: nid, level: 0, deliverable: "", effort: "", status: "not_started" as WbsStatus };
+    return { byId: nextById, order: [nid] };
+  }
+
+  return { byId: nextById, order: nextOrder };
+}
+
+function rowsReducer(state: RowsState, action: RowsAction): RowsState {
+  if (action.type === "HYDRATE" || action.type === "REPLACE_ALL") {
+    const byId: Record<string, WbsRow> = {};
+    const order: string[] = [];
+    const rows = Array.isArray(action.rows) ? action.rows : [];
+    for (const r of rows) {
+      const id = safeStr(r?.id) || uuidish();
+      byId[id] = {
+        id,
+        level: clamp(Number((r as any)?.level ?? 0), 0, 10),
+        deliverable: safeStr((r as any)?.deliverable),
+        description: safeStr((r as any)?.description),
+        acceptance_criteria: safeStr((r as any)?.acceptance_criteria),
+        owner: safeStr((r as any)?.owner),
+        status: (((r as any)?.status ?? "not_started") as WbsStatus) || "not_started",
+        effort: normalizeEffort((r as any)?.effort),
+        due_date: safeStr((r as any)?.due_date),
+        predecessor: safeStr((r as any)?.predecessor),
+        tags: Array.isArray((r as any)?.tags) ? (r as any).tags.map((t: any) => safeStr(t)).filter(Boolean) : [],
+      };
+      order.push(id);
+    }
+    if (!order.length) {
+      const nid = uuidish();
+      byId[nid] = { id: nid, level: 0, deliverable: "", effort: "", status: "not_started" as WbsStatus };
+      order.push(nid);
+    }
+    return { byId, order };
+  }
+
+  if (action.type === "UPDATE") {
+    const cur = state.byId[action.id];
+    if (!cur) return state;
+    return {
+      ...state,
+      byId: {
+        ...state.byId,
+        [action.id]: { ...cur, ...action.patch, id: cur.id },
+      },
+    };
+  }
+
+  if (action.type === "INSERT_AT") {
+    const row = action.row;
+    const id = safeStr(row?.id) || uuidish();
+    const safeRow: WbsRow = {
+      id,
+      level: clamp(Number((row as any)?.level ?? 0), 0, 10),
+      deliverable: safeStr((row as any)?.deliverable),
+      description: safeStr((row as any)?.description),
+      acceptance_criteria: safeStr((row as any)?.acceptance_criteria),
+      owner: safeStr((row as any)?.owner),
+      status: (((row as any)?.status ?? "not_started") as WbsStatus) || "not_started",
+      effort: normalizeEffort((row as any)?.effort),
+      due_date: safeStr((row as any)?.due_date),
+      predecessor: safeStr((row as any)?.predecessor),
+      tags: Array.isArray((row as any)?.tags) ? (row as any).tags.map((t: any) => safeStr(t)).filter(Boolean) : [],
+    };
+
+    const index = clamp(Number(action.index ?? 0), 0, state.order.length);
+    const nextOrder = [...state.order];
+    nextOrder.splice(index, 0, id);
+
+    return {
+      byId: { ...state.byId, [id]: safeRow },
+      order: nextOrder,
+    };
+  }
+
+  if (action.type === "REMOVE_SUBTREE") {
+    return removeSubtreeFromState(state, action.id);
+  }
+
+  if (action.type === "INDENT") {
+    const rows = rowsArrayFrom(state);
+    const idx = rows.findIndex((r) => r.id === action.id);
+    if (idx <= 0) return state;
+    const prevRow = rows[idx - 1];
+    const cur = rows[idx];
+    const nextLevel = clamp(cur.level + 1, 0, (prevRow.level ?? 0) + 1);
+    return {
+      ...state,
+      byId: { ...state.byId, [action.id]: { ...cur, level: nextLevel } },
+    };
+  }
+
+  if (action.type === "OUTDENT") {
+    const cur = state.byId[action.id];
+    if (!cur) return state;
+    return {
+      ...state,
+      byId: { ...state.byId, [action.id]: { ...cur, level: clamp(cur.level - 1, 0, 10) } },
+    };
+  }
+
+  return state;
+}
+
+/* =============================================================================
+   MEMO ROW (Step 4)
+============================================================================= */
+
+type RolledRow = WbsRow & { _derivedStatus?: WbsStatus; _derivedProgress?: number; _isParent?: boolean };
+
+const WbsRowCard = React.memo(function WbsRowCard(props: {
+  r: RolledRow;
+  isSelected: boolean;
+  isCollapsed: boolean;
+  detailsOpen: boolean;
+  readOnly: boolean;
+  autoRollup: boolean;
+
+  statusShown: WbsStatus;
+  progressShown: number;
+  overdue: boolean;
+  effortVal: Effort;
+  effortMissing: boolean;
+
+  stripeClass: string;
+  bgClass: string;
+  cfg: (typeof STATUS_CONFIG)[WbsStatus];
+
+  onSelect: (id: string) => void;
+  onToggleCollapse: (id: string) => void;
+  onToggleDetails: (id: string) => void;
+  onUpdateRow: (id: string, patch: Partial<WbsRow>) => void;
+  onEnsureArtifact: () => void;
+
+  renderRowActions: (rowId: string) => React.ReactNode;
+  joinTags: (tags?: string[]) => string;
+  parseTags: (s: string) => string[];
+}) {
+  const {
+    r,
+    isSelected,
+    isCollapsed,
+    detailsOpen,
+    readOnly,
+
+    statusShown,
+    progressShown,
+    overdue,
+    effortVal,
+    effortMissing,
+
+    stripeClass,
+    bgClass,
+    cfg,
+
+    onSelect,
+    onToggleCollapse,
+    onToggleDetails,
+    onUpdateRow,
+    onEnsureArtifact,
+
+    renderRowActions,
+    joinTags,
+    parseTags,
+  } = props;
+
+  const isParent = !!(r as any)._isParent;
+
+  return (
+    <div
+      key={r.id}
+      className={`group rounded-xl border-l-[3px] ${stripeClass} border-t border-r border-b transition-all duration-100 cursor-pointer ${
+        isSelected
+          ? `border-t-slate-300 border-r-slate-300 border-b-slate-300 ring-2 ring-slate-900/10 shadow-md ${bgClass}`
+          : `border-t-slate-200 border-r-slate-200 border-b-slate-200 hover:shadow-sm hover:border-t-slate-300 hover:border-r-slate-300 hover:border-b-slate-300 ${bgClass}`
+      }`}
+      onClick={() => onSelect(r.id)}
+    >
+      <div className="flex items-center gap-2 px-3 pt-3 pb-2.5">
+        <div style={{ width: `${r.level * 20}px` }} className="shrink-0" />
+
+        {isParent ? (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleCollapse(r.id);
+            }}
+            className="w-6 h-6 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all shrink-0 text-[10px]"
+          >
+            {isCollapsed ? "▸" : "▾"}
+          </button>
+        ) : (
+          <div className="w-6 h-6 shrink-0 flex items-center justify-center">
+            <div className={`w-2 h-2 rounded-full ${cfg.dot}`} />
+          </div>
+        )}
+
+        <code className="text-[11px] font-mono text-slate-400 tabular-nums shrink-0 w-10 text-right">
+          {r.code || "—"}
+        </code>
+
+        <input
+          value={r.deliverable}
+          placeholder={isParent ? "Phase or group" : "Work package"}
+          onFocus={() => onEnsureArtifact()}
+          onChange={(e) => onUpdateRow(r.id, { deliverable: e.target.value })}
+          disabled={!!readOnly}
+          onClick={(e) => e.stopPropagation()}
+          className={`flex-1 bg-transparent outline-none placeholder:text-slate-300 min-w-0 ${
+            isParent
+              ? r.level === 0
+                ? "text-sm font-bold text-slate-900 tracking-tight"
+                : "text-sm font-semibold text-slate-800"
+              : "text-sm font-medium text-slate-700"
+          }`}
+        />
+
+        <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+          {overdue && (
+            <span className="text-[10px] font-semibold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-md">
+              Overdue
+            </span>
+          )}
+          {effortMissing && (
+            <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md">
+              No effort
+            </span>
+          )}
+          {statusShown === "blocked" && !isParent && (
+            <span className="text-[10px] font-semibold text-rose-700 bg-rose-100 border border-rose-200 px-1.5 py-0.5 rounded-md">
+              Blocked
+            </span>
+          )}
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleDetails(r.id);
+            }}
+            className="opacity-0 group-hover:opacity-100 text-[11px] px-2 py-1 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-all"
+          >
+            {detailsOpen ? "↑ Hide" : "↓ Details"}
+          </button>
+
+          {!readOnly && renderRowActions(r.id)}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-3 pb-3" onClick={(e) => e.stopPropagation()}>
+        <div>
+          <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">Status</label>
+          <select
+            value={statusShown}
+            disabled={!!readOnly || (autoRollup && isParent)}
+            onFocus={() => onEnsureArtifact()}
+            onChange={(e) => onUpdateRow(r.id, { status: e.target.value as WbsStatus })}
+            className={`text-xs font-semibold rounded-lg px-2.5 py-1.5 border w-full disabled:opacity-60 outline-none focus:ring-1 focus:ring-slate-400 transition-all ${cfg.selectCls}`}
+          >
+            <option value="not_started">Not started</option>
+            <option value="in_progress">In progress</option>
+            <option value="done">Done</option>
+            <option value="blocked">Blocked</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">Effort</label>
+          <select
+            value={effortVal}
+            disabled={!!readOnly}
+            onFocus={() => onEnsureArtifact()}
+            onChange={(e) => onUpdateRow(r.id, { effort: normalizeEffort(e.target.value) })}
+            className={`text-xs font-semibold rounded-lg px-2.5 py-1.5 border w-full outline-none focus:ring-1 focus:ring-slate-400 transition-all ${
+              effortMissing
+                ? "bg-rose-50 border-rose-200 text-rose-700"
+                : effortVal === "S"
+                ? "bg-sky-50 border-sky-200 text-sky-800"
+                : effortVal === "M"
+                ? "bg-slate-50 border-slate-200 text-slate-700"
+                : "bg-orange-50 border-orange-200 text-orange-800"
+            }`}
+          >
+            <option value="">— not set —</option>
+            <option value="S">S – Small</option>
+            <option value="M">M – Medium</option>
+            <option value="L">L – Large</option>
+          </select>
+        </div>
+
+        <div>
+          <div className="flex justify-between items-center mb-1">
+            <label className="text-[9px] uppercase tracking-widest text-slate-400 font-semibold">Progress</label>
+            <span className="text-[11px] font-bold text-slate-700 tabular-nums">{progressShown}%</span>
+          </div>
+          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+            <div className={`h-full rounded-full transition-all duration-500 ${cfg.trackCls}`} style={{ width: `${progressShown}%` }} />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">Due</label>
+          <input
+            type="date"
+            value={r.due_date ?? ""}
+            disabled={!!readOnly}
+            onFocus={() => onEnsureArtifact()}
+            onChange={(e) => onUpdateRow(r.id, { due_date: e.target.value })}
+            className={`text-xs w-full rounded-lg border px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-slate-400 transition-all ${
+              overdue ? "bg-rose-50 border-rose-200 text-rose-700" : "bg-slate-50 border-slate-200 text-slate-600"
+            }`}
+          />
+        </div>
+      </div>
+
+      {detailsOpen && (
+        <div
+          className="border-t border-slate-100 px-3 py-4 grid md:grid-cols-12 gap-4 bg-slate-50"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="md:col-span-4 space-y-3.5">
+            {[
+              { label: "Owner", value: r.owner ?? "", key: "owner", placeholder: "Assign owner" },
+              { label: "Predecessor", value: r.predecessor ?? "", key: "predecessor", placeholder: "e.g. 1.2" },
+              { label: "Tags", value: joinTags(r.tags), key: "tags", placeholder: "governance, risk…" },
+            ].map((field) => (
+              <div key={field.key}>
+                <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">
+                  {field.label}
+                </label>
+                <input
+                  value={field.value}
+                  disabled={!!readOnly}
+                  placeholder={field.placeholder}
+                  onFocus={() => onEnsureArtifact()}
+                  onChange={(e) =>
+                    onUpdateRow(r.id, {
+                      [field.key]: field.key === "tags" ? parseTags(e.target.value) : e.target.value,
+                    } as any)
+                  }
+                  className="w-full text-sm bg-white border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-slate-400 focus:border-slate-400 transition-all placeholder:text-slate-300"
+                />
+              </div>
+            ))}
+          </div>
+          <div className="md:col-span-8 space-y-3.5">
+            <div>
+              <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">
+                Description
+              </label>
+              <textarea
+                value={r.description ?? ""}
+                disabled={!!readOnly}
+                rows={3}
+                placeholder="Context, notes, approach…"
+                onFocus={() => onEnsureArtifact()}
+                onChange={(e) => onUpdateRow(r.id, { description: e.target.value })}
+                className="w-full text-sm bg-white border border-slate-200 rounded-lg px-3 py-2 resize-y min-h-[68px] outline-none focus:ring-1 focus:ring-slate-400 focus:border-slate-400 transition-all placeholder:text-slate-300"
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">
+                Acceptance Criteria
+              </label>
+              <textarea
+                value={r.acceptance_criteria ?? ""}
+                disabled={!!readOnly}
+                rows={4}
+                placeholder={"• Must be measurable\n• Must be testable"}
+                onFocus={() => onEnsureArtifact()}
+                onChange={(e) => onUpdateRow(r.id, { acceptance_criteria: e.target.value })}
+                className="w-full text-sm bg-white border border-slate-200 rounded-lg px-3 py-2 resize-y min-h-[92px] outline-none focus:ring-1 focus:ring-slate-400 focus:border-slate-400 transition-all placeholder:text-slate-300"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+/* =============================================================================
+   COMPONENT
+============================================================================= */
+
 export default function WBSEditor({
   projectId,
   artifactId,
@@ -518,8 +956,31 @@ export default function WBSEditor({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
-  const [doc, setDoc] = useState<WbsDocV1>(() => normalizeInitial(initialJson));
+  // Doc meta (rows are normalized in reducer)
+  const [docMeta, setDocMeta] = useState<Pick<WbsDocV1, "version" | "type" | "title" | "due_date" | "auto_rollup">>(() => {
+    const d = normalizeInitial(initialJson);
+    return {
+      version: 1,
+      type: "wbs",
+      title: d.title || "Work Breakdown Structure",
+      due_date: d.due_date || "",
+      auto_rollup: d.auto_rollup !== false,
+    };
+  });
   const [title, setTitle] = useState<string>(() => normalizeInitial(initialJson)?.title || "Work Breakdown Structure");
+
+  const [rowsState, dispatchRows] = useReducer(rowsReducer, undefined as any, () => {
+    const d = normalizeInitial(initialJson);
+    return { byId: {}, order: [] } as RowsState; // will hydrate below
+  });
+
+  // hydrate rowsState once in initializer
+  useEffect(() => {
+    const d = normalizeInitial(initialJson);
+    dispatchRows({ type: "HYDRATE", rows: d.rows ?? [] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // initial mount only
+
   const [msg, setMsg] = useState<string>("");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -563,9 +1024,7 @@ export default function WBSEditor({
   const [activeViewId, setActiveViewId] = useState<string>("__all");
   const [myWorkOwner, setMyWorkOwner] = useState<string>("");
 
-  const [aiIssues, setAiIssues] = useState<
-    Array<{ severity: "high" | "medium" | "low"; message: string; rowId?: string }>
-  >([]);
+  const [aiIssues, setAiIssues] = useState<Array<{ severity: "high" | "medium" | "low"; message: string; rowId?: string }>>([]);
   const [validateOpen, setValidateOpen] = useState(false);
   const [validateSummary, setValidateSummary] = useState<string>("");
 
@@ -578,13 +1037,28 @@ export default function WBSEditor({
   const autosaveInFlightRef = useRef(false);
   const createInFlightRef = useRef(false);
 
+  const rowsArr = useMemo(() => rowsArrayFrom(rowsState as RowsState), [rowsState]);
+  const coded = useMemo(() => computeCodes(rowsArr ?? []), [rowsArr]);
+  const rolled = useMemo(() => deriveRollups(coded, docMeta.auto_rollup !== false), [coded, docMeta.auto_rollup]);
+  const selectedRow = useMemo(() => coded.find((r) => r.id === selectedRowId) ?? null, [coded, selectedRowId]);
+
+  // Re-hydrate if initialJson changes AND not dirty
   useEffect(() => {
     if (dirty) return;
     if (initialFingerprint && initialFingerprint !== lastHydratedRef.current) {
       lastHydratedRef.current = initialFingerprint;
       const next = normalizeInitial(initialJson);
-      setDoc(next);
+
+      setDocMeta({
+        version: 1,
+        type: "wbs",
+        title: next.title || "Work Breakdown Structure",
+        due_date: next.due_date || "",
+        auto_rollup: next.auto_rollup !== false,
+      });
+
       setTitle(next.title || "Work Breakdown Structure");
+      dispatchRows({ type: "HYDRATE", rows: next.rows ?? [] });
       setSaveMode("idle");
     }
   }, [initialFingerprint, artifactId, dirty, initialJson]);
@@ -593,10 +1067,6 @@ export default function WBSEditor({
     setSavedViews(loadSavedViews());
     if (typeof window !== "undefined") setMyWorkOwner(safeStr(window.localStorage.getItem(LS_KEY_MYWORK)));
   }, []);
-
-  const coded = useMemo(() => computeCodes(doc.rows ?? []), [doc.rows]);
-  const rolled = useMemo(() => deriveRollups(coded, doc.auto_rollup !== false), [coded, doc.auto_rollup]);
-  const selectedRow = useMemo(() => coded.find((r) => r.id === selectedRowId) ?? null, [coded, selectedRowId]);
 
   useEffect(() => {
     if (readOnly) return;
@@ -645,9 +1115,12 @@ export default function WBSEditor({
     createInFlightRef.current = true;
     try {
       const content = serialize({
-        ...doc,
+        version: 1,
+        type: "wbs",
         title: title.trim() || "Work Breakdown Structure",
-        rows: computeCodes(doc.rows ?? []),
+        due_date: safeStr(docMeta.due_date || ""),
+        auto_rollup: docMeta.auto_rollup !== false,
+        rows: computeCodes(rowsArr ?? []),
       });
       const id = await ensureArtifactIdOrCreate(content);
       if (id) {
@@ -662,50 +1135,48 @@ export default function WBSEditor({
     }
   }
 
-  function updateRow(id: string, patch: Partial<WbsRow>) {
+  // Step 6: O(1) updates
+  const updateRow = useCallback((id: string, patch: Partial<WbsRow>) => {
     markDirty();
-    setDoc((prev) => ({
-      ...prev,
-      rows: (prev.rows ?? []).map((r) => (r.id === id ? { ...r, ...patch } : r)),
-    }));
-  }
+    dispatchRows({ type: "UPDATE", id, patch });
+  }, [readOnly, dirty]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function updateDoc(patch: Partial<WbsDocV1>) {
     markDirty();
-    setDoc((prev) => ({ ...prev, ...patch }));
+    setDocMeta((prev) => ({
+      ...prev,
+      title: patch.title ?? prev.title,
+      due_date: patch.due_date ?? prev.due_date,
+      auto_rollup: patch.auto_rollup ?? prev.auto_rollup,
+    }));
   }
 
   function insertAt(index: number, row: WbsRow) {
     markDirty();
-    setDoc((prev) => {
-      const out = [...prev.rows];
-      out.splice(index, 0, row);
-      return { ...prev, rows: out as WbsRow[] };
-    });
+    dispatchRows({ type: "INSERT_AT", index, row });
   }
 
   function addSibling(afterId: string) {
     markDirty();
-    setDoc((prev) => {
-      const idx = prev.rows.findIndex((r) => r.id === afterId);
-      if (idx < 0) return prev;
-      const base = prev.rows[idx];
-      const next: WbsRow = {
-        id: uuidish(),
-        level: base.level,
-        deliverable: "",
-        description: "",
-        acceptance_criteria: "",
-        owner: "",
-        status: "not_started" as WbsStatus,
-        effort: "",
-        due_date: "",
-        predecessor: "",
-        tags: [],
-      };
-      const out = [...prev.rows];
-      out.splice(idx + 1, 0, next);
-      return { ...prev, rows: out as WbsRow[] };
-    });
+    const idx = rowsState.order.findIndex((id) => id === afterId);
+    if (idx < 0) return;
+
+    const base = rowsState.byId[afterId];
+    const next: WbsRow = {
+      id: uuidish(),
+      level: clamp(Number(base?.level ?? 0), 0, 10),
+      deliverable: "",
+      description: "",
+      acceptance_criteria: "",
+      owner: "",
+      status: "not_started" as WbsStatus,
+      effort: "",
+      due_date: "",
+      predecessor: "",
+      tags: [],
+    };
+    dispatchRows({ type: "INSERT_AT", index: idx + 1, row: next });
+
     setExpanded((p) => {
       const n = new Set(p);
       n.add(afterId);
@@ -715,36 +1186,37 @@ export default function WBSEditor({
 
   function addChild(parentId: string) {
     markDirty();
-    setDoc((prev) => {
-      const idx = prev.rows.findIndex((r) => r.id === parentId);
-      if (idx < 0) return prev;
-      const parent = prev.rows[idx];
-      let insertIndex = idx + 1;
-      for (let i = idx + 1; i < prev.rows.length; i++) {
-        if (prev.rows[i].level <= parent.level) break;
-        insertIndex = i + 1;
-      }
-      const next: WbsRow = {
-        id: uuidish(),
-        level: clamp(parent.level + 1, 0, 10),
-        deliverable: "",
-        description: "",
-        acceptance_criteria: "",
-        owner: "",
-        status: "not_started" as WbsStatus,
-        effort: "",
-        due_date: "",
-        predecessor: "",
-        tags: [],
-      };
-      const out = [...prev.rows];
-      out.splice(insertIndex, 0, next);
-      return { ...prev, rows: out as WbsRow[] };
-    });
+    const rows = rowsArr;
+    const idx = rows.findIndex((r) => r.id === parentId);
+    if (idx < 0) return;
+
+    const parent = rows[idx];
+    let insertIndex = idx + 1;
+    for (let i = idx + 1; i < rows.length; i++) {
+      if (rows[i].level <= parent.level) break;
+      insertIndex = i + 1;
+    }
+
+    const next: WbsRow = {
+      id: uuidish(),
+      level: clamp(parent.level + 1, 0, 10),
+      deliverable: "",
+      description: "",
+      acceptance_criteria: "",
+      owner: "",
+      status: "not_started" as WbsStatus,
+      effort: "",
+      due_date: "",
+      predecessor: "",
+      tags: [],
+    };
+
+    dispatchRows({ type: "INSERT_AT", index: insertIndex, row: next });
+
     setCollapsed((prev) => {
-      const next = new Set(prev);
-      next.delete(parentId);
-      return next;
+      const nextSet = new Set(prev);
+      nextSet.delete(parentId);
+      return nextSet;
     });
     setExpanded((p) => {
       const n = new Set(p);
@@ -755,48 +1227,18 @@ export default function WBSEditor({
 
   function indent(id: string) {
     markDirty();
-    setDoc((prev) => {
-      const idx = prev.rows.findIndex((r) => r.id === id);
-      if (idx <= 0) return prev;
-      const prevRow = prev.rows[idx - 1];
-      const cur = prev.rows[idx];
-      const nextLevel = clamp(cur.level + 1, 0, (prevRow.level ?? 0) + 1);
-      const out = [...prev.rows];
-      out[idx] = { ...cur, level: nextLevel };
-      return { ...prev, rows: out as WbsRow[] };
-    });
+    dispatchRows({ type: "INDENT", id });
   }
 
   function outdent(id: string) {
     markDirty();
-    setDoc((prev) => {
-      const idx = prev.rows.findIndex((r) => r.id === id);
-      if (idx < 0) return prev;
-      const cur = prev.rows[idx];
-      const out = [...prev.rows];
-      out[idx] = { ...cur, level: clamp(cur.level - 1, 0, 10) };
-      return { ...prev, rows: out as WbsRow[] };
-    });
+    dispatchRows({ type: "OUTDENT", id });
   }
 
   function removeRow(id: string) {
     markDirty();
-    setDoc((prev) => {
-      const idx = prev.rows.findIndex((r) => r.id === id);
-      if (idx < 0) return prev;
-      const target = prev.rows[idx];
-      let end = idx + 1;
-      for (let i = idx + 1; i < prev.rows.length; i++) {
-        if (prev.rows[i].level <= target.level) break;
-        end = i + 1;
-      }
-      const out = [...prev.rows];
-      out.splice(idx, end - idx);
-      const nextRows = (out.length
-        ? out
-        : [{ id: uuidish(), level: 0, deliverable: "", effort: "", status: "not_started" as WbsStatus }]) as WbsRow[];
-      return { ...prev, rows: nextRows };
-    });
+    dispatchRows({ type: "REMOVE_SUBTREE", id });
+
     setCollapsed((prev) => {
       const next = new Set(prev);
       next.delete(id);
@@ -857,8 +1299,7 @@ export default function WBSEditor({
   function jumpToNextEffortGap() {
     if (!missingEffortLeafIds.length) return;
     const curIdx = selectedRowId ? missingEffortLeafIds.indexOf(selectedRowId) : -1;
-    const nextId =
-      missingEffortLeafIds[(curIdx + 1 + missingEffortLeafIds.length) % missingEffortLeafIds.length];
+    const nextId = missingEffortLeafIds[(curIdx + 1 + missingEffortLeafIds.length) % missingEffortLeafIds.length];
     setSelectedRowId(nextId);
     setAssistantOpen(true);
     setExpanded((prev) => {
@@ -897,7 +1338,7 @@ export default function WBSEditor({
     if (ownerF && !safeLower(r.owner).includes(ownerF)) return false;
 
     if (statusFilter) {
-      const shown = statusShownForRow(r, doc.auto_rollup !== false);
+      const shown = statusShownForRow(r, docMeta.auto_rollup !== false);
       if (shown !== statusFilter) return false;
     }
 
@@ -910,12 +1351,12 @@ export default function WBSEditor({
     }
 
     if (onlyOverdue) {
-      const rowStatus = statusShownForRow(r, doc.auto_rollup !== false);
+      const rowStatus = statusShownForRow(r, docMeta.auto_rollup !== false);
       if (!isOverdue(r.due_date, rowStatus)) return false;
     }
 
     if (onlyBlocked) {
-      const shown = statusShownForRow(r, doc.auto_rollup !== false);
+      const shown = statusShownForRow(r, docMeta.auto_rollup !== false);
       if (shown !== "blocked") return false;
     }
 
@@ -954,7 +1395,7 @@ export default function WBSEditor({
       onlyBlocked,
       leavesOnly,
       onlyMissingEffort,
-      doc.auto_rollup,
+      docMeta.auto_rollup,
     ]
   );
   const visibleRows = useMemo(() => applyCollapseStateToVisible(filtered), [filtered, collapsed]);
@@ -1029,9 +1470,12 @@ export default function WBSEditor({
 
     try {
       const content = serialize({
-        ...doc,
+        version: 1,
+        type: "wbs",
         title: title.trim() || "Work Breakdown Structure",
-        rows: computeCodes(doc.rows ?? []),
+        due_date: safeStr(docMeta.due_date || ""),
+        auto_rollup: docMeta.auto_rollup !== false,
+        rows: computeCodes(rowsArr ?? []),
       });
 
       const resp = await fetch(`/api/artifacts/${safeArtifactId}/content-json`, {
@@ -1107,7 +1551,7 @@ export default function WBSEditor({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, doc, title, readOnly]);
+  }, [dirty, rowsState, title, docMeta.due_date, docMeta.auto_rollup, readOnly]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1123,9 +1567,12 @@ export default function WBSEditor({
         if (!safeProjectId) return;
 
         const content = serialize({
-          ...doc,
+          version: 1,
+          type: "wbs",
           title: title.trim() || "Work Breakdown Structure",
-          rows: computeCodes(doc.rows ?? []),
+          due_date: safeStr(docMeta.due_date || ""),
+          auto_rollup: docMeta.auto_rollup !== false,
+          rows: computeCodes(rowsArr ?? []),
         });
 
         const payload = JSON.stringify({
@@ -1149,7 +1596,7 @@ export default function WBSEditor({
 
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [dirty, artifactIdLocal, projectId, doc, title]);
+  }, [dirty, artifactIdLocal, projectId, rowsState, title, docMeta.due_date, docMeta.auto_rollup, rowsArr]);
 
   async function exportXlsx() {
     if (exportingXlsx) return;
@@ -1231,13 +1678,14 @@ export default function WBSEditor({
           return;
         }
 
-        const idx = doc.rows.findIndex((r) => r.id === rowId);
+        const rows = rowsArr;
+        const idx = rows.findIndex((r) => r.id === rowId);
         if (idx < 0) return;
 
-        const baseLevel = doc.rows[idx].level;
+        const baseLevel = rows[idx].level;
         let insertIndex = idx + 1;
-        for (let i = idx + 1; i < doc.rows.length; i++) {
-          if (doc.rows[i].level <= baseLevel) break;
+        for (let i = idx + 1; i < rows.length; i++) {
+          if (rows[i].level <= baseLevel) break;
           insertIndex = i + 1;
         }
 
@@ -1301,8 +1749,8 @@ export default function WBSEditor({
           body: JSON.stringify({
             projectId,
             artifactId: effectiveArtifactId,
-            due_date: doc.due_date ?? "",
-            rows: computeCodes(doc.rows ?? []),
+            due_date: docMeta.due_date ?? "",
+            rows: computeCodes(rowsArr ?? []),
           }),
         });
 
@@ -1349,7 +1797,7 @@ export default function WBSEditor({
       const resp = await fetch(`/api/ai/wbs/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, artifactId: effectiveArtifactId, due_date: doc.due_date ?? "" }),
+        body: JSON.stringify({ projectId, artifactId: effectiveArtifactId, due_date: docMeta.due_date ?? "" }),
       });
 
       const j = await resp.json().catch(() => ({}));
@@ -1545,7 +1993,15 @@ export default function WBSEditor({
             disabled: !!readOnly,
             icon: "✦",
           },
-          { label: "AI Assistant", action: () => { setSelectedRowId(rowId); setAssistantOpen(true); }, disabled: !!readOnly, icon: "◈" },
+          {
+            label: "AI Assistant",
+            action: () => {
+              setSelectedRowId(rowId);
+              setAssistantOpen(true);
+            },
+            disabled: !!readOnly,
+            icon: "◈",
+          },
           null,
           {
             label: "Delete row",
@@ -1560,7 +2016,7 @@ export default function WBSEditor({
             <div key={`sep-${i}`} className="my-1 h-px bg-slate-100 mx-3" />
           ) : (
             <button
-              key={item.label}
+              key={(item as any).label}
               type="button"
               disabled={(item as any).disabled}
               title={(item as any).title}
@@ -1619,26 +2075,31 @@ export default function WBSEditor({
     }
 
     markDirty();
-    setDoc((prev) => ({
-      ...prev,
-      title: safeStr((generatedDoc as any)?.title) || prev.title || "Work Breakdown Structure",
-      due_date: safeStr((generatedDoc as any)?.due_date) || prev.due_date || "",
-      rows: nextRows.map((r: any) => ({
-        id: safeStr(r?.id) || uuidish(),
-        level: clamp(Number(r?.level ?? 0), 0, 10),
-        deliverable: safeStr(r?.deliverable),
-        description: safeStr(r?.description),
-        acceptance_criteria: safeStr(r?.acceptance_criteria),
-        owner: safeStr(r?.owner),
-        status: ((((r?.status ?? "not_started") as WbsStatus) || "not_started") as WbsStatus),
-        effort: normalizeEffort(r?.effort),
-        due_date: safeStr(r?.due_date),
-        predecessor: safeStr(r?.predecessor),
-        tags: Array.isArray(r?.tags) ? r.tags.map((t: any) => safeStr(t)).filter(Boolean) : [],
-      })),
+
+    const normalizedRows: WbsRow[] = nextRows.map((r: any) => ({
+      id: safeStr(r?.id) || uuidish(),
+      level: clamp(Number(r?.level ?? 0), 0, 10),
+      deliverable: safeStr(r?.deliverable),
+      description: safeStr(r?.description),
+      acceptance_criteria: safeStr(r?.acceptance_criteria),
+      owner: safeStr(r?.owner),
+      status: ((((r?.status ?? "not_started") as WbsStatus) || "not_started") as WbsStatus),
+      effort: normalizeEffort(r?.effort),
+      due_date: safeStr(r?.due_date),
+      predecessor: safeStr(r?.predecessor),
+      tags: Array.isArray(r?.tags) ? r.tags.map((t: any) => safeStr(t)).filter(Boolean) : [],
     }));
 
-    setTitle(safeStr((generatedDoc as any)?.title) || title);
+    dispatchRows({ type: "REPLACE_ALL", rows: normalizedRows });
+
+    const nt = safeStr((generatedDoc as any)?.title) || title;
+    setTitle(nt);
+    setDocMeta((prev) => ({
+      ...prev,
+      title: nt,
+      due_date: safeStr((generatedDoc as any)?.due_date) || prev.due_date || "",
+    }));
+
     setGenOpen(false);
     setMsg("✅ Generated WBS applied");
     setTimeout(() => setMsg(""), 1200);
@@ -1673,9 +2134,7 @@ export default function WBSEditor({
         <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-teal-50 text-teal-700 border border-teal-200 font-medium">
           <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
           Saved{" "}
-          {lastSavedAt
-            ? new Date(lastSavedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-            : ""}
+          {lastSavedAt ? new Date(lastSavedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
         </span>
       );
     if (saveMode === "error")
@@ -1704,7 +2163,7 @@ export default function WBSEditor({
 
   const totalRows = rolled.length;
   const doneCount = (rolled as any[]).filter((r) => !r._isParent && (((r.status ?? "not_started") as WbsStatus) === "done")).length;
-  const blockedCount = (rolled as any[]).filter((r) => statusShownForRow(r, doc.auto_rollup !== false) === "blocked").length;
+  const blockedCount = (rolled as any[]).filter((r) => statusShownForRow(r, docMeta.auto_rollup !== false) === "blocked").length;
 
   const hasActiveFilters = !!(
     q ||
@@ -1744,7 +2203,7 @@ export default function WBSEditor({
               onChange={(e) => {
                 setTitle(e.target.value);
                 markDirty();
-                setDoc((prev) => ({ ...prev, title: e.target.value }));
+                setDocMeta((prev) => ({ ...prev, title: e.target.value }));
               }}
               disabled={!!readOnly}
               className="text-base font-semibold text-slate-900 bg-transparent outline-none w-full placeholder:text-slate-400 min-w-0 truncate"
@@ -1834,9 +2293,7 @@ export default function WBSEditor({
               onClick={save}
               disabled={readOnly || saving}
               className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                dirty
-                  ? "bg-slate-900 text-white hover:bg-slate-700 shadow-sm"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                dirty ? "bg-slate-900 text-white hover:bg-slate-700 shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
               } disabled:opacity-50`}
             >
               {saving ? "Saving…" : dirty ? "Save ●" : "Saved"}
@@ -2007,10 +2464,10 @@ export default function WBSEditor({
 
               <input
                 type="date"
-                value={doc.due_date ?? ""}
+                value={docMeta.due_date ?? ""}
                 disabled={!!readOnly}
                 onFocus={() => void requestCreateArtifactIfNeeded("focus")}
-                onChange={(e) => updateDoc({ due_date: e.target.value })}
+                onChange={(e) => updateDoc({ due_date: e.target.value } as any)}
                 title="Project due date"
                 className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 focus:ring-2 focus:ring-slate-300 outline-none text-slate-600"
               />
@@ -2018,9 +2475,9 @@ export default function WBSEditor({
               <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer select-none">
                 <input
                   type="checkbox"
-                  checked={doc.auto_rollup !== false}
+                  checked={docMeta.auto_rollup !== false}
                   disabled={!!readOnly}
-                  onChange={(e) => updateDoc({ auto_rollup: e.target.checked })}
+                  onChange={(e) => updateDoc({ auto_rollup: e.target.checked } as any)}
                   className="rounded border-slate-300 text-slate-700 focus:ring-slate-400"
                 />
                 Roll-up
@@ -2103,239 +2560,57 @@ export default function WBSEditor({
                 <p className="text-xs text-slate-400 mt-1">Adjust filters or add new entries above</p>
               </div>
             ) : (
-              visibleRows.map((r: any) => {
-                const isParent = !!r._isParent;
-                const statusShown = statusShownForRow(r, doc?.auto_rollup !== false);
-                const progressShown = progressShownForRow(r, doc?.auto_rollup !== false);
-                const isSelected = selectedRowId === r.id;
-                const isCollapsed = collapsed.has(r.id);
-                const detailsOpen = expanded.has(r.id);
-                const overdue = isOverdue(r.due_date, statusShown);
-                const effortVal = normalizeEffort(r.effort);
-                const effortMissing = !isParent && effortVal === "";
-                const stripeClass = LEVEL_STRIPE[Math.min(r.level, LEVEL_STRIPE.length - 1)];
-                const bgClass = isParent && r.level === 0 ? LEVEL_BG[0] : "bg-white";
-                const cfg = STATUS_CONFIG[statusShown];
+              // Step 3: Virtualized list render
+              <VirtualizedWbsList
+                items={visibleRows as any[]}
+                renderRow={(rAny: any) => {
+                  const r = rAny as RolledRow;
 
-                return (
-                  <div
-                    key={r.id}
-                    className={`group rounded-xl border-l-[3px] ${stripeClass} border-t border-r border-b transition-all duration-100 cursor-pointer ${
-                      isSelected
-                        ? `border-t-slate-300 border-r-slate-300 border-b-slate-300 ring-2 ring-slate-900/10 shadow-md ${bgClass}`
-                        : `border-t-slate-200 border-r-slate-200 border-b-slate-200 hover:shadow-sm hover:border-t-slate-300 hover:border-r-slate-300 hover:border-b-slate-300 ${bgClass}`
-                    }`}
-                    onClick={() => {
-                      setSelectedRowId(r.id);
-                      setAssistantOpen(true);
-                    }}
-                  >
-                    <div className="flex items-center gap-2 px-3 pt-3 pb-2.5">
-                      <div style={{ width: `${r.level * 20}px` }} className="shrink-0" />
+                  const isParent = !!r._isParent;
+                  const statusShown = statusShownForRow(r, docMeta.auto_rollup !== false);
+                  const progressShown = progressShownForRow(r, docMeta.auto_rollup !== false);
+                  const isSelected = selectedRowId === r.id;
+                  const isCollapsed = collapsed.has(r.id);
+                  const detailsOpen = expanded.has(r.id);
+                  const overdue = isOverdue(r.due_date, statusShown);
+                  const effortVal = normalizeEffort(r.effort);
+                  const effortMissing = !isParent && effortVal === "";
+                  const stripeClass = LEVEL_STRIPE[Math.min(r.level, LEVEL_STRIPE.length - 1)];
+                  const bgClass = isParent && r.level === 0 ? LEVEL_BG[0] : "bg-white";
+                  const cfg = STATUS_CONFIG[statusShown];
 
-                      {isParent ? (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleCollapse(r.id);
-                          }}
-                          className="w-6 h-6 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all shrink-0 text-[10px]"
-                        >
-                          {isCollapsed ? "▸" : "▾"}
-                        </button>
-                      ) : (
-                        <div className="w-6 h-6 shrink-0 flex items-center justify-center">
-                          <div className={`w-2 h-2 rounded-full ${cfg.dot}`} />
-                        </div>
-                      )}
-
-                      <code className="text-[11px] font-mono text-slate-400 tabular-nums shrink-0 w-10 text-right">
-                        {r.code || "—"}
-                      </code>
-
-                      <input
-                        value={r.deliverable}
-                        placeholder={isParent ? "Phase or group" : "Work package"}
-                        onFocus={() => void requestCreateArtifactIfNeeded("focus")}
-                        onChange={(e) => updateRow(r.id, { deliverable: e.target.value })}
-                        disabled={!!readOnly}
-                        onClick={(e) => e.stopPropagation()}
-                        className={`flex-1 bg-transparent outline-none placeholder:text-slate-300 min-w-0 ${
-                          isParent
-                            ? r.level === 0
-                              ? "text-sm font-bold text-slate-900 tracking-tight"
-                              : "text-sm font-semibold text-slate-800"
-                            : "text-sm font-medium text-slate-700"
-                        }`}
-                      />
-
-                      <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        {overdue && (
-                          <span className="text-[10px] font-semibold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-md">
-                            Overdue
-                          </span>
-                        )}
-                        {effortMissing && (
-                          <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md">
-                            No effort
-                          </span>
-                        )}
-                        {statusShown === "blocked" && !isParent && (
-                          <span className="text-[10px] font-semibold text-rose-700 bg-rose-100 border border-rose-200 px-1.5 py-0.5 rounded-md">
-                            Blocked
-                          </span>
-                        )}
-
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleDetails(r.id);
-                          }}
-                          className="opacity-0 group-hover:opacity-100 text-[11px] px-2 py-1 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-all"
-                        >
-                          {detailsOpen ? "↑ Hide" : "↓ Details"}
-                        </button>
-                        {!readOnly && <RowActions rowId={r.id} />}
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-3 pb-3" onClick={(e) => e.stopPropagation()}>
-                      <div>
-                        <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">
-                          Status
-                        </label>
-                        <select
-                          value={statusShown}
-                          disabled={!!readOnly || (doc?.auto_rollup !== false && isParent)}
-                          onFocus={() => void requestCreateArtifactIfNeeded("focus")}
-                          onChange={(e) => updateRow(r.id, { status: e.target.value as WbsStatus })}
-                          className={`text-xs font-semibold rounded-lg px-2.5 py-1.5 border w-full disabled:opacity-60 outline-none focus:ring-1 focus:ring-slate-400 transition-all ${cfg.selectCls}`}
-                        >
-                          <option value="not_started">Not started</option>
-                          <option value="in_progress">In progress</option>
-                          <option value="done">Done</option>
-                          <option value="blocked">Blocked</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">
-                          Effort
-                        </label>
-                        <select
-                          value={effortVal}
-                          disabled={!!readOnly}
-                          onFocus={() => void requestCreateArtifactIfNeeded("focus")}
-                          onChange={(e) => updateRow(r.id, { effort: normalizeEffort(e.target.value) })}
-                          className={`text-xs font-semibold rounded-lg px-2.5 py-1.5 border w-full outline-none focus:ring-1 focus:ring-slate-400 transition-all ${
-                            effortMissing
-                              ? "bg-rose-50 border-rose-200 text-rose-700"
-                              : effortVal === "S"
-                              ? "bg-sky-50 border-sky-200 text-sky-800"
-                              : effortVal === "M"
-                              ? "bg-slate-50 border-slate-200 text-slate-700"
-                              : "bg-orange-50 border-orange-200 text-orange-800"
-                          }`}
-                        >
-                          <option value="">— not set —</option>
-                          <option value="S">S – Small</option>
-                          <option value="M">M – Medium</option>
-                          <option value="L">L – Large</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <label className="text-[9px] uppercase tracking-widest text-slate-400 font-semibold">
-                            Progress
-                          </label>
-                          <span className="text-[11px] font-bold text-slate-700 tabular-nums">{progressShown}%</span>
-                        </div>
-                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full transition-all duration-500 ${cfg.trackCls}`} style={{ width: `${progressShown}%` }} />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">
-                          Due
-                        </label>
-                        <input
-                          type="date"
-                          value={r.due_date ?? ""}
-                          disabled={!!readOnly}
-                          onFocus={() => void requestCreateArtifactIfNeeded("focus")}
-                          onChange={(e) => updateRow(r.id, { due_date: e.target.value })}
-                          className={`text-xs w-full rounded-lg border px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-slate-400 transition-all ${
-                            overdue ? "bg-rose-50 border-rose-200 text-rose-700" : "bg-slate-50 border-slate-200 text-slate-600"
-                          }`}
-                        />
-                      </div>
-                    </div>
-
-                    {detailsOpen && (
-                      <div className="border-t border-slate-100 px-3 py-4 grid md:grid-cols-12 gap-4 bg-slate-50" onClick={(e) => e.stopPropagation()}>
-                        <div className="md:col-span-4 space-y-3.5">
-                          {[
-                            { label: "Owner", value: r.owner ?? "", key: "owner", placeholder: "Assign owner" },
-                            { label: "Predecessor", value: r.predecessor ?? "", key: "predecessor", placeholder: "e.g. 1.2" },
-                            { label: "Tags", value: joinTags(r.tags), key: "tags", placeholder: "governance, risk…" },
-                          ].map((field) => (
-                            <div key={field.key}>
-                              <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">
-                                {field.label}
-                              </label>
-                              <input
-                                value={field.value}
-                                disabled={!!readOnly}
-                                placeholder={field.placeholder}
-                                onFocus={() => void requestCreateArtifactIfNeeded("focus")}
-                                onChange={(e) =>
-                                  updateRow(r.id, {
-                                    [field.key]:
-                                      field.key === "tags" ? parseTags(e.target.value) : e.target.value,
-                                  } as any)
-                                }
-                                className="w-full text-sm bg-white border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-slate-400 focus:border-slate-400 transition-all placeholder:text-slate-300"
-                              />
-                            </div>
-                          ))}
-                        </div>
-                        <div className="md:col-span-8 space-y-3.5">
-                          <div>
-                            <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">
-                              Description
-                            </label>
-                            <textarea
-                              value={r.description ?? ""}
-                              disabled={!!readOnly}
-                              rows={3}
-                              placeholder="Context, notes, approach…"
-                              onFocus={() => void requestCreateArtifactIfNeeded("focus")}
-                              onChange={(e) => updateRow(r.id, { description: e.target.value })}
-                              className="w-full text-sm bg-white border border-slate-200 rounded-lg px-3 py-2 resize-y min-h-[68px] outline-none focus:ring-1 focus:ring-slate-400 focus:border-slate-400 transition-all placeholder:text-slate-300"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">
-                              Acceptance Criteria
-                            </label>
-                            <textarea
-                              value={r.acceptance_criteria ?? ""}
-                              disabled={!!readOnly}
-                              rows={4}
-                              placeholder={"• Must be measurable\n• Must be testable"}
-                              onFocus={() => void requestCreateArtifactIfNeeded("focus")}
-                              onChange={(e) => updateRow(r.id, { acceptance_criteria: e.target.value })}
-                              className="w-full text-sm bg-white border border-slate-200 rounded-lg px-3 py-2 resize-y min-h-[92px] outline-none focus:ring-1 focus:ring-slate-400 focus:border-slate-400 transition-all placeholder:text-slate-300"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })
+                  return (
+                    <WbsRowCard
+                      key={r.id}
+                      r={r}
+                      isSelected={isSelected}
+                      isCollapsed={isCollapsed}
+                      detailsOpen={detailsOpen}
+                      readOnly={!!readOnly}
+                      autoRollup={docMeta.auto_rollup !== false}
+                      statusShown={statusShown}
+                      progressShown={progressShown}
+                      overdue={overdue}
+                      effortVal={effortVal}
+                      effortMissing={effortMissing}
+                      stripeClass={stripeClass}
+                      bgClass={bgClass}
+                      cfg={cfg}
+                      onSelect={(id) => {
+                        setSelectedRowId(id);
+                        setAssistantOpen(true);
+                      }}
+                      onToggleCollapse={(id) => toggleCollapse(id)}
+                      onToggleDetails={(id) => toggleDetails(id)}
+                      onUpdateRow={(id, patch) => updateRow(id, patch)}
+                      onEnsureArtifact={() => void requestCreateArtifactIfNeeded("focus")}
+                      renderRowActions={(rowId) => <RowActions rowId={rowId} />}
+                      joinTags={joinTags}
+                      parseTags={parseTags}
+                    />
+                  );
+                }}
+              />
             )}
 
             {readOnly && <p className="text-[11px] text-center text-slate-400 py-2">Read-only mode</p>}
@@ -2517,9 +2792,7 @@ export default function WBSEditor({
 
         {!!msg && (
           <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9999]">
-            <div className="px-3 py-2 rounded-lg bg-white border border-slate-200 shadow-lg text-sm text-slate-700">
-              {msg}
-            </div>
+            <div className="px-3 py-2 rounded-lg bg-white border border-slate-200 shadow-lg text-sm text-slate-700">{msg}</div>
           </div>
         )}
       </div>

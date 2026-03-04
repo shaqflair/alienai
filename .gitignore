@@ -48,4 +48,12 @@ package-lock.json
 # local one-off scripts
 fix-*.js
 diagnose.js
+# --- tauri / rust ---
+src-tauri/target/
+src-tauri/node_modules/
 
+# --- windows / office temp ---
+~$*
+*.tmp
+*.rmeta
+*.rlib
