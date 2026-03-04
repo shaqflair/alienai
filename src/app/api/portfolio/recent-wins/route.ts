@@ -218,7 +218,7 @@ async function handle(req: NextRequest, opts: { days: number; limit: number; fil
     .from("project_milestones")
     .select(
       `
-      id, milestone_name, end_date,
+      id, title, due_date,
       type,
       project_id,
       projects (
@@ -230,7 +230,7 @@ async function handle(req: NextRequest, opts: { days: number; limit: number; fil
     `,
     )
     .in("project_id", projectIds)
-    .gte("end_date", sinceIso).lte("end_date", todayIso)
+    .gte("due_date", sinceIso).lte("due_date", todayIso)
     .order("date", { ascending: false })
     .limit(limit * 4);
 
@@ -241,9 +241,9 @@ async function handle(req: NextRequest, opts: { days: number; limit: number; fil
     // Fallback: no join (FK not present / RLS issues / relationship name mismatch)
     const raw = await supabase
       .from("project_milestones")
-      .select("id, milestone_name, end_date, type, project_id")
+      .select("id, title, due_date, type, project_id")
       .in("project_id", projectIds)
-      .gte("end_date", sinceIso).lte("end_date", todayIso)
+      .gte("due_date", sinceIso).lte("due_date", todayIso)
       .order("date", { ascending: false })
       .limit(limit);
 
@@ -269,8 +269,8 @@ async function handle(req: NextRequest, opts: { days: number; limit: number; fil
 
       return {
         id: String(m.id),
-        title: String(m.milestone_name || m.label || "Milestone"),
-        date: String(m.end_date || m.date),
+        title: String(m.title || "Milestone"),
+        date: String(m.due_date),
         type: String(m.type || "other"),
         project_id: String(m.project_id),
         project_code: code || null,
@@ -329,3 +329,4 @@ export async function POST(req: NextRequest) {
     return res;
   }
 }
+
