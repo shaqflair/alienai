@@ -1,436 +1,877 @@
-// src/app/api/portfolio/raid-list/route.ts
-import "server-only";
-import { NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
-import { resolveActiveProjectScope } from "@/lib/server/project-scope";
+"use client";
 
-export const runtime = "nodejs";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
-/* ---------------- utils ---------------- */
+/* ─── Google Fonts injection ────────────────────────────────────────────────── */
+const FONT_URL = "https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=IBM+Plex+Mono:wght@300;400;500;600&family=Source+Serif+4:opsz,wght@8..60,300;400;600&display=swap";
 
-function clampDays(x: string | null, fallback = 30) {
-  const n = Number(x);
-  if (!Number.isFinite(n)) return fallback;
-  const allowed = new Set([7, 14, 30, 60]);
-  return allowed.has(n) ? n : fallback;
-}
+/* ─── Types ─────────────────────────────────────────────────────────────────── */
 
-function safeScope(x: string | null) {
-  const v = String(x || "").toLowerCase();
-  if (v === "window" || v === "overdue" || v === "all") return v;
-  return "all";
-}
-
-function safeType(x: string | null) {
-  const v = String(x || "").trim();
-  if (!v || v.toLowerCase() === "all") return "all";
-  const ok = new Set(["Risk", "Issue", "Assumption", "Dependency"]);
-  return ok.has(v) ? v : "all";
-}
-
-function safeStatus(x: string | null) {
-  // DB values: "Open", "In Progress", "Mitigated", "Closed", "Invalid"
-  const v = String(x || "").trim().toLowerCase();
-  if (!v || v === "all") return "all";
-  const map: Record<string, string> = {
-    open: "Open",
-    in_progress: "In Progress",
-    mitigated: "Mitigated",
-    closed: "Closed",
-    invalid: "Invalid",
-  };
-  return map[v] || "all";
-}
-
-function isoDateUTC(d: Date) {
-  const yyyy = d.getUTCFullYear();
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-/** ✅ UK date display (dd/mm/yyyy) from ISO yyyy-mm-dd or timestamp-ish strings */
-function fmtDateUK(x: any): string | null {
-  if (!x) return null;
-  const s = String(x).trim();
-  if (!s) return null;
-
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
-  if (m) {
-    const yyyy = Number(m[1]);
-    const mm = Number(m[2]);
-    const dd = Number(m[3]);
-    if (!yyyy || !mm || !dd) return null;
-    return `${String(dd).padStart(2, "0")}/${String(mm).padStart(2, "0")}/${String(yyyy)}`;
-  }
-
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) return null;
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const yyyy = String(d.getUTCFullYear());
-  return `${dd}/${mm}/${yyyy}`;
-}
-
-function clamp01to100(n: any) {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return 0;
-  return Math.max(0, Math.min(100, Math.round(v)));
-}
-
-function asIsoOrNull(x: any): string | null {
-  if (!x) return null;
-  return String(x);
-}
-
-function num(x: any, fallback = 0) {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function currencySymbol(code: any) {
-  const c = String(code || "GBP").trim().toUpperCase();
-  if (c === "GBP" || c === "UKP") return "£";
-  if (c === "EUR") return "€";
-  if (c === "USD") return "$";
-  if (c === "NGN") return "₦";
-  if (c === "GHS") return "GH₵";
-  return "£";
-}
-
-/** ✅ Clean tooltip text so UI doesn’t render raw JSON chaos */
-function buildScoreTooltip(components: any, modelVersion: any, scoredAt: any) {
-  const lines: string[] = [];
-  if (modelVersion) lines.push(`Model: ${String(modelVersion)}`);
-  const uk = fmtDateUK(scoredAt);
-  if (uk) lines.push(`Scored: ${uk}`);
-
-  if (components && typeof components === "object") {
-    const p = (components as any).probability ?? (components as any).prob ?? null;
-    const s = (components as any).severity ?? (components as any).sev ?? null;
-    const age = (components as any).age ?? (components as any).item_age ?? null;
-    const blk = (components as any).blocked ?? (components as any).blocker ?? null;
-
-    if (p != null) lines.push(`Probability: ${String(p)}`);
-    if (s != null) lines.push(`Severity: ${String(s)}`);
-    if (age != null) lines.push(`Age: ${String(age)}`);
-    if (blk != null) lines.push(`Blocked: ${String(blk)}`);
-
-    if (lines.length <= 2) {
-      try {
-        const compact = JSON.stringify(components);
-        if (compact && compact !== "{}") lines.push(`Components: ${compact}`);
-      } catch {
-        // ignore
-      }
-    }
-  }
-
-  // UI should render this with whitespace-pre-line
-  return lines.join("\n");
-}
-
-function looksMissingRelation(err: any) {
-  const msg = String(err?.message || err || "").toLowerCase();
-  return msg.includes("does not exist") || msg.includes("relation") || msg.includes("42p01");
-}
-
-/* ---------------- types ---------------- */
-
-type LatestScore = {
-  raid_item_id: string;
+type RaidItem = {
+  id: string;
+  project_id: string;
+  project_title: string;
+  project_code: string | null;
+  type: string;
+  title: string;
+  description: string;
+  status: string;
+  priority: string | null;
+  probability: number | null;
+  severity: number | null;
   score: number | null;
-  components: any;
-  model_version: string | null;
-  scored_at: string | null;
-};
-
-type LatestPred = {
-  raid_item_id: string;
-  breach_probability: number | null;
-  days_to_breach: number | null;
-  confidence: number | null;
-  drivers: any;
-  model_version: string | null;
-  predicted_at: string | null;
-};
-
-type Fin = {
-  raid_item_id: string;
+  score_source: "ai" | "basic";
+  score_tooltip: string;
+  sla_breach_probability: number | null;
+  sla_days_to_breach: number | null;
+  sla_confidence: number | null;
   currency: string;
+  currency_symbol: string;
   est_cost_impact: number | null;
-  est_schedule_days: number | null;
   est_revenue_at_risk: number | null;
   est_penalties: number | null;
-  updated_at: string | null;
+  due_date: string | null;
+  due_date_uk: string | null;
+  owner_label: string;
+  ai_rollup: string;
+  ai_status: string;
+  created_at: string;
+  updated_at: string;
 };
 
-/* ---------------- handler ---------------- */
+type ApiResponse = {
+  ok: boolean;
+  scope: string;
+  windowDays: number;
+  type: string;
+  status: string;
+  items: RaidItem[];
+  meta: { projectCount: number; scope: string; active_only: boolean };
+  error?: string;
+};
 
-export async function GET(req: Request) {
-  const supabase = await createClient();
-  const url = new URL(req.url);
+type ScopeParam  = "all" | "window" | "overdue";
+type TypeParam   = "all" | "Risk" | "Issue" | "Assumption" | "Dependency";
+type StatusParam = "all" | "open" | "in_progress" | "mitigated" | "closed" | "invalid";
+type SortKey     = "score" | "sla" | "exposure" | "due_date" | "type";
+type Rag         = "R" | "A" | "G" | "N";
 
-  const scope = safeScope(url.searchParams.get("scope"));
-  const windowDays = clampDays(url.searchParams.get("window"), 30);
+/* ─── Helpers ───────────────────────────────────────────────────────────────── */
 
-  const type = safeType(url.searchParams.get("type"));
-  const status = safeStatus(url.searchParams.get("status"));
+function n(x: any, fallback = 0): number {
+  const v = Number(x);
+  return Number.isFinite(v) ? v : fallback;
+}
 
-  // ✅ auth
-  const { data: auth, error: authErr } = await supabase.auth.getUser();
-  const userId = auth?.user?.id;
-  if (authErr || !userId) {
-    return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
-  }
+function fmtMoney(sym: string, val: number | null): string {
+  if (!val || val === 0) return "\u2014";
+  if (val >= 1_000_000) return `${sym}${(val / 1_000_000).toFixed(1)}M`;
+  if (val >= 1_000)     return `${sym}${(val / 1_000).toFixed(0)}K`;
+  return `${sym}${val.toLocaleString("en-GB")}`;
+}
 
-  // ✅ ACTIVE + accessible project scope (membership + not deleted/closed)
-  const scoped = await resolveActiveProjectScope(supabase, userId);
-  const projectIds = scoped.projectIds;
+function totalExposure(item: RaidItem): number {
+  return n(item.est_cost_impact) + n(item.est_revenue_at_risk) + n(item.est_penalties);
+}
 
-  if (!projectIds.length) {
-    return NextResponse.json({
-      ok: true,
-      scope,
-      windowDays,
-      type,
-      status,
-      items: [],
-      meta: { project_count: 0, active_only: true, scope_meta: scoped.meta },
+function isOverdue(item: RaidItem): boolean {
+  if (!item.due_date) return false;
+  if (["Closed", "Invalid", "Mitigated"].includes(item.status)) return false;
+  return item.due_date < new Date().toISOString().slice(0, 10);
+}
+
+function scoreRag(score: number | null): Rag {
+  if (score == null) return "N";
+  if (score >= 70) return "R";
+  if (score >= 40) return "A";
+  return "G";
+}
+
+function slaRag(bp: number | null, dtb: number | null): Rag {
+  if (bp == null && dtb == null) return "N";
+  if (n(bp) >= 70 || (dtb != null && n(dtb) <= 7))  return "R";
+  if (n(bp) >= 40 || (dtb != null && n(dtb) <= 21)) return "A";
+  return "G";
+}
+
+function itemRag(item: RaidItem): Rag {
+  if (isOverdue(item)) return "R";
+  const sr = scoreRag(item.score);
+  if (sr === "R") return "R";
+  if (sr === "A") return "A";
+  if (slaRag(item.sla_breach_probability, item.sla_days_to_breach) === "R") return "R";
+  return sr;
+}
+
+function nowUK() {
+  return new Date().toLocaleString("en-GB", {
+    day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  }).replace(",", "");
+}
+
+/* ─── Design tokens ─────────────────────────────────────────────────────────── */
+
+const T = {
+  bg:      "#f9f7f4",
+  surface: "#ffffff",
+  hr:      "#e7e5e4",
+  hrDark:  "#a8a29e",
+  ink:     "#1c1917",
+  ink2:    "#44403c",
+  ink3:    "#78716c",
+  ink4:    "#a8a29e",
+  ink5:    "#d6d3d1",
+  mono:    "'IBM Plex Mono', 'Menlo', monospace",
+  serif:   "'Playfair Display', 'Georgia', serif",
+  body:    "'Source Serif 4', 'Georgia', serif",
+};
+
+const RAG_CONFIG: Record<Rag, { fg: string; bg: string; border: string; label: string }> = {
+  R: { fg: "#7f1d1d", bg: "#fef2f2", border: "#fca5a5", label: "CRITICAL" },
+  A: { fg: "#78350f", bg: "#fffbeb", border: "#fcd34d", label: "ADVISORY" },
+  G: { fg: "#14532d", bg: "#f0fdf4", border: "#86efac", label: "CLEAR"    },
+  N: { fg: "#57534e", bg: "#fafaf9", border: "#e7e5e4", label: "—"        },
+};
+
+const TYPE_COLOR: Record<string, string> = {
+  Risk:       "#991b1b",
+  Issue:      "#92400e",
+  Assumption: "#1e40af",
+  Dependency: "#5b21b6",
+};
+
+/* ─── Atoms ─────────────────────────────────────────────────────────────────── */
+
+function Mono({ children, size = 11, color, weight = 400, upper = false }: {
+  children: React.ReactNode;
+  size?: number; color?: string; weight?: number; upper?: boolean;
+}) {
+  return (
+    <span style={{
+      fontFamily: T.mono, fontSize: size,
+      color: color ?? T.ink3, fontWeight: weight,
+      letterSpacing: upper ? "0.08em" : undefined,
+      textTransform: upper ? "uppercase" : undefined,
+    }}>
+      {children}
+    </span>
+  );
+}
+
+function Cap({ children }: { children: React.ReactNode }) {
+  return (
+    <span style={{
+      fontFamily: T.mono, fontSize: 9, fontWeight: 600,
+      letterSpacing: "0.13em", textTransform: "uppercase",
+      color: T.ink4,
+    }}>
+      {children}
+    </span>
+  );
+}
+
+function Pip({ rag, pulse }: { rag: Rag; pulse?: boolean }) {
+  const color = rag === "N" ? T.ink5 : RAG_CONFIG[rag].fg;
+  return (
+    <span style={{ position: "relative", display: "inline-flex", alignItems: "center", justifyContent: "center", width: 10, height: 10 }}>
+      {pulse && rag === "R" && (
+        <span style={{
+          position: "absolute", inset: -3, borderRadius: "50%",
+          background: color, opacity: 0.2,
+          animation: "ragPulse 2.2s ease-in-out infinite",
+        }} />
+      )}
+      <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, display: "inline-block" }} />
+    </span>
+  );
+}
+
+function Pill({ label, active, onClick, dotColor }: {
+  label: string; active: boolean;
+  onClick: () => void; dotColor?: string;
+}) {
+  return (
+    <button onClick={onClick} style={{
+      display: "inline-flex", alignItems: "center", gap: 5,
+      padding: "4px 12px",
+      fontFamily: T.mono, fontSize: 10, fontWeight: active ? 600 : 400,
+      letterSpacing: "0.07em", textTransform: "uppercase",
+      background: active ? T.ink : "transparent",
+      color: active ? "#fff" : T.ink3,
+      border: `1px solid ${active ? T.ink : T.hr}`,
+      borderRadius: 2, cursor: "pointer",
+      transition: "all 0.13s ease",
+    }}>
+      {dotColor && active && (
+        <span style={{ width: 5, height: 5, borderRadius: "50%", background: dotColor }} />
+      )}
+      {label}
+    </button>
+  );
+}
+
+/* ─── KPI cell ──────────────────────────────────────────────────────────────── */
+
+function KpiCell({ label, value, sub, alert }: {
+  label: string; value: string | number; sub?: string; alert?: boolean;
+}) {
+  return (
+    <div style={{ padding: "22px 28px", borderRight: `1px solid ${T.hr}` }}>
+      <Cap>{label}</Cap>
+      <div style={{
+        fontFamily: T.serif, fontSize: 40, fontWeight: 700,
+        lineHeight: 1, marginTop: 10, marginBottom: 6,
+        color: alert ? RAG_CONFIG.R.fg : T.ink,
+      }}>
+        {value}
+      </div>
+      {sub && <Cap>{sub}</Cap>}
+    </div>
+  );
+}
+
+/* ─── Score meter ───────────────────────────────────────────────────────────── */
+
+function ScoreMeter({ score }: { score: number | null }) {
+  if (score == null) return <Mono color={T.ink5}>—</Mono>;
+  const rag   = scoreRag(score);
+  const color = RAG_CONFIG[rag === "N" ? "N" : rag].fg;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ width: 52, height: 3, background: T.ink5, borderRadius: 3, overflow: "hidden", flexShrink: 0 }}>
+        <div style={{
+          width: `${score}%`, height: "100%", borderRadius: 3,
+          background: color,
+          transition: "width 0.9s cubic-bezier(0.16,1,0.3,1)",
+        }} />
+      </div>
+      <Mono size={13} color={color} weight={600}>{score}</Mono>
+    </div>
+  );
+}
+
+/* ─── Type flag ─────────────────────────────────────────────────────────────── */
+
+function TypeFlag({ type }: { type: string }) {
+  const c = TYPE_COLOR[type] ?? T.ink4;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+      <span style={{ width: 4, height: 4, borderRadius: "50%", background: c, flexShrink: 0, display: "inline-block" }} />
+      <Mono size={9} color={c} weight={600} upper>{type}</Mono>
+    </span>
+  );
+}
+
+/* ─── Status chip ───────────────────────────────────────────────────────────── */
+
+function StatusChip({ status }: { status: string }) {
+  const done = ["Closed", "Mitigated"].includes(status);
+  const open = status === "Open";
+  const bg   = done ? "#f0fdf4" : open ? "#fef2f2" : "#fafaf9";
+  const fg   = done ? RAG_CONFIG.G.fg : open ? RAG_CONFIG.R.fg : T.ink3;
+  const bd   = done ? "#bbf7d0" : open ? "#fecaca" : T.hr;
+  return (
+    <span style={{
+      fontFamily: T.mono, fontSize: 9, fontWeight: 600,
+      letterSpacing: "0.08em", textTransform: "uppercase",
+      padding: "2px 7px", borderRadius: 2,
+      background: bg, color: fg,
+      border: `1px solid ${bd}`,
+      whiteSpace: "nowrap",
+    }}>
+      {status}
+    </span>
+  );
+}
+
+/* ─── Rule with label ───────────────────────────────────────────────────────── */
+
+function SectionRule({ label }: { label?: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+      {label && <Cap>{label}</Cap>}
+      <div style={{ flex: 1, height: "1px", background: T.hr }} />
+    </div>
+  );
+}
+
+/* ─── Detail drawer ─────────────────────────────────────────────────────────── */
+
+function DetailDrawer({ item }: { item: RaidItem }) {
+  const rag      = itemRag(item);
+  const exposure = totalExposure(item);
+  const slr      = slaRag(item.sla_breach_probability, item.sla_days_to_breach);
+  const rc       = RAG_CONFIG[rag];
+
+  return (
+    <div style={{
+      background: rc.bg,
+      borderTop: `1px solid ${rc.border}`,
+      padding: "26px 36px 30px 36px",
+      animation: "drawerOpen 0.18s ease-out both",
+    }}>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 48 }}>
+
+        {/* Summary */}
+        <div>
+          <SectionRule label="Intelligence Summary" />
+          <p style={{
+            fontFamily: T.body, fontSize: 13.5, color: T.ink2,
+            lineHeight: 1.75, margin: 0, fontWeight: 300,
+          }}>
+            {item.ai_rollup || item.description || "No summary available for this item."}
+          </p>
+          {item.ai_status && (
+            <div style={{ marginTop: 10 }}>
+              <Mono size={10} color={T.ink4}>AI assessment: </Mono>
+              <Mono size={10} color={T.ink3}>{item.ai_status}</Mono>
+            </div>
+          )}
+        </div>
+
+        {/* Risk Intelligence */}
+        <div>
+          <SectionRule label="Risk Intelligence" />
+          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+            {([
+              ["Probability",       item.probability           != null ? `${item.probability}%`           : null],
+              ["Severity",          item.severity              != null ? `${item.severity}%`             : null],
+              ["SLA Breach",        item.sla_breach_probability != null ? `${item.sla_breach_probability}%` : null],
+              ["Days to Breach",    item.sla_days_to_breach    != null ? `~${item.sla_days_to_breach}d`   : null],
+              ["AI Confidence",     item.sla_confidence        != null ? `${item.sla_confidence}%`       : null],
+              ["Scoring Model",     item.score_source === "ai"  ? "AI (trained)"                         : "Formula"],
+            ] as [string, string | null][]).map(([k, v]) =>
+              v ? (
+                <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+                  <Mono size={11} color={T.ink4}>{k}</Mono>
+                  <Mono size={11} color={T.ink2} weight={500}>{v}</Mono>
+                </div>
+              ) : null
+            )}
+          </div>
+        </div>
+
+        {/* Exposure */}
+        <div>
+          <SectionRule label="Financial Exposure" />
+          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+            {([
+              ["Cost Impact",     item.est_cost_impact],
+              ["Revenue at Risk", item.est_revenue_at_risk],
+              ["Penalties",       item.est_penalties],
+            ] as [string, number | null][]).map(([k, v]) => (
+              <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+                <Mono size={11} color={T.ink4}>{k}</Mono>
+                <Mono size={11} color={T.ink2} weight={500}>{fmtMoney(item.currency_symbol, v)}</Mono>
+              </div>
+            ))}
+            <div style={{ borderTop: `1px solid ${T.hr}`, paddingTop: 9, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <Mono size={11} color={T.ink3} weight={500}>Total Exposure</Mono>
+              <Mono size={14} color={exposure > 0 ? RAG_CONFIG.A.fg : T.ink5} weight={600}>
+                {fmtMoney(item.currency_symbol, exposure || null)}
+              </Mono>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 22 }}>
+            <Link
+              href={`/projects/${item.project_id}/raid`}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                fontFamily: T.mono, fontSize: 10, fontWeight: 600,
+                letterSpacing: "0.1em", color: "#1d4ed8",
+                textDecoration: "none",
+                borderBottom: "1px solid #bfdbfe", paddingBottom: 1,
+              }}
+            >
+              OPEN IN PROJECT REGISTER &rarr;
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Config ────────────────────────────────────────────────────────────────── */
+
+const SCOPES:   { v: ScopeParam;   l: string }[] = [
+  { v: "all", l: "All" }, { v: "window", l: "In Window" }, { v: "overdue", l: "Overdue" },
+];
+const TYPES: { v: TypeParam; l: string }[] = [
+  { v: "all", l: "All" }, { v: "Risk", l: "Risk" },
+  { v: "Issue", l: "Issue" }, { v: "Assumption", l: "Assumption" },
+  { v: "Dependency", l: "Dependency" },
+];
+const STATUSES: { v: StatusParam; l: string }[] = [
+  { v: "all", l: "All" }, { v: "open", l: "Open" },
+  { v: "in_progress", l: "In Progress" },
+  { v: "mitigated", l: "Mitigated" }, { v: "closed", l: "Closed" },
+];
+const WINDOWS = [7, 14, 30, 60] as const;
+const SORTS: { v: SortKey; l: string }[] = [
+  { v: "score",    l: "Risk Score"  },
+  { v: "sla",      l: "SLA Threat"  },
+  { v: "exposure", l: "Exposure"    },
+  { v: "due_date", l: "Due Date"    },
+  { v: "type",     l: "Type"        },
+];
+
+/* ─── Main component ────────────────────────────────────────────────────────── */
+
+export default function RaidPortfolioClient({
+  defaultScope  = "all",
+  defaultWindow = 30,
+}: {
+  defaultScope?:  ScopeParam;
+  defaultWindow?: 7 | 14 | 30 | 60;
+}) {
+  const [data,       setData]       = useState<ApiResponse | null>(null);
+  const [loading,    setLoading]    = useState(true);
+  const [mounted,    setMounted]    = useState(false);
+  const [scope,      setScope]      = useState<ScopeParam>(defaultScope);
+  const [type,       setType]       = useState<TypeParam>("all");
+  const [status,     setStatus]     = useState<StatusParam>("all");
+  const [win,        setWin]        = useState<7 | 14 | 30 | 60>(defaultWindow);
+  const [sortKey,    setSortKey]    = useState<SortKey>("score");
+  const [search,     setSearch]     = useState("");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const p = new URLSearchParams({ scope, type, status, window: String(win) });
+      const res = await fetch(`/api/portfolio/raid-list?${p}`, { cache: "no-store" });
+      setData(await res.json());
+    } catch (e: any) {
+      setData({
+        ok: false, error: String(e?.message ?? "Failed"),
+        scope, windowDays: win, type, status, items: [],
+        meta: { projectCount: 0, scope: "org", active_only: true },
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [scope, type, status, win]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const items = useMemo(() => {
+    if (!data?.items) return [];
+    let list = data.items;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter((i) =>
+        `${i.title} ${i.project_title} ${i.owner_label} ${i.type}`.toLowerCase().includes(q)
+      );
+    }
+    return [...list].sort((a, b) => {
+      if (sortKey === "score")    return n(b.score, -1) - n(a.score, -1);
+      if (sortKey === "sla")      return n(b.sla_breach_probability, -1) - n(a.sla_breach_probability, -1);
+      if (sortKey === "exposure") return totalExposure(b) - totalExposure(a);
+      if (sortKey === "due_date") {
+        const [ad, bd] = [a.due_date ?? "9999", b.due_date ?? "9999"];
+        return ad < bd ? -1 : ad > bd ? 1 : 0;
+      }
+      if (sortKey === "type") return (a.type ?? "").localeCompare(b.type ?? "");
+      return 0;
     });
-  }
+  }, [data, search, sortKey]);
 
-  let q = supabase
-    .from("raid_items")
-    .select(
-      `
-      id,
-      project_id,
-      type,
-      title,
-      description,
-      status,
-      priority,
-      probability,
-      severity,
-      due_date,
-      owner_id,
-      owner_label,
-      ai_rollup,
-      ai_status,
-      ai_dirty,
-      ai_last_run_at,
-      created_at,
-      updated_at,
-      projects:projects ( id, title, project_code )
-    `
-    )
-    .in("project_id", projectIds);
-
-  if (type !== "all") q = q.eq("type", type);
-  if (status !== "all") q = q.eq("status", status);
-
-  const today = new Date();
-  const todayStr = isoDateUTC(today);
-  const to = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + windowDays));
-  const toStr = isoDateUTC(to);
-
-  if (scope === "window") {
-    q = q.gte("due_date", todayStr).lte("due_date", toStr);
-  } else if (scope === "overdue") {
-    q = q.lt("due_date", todayStr).not("status", "in", '("Closed","Invalid")');
-  }
-
-  const { data, error } = await q
-    .order("due_date", { ascending: true, nullsFirst: false })
-    .order("severity", { ascending: false, nullsFirst: false })
-    .limit(500);
-
-  if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  }
-
-  const rows = data || [];
-  const raidItemIds = rows.map((r: any) => r.id).filter(Boolean);
-
-  // ---- Pull latest AI score + prediction + financials (batched) ----
-  const scoreByItem = new Map<string, LatestScore>();
-  const predByItem = new Map<string, LatestPred>();
-  const finByItem = new Map<string, Fin>();
-
-  let finOptionalError: string | null = null;
-
-  if (raidItemIds.length) {
-    const maxItems = raidItemIds.length;
-
-    // Latest scores
-    const { data: scores, error: sErr } = await supabase
-      .from("raid_item_scores")
-      .select("raid_item_id, score, components, model_version, scored_at")
-      .in("raid_item_id", raidItemIds)
-      .order("scored_at", { ascending: false })
-      .limit(Math.min(5000, maxItems * 10));
-
-    if (sErr) {
-      return NextResponse.json({ ok: false, error: sErr.message }, { status: 500 });
-    }
-
-    for (const s of scores || []) {
-      const id = (s as any).raid_item_id as string;
-      if (!id) continue;
-      if (!scoreByItem.has(id)) {
-        scoreByItem.set(id, {
-          raid_item_id: id,
-          score: (s as any).score ?? null,
-          components: (s as any).components && typeof (s as any).components === "object" ? (s as any).components : null,
-          model_version: (s as any).model_version ?? null,
-          scored_at: asIsoOrNull((s as any).scored_at),
-        });
-      }
-    }
-
-    // Latest predictions
-    const { data: preds, error: pErr } = await supabase
-      .from("raid_sla_predictions")
-      .select("raid_item_id, breach_probability, days_to_breach, confidence, drivers, model_version, predicted_at")
-      .in("raid_item_id", raidItemIds)
-      .order("predicted_at", { ascending: false })
-      .limit(Math.min(5000, maxItems * 10));
-
-    if (pErr) {
-      return NextResponse.json({ ok: false, error: pErr.message }, { status: 500 });
-    }
-
-    for (const p of preds || []) {
-      const id = (p as any).raid_item_id as string;
-      if (!id) continue;
-      if (!predByItem.has(id)) {
-        predByItem.set(id, {
-          raid_item_id: id,
-          breach_probability: (p as any).breach_probability ?? null,
-          days_to_breach: (p as any).days_to_breach ?? null,
-          confidence: (p as any).confidence ?? null,
-          drivers: (p as any).drivers ?? null,
-          model_version: (p as any).model_version ?? null,
-          predicted_at: asIsoOrNull((p as any).predicted_at),
-        });
-      }
-    }
-
-    // Financials (optional table)
-    const { data: fins, error: fErr } = await supabase
-      .from("raid_financials")
-      .select("raid_item_id, currency, est_cost_impact, est_schedule_days, est_revenue_at_risk, est_penalties, updated_at")
-      .in("raid_item_id", raidItemIds)
-      .limit(Math.min(5000, maxItems));
-
-    if (fErr) {
-      // ✅ Do not fail the endpoint if this table isn't ready yet
-      finOptionalError = looksMissingRelation(fErr) ? "raid_financials missing" : fErr.message;
-    } else {
-      for (const f of fins || []) {
-        const id = (f as any).raid_item_id as string;
-        if (!id) continue;
-        finByItem.set(id, {
-          raid_item_id: id,
-          currency: String((f as any).currency ?? "GBP").toUpperCase() || "GBP",
-          est_cost_impact: (f as any).est_cost_impact ?? null,
-          est_schedule_days: (f as any).est_schedule_days ?? null,
-          est_revenue_at_risk: (f as any).est_revenue_at_risk ?? null,
-          est_penalties: (f as any).est_penalties ?? null,
-          updated_at: asIsoOrNull((f as any).updated_at),
-        });
-      }
-    }
-  }
-
-  const items = rows.map((r: any) => {
-    const p = clamp01to100(r?.probability);
-    const s = clamp01to100(r?.severity);
-
-    const basicScore = r?.probability == null || r?.severity == null ? null : Math.round((p * s) / 100);
-
-    const aiScore = scoreByItem.get(r.id) || null;
-    const pred = predByItem.get(r.id) || null;
-    const fin = finByItem.get(r.id) || null;
-
-    const score = aiScore?.score ?? basicScore;
-
-    const projectCode = r?.projects?.project_code ?? null;
-    const projectHumanId = projectCode == null ? null : String(projectCode);
-
-    const cur = String((fin?.currency ?? "GBP") || "GBP").toUpperCase();
-    const curSym = currencySymbol(cur);
-
-    const scoreTooltip = buildScoreTooltip(aiScore?.components ?? null, aiScore?.model_version ?? null, aiScore?.scored_at ?? null);
-
+  const kpis = useMemo(() => {
+    if (!data?.items?.length) return null;
+    const all = data.items;
     return {
-      id: r.id,
-
-      project_id: r.project_id,
-      project_title: r?.projects?.title || "Project",
-
-      project_code: projectCode,
-      project_human_id: projectHumanId,
-
-      type: r.type,
-      title: r.title || r.description?.slice(0, 80) || "RAID item",
-      description: r.description || "",
-
-      status: r.status,
-      priority: r.priority,
-
-      probability: r.probability,
-      severity: r.severity,
-
-      score,
-      score_source: aiScore ? "ai" : "basic",
-      score_components: aiScore?.components ?? null,
-      score_model_version: aiScore?.model_version ?? null,
-      score_scored_at: aiScore?.scored_at ?? null,
-      score_tooltip: scoreTooltip,
-
-      sla_breach_probability: pred?.breach_probability ?? null,
-      sla_days_to_breach: pred?.days_to_breach ?? null,
-      sla_confidence: pred?.confidence ?? null,
-      sla_drivers: pred?.drivers ?? null,
-      sla_model_version: pred?.model_version ?? null,
-      sla_predicted_at: pred?.predicted_at ?? null,
-
-      currency: cur,
-      currency_symbol: curSym,
-      est_cost_impact: fin?.est_cost_impact ?? null,
-      est_schedule_days: fin?.est_schedule_days ?? null,
-      est_revenue_at_risk: fin?.est_revenue_at_risk ?? null,
-      est_penalties: fin?.est_penalties ?? null,
-      financials_updated_at: fin?.updated_at ?? null,
-
-      due_date: r.due_date,
-      due_date_uk: fmtDateUK(r.due_date),
-
-      owner_label: r.owner_label || "",
-      ai_rollup: r.ai_rollup || "",
-      ai_status: r.ai_status || "",
-      ai_dirty: Boolean(r.ai_dirty),
-      ai_last_run_at: r.ai_last_run_at,
-
-      created_at: r.created_at,
-      updated_at: r.updated_at,
+      total:    all.length,
+      critical: all.filter((i) => itemRag(i) === "R").length,
+      advisory: all.filter((i) => itemRag(i) === "A").length,
+      overdue:  all.filter(isOverdue).length,
+      exposure: all.reduce((s, i) => s + totalExposure(i), 0),
+      sym:      all.find((i) => i.currency_symbol)?.currency_symbol ?? "£",
     };
-  });
+  }, [data]);
 
-  return NextResponse.json({
-    ok: true,
-    scope,
-    windowDays,
-    type,
-    status,
-    items,
-    meta: {
-      active_only: true,
-      project_count: projectIds.length,
-      scope_meta: scoped.meta,
-      optional_tables: { raid_financials: finOptionalError ? { ok: false, error: finOptionalError } : { ok: true } },
-    },
-  });
+  /* ── Table cell styles ── */
+  const TH: React.CSSProperties = {
+    padding: "9px 16px",
+    fontFamily: T.mono, fontSize: 9, fontWeight: 600,
+    letterSpacing: "0.12em", textTransform: "uppercase",
+    color: T.ink4, textAlign: "left",
+    borderBottom: `1px solid ${T.hr}`,
+    background: "#f5f3f0",
+    whiteSpace: "nowrap",
+  };
+  const TD: React.CSSProperties = {
+    padding: "14px 16px",
+    verticalAlign: "middle",
+    borderBottom: `1px solid ${T.hr}`,
+  };
+
+  return (
+    <>
+      <style>{`
+        @import url("${FONT_URL}");
+
+        @keyframes ragPulse {
+          0%, 100% { transform: scale(1);   opacity: 0.2; }
+          50%       { transform: scale(2.4); opacity: 0.08; }
+        }
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes drawerOpen {
+          from { opacity: 0; transform: translateY(-4px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .raid-row { transition: background 0.1s; }
+        .raid-row:hover { background: #f9f7f4 !important; }
+        .raid-row:hover .item-title { color: #1c1917 !important; }
+        input::placeholder { color: #a8a29e; }
+        input:focus { outline: none; border-color: #a8a29e !important; }
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d6d3d1; border-radius: 2px; }
+      `}</style>
+
+      <div style={{
+        minHeight: "100vh", background: T.bg,
+        fontFamily: T.mono,
+        opacity: mounted ? 1 : 0, transition: "opacity 0.35s ease",
+      }}>
+        <div style={{ maxWidth: 1360, margin: "0 auto", padding: "40px 40px 100px" }}>
+
+          {/* ── Masthead ── */}
+          <div style={{
+            borderBottom: `2px solid ${T.ink}`,
+            paddingBottom: 22, marginBottom: 30,
+            animation: "fadeUp 0.4s ease both",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <Link href="/insights" style={{ fontFamily: T.mono, fontSize: 10, color: T.ink4, textDecoration: "none", letterSpacing: "0.08em" }}>
+                  &larr; PORTFOLIO INTELLIGENCE
+                </Link>
+                <span style={{ color: T.ink5 }}>·</span>
+                <Cap>RAID REGISTER</Cap>
+              </div>
+              <Mono size={10} color={T.ink5}>{nowUK()}</Mono>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 32 }}>
+              <div>
+                <h1 style={{
+                  fontFamily: T.serif, fontSize: 42, fontWeight: 700, margin: 0,
+                  letterSpacing: "-0.02em", lineHeight: 1.05, color: T.ink,
+                }}>
+                  RAID Portfolio Register
+                </h1>
+                <p style={{
+                  fontFamily: T.body, fontSize: 14, color: T.ink3,
+                  marginTop: 8, fontWeight: 300, lineHeight: 1.5, maxWidth: 560,
+                }}>
+                  Consolidated risks, issues, assumptions and dependencies across all active projects — scored, ranked and ready for action.
+                </p>
+              </div>
+              {data?.meta && (
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <Mono size={10} color={T.ink4} upper>{data.meta.projectCount} active projects</Mono>
+                  <div style={{ marginTop: 4 }}>
+                    <Mono size={10} color={T.ink5} upper>Org scope · live</Mono>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── KPI strip ── */}
+          {kpis && (
+            <div style={{
+              display: "grid", gridTemplateColumns: "repeat(5, 1fr)",
+              border: `1px solid ${T.hr}`, background: T.surface,
+              marginBottom: 24,
+              animation: "fadeUp 0.4s 0.08s ease both",
+            }}>
+              <KpiCell label="Total Items"     value={kpis.total}    sub={`${data!.meta.projectCount} projects`} />
+              <KpiCell label="Critical"        value={kpis.critical} sub="score ≥ 70 or overdue" alert={kpis.critical > 0} />
+              <KpiCell label="Advisory"        value={kpis.advisory} sub="score 40–69" />
+              <KpiCell label="Overdue"         value={kpis.overdue}  sub="past due date" alert={kpis.overdue > 0} />
+              <div style={{ padding: "22px 28px" }}>
+                <Cap>Total Exposure</Cap>
+                <div style={{
+                  fontFamily: T.serif, fontSize: 40, fontWeight: 700, lineHeight: 1,
+                  marginTop: 10, marginBottom: 6,
+                  color: kpis.exposure > 0 ? RAG_CONFIG.A.fg : T.ink4,
+                }}>
+                  {kpis.exposure > 0 ? fmtMoney(kpis.sym, kpis.exposure) : "\u2014"}
+                </div>
+                <Cap>cost + revenue + penalties</Cap>
+              </div>
+            </div>
+          )}
+
+          {/* ── Controls ── */}
+          <div style={{
+            background: T.surface, border: `1px solid ${T.hr}`,
+            padding: "14px 18px", marginBottom: 12,
+            display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center",
+            animation: "fadeUp 0.4s 0.14s ease both",
+          }}>
+            <div style={{ display: "flex", gap: 3 }}>
+              {SCOPES.map((s) => <Pill key={s.v} label={s.l} active={scope === s.v} onClick={() => setScope(s.v)} />)}
+            </div>
+            <div style={{ width: 1, height: 20, background: T.hr }} />
+            <div style={{ display: "flex", gap: 3 }}>
+              {TYPES.map((t) => (
+                <Pill key={t.v} label={t.l} active={type === t.v}
+                  dotColor={t.v !== "all" ? TYPE_COLOR[t.v] : undefined}
+                  onClick={() => setType(t.v)}
+                />
+              ))}
+            </div>
+            <div style={{ width: 1, height: 20, background: T.hr }} />
+            <div style={{ display: "flex", gap: 3 }}>
+              {STATUSES.map((s) => <Pill key={s.v} label={s.l} active={status === s.v} onClick={() => setStatus(s.v)} />)}
+            </div>
+            <div style={{ width: 1, height: 20, background: T.hr }} />
+            <div style={{ display: "flex", gap: 3 }}>
+              {WINDOWS.map((w) => <Pill key={w} label={`${w}D`} active={win === w} onClick={() => setWin(w)} />)}
+            </div>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search title, project, owner…"
+              style={{
+                marginLeft: "auto", padding: "6px 12px",
+                fontFamily: T.mono, fontSize: 11,
+                background: T.bg, border: `1px solid ${T.hr}`,
+                borderRadius: 2, color: T.ink, width: 234,
+                transition: "border-color 0.15s",
+              }}
+            />
+          </div>
+
+          {/* ── Sort bar ── */}
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6, marginBottom: 14,
+            animation: "fadeUp 0.4s 0.18s ease both",
+          }}>
+            <Cap>Sort:</Cap>
+            <div style={{ display: "flex", gap: 3, marginLeft: 4 }}>
+              {SORTS.map((s) => <Pill key={s.v} label={s.l} active={sortKey === s.v} onClick={() => setSortKey(s.v)} />)}
+            </div>
+            <div style={{ marginLeft: "auto" }}>
+              {loading
+                ? <Mono size={10} color={T.ink5}>LOADING…</Mono>
+                : <Mono size={10} color={T.ink4}>{items.length} ITEMS</Mono>
+              }
+            </div>
+          </div>
+
+          {/* ── Error ── */}
+          {!loading && data && !data.ok && (
+            <div style={{
+              background: RAG_CONFIG.R.bg,
+              border: `1px solid ${RAG_CONFIG.R.border}`,
+              borderLeft: `3px solid ${RAG_CONFIG.R.fg}`,
+              padding: "18px 24px",
+            }}>
+              <Cap>Data Error</Cap>
+              <p style={{ fontFamily: T.body, fontSize: 13, color: RAG_CONFIG.R.fg, margin: "8px 0 0" }}>
+                {data.error}
+              </p>
+            </div>
+          )}
+
+          {/* ── Loading ── */}
+          {loading && (
+            <div style={{
+              background: T.surface, border: `1px solid ${T.hr}`,
+              padding: "64px", textAlign: "center",
+            }}>
+              <Mono size={11} color={T.ink5}>RETRIEVING RAID DATA…</Mono>
+            </div>
+          )}
+
+          {/* ── Table ── */}
+          {!loading && data?.ok && (
+            <div style={{
+              background: T.surface, border: `1px solid ${T.hr}`,
+              overflow: "hidden",
+              animation: "fadeUp 0.4s 0.22s ease both",
+            }}>
+              {items.length === 0 ? (
+                <div style={{ padding: "64px", textAlign: "center" }}>
+                  <Mono size={12} color={T.ink5}>No items match the current filters.</Mono>
+                </div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ ...TH, width: 3, padding: 0 }} />
+                        <th style={{ ...TH, minWidth: 310 }}>Item</th>
+                        <th style={{ ...TH, width: 105 }}>Risk Score</th>
+                        <th style={{ ...TH, width: 115 }}>SLA Threat</th>
+                        <th style={{ ...TH, width: 115 }}>Exposure</th>
+                        <th style={{ ...TH, width: 105 }}>Due Date</th>
+                        <th style={{ ...TH, width: 100 }}>Status</th>
+                        <th style={{ ...TH, width: 170 }}>Project</th>
+                        <th style={{ ...TH, width: 30, textAlign: "center" as const }} />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((item, idx) => {
+                        const rag      = itemRag(item);
+                        const over     = isOverdue(item);
+                        const slr      = slaRag(item.sla_breach_probability, item.sla_days_to_breach);
+                        const exposure = totalExposure(item);
+                        const expanded = expandedId === item.id;
+                        const rc       = RAG_CONFIG[rag];
+
+                        return (
+                          <React.Fragment key={item.id}>
+                            <tr
+                              className="raid-row"
+                              onClick={() => setExpandedId(expanded ? null : item.id)}
+                              style={{ cursor: "pointer", background: expanded ? "#faf9f7" : T.surface }}
+                            >
+                              {/* RAG strip */}
+                              <td style={{ width: 3, padding: 0 }}>
+                                <div style={{
+                                  width: 3, minHeight: 58,
+                                  background: rag === "N" ? "transparent" : rc.fg,
+                                  opacity: rag === "G" ? 0.45 : 1,
+                                }} />
+                              </td>
+
+                              {/* Item */}
+                              <td style={{ ...TD, minWidth: 310 }}>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                                  <TypeFlag type={item.type} />
+                                  <div className="item-title" style={{
+                                    fontFamily: T.body, fontSize: 13.5, color: T.ink2,
+                                    fontWeight: 400, lineHeight: 1.35,
+                                    transition: "color 0.1s",
+                                  }}>
+                                    {item.title}
+                                  </div>
+                                  {item.owner_label && (
+                                    <Mono size={10} color={T.ink4}>&darr; {item.owner_label}</Mono>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* Score */}
+                              <td style={TD}><ScoreMeter score={item.score} /></td>
+
+                              {/* SLA */}
+                              <td style={TD}>
+                                {slr === "N" ? (
+                                  <Mono color={T.ink5}>—</Mono>
+                                ) : (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                                      <Pip rag={slr} pulse={slr === "R"} />
+                                      <Mono size={12} color={RAG_CONFIG[slr].fg} weight={600}>
+                                        {item.sla_breach_probability != null
+                                          ? `${item.sla_breach_probability}%`
+                                          : "—"
+                                        }
+                                      </Mono>
+                                    </div>
+                                    {item.sla_days_to_breach != null && (
+                                      <Mono size={10} color={T.ink4}>~{item.sla_days_to_breach}d</Mono>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+
+                              {/* Exposure */}
+                              <td style={TD}>
+                                <Mono
+                                  size={12}
+                                  color={exposure > 500_000 ? RAG_CONFIG.A.fg : exposure > 0 ? T.ink3 : T.ink5}
+                                  weight={exposure > 0 ? 600 : 400}
+                                >
+                                  {fmtMoney(item.currency_symbol, exposure || null)}
+                                </Mono>
+                              </td>
+
+                              {/* Due */}
+                              <td style={TD}>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                  <Mono
+                                    size={12}
+                                    color={over ? RAG_CONFIG.R.fg : item.due_date ? T.ink3 : T.ink5}
+                                    weight={over ? 600 : 400}
+                                  >
+                                    {item.due_date_uk ?? "—"}
+                                  </Mono>
+                                  {over && <Mono size={9} color={RAG_CONFIG.R.fg} weight={600} upper>Overdue</Mono>}
+                                </div>
+                              </td>
+
+                              {/* Status */}
+                              <td style={TD}><StatusChip status={item.status} /></td>
+
+                              {/* Project */}
+                              <td style={{ ...TD, maxWidth: 170 }}>
+                                <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  <Mono size={11} color={T.ink4}>{item.project_title}</Mono>
+                                </div>
+                              </td>
+
+                              {/* Toggle */}
+                              <td style={{ ...TD, textAlign: "center" as const, paddingLeft: 6, paddingRight: 12 }}>
+                                <span style={{
+                                  display: "inline-block",
+                                  fontFamily: T.mono, fontSize: 11, color: T.ink4,
+                                  transform: expanded ? "rotate(180deg)" : "none",
+                                  transition: "transform 0.2s ease",
+                                }}>
+                                  ▾
+                                </span>
+                              </td>
+                            </tr>
+
+                            {/* Expanded detail */}
+                            {expanded && (
+                              <tr>
+                                <td colSpan={9} style={{ padding: 0, borderBottom: `1px solid ${T.hr}` }}>
+                                  <DetailDrawer item={item} />
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Footer ── */}
+          {!loading && data?.ok && (
+            <div style={{
+              marginTop: 24, display: "flex", justifyContent: "space-between",
+              alignItems: "center", paddingTop: 16, borderTop: `1px solid ${T.hr}`,
+            }}>
+              <Mono size={10} color={T.ink5} upper>
+                Org scope · active projects only · {data.meta.projectCount} projects · {items.length} items
+              </Mono>
+              <Mono size={10} color={T.ink5}>{nowUK()}</Mono>
+            </div>
+          )}
+
+        </div>
+      </div>
+    </>
+  );
 }

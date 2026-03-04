@@ -1,4 +1,5 @@
 ﻿// src/app/api/executive/approvals/portfolio/route.ts
+// ✅ Always org-scoped. Project-level access control lives on the frontend only.
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -22,25 +23,10 @@ function noStoreJson(data: unknown, init?: ResponseInit) {
 
 function riskState(nowMs: number, slaDueIso?: string | null) {
   const s = safeStr(slaDueIso).trim();
-  if (!s) {
-    return {
-      state: "ok" as const,
-      rag: "G" as const,
-      hoursToBreach: null as number | null,
-    };
-  }
-
+  if (!s) return { state: "ok" as const, rag: "G" as const, hoursToBreach: null as number | null };
   const due = new Date(s).getTime();
-  if (!Number.isFinite(due)) {
-    return {
-      state: "ok" as const,
-      rag: "G" as const,
-      hoursToBreach: null as number | null,
-    };
-  }
-
+  if (!Number.isFinite(due)) return { state: "ok" as const, rag: "G" as const, hoursToBreach: null as number | null };
   const diffHrs = Math.round((due - nowMs) / 36e5);
-
   if (nowMs > due) return { state: "breached" as const, rag: "R" as const, hoursToBreach: diffHrs };
   if (diffHrs <= 48) return { state: "at_risk" as const, rag: "A" as const, hoursToBreach: diffHrs };
   return { state: "ok" as const, rag: "G" as const, hoursToBreach: diffHrs };
@@ -54,37 +40,6 @@ function daysWaiting(createdAtIso?: string | null) {
   return Math.max(0, Math.floor((Date.now() - t) / 864e5));
 }
 
-async function isExecutiveForOrg(supabase: any, userId: string, orgId: string) {
-  const { data, error } = await supabase
-    .from("project_members")
-    .select("id, projects!inner(id, organisation_id)")
-    .eq("user_id", userId)
-    .eq("role", "owner")
-    .is("removed_at", null)
-    .eq("projects.organisation_id", orgId)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw new Error(error.message);
-  return !!data;
-}
-
-async function myProjectIdsInOrg(supabase: any, userId: string, orgId: string) {
-  const { data, error } = await supabase
-    .from("project_members")
-    .select("project_id, projects!inner(id, organisation_id)")
-    .eq("user_id", userId)
-    .is("removed_at", null)
-    .eq("projects.organisation_id", orgId);
-
-  if (error) throw new Error(error.message);
-  return (data || []).map((r: any) => safeStr(r?.project_id).trim()).filter(Boolean);
-}
-
-function pickProjectId(row: any): string {
-  return safeStr(row?.project_id || row?.projectId || row?.project_uuid || row?.projectUuid || "").trim();
-}
-
 function pendingLike(status: any) {
   const s = safeStr(status).trim().toLowerCase();
   return s === "" || ["pending", "requested", "awaiting", "open", "in_review", "review", "submitted"].includes(s);
@@ -93,8 +48,6 @@ function pendingLike(status: any) {
 export async function GET(req: Request) {
   try {
     const supabase = await createClient();
-
-    // _lib.requireUser returns { supabase, user, orgId }
     const auth = await requireUser(supabase);
     const user = (auth as any)?.user ?? auth;
     const orgId = safeStr((auth as any)?.orgId).trim();
@@ -110,17 +63,13 @@ export async function GET(req: Request) {
       );
     }
 
-    const isExec = await isExecutiveForOrg(supabase, user.id, orgId);
-
-    // Try approvals table first
+    // Try approvals table first (all org projects)
     let raw: any[] = [];
 
     {
       const { data, error } = await supabase
         .from("approvals")
-        .select(
-          "id, title, status, type, amount, requested_by, requested_at, created_at, updated_at, sla_due_at, due_at, project_id, projects!inner(id, organisation_id, name, deleted_at)"
-        )
+        .select("id, title, status, type, amount, requested_by, requested_at, created_at, updated_at, sla_due_at, due_at, project_id, projects!inner(id, organisation_id, name, deleted_at)")
         .eq("projects.organisation_id", orgId)
         .is("projects.deleted_at", null)
         .gte("created_at", sinceIso)
@@ -134,9 +83,7 @@ export async function GET(req: Request) {
     if (raw.length === 0) {
       const { data, error } = await supabase
         .from("change_requests")
-        .select(
-          "id, title, status, decision_status, impact, created_by, created_at, updated_at, review_by, project_id, projects!inner(id, organisation_id, name, deleted_at)"
-        )
+        .select("id, title, status, decision_status, impact, created_by, created_at, updated_at, review_by, project_id, projects!inner(id, organisation_id, name, deleted_at)")
         .eq("projects.organisation_id", orgId)
         .is("projects.deleted_at", null)
         .gte("created_at", sinceIso)
@@ -148,7 +95,8 @@ export async function GET(req: Request) {
 
     const nowMs = Date.now();
 
-    let items = raw
+    // ✅ No member-scope filter — all pending items for the org
+    const items = raw
       .filter((r) => {
         const ds = safeStr((r as any)?.decision_status).trim().toLowerCase();
         if (ds && ["approved", "rejected"].includes(ds)) return false;
@@ -156,12 +104,8 @@ export async function GET(req: Request) {
       })
       .map((r) => {
         const createdAt = safeStr((r as any)?.requested_at || (r as any)?.created_at || "").trim() || null;
-
-        const slaDue =
-          safeStr((r as any)?.sla_due_at || (r as any)?.review_by || (r as any)?.due_at || "").trim() || null;
-
+        const slaDue = safeStr((r as any)?.sla_due_at || (r as any)?.review_by || (r as any)?.due_at || "").trim() || null;
         const risk = riskState(nowMs, slaDue);
-
         return {
           id: safeStr((r as any)?.id),
           title: safeStr((r as any)?.title) || "Untitled",
@@ -181,15 +125,6 @@ export async function GET(req: Request) {
         };
       });
 
-    if (!isExec) {
-      const myProjectIds = await myProjectIdsInOrg(supabase, user.id, orgId);
-      const allowed = new Set(myProjectIds);
-      items = items.filter((it) => {
-        const pid = pickProjectId(it);
-        return pid ? allowed.has(pid) : false;
-      });
-    }
-
     const counts = items.reduce(
       (acc, it) => {
         const rag = safeStr((it as any).rag);
@@ -202,14 +137,7 @@ export async function GET(req: Request) {
       { total: 0, R: 0, A: 0, G: 0 }
     );
 
-    return noStoreJson({
-      ok: true,
-      orgId,
-      scope: isExec ? "org" : "member",
-      window_days: days,
-      counts,
-      items,
-    });
+    return noStoreJson({ ok: true, orgId, scope: "org", window_days: days, counts, items });
   } catch (e: any) {
     const msg = safeStr(e?.message) || "Unknown error";
     const status = msg.toLowerCase().includes("unauthorized") ? 401 : 500;

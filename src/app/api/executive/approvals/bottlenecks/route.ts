@@ -1,4 +1,5 @@
 // src/app/api/executive/approvals/bottlenecks/route.ts
+// ✅ Always org-scoped. Project-level access control lives on the frontend only.
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
@@ -10,62 +11,23 @@ export const revalidate = 0;
 
 function jsonOk(data: any, status = 200) {
   const res = NextResponse.json({ ok: true, ...data }, { status });
-  res.headers.set(
-    "Cache-Control",
-    "no-store, no-cache, must-revalidate, proxy-revalidate"
-  );
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.headers.set("Pragma", "no-cache");
   res.headers.set("Expires", "0");
   return res;
 }
 function jsonErr(error: string, status = 400, meta?: any) {
   const res = NextResponse.json({ ok: false, error, meta }, { status });
-  res.headers.set(
-    "Cache-Control",
-    "no-store, no-cache, must-revalidate, proxy-revalidate"
-  );
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.headers.set("Pragma", "no-cache");
   res.headers.set("Expires", "0");
   return res;
 }
 
-async function isExecutiveForOrg(supabase: any, userId: string, orgId: string) {
-  // Exec gate: owner on any active project in org
-  const { data, error } = await supabase
-    .from("project_members")
-    .select("id, projects!inner(id, organisation_id)")
-    .eq("user_id", userId)
-    .eq("role", "owner")
-    .is("removed_at", null)
-    .eq("projects.organisation_id", orgId)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw new Error(error.message);
-  return !!data;
-}
-
-async function myProjectIdsInOrg(supabase: any, userId: string, orgId: string) {
-  const { data, error } = await supabase
-    .from("project_members")
-    .select("project_id, projects!inner(id, organisation_id)")
-    .eq("user_id", userId)
-    .is("removed_at", null)
-    .eq("projects.organisation_id", orgId);
-
-  if (error) throw new Error(error.message);
-  return (data || [])
-    .map((r: any) => safeStr(r?.project_id).trim())
-    .filter(Boolean);
-}
-
 function waitDaysFromRow(r: any) {
   const raw =
-    safeStr(r?.step_pending_since) ||
-    safeStr(r?.pending_since) ||
-    safeStr(r?.created_at) ||
-    safeStr(r?.task_created_at) ||
-    "";
+    safeStr(r?.step_pending_since) || safeStr(r?.pending_since) ||
+    safeStr(r?.created_at) || safeStr(r?.task_created_at) || "";
   if (!raw) return 0;
   const t = new Date(raw).getTime();
   if (!Number.isFinite(t)) return 0;
@@ -74,13 +36,9 @@ function waitDaysFromRow(r: any) {
 
 function approverLabelFromRow(r: any) {
   return (
-    safeStr(r?.approver_label) ||
-    safeStr(r?.approval_group_name) ||
-    safeStr(r?.group_name) ||
-    safeStr(r?.approver_name) ||
-    safeStr(r?.pending_email) ||
-    safeStr(r?.pending_user_id) ||
-    "Unassigned"
+    safeStr(r?.approver_label) || safeStr(r?.approval_group_name) ||
+    safeStr(r?.group_name) || safeStr(r?.approver_name) ||
+    safeStr(r?.pending_email) || safeStr(r?.pending_user_id) || "Unassigned"
   );
 }
 
@@ -103,12 +61,9 @@ export async function GET(req: Request) {
 
     const orgIds = await orgIdsForUser(supabase, user.id);
     const orgId = safeStr(orgIds[0]).trim();
-    if (!orgId) return jsonOk({ days, orgId: null, scope: "member", source: "none", items: [] });
+    if (!orgId) return jsonOk({ days, orgId: null, scope: "org", source: "none", items: [] });
 
-    const isExec = await isExecutiveForOrg(supabase, user.id, orgId);
-
-    // 1) Prefer cache (org-wide). If not exec, we still return cache but mark scope=member
-    // (cache cannot always be project-filtered without changing the cache schema).
+    // 1) Prefer cache (org-wide)
     const { data: cached, error: cachedErr } = await supabase
       .from("exec_approval_bottlenecks")
       .select("*")
@@ -119,13 +74,7 @@ export async function GET(req: Request) {
       const items = cached
         .map((r: any) => ({
           kind: safeStr(r?.kind || r?.approver_kind || "group"),
-          label: safeStr(
-            r?.label ||
-              r?.approver_label ||
-              r?.group_name ||
-              r?.user_name ||
-              "Unknown"
-          ),
+          label: safeStr(r?.label || r?.approver_label || r?.group_name || r?.user_name || "Unknown"),
           pending_count: num(r?.pending_count ?? r?.count),
           projects_affected: num(r?.projects_affected ?? r?.project_count),
           avg_wait_days: num(r?.avg_wait_days ?? r?.avg_days ?? r?.avg_wait),
@@ -134,10 +83,10 @@ export async function GET(req: Request) {
         .sort((a, b) => b.pending_count - a.pending_count)
         .slice(0, 25);
 
-      return jsonOk({ days, orgId, scope: isExec ? "org" : "member", source: "cache", items });
+      return jsonOk({ days, orgId, scope: "org", source: "cache", items });
     }
 
-    // 2) Live compute
+    // 2) Live compute — org-scoped, no member filter
     let list: any[] = [];
 
     // Try org-scoped view first
@@ -177,31 +126,14 @@ export async function GET(req: Request) {
     }
 
     if (!list.length) {
-      return jsonOk({ days, orgId, scope: isExec ? "org" : "member", source: "live", items: [] });
+      return jsonOk({ days, orgId, scope: "org", source: "live", items: [] });
     }
 
-    // Member scope filtering (live only)
-    if (!isExec) {
-      const myProjectIds = await myProjectIdsInOrg(supabase, user.id, orgId);
-      const allowed = new Set(myProjectIds);
-      list = list.filter((r: any) => {
-        const pid = safeStr(r?.project_id || r?.projectId || r?.project_uuid || r?.projectUuid || "").trim();
-        return pid ? allowed.has(pid) : false;
-      });
-    }
-
-    // Aggregate by approver label
-    const by = new Map<
-      string,
-      {
-        kind: string;
-        label: string;
-        pending_count: number;
-        projects: Set<string>;
-        waitSum: number;
-        waitMax: number;
-      }
-    >();
+    // ✅ No member-scope filter — aggregate all org data
+    const by = new Map<string, {
+      kind: string; label: string; pending_count: number;
+      projects: Set<string>; waitSum: number; waitMax: number;
+    }>();
 
     for (const r of list) {
       const label = approverLabelFromRow(r);
@@ -211,16 +143,10 @@ export async function GET(req: Request) {
       const waitDays = waitDaysFromRow(r);
       const projectId = safeStr(r?.project_id);
 
-      const cur =
-        by.get(key) ??
-        ({
-          kind: approverKindFromRow(r),
-          label,
-          pending_count: 0,
-          projects: new Set<string>(),
-          waitSum: 0,
-          waitMax: 0,
-        } as any);
+      const cur = by.get(key) ?? {
+        kind: approverKindFromRow(r), label,
+        pending_count: 0, projects: new Set<string>(), waitSum: 0, waitMax: 0,
+      };
 
       cur.pending_count += 1;
       if (projectId) cur.projects.add(projectId);
@@ -236,18 +162,13 @@ export async function GET(req: Request) {
         label: x.label,
         pending_count: x.pending_count,
         projects_affected: x.projects.size,
-        avg_wait_days: x.pending_count
-          ? Math.round((x.waitSum / x.pending_count) * 10) / 10
-          : 0,
+        avg_wait_days: x.pending_count ? Math.round((x.waitSum / x.pending_count) * 10) / 10 : 0,
         max_wait_days: x.waitMax,
       }))
-      .sort(
-        (a, b) =>
-          b.pending_count - a.pending_count || b.max_wait_days - a.max_wait_days
-      )
+      .sort((a, b) => b.pending_count - a.pending_count || b.max_wait_days - a.max_wait_days)
       .slice(0, 25);
 
-    return jsonOk({ days, orgId, scope: isExec ? "org" : "member", source: "live", items });
+    return jsonOk({ days, orgId, scope: "org", source: "live", items });
   } catch (e: any) {
     return jsonErr(safeStr(e?.message || "Failed"), 500);
   }

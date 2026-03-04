@@ -31,9 +31,32 @@ function formatDate(d: string | null | undefined) {
   } catch { return d; }
 }
 
+// ✅ FIX: always use UUID so all sub-pages (members, approvals, artifacts) work correctly.
+// Previously used project_code which broke pages that expect a UUID param.
 function projectRef(p: Project) {
-  // Use project_code if available (matches resolveProjectUuidFast logic), else UUID
-  return p.project_code?.trim() || p.id;
+  return p.id;
+}
+
+async function setProjectStatus(formData: FormData) {
+  "use server";
+  const supabase = await createClient();
+  const { data: { user }, error: uErr } = await supabase.auth.getUser();
+  if (uErr) throw uErr;
+  if (!user) redirect("/login");
+
+  const projectId = formData.get("project_id") as string;
+  const status    = formData.get("status") as string;
+  const next      = (formData.get("next") as string) || "/projects";
+
+  if (!projectId || !["active", "closed"].includes(status)) redirect(next);
+
+  const { error } = await supabase
+    .from("projects")
+    .update({ status })
+    .eq("id", projectId);
+
+  if (error) throw error;
+  redirect(next);
 }
 
 export default async function ProjectsPage({
@@ -140,7 +163,6 @@ export default async function ProjectsPage({
                 style={{ background: "white", color: "#0f172a", border: "1px solid #e2e8f0", borderRadius: 10, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
                 Global artifacts
               </Link>
-              {/* CreateProjectModal is a client component — see below */}
               <CreateProjectModal activeOrgId={activeOrgId ?? ""} userId={user.id} />
             </div>
           </div>
@@ -323,13 +345,13 @@ export default async function ProjectsPage({
                       Approvals
                     </Link>
 
-                    {/* Close / Reopen form */}
-                    <form method="post" action="/api/projects/set-status" style={{ display: "contents" }}>
+                    {/* ✅ FIX: Close/Reopen uses a server action instead of the missing /api/projects/set-status route */}
+                    <form action={setProjectStatus} style={{ display: "contents" }}>
                       <input type="hidden" name="project_id" value={p.id} />
                       <input type="hidden" name="status"     value={isActive ? "closed" : "active"} />
                       <input type="hidden" name="next"       value="/projects" />
                       <button type="submit" className="pl-close"
-                        style={{ padding: "6px 14px", border: `1px solid ${isActive ? "#fde68a" : "#e2e8f0"}`, borderRadius: 8, fontSize: 12, fontWeight: 700, color: isActive ? "#92400e" : "#475569", background: isActive ? "#fffbeb" : "white", cursor: "pointer" }}>
+                        style={{ padding: "6px 14px", border: `1px solid ${isActive ? "#fde68a" : "#e2e8f0"}`, borderRadius: 8, fontSize: 12, fontWeight: 700, color: isActive ? "#92400e" : "#475569", background: isActive ? "#fffbeb" : "white", cursor: "pointer", fontFamily: "inherit" }}>
                         {isActive ? "Close" : "Reopen"}
                       </button>
                     </form>
@@ -352,7 +374,7 @@ export default async function ProjectsPage({
             {filtered.length === 0 && (
               <div style={{ textAlign: "center", padding: "48px 0", color: "#94a3b8", fontSize: 14 }}>
                 {projects.length === 0 ? (
-                  <>No projects yet. <button onClick={() => {}} style={{ color: "#06b6d4", fontWeight: 700, background: "none", border: "none", cursor: "pointer", fontSize: 14 }}>Create your first →</button></>
+                  <>No projects yet.</>
                 ) : "No projects match your filters."}
               </div>
             )}
@@ -363,4 +385,3 @@ export default async function ProjectsPage({
     </>
   );
 }
-

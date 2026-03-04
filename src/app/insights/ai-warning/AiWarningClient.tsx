@@ -1,10 +1,9 @@
-﻿// src/app/insights/ai-warning/AiWarningClient.tsx
-"use client";
+﻿"use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
-import { AlertTriangle, ShieldCheck, Clock3, ArrowUpRight } from "lucide-react";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type ProjectMini = {
   id: string;
@@ -21,7 +20,6 @@ type BlockedRow = {
   stage: string;
   due_date: string | null;
   status?: string | null;
-
   blocked_seconds_window: number;
   currently_blocked: boolean;
   last_block_event_at: string | null;
@@ -43,48 +41,16 @@ type DrillOk = {
 
 type DrillResp = { ok: false; error: string; meta?: any } | DrillOk;
 
-/**
- * ✅ UK date display (dd/mm/yyyy)
- * - If API sends ISO date-only (yyyy-mm-dd), parse as UTC midnight so it doesn't shift a day in UK.
- * - Otherwise let Date() parse timestamps.
- */
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function fmtDateUK(x: any) {
   if (!x) return "—";
   const s = String(x).trim();
-  if (!s) return "—";
-
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-  if (m) {
-    const yyyy = Number(m[1]);
-    const mm = Number(m[2]);
-    const dd = Number(m[3]);
-    if (!yyyy || !mm || !dd) return "—";
-    return `${String(dd).padStart(2, "0")}/${String(mm).padStart(2, "0")}/${String(yyyy)}`;
-  }
-
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s;
-
-  return d.toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
-
-function fmtDateTimeUK(x: any) {
-  if (!x) return "—";
-  const s = String(x).trim();
-  if (!s) return "—";
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) return s;
-  return d.toLocaleString("en-GB", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 function fmtBlocked(secs: any) {
@@ -99,111 +65,198 @@ function fmtBlocked(secs: any) {
 function projectLabel(p?: ProjectMini | null) {
   if (!p) return "—";
   const code = p.project_code != null && String(p.project_code).trim() ? String(p.project_code).trim() : null;
-  const title = p.title && String(p.title).trim() ? String(p.title).trim() : null;
+  const title = p.title?.trim() || null;
   if (title && code) return `${title} (${code})`;
-  if (title) return title;
-  if (code) return `(${code})`;
-  return "—";
-}
-
-function badgeClass(kind: "good" | "warn" | "bad" | "neutral") {
-  if (kind === "bad") return "bg-red-100 text-red-900 border border-red-200";
-  if (kind === "warn") return "bg-amber-100 text-amber-900 border border-amber-200";
-  if (kind === "good") return "bg-emerald-100 text-emerald-900 border border-emerald-200";
-  return "bg-slate-100 text-slate-900 border border-slate-200";
-}
-
-function statusKind(s: string) {
-  const v = String(s || "").trim().toLowerCase();
-  if (v.includes("block")) return "bad" as const;
-  if (v === "open" || v === "in_progress" || v === "in progress") return "warn" as const;
-  if (v === "done" || v === "closed" || v === "completed") return "good" as const;
-  return "neutral" as const;
+  return title || code || "—";
 }
 
 function stageLabel(s: any) {
-  const v = String(s ?? "").trim();
-  if (!v) return "—";
-  return v.replaceAll("_", " ");
-}
-
-function normStatusText(s: any) {
-  const v = String(s ?? "").trim();
-  if (!v) return "—";
-  return v.replaceAll("_", " ");
+  return String(s ?? "").trim().replaceAll("_", " ") || "—";
 }
 
 function pct(x: number, total: number) {
   if (!total) return 0;
-  return Math.round((x / total) * 1000) / 10;
+  return Math.round((x / total) * 10) / 10;
 }
 
 function maxStage(rows: { stage: string; count: number }[]) {
   if (!rows?.length) return null;
-  let best = rows[0];
-  for (const r of rows) if ((r?.count || 0) > (best?.count || 0)) best = r;
-  return best;
+  return rows.reduce((best, r) => ((r?.count || 0) > (best?.count || 0) ? r : best), rows[0]);
 }
 
-function severityBadge(sev: "high" | "medium" | "info") {
-  if (sev === "high") return { label: "Critical", kind: "bad" as const, hint: "Work is currently blocked or stalled." };
-  if (sev === "medium") return { label: "Warning", kind: "warn" as const, hint: "Risk signals present in this window." };
-  return { label: "Monitor", kind: "good" as const, hint: "No major flow risk detected." };
+function nowUK() {
+  return new Date().toLocaleString("en-GB", {
+    day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
 }
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function Divider() {
+  return <div style={{ borderTop: "1px solid #e2e0d8", margin: "0" }} />;
+}
+
+function StatusPip({ level }: { level: "critical" | "warning" | "stable" }) {
+  const colours = {
+    critical: "#c0392b",
+    warning: "#d97706",
+    stable: "#16a34a",
+  } as const;
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        width: 10,
+        height: 10,
+        borderRadius: "50%",
+        background: colours[level],
+        boxShadow: `0 0 0 3px ${colours[level]}22`,
+        flexShrink: 0,
+      }}
+    />
+  );
+}
+
+function KpiCell({
+  label, value, sub, accent,
+}: {
+  label: string;
+  value: string | number;
+  sub?: string;
+  accent?: "danger" | "warn" | "ok" | "neutral";
+}) {
+  const valueColor =
+    accent === "danger" ? "#c0392b" :
+    accent === "warn"   ? "#b45309" :
+    accent === "ok"     ? "#15803d" :
+    "#1c1917";
+
+  return (
+    <div style={{ padding: "20px 24px", borderRight: "1px solid #e2e0d8" }}>
+      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#78716c", marginBottom: 6 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 36, fontWeight: 700, lineHeight: 1, color: valueColor, fontFamily: "'Georgia', 'Times New Roman', serif" }}>
+        {value}
+      </div>
+      {sub && <div style={{ fontSize: 12, color: "#a8a29e", marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function SectionHead({ title, count }: { title: string; count?: number }) {
+  return (
+    <div style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "20px 24px 12px" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#78716c" }}>
+        {title}
+      </div>
+      {count !== undefined && (
+        <div style={{ fontSize: 11, color: "#a8a29e" }}>{count} items</div>
+      )}
+    </div>
+  );
+}
+
+function BlockedItem({ row }: { row: BlockedRow }) {
+  const urgent = row.currently_blocked;
+  return (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "1fr auto",
+      alignItems: "start",
+      gap: 12,
+      padding: "14px 24px",
+      borderBottom: "1px solid #f0ede6",
+      background: urgent ? "#fffbeb" : "transparent",
+    }}>
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          {urgent && <StatusPip level="critical" />}
+          <span style={{ fontSize: 14, fontWeight: 600, color: "#1c1917" }}>{row.title || "Untitled"}</span>
+        </div>
+        <div style={{ fontSize: 12, color: "#78716c", display: "flex", gap: 16, flexWrap: "wrap" }}>
+          <span>Project: {projectLabel(row.project)}</span>
+          <span>Stage: {stageLabel(row.stage)}</span>
+          {row.due_date && <span>Due: {fmtDateUK(row.due_date)}</span>}
+          {row.last_block_reason && <span>Reason: {row.last_block_reason}</span>}
+        </div>
+      </div>
+      <div style={{ textAlign: "right", flexShrink: 0 }}>
+        <div style={{
+          fontSize: 13,
+          fontWeight: 700,
+          color: urgent ? "#c0392b" : "#b45309",
+          fontFamily: "'Georgia', 'Times New Roman', serif",
+        }}>
+          {fmtBlocked(row.blocked_seconds_window)}
+        </div>
+        <div style={{ fontSize: 11, color: "#a8a29e" }}>blocked</div>
+      </div>
+    </div>
+  );
+}
+
+function WipBar({ stage, count, total }: { stage: string; count: number; total: number }) {
+  const share = total ? (count / total) : 0;
+  const isHeavy = share >= 0.4;
+  return (
+    <div style={{ padding: "10px 24px", borderBottom: "1px solid #f0ede6" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <span style={{ fontSize: 13, color: "#1c1917" }}>{stageLabel(stage)}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: isHeavy ? "#b45309" : "#44403c" }}>
+          {count} <span style={{ fontWeight: 400, color: "#a8a29e", fontSize: 11 }}>({Math.round(share * 100)}%)</span>
+        </span>
+      </div>
+      <div style={{ height: 4, background: "#f0ede6", borderRadius: 2, overflow: "hidden" }}>
+        <div style={{
+          height: "100%",
+          width: `${Math.round(share * 100)}%`,
+          background: isHeavy ? "#d97706" : "#44403c",
+          borderRadius: 2,
+          transition: "width 0.6s ease",
+        }} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function AiWarningClient({ days }: { days: 7 | 14 | 30 | 60 }) {
   const [data, setData] = useState<DrillResp | null>(null);
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
 
-    async function run() {
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/ai/flow-warning/drilldown?days=${days}`, { cache: "no-store" });
-
+    fetch(`/api/ai/flow-warning/drilldown?days=${days}`, { cache: "no-store" })
+      .then(async (res) => {
         const ct = res.headers.get("content-type") || "";
-        if (!ct.toLowerCase().includes("application/json")) {
+        if (!ct.includes("application/json")) {
           const txt = await res.text();
-          const snippet = txt.slice(0, 160).replace(/\s+/g, " ");
-          if (!cancelled) setData({ ok: false, error: `Expected JSON but got ${ct || "unknown"}. ${snippet}` });
+          if (!cancelled) setData({ ok: false, error: `Non-JSON response: ${txt.slice(0, 120)}` });
           return;
         }
-
-        const j = (await res.json()) as DrillResp;
+        const j = await res.json() as DrillResp;
         if (!cancelled) setData(j);
-      } catch (e: any) {
-        if (!cancelled) setData({ ok: false, error: String(e?.message || e || "Failed") });
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
+      })
+      .catch((e) => { if (!cancelled) setData({ ok: false, error: String(e?.message || e || "Failed") }); })
+      .finally(() => { if (!cancelled) setLoading(false); });
 
-    run();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [days]);
 
   const ok = data && (data as any).ok === true;
+  const d = ok ? data as DrillOk : null;
 
-  const severity = useMemo(() => {
-    if (!ok) return "info" as const;
-    const d = data as DrillOk;
-    const anyBlockedNow = (d.data.blocked || []).some((b) => b.currently_blocked);
-    if (anyBlockedNow) return "high" as const;
-    if ((d.data.blocked || []).length > 0) return "medium" as const;
-    return "info" as const;
-  }, [ok, data]);
+  const analysis = useMemo(() => {
+    if (!d) return null;
 
-  const HeaderIcon = severity === "high" ? AlertTriangle : severity === "medium" ? Clock3 : ShieldCheck;
-  const sev = severityBadge(severity);
-
-  const summary = useMemo(() => {
-    if (!ok) return null;
-
-    const d = data as DrillOk;
     const blocked = d.data.blocked || [];
     const wip = d.data.wip || [];
     const dueSoon = d.data.dueSoon || [];
@@ -211,193 +264,346 @@ export default function AiWarningClient({ days }: { days: 7 | 14 | 30 | 60 }) {
 
     const blockedNow = blocked.filter((b) => b.currently_blocked).length;
     const blockedAny = blocked.length;
-
     const wipTotal = wip.reduce((a, x) => a + (x.count || 0), 0);
     const top = maxStage(wip);
     const topShare = top ? pct(top.count || 0, wipTotal) : 0;
 
-    const lines: string[] = [];
+    const level: "critical" | "warning" | "stable" =
+      blockedNow > 0 ? "critical" :
+      blockedAny > 0 || topShare >= 40 ? "warning" :
+      "stable";
 
-    if (blockedNow > 0) {
-      lines.push(`There are ${blockedNow} work item(s) currently blocked. This is the strongest indicator of near-term delivery risk.`);
-    } else if (blockedAny > 0) {
-      lines.push(`Blocked work was detected in this window (${blockedAny} item(s)). Even if unblocked now, it’s a signal of friction.`);
-    } else {
-      lines.push(`No blocked work items were detected in this window.`);
-    }
+    const verdict =
+      level === "critical"
+        ? `${blockedNow} item${blockedNow !== 1 ? "s" : ""} currently blocked. Immediate executive attention required.`
+        : level === "warning"
+        ? "No active blockers, but flow risk signals are present. Monitor closely."
+        : "Portfolio flow is healthy. No blockers detected in this window.";
 
-    if (wipTotal > 0 && top) {
-      if (topShare >= 70) lines.push(`A bottleneck is likely: ${topShare}% of WIP sits in “${stageLabel(top.stage)}”.`);
-      else lines.push(`WIP is spread across stages; largest concentration is “${stageLabel(top.stage)}” (${topShare}%).`);
-    } else {
-      lines.push(`No open work items were found (WIP is zero).`);
-    }
+    const actions: string[] = [];
+    if (blockedNow > 0) actions.push(`Resolve ${blockedNow} active blocker${blockedNow !== 1 ? "s" : ""} immediately`);
+    if (top && topShare >= 40) actions.push(`Investigate WIP concentration in "${stageLabel(top.stage)}" (${Math.round(topShare)}% of open work)`);
+    if (dueSoon.length > 0) actions.push(`Review ${dueSoon.length} item${dueSoon.length !== 1 ? "s" : ""} due within 30 days`);
+    if (recentDone.length === 0) actions.push("Throughput is low — investigate delivery cadence");
+    if (actions.length === 0) actions.push("Maintain current pace and review again next cycle");
 
-    if (dueSoon.length > 0) {
-      lines.push(`${dueSoon.length} item(s) are due soon (next 30 days). Prioritise these if they overlap with blockers/bottlenecks.`);
-    } else {
-      lines.push(`No items are due in the next 30 days.`);
-    }
+    return { blocked, wip, dueSoon, recentDone, blockedNow, blockedAny, wipTotal, top, topShare, level, verdict, actions };
+  }, [d]);
 
-    if (recentDone.length > 0) {
-      lines.push(`Throughput evidence: ${recentDone.length} completion(s) recorded recently (last ~42 days).`);
-    } else {
-      lines.push(`No recent completions found in the last ~42 days (throughput evidence is weak).`);
-    }
+  // ─── Page shell ──────────────────────────────────────────────────────────────
 
-    const action =
-      severity === "high"
-        ? "Unblock the stuck items, reduce WIP, and prioritise finishing in-flight work before starting new work."
-        : severity === "medium"
-        ? "Review the blocked items and the stage with the highest WIP concentration; remove blockers and rebalance workload."
-        : "Keep monitoring flow and maintain a low WIP level to avoid new bottlenecks.";
+  const shell: React.CSSProperties = {
+    minHeight: "100vh",
+    background: "#faf9f7",
+    color: "#1c1917",
+    fontFamily: "'Helvetica Neue', 'Arial', sans-serif",
+    opacity: mounted ? 1 : 0,
+    transition: "opacity 0.3s ease",
+  };
 
-    return {
-      blockedNow,
-      blockedAny,
-      wipTotal,
-      topStage: top ? stageLabel(top.stage) : null,
-      topStageCount: top ? top.count : 0,
-      topStageShare: top ? topShare : 0,
-      dueSoonCount: dueSoon.length,
-      recentDoneCount: recentDone.length,
-      lines,
-      action,
-    };
-  }, [ok, data, severity]);
+  const card: React.CSSProperties = {
+    background: "#ffffff",
+    border: "1px solid #e2e0d8",
+    borderRadius: 2,
+    overflow: "hidden",
+  };
+
+  const levelColor = {
+    critical: "#c0392b",
+    warning: "#d97706",
+    stable: "#15803d",
+  } as const;
+
+  const levelLabel = {
+    critical: "CRITICAL",
+    warning: "ADVISORY",
+    stable: "STABLE",
+  } as const;
 
   return (
-    <div className="min-h-screen px-6 py-6 bg-white text-slate-900">
-      <div className="mx-auto max-w-6xl">
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <HeaderIcon className="h-5 w-5 opacity-90" />
-              <h1 className="text-2xl font-semibold">AI predictions & warnings — evidence</h1>
-              <span className={`ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(sev.kind)}`}>
-                {sev.label}
+    <div style={shell}>
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "40px 32px 80px" }}>
+
+        {/* ── Masthead ── */}
+        <div style={{ marginBottom: 32 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <Link
+                href="/insights"
+                style={{ fontSize: 12, color: "#78716c", textDecoration: "none", letterSpacing: "0.04em" }}
+              >
+                ← INSIGHTS
+              </Link>
+              <span style={{ fontSize: 12, color: "#d6d3cc" }}>|</span>
+              <span style={{ fontSize: 12, color: "#78716c", letterSpacing: "0.04em" }}>
+                {days}-DAY WINDOW
               </span>
             </div>
-
-            <p className="mt-2 text-sm text-slate-600">
-              This page shows the evidence behind the flow warning: blockers, WIP concentration (bottleneck proxy), due-soon pressure, and recent throughput.
-            </p>
-
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">Window: {days} days</span>
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">{sev.hint}</span>
-            </div>
+            <span style={{ fontSize: 12, color: "#a8a29e" }}>{nowUK()}</span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Link
-              href={`/insights?days=${days}`}
-              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm hover:bg-slate-100"
-            >
-              Back to Insights
-            </Link>
-          </div>
+          <h1 style={{
+            fontSize: 38,
+            fontWeight: 700,
+            lineHeight: 1.05,
+            letterSpacing: "-0.02em",
+            color: "#1c1917",
+            fontFamily: "'Georgia', 'Times New Roman', serif",
+            margin: 0,
+          }}>
+            Delivery Intelligence Brief
+          </h1>
+          <p style={{ fontSize: 15, color: "#78716c", marginTop: 10, maxWidth: 580 }}>
+            Portfolio-level flow analysis — blockers, bottlenecks, and near-term delivery risk for executive review.
+          </p>
         </div>
 
-        {/* Loading / Error */}
+        {/* ── Loading ── */}
         {loading && (
-          <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-            Loading evidence…
+          <div style={{ ...card, padding: "40px 32px", textAlign: "center" }}>
+            <div style={{ fontSize: 13, color: "#78716c", letterSpacing: "0.06em" }}>
+              LOADING INTELLIGENCE…
+            </div>
           </div>
         )}
 
+        {/* ── Error ── */}
         {!loading && data && (data as any).ok === false && (
-          <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm">
-            <div className="font-semibold text-red-900">Couldn’t load evidence</div>
-            <div className="mt-1 text-red-800">{(data as any).error}</div>
-            <div className="mt-3 text-xs text-red-800/90">
-              Check the API route: <span className="font-mono">/api/ai/flow-warning/drilldown</span>
+          <div style={{ ...card, borderLeft: "4px solid #c0392b", padding: "24px 28px" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: "0.06em", color: "#c0392b", marginBottom: 8 }}>
+              DATA UNAVAILABLE
             </div>
+            <div style={{ fontSize: 14, color: "#44403c" }}>{(data as any).error}</div>
           </div>
         )}
 
-        {/* Summary */}
-        {!loading && ok && summary && (
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-6 rounded-2xl border border-slate-200 bg-white p-5"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <h2 className="text-lg font-semibold">What this means</h2>
-                <ul className="mt-3 space-y-2 text-sm text-slate-700 list-disc pl-5">
-                  {summary.lines.map((x, idx) => (
-                    <li key={idx}>{x}</li>
-                  ))}
-                </ul>
-                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
-                  👉 <span className="font-semibold">Recommended action:</span> {summary.action}
-                </div>
+        {/* ── Main content ── */}
+        {!loading && ok && analysis && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+            {/* Status banner */}
+            <div style={{
+              ...card,
+              borderLeft: `4px solid ${levelColor[analysis.level]}`,
+              padding: "24px 28px",
+              display: "flex",
+              alignItems: "center",
+              gap: 20,
+            }}>
+              <div style={{ flexShrink: 0 }}>
+                <StatusPip level={analysis.level} />
               </div>
-
-              <div className="shrink-0 rounded-2xl border border-slate-200 bg-slate-50 p-4 w-[260px]">
-                <div className="text-xs font-semibold text-slate-600">At a glance</div>
-
-                <div className="mt-3 space-y-2 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Blocked now</span>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(summary.blockedNow > 0 ? "bad" : "good")}`}>
-                      {summary.blockedNow}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Blocked (window)</span>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(summary.blockedAny > 0 ? "warn" : "good")}`}>
-                      {summary.blockedAny}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Total WIP</span>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(summary.wipTotal > 0 ? "neutral" : "good")}`}>
-                      {summary.wipTotal}
-                    </span>
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-200">
-                    <div className="text-xs text-slate-500">Highest WIP stage</div>
-                    <div className="mt-1 text-sm font-semibold text-slate-900">
-                      {summary.topStage ? summary.topStage : "—"}
-                    </div>
-                    {summary.topStage ? (
-                      <div className="mt-1 text-xs text-slate-600">
-                        {summary.topStageCount} item(s) • {summary.topStageShare}%
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-200">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-600">Due soon</span>
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(summary.dueSoonCount > 0 ? "warn" : "good")}`}>
-                        {summary.dueSoonCount}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-slate-600">Recent completions</span>
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(summary.recentDoneCount > 0 ? "good" : "neutral")}`}>
-                        {summary.recentDoneCount}
-                      </span>
-                    </div>
-                  </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.1em",
+                    color: levelColor[analysis.level],
+                  }}>
+                    {levelLabel[analysis.level]}
+                  </span>
+                  <span style={{ fontSize: 11, color: "#d6d3cc" }}>•</span>
+                  <span style={{ fontSize: 11, color: "#78716c", letterSpacing: "0.04em" }}>DELIVERY STATUS</span>
                 </div>
-
-                <div className="mt-4 text-[11px] text-slate-500">
-                  Tip: “Blocked now” is the highest-priority signal. “Highest WIP stage” helps locate bottlenecks.
+                <div style={{ fontSize: 17, color: "#1c1917", fontWeight: 500, lineHeight: 1.4 }}>
+                  {analysis.verdict}
                 </div>
               </div>
             </div>
-          </motion.div>
-        )}
 
-        {/* (rest of your detail sections remain exactly as you already had them) */}
-        {/* You can keep your blocked/wip/dueSoon/recentDone tables below unchanged. */}
+            {/* KPI strip */}
+            <div style={{ ...card }}>
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(4, 1fr)",
+              }}>
+                <KpiCell
+                  label="Active Blockers"
+                  value={analysis.blockedNow}
+                  sub="currently blocked"
+                  accent={analysis.blockedNow > 0 ? "danger" : "ok"}
+                />
+                <KpiCell
+                  label="Blocked (Window)"
+                  value={analysis.blockedAny}
+                  sub={`in last ${days} days`}
+                  accent={analysis.blockedAny > 0 ? "warn" : "neutral"}
+                />
+                <KpiCell
+                  label="Open WIP"
+                  value={analysis.wipTotal}
+                  sub="items in flight"
+                  accent="neutral"
+                />
+                <KpiCell
+                  label="Due Soon"
+                  value={analysis.dueSoon.length}
+                  sub="next 30 days"
+                  accent={analysis.dueSoon.length > 0 ? "warn" : "neutral"}
+                />
+              </div>
+            </div>
+
+            {/* Two-column layout */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 20, alignItems: "start" }}>
+
+              {/* Left — Active blockers */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                <div style={card}>
+                  <SectionHead title="Active Blockers" count={analysis.blockedNow + (analysis.blockedAny - analysis.blockedNow)} />
+                  <Divider />
+                  {analysis.blocked.length === 0 ? (
+                    <div style={{ padding: "24px", fontSize: 14, color: "#78716c" }}>
+                      No blocked items detected in this window.
+                    </div>
+                  ) : (
+                    analysis.blocked
+                      .sort((a, b) => (b.currently_blocked ? 1 : 0) - (a.currently_blocked ? 1 : 0))
+                      .map((row) => <BlockedItem key={row.work_item_id} row={row} />)
+                  )}
+                </div>
+
+                {/* Due soon */}
+                {analysis.dueSoon.length > 0 && (
+                  <div style={card}>
+                    <SectionHead title="Due Within 30 Days" count={analysis.dueSoon.length} />
+                    <Divider />
+                    {analysis.dueSoon.slice(0, 8).map((item: any, i: number) => (
+                      <div key={i} style={{ padding: "12px 24px", borderBottom: "1px solid #f0ede6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 500, color: "#1c1917" }}>{item?.title || "Untitled"}</div>
+                          <div style={{ fontSize: 12, color: "#78716c", marginTop: 2 }}>
+                            {item?.project_title || item?.project_code || "—"}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 13, color: "#b45309", fontWeight: 600, fontFamily: "'Georgia', serif" }}>
+                          {fmtDateUK(item?.due_date)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Right column */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+                {/* Recommended actions */}
+                <div style={{ ...card, borderTop: `3px solid ${levelColor[analysis.level]}` }}>
+                  <SectionHead title="Executive Actions Required" />
+                  <Divider />
+                  <div style={{ padding: "8px 0 8px" }}>
+                    {analysis.actions.map((action, i) => (
+                      <div key={i} style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 12,
+                        padding: "12px 24px",
+                        borderBottom: i < analysis.actions.length - 1 ? "1px solid #f0ede6" : "none",
+                      }}>
+                        <div style={{
+                          flexShrink: 0,
+                          width: 22,
+                          height: 22,
+                          borderRadius: "50%",
+                          background: "#1c1917",
+                          color: "#faf9f7",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: 11,
+                          fontWeight: 700,
+                          marginTop: 1,
+                        }}>
+                          {i + 1}
+                        </div>
+                        <div style={{ fontSize: 14, color: "#1c1917", lineHeight: 1.5 }}>{action}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* WIP distribution */}
+                <div style={card}>
+                  <SectionHead title="WIP by Stage" count={analysis.wipTotal} />
+                  <Divider />
+                  {analysis.wip.length === 0 ? (
+                    <div style={{ padding: "20px 24px", fontSize: 13, color: "#78716c" }}>No open items.</div>
+                  ) : (
+                    analysis.wip
+                      .sort((a, b) => b.count - a.count)
+                      .map((row) => (
+                        <WipBar key={row.stage} stage={row.stage} count={row.count} total={analysis.wipTotal} />
+                      ))
+                  )}
+                  {analysis.top && (
+                    <div style={{ padding: "14px 24px", background: "#faf9f7", borderTop: "1px solid #e2e0d8" }}>
+                      <span style={{ fontSize: 12, color: "#78716c" }}>
+                        Largest concentration:{" "}
+                        <strong style={{ color: analysis.topShare >= 40 ? "#b45309" : "#1c1917" }}>
+                          {stageLabel(analysis.top.stage)} ({Math.round(analysis.topShare)}%)
+                        </strong>
+                        {analysis.topShare >= 40 && " — bottleneck risk"}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Throughput signal */}
+                <div style={card}>
+                  <SectionHead title="Throughput Signal" />
+                  <Divider />
+                  <div style={{ padding: "20px 24px" }}>
+                    <div style={{
+                      fontSize: 44,
+                      fontWeight: 700,
+                      lineHeight: 1,
+                      color: analysis.recentDone.length > 0 ? "#15803d" : "#78716c",
+                      fontFamily: "'Georgia', 'Times New Roman', serif",
+                    }}>
+                      {analysis.recentDone.length}
+                    </div>
+                    <div style={{ fontSize: 13, color: "#78716c", marginTop: 6 }}>
+                      completions in last ~42 days
+                    </div>
+                    {analysis.recentDone.length === 0 && (
+                      <div style={{ marginTop: 12, fontSize: 13, color: "#c0392b", lineHeight: 1.5 }}>
+                        No recent completions recorded. Investigate delivery cadence.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ borderTop: "1px solid #e2e0d8", paddingTop: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 12, color: "#a8a29e" }}>
+                Data window: {days} days · Generated {nowUK()}
+              </span>
+              <div style={{ display: "flex", gap: 16 }}>
+                {([7, 14, 30, 60] as const).map((d) => (
+                  <Link
+                    key={d}
+                    href={`?days=${d}`}
+                    style={{
+                      fontSize: 12,
+                      color: d === days ? "#1c1917" : "#a8a29e",
+                      textDecoration: "none",
+                      fontWeight: d === days ? 700 : 400,
+                      letterSpacing: "0.04em",
+                    }}
+                  >
+                    {d}D
+                  </Link>
+                ))}
+              </div>
+            </div>
+
+          </div>
+        )}
       </div>
     </div>
   );

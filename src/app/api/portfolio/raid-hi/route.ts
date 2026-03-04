@@ -1,24 +1,30 @@
-// src/app/api/portfolio/raid-hi/route.ts — REBUILT v2 (ORG-wide + no-store)
-// ✅ ORG-WIDE scope via resolveOrgActiveProjectScope (dashboard-aligned)
-// ✅ membership fallback via resolveActiveProjectScope (safe)
-// ✅ Cache-Control: no-store for all responses
-//
-// NOTE: This endpoint is defensive: if RAID schema differs across envs, it degrades gracefully.
-
+// src/app/api/portfolio/raid-hi/route.ts
+// ✅ Org-scoped: all org members see high-severity RAID items across all active projects.
+// ✅ Auth-first: userId resolved before scope resolution.
+// ✅ No-store cache on all responses.
 import "server-only";
-
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveOrgActiveProjectScope, resolveActiveProjectScope } from "@/lib/server/project-scope";
+import { resolveOrgActiveProjectScope } from "@/lib/server/project-scope";
 
 export const runtime = "nodejs";
 
-function withNoStore(res: NextResponse) {
+/* ---------------- helpers ---------------- */
+
+function noStore(res: NextResponse): NextResponse {
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;
 }
 
-function clampDays(v: string | null) {
+function jsonOk(data: any, status = 200): NextResponse {
+  return noStore(NextResponse.json({ ok: true, ...data }, { status }));
+}
+
+function jsonErr(error: string, status = 400, meta?: any): NextResponse {
+  return noStore(NextResponse.json({ ok: false, error, meta }, { status }));
+}
+
+function clampDays(v: string | null): number {
   const s = String(v ?? "").trim().toLowerCase();
   if (s === "all") return 60;
   const n = Number(s);
@@ -26,100 +32,95 @@ function clampDays(v: string | null) {
   return allowed.has(n) ? n : 30;
 }
 
+function sinceIso(days: number): string {
+  return new Date(Date.now() - days * 86_400_000).toISOString();
+}
+
+function isHighSeverity(r: any): boolean {
+  // Score-based (numeric) takes precedence: treat ≥ 70 as high.
+  const score = Number(r?.score ?? r?.severity_score ?? NaN);
+  if (Number.isFinite(score)) return score >= 70;
+
+  // String-based severity label fallback.
+  const sev = String(r?.severity ?? r?.impact ?? "").trim().toLowerCase();
+  return sev === "high" || sev === "critical" || sev === "very high";
+}
+
+/* ---------------- GET ---------------- */
+
 export async function GET(req: NextRequest) {
-  const supabase = await createClient();
-
-  const url = new URL(req.url);
-  const days = clampDays(url.searchParams.get("days"));
-  const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-
   try {
-    // Prefer ORG-wide, fallback to member scope.
-    const orgScope = await resolveOrgActiveProjectScope(supabase).catch(() => null);
-    const fallbackScope = orgScope?.projectIds?.length
-      ? null
-      : await resolveActiveProjectScope(supabase).catch(() => null);
+    const supabase = await createClient();
+    const url      = new URL(req.url);
+    const days     = clampDays(url.searchParams.get("days"));
+    const since    = sinceIso(days);
 
-    const projectIds =
-      orgScope?.projectIds?.length
-        ? orgScope.projectIds
-        : fallbackScope?.projectIds?.length
-          ? fallbackScope.projectIds
-          : [];
+    // ✅ Auth first — userId required for org scope resolution.
+    const { data: auth, error: authErr } = await supabase.auth.getUser();
+    const userId = auth?.user?.id;
+    if (authErr || !userId) return jsonErr("Not authenticated", 401);
+
+    // ✅ Org-wide scope — no member-scoped fallback.
+    const scoped     = await resolveOrgActiveProjectScope(supabase, userId);
+    const projectIds = scoped.projectIds;
 
     if (!projectIds.length) {
-      return withNoStore(
-        NextResponse.json(
-          { ok: true, window_days: days, since: sinceIso, items: [], meta: { reason: "no_projects_in_scope" } },
-          { status: 200 },
-        ),
-      );
+      return jsonOk({
+        window_days: days,
+        since,
+        items: [],
+        meta: {
+          scope: "org",
+          projectCount: 0,
+          reason: "no_active_projects_in_org",
+          organisationId: scoped.organisationId ?? null,
+        },
+      });
     }
 
-    // Try a best-effort RAID query. If columns differ, return an empty payload with meta.
-    // Common table name in your codebase: raid_items
-    const q = supabase
+    const { data, error } = await supabase
       .from("raid_items")
-      .select("id, project_id, title, type, status, severity, impact, probability, due_date, created_at, updated_at")
+      .select(
+        "id, project_id, title, type, status, severity, impact, probability, due_date, created_at, updated_at"
+      )
       .in("project_id", projectIds)
-      .gte("updated_at", sinceIso)
-      .limit(50);
-
-    const { data, error } = await q;
+      .gte("updated_at", since)
+      .not("status", "in", '("Closed","Invalid")')
+      .order("updated_at", { ascending: false })
+      .limit(200);
 
     if (error) {
-      return withNoStore(
-        NextResponse.json(
-          {
-            ok: true,
-            window_days: days,
-            since: sinceIso,
-            items: [],
-            meta: {
-              degraded: true,
-              reason: "raid_query_failed",
-              message: error.message,
-            },
-          },
-          { status: 200 },
-        ),
-      );
+      // Degrade gracefully — schema differences across envs should not 500.
+      return jsonOk({
+        window_days: days,
+        since,
+        items: [],
+        meta: {
+          scope: "org",
+          projectCount: projectIds.length,
+          degraded: true,
+          reason: "raid_query_failed",
+          message: error.message,
+        },
+      });
     }
 
-    // “HI” heuristic: prefer High/Critical severity if present; otherwise return recent items.
-    const items = (data ?? []).filter((r: any) => {
-      const sev = String(r?.severity ?? "").toLowerCase();
-      if (!sev) return true;
-      return sev.includes("high") || sev.includes("critical");
-    });
+    const all   = data ?? [];
+    const items = all.filter(isHighSeverity);
 
-    return withNoStore(
-      NextResponse.json(
-        {
-          ok: true,
-          window_days: days,
-          since: sinceIso,
-          items,
-          meta: {
-            scope: orgScope?.projectIds?.length ? "org" : "fallback",
-            total_raw: (data ?? []).length,
-            total_hi: items.length,
-          },
-        },
-        { status: 200 },
-      ),
-    );
+    return jsonOk({
+      window_days: days,
+      since,
+      items,
+      meta: {
+        scope: "org",
+        organisationId: scoped.organisationId ?? null,
+        projectCount:   projectIds.length,
+        total_raw:      all.length,
+        total_hi:       items.length,
+      },
+    });
   } catch (e: any) {
-    return withNoStore(
-      NextResponse.json(
-        {
-          ok: false,
-          window_days: days,
-          since: sinceIso,
-          error: String(e?.message ?? e),
-        },
-        { status: 500 },
-      ),
-    );
+    return jsonErr(String(e?.message ?? e), 500);
   }
 }

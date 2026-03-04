@@ -1,11 +1,12 @@
+// src/app/api/wbs/pulse/route.ts
+// ✅ Org-scoped: all org members see portfolio-wide WBS stats.
+//    Project-level access control lives on the frontend (drawer "Open" buttons).
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
+import { resolveOrgActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
 
 export const runtime = "nodejs";
-
-/* ---------------- response helpers ---------------- */
 
 function jsonOk(data: any, status = 200) {
   return NextResponse.json({ ok: true, ...data }, { status });
@@ -13,8 +14,6 @@ function jsonOk(data: any, status = 200) {
 function jsonErr(error: string, status = 400, meta?: any) {
   return NextResponse.json({ ok: false, error, meta }, { status });
 }
-
-/* ---------------- small utils ---------------- */
 
 function clampDays(v: string | null): 7 | 14 | 30 | 60 | "all" {
   const s = String(v ?? "").trim().toLowerCase();
@@ -27,188 +26,88 @@ function clampDays(v: string | null): 7 | 14 | 30 | 60 | "all" {
 function safeJson(x: any): any {
   if (!x) return null;
   if (typeof x === "object") return x;
-  try {
-    return JSON.parse(String(x));
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(String(x)); } catch { return null; }
 }
 
 function safeArr(x: any): any[] {
   return Array.isArray(x) ? x : [];
 }
 
-/* ---------------- WBS model helpers ---------------- */
-
 type WbsRow = {
-  id?: string;
-  level?: number;
-
-  status?: any;
-  state?: any;
-  progress?: any;
-
-  due_date?: any;
-  dueDate?: any;
-  end?: any;
-  end_date?: any;
-  endDate?: any;
-  date?: any;
-
-  effort?: "S" | "M" | "L" | string | null;
-
-  estimated_effort_hours?: any;
-  estimatedEffortHours?: any;
-  effort_hours?: any;
-  effortHours?: any;
-  estimate_hours?: any;
-  estimateHours?: any;
-  estimated_effort?: any;
-  estimatedEffort?: any;
+  id?: string; level?: number;
+  status?: any; state?: any; progress?: any;
+  due_date?: any; dueDate?: any; end?: any; end_date?: any; endDate?: any; date?: any;
+  effort?: string | null;
+  estimated_effort_hours?: any; estimatedEffortHours?: any;
+  effort_hours?: any; effortHours?: any;
+  estimate_hours?: any; estimateHours?: any;
+  estimated_effort?: any; estimatedEffort?: any;
 };
 
-function asLevel(x: any) {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : 0;
-}
-
+function asLevel(x: any) { const n = Number(x); return Number.isFinite(n) ? n : 0; }
 function rowHasChildren(rows: WbsRow[], idx: number) {
-  const cur = rows[idx];
-  const next = rows[idx + 1];
+  const cur = rows[idx]; const next = rows[idx + 1];
   return !!(cur && next && asLevel((next as any).level) > asLevel((cur as any).level));
 }
-
-function normStr(x: any) {
-  return String(x ?? "").trim().toLowerCase();
-}
+function normStr(x: any) { return String(x ?? "").trim().toLowerCase(); }
 
 function safeDate(x: any): Date | null {
   if (!x) return null;
   if (x instanceof Date && !Number.isNaN(x.getTime())) return x;
-  const s = String(x).trim();
-  if (!s) return null;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
+  const s = String(x).trim(); if (!s) return null;
+  const d = new Date(s); return Number.isNaN(d.getTime()) ? null : d;
 }
-
 function startOfDayUTC(d = new Date()) {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
-
 function addDaysUTC(d: Date, days: number) {
   return new Date(d.getTime() + days * 24 * 60 * 60 * 1000);
 }
-
 function isDoneStatus(row: WbsRow): boolean {
   const s = normStr((row as any)?.status || (row as any)?.state);
-  if (s === "done" || s === "closed" || s === "complete" || s === "completed") return true;
-  if (s === "cancelled" || s === "canceled") return true;
-
+  if (["done", "closed", "complete", "completed", "cancelled", "canceled"].includes(s)) return true;
   const p = Number((row as any)?.progress);
-  if (Number.isFinite(p) && p >= 100) return true;
-
-  return false;
+  return Number.isFinite(p) && p >= 100;
 }
-
 function getDueDate(row: WbsRow): Date | null {
-  return (
-    safeDate((row as any)?.due_date) ||
-    safeDate((row as any)?.dueDate) ||
-    safeDate((row as any)?.end_date) ||
-    safeDate((row as any)?.endDate) ||
-    safeDate((row as any)?.end) ||
-    safeDate((row as any)?.date) ||
-    null
-  );
+  return safeDate((row as any)?.due_date) || safeDate((row as any)?.dueDate) ||
+    safeDate((row as any)?.end_date) || safeDate((row as any)?.endDate) ||
+    safeDate((row as any)?.end) || safeDate((row as any)?.date) || null;
 }
-
 function rowHasEffort(row: WbsRow): boolean {
-  const keys = [
-    "estimated_effort_hours",
-    "estimatedEffortHours",
-    "effort_hours",
-    "effortHours",
-    "estimate_hours",
-    "estimateHours",
-    "estimated_effort",
-    "estimatedEffort",
-  ] as const;
-
+  const keys = ["estimated_effort_hours","estimatedEffortHours","effort_hours","effortHours",
+    "estimate_hours","estimateHours","estimated_effort","estimatedEffort"] as const;
   for (const k of keys) {
     const v: any = (row as any)?.[k];
     if (v == null || v === "") continue;
-    const n = Number(v);
-    if (Number.isFinite(n) && n > 0) return true;
+    const n = Number(v); if (Number.isFinite(n) && n > 0) return true;
   }
-
   const e = String((row as any)?.effort ?? "").trim().toUpperCase();
   return e === "S" || e === "M" || e === "L";
 }
 
-/**
- * Window behaviour:
- * - days = null => ALL (no window filter)
- * - days = 7/14/30/60 => scope by due-date:
- *   - core totals include only leaves with due date <= today+days OR overdue
- *   - overdue counts overdue leaves (not done)
- *   - due buckets respect chosen window:
- *       e.g. days=7 => due_14/30/60 will be 0
- */
 function calcWbsStatsFromDoc(doc: any, days: number | null) {
   const rows = safeArr(doc?.rows) as WbsRow[];
-  if (!rows.length) {
-    return {
-      totalLeaves: 0,
-      done: 0,
-      remaining: 0,
-      overdue: 0,
-      due_7: 0,
-      due_14: 0,
-      due_30: 0,
-      due_60: 0,
-      missing_effort: 0,
-    };
-  }
+  if (!rows.length) return { totalLeaves: 0, done: 0, remaining: 0, overdue: 0, due_7: 0, due_14: 0, due_30: 0, due_60: 0, missing_effort: 0 };
 
-  const today = startOfDayUTC(new Date());
+  const today = startOfDayUTC();
   const scopeEnd = days == null ? null : addDaysUTC(today, days);
+  const d7 = addDaysUTC(today, 7); const d14 = addDaysUTC(today, 14);
+  const d30 = addDaysUTC(today, 30); const d60 = addDaysUTC(today, 60);
+  const bucketAllowed = (bucketEnd: Date) => !scopeEnd || bucketEnd.getTime() <= scopeEnd.getTime();
 
-  const d7 = addDaysUTC(today, 7);
-  const d14 = addDaysUTC(today, 14);
-  const d30 = addDaysUTC(today, 30);
-  const d60 = addDaysUTC(today, 60);
-
-  const bucketAllowed = (bucketEnd: Date) => {
-    if (!scopeEnd) return true;
-    return bucketEnd.getTime() <= scopeEnd.getTime();
-  };
-
-  let totalLeaves = 0;
-  let done = 0;
-  let remaining = 0;
-
-  let overdue = 0;
-  let due7 = 0;
-  let due14 = 0;
-  let due30 = 0;
-  let due60 = 0;
-
-  let missingEffort = 0;
+  let totalLeaves = 0, done = 0, remaining = 0, overdue = 0;
+  let due7 = 0, due14 = 0, due30 = 0, due60 = 0, missingEffort = 0;
 
   for (let i = 0; i < rows.length; i++) {
     if (rowHasChildren(rows, i)) continue;
-
     const row = rows[i];
     const isDone = isDoneStatus(row);
     const due = getDueDate(row);
 
     if (days == null) {
-      totalLeaves++;
-      if (isDone) done++;
-      else remaining++;
-
+      totalLeaves++; if (isDone) done++; else remaining++;
       if (!rowHasEffort(row)) missingEffort++;
-
       if (!isDone && due) {
         const dueDay = startOfDayUTC(due);
         if (dueDay.getTime() < today.getTime()) overdue++;
@@ -221,23 +120,15 @@ function calcWbsStatsFromDoc(doc: any, days: number | null) {
     }
 
     if (!due) continue;
-
     const dueDay = startOfDayUTC(due);
     const isOverdue = !isDone && dueDay.getTime() < today.getTime();
     const inScope = isOverdue || dueDay.getTime() <= (scopeEnd as Date).getTime();
     if (!inScope) continue;
 
-    totalLeaves++;
-    if (isDone) done++;
-    else remaining++;
-
+    totalLeaves++; if (isDone) done++; else remaining++;
     if (!rowHasEffort(row)) missingEffort++;
 
-    if (isOverdue) {
-      overdue++;
-      continue;
-    }
-
+    if (isOverdue) { overdue++; continue; }
     if (!isDone) {
       if (bucketAllowed(d7) && dueDay.getTime() <= d7.getTime()) due7++;
       else if (bucketAllowed(d14) && dueDay.getTime() <= d14.getTime()) due14++;
@@ -246,20 +137,8 @@ function calcWbsStatsFromDoc(doc: any, days: number | null) {
     }
   }
 
-  return {
-    totalLeaves,
-    done,
-    remaining,
-    overdue,
-    due_7: due7,
-    due_14: due14,
-    due_30: due30,
-    due_60: due60,
-    missing_effort: missingEffort,
-  };
+  return { totalLeaves, done, remaining, overdue, due_7: due7, due_14: due14, due_30: due30, due_60: due60, missing_effort: missingEffort };
 }
-
-/* ---------------- route ---------------- */
 
 export async function GET(req: Request) {
   try {
@@ -270,16 +149,14 @@ export async function GET(req: Request) {
     if (!auth?.user) return jsonErr("Unauthorized", 401);
 
     const userId = auth.user.id;
-
     const url = new URL(req.url);
     const daysParam = clampDays(url.searchParams.get("days"));
     const days = daysParam === "all" ? null : daysParam;
 
-    // ✅ canonical scope (org + membership aware)
-    const scoped = await resolveActiveProjectScope(supabase, userId);
+    // ✅ Org-wide scope (same as insights page)
+    const scoped = await resolveOrgActiveProjectScope(supabase, userId);
     const scopedIds = Array.isArray(scoped?.projectIds) ? scoped.projectIds : [];
 
-    // ✅ canonical active filter
     const filtered = await filterActiveProjectIds(supabase, scopedIds);
     const projectIds = Array.isArray(filtered?.projectIds) ? filtered.projectIds : [];
 
@@ -287,15 +164,9 @@ export async function GET(req: Request) {
       return jsonOk({
         stats: null,
         meta: {
-          projectCount: 0,
-          days: daysParam,
-          scope: scoped?.meta ?? null,
-          filter: {
-            ok: filtered?.ok ?? true,
-            error: filtered?.error ?? null,
-            before: scopedIds.length,
-            after: 0,
-          },
+          projectCount: 0, days: daysParam, scope: "org",
+          scopeMeta: scoped?.meta ?? null,
+          filter: { ok: filtered?.ok ?? true, error: filtered?.error ?? null, before: scopedIds.length, after: 0 },
           active_only: true,
         },
       });
@@ -310,83 +181,39 @@ export async function GET(req: Request) {
 
     if (error) return jsonErr(error.message, 500);
 
-    let total = 0;
-    let doneTotal = 0;
-    let remaining = 0;
-    let overdue = 0;
-    let due7 = 0;
-    let due14 = 0;
-    let due30 = 0;
-    let due60 = 0;
-    let missingEffort = 0;
-
-    let usableDocs = 0;
+    let total = 0, doneTotal = 0, remaining = 0, overdue = 0;
+    let due7 = 0, due14 = 0, due30 = 0, due60 = 0, missingEffort = 0, usableDocs = 0;
 
     for (const r of rows || []) {
       const doc = safeJson((r as any)?.content_json) ?? safeJson((r as any)?.content) ?? null;
-      const dtype = String(doc?.type || "").trim().toLowerCase();
-      const ver = Number(doc?.version);
-
-      if (!(dtype === "wbs" && ver === 1 && Array.isArray(doc?.rows))) continue;
+      if (!(String(doc?.type || "").trim().toLowerCase() === "wbs" && Number(doc?.version) === 1 && Array.isArray(doc?.rows))) continue;
 
       usableDocs++;
       const s = calcWbsStatsFromDoc(doc, days);
-
-      total += s.totalLeaves;
-      doneTotal += s.done;
-      remaining += s.remaining;
-      overdue += s.overdue;
-      due7 += s.due_7;
-      due14 += s.due_14;
-      due30 += s.due_30;
-      due60 += s.due_60;
-      missingEffort += s.missing_effort;
+      total += s.totalLeaves; doneTotal += s.done; remaining += s.remaining;
+      overdue += s.overdue; due7 += s.due_7; due14 += s.due_14;
+      due30 += s.due_30; due60 += s.due_60; missingEffort += s.missing_effort;
     }
 
     if (!usableDocs) {
       return jsonOk({
         stats: null,
         meta: {
-          projectCount: projectIds.length,
-          days: daysParam,
-          scope: scoped?.meta ?? null,
-          filter: {
-            ok: filtered?.ok ?? true,
-            error: filtered?.error ?? null,
-            before: scopedIds.length,
-            after: projectIds.length,
-          },
-          active_only: true,
-          note: "No WBS v1 docs found.",
+          projectCount: projectIds.length, days: daysParam, scope: "org",
+          scopeMeta: scoped?.meta ?? null,
+          filter: { ok: filtered?.ok ?? true, error: filtered?.error ?? null, before: scopedIds.length, after: projectIds.length },
+          active_only: true, note: "No WBS v1 docs found.",
         },
       });
     }
 
     return jsonOk({
-      stats: {
-        total,
-        done: doneTotal,
-        remaining,
-        overdue,
-        due_7: due7,
-        due_14: due14,
-        due_30: due30,
-        due_60: due60,
-        missing_effort: missingEffort,
-      },
+      stats: { total, done: doneTotal, remaining, overdue, due_7: due7, due_14: due14, due_30: due30, due_60: due60, missing_effort: missingEffort },
       meta: {
-        projectCount: projectIds.length,
-        days: daysParam,
-        active_only: true,
-        scope: scoped?.meta ?? null,
-        filter: {
-          ok: filtered?.ok ?? true,
-          error: filtered?.error ?? null,
-          before: scopedIds.length,
-          after: projectIds.length,
-        },
-        rowsFetched: (rows || []).length,
-        usableDocs,
+        projectCount: projectIds.length, days: daysParam, scope: "org", active_only: true,
+        scopeMeta: scoped?.meta ?? null,
+        filter: { ok: filtered?.ok ?? true, error: filtered?.error ?? null, before: scopedIds.length, after: projectIds.length },
+        rowsFetched: (rows || []).length, usableDocs,
       },
     });
   } catch (e: any) {

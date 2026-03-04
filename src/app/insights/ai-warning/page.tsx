@@ -11,11 +11,11 @@ function firstStr(x: unknown): string {
   return "";
 }
 
-function clampDays(x: unknown, fallback = 30): 7 | 14 | 30 | 60 {
+function clampDays(x: unknown, fallback: 7 | 14 | 30 | 60 = 30): 7 | 14 | 30 | 60 {
   const n = Number(firstStr(x));
   const allowed = new Set([7, 14, 30, 60]);
-  if (!Number.isFinite(n) || !allowed.has(n)) return fallback as any;
-  return n as any;
+  if (!Number.isFinite(n) || !allowed.has(n)) return fallback;
+  return n as 7 | 14 | 30 | 60;
 }
 
 export default function Page({

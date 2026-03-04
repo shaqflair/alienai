@@ -1,36 +1,30 @@
+// src/app/api/wbs/items/route.ts
+// ✅ Org-scoped: all org members see portfolio-wide WBS items.
+//    Project-level access control lives on the frontend (drawer "Open" buttons).
+//    ✅ hrefs always use project UUID (not project_code) — consistent with projects list fix.
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
+import { resolveOrgActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
 
 export const runtime = "nodejs";
 
-/* ---------------- response helpers ---------------- */
-
 function jsonOk(data: any, status = 200) {
-  return NextResponse.json({ ok: true, ...data }, { status });
+  const res = NextResponse.json({ ok: true, ...data }, { status });
+  res.headers.set("Cache-Control", "no-store, max-age=0");
+  return res;
 }
 function jsonErr(error: string, status = 400, meta?: any) {
   return NextResponse.json({ ok: false, error, meta }, { status });
 }
 
-/* ---------------- utils ---------------- */
-
 function safeJson(x: any): any {
   if (!x) return null;
   if (typeof x === "object") return x;
-  try {
-    return JSON.parse(String(x));
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(String(x)); } catch { return null; }
 }
-function safeArr(x: any): any[] {
-  return Array.isArray(x) ? x : [];
-}
-function safeStr(x: any) {
-  return typeof x === "string" ? x : String(x ?? "");
-}
+function safeArr(x: any): any[] { return Array.isArray(x) ? x : []; }
+function safeStr(x: any) { return typeof x === "string" ? x : String(x ?? ""); }
 function clampInt(x: any, fallback: number, min: number, max: number) {
   const n = Number(x);
   if (!Number.isFinite(n)) return fallback;
@@ -42,229 +36,112 @@ function clampDays(v: string | null): DaysParam {
   const s = String(v ?? "").trim().toLowerCase();
   if (s === "all") return "all";
   const n = Number(s);
-  const allowed = new Set([7, 14, 30, 60]);
-  return allowed.has(n) ? (n as 7 | 14 | 30 | 60) : 30;
+  return ([7, 14, 30, 60] as const).includes(n as any) ? (n as 7 | 14 | 30 | 60) : 30;
 }
 
 type Bucket = "overdue" | "due_7" | "due_14" | "due_30" | "due_60" | "";
 function clampBucket(v: string | null): Bucket {
   const s = String(v ?? "").trim().toLowerCase();
-  if (s === "overdue") return "overdue";
-  if (s === "due_7") return "due_7";
-  if (s === "due_14") return "due_14";
-  if (s === "due_30") return "due_30";
-  if (s === "due_60") return "due_60";
+  if (["overdue","due_7","due_14","due_30","due_60"].includes(s)) return s as Bucket;
   return "";
 }
 
 type StatusFilter = "open" | "done" | "";
 function clampStatus(v: string | null): StatusFilter {
   const s = String(v ?? "").trim().toLowerCase();
-  if (s === "open") return "open";
-  if (s === "done") return "done";
+  if (s === "open" || s === "done") return s;
   return "";
 }
 
 function startOfDayUTC(d = new Date()) {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
-function addDaysUTC(d: Date, days: number) {
-  return new Date(d.getTime() + days * 24 * 60 * 60 * 1000);
-}
+function addDaysUTC(d: Date, days: number) { return new Date(d.getTime() + days * 86400000); }
 function safeDate(x: any): Date | null {
   if (!x) return null;
   if (x instanceof Date && !Number.isNaN(x.getTime())) return x;
-  const s = String(x).trim();
-  if (!s) return null;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
+  const s = String(x).trim(); if (!s) return null;
+  const d = new Date(s); return Number.isNaN(d.getTime()) ? null : d;
 }
-function isoDateOnly(d: Date) {
-  return d.toISOString().slice(0, 10);
-}
+function isoDateOnly(d: Date) { return d.toISOString().slice(0, 10); }
 
-/** ✅ UK date display (dd/mm/yyyy) from ISO yyyy-mm-dd or timestamp-ish strings */
 function fmtDateUK(x: any): string | null {
   if (!x) return null;
   const s = String(x).trim();
-  if (!s) return null;
-
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
-  if (m) {
-    const yyyy = Number(m[1]);
-    const mm = Number(m[2]);
-    const dd = Number(m[3]);
-    if (!yyyy || !mm || !dd) return null;
-    return `${String(dd).padStart(2, "0")}/${String(mm).padStart(2, "0")}/${String(yyyy)}`;
-  }
-
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return null;
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const yyyy = String(d.getUTCFullYear());
-  return `${dd}/${mm}/${yyyy}`;
+  return `${String(d.getUTCDate()).padStart(2,"0")}/${String(d.getUTCMonth()+1).padStart(2,"0")}/${d.getUTCFullYear()}`;
 }
-
-/* ---------------- WBS parsing ---------------- */
 
 type WbsRow = {
-  id?: string;
-  level?: number;
-
-  title?: any;
-  name?: any;
-
-  status?: any;
-  state?: any;
-  progress?: any;
-
-  owner_label?: any;
-  owner?: any;
-
-  due_date?: any;
-  dueDate?: any;
-  end?: any;
-  end_date?: any;
-  endDate?: any;
-  date?: any;
-
-  effort?: "S" | "M" | "L" | string | null;
-
-  estimated_effort_hours?: any;
-  estimatedEffortHours?: any;
-  effort_hours?: any;
-  effortHours?: any;
-  estimate_hours?: any;
-  estimateHours?: any;
-  estimated_effort?: any;
-  estimatedEffort?: any;
+  id?: string; level?: number; title?: any; name?: any;
+  status?: any; state?: any; progress?: any;
+  owner_label?: any; owner?: any;
+  due_date?: any; dueDate?: any; end?: any; end_date?: any; endDate?: any; date?: any;
+  effort?: string | null;
+  estimated_effort_hours?: any; estimatedEffortHours?: any;
+  effort_hours?: any; effortHours?: any; estimate_hours?: any; estimateHours?: any;
+  estimated_effort?: any; estimatedEffort?: any;
 };
 
-function asLevel(x: any) {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : 0;
-}
+function asLevel(x: any) { const n = Number(x); return Number.isFinite(n) ? n : 0; }
 function rowHasChildren(rows: WbsRow[], idx: number) {
-  const cur = rows[idx];
-  const next = rows[idx + 1];
-  return !!(cur && next && asLevel((next as any).level) > asLevel((cur as any).level));
-}
-function normStr(x: any) {
-  return String(x ?? "").trim().toLowerCase();
+  return !!(rows[idx] && rows[idx+1] && asLevel((rows[idx+1] as any).level) > asLevel((rows[idx] as any).level));
 }
 function isDoneStatus(row: WbsRow): boolean {
-  const s = normStr((row as any)?.status || (row as any)?.state);
-  if (s === "done" || s === "closed" || s === "complete" || s === "completed") return true;
-  if (s === "cancelled" || s === "canceled") return true;
-
+  const s = String((row as any)?.status || (row as any)?.state || "").trim().toLowerCase();
+  if (["done","closed","complete","completed","cancelled","canceled"].includes(s)) return true;
   const p = Number((row as any)?.progress);
-  if (Number.isFinite(p) && p >= 100) return true;
-
-  return false;
+  return Number.isFinite(p) && p >= 100;
 }
 function getDueDate(row: WbsRow): Date | null {
-  return (
-    safeDate((row as any)?.due_date) ||
-    safeDate((row as any)?.dueDate) ||
-    safeDate((row as any)?.end_date) ||
-    safeDate((row as any)?.endDate) ||
-    safeDate((row as any)?.end) ||
-    safeDate((row as any)?.date) ||
-    null
-  );
+  return safeDate((row as any)?.due_date) || safeDate((row as any)?.dueDate) ||
+    safeDate((row as any)?.end_date) || safeDate((row as any)?.endDate) ||
+    safeDate((row as any)?.end) || safeDate((row as any)?.date) || null;
 }
 function rowHasEffort(row: WbsRow): boolean {
-  const keys = [
-    "estimated_effort_hours",
-    "estimatedEffortHours",
-    "effort_hours",
-    "effortHours",
-    "estimate_hours",
-    "estimateHours",
-    "estimated_effort",
-    "estimatedEffort",
-  ] as const;
-
+  const keys = ["estimated_effort_hours","estimatedEffortHours","effort_hours","effortHours",
+    "estimate_hours","estimateHours","estimated_effort","estimatedEffort"] as const;
   for (const k of keys) {
     const v: any = (row as any)?.[k];
     if (v == null || v === "") continue;
-    const n = Number(v);
-    if (Number.isFinite(n) && n > 0) return true;
+    const n = Number(v); if (Number.isFinite(n) && n > 0) return true;
   }
-
   const e = String((row as any)?.effort ?? "").trim().toUpperCase();
   return e === "S" || e === "M" || e === "L";
 }
 function rowTitle(row: WbsRow, idx: number) {
-  const t = safeStr((row as any)?.title).trim();
-  if (t) return t;
-  const n = safeStr((row as any)?.name).trim();
-  if (n) return n;
-  return `Work package ${idx + 1}`;
+  return safeStr((row as any)?.title).trim() || safeStr((row as any)?.name).trim() || `Work package ${idx + 1}`;
 }
 function rowOwner(row: WbsRow) {
-  const o = safeStr((row as any)?.owner_label).trim();
-  if (o) return o;
-  const o2 = safeStr((row as any)?.owner).trim();
-  if (o2) return o2;
-  return "";
+  return safeStr((row as any)?.owner_label).trim() || safeStr((row as any)?.owner).trim() || "";
 }
-
-/* ---------------- cursor helpers ---------------- */
 
 function encodeCursor(payload: any) {
-  try {
-    return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-  } catch {
-    return null;
-  }
+  try { return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url"); } catch { return null; }
 }
 function decodeCursor(s: string | null) {
-  try {
-    if (!s) return null;
-    const json = Buffer.from(s, "base64url").toString("utf8");
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
+  try { if (!s) return null; return JSON.parse(Buffer.from(s, "base64url").toString("utf8")); } catch { return null; }
 }
-
-/* ---------------- routing helper ---------------- */
-
-function routeProjectKey(projectId: string, projectCode: any) {
-  const code = String(projectCode ?? "").trim();
-  if (code) return code; // ✅ human id
-  return projectId; // ✅ fallback
-}
-
-/* ---------------- main handler ---------------- */
 
 type Item = {
   project_id: string;
-  project_human_id?: string | null; // ✅ NEW
   project_title: string;
   project_code?: string | null;
-
   artifact_id: string;
-
-  artifact_updated_at: string | null; // dd/mm/yyyy
-  due_date: string | null; // dd/mm/yyyy
-
+  artifact_updated_at: string | null;
   artifact_updated_at_iso?: string | null;
+  due_date: string | null;
   due_date_iso?: string | null;
-
   wbs_row_id: string;
   wbs_row_index: number;
-
   title: string;
   owner_label?: string | null;
-
   is_done: boolean;
   is_overdue: boolean;
-
   effort_missing: boolean;
-
   href: string;
 };
 
@@ -277,76 +154,54 @@ export async function GET(req: Request) {
     if (!auth?.user) return jsonErr("Unauthorized", 401);
 
     const userId = auth.user.id;
-
     const url = new URL(req.url);
 
     const daysParam = clampDays(url.searchParams.get("days"));
     const days: number | null = daysParam === "all" ? null : daysParam;
-
     const bucket = clampBucket(url.searchParams.get("bucket"));
     const status = clampStatus(url.searchParams.get("status"));
-
     const missingEffort = url.searchParams.get("missingEffort") === "1";
     const q = String(url.searchParams.get("q") ?? "").trim().toLowerCase();
-
     const limit = clampInt(url.searchParams.get("limit"), 100, 10, 500);
-    const cursorRaw = url.searchParams.get("cursor");
-    const cursor = decodeCursor(cursorRaw);
+    const cursor = decodeCursor(url.searchParams.get("cursor"));
     const offset = clampInt(cursor?.offset, 0, 0, 1_000_000);
 
-    // ✅ canonical scope + active filter
-    const scoped = await resolveActiveProjectScope(supabase, userId);
+    // ✅ Org-wide scope (same as insights page)
+    const scoped = await resolveOrgActiveProjectScope(supabase, userId);
     const scopedIds = Array.isArray(scoped?.projectIds) ? scoped.projectIds : [];
     const filtered = await filterActiveProjectIds(supabase, scopedIds);
     const projectIds = Array.isArray(filtered?.projectIds) ? filtered.projectIds : [];
 
     if (!projectIds.length) {
-      const res = jsonOk({
-        items: [],
-        nextCursor: null,
+      return jsonOk({
+        items: [], nextCursor: null,
         meta: {
-          projectCount: 0,
-          scope: scoped?.meta ?? null,
+          projectCount: 0, scope: "org",
+          scopeMeta: scoped?.meta ?? null,
           filter: { ok: filtered?.ok ?? true, error: filtered?.error ?? null, before: scopedIds.length, after: 0 },
           active_only: true,
         },
       });
-      res.headers.set("Cache-Control", "no-store, max-age=0");
-      return res;
     }
 
-    // project titles for display
     const { data: projRows } = await supabase
-      .from("projects")
-      .select("id,title,project_code")
-      .in("id", projectIds)
-      .limit(10000);
+      .from("projects").select("id,title,project_code").in("id", projectIds).limit(10000);
 
     const projMap = new Map<string, { title: string; project_code: any }>();
     for (const p of projRows || []) {
-      projMap.set(String((p as any)?.id), {
-        title: String((p as any)?.title ?? "Untitled project"),
-        project_code: (p as any)?.project_code ?? null,
-      });
+      projMap.set(String((p as any)?.id), { title: String((p as any)?.title ?? "Untitled project"), project_code: (p as any)?.project_code ?? null });
     }
 
-    // all WBS artifacts in scope
     const { data: artRows, error: artErr } = await supabase
-      .from("artifacts")
-      .select("id, project_id, type, updated_at, content_json, content")
-      .in("project_id", projectIds)
-      .eq("type", "wbs")
-      .limit(3000);
+      .from("artifacts").select("id, project_id, type, updated_at, content_json, content")
+      .in("project_id", projectIds).eq("type", "wbs").limit(3000);
 
     if (artErr) return jsonErr(artErr.message, 500);
 
-    const today = startOfDayUTC(new Date());
+    const today = startOfDayUTC();
     const scopeEnd = days == null ? null : addDaysUTC(today, days);
-
-    const d7 = addDaysUTC(today, 7);
-    const d14 = addDaysUTC(today, 14);
-    const d30 = addDaysUTC(today, 30);
-    const d60 = addDaysUTC(today, 60);
+    const d7 = addDaysUTC(today, 7), d14 = addDaysUTC(today, 14);
+    const d30 = addDaysUTC(today, 30), d60 = addDaysUTC(today, 60);
 
     const itemsAll: Item[] = [];
 
@@ -357,31 +212,22 @@ export async function GET(req: Request) {
 
       const proj = projMap.get(projectId);
       const project_title = proj?.title ?? "Untitled project";
-      const project_code = proj?.project_code ?? null;
-
-      const project_human_id = project_code == null ? null : String(project_code).trim() || null;
-      const projectKey = routeProjectKey(projectId, project_code);
+      const project_code = proj?.project_code == null ? null : String(proj.project_code).trim() || null;
 
       const artifactUpdatedIso = (a as any)?.updated_at ? String((a as any).updated_at) : null;
-      const artifactUpdatedUk = artifactUpdatedIso ? fmtDateUK(artifactUpdatedIso) : null;
 
       const doc = safeJson((a as any)?.content_json) ?? safeJson((a as any)?.content) ?? null;
-      const dtype = String(doc?.type || "").trim().toLowerCase();
-      const ver = Number(doc?.version);
-      if (!(dtype === "wbs" && ver === 1 && Array.isArray(doc?.rows))) continue;
+      if (!(String(doc?.type||"").trim().toLowerCase()==="wbs" && Number(doc?.version)===1 && Array.isArray(doc?.rows))) continue;
 
       const rows = safeArr(doc?.rows) as WbsRow[];
 
       for (let i = 0; i < rows.length; i++) {
         if (rowHasChildren(rows, i)) continue;
-
         const row = rows[i];
         const isDone = isDoneStatus(row);
         const due = getDueDate(row);
         const dueDay = due ? startOfDayUTC(due) : null;
-
         const isOverdue = !isDone && !!dueDay && dueDay.getTime() < today.getTime();
-        const effortMissing = !rowHasEffort(row);
 
         const inScopeWindow = (() => {
           if (days == null) return true;
@@ -389,133 +235,81 @@ export async function GET(req: Request) {
           return dueDay.getTime() < today.getTime() || dueDay.getTime() <= (scopeEnd as Date).getTime();
         })();
 
-        // Bucket filters
         if (bucket) {
-          if (!dueDay) continue;
-          if (isDone) continue;
-
-          if (bucket === "overdue") {
-            if (!isOverdue) continue;
-          } else if (bucket === "due_7") {
-            if (!(dueDay.getTime() >= today.getTime() && dueDay.getTime() <= d7.getTime())) continue;
-          } else if (bucket === "due_14") {
-            if (!(dueDay.getTime() > d7.getTime() && dueDay.getTime() <= d14.getTime())) continue;
-          } else if (bucket === "due_30") {
-            if (!(dueDay.getTime() > d14.getTime() && dueDay.getTime() <= d30.getTime())) continue;
-          } else if (bucket === "due_60") {
-            if (!(dueDay.getTime() > d30.getTime() && dueDay.getTime() <= d60.getTime())) continue;
-          }
+          if (!dueDay || isDone) continue;
+          if (bucket === "overdue" && !isOverdue) continue;
+          else if (bucket === "due_7" && !(dueDay >= today && dueDay <= d7)) continue;
+          else if (bucket === "due_14" && !(dueDay > d7 && dueDay <= d14)) continue;
+          else if (bucket === "due_30" && !(dueDay > d14 && dueDay <= d30)) continue;
+          else if (bucket === "due_60" && !(dueDay > d30 && dueDay <= d60)) continue;
         } else {
           if (!inScopeWindow) continue;
         }
 
-        // Status filter
         if (status === "open" && isDone) continue;
         if (status === "done" && !isDone) continue;
-
-        // Missing effort filter
+        const effortMissing = !rowHasEffort(row);
         if (missingEffort && !effortMissing) continue;
 
-        // Search filter
         const title = rowTitle(row, i);
         const owner = rowOwner(row);
-        if (q) {
-          const hay = `${title} ${owner} ${project_title}`.toLowerCase();
-          if (!hay.includes(q)) continue;
-        }
+        if (q && !`${title} ${owner} ${project_title}`.toLowerCase().includes(q)) continue;
 
         const rowId = row?.id ? String(row.id) : `${artifactId}:${i}`;
-
-        // ✅ Use project human id if available, otherwise UUID
-        const href = `/projects/${projectKey}/artifacts/${artifactId}?focus=wbs&row=${encodeURIComponent(rowId)}`;
-
         const dueIso = dueDay ? isoDateOnly(dueDay) : null;
-        const dueUk = dueIso ? fmtDateUK(dueIso) : null;
+
+        // ✅ Always use project UUID in href (consistent with projects list page fix)
+        const href = `/projects/${projectId}/artifacts/${artifactId}?focus=wbs&row=${encodeURIComponent(rowId)}`;
 
         itemsAll.push({
           project_id: projectId,
-          project_human_id,
           project_title,
-          project_code: project_code == null ? null : String(project_code),
-
+          project_code,
           artifact_id: artifactId,
-
-          artifact_updated_at: artifactUpdatedUk,
-          due_date: dueUk,
-
+          artifact_updated_at: artifactUpdatedIso ? fmtDateUK(artifactUpdatedIso) : null,
           artifact_updated_at_iso: artifactUpdatedIso,
+          due_date: dueIso ? fmtDateUK(dueIso) : null,
           due_date_iso: dueIso,
-
           wbs_row_id: rowId,
           wbs_row_index: i,
-
           title,
           owner_label: owner || null,
-
           is_done: isDone,
           is_overdue: isOverdue,
-
           effort_missing: effortMissing,
-
           href,
         });
       }
     }
 
-    // Sort: overdue first, then earliest due (ISO), then title
+    // Sort: overdue first, then earliest due, then title
     itemsAll.sort((a, b) => {
-      const ao = a.is_overdue ? 0 : 1;
-      const bo = b.is_overdue ? 0 : 1;
+      const ao = a.is_overdue ? 0 : 1, bo = b.is_overdue ? 0 : 1;
       if (ao !== bo) return ao - bo;
-
-      const ad = a.due_date_iso ? a.due_date_iso : "9999-12-31";
-      const bd = b.due_date_iso ? b.due_date_iso : "9999-12-31";
-      if (ad < bd) return -1;
-      if (ad > bd) return 1;
-
+      const ad = a.due_date_iso ?? "9999-12-31", bd = b.due_date_iso ?? "9999-12-31";
+      if (ad < bd) return -1; if (ad > bd) return 1;
       return a.title.localeCompare(b.title);
     });
 
     const total = itemsAll.length;
-
     const slice = itemsAll.slice(offset, offset + limit);
     const nextOffset = offset + slice.length;
     const nextCursor = nextOffset < total ? encodeCursor({ offset: nextOffset }) : null;
-
     const generatedAtIso = new Date().toISOString();
-    const generatedAtUk = fmtDateUK(generatedAtIso);
 
-    const res = jsonOk({
-      items: slice,
-      nextCursor,
+    return jsonOk({
+      items: slice, nextCursor,
       meta: {
-        generated_at: generatedAtUk,
+        generated_at: fmtDateUK(generatedAtIso),
         generated_at_iso: generatedAtIso,
-
-        days: daysParam,
-        bucket: bucket || null,
-        status: status || null,
-        missingEffort: missingEffort ? 1 : 0,
-        q: q || null,
-
-        projectCount: projectIds.length,
-        total,
-        limit,
-        offset,
-
-        active_only: true,
-        scope: scoped?.meta ?? null,
-        filter: {
-          ok: filtered?.ok ?? true,
-          error: filtered?.error ?? null,
-          before: scopedIds.length,
-          after: projectIds.length,
-        },
+        days: daysParam, bucket: bucket || null, status: status || null,
+        missingEffort: missingEffort ? 1 : 0, q: q || null,
+        projectCount: projectIds.length, total, limit, offset,
+        scope: "org", active_only: true,
+        scopeMeta: scoped?.meta ?? null,
+        filter: { ok: filtered?.ok ?? true, error: filtered?.error ?? null, before: scopedIds.length, after: projectIds.length },
       },
     });
-
-    res.headers.set("Cache-Control", "no-store, max-age=0");
-    return res;
   } catch (e: any) {
     console.error("[GET /api/wbs/items]", e);
     return jsonErr(String(e?.message || e || "Failed"), 500);
