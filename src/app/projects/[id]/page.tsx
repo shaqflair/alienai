@@ -4,6 +4,7 @@ import "server-only";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
+import { getActiveOrgId } from "@/utils/org/active-org";
 import { fetchProjectResourceData, projectWeekPeriods } from "./_lib/resource-data";
 import ProjectResourcePanel from "./_components/ProjectResourcePanel";
 
@@ -14,34 +15,18 @@ function safeStr(x: unknown) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 function looksLikeUuid(s: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    String(s || "").trim()
-  );
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(s || "").trim());
 }
 function isMissingColumnError(errMsg: string, col: string) {
   const m = String(errMsg || "").toLowerCase();
   const c = String(col || "").toLowerCase();
-  return (
-    (m.includes("column") && m.includes(c) && m.includes("does not exist")) ||
-    (m.includes("could not find") && m.includes(c)) ||
-    (m.includes("unknown column") && m.includes(c))
-  );
+  return (m.includes("column") && m.includes(c) && m.includes("does not exist")) || (m.includes("could not find") && m.includes(c)) || (m.includes("unknown column") && m.includes(c));
 }
 function isInvalidInputSyntaxError(err: any) {
   return String(err?.code || "").trim() === "22P02";
 }
 
-const RESERVED = new Set([
-  "artifacts",
-  "changes",
-  "change",
-  "members",
-  "approvals",
-  "lessons",
-  "raid",
-  "schedule",
-  "wbs",
-]);
+const RESERVED = new Set(["artifacts", "changes", "change", "members", "approvals", "lessons", "raid", "schedule", "wbs"]);
 
 function normalizeProjectIdentifier(input: string) {
   let v = safeStr(input).trim();
@@ -54,21 +39,9 @@ function normalizeProjectIdentifier(input: string) {
   return v;
 }
 
-const HUMAN_COL_CANDIDATES = [
-  "project_human_id",
-  "human_id",
-  "project_code",
-  "code",
-  "slug",
-  "reference",
-  "ref",
-] as const;
+const HUMAN_COL_CANDIDATES = ["project_human_id", "human_id", "project_code", "code", "slug", "reference", "ref"] as const;
 
-async function resolveProjectUuidFast(
-  supabase: any,
-  identifier: string,
-  organisationId: string
-) {
+async function resolveProjectUuidFast(supabase: any, identifier: string, organisationId: string) {
   const raw = safeStr(identifier).trim();
   if (!raw) return { projectUuid: null as string | null, project: null as any };
 
@@ -98,9 +71,7 @@ async function resolveProjectUuidFast(
 }
 
 function bestProjectRole(rows: Array<{ role?: string | null }> | null | undefined) {
-  const roles = (rows ?? [])
-    .map((r) => String(r?.role ?? "").toLowerCase())
-    .filter(Boolean);
+  const roles = (rows ?? []).map((r) => String(r?.role ?? "").toLowerCase()).filter(Boolean);
   if (!roles.length) return "";
   if (roles.includes("owner")) return "owner";
   if (roles.includes("editor")) return "editor";
@@ -112,26 +83,19 @@ function flashText(msg: string | undefined, conflicts: string | undefined) {
   if (!msg) return null;
   if (msg === "allocated") {
     const c = conflicts ? parseInt(conflicts) : 0;
-    return c > 0
-      ? `✓ Allocated — ${c} conflict week${c > 1 ? "s" : ""} flagged`
-      : "✓ Resource allocated successfully";
+    return c > 0 ? `✓ Allocated — ${c} conflict week${c > 1 ? "s" : ""} flagged` : "✓ Resource allocated successfully";
   }
   if (msg === "allocation_removed") return "Allocation removed.";
   if (msg === "week_removed") return "Week removed.";
   if (msg === "week_updated") return "Week updated.";
-  if (msg === "converted_to_confirmed")
-    return "✓ Project converted to Confirmed — now live on the capacity heatmap.";
+  if (msg === "converted_to_confirmed") return "✓ Project converted to Confirmed — now live on the capacity heatmap.";
   return null;
 }
 
 function formatDate(d: string | null | undefined) {
   if (!d) return "—";
   try {
-    return new Date(d).toLocaleDateString("en-GB", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
+    return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
   } catch {
     return d;
   }
@@ -150,18 +114,20 @@ async function isOrgAdmin(supabase: any, organisationId: string, userId: string)
   // Prefer organisation_members if present.
   const { data, error } = await supabase
     .from("organisation_members")
-    .select("role, is_active")
+    .select("role, is_active, removed_at")
     .eq("organisation_id", organisationId)
     .eq("user_id", userId)
     .maybeSingle();
 
   if (error) {
-    // If this table doesn't exist in some envs, fail closed (not admin).
     if (String(error?.message || "").toLowerCase().includes("does not exist")) return false;
     throw error;
   }
 
-  const active = data?.is_active ?? true;
+  const active =
+    typeof data?.is_active === "boolean"
+      ? data.is_active
+      : data?.removed_at == null; // fallback if is_active isn't present/consistent
   const role = String(data?.role ?? "").toLowerCase();
   return Boolean(active) && (role === "admin" || role === "owner");
 }
@@ -176,14 +142,7 @@ async function convertPipelineToConfirmed(formData: FormData) {
   if (uErr) throw uErr;
   if (!user) redirect("/login");
 
-  // Resolve active org for admin check + safety guard
-  const { data: profile, error: pErr } = await supabase
-    .from("profiles")
-    .select("active_organisation_id")
-    .eq("id", user.id)
-    .maybeSingle();
-  if (pErr) throw pErr;
-  const activeOrgId = safeStr(profile?.active_organisation_id).trim();
+  const activeOrgId = await getActiveOrgId();
   if (!activeOrgId) redirect("/projects?err=no_active_org");
 
   const projectId = safeStr(formData.get("project_id")).trim();
@@ -191,21 +150,18 @@ async function convertPipelineToConfirmed(formData: FormData) {
   if (!projectId) redirect(`${returnTo}?err=missing_project_id`);
 
   // Ensure project is in active org (prevents cross-org updates)
-  const { data: projRow, error: projErr } = await supabase
-    .from("projects")
-    .select("id, organisation_id, resource_status")
-    .eq("id", projectId)
-    .maybeSingle();
+  const { data: projRow, error: projErr } = await supabase.from("projects").select("id, organisation_id, resource_status").eq("id", projectId).maybeSingle();
   if (projErr) throw projErr;
   if (!projRow?.id || String(projRow.organisation_id) !== activeOrgId) redirect(`${returnTo}?err=forbidden`);
 
   // Member role OR org admin can convert
   const { data: memRows, error: memErr } = await supabase
     .from("project_members")
-    .select("role")
+    .select("role, removed_at, is_active")
     .eq("project_id", projectId)
     .eq("user_id", user.id)
-    .eq("is_active", true);
+    .is("removed_at", null);
+
   if (memErr) throw memErr;
 
   const myRole = bestProjectRole(memRows as any);
@@ -213,11 +169,7 @@ async function convertPipelineToConfirmed(formData: FormData) {
 
   if (!(admin || myRole === "owner" || myRole === "editor")) redirect(`${returnTo}?err=forbidden`);
 
-  const { error: upErr } = await supabase
-    .from("projects")
-    .update({ resource_status: "confirmed" })
-    .eq("id", projectId)
-    .eq("resource_status", "pipeline");
+  const { error: upErr } = await supabase.from("projects").update({ resource_status: "confirmed" }).eq("id", projectId).eq("resource_status", "pipeline");
   if (upErr) throw upErr;
 
   redirect(`${returnTo}?msg=converted_to_confirmed`);
@@ -235,14 +187,8 @@ export default async function ProjectPage({
   if (authErr) throw authErr;
   if (!auth?.user) redirect("/login");
 
-  // Active org is the anchor for both dashboard and access control (no cross-org leakage)
-  const { data: profile, error: profileErr } = await supabase
-    .from("profiles")
-    .select("active_organisation_id")
-    .eq("id", auth.user.id)
-    .maybeSingle();
-  if (profileErr) throw profileErr;
-  const activeOrgId = safeStr(profile?.active_organisation_id).trim();
+  // ✅ Use the same active-org resolver everywhere (prevents the “auth.uid() null in SQL editor” confusion too)
+  const activeOrgId = await getActiveOrgId();
   if (!activeOrgId) notFound();
 
   const { id } = await params;
@@ -270,18 +216,12 @@ export default async function ProjectPage({
     if (!p?.id) notFound();
     project = p;
   } else {
-    // Even if we got a row from the resolver, enforce org match.
     if (String(project?.organisation_id ?? "") !== activeOrgId) notFound();
   }
 
   // Membership OR org admin for page access
   const [{ data: memRows, error: memErr }, admin] = await Promise.all([
-    supabase
-      .from("project_members")
-      .select("role")
-      .eq("project_id", projectUuid)
-      .eq("user_id", auth.user.id)
-      .eq("is_active", true),
+    supabase.from("project_members").select("role, removed_at, is_active").eq("project_id", projectUuid).eq("user_id", auth.user.id).is("removed_at", null),
     isOrgAdmin(supabase, activeOrgId, auth.user.id),
   ]);
   if (memErr) throw memErr;
@@ -292,41 +232,18 @@ export default async function ProjectPage({
 
   const myRole = admin && !myRoleRaw ? "admin" : myRoleRaw;
 
-  const [resourceData, changesResult, approvalsResult, membersResult, raidResult] =
-    await Promise.allSettled([
-      fetchProjectResourceData(projectUuid),
-      supabase
-        .from("changes")
-        .select("id, title, status, created_at, change_type")
-        .eq("project_id", projectUuid)
-        .order("created_at", { ascending: false })
-        .limit(5),
-      supabase
-        .from("approvals")
-        .select("id, title, status, created_at")
-        .eq("project_id", projectUuid)
-        .eq("status", "pending")
-        .order("created_at", { ascending: false })
-        .limit(5),
-      supabase
-        .from("project_members")
-        .select("id, role, is_active")
-        .eq("project_id", projectUuid)
-        .eq("is_active", true),
-      supabase
-        .from("raid_items")
-        .select("id, type, title, status, priority")
-        .eq("project_id", projectUuid)
-        .in("status", ["open", "active", "in_progress"])
-        .order("priority", { ascending: false })
-        .limit(20),
-    ]);
+  const [resourceData, changesResult, approvalsResult, membersResult, raidResult] = await Promise.allSettled([
+    fetchProjectResourceData(projectUuid),
+    supabase.from("changes").select("id, title, status, created_at, change_type").eq("project_id", projectUuid).order("created_at", { ascending: false }).limit(5),
+    supabase.from("approvals").select("id, title, status, created_at").eq("project_id", projectUuid).eq("status", "pending").order("created_at", { ascending: false }).limit(5),
+    supabase.from("project_members").select("id, role, removed_at, is_active").eq("project_id", projectUuid).is("removed_at", null),
+    supabase.from("raid_items").select("id, type, title, status, priority").eq("project_id", projectUuid).in("status", ["open", "active", "in_progress"]).order("priority", { ascending: false }).limit(20),
+  ]);
 
   const resource = resourceData.status === "fulfilled" ? resourceData.value : null;
   const periods = resource ? projectWeekPeriods(resource.project.start_date, resource.project.finish_date) : [];
   const changes = changesResult.status === "fulfilled" ? changesResult.value.data ?? [] : [];
-  const pendingApprovals =
-    approvalsResult.status === "fulfilled" ? approvalsResult.value.data ?? [] : [];
+  const pendingApprovals = approvalsResult.status === "fulfilled" ? approvalsResult.value.data ?? [] : [];
   const members = membersResult.status === "fulfilled" ? membersResult.value.data ?? [] : [];
   const raidItems = raidResult.status === "fulfilled" ? raidResult.value.data ?? [] : [];
 
@@ -392,7 +309,6 @@ export default async function ProjectPage({
 
       <main style={{ minHeight: "100vh", background: "#f8fafc", fontFamily: "'DM Sans', sans-serif" }}>
         <div style={{ maxWidth: "1160px", margin: "0 auto", padding: "36px 28px" }}>
-
           {/* Top bar */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px", flexWrap: "wrap", gap: "10px" }}>
             <Link href="/projects" style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "13px", color: "#64748b", textDecoration: "none", fontWeight: 500 }}>
@@ -476,9 +392,15 @@ export default async function ProjectPage({
             </div>
 
             <nav style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-              <Link className="pp-nav-link active" href={`/projects/${projectRefForUrls}`}>Overview</Link>
-              <Link className="pp-nav-link" href={`/projects/${projectRefForUrls}/artifacts`}>Artifacts</Link>
-              <Link className="pp-nav-link" href={`/projects/${projectRefForUrls}/changes`}>Changes</Link>
+              <Link className="pp-nav-link active" href={`/projects/${projectRefForUrls}`}>
+                Overview
+              </Link>
+              <Link className="pp-nav-link" href={`/projects/${projectRefForUrls}/artifacts`}>
+                Artifacts
+              </Link>
+              <Link className="pp-nav-link" href={`/projects/${projectRefForUrls}/changes`}>
+                Changes
+              </Link>
               <Link className="pp-nav-link" href={`/projects/${projectRefForUrls}/approvals`}>
                 Approvals
                 {pendingApprovals.length > 0 && (
@@ -487,8 +409,12 @@ export default async function ProjectPage({
                   </span>
                 )}
               </Link>
-              <Link className="pp-nav-link" href={`/projects/${projectRefForUrls}/members`}>Members</Link>
-              <Link className="pp-nav-link" href="/heatmap" style={{ marginLeft: "auto" }}>Full heatmap →</Link>
+              <Link className="pp-nav-link" href={`/projects/${projectRefForUrls}/members`}>
+                Members
+              </Link>
+              <Link className="pp-nav-link" href="/heatmap" style={{ marginLeft: "auto" }}>
+                Full heatmap →
+              </Link>
             </nav>
           </header>
 
@@ -521,9 +447,7 @@ export default async function ProjectPage({
             <div className="stat-card">
               <span style={{ fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "#94a3b8" }}>Finish Date</span>
               <span style={{ fontSize: "22px", fontWeight: 800, color: "#0f172a", lineHeight: 1.2, marginTop: "2px" }}>
-                {project?.finish_date
-                  ? new Date(project.finish_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
-                  : "—"}
+                {project?.finish_date ? new Date(project.finish_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "—"}
               </span>
               <span style={{ fontSize: "12px", color: daysLeft !== null && daysLeft < 0 ? "#ef4444" : daysLeft !== null && daysLeft < 30 ? "#f59e0b" : "#64748b" }}>
                 {daysLeft !== null ? (daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : `${daysLeft}d to go`) : "No date set"}
@@ -533,7 +457,6 @@ export default async function ProjectPage({
 
           {/* Main two-column body */}
           <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: "20px", alignItems: "start" }}>
-
             {/* LEFT: Resource planning */}
             <div>
               <div className="pp-section-label">● Resource planning</div>
@@ -548,7 +471,6 @@ export default async function ProjectPage({
 
             {/* RIGHT column */}
             <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-
               {/* Recent activity */}
               <div>
                 <div className="pp-section-label">● Recent activity</div>
@@ -559,7 +481,9 @@ export default async function ProjectPage({
                     <>
                       {pendingApprovals.slice(0, 2).map((a: any) => (
                         <div key={a.id} className="activity-item">
-                          <div style={{ width: "28px", height: "28px", borderRadius: "8px", background: "rgba(245,158,11,0.1)", border: "1.5px solid rgba(245,158,11,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", flexShrink: 0 }}>⏳</div>
+                          <div style={{ width: "28px", height: "28px", borderRadius: "8px", background: "rgba(245,158,11,0.1)", border: "1.5px solid rgba(245,158,11,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", flexShrink: 0 }}>
+                            ⏳
+                          </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <p style={{ margin: 0, fontSize: "12px", fontWeight: 600, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.title}</p>
                             <p style={{ margin: "2px 0 0", fontSize: "11px", color: "#94a3b8" }}>Approval pending</p>
@@ -570,11 +494,15 @@ export default async function ProjectPage({
                         const col = ({ approved: "#10b981", rejected: "#ef4444", pending: "#f59e0b", draft: "#94a3b8" } as any)[c.status] ?? "#64748b";
                         return (
                           <div key={c.id} className="activity-item">
-                            <div style={{ width: "28px", height: "28px", borderRadius: "8px", background: `${col}15`, border: `1.5px solid ${col}30`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", flexShrink: 0 }}>⚡</div>
+                            <div style={{ width: "28px", height: "28px", borderRadius: "8px", background: `${col}15`, border: `1.5px solid ${col}30`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", flexShrink: 0 }}>
+                              ⚡
+                            </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <p style={{ margin: 0, fontSize: "12px", fontWeight: 600, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.title}</p>
                               <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "2px" }}>
-                                <span className="badge" style={{ background: `${col}15`, color: col, border: `1px solid ${col}30` }}>{c.status}</span>
+                                <span className="badge" style={{ background: `${col}15`, color: col, border: `1px solid ${col}30` }}>
+                                  {c.status}
+                                </span>
                                 <span style={{ fontSize: "11px", color: "#94a3b8" }}>{new Date(c.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>
                               </div>
                             </div>
@@ -619,9 +547,7 @@ export default async function ProjectPage({
                       <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                         <span>{item.icon}</span>
                         <span>{item.label}</span>
-                        {item.badge ? (
-                          <span style={{ background: "#ef4444", color: "white", borderRadius: "20px", fontSize: "10px", fontWeight: 800, padding: "1px 6px" }}>{item.badge}</span>
-                        ) : null}
+                        {item.badge ? <span style={{ background: "#ef4444", color: "white", borderRadius: "20px", fontSize: "10px", fontWeight: 800, padding: "1px 6px" }}>{item.badge}</span> : null}
                       </span>
                       <span style={{ color: "#00b8db", fontSize: "14px" }}>→</span>
                     </Link>
@@ -634,11 +560,10 @@ export default async function ProjectPage({
           {/* RAID summary */}
           <div style={{ marginTop: "28px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px" }}>
-              <div className="pp-section-label" style={{ marginBottom: 0, flex: 1 }}>● RAID log</div>
-              <Link
-                href={`/projects/${projectRefForUrls}/raid`}
-                style={{ fontSize: "12px", color: "#00b8db", fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap", marginLeft: "16px" }}
-              >
+              <div className="pp-section-label" style={{ marginBottom: 0, flex: 1 }}>
+                ● RAID log
+              </div>
+              <Link href={`/projects/${projectRefForUrls}/raid`} style={{ fontSize: "12px", color: "#00b8db", fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap", marginLeft: "16px" }}>
                 View full RAID →
               </Link>
             </div>
@@ -655,14 +580,17 @@ export default async function ProjectPage({
                   </div>
                   {items.length === 0 ? (
                     <p style={{ fontSize: "12px", color: "#cbd5e1", margin: 0 }}>None open</p>
-                  ) : (items as any[]).slice(0, 3).map((item) => (
-                    <div key={item.id} className="raid-item">{item.title}</div>
-                  ))}
+                  ) : (
+                    (items as any[]).slice(0, 3).map((item) => (
+                      <div key={item.id} className="raid-item">
+                        {item.title}
+                      </div>
+                    ))
+                  )}
                 </div>
               ))}
             </div>
           </div>
-
         </div>
       </main>
     </>
