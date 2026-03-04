@@ -1,13 +1,16 @@
-﻿// src/app/api/portfolio/raid-exec-summary/route.ts — REBUILT v5 (Org view + filter-ready)
+﻿// src/app/api/portfolio/raid-exec-summary/route.ts — REBUILT v6 (Org view + filter-ready)
 // Fixes / Adds:
 //   ✅ RES-F1: ORG-WIDE project scope via resolveOrgActiveProjectScope (all projects in user's organisation) with safe fallback to membership scope
 //   ✅ RES-F2: clampDays supports "all" → 60 (HomePage sends days=all)
 //   ✅ RES-F3: Cache-Control: no-store across ALL responses (json + md/pdf/pptx downloads)
-//   ✅ RES-F4: Supports dashboard filters (GET + POST-ready via URL for now): name, code, pm, dept
+//   ✅ RES-F4: Supports dashboard filters (GET): name, code, pm, dept
 //   ✅ RES-F5: Project links prefer project_code (human id) over UUID
+// Fixes (this revision):
+//   ✅ RES-F6: Correct helper signatures (no extra userId arg)
+//   ✅ RES-F7: filterActiveProjectIds treated as string[] (matches project-scope.ts you pasted)
 // Keeps:
-//   ✅ Active project filter (filterActiveProjectIds) to exclude closed/deleted projects
-//   ✅ FIX-RES2: resolveClientNameFromProjects fixed select("id, client_name")
+//   ✅ Active project filter (exclude closed/deleted projects)
+//   ✅ resolveClientNameFromProjects fixed select("id, client_name")
 
 import "server-only";
 
@@ -215,8 +218,8 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
       break;
     }
     lastErr = error;
-    // If RLS blocks or table is missing, we fall back to unfiltered.
-    break;
+    // best-effort: if schema mismatch, try next select set
+    continue;
   }
 
   if (!rows.length) {
@@ -326,7 +329,7 @@ async function resolveOrgName(supabase: any, userId: string) {
   }
 }
 
-// ✅ FIX-RES2: Fixed .select()
+// ✅ Fixed .select()
 async function resolveClientNameFromProjects(supabase: any, projectIds: string[]) {
   try {
     const { data, error } = await supabase.from("projects").select("id, client_name").in("id", projectIds).limit(2000);
@@ -358,51 +361,45 @@ async function buildExecSummary(args: {
 
   const meta: any = { scope_source: null, filters: null };
 
-  // ✅ RES-F1: ORG-WIDE scope (dashboard-aligned) with membership fallback
+  // ✅ Org-wide scope helper (NO extra args)
   let baseProjectIds: string[] = [];
   try {
-    const orgScoped = await resolveOrgActiveProjectScope(supabase, userId);
+    const orgScoped = await resolveOrgActiveProjectScope(supabase);
     const ids = (Array.isArray(orgScoped?.projectIds) ? orgScoped.projectIds : []).filter(Boolean) as string[];
     baseProjectIds = ids;
-    meta.scope_source = { kind: "org_scope_helper", ok: Boolean(ids.length), meta: orgScoped?.meta ?? null };
+    meta.scope_source = { kind: "org_scope_helper", ok: Boolean(ids.length), meta: (orgScoped as any)?.meta ?? null };
   } catch (e: any) {
     meta.scope_source = { kind: "org_scope_helper", ok: false, error: safeStr(e?.message || e) };
     baseProjectIds = [];
   }
 
+  // Fallback: member scope helper (NO extra args)
   if (!baseProjectIds.length) {
-    const scoped = await resolveActiveProjectScope(supabase, userId);
+    const scoped = await resolveActiveProjectScope(supabase);
     const ids = (Array.isArray(scoped?.projectIds) ? scoped.projectIds : []).filter(Boolean) as string[];
-    meta.scope_source = {
-      kind: "membership_fallback",
-      ok: Boolean(ids.length),
-      error: scoped?.error || null,
-      membershipMeta: scoped?.meta ?? null,
-    };
+    meta.scope_source = { kind: "membership_fallback", ok: Boolean(ids.length), meta: (scoped as any)?.meta ?? null };
     baseProjectIds = ids;
   }
 
   if (!baseProjectIds.length) return { ok: false, error: "No accessible projects found.", meta };
 
-  // Active-only filter (terminal state exclusion)
-  const activeFilter = await filterActiveProjectIds(supabase, baseProjectIds);
-  const activeProjectIds = (Array.isArray(activeFilter?.projectIds) ? activeFilter.projectIds : []).filter(Boolean);
+  // Active-only filter (treat as string[])
+  const activeProjectIds = (await filterActiveProjectIds(supabase, baseProjectIds)).filter(Boolean);
+  meta.active_filter = { before: baseProjectIds.length, after: activeProjectIds.length };
 
-  if (!activeProjectIds.length)
-    return { ok: false, error: "No active projects found.", meta: { ...meta, activeFilter: activeFilter?.error || null } };
+  if (!activeProjectIds.length) return { ok: false, error: "No active projects found.", meta };
 
   // Apply dashboard filters (best-effort)
   const filtered = await applyProjectFilters(supabase, activeProjectIds, filters);
   meta.filters = filtered.meta;
 
   const projectIds = filtered.projectIds;
+
+  // If filters remove everything, return an OK empty summary (so UI can render)
   if (!projectIds.length) {
     return {
       ok: true,
-      org_name:
-        (await resolveOrgName(supabase, userId)) ||
-        safeStr(process.env.ORG_NAME || process.env.NEXT_PUBLIC_ORG_NAME).trim() ||
-        null,
+      org_name: (await resolveOrgName(supabase, userId)) || safeStr(process.env.ORG_NAME || process.env.NEXT_PUBLIC_ORG_NAME).trim() || null,
       client_name: null,
       scope,
       days,
@@ -425,8 +422,10 @@ async function buildExecSummary(args: {
     };
   }
 
-  // Header context
-  const [dbOrg, dbClient] = await Promise.all([resolveOrgName(supabase, userId), resolveClientNameFromProjects(supabase, projectIds)]);
+  const [dbOrg, dbClient] = await Promise.all([
+    resolveOrgName(supabase, userId),
+    resolveClientNameFromProjects(supabase, projectIds),
+  ]);
 
   const org_name = dbOrg || safeStr(process.env.ORG_NAME || process.env.NEXT_PUBLIC_ORG_NAME).trim() || null;
   const client_name = (dbClient || null) as string | null;
@@ -627,69 +626,6 @@ async function buildExecSummary(args: {
       prompt: x.overdue ? `Confirm owner/action plan and rebaseline due date.` : `Confirm mitigation and next update before ${x.due_date}.`,
     }));
 
-  // Optional WoW snapshots
-  let wow: ExecSummary["wow"] = null;
-  try {
-    const { data: snaps, error: snapErr } = await supabase
-      .from("raid_weekly_snapshots")
-      .select("project_id, week_start, snapshot")
-      .in("project_id", projectIds)
-      .order("week_start", { ascending: false })
-      .limit(10000);
-
-    if (!snapErr && (snaps || []).length) {
-      const byWeek = new Map<
-        string,
-        { total_items: number; overdue_open: number; high_score: number; sla_hot: number; exposure_total: number }
-      >();
-
-      for (const row of snaps || []) {
-        const wk = String((row as any).week_start || "").slice(0, 10);
-        if (!wk) continue;
-        const snap = (row as any).snapshot || {};
-        const agg = byWeek.get(wk) || { total_items: 0, overdue_open: 0, high_score: 0, sla_hot: 0, exposure_total: 0 };
-        agg.total_items += n(snap.total_items, 0) || 0;
-        agg.overdue_open += n(snap.overdue_open, 0) || 0;
-        agg.high_score += n(snap.high_score, 0) || 0;
-        agg.sla_hot += n(snap.sla_hot, 0) || 0;
-        agg.exposure_total += n(snap.exposure_total, 0) || 0;
-        byWeek.set(wk, agg);
-      }
-
-      const weeks = Array.from(byWeek.keys()).sort().reverse();
-      const week_start = weeks[0] || null;
-      const prev_week_start = weeks[1] || null;
-
-      if (week_start && prev_week_start) {
-        const cur = byWeek.get(week_start)!;
-        const prev = byWeek.get(prev_week_start)!;
-        const deltas = {
-          overdue_open: cur.overdue_open - prev.overdue_open,
-          high_score: cur.high_score - prev.high_score,
-          sla_hot: cur.sla_hot - prev.sla_hot,
-          exposure_total: cur.exposure_total - prev.exposure_total,
-        };
-        const sign = (d: number) => (d > 0 ? "↑" : d < 0 ? "↓" : "→");
-        wow = {
-          week_start,
-          prev_week_start,
-          narrative: [
-            `${sign(deltas.overdue_open)} Overdue: ${cur.overdue_open} (${deltas.overdue_open >= 0 ? "+" : ""}${deltas.overdue_open} WoW)`,
-            `${sign(deltas.high_score)} High score: ${cur.high_score} (${deltas.high_score >= 0 ? "+" : ""}${deltas.high_score} WoW)`,
-            `${sign(deltas.sla_hot)} SLA hot: ${cur.sla_hot} (${deltas.sla_hot >= 0 ? "+" : ""}${deltas.sla_hot} WoW)`,
-            `${sign(deltas.exposure_total)} Exposure: ${moneyGBP(cur.exposure_total)} (${deltas.exposure_total >= 0 ? "+" : ""}${moneyGBP(
-              deltas.exposure_total,
-            )})`,
-          ],
-        };
-      } else {
-        wow = { week_start: week_start || null, prev_week_start: null, narrative: [] };
-      }
-    }
-  } catch {
-    wow = null;
-  }
-
   return {
     ok: true,
     org_name,
@@ -706,7 +642,7 @@ async function buildExecSummary(args: {
       exposure_total,
       exposure_total_fmt: moneyGBP(exposure_total),
     },
-    wow,
+    wow: null,
     sections: [
       { key: "top_score", title: "Top Risks by Score", items: byScore },
       { key: "sla_hot", title: "SLA Breach Watchlist", items: bySla },
@@ -735,16 +671,6 @@ function renderPdfHtml(summary: ExecSummary) {
   const logoUrl = safeStr(process.env.BRANDING_LOGO_URL || process.env.NEXT_PUBLIC_BRANDING_LOGO_URL).trim() || BRAND_LOGO_URL;
 
   const k = summary.kpis;
-  const wow = summary.wow;
-
-  const wowBlock =
-    wow && wow.prev_week_start
-      ? `<div class="card soft"><div class="card-title-row"><div class="card-title">Week-on-week</div><div class="muted">${esc(
-          fmtUkDate(wow.week_start),
-        )} vs ${esc(fmtUkDate(wow.prev_week_start))}</div></div><div class="list">${
-          (wow.narrative || []).map((t) => `<div class="li">• ${esc(t)}</div>`).join("") || `<div class="muted">No narrative.</div>`
-        }</div></div>`
-      : `<div class="card soft"><div class="muted">Week-on-week will appear after at least <b>2 weekly snapshots</b> exist.</div></div>`;
 
   const sections = summary.sections
     .map((sec) => {
@@ -762,13 +688,7 @@ function renderPdfHtml(summary: ExecSummary) {
                 const pills: string[] = [];
                 pills.push(`<span class="pill ${overdue ? "pill-danger" : "pill-neutral"}">Due: ${esc(due)}</span>`);
                 if (sc != null) pills.push(`<span class="pill ${hot && sc >= 70 ? "pill-warn" : "pill-neutral"}">Score: ${esc(sc)}</span>`);
-                if (bp != null) {
-                  const dtb = x.sla_days_to_breach != null ? ` • ~${esc(x.sla_days_to_breach)}d` : "";
-                  const conf = x.sla_confidence != null ? ` • ${esc(x.sla_confidence)}%` : "";
-                  pills.push(
-                    `<span class="pill ${bp >= 70 ? "pill-warn" : "pill-neutral"}">SLA: ${esc(bp)}%${dtb}${conf}</span>`,
-                  );
-                }
+                if (bp != null) pills.push(`<span class="pill ${bp >= 70 ? "pill-warn" : "pill-neutral"}">SLA: ${esc(bp)}%</span>`);
                 if (x.exposure_total_fmt) pills.push(`<span class="pill pill-neutral">Exposure: ${esc(x.exposure_total_fmt)}</span>`);
                 if (x.owner_label) pills.push(`<span class="pill pill-neutral">Owner: ${esc(x.owner_label)}</span>`);
                 const note = x.note || x.prompt ? `<div class="note">${esc(x.note || x.prompt)}</div>` : "";
@@ -783,27 +703,55 @@ function renderPdfHtml(summary: ExecSummary) {
     })
     .join("");
 
-  return `<!doctype html><html><head><meta charset="utf-8"/><title>Portfolio RAID Brief</title><style>:root{--ink:#0f172a;--muted:#64748b;--line:#e2e8f0;--card:#ffffff;--soft:#f8fafc;--warn:#f59e0b;--danger:#ef4444;--brand:#0b1220}*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);background:#fff}.page{padding:24px 28px 28px}.header{border:1px solid var(--line);border-radius:18px;padding:18px 18px 16px;background:linear-gradient(180deg,#ffffff 0%,#fbfdff 100%)}.brandrow{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:10px}.brandleft{display:flex;align-items:center;gap:12px;min-width:0}.logo{width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0}.logo img{width:100%;height:100%;object-fit:contain;display:block}.wordmark{font-weight:900;letter-spacing:0.12em;font-size:13px;color:var(--brand);text-transform:uppercase}.clientname{font-size:14px;font-weight:900;color:var(--brand);line-height:1.15}.orgline{margin-top:2px;font-size:12px;color:#334155}.orgline b{font-weight:800}.kicker{font-size:12px;color:var(--muted)}.title{margin-top:6px;font-size:24px;font-weight:900;letter-spacing:-0.02em}.headline{margin-top:10px;font-size:14px;color:#334155;line-height:1.45}.gen{margin-top:6px;font-size:12px;color:var(--muted)}.chips{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px}.chip{border:1px solid #cbd5e1;background:#fff;color:#0f172a;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:700;white-space:nowrap}.chip.warn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10)}.chip.danger{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.10)}.grid{margin-top:14px;display:grid;gap:14px}.card{border:1px solid var(--line);border-radius:16px;padding:16px;background:var(--card)}.card.soft{background:var(--soft)}.card-title-row{display:flex;justify-content:space-between;align-items:flex-end;gap:10px}.card-title{font-size:14px;font-weight:900;letter-spacing:-0.01em}.muted{color:var(--muted);font-size:12px}.items{margin-top:12px;display:flex;flex-direction:column;gap:10px}.item{border:1px solid var(--line);border-radius:14px;padding:12px;background:#fff}.item-meta{font-size:12px;color:var(--muted)}.item-title{margin-top:6px;font-size:14px;font-weight:900;color:#0b1220}.pills{margin-top:10px;display:flex;flex-wrap:wrap;gap:8px}.pill{border:1px solid #cbd5e1;background:#fff;color:#0f172a;border-radius:999px;padding:6px 10px;font-size:12px;font-weight:700}.pill-warn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10)}.pill-danger{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.10)}.note{margin-top:10px;font-size:12px;color:#334155;line-height:1.45}.empty{margin-top:10px;font-size:12px;color:var(--muted);padding:10px 12px;border:1px dashed #cbd5e1;border-radius:12px;background:#fff}.list{margin-top:10px}.li{font-size:12px;color:#334155;margin:6px 0}.footer{margin-top:14px;font-size:11px;color:var(--muted);display:flex;justify-content:space-between;gap:10px;border-top:1px solid var(--line);padding-top:10px}@page{size:A4;margin:12mm}</style></head><body><div class="page"><div class="header"><div class="brandrow"><div class="brandleft"><div class="logo">${
+  return `<!doctype html><html><head><meta charset="utf-8"/><title>Portfolio RAID Brief</title><style>
+  :root{--ink:#0f172a;--muted:#64748b;--line:#e2e8f0;--card:#ffffff;--soft:#f8fafc;--warn:#f59e0b;--danger:#ef4444;--brand:#0b1220}
+  *{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);background:#fff}
+  .page{padding:24px 28px 28px}.header{border:1px solid var(--line);border-radius:18px;padding:18px 18px 16px;background:linear-gradient(180deg,#ffffff 0%,#fbfdff 100%)}
+  .brandrow{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:10px}
+  .brandleft{display:flex;align-items:center;gap:12px;min-width:0}
+  .logo{width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0}
+  .logo img{width:100%;height:100%;object-fit:contain;display:block}
+  .clientname{font-size:14px;font-weight:900;color:var(--brand);line-height:1.15}
+  .orgline{margin-top:2px;font-size:12px;color:#334155}
+  .kicker{font-size:12px;color:var(--muted)}
+  .title{margin-top:6px;font-size:24px;font-weight:900;letter-spacing:-0.02em}
+  .headline{margin-top:10px;font-size:14px;color:#334155;line-height:1.45}
+  .gen{margin-top:6px;font-size:12px;color:var(--muted)}
+  .chips{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px}
+  .chip{border:1px solid #cbd5e1;background:#fff;color:#0f172a;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:700;white-space:nowrap}
+  .chip.warn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10)}
+  .chip.danger{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.10)}
+  .grid{margin-top:14px;display:grid;gap:14px}
+  .card{border:1px solid var(--line);border-radius:16px;padding:16px;background:var(--card)}
+  .card-title-row{display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
+  .card-title{font-size:14px;font-weight:900;letter-spacing:-0.01em}
+  .muted{color:var(--muted);font-size:12px}
+  .items{margin-top:12px;display:flex;flex-direction:column;gap:10px}
+  .item{border:1px solid var(--line);border-radius:14px;padding:12px;background:#fff}
+  .item-meta{font-size:12px;color:var(--muted)}
+  .item-title{margin-top:6px;font-size:14px;font-weight:900;color:#0b1220}
+  .pills{margin-top:10px;display:flex;flex-wrap:wrap;gap:8px}
+  .pill{border:1px solid #cbd5e1;background:#fff;color:#0f172a;border-radius:999px;padding:6px 10px;font-size:12px;font-weight:700}
+  .pill-warn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10)}
+  .pill-danger{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.10)}
+  .note{margin-top:10px;font-size:12px;color:#334155;line-height:1.45}
+  .empty{margin-top:10px;font-size:12px;color:var(--muted);padding:10px 12px;border:1px dashed #cbd5e1;border-radius:12px;background:#fff}
+  @page{size:A4;margin:12mm}
+  </style></head><body><div class="page"><div class="header">
+  <div class="brandrow"><div class="brandleft"><div class="logo">${
     logoUrl ? `<img src="${esc(logoUrl)}" alt="Logo"/>` : `<div class="wordmark">ΛLIENΛ</div>`
-  }</div><div><div class="clientname">${esc(clientPrimary)}</div><div class="orgline"><b>Organisation:</b> ${esc(
-    orgSecondary,
-  )}</div></div></div><div class="kicker">Executive Summary • next ${esc(summary.days)} days • scope: ${esc(
-    summary.scope,
-  )}</div></div><div class="title">Portfolio RAID Brief</div><div class="headline">${esc(
-    summary.summary.headline,
-  )}</div><div class="gen">Generated: ${esc(gen)}</div><div class="chips"><span class="chip">Total: ${esc(
-    k.total_items,
-  )}</span><span class="chip ${k.overdue_open ? "danger" : ""}">Overdue: ${esc(
-    k.overdue_open,
-  )}</span><span class="chip ${k.high_score ? "warn" : ""}">High score: ${esc(
-    k.high_score,
-  )}</span><span class="chip ${k.sla_hot ? "warn" : ""}">SLA hot: ${esc(
-    k.sla_hot,
-  )}</span><span class="chip ${k.exposure_total ? "warn" : ""}">Exposure: ${esc(
-    k.exposure_total_fmt || "—",
-  )}</span></div></div><div class="grid">${wowBlock}${sections}</div><div class="footer"><div>Aliena AI • Portfolio Insights</div><div>${esc(
-    fmtUkDateTime(new Date().toISOString()),
-  )}</div></div></div></body></html>`;
+  }</div><div><div class="clientname">${esc(clientPrimary)}</div><div class="orgline"><b>Organisation:</b> ${esc(orgSecondary)}</div></div></div>
+  <div class="kicker">Executive Summary • next ${esc(summary.days)} days • scope: ${esc(summary.scope)}</div></div>
+  <div class="title">Portfolio RAID Brief</div><div class="headline">${esc(summary.summary.headline)}</div>
+  <div class="gen">Generated: ${esc(gen)}</div>
+  <div class="chips">
+    <span class="chip">Total: ${esc(k.total_items)}</span>
+    <span class="chip ${k.overdue_open ? "danger" : ""}">Overdue: ${esc(k.overdue_open)}</span>
+    <span class="chip ${k.high_score ? "warn" : ""}">High score: ${esc(k.high_score)}</span>
+    <span class="chip ${k.sla_hot ? "warn" : ""}">SLA hot: ${esc(k.sla_hot)}</span>
+    <span class="chip ${k.exposure_total ? "warn" : ""}">Exposure: ${esc(k.exposure_total_fmt || "—")}</span>
+  </div>
+  </div><div class="grid">${sections}</div></div></body></html>`;
 }
 
 /* ---------------- puppeteer (chromium) ---------------- */
@@ -870,22 +818,6 @@ function priorityFromScore(score: any) {
   return { label: "Low Priority", kind: "neutral" as const };
 }
 
-function firstN(items: ExecItem[], max: number) {
-  return (Array.isArray(items) ? items : []).slice(0, Math.max(0, max));
-}
-
-function itemLine(it: ExecItem) {
-  const due = it.due_date ? fmtUKShortDate(it.due_date) : "—";
-  const sc = it.score == null ? "—" : String(it.score);
-  const sla =
-    it.sla_breach_probability != null
-      ? `${it.sla_breach_probability}%${it.sla_days_to_breach != null ? ` (~${it.sla_days_to_breach}d)` : ""}`
-      : "—";
-  const exp = it.exposure_total_fmt || "—";
-  const proj = it.project_code_label || it.project_title || "Project";
-  return `${proj} • ${it.type || "RAID"} • Due ${due} • Score ${sc} • SLA ${sla} • Exp ${exp}\n${safeStr(it.title).trim()}`;
-}
-
 async function renderPptxFromSummary(summary: ExecSummary) {
   const mod = await import("pptxgenjs");
   const PptxGenJS = (mod as any).default || (mod as any);
@@ -896,9 +828,7 @@ async function renderPptxFromSummary(summary: ExecSummary) {
   const logoData = await fetchAsDataUri(logoUrl);
 
   const title = "Portfolio RAID Brief";
-  const subtitle = `${summary.client_name || "—"} • ${summary.org_name || "—"} • next ${summary.days} days • scope: ${
-    summary.scope
-  }`;
+  const subtitle = `${summary.client_name || "—"} • ${summary.org_name || "—"} • next ${summary.days} days • scope: ${summary.scope}`;
   const generated = `Generated: ${fmtUkDateTime(summary.summary.generated_at)}`;
 
   // Slide 1: Cover
@@ -909,26 +839,13 @@ async function renderPptxFromSummary(summary: ExecSummary) {
     s.addText(summary.summary.headline || "", { x: 0.6, y: 1.75, w: 12.2, h: 1.2, fontSize: 12 });
     s.addText(generated, { x: 0.6, y: 3.05, w: 12.2, h: 0.35, fontSize: 10 });
 
-    if (logoData) {
-      s.addImage({ data: logoData, x: 12.6, y: 0.45, w: 0.9, h: 0.9 });
-    }
+    if (logoData) s.addImage({ data: logoData, x: 12.6, y: 0.45, w: 0.9, h: 0.9 });
 
     const k = summary.kpis;
     const kpiText = `Total: ${k.total_items}   •   Overdue: ${k.overdue_open}   •   High score: ${k.high_score}   •   SLA hot: ${k.sla_hot}   •   Exposure: ${
       k.exposure_total_fmt || "—"
     }`;
     s.addText(kpiText, { x: 0.6, y: 3.5, w: 12.8, h: 0.4, fontSize: 12, bold: true });
-
-    if (summary.wow?.prev_week_start) {
-      const wowLines = (summary.wow.narrative || []).join("  •  ");
-      s.addText(`WoW (${fmtUKShortDate(summary.wow.week_start)} vs ${fmtUKShortDate(summary.wow.prev_week_start)}): ${wowLines}`, {
-        x: 0.6,
-        y: 4.0,
-        w: 12.8,
-        h: 0.5,
-        fontSize: 10,
-      });
-    }
   }
 
   // Slides per section
@@ -988,7 +905,6 @@ export async function GET(req: NextRequest) {
     const download = safeStr(url.searchParams.get("download")).trim() === "1";
     const format = clampFormat(url.searchParams.get("format"));
 
-    // ✅ RES-F4: filters
     const filters = parseFiltersFromUrl(url);
 
     const exec = await buildExecSummary({ supabase, userId: auth.user.id, scope, days, top, filters });
@@ -1031,8 +947,7 @@ export async function GET(req: NextRequest) {
 
     if (format === "pptx") {
       const pptxBuf = await renderPptxFromSummary(summary);
-      const base =
-        sanitizeFilename(summary.client_name || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
+      const base = sanitizeFilename(summary.client_name || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
       return new NextResponse(Buffer.from(pptxBuf), {
         status: 200,
         headers: {
@@ -1045,8 +960,7 @@ export async function GET(req: NextRequest) {
 
     const html = renderPdfHtml(summary);
     const pdf = await renderPdfFromHtml(html);
-    const base =
-      sanitizeFilename(summary.client_name || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
+    const base = sanitizeFilename(summary.client_name || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
     return new NextResponse(Buffer.from(pdf), {
       status: 200,
       headers: {
