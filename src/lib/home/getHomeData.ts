@@ -39,7 +39,7 @@ type HomeOk = {
   isExec: boolean;
   roles: string[];
   active_org_id: string | null;
-  projects: { id: string; title: string; client_name?: string | null; project_code?: any }[];
+  projects: { id: string; title: string; client_name?: string | null; project_code?: any; department?: string | null; project_manager?: string | null; project_manager_id?: string | null }[];
   kpis: {
     portfolioHealth: number;
     openRisks: number;
@@ -94,7 +94,7 @@ async function loadActiveProjectsForOrg(supabase: any, orgId: string) {
   // 2) Fallback: projects table (best-effort: at least exclude deleted)
   const { data: projects, error: projErr } = await supabase
     .from("projects")
-    .select("id, title, client_name, project_code, created_at, deleted_at")
+    .select("id, title, client_name, project_code, department, project_manager, project_manager_id, created_at, deleted_at")
     .eq("organisation_id", orgId)
     .is("deleted_at", null)
     .order("created_at", { ascending: false })
