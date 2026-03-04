@@ -2125,7 +2125,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                           count: ragAgg.g,
                           icon: <CheckCircle2 className="h-4 w-4 text-green-600" />,
                           label: "Green",
-                          threshold: "â‰¥ 85% health",
+                          threshold: "â‰¥ ≥ 85% health",
                           from: "#f0fdf4",
                           border: "#dcfce7",
                         },
@@ -2134,7 +2134,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                           count: ragAgg.a,
                           icon: <AlertTriangle className="h-4 w-4 text-amber-600" />,
                           label: "Amber",
-                          threshold: "70â€“84% health",
+                          threshold: "70–84% health",
                           from: "#fffbeb",
                           border: "#fef3c7",
                         },
@@ -2152,7 +2152,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                           key={r}
                           className="rounded-xl p-4 cursor-pointer transition-all hover:brightness-[0.97]"
                           style={{ background: from, border: `1px solid ${border}` }}
-                          onClick={() => router.push(appendFiltersToUrl(`/projects?rag=${r}`, urlFilters))}
+                          onClick={() => router.push(appendFiltersToUrl(`/insights?rag=${r}&days=${numericWindowDays}`, urlFilters))}
                         >
                           <div className="flex items-center gap-2 mb-2">
                             {icon}
