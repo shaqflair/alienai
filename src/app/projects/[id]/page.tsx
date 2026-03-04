@@ -8,6 +8,10 @@ import { getActiveOrgId } from "@/utils/org/active-org";
 import { fetchProjectResourceData, projectWeekPeriods } from "./_lib/resource-data";
 import ProjectResourcePanel from "./_components/ProjectResourcePanel";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 function safeParam(x: unknown): string {
   return typeof x === "string" ? x : Array.isArray(x) ? String(x[0] ?? "") : "";
 }
@@ -179,22 +183,21 @@ export default async function ProjectPage({
   params,
   searchParams,
 }: {
-  params: Promise<{ id?: string }>;
-  searchParams?: Promise<{ msg?: string; conflicts?: string; err?: string }>;
+  params: { id?: string };
+  searchParams?: { msg?: string; conflicts?: string; err?: string };
 }) {
   const supabase = await createClient();
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr) throw authErr;
   if (!auth?.user) redirect("/login");
 
-  // ✅ Use the same active-org resolver everywhere (prevents the “auth.uid() null in SQL editor” confusion too)
   const activeOrgId = await getActiveOrgId();
   if (!activeOrgId) notFound();
 
-  const { id } = await params;
-  const sp = (await searchParams) ?? {};
-  const rawId = safeParam(id).trim();
+  const rawId = safeParam(params?.id).trim();
+  const sp = searchParams ?? {};
   if (!rawId) notFound();
+
   const lower = rawId.toLowerCase();
   if (RESERVED.has(lower)) redirect("/projects");
 
@@ -231,6 +234,7 @@ export default async function ProjectPage({
   if (!canSeeProject) notFound();
 
   const myRole = admin && !myRoleRaw ? "admin" : myRoleRaw;
+  const canEdit = admin || myRole === "owner" || myRole === "editor";
 
   const [resourceData, changesResult, approvalsResult, membersResult, raidResult] = await Promise.allSettled([
     fetchProjectResourceData(projectUuid),
@@ -250,9 +254,9 @@ export default async function ProjectPage({
   const projectTitle = safeStr(project?.title ?? "Project") || "Project";
   const projectCode = safeStr(project?.project_code ?? "").trim();
   const projectColour = safeStr(project?.colour ?? "#00b8db");
-  const projectRefForUrls = rawId;
 
-  const canEdit = admin || myRole === "owner" || myRole === "editor";
+  // ✅ Canonical URL ref: always UUID (prevents subpage mismatch + reserved collisions)
+  const projectRefForUrls = projectUuid;
 
   const flash = flashText(sp?.msg, sp?.conflicts);
   const flashErr = sp?.err ? `Error: ${sp.err}` : null;
