@@ -230,7 +230,7 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
   const projectIds = filtered.projectIds;
 
   // ── Org members (capacity is org-wide)
-  const orgId = (scoped as any)?.orgId ?? null;
+  const orgId = (scoped as any)?.organisationId ?? (scoped as any)?.orgId ?? null;
 
   // If orgId cannot be resolved, degrade gracefully (don’t 400 the whole chart)
   if (!orgId) {
