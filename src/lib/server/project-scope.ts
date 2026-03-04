@@ -1,4 +1,4 @@
-// src/lib/server/project-scope.ts
+﻿// src/lib/server/project-scope.ts
 // Scope resolution helpers for org-wide portfolio dashboards + safe fallbacks.
 //
 // Exports:
@@ -70,13 +70,14 @@ async function getActiveOrgId(supabase: SupabaseLike, userId: string): Promise<s
     }
   }
 
-  // 2) fallback: first org membership
+    // 2) fallback: first org membership — only if profile had no active_organisation_id
   {
     const { data, error } = await supabase
       .from("organisation_members")
       .select("organisation_id")
       .eq("user_id", userId)
       .is("removed_at", null)
+      .order("created_at", { ascending: false })
       .limit(1);
 
     if (!error && Array.isArray(data) && data[0]?.organisation_id) {
@@ -167,8 +168,8 @@ export async function resolveActiveProjectScope(
 
 /**
  * ORG-wide scope:
- * returns *all* projects in the user’s active organisation.
- * Fail-open to member scope if orgId missing or schema doesn’t match.
+ * returns *all* projects in the userâ€™s active organisation.
+ * Fail-open to member scope if orgId missing or schema doesnâ€™t match.
  */
 export async function resolveOrgActiveProjectScope(
   supabase: SupabaseLike,
@@ -259,3 +260,4 @@ export async function filterActiveProjectIds(supabase: SupabaseLike, projectIds:
   const out = uniq(active.map((r: any) => r?.id));
   return { projectIds: out.length ? out : ids };
 }
+
