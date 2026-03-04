@@ -100,11 +100,32 @@ async function handle(req: NextRequest, days: number, limit: number) {
   const projectIds: string[] = Array.isArray(scoped?.projectIds) ? scoped.projectIds : [];
   const since = isoDaysAgo(days);
 
-  // Get project titles for budget enrichment
+  // Get project details including PM for enrichment
   const projById = new Map<string, any>();
   if (projectIds.length) {
-    const { data: prows } = await supabase.from("projects").select("id, title").in("id", projectIds).limit(1000);
+    const { data: prows } = await supabase
+      .from("projects")
+      .select("id, title, project_code, project_manager, project_manager_id")
+      .in("id", projectIds)
+      .limit(1000);
     for (const p of prows ?? []) projById.set(String((p as any).id), p);
+  }
+
+  // Also fetch profile names for PM ids
+  const pmById = new Map<string, string>();
+  const pmIds = [...projById.values()]
+    .map((p: any) => p?.project_manager_id).filter(Boolean);
+  if (pmIds.length) {
+    const { data: pmRows } = await supabase
+      .from("profiles")
+      .select("user_id, id, full_name, name, display_name")
+      .in("user_id", pmIds)
+      .limit(500);
+    for (const pm of pmRows ?? []) {
+      const name = safeStr((pm as any)?.full_name || (pm as any)?.display_name || (pm as any)?.name).trim();
+      const uid = safeStr((pm as any)?.user_id || (pm as any)?.id).trim();
+      if (uid && name) pmById.set(uid, name);
+    }
   }
 
   // Get budget wins
