@@ -114,7 +114,8 @@ export default async function TimesheetPage({
 
     // Only active/confirmed/pipeline projects
     const rs = safeStr(p.resource_status).toLowerCase();
-    if (rs && !["confirmed", "pipeline", "active", ""].includes(rs)) continue;
+    // Exclude closed, completed, cancelled projects
+    if (!["confirmed", "pipeline", "active", ""].includes(rs)) continue;
 
     const pid = safeStr(p.id);
 
