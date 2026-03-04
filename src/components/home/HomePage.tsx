@@ -1150,6 +1150,7 @@ function RecentWinCard({ win, onClick }: { win: RecentWin; onClick: () => void }
                 </span>
               )}
               {win.project_name && <span className="text-[11px] text-gray-400 truncate">{win.project_name}</span>}
+              {(win as any).pm_name && <span className="text-[11px] text-blue-400 truncate">{(win as any).pm_name}</span>}
             </div>
           )}
           <div className="flex items-center justify-between mt-1.5">

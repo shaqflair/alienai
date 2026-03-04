@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/recent-wins/route.ts — v4
+// src/app/api/portfolio/recent-wins/route.ts — v4
 // Proxies /api/success-stories/summary and adds budget wins
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
