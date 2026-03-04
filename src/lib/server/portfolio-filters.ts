@@ -1,95 +1,55 @@
-﻿import "server-only";
+﻿// src/lib/server/portfolio-filters.ts
 
-function safeStr(x: any) {
-  return typeof x === "string" ? x : x == null ? "" : String(x);
-}
-function uniq(xs: string[]) {
-  return Array.from(new Set(xs.map((s) => s.trim()).filter(Boolean)));
-}
-
-export type PortfolioFilters = {
-  q?: string;
-  projectId?: string[];
-  projectCode?: string[];
-  pm?: string[];
-  dept?: string[];
+type ActiveFilterResult = {
+  activeIds: string[];
+  ok: boolean;
+  error: string | null;
 };
 
-export function readPortfolioFiltersFromUrl(url: URL): PortfolioFilters {
-  const q = safeStr(url.searchParams.get("q")).trim() || undefined;
+export async function filterActiveProjectIds(
+  supabase: any,
+  projectIds: string[]
+): Promise<ActiveFilterResult> {
+  if (!projectIds?.length) return { activeIds: [], ok: true, error: null };
 
-  const projectId = uniq(url.searchParams.getAll("projectId").flatMap((x) => x.split(",")));
-  const projectCode = uniq(url.searchParams.getAll("projectCode").flatMap((x) => x.split(",")));
-  const pm = uniq(url.searchParams.getAll("pm").flatMap((x) => x.split(",")));
-  const dept = uniq(url.searchParams.getAll("dept").flatMap((x) => x.split(",")));
+  // IMPORTANT: fail-open default
+  const failOpen = (err: unknown) => ({
+    activeIds: projectIds,               // 👈 keep everything if we can't prove inactive
+    ok: false,
+    error: err instanceof Error ? err.message : String(err ?? "active filter failed"),
+  });
 
-  return {
-    q,
-    projectId: projectId.length ? projectId : undefined,
-    projectCode: projectCode.length ? projectCode : undefined,
-    pm: pm.length ? pm : undefined,
-    dept: dept.length ? dept : undefined,
-  };
-}
+  try {
+    // Whatever your current active detection is (status / is_active / archived etc.)
+    // Example: prefer boolean flags if they exist.
+    const { data, error } = await supabase
+      .from("projects")
+      .select("id,is_active,archived,status,state")
+      .in("id", projectIds);
 
-export async function applyPortfolioFiltersToProjectIds(args: {
-  supabase: any;
-  baseProjectIds: string[];
-  filters: PortfolioFilters;
-}) {
-  const { supabase, baseProjectIds, filters } = args;
-  const ids = uniq(baseProjectIds);
-  if (!ids.length) return { projectIds: [] as string[], limited: false };
+    if (error) return failOpen(error);
+    if (!Array.isArray(data) || data.length === 0) return { activeIds: projectIds, ok: false, error: "no rows returned" };
 
-  const needAny =
-    !!filters.q ||
-    (filters.projectId && filters.projectId.length) ||
-    (filters.projectCode && filters.projectCode.length) ||
-    (filters.pm && filters.pm.length) ||
-    (filters.dept && filters.dept.length);
+    const active = data
+      .filter((p: any) => {
+        // robust: treat unknown as active
+        if (typeof p?.is_active === "boolean") return p.is_active === true;
+        if (typeof p?.archived === "boolean") return p.archived === false;
 
-  if (!needAny) return { projectIds: ids, limited: false };
+        const s = String(p?.status ?? p?.state ?? "").toLowerCase().trim();
+        if (!s) return true; // unknown => active
+        return !["closed", "cancelled", "canceled", "archived", "complete", "completed"].includes(s);
+      })
+      .map((p: any) => p.id)
+      .filter(Boolean);
 
-  // Pull just enough fields to filter
-  const { data, error } = await supabase
-    .from("projects")
-    .select("id, title, project_code, project_manager_id, department")
-    .in("id", ids)
-    .limit(10000);
+    // If our logic produced nothing but we had ids, also fail-open (avoid false zeroing)
+    if (active.length === 0 && projectIds.length > 0) {
+      return { activeIds: projectIds, ok: false, error: "active filter yielded 0; failing open" };
+    }
 
-  if (error) {
-    // If RLS blocks project fields, keep base scope (better than returning empty)
-    return { projectIds: ids, limited: true };
+    return { activeIds: active, ok: true, error: null };
+  } catch (e) {
+    return failOpen(e);
   }
-
-  const rows = Array.isArray(data) ? data : [];
-  const idSet = new Set((filters.projectId || []).map((s) => String(s).trim()).filter(Boolean));
-  const codeNeedles = (filters.projectCode || []).map((s) => String(s).toLowerCase().trim()).filter(Boolean);
-  const pmSet = new Set((filters.pm || []).map((s) => String(s).trim()).filter(Boolean));
-  const deptNeedles = (filters.dept || []).map((s) => String(s).toLowerCase().trim()).filter(Boolean);
-  const q = String(filters.q || "").toLowerCase().trim();
-
-  const out = rows
-    .filter((p: any) => {
-      const pid = safeStr(p?.id).trim();
-      const title = safeStr(p?.title).toLowerCase();
-      const code = safeStr(p?.project_code).toLowerCase();
-      const pm = safeStr(p?.project_manager_id).trim();
-      const dept = safeStr(p?.department).toLowerCase().trim();
-
-      if (idSet.size && !idSet.has(pid)) return false;
-      if (codeNeedles.length && !codeNeedles.some((c) => code.includes(c))) return false;
-      if (pmSet.size && (!pm || !pmSet.has(pm))) return false;
-      if (deptNeedles.length && (!dept || !deptNeedles.some((d) => dept.includes(d)))) return false;
-
-      if (q) {
-        const hay = `${title} ${code} ${dept}`.trim();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    })
-    .map((p: any) => safeStr(p?.id).trim())
-    .filter(Boolean);
-
-  return { projectIds: uniq(out), limited: false };
 }
