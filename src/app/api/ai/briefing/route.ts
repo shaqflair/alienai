@@ -592,8 +592,4 @@ export async function GET(req: Request) {
     console.error("[GET /api/ai/briefing]", e);
     return jsonErr(String(e?.message||e||"Briefing failed"), 500);
   }
-}i/briefing]", e);
-    return jsonErr(String(e?.message || e || "Briefing failed"), 500);
-  }
 }
-
