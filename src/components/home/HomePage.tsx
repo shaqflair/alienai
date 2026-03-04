@@ -510,16 +510,14 @@ function orderBriefingInsights(xs: Insight[]) {
 function ragDotColor(r: RagLetter) {
   return r === "G" ? "#22c55e" : r === "A" ? "#f59e0b" : "#ef4444";
 }
-function winTypeIcon(type: string) {
+function winTypeIcon(type: string): string {
   const t = (type ?? "").toLowerCase();
-  if (t.includes("milestone") || t.includes("delivery")) return "🏁";
-  if (t.includes("risk"))                                return "🛡️";
-  if (t.includes("commercial") || t.includes("budget")) return "💰";
-  if (t.includes("learning") || t.includes("lesson"))   return "📚";
-  if (t.includes("change") || t.includes("governance")) return "✅";
-  if (t.includes("kickoff"))                            return "🚀";
-  if (t.includes("review"))                             return "✔️";
-  return "🏆";
+  if (t.includes("risk"))                                return "⚠";
+  if (t.includes("commercial") || t.includes("budget")) return "£";
+  if (t.includes("learning") || t.includes("lesson"))   return "✎";
+  if (t.includes("change") || t.includes("governance")) return "✓";
+  if (t.includes("milestone") || t.includes("delivery"))return "⚑";
+  return "★";
 }
 function useDebounced<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -1795,7 +1793,7 @@ export default function HomePage({ data }: { data: HomeData }) {
   const fpHasData = fpSummary?.ok === true;
   const fpVariancePct = fpHasData ? (fpSummary as any).variance_pct : null;
   const fpVarianceNum = fpVariancePct != null && Number.isFinite(Number(fpVariancePct)) ? Math.round(Number(fpVariancePct) * 10) / 10 : null;
-  const fpVarianceLabel = fpVarianceNum != null ? (fpVarianceNum === 0 ? "±0%" : `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%`) : fpLoading ? "â€¦" : "â€”";
+  const fpVarianceLabel = fpVarianceNum != null ? (fpVarianceNum === 0 ? "±0%" : `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%`) : fpLoading ? "…" : "—";
   const fpRag = fpHasData ? ((fpSummary as any).rag as RagLetter) : null;
   const firstProjectRef = useMemo(() => {
     const fp = fpSummary?.ok ? (fpSummary as any).project_ref : null;
