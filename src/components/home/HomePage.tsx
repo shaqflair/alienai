@@ -1,4 +1,4 @@
-﻿// src/components/home/HomePage.tsx â€” POLISHED v9.1
+// src/components/home/HomePage.tsx â€” POLISHED v9.1
 //
 // Fixes vs v9:
 //   âœ… HP-F1: projectId[] filter is now translated to code/name params before API calls.
@@ -1046,8 +1046,8 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
           </div>
           <p className="text-[11px] text-gray-500 leading-relaxed">{ragLogic}</p>
           <div className="mt-2 pt-2 border-t border-gray-100 text-[10px] text-gray-400">
-            Thresholds: <span className="text-green-600 font-semibold">Green â‰¥ 85%</span> Â·{" "}
-            <span className="text-amber-600 font-semibold">Amber 70â€“84%</span> Â·{" "}
+            Thresholds: <span className="text-green-600 font-semibold">Green â‰¥ 85%</span> ·{" "}
+            <span className="text-amber-600 font-semibold">Amber 70â€“84%</span> ·{" "}
             <span className="text-red-500 font-semibold">Red {"<"} 70%</span>
           </div>
         </div>
@@ -1988,7 +1988,7 @@ export default function HomePage({ data }: { data: HomeData }) {
               <KpiCard
                 label="Portfolio Health"
                 value={`${phScoreForUi}%`}
-                sub={ragAgg.scored ? `${ragAgg.g} Green Â· ${ragAgg.a} Amber Â· ${ragAgg.r} Red` : "vs last period"}
+                sub={ragAgg.scored ? `${ragAgg.g} Green · ${ragAgg.a} Amber · ${ragAgg.r} Red` : "vs last period"}
                 icon={<Activity className="h-5 w-5" />}
                 colorKey={phColorKey}
                 trendLabel={phDelta != null && phDelta !== 0 ? `${Math.abs(Math.round(phDelta))}` : undefined}
@@ -2038,7 +2038,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                 <div className="flex items-start justify-between mb-2">
                   <div>
                     <h3 className="font-semibold text-gray-900">Resource Activity</h3>
-                    <p className="text-xs text-gray-400 mt-0.5">Week-on-week capacity vs demand Â· {windowDays === "all" ? "60" : windowDays} days</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Week-on-week capacity vs demand · {windowDays === "all" ? "60" : windowDays} days</p>
                   </div>
                   <div className="flex items-center gap-4 text-xs text-gray-400 mt-1">
                     <span className="flex items-center gap-1.5">
