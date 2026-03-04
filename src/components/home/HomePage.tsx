@@ -511,11 +511,15 @@ function ragDotColor(r: RagLetter) {
   return r === "G" ? "#22c55e" : r === "A" ? "#f59e0b" : "#ef4444";
 }
 function winTypeIcon(type: string) {
-  const t = type.toLowerCase();
-  if (t.includes("milestone") || t.includes("delivery")) return "ðŸŽ¯";
-  if (t.includes("kickoff")) return "ðŸš€";
-  if (t.includes("review")) return "âœ…";
-  return "ðŸ†";
+  const t = (type ?? "").toLowerCase();
+  if (t.includes("milestone") || t.includes("delivery")) return "🏁";
+  if (t.includes("risk"))                                return "🛡️";
+  if (t.includes("commercial") || t.includes("budget")) return "💰";
+  if (t.includes("learning") || t.includes("lesson"))   return "📚";
+  if (t.includes("change") || t.includes("governance")) return "✅";
+  if (t.includes("kickoff"))                            return "🚀";
+  if (t.includes("review"))                             return "✔️";
+  return "🏆";
 }
 function useDebounced<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -1131,7 +1135,7 @@ function MilestoneCard({ item, onClick }: { item: DueDigestItem; onClick: () => 
 function RecentWinCard({ win, onClick }: { win: RecentWin; onClick: () => void }) {
   const icon = winTypeIcon(win.type);
   const dateLabel = win.date ? new Date(win.date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : "";
-  const typeLabel = win.type.charAt(0).toUpperCase() + win.type.slice(1).replace(/_/g, " ");
+  const typeLabel = (win.type ?? "other").charAt(0).toUpperCase() + (win.type ?? "other").slice(1).replace(/_/g, " ");
   return (
     <button
       type="button"
@@ -1791,7 +1795,7 @@ export default function HomePage({ data }: { data: HomeData }) {
   const fpHasData = fpSummary?.ok === true;
   const fpVariancePct = fpHasData ? (fpSummary as any).variance_pct : null;
   const fpVarianceNum = fpVariancePct != null && Number.isFinite(Number(fpVariancePct)) ? Math.round(Number(fpVariancePct) * 10) / 10 : null;
-  const fpVarianceLabel = fpVarianceNum != null ? (fpVarianceNum === 0 ? "Â±0%" : `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%`) : fpLoading ? "â€¦" : "â€”";
+  const fpVarianceLabel = fpVarianceNum != null ? (fpVarianceNum === 0 ? "±0%" : `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%`) : fpLoading ? "â€¦" : "â€”";
   const fpRag = fpHasData ? ((fpSummary as any).rag as RagLetter) : null;
   const firstProjectRef = useMemo(() => {
     const fp = fpSummary?.ok ? (fpSummary as any).project_ref : null;
