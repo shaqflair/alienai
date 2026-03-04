@@ -1,10 +1,10 @@
-// src/app/api/portfolio/health/route.ts — REBUILT v7 (Org-wide scope + filter-ready + active project filter)
+// src/app/api/portfolio/health/route.ts — REBUILT v8 (Org-wide scope + filter-ready + active project filter FIXED)
 // Adds / Fixes:
 //   ✅ PH-F1 filters (GET + POST)
 //   ✅ PH-F2 filters applied within ORG scope (resolveOrgActiveProjectScope)
 //   ✅ PH-F3 best-effort degradation
 //   ✅ PH-F4 better “missing column” tolerance in filter pre-read (projects select fallbacks)
-//   ✅ PH-F5 shared active project filter (filterActiveProjectIds) to exclude closed/deleted/cancelled/archived, etc.
+//   ✅ PH-F5 active project filter contract fixed (helper returns string[]), plus FAIL-OPEN safeguard
 // Keeps:
 //   ✅ FIX-PH1 stale cadence excludes projects created < 7 days ago
 //   ✅ no-store caching
@@ -13,10 +13,7 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import {
-  resolveOrgActiveProjectScope,
-  filterActiveProjectIds,
-} from "@/lib/server/project-scope";
+import { resolveOrgActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
 
 export const runtime = "nodejs";
 
@@ -547,12 +544,29 @@ async function handle(req: Request, opts: { daysParam: 7 | 14 | 30 | 60 | "all";
   const windowDays = normalizeWindowDays(opts.daysParam);
 
   // ✅ ORG-WIDE scope for dashboards
-  const scoped = await resolveOrgActiveProjectScope(supabase, auth.user.id);
+  const scoped = await resolveOrgActiveProjectScope(supabase);
   const scopedProjectIdsRaw = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
 
-  // ✅ PH-F5: shared active filter (exclude closed/deleted/cancelled/archived etc.)
-  const activeFilter = await filterActiveProjectIds(supabase, scopedProjectIdsRaw);
-  const scopedProjectIds = Array.isArray(activeFilter?.projectIds) ? activeFilter.projectIds.filter(Boolean) : [];
+  // ✅ PH-F5: active project filter (helper returns string[]) + FAIL-OPEN safeguard
+  let scopedProjectIds: string[] = [];
+  let active_filter_ok = true;
+  let active_filter_error: string | null = null;
+
+  try {
+    const activeIds = await filterActiveProjectIds(supabase, scopedProjectIdsRaw);
+    scopedProjectIds = Array.isArray(activeIds) ? activeIds.filter(Boolean) : [];
+
+    // FAIL-OPEN: never allow false-zeroing the org dashboard
+    if (!scopedProjectIds.length && scopedProjectIdsRaw.length) {
+      scopedProjectIds = scopedProjectIdsRaw;
+      active_filter_ok = false;
+      active_filter_error = "active filter returned 0 ids; failing open to raw scope";
+    }
+  } catch (e: any) {
+    scopedProjectIds = scopedProjectIdsRaw; // ✅ fail-open
+    active_filter_ok = false;
+    active_filter_error = String(e?.message || e || "active filter failed");
+  }
 
   const filtered = await applyProjectFilters(supabase, scopedProjectIds, opts.filters);
   const projectIds = filtered.projectIds;
@@ -568,13 +582,13 @@ async function handle(req: Request, opts: { daysParam: 7 | 14 | 30 | 60 | "all";
       schedule: null,
       meta: {
         note: hasAnyFilters(opts.filters) ? "No projects matched the selected filters." : "No active projects in scope.",
-        organisationId: scoped.organisationId ?? null,
+        organisationId: (scoped as any)?.organisationId ?? (scoped as any)?.orgId ?? null,
         scope: {
-          ...(scoped?.meta || {}),
+          ...(((scoped as any)?.meta || {}) as any),
           scopedIdsRaw: scopedProjectIdsRaw.length,
           scopedIdsActive: scopedProjectIds.length,
-          active_filter_ok: Boolean(activeFilter?.ok),
-          active_filter_error: activeFilter?.error || null,
+          active_filter_ok,
+          active_filter_error,
         },
         filters: filtered.meta,
       },
@@ -659,13 +673,13 @@ async function handle(req: Request, opts: { daysParam: 7 | 14 | 30 | 60 | "all";
     meta: {
       notes: { schedule: schedulePart.note },
       inputs: { windowDays, projectIdsCount: projectIds.length },
-      organisationId: scoped.organisationId ?? null,
+      organisationId: (scoped as any)?.organisationId ?? (scoped as any)?.orgId ?? null,
       scope: {
-        ...(scoped?.meta || {}),
+        ...(((scoped as any)?.meta || {}) as any),
         scopedIdsRaw: scopedProjectIdsRaw.length,
         scopedIdsActive: scopedProjectIds.length,
-        active_filter_ok: Boolean(activeFilter?.ok),
-        active_filter_error: activeFilter?.error || null,
+        active_filter_ok,
+        active_filter_error,
       },
       filters: filtered.meta,
       queries: {
