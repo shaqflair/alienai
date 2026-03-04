@@ -974,7 +974,8 @@ export async function GET(req: Request) {
     }
 
     // ✅ FIX-B1 + FIX-B10: shared active filter (treat as string[])
-    const activeIds = uniqStrings(await filterActiveProjectIds(supabase, scopedIdsRaw));
+    const _activeResult = await filterActiveProjectIds(supabase, scopedIdsRaw);
+    const activeIds = uniqStrings((_activeResult as any)?.projectIds ?? (_activeResult as any) ?? []);
     const activeMeta = { before: scopedIdsRaw.length, after: activeIds.length };
 
     // ✅ FIX-B8: apply filters after "active" exclusion, so everything stays consistent
@@ -1274,3 +1275,4 @@ export async function GET(req: Request) {
     return jsonErr(String(e?.message || e || "Briefing failed"), 500);
   }
 }
+
