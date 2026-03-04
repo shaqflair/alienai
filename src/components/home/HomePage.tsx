@@ -1,21 +1,21 @@
-// src/components/home/HomePage.tsx — POLISHED v9.1
+﻿// src/components/home/HomePage.tsx â€” POLISHED v9.1
 //
 // Fixes vs v9:
-//   ✅ HP-F1: projectId[] filter is now translated to code/name params before API calls.
+//   âœ… HP-F1: projectId[] filter is now translated to code/name params before API calls.
 //            Backend routes (health, raid, milestones-due, resource-activity, recent-wins,
-//            financial-plan-summary) only accept name/code/pm/dept — selectedprojectId[] UUIDs
+//            financial-plan-summary) only accept name/code/pm/dept â€” selectedprojectId[] UUIDs
 //            are now mapped to projectCode[] + projectName[] via deriveApiFilters().
-//   ✅ HP-F2: Search icon focuses the search <input> inside the already-open drawer rather
+//   âœ… HP-F2: Search icon focuses the search <input> inside the already-open drawer rather
 //            than blindly calling setDrawerOpen(true) again (removes silent UX dead-end when
 //            drawer is already open).
-//   ✅ HP-F3: raidDueTotal no longer uses `||` fallback — zero typed counts correctly stays 0.
+//   âœ… HP-F3: raidDueTotal no longer uses `||` fallback â€” zero typed counts correctly stays 0.
 //            Was: `(r+i+d+a) || due_total` which silently used RPC total when items truly = 0.
-//   ✅ HP-F4: appendFiltersToApi now calls deriveApiFilters so all 6 API widgets respect
+//   âœ… HP-F4: appendFiltersToApi now calls deriveApiFilters so all 6 API widgets respect
 //            project-selection filters end-to-end.
 //
 // UI polish:
-//   ✅ HP-UI1: Search / Filter / Notification bell no longer look “greyed out”
-//             — active styling when drawer open, filters active, or unread present.
+//   âœ… HP-UI1: Search / Filter / Notification bell no longer look â€œgreyed outâ€
+//             â€” active styling when drawer open, filters active, or unread present.
 
 "use client";
 
@@ -48,18 +48,18 @@ import {
 } from "lucide-react";
 import ResourceActivityChart, { type ResourceWeek } from "@/components/home/ResourceActivityChart";
 
-/* ─── Filter model ──────────────────────────────────────────────────────────── */
+/* â”€â”€â”€ Filter model â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 type PortfolioFilters = {
   q?: string;
-  projectId?: string[]; // UI pill selection — UUID[]
+  projectId?: string[]; // UI pill selection â€” UUID[]
   projectName?: string[]; // legacy / derived
   projectCode?: string[]; // legacy / derived
   projectManagerId?: string[];
   department?: string[];
 };
 
-/* ─── Types ─────────────────────────────────────────────────────────────────── */
+/* â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 type WindowDays = 7 | 14 | 30 | 60 | "all";
 type NotifRow = {
@@ -211,7 +211,7 @@ type RecentWin = {
 
 type ProjectOption = { id: string; name: string; code: string | null };
 
-/* ─── Utils ─────────────────────────────────────────────────────────────────── */
+/* â”€â”€â”€ Utils â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
@@ -286,7 +286,7 @@ function filtersToSearchParams(f: PortfolioFilters): URLSearchParams {
   return sp;
 }
 
-// ✅ HP-F1: Translate projectId[] → code[] + name[] that backend routes understand.
+// âœ… HP-F1: Translate projectId[] â†’ code[] + name[] that backend routes understand.
 // Backend routes (health, raid-panel, milestones-due, etc.) only read name/code/pm/dept.
 // When the user picks projects by ID pill, we look up their codes/names and forward those.
 function deriveApiFilters(f: PortfolioFilters, projectOptions: ProjectOption[]): PortfolioFilters {
@@ -437,7 +437,7 @@ function projectCodeLabel(pc: any): string {
 }
 function dueDateLabel(iso: string | null | undefined) {
   const s = safeStr(iso).trim();
-  if (!s) return "—";
+  if (!s) return "â€”";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s;
   return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
@@ -512,10 +512,10 @@ function ragDotColor(r: RagLetter) {
 }
 function winTypeIcon(type: string) {
   const t = type.toLowerCase();
-  if (t.includes("milestone") || t.includes("delivery")) return "🎯";
-  if (t.includes("kickoff")) return "🚀";
-  if (t.includes("review")) return "✅";
-  return "🏆";
+  if (t.includes("milestone") || t.includes("delivery")) return "ðŸŽ¯";
+  if (t.includes("kickoff")) return "ðŸš€";
+  if (t.includes("review")) return "âœ…";
+  return "ðŸ†";
 }
 function useDebounced<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -526,7 +526,7 @@ function useDebounced<T>(value: T, delay: number): T {
   return debounced;
 }
 
-/* ─── Rejection Modal ───────────────────────────────────────────────────────── */
+/* â”€â”€â”€ Rejection Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function RejectionModal({
   open,
@@ -574,7 +574,7 @@ function RejectionModal({
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Provide context…"
+              placeholder="Provide contextâ€¦"
               rows={3}
               autoFocus
               className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 resize-none outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
@@ -602,7 +602,7 @@ function RejectionModal({
   );
 }
 
-/* ─── Notification Bell ─────────────────────────────────────────────────────── */
+/* â”€â”€â”€ Notification Bell â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function NotificationBell() {
   const router = useRouter();
@@ -833,7 +833,7 @@ function NotificationBell() {
   );
 }
 
-/* ─── KPI Card ──────────────────────────────────────────────────────────────── */
+/* â”€â”€â”€ KPI Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 const KPI_THEMES: Record<
   string,
@@ -942,7 +942,7 @@ function KpiCard({
   );
 }
 
-/* ─── Insight Card ──────────────────────────────────────────────────────────── */
+/* â”€â”€â”€ Insight Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function InsightCard({
   severity,
@@ -996,13 +996,13 @@ function InsightCard({
   );
 }
 
-/* ─── Project Row ───────────────────────────────────────────────────────────── */
+/* â”€â”€â”€ Project Row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLetter; health: number }> }) {
   const router = useRouter();
   const code = projectCodeLabel(p?.project_code);
   const pid = String(p?.id || "").trim();
-  const routeRef = pid; // ✅ UUID-only routing (consistent with backend fixes)
+  const routeRef = pid; // âœ… UUID-only routing (consistent with backend fixes)
   const ragData = ragMap.get(pid);
   const health = ragData ? clamp01to100(ragData.health) : null;
   const rag = ragData?.rag || null;
@@ -1011,11 +1011,11 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
   const ragLabel = rag === "G" ? "Green" : rag === "A" ? "Amber" : rag === "R" ? "Red" : "Unscored";
   const ragLogic =
     rag === "G"
-      ? `Health ≥ 85% (${health}%). Delivery signals are strong across schedule, RAID, workflow approvals and activity.`
+      ? `Health â‰¥ 85% (${health}%). Delivery signals are strong across schedule, RAID, workflow approvals and activity.`
       : rag === "A"
-        ? `Health 70–84% (${health}%). Some signals need attention — review slippage, open risks/issues, or approval queues.`
+        ? `Health 70â€“84% (${health}%). Some signals need attention â€” review slippage, open risks/issues, or approval queues.`
         : rag === "R"
-          ? `Health < 70% (${health}%). Significant delivery risk — prioritise an immediate review and corrective actions.`
+          ? `Health < 70% (${health}%). Significant delivery risk â€” prioritise an immediate review and corrective actions.`
           : "No health score calculated yet for this project.";
 
   return (
@@ -1041,13 +1041,13 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
             <div className="h-3 w-3 rounded-full shrink-0" style={{ background: dotColor }} />
             <span className="text-xs font-bold text-gray-900">
               {ragLabel}
-              {health != null ? ` — ${health}%` : ""}
+              {health != null ? ` â€” ${health}%` : ""}
             </span>
           </div>
           <p className="text-[11px] text-gray-500 leading-relaxed">{ragLogic}</p>
           <div className="mt-2 pt-2 border-t border-gray-100 text-[10px] text-gray-400">
-            Thresholds: <span className="text-green-600 font-semibold">Green ≥ 85%</span> ·{" "}
-            <span className="text-amber-600 font-semibold">Amber 70–84%</span> ·{" "}
+            Thresholds: <span className="text-green-600 font-semibold">Green â‰¥ 85%</span> Â·{" "}
+            <span className="text-amber-600 font-semibold">Amber 70â€“84%</span> Â·{" "}
             <span className="text-red-500 font-semibold">Red {"<"} 70%</span>
           </div>
         </div>
@@ -1061,14 +1061,14 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
         <div className="flex-1 h-2 rounded-full bg-gray-100 overflow-hidden">
           <div className="h-full rounded-full" style={{ width: `${health ?? 0}%`, background: dotColor, transition: "width 0.6s ease" }} />
         </div>
-        <span className="text-xs font-bold text-gray-600 w-8 text-right">{health != null ? `${health}%` : "—"}</span>
+        <span className="text-xs font-bold text-gray-600 w-8 text-right">{health != null ? `${health}%` : "â€”"}</span>
       </div>
       <ChevronRight className="h-3.5 w-3.5 text-gray-300 group-hover:text-gray-500 shrink-0 transition-colors" />
     </div>
   );
 }
 
-/* ─── Milestone Card ────────────────────────────────────────────────────────── */
+/* â”€â”€â”€ Milestone Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function MilestoneCard({ item, onClick }: { item: DueDigestItem; onClick: () => void }) {
   const overdue = isOverdue(item.dueDate);
@@ -1126,7 +1126,7 @@ function MilestoneCard({ item, onClick }: { item: DueDigestItem; onClick: () => 
   );
 }
 
-/* ─── Recent Win Card ───────────────────────────────────────────────────────── */
+/* â”€â”€â”€ Recent Win Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function RecentWinCard({ win, onClick }: { win: RecentWin; onClick: () => void }) {
   const icon = winTypeIcon(win.type);
@@ -1163,7 +1163,7 @@ function RecentWinCard({ win, onClick }: { win: RecentWin; onClick: () => void }
   );
 }
 
-/* ─── Last Updated ──────────────────────────────────────────────────────────── */
+/* â”€â”€â”€ Last Updated â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function LastUpdated({ iso }: { iso: string }) {
   const [label, setLabel] = useState("");
@@ -1184,7 +1184,7 @@ function LastUpdated({ iso }: { iso: string }) {
   );
 }
 
-/* ─── Filter Drawer ─────────────────────────────────────────────────────────── */
+/* â”€â”€â”€ Filter Drawer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function FilterDrawer({
   open,
@@ -1205,7 +1205,7 @@ function FilterDrawer({
   projectOptions: ProjectOption[];
   pmOptions: { id: string; name: string }[];
   deptOptions: { value: string; label: string }[];
-  // ✅ HP-F2: Forwarded ref so the Search icon button can focus this input
+  // âœ… HP-F2: Forwarded ref so the Search icon button can focus this input
   searchInputRef: React.RefObject<HTMLInputElement>;
 }) {
   const [local, setLocal] = useState<PortfolioFilters>(filters);
@@ -1257,7 +1257,7 @@ function FilterDrawer({
                     ref={searchInputRef}
                     value={local.q ?? ""}
                     onChange={(e) => setLocal((p) => ({ ...p, q: e.target.value }))}
-                    placeholder="Project name, code, PM, department…"
+                    placeholder="Project name, code, PM, departmentâ€¦"
                     className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
                   />
                   {local.q ? (
@@ -1279,7 +1279,7 @@ function FilterDrawer({
                         type="button"
                         onClick={() => toggle("projectId", p.id)}
                         className={["px-3 py-1.5 rounded-full text-xs border", pill(on)].join(" ")}
-                        title={p.code ? `${p.name} • ${p.code}` : p.name}
+                        title={p.code ? `${p.name} â€¢ ${p.code}` : p.name}
                       >
                         {p.code ? `${p.name} (${p.code})` : p.name}
                       </button>
@@ -1339,7 +1339,7 @@ function FilterDrawer({
   );
 }
 
-/* ─── Main ──────────────────────────────────────────────────────────────────── */
+/* â”€â”€â”€ Main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 export default function HomePage({ data }: { data: HomeData }) {
   const router = useRouter();
@@ -1357,7 +1357,7 @@ export default function HomePage({ data }: { data: HomeData }) {
   const filtersActive = useMemo(() => hasActiveFilters(urlFilters), [urlFilters]);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
-  // ✅ HP-F2: Ref for search input inside the drawer — Search icon focuses it
+  // âœ… HP-F2: Ref for search input inside the drawer â€” Search icon focuses it
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const openDrawerFocusSearch = useCallback(() => {
@@ -1406,7 +1406,7 @@ export default function HomePage({ data }: { data: HomeData }) {
   const [recentWins, setRecentWins] = useState<RecentWin[]>([]);
   const [winsLoading, setWinsLoading] = useState(true);
 
-  // ─── Filter option derivation ────────────────────────────────────────────
+  // â”€â”€â”€ Filter option derivation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const projectOptions = useMemo<ProjectOption[]>(() => {
     return (Array.isArray(projects) ? projects : [])
@@ -1442,7 +1442,7 @@ export default function HomePage({ data }: { data: HomeData }) {
       .map((d) => ({ value: d, label: d }));
   }, [projects]);
 
-  // ─── Client-side filtered projects ───────────────────────────────────────
+  // â”€â”€â”€ Client-side filtered projects â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const filteredProjectsClient = useMemo(() => {
     const rows = Array.isArray(projects) ? [...projects] : [];
@@ -1514,7 +1514,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   const ragAgg = useMemo(() => calcRagAgg(rag as any, activeProjects as any), [rag, activeProjects]);
 
-  // ─── Data fetching (all API calls pass derived filters) ──────────────────
+  // â”€â”€â”€ Data fetching (all API calls pass derived filters) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   useEffect(() => {
     if (!ok) return;
@@ -1756,7 +1756,7 @@ export default function HomePage({ data }: { data: HomeData }) {
     };
   }, [ok, dueWindowDays, urlFilters]);
 
-  // ─── Derived values ───────────────────────────────────────────────────────
+  // â”€â”€â”€ Derived values â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const apiScore = phData?.ok ? clamp01to100(phData.portfolio_health) : null;
   const fallbackScore = ragAgg.scored ? ragAgg.avgHealth : clamp01to100(kpis.portfolioHealth);
@@ -1771,7 +1771,7 @@ export default function HomePage({ data }: { data: HomeData }) {
     return m2;
   }, [approvalItems]);
 
-  // ✅ HP-F3: Explicit sum with no || fallback.
+  // âœ… HP-F3: Explicit sum with no || fallback.
   // If all typed counts are 0, the display correctly shows 0 (nothing due).
   // due_total from RPC is kept separately as a fallback only when typed counts
   // were not returned (all four fields undefined/NaN).
@@ -1790,14 +1790,14 @@ export default function HomePage({ data }: { data: HomeData }) {
   const fpHasData = fpSummary?.ok === true;
   const fpVariancePct = fpHasData ? (fpSummary as any).variance_pct : null;
   const fpVarianceNum = fpVariancePct != null && Number.isFinite(Number(fpVariancePct)) ? Math.round(Number(fpVariancePct) * 10) / 10 : null;
-  const fpVarianceLabel = fpVarianceNum != null ? (fpVarianceNum === 0 ? "±0%" : `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%`) : fpLoading ? "…" : "—";
+  const fpVarianceLabel = fpVarianceNum != null ? (fpVarianceNum === 0 ? "Â±0%" : `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%`) : fpLoading ? "â€¦" : "â€”";
   const fpRag = fpHasData ? ((fpSummary as any).rag as RagLetter) : null;
   const firstProjectRef = useMemo(() => {
     const fp = fpSummary?.ok ? (fpSummary as any).project_ref : null;
     if (fp) return fp;
     const p = sortedProjects[0] as any;
     if (!p) return "";
-    return safeStr(p?.id); // ✅ UUID-only
+    return safeStr(p?.id); // âœ… UUID-only
   }, [fpSummary, sortedProjects]);
 
   async function decide(taskId: string, decision: "approve" | "reject", comment = "") {
@@ -1866,41 +1866,8 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   return (
     <>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'); *, *::before, *::after { box-sizing: border-box; } body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important; -webkit-font-smoothing: antialiased; }`}</style>
-
-      <RejectionModal
-        open={!!rejectModal}
-        title={rejectModal?.title || ""}
-        onConfirm={(reason) => {
-          if (rejectModal) {
-            decide(rejectModal.taskId, "reject", reason);
-            setRejectModal(null);
-          }
-        }}
-        onCancel={() => setRejectModal(null)}
-      />
-
-      <FilterDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        filters={urlFilters}
-        onApply={(next) => {
-          applyFilters(next);
-          setDrawerOpen(false);
-        }}
-        onClear={() => {
-          clearFilters();
-          setDrawerOpen(false);
-        }}
-        projectOptions={projectOptions}
-        pmOptions={pmOptions}
-        deptOptions={deptOptions}
-        searchInputRef={searchInputRef}
-      />
-
-      <LazyMotion features={domAnimation}>
-        <div className="min-h-screen" style={{ background: "#f8fafc" }}>
-          {/* ── Top Nav ── */}
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'); *, *::before, *::after { box-sizing: border-box; } body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important; -webkit-font-smoothing: antialiased; }`}</style><LazyMotion features={domAnimation}><RejectionModal open={!!rejectModal} title={rejectModal?.title || ""} onConfirm={(reason) => { if (rejectModal) { decide(rejectModal.taskId, "reject", reason); setRejectModal(null); } }} onCancel={() => setRejectModal(null)} /><FilterDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} filters={urlFilters} onApply={(next) => { applyFilters(next); setDrawerOpen(false); }} onClear={() => { clearFilters(); setDrawerOpen(false); }} projectOptions={projectOptions} pmOptions={pmOptions} deptOptions={deptOptions} searchInputRef={searchInputRef} /><div className="min-h-screen" style={{ background: "#f8fafc" }}>
+          {/* â”€â”€ Top Nav â”€â”€ */}
           <header className="sticky top-0 z-30 bg-white border-b border-gray-100" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
             <div className="max-w-screen-2xl mx-auto px-6 h-14 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
@@ -1910,7 +1877,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                 <div className="flex items-baseline gap-2.5">
                   <span className="font-bold text-gray-900 text-base">Organisation Portfolio</span>
                   <span className="hidden md:block text-xs text-gray-400">
-                    Enterprise project portfolio overview{filtersActive ? ` • filtered (${activeProjects.length})` : ""}
+                    Enterprise project portfolio overview{filtersActive ? ` â€¢ filtered (${activeProjects.length})` : ""}
                   </span>
                 </div>
               </div>
@@ -1937,7 +1904,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
                 <div className="h-5 w-px bg-gray-200 mx-1" />
 
-                {/* ✅ Search icon focuses search input inside the drawer */}
+                {/* âœ… Search icon focuses search input inside the drawer */}
                 <button
                   type="button"
                   onClick={openDrawerFocusSearch}
@@ -2001,10 +1968,10 @@ export default function HomePage({ data }: { data: HomeData }) {
                   <span className="font-semibold text-gray-700">Active filters:</span>{" "}
                   <span className="truncate">
                     {urlFilters.q ? `q="${urlFilters.q}" ` : ""}
-                    {urlFilters.projectId?.length ?? 0 ? `• Projects ${urlFilters.projectId!.length} ` : ""}
-                    {urlFilters.projectCode?.length ?? 0 ? `• Codes ${urlFilters.projectCode!.length} ` : ""}
-                    {urlFilters.projectManagerId?.length ?? 0 ? `• PM ${urlFilters.projectManagerId!.length} ` : ""}
-                    {urlFilters.department?.length ?? 0 ? `• Dept ${urlFilters.department!.length} ` : ""}
+                    {urlFilters.projectId?.length ?? 0 ? `â€¢ Projects ${urlFilters.projectId!.length} ` : ""}
+                    {urlFilters.projectCode?.length ?? 0 ? `â€¢ Codes ${urlFilters.projectCode!.length} ` : ""}
+                    {urlFilters.projectManagerId?.length ?? 0 ? `â€¢ PM ${urlFilters.projectManagerId!.length} ` : ""}
+                    {urlFilters.department?.length ?? 0 ? `â€¢ Dept ${urlFilters.department!.length} ` : ""}
                   </span>
                 </div>
                 <button
@@ -2016,12 +1983,12 @@ export default function HomePage({ data }: { data: HomeData }) {
               </div>
             )}
 
-            {/* ── KPI Cards ── */}
+            {/* â”€â”€ KPI Cards â”€â”€ */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <KpiCard
                 label="Portfolio Health"
                 value={`${phScoreForUi}%`}
-                sub={ragAgg.scored ? `${ragAgg.g} Green · ${ragAgg.a} Amber · ${ragAgg.r} Red` : "vs last period"}
+                sub={ragAgg.scored ? `${ragAgg.g} Green Â· ${ragAgg.a} Amber Â· ${ragAgg.r} Red` : "vs last period"}
                 icon={<Activity className="h-5 w-5" />}
                 colorKey={phColorKey}
                 trendLabel={phDelta != null && phDelta !== 0 ? `${Math.abs(Math.round(phDelta))}` : undefined}
@@ -2030,7 +1997,7 @@ export default function HomePage({ data }: { data: HomeData }) {
               />
               <KpiCard
                 label="Open Risks"
-                value={raidLoading ? "…" : `${raidDueTotal || kpis.openRisks}`}
+                value={raidLoading ? "â€¦" : `${raidDueTotal || kpis.openRisks}`}
                 sub="high priority"
                 icon={<AlertTriangle className="h-5 w-5" />}
                 colorKey="amber"
@@ -2065,13 +2032,13 @@ export default function HomePage({ data }: { data: HomeData }) {
               />
             </div>
 
-            {/* ── Resource Activity + AI Insights ── */}
+            {/* â”€â”€ Resource Activity + AI Insights â”€â”€ */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 p-6" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
                 <div className="flex items-start justify-between mb-2">
                   <div>
                     <h3 className="font-semibold text-gray-900">Resource Activity</h3>
-                    <p className="text-xs text-gray-400 mt-0.5">Week-on-week capacity vs demand · {windowDays === "all" ? "60" : windowDays} days</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Week-on-week capacity vs demand Â· {windowDays === "all" ? "60" : windowDays} days</p>
                   </div>
                   <div className="flex items-center gap-4 text-xs text-gray-400 mt-1">
                     <span className="flex items-center gap-1.5">
@@ -2124,10 +2091,10 @@ export default function HomePage({ data }: { data: HomeData }) {
               </div>
             </div>
 
-            {/* ── Governance Intelligence ── */}
+            {/* â”€â”€ Governance Intelligence â”€â”€ */}
             <GovernanceIntelligence days={numericWindowDays} />
 
-            {/* ── Projects + Sidebar ── */}
+            {/* â”€â”€ Projects + Sidebar â”€â”€ */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {/* Left column */}
               <div className="lg:col-span-2 space-y-4">
@@ -2155,7 +2122,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                           count: ragAgg.g,
                           icon: <CheckCircle2 className="h-4 w-4 text-green-600" />,
                           label: "Green",
-                          threshold: "≥ 85% health",
+                          threshold: "â‰¥ 85% health",
                           from: "#f0fdf4",
                           border: "#dcfce7",
                         },
@@ -2164,7 +2131,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                           count: ragAgg.a,
                           icon: <AlertTriangle className="h-4 w-4 text-amber-600" />,
                           label: "Amber",
-                          threshold: "70–84% health",
+                          threshold: "70â€“84% health",
                           from: "#fffbeb",
                           border: "#fef3c7",
                         },
@@ -2228,7 +2195,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                   {sortedProjects.length > 9 && (
                     <div className="px-6 py-3 border-t border-gray-50 text-center">
                       <button onClick={() => router.push(appendFiltersToUrl("/projects", urlFilters))} className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-                        View all {activeProjects.length} projects →
+                        View all {activeProjects.length} projects â†’
                       </button>
                     </div>
                   )}
@@ -2277,7 +2244,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                           onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))}
                           className="mt-2 text-xs text-blue-600 hover:text-blue-700 font-medium"
                         >
-                          View milestone list →
+                          View milestone list â†’
                         </button>
                       </div>
                     ) : (
@@ -2287,7 +2254,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                             item={it}
                             onClick={() => {
                               const href = safeStr(it?.link).trim();
-                              // Only follow if it's a milestone/schedule/artifact link — never /raid or /risks
+                              // Only follow if it's a milestone/schedule/artifact link â€” never /raid or /risks
                               if (href && !href.includes("/raid") && !href.includes("/risks")) {
                                 router.push(href);
                               } else {
@@ -2303,7 +2270,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                         onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))}
                         className="w-full text-xs text-blue-600 hover:text-blue-700 font-medium py-2 text-center border-t border-gray-50 mt-1"
                       >
-                        View all {dueItems.length} milestones →
+                        View all {dueItems.length} milestones â†’
                       </button>
                     )}
                   </div>
@@ -2355,3 +2322,4 @@ export default function HomePage({ data }: { data: HomeData }) {
     </>
   );
 }
+

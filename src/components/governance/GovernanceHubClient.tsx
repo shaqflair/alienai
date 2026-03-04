@@ -373,7 +373,7 @@ export default function GovernanceHubClient({
           "Decisions remain auditable (who/when/what)",
         ],
         ctas: [
-          { label: "Open approvals inbox", href: (p) => `/projects/${encodeURIComponent(p)}/approvals/inbox` },
+          { label: "Open approvals inbox", href: (p) => `/approvals` },
           { label: "Open approvals timeline", href: (p) => `/projects/${encodeURIComponent(p)}/approvals/timeline` },
         ],
       },
@@ -438,7 +438,7 @@ export default function GovernanceHubClient({
     const ctasBySlug: Record<string, Card["ctas"]> = {
       "roles-ownership": [{ label: "Go to project members", href: (p) => `/projects/${encodeURIComponent(p)}` }],
       "approvals-decision-control": [
-        { label: "Open approvals inbox", href: (p) => `/projects/${encodeURIComponent(p)}/approvals/inbox` },
+        { label: "Open approvals inbox", href: (p) => `/approvals` },
         { label: "Open approvals timeline", href: (p) => `/projects/${encodeURIComponent(p)}/approvals/timeline` },
       ],
       "change-control": [{ label: "Open change board", href: (p) => `/projects/${encodeURIComponent(p)}/change` }],
