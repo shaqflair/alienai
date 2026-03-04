@@ -1,4 +1,4 @@
-﻿// src/app/api/ai/briefing/route.ts — REBUILT v3 (ORG-wide + no-store + dedupe + URL filters)
+﻿// src/app/api/ai/briefing/route.ts — REBUILT v4 (ORG-wide + no-store + dedupe + URL filters)
 // Fixes applied:
 //   ✅ FIX-B1: Uses shared filterActiveProjectIds (exclusion list: closed/deleted/cancelled/archived etc.)
 //              (planning / in_progress / on_hold remain active)
@@ -11,6 +11,10 @@
 //   ✅ FIX-B6: ORG-WIDE active project scope (all projects in user's organisation) with membership fallback
 //   ✅ FIX-B7: Cache-Control: no-store on ALL responses (ok + err)
 //   ✅ FIX-B8: Apply org-portfolio URL filters (q, projectId, projectCode, pm, dept) server-side
+//
+// This revision (v4):
+//   ✅ FIX-B9: Align helper signatures with project-scope.ts (no userId arg)
+//   ✅ FIX-B10: filterActiveProjectIds treated as string[] (not { ok, projectIds })
 
 import "server-only";
 
@@ -23,6 +27,8 @@ import {
 } from "@/lib/server/project-scope";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 /* ---------------- response helpers ---------------- */
 
@@ -117,7 +123,7 @@ function changesHref(params?: Record<string, any>) {
 }
 
 /* ------------------------------------------------------------------ */
-/* project scope + portfolio filters helpers                            */
+/* project scope + portfolio filters helpers                           */
 /* ------------------------------------------------------------------ */
 
 function uniqStrings(xs: any[]): string[] {
@@ -163,7 +169,7 @@ type PortfolioFilters = {
   q?: string;
   projectId?: string[];
   projectCode?: string[];
-  pm?: string[];   // project_manager_id
+  pm?: string[]; // project_manager_id
   dept?: string[]; // department (string match)
 };
 
@@ -214,7 +220,6 @@ async function applyPortfolioFiltersToProjectIds(args: {
       .limit(10000);
 
     if (error) {
-      // If RLS/column issues, keep base scope (better than empty dashboard)
       if (looksMissingRelation(error) || looksMissingColumn(error)) {
         return { projectIds: ids, limited: true, reason: error.message || "projects select failed" };
       }
@@ -552,7 +557,7 @@ async function computeApprovalsPending(supabase: any, projectIds: string[]) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Feeds/Activity signals (best-effort)                               */
+/* Feeds/Activity signals (best-effort)                                */
 /* ------------------------------------------------------------------ */
 
 type FeedSignals = {
@@ -950,12 +955,12 @@ export async function GET(req: Request) {
     const filters = readPortfolioFiltersFromUrl(url);
     const filtersActive = hasActiveFilters(filters);
 
-    // ✅ FIX-B6: ORG-WIDE scope first (all projects in org), fallback to membership scope
+    // ✅ FIX-B6 + FIX-B9: ORG-WIDE scope first (no userId arg), fallback to membership scope
     let scoped: any = null;
     let scopedIdsRaw: string[] = [];
 
     try {
-      scoped = await resolveOrgActiveProjectScope(supabase, userId);
+      scoped = await resolveOrgActiveProjectScope(supabase);
       scopedIdsRaw = uniqStrings(scoped?.projectIds || []);
     } catch (e: any) {
       scoped = { ok: false, error: String(e?.message || e || "org scope failed"), meta: null, projectIds: [] };
@@ -963,19 +968,19 @@ export async function GET(req: Request) {
     }
 
     if (!scopedIdsRaw.length) {
-      const fallback = await resolveActiveProjectScope(supabase, userId);
+      const fallback = await resolveActiveProjectScope(supabase);
       scoped = fallback;
       scopedIdsRaw = uniqStrings(fallback?.projectIds || []);
     }
 
-    // ✅ FIX-B1: shared active filter (exclusion list)
-    const activeFilter = await filterActiveProjectIds(supabase, scopedIdsRaw);
-    const activeProjectIds = uniqStrings(activeFilter?.projectIds || []);
+    // ✅ FIX-B1 + FIX-B10: shared active filter (treat as string[])
+    const activeIds = uniqStrings(await filterActiveProjectIds(supabase, scopedIdsRaw));
+    const activeMeta = { before: scopedIdsRaw.length, after: activeIds.length };
 
     // ✅ FIX-B8: apply filters after "active" exclusion, so everything stays consistent
     const filteredRes = await applyPortfolioFiltersToProjectIds({
       supabase,
-      baseProjectIds: activeProjectIds,
+      baseProjectIds: activeIds,
       filters,
     });
     const projectIds = uniqStrings(filteredRes?.projectIds || []);
@@ -1000,12 +1005,11 @@ export async function GET(req: Request) {
           scope: {
             ...(scoped?.meta || {}),
             scopedIds: scopedIdsRaw.length,
-            activeIds: activeProjectIds.length,
+            activeIds: activeIds.length,
             filteredIds: 0,
             filtered_limited: Boolean(filteredRes?.limited),
             filtered_reason: filteredRes?.reason || null,
-            active_filter_ok: Boolean(activeFilter?.ok),
-            active_filter_error: activeFilter?.error || null,
+            active_filter: activeMeta,
           },
         },
       });
@@ -1252,12 +1256,11 @@ export async function GET(req: Request) {
         scope: {
           ...(scoped?.meta || {}),
           scopedIds: scopedIdsRaw.length,
-          activeIds: activeProjectIds.length,
+          activeIds: activeIds.length,
           filteredIds: projectIds.length,
           filtered_limited: Boolean(filteredRes?.limited),
           filtered_reason: filteredRes?.reason || null,
-          active_filter_ok: Boolean(activeFilter?.ok),
-          active_filter_error: activeFilter?.error || null,
+          active_filter: activeMeta,
         },
         raw: safePanel,
         wbs_computed: wbsFromArtifacts,

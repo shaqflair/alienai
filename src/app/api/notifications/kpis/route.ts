@@ -1,9 +1,27 @@
-// src/app/api/notifications/kpis/route.ts
+// src/app/api/notifications/kpis/route.ts — REBUILT v2 (ORG-wide + active-filter + no-store + debug-safe)
+//
+// Changes:
+//   ✅ NK-F1: ORG-WIDE scope first (all projects in user's organisation)
+//   ✅ NK-F2: Membership fallback if org-scope yields none
+//   ✅ NK-F3: Shared active exclusion via filterActiveProjectIds (closed/deleted/cancelled/archived etc.)
+//   ✅ NK-F4: Cache-Control no-store on ALL responses (ok + err) (already strong)
+//   ✅ NK-F5: Scope rules preserved for NULL project_id rows
+//            - if projectIds exist: (project_id IN ids) OR (project_id IS NULL)
+//            - if none: NULL only
+//
+// Notes:
+// - This route counts notifications for the authenticated user only.
+// - It intentionally does NOT “hydrate” project_id; many notifications may be NULL.
+
 import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveActiveProjectScope } from "@/lib/server/project-scope";
+import {
+  resolveOrgActiveProjectScope,
+  resolveActiveProjectScope,
+  filterActiveProjectIds,
+} from "@/lib/server/project-scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,10 +30,7 @@ export const revalidate = 0;
 /* ---------------- helpers ---------------- */
 
 function noStore(res: NextResponse) {
-  res.headers.set(
-    "Cache-Control",
-    "no-store, no-cache, must-revalidate, proxy-revalidate"
-  );
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.headers.set("Pragma", "no-cache");
   res.headers.set("Expires", "0");
   return res;
@@ -27,15 +42,26 @@ function ok(data: any, status = 200) {
 
 function err(message: string, status = 400, meta?: any) {
   return noStore(
-    NextResponse.json(
-      { ok: false, error: message, ...(meta ? { meta } : {}) },
-      { status }
-    )
+    NextResponse.json({ ok: false, error: message, ...(meta ? { meta } : {}) }, { status }),
   );
 }
 
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function uniqStrings(xs: any[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const x of xs || []) {
+    const s = String(x || "").trim();
+    if (!s) continue;
+    const k = s.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
 }
 
 function clampDays(x: string | null, fallback = 14): 7 | 14 | 30 | 60 {
@@ -80,9 +106,9 @@ function daysAgoIso(days: number) {
  *   - If none: keep NULL only (stable and safe)
  */
 function applyScope(q: any, projectIds: string[]) {
-  if (!projectIds.length) return q.is("project_id", null);
-  const ids = projectIds.filter(Boolean).join(",");
-  return q.or(`project_id.in.(${ids}),project_id.is.null`);
+  const ids = uniqStrings(projectIds);
+  if (!ids.length) return q.is("project_id", null);
+  return q.or(`project_id.in.(${ids.join(",")}),project_id.is.null`);
 }
 
 /** Apply time window if present */
@@ -132,10 +158,26 @@ export async function GET(req: Request) {
     const days = clampDays(url.searchParams.get("days"), 14);
     const sinceIso = daysAgoIso(days);
 
-    const scoped = await resolveActiveProjectScope(supabase, userId);
-    const projectIds = Array.isArray(scoped?.projectIds)
-      ? scoped.projectIds.filter(Boolean)
-      : [];
+    // ✅ ORG scope first, fallback to membership scope (signature-aligned: no userId arg)
+    let scoped: any = null;
+    let scopedIdsRaw: string[] = [];
+
+    try {
+      scoped = await resolveOrgActiveProjectScope(supabase);
+      scopedIdsRaw = uniqStrings(scoped?.projectIds || []);
+    } catch (e: any) {
+      scoped = { ok: false, error: String(e?.message || e || "org scope failed"), meta: null, projectIds: [] };
+      scopedIdsRaw = [];
+    }
+
+    if (!scopedIdsRaw.length) {
+      const fallback = await resolveActiveProjectScope(supabase);
+      scoped = fallback;
+      scopedIdsRaw = uniqStrings(fallback?.projectIds || []);
+    }
+
+    // ✅ Shared active exclusion list (treat as string[])
+    const activeProjectIds = uniqStrings(await filterActiveProjectIds(supabase, scopedIdsRaw));
 
     const base = () =>
       supabase
@@ -144,32 +186,32 @@ export async function GET(req: Request) {
         .eq("user_id", userId);
 
     // Build each KPI query (window + scope applied consistently)
-    const qTotal = applyScope(applyWindow(base(), sinceIso), projectIds);
-    const qUnread = applyScope(applyWindow(base().eq("is_read", false), sinceIso), projectIds);
+    const qTotal = applyScope(applyWindow(base(), sinceIso), activeProjectIds);
+    const qUnread = applyScope(applyWindow(base().eq("is_read", false), sinceIso), activeProjectIds);
 
     const qOverdueUnread = applyScope(
       applyWindow(base().eq("is_read", false).eq("bucket", "overdue"), sinceIso),
-      projectIds
+      activeProjectIds,
     );
 
     const qDueSoonUnread = applyScope(
       applyWindow(base().eq("is_read", false).eq("bucket", "due_soon"), sinceIso),
-      projectIds
+      activeProjectIds,
     );
 
     const qApprovalsUnread = applyScope(
       applyWindow(base().eq("is_read", false).ilike("type", "%approval%"), sinceIso),
-      projectIds
+      activeProjectIds,
     );
 
     const qAiUnread = applyScope(
       applyWindow(base().eq("is_read", false).or("type.ilike.%ai%,type.ilike.%slip%"), sinceIso),
-      projectIds
+      activeProjectIds,
     );
 
     const qRisksIssuesUnread = applyScope(
       applyWindow(base().eq("is_read", false).or("type.ilike.%risk%,type.ilike.%issue%"), sinceIso),
-      projectIds
+      activeProjectIds,
     );
 
     const results = await Promise.all([
@@ -206,8 +248,9 @@ export async function GET(req: Request) {
         debug: true,
         userId,
         sinceIso,
-        projectCount: projectIds.length,
-        projectIds: projectIds.slice(0, 25),
+        scopedIds: scopedIdsRaw.length,
+        activeIds: activeProjectIds.length,
+        projectIds: activeProjectIds.slice(0, 25),
         scopeMeta: scoped?.meta ?? null,
         perQuery: results,
       };

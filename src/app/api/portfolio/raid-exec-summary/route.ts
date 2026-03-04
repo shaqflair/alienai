@@ -1,13 +1,10 @@
-﻿// src/app/api/portfolio/raid-exec-summary/route.ts — REBUILT v6 (Org view + filter-ready)
+﻿// src/app/api/portfolio/raid-exec-summary/route.ts — REBUILT v7 (Org view + filter-ready)
 // Fixes / Adds:
-//   ✅ RES-F1: ORG-WIDE project scope via resolveOrgActiveProjectScope (all projects in user's organisation) with safe fallback to membership scope
+//   ✅ RES-F1: ORG-WIDE project scope via resolveOrgActiveProjectScope (all projects in user's organisation) with safe fallback inside helper
 //   ✅ RES-F2: clampDays supports "all" → 60 (HomePage sends days=all)
 //   ✅ RES-F3: Cache-Control: no-store across ALL responses (json + md/pdf/pptx downloads)
 //   ✅ RES-F4: Supports dashboard filters (GET): name, code, pm, dept
 //   ✅ RES-F5: Project links prefer project_code (human id) over UUID
-// Fixes (this revision):
-//   ✅ RES-F6: Correct helper signatures (no extra userId arg)
-//   ✅ RES-F7: filterActiveProjectIds treated as string[] (matches project-scope.ts you pasted)
 // Keeps:
 //   ✅ Active project filter (exclude closed/deleted projects)
 //   ✅ resolveClientNameFromProjects fixed select("id, client_name")
@@ -16,11 +13,7 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import {
-  resolveOrgActiveProjectScope,
-  resolveActiveProjectScope,
-  filterActiveProjectIds,
-} from "@/lib/server/project-scope";
+import { resolveOrgActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
 
 // Puppeteer / Chromium
 import puppeteer from "puppeteer";
@@ -218,7 +211,6 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
       break;
     }
     lastErr = error;
-    // best-effort: if schema mismatch, try next select set
     continue;
   }
 
@@ -329,7 +321,6 @@ async function resolveOrgName(supabase: any, userId: string) {
   }
 }
 
-// ✅ Fixed .select()
 async function resolveClientNameFromProjects(supabase: any, projectIds: string[]) {
   try {
     const { data, error } = await supabase.from("projects").select("id, client_name").in("id", projectIds).limit(2000);
@@ -361,35 +352,26 @@ async function buildExecSummary(args: {
 
   const meta: any = { scope_source: null, filters: null };
 
-  // ✅ Org-wide scope helper (NO extra args)
-  let baseProjectIds: string[] = [];
-  try {
-    const orgScoped = await resolveOrgActiveProjectScope(supabase);
-    const ids = (Array.isArray(orgScoped?.projectIds) ? orgScoped.projectIds : []).filter(Boolean) as string[];
-    baseProjectIds = ids;
-    meta.scope_source = { kind: "org_scope_helper", ok: Boolean(ids.length), meta: (orgScoped as any)?.meta ?? null };
-  } catch (e: any) {
-    meta.scope_source = { kind: "org_scope_helper", ok: false, error: safeStr(e?.message || e) };
-    baseProjectIds = [];
-  }
-
-  // Fallback: member scope helper (NO extra args)
-  if (!baseProjectIds.length) {
-    const scoped = await resolveActiveProjectScope(supabase);
-    const ids = (Array.isArray(scoped?.projectIds) ? scoped.projectIds : []).filter(Boolean) as string[];
-    meta.scope_source = { kind: "membership_fallback", ok: Boolean(ids.length), meta: (scoped as any)?.meta ?? null };
-    baseProjectIds = ids;
-  }
+  // ✅ Org-wide scope helper (safe fallback inside helper)
+  const orgScoped = await resolveOrgActiveProjectScope(supabase);
+  const baseProjectIds = uniqStrings(orgScoped?.projectIds || []);
+  meta.scope_source = { kind: "org_scope_helper", ok: Boolean(baseProjectIds.length), meta: orgScoped?.meta ?? null };
 
   if (!baseProjectIds.length) return { ok: false, error: "No accessible projects found.", meta };
 
-  // Active-only filter (treat as string[])
-  const activeProjectIds = (await filterActiveProjectIds(supabase, baseProjectIds)).filter(Boolean);
-  meta.active_filter = { before: baseProjectIds.length, after: activeProjectIds.length };
+  // ✅ Active-only filter (matches shared exclusion list)
+  const active = await filterActiveProjectIds(supabase, baseProjectIds);
+  const activeProjectIds = uniqStrings(active?.projectIds || []);
+  meta.active_filter = {
+    before: baseProjectIds.length,
+    after: activeProjectIds.length,
+    ok: Boolean(active?.ok),
+    error: active?.error ?? null,
+  };
 
   if (!activeProjectIds.length) return { ok: false, error: "No active projects found.", meta };
 
-  // Apply dashboard filters (best-effort)
+  // ✅ Apply dashboard filters (best-effort)
   const filtered = await applyProjectFilters(supabase, activeProjectIds, filters);
   meta.filters = filtered.meta;
 
@@ -399,7 +381,10 @@ async function buildExecSummary(args: {
   if (!projectIds.length) {
     return {
       ok: true,
-      org_name: (await resolveOrgName(supabase, userId)) || safeStr(process.env.ORG_NAME || process.env.NEXT_PUBLIC_ORG_NAME).trim() || null,
+      org_name:
+        (await resolveOrgName(supabase, userId)) ||
+        safeStr(process.env.ORG_NAME || process.env.NEXT_PUBLIC_ORG_NAME).trim() ||
+        null,
       client_name: null,
       scope,
       days,
@@ -422,12 +407,10 @@ async function buildExecSummary(args: {
     };
   }
 
-  const [dbOrg, dbClient] = await Promise.all([
-    resolveOrgName(supabase, userId),
-    resolveClientNameFromProjects(supabase, projectIds),
-  ]);
+  const [dbOrg, dbClient] = await Promise.all([resolveOrgName(supabase, userId), resolveClientNameFromProjects(supabase, projectIds)]);
 
-  const org_name = dbOrg || safeStr(process.env.ORG_NAME || process.env.NEXT_PUBLIC_ORG_NAME).trim() || null;
+  const org_name =
+    dbOrg || safeStr(process.env.ORG_NAME || process.env.NEXT_PUBLIC_ORG_NAME).trim() || null;
   const client_name = (dbClient || null) as string | null;
 
   // Window dates
@@ -668,7 +651,8 @@ function renderPdfHtml(summary: ExecSummary) {
   const clientPrimary = summary.client_name ? summary.client_name : "—";
   const orgSecondary = summary.org_name ? summary.org_name : "—";
 
-  const logoUrl = safeStr(process.env.BRANDING_LOGO_URL || process.env.NEXT_PUBLIC_BRANDING_LOGO_URL).trim() || BRAND_LOGO_URL;
+  const logoUrl =
+    safeStr(process.env.BRANDING_LOGO_URL || process.env.NEXT_PUBLIC_BRANDING_LOGO_URL).trim() || BRAND_LOGO_URL;
 
   const k = summary.kpis;
 
@@ -824,7 +808,8 @@ async function renderPptxFromSummary(summary: ExecSummary) {
   const pptx = new PptxGenJS();
   pptx.layout = "LAYOUT_WIDE";
 
-  const logoUrl = safeStr(process.env.BRANDING_LOGO_URL || process.env.NEXT_PUBLIC_BRANDING_LOGO_URL).trim() || BRAND_LOGO_URL;
+  const logoUrl =
+    safeStr(process.env.BRANDING_LOGO_URL || process.env.NEXT_PUBLIC_BRANDING_LOGO_URL).trim() || BRAND_LOGO_URL;
   const logoData = await fetchAsDataUri(logoUrl);
 
   const title = "Portfolio RAID Brief";
@@ -869,12 +854,12 @@ async function renderPptxFromSummary(summary: ExecSummary) {
       for (const it of chunk) {
         const pr = priorityFromScore(it.score);
         const header = `${pr.label}${it.overdue ? " • OVERDUE" : ""}`;
-        const meta = `${it.project_code_label || it.project_title || "Project"} • ${it.type || "RAID"} • Due ${
+        const metaLine = `${it.project_code_label || it.project_title || "Project"} • ${it.type || "RAID"} • Due ${
           it.due_date ? fmtUKShortDate(it.due_date) : "—"
         } • Score ${it.score == null ? "—" : it.score}`;
 
         s.addText(header, { x: 0.8, y, w: 12.2, h: 0.25, fontSize: 11, bold: true });
-        s.addText(meta, { x: 0.8, y: y + 0.25, w: 12.2, h: 0.25, fontSize: 9 });
+        s.addText(metaLine, { x: 0.8, y: y + 0.25, w: 12.2, h: 0.25, fontSize: 9 });
         s.addText(safeStr(it.title || "Untitled"), { x: 0.8, y: y + 0.5, w: 12.2, h: 0.35, fontSize: 12, bold: true });
         const note = safeStr(it.note || it.prompt || "").trim();
         if (note) s.addText(note, { x: 0.8, y: y + 0.85, w: 12.2, h: 0.4, fontSize: 10 });

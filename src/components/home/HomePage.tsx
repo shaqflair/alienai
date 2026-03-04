@@ -1705,8 +1705,12 @@ export default function HomePage({ data }: { data: HomeData }) {
                       <m.div key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.04 }}>
                         <MilestoneCard item={it} onClick={() => {
                           const href = safeStr(it?.link).trim();
-                          if (href) router.push(href);
-                          else router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters));
+                          // Only follow if it's a milestone/schedule/artifact link — never /raid or /risks
+                          if (href && !href.includes("/raid") && !href.includes("/risks")) {
+                            router.push(href);
+                          } else {
+                            router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters));
+                          }
                         }} />
                       </m.div>
                     ))}
@@ -1724,7 +1728,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                     <div className="h-8 w-8 rounded-xl bg-green-50 flex items-center justify-center"><Trophy className="h-4 w-4 text-green-500" /></div>
                     <h3 className="font-semibold text-gray-900 flex-1">Recent Wins</h3>
                     <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">Last 7 days</span>
-                    <button onClick={() => router.push(appendFiltersToUrl("/milestones?status=completed", urlFilters))} className="text-xs text-blue-600 hover:text-blue-700 font-medium">View all</button>
+                    <button onClick={() => router.push(appendFiltersToUrl("/success-stories", urlFilters))} className="text-xs text-blue-600 hover:text-blue-700 font-medium">View all</button>
                   </div>
                   <div className="p-4 space-y-2.5">
                     {winsLoading ? (
@@ -1737,7 +1741,10 @@ export default function HomePage({ data }: { data: HomeData }) {
                       </div>
                     ) : recentWins.map((win, i) => (
                       <m.div key={win.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
-                        <RecentWinCard win={win} onClick={() => win.link && router.push(win.link)} />
+                        <RecentWinCard win={win} onClick={() => {
+                          if (win.link) router.push(win.link);
+                          else router.push(appendFiltersToUrl(`/success-stories`, urlFilters));
+                        }} />
                       </m.div>
                     ))}
                   </div>
