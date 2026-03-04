@@ -24,7 +24,11 @@ function looksLikeUuid(s: string) {
 function isMissingColumnError(errMsg: string, col: string) {
   const m = String(errMsg || "").toLowerCase();
   const c = String(col || "").toLowerCase();
-  return (m.includes("column") && m.includes(c) && m.includes("does not exist")) || (m.includes("could not find") && m.includes(c)) || (m.includes("unknown column") && m.includes(c));
+  return (
+    (m.includes("column") && m.includes(c) && m.includes("does not exist")) ||
+    (m.includes("could not find") && m.includes(c)) ||
+    (m.includes("unknown column") && m.includes(c))
+  );
 }
 function isInvalidInputSyntaxError(err: any) {
   return String(err?.code || "").trim() === "22P02";
@@ -49,10 +53,9 @@ async function resolveProjectUuidFast(supabase: any, identifier: string, organis
   const raw = safeStr(identifier).trim();
   if (!raw) return { projectUuid: null as string | null, project: null as any };
 
-  // If UUID provided: don't trust it — verify it belongs to active org later.
+  // If UUID provided: verify later via org-bound project fetch.
   if (looksLikeUuid(raw)) return { projectUuid: raw, project: null as any };
 
-  // For human identifiers: ONLY resolve inside active org to avoid cross-org probing.
   const normalized = normalizeProjectIdentifier(raw);
 
   for (const col of HUMAN_COL_CANDIDATES) {
@@ -114,8 +117,8 @@ function daysUntil(d: string | null | undefined): number | null {
   }
 }
 
-async function isOrgAdmin(supabase: any, organisationId: string, userId: string) {
-  // Prefer organisation_members if present.
+async function getOrgMembership(supabase: any, organisationId: string, userId: string) {
+  // Returns: { isMember, isAdmin, role }
   const { data, error } = await supabase
     .from("organisation_members")
     .select("role, is_active, removed_at")
@@ -124,16 +127,22 @@ async function isOrgAdmin(supabase: any, organisationId: string, userId: string)
     .maybeSingle();
 
   if (error) {
-    if (String(error?.message || "").toLowerCase().includes("does not exist")) return false;
+    // If table doesn't exist in a given env, degrade safely (treat as not a member)
+    if (String(error?.message || "").toLowerCase().includes("does not exist")) {
+      return { isMember: false, isAdmin: false, role: "" };
+    }
     throw error;
   }
 
   const active =
     typeof data?.is_active === "boolean"
       ? data.is_active
-      : data?.removed_at == null; // fallback if is_active isn't present/consistent
+      : data?.removed_at == null;
+
   const role = String(data?.role ?? "").toLowerCase();
-  return Boolean(active) && (role === "admin" || role === "owner");
+  const isMember = Boolean(active) && Boolean(role);
+  const isAdmin = Boolean(active) && (role === "admin" || role === "owner");
+  return { isMember, isAdmin, role };
 }
 
 async function convertPipelineToConfirmed(formData: FormData) {
@@ -154,7 +163,11 @@ async function convertPipelineToConfirmed(formData: FormData) {
   if (!projectId) redirect(`${returnTo}?err=missing_project_id`);
 
   // Ensure project is in active org (prevents cross-org updates)
-  const { data: projRow, error: projErr } = await supabase.from("projects").select("id, organisation_id, resource_status").eq("id", projectId).maybeSingle();
+  const { data: projRow, error: projErr } = await supabase
+    .from("projects")
+    .select("id, organisation_id, resource_status")
+    .eq("id", projectId)
+    .maybeSingle();
   if (projErr) throw projErr;
   if (!projRow?.id || String(projRow.organisation_id) !== activeOrgId) redirect(`${returnTo}?err=forbidden`);
 
@@ -169,11 +182,15 @@ async function convertPipelineToConfirmed(formData: FormData) {
   if (memErr) throw memErr;
 
   const myRole = bestProjectRole(memRows as any);
-  const admin = await isOrgAdmin(supabase, activeOrgId, user.id);
+  const org = await getOrgMembership(supabase, activeOrgId, user.id);
 
-  if (!(admin || myRole === "owner" || myRole === "editor")) redirect(`${returnTo}?err=forbidden`);
+  if (!(org.isAdmin || myRole === "owner" || myRole === "editor")) redirect(`${returnTo}?err=forbidden`);
 
-  const { error: upErr } = await supabase.from("projects").update({ resource_status: "confirmed" }).eq("id", projectId).eq("resource_status", "pipeline");
+  const { error: upErr } = await supabase
+    .from("projects")
+    .update({ resource_status: "confirmed" })
+    .eq("id", projectId)
+    .eq("resource_status", "pipeline");
   if (upErr) throw upErr;
 
   redirect(`${returnTo}?msg=converted_to_confirmed`);
@@ -201,12 +218,12 @@ export default async function ProjectPage({
   const lower = rawId.toLowerCase();
   if (RESERVED.has(lower)) redirect("/projects");
 
-  // Resolve project UUID scoped to org for human IDs; UUID verified by fetching project with org filter below.
+  // Resolve UUID within org (for human IDs); UUID verified by org-bound fetch below.
   const resolved = await resolveProjectUuidFast(supabase, rawId, activeOrgId);
   if (!resolved?.projectUuid) notFound();
   const projectUuid = String(resolved.projectUuid);
 
-  // Fetch project WITH org constraint (this is the UUID safety check)
+  // Fetch project WITH org constraint (UUID safety check)
   let project = resolved.project ?? null;
   if (!project) {
     const { data: p, error: pErr } = await supabase
@@ -222,19 +239,27 @@ export default async function ProjectPage({
     if (String(project?.organisation_id ?? "") !== activeOrgId) notFound();
   }
 
-  // Membership OR org admin for page access
-  const [{ data: memRows, error: memErr }, admin] = await Promise.all([
-    supabase.from("project_members").select("role, removed_at, is_active").eq("project_id", projectUuid).eq("user_id", auth.user.id).is("removed_at", null),
-    isOrgAdmin(supabase, activeOrgId, auth.user.id),
-  ]);
+  // ✅ ORG membership (this is the key fix for your 404)
+  const org = await getOrgMembership(supabase, activeOrgId, auth.user.id);
+
+  // Project membership
+  const { data: memRows, error: memErr } = await supabase
+    .from("project_members")
+    .select("role, removed_at, is_active")
+    .eq("project_id", projectUuid)
+    .eq("user_id", auth.user.id)
+    .is("removed_at", null);
+
   if (memErr) throw memErr;
 
-  const myRoleRaw = bestProjectRole(memRows as any);
-  const canSeeProject = admin || Boolean(myRoleRaw);
+  const projectRole = bestProjectRole(memRows as any);
+
+  // ✅ Allow: org member OR project member (admin handled inside org.isAdmin)
+  const canSeeProject = org.isMember || Boolean(projectRole);
   if (!canSeeProject) notFound();
 
-  const myRole = admin && !myRoleRaw ? "admin" : myRoleRaw;
-  const canEdit = admin || myRole === "owner" || myRole === "editor";
+  const myRole = org.isAdmin && !projectRole ? "admin" : projectRole || (org.role || "viewer");
+  const canEdit = org.isAdmin || myRole === "owner" || myRole === "editor";
 
   const [resourceData, changesResult, approvalsResult, membersResult, raidResult] = await Promise.allSettled([
     fetchProjectResourceData(projectUuid),
@@ -255,7 +280,7 @@ export default async function ProjectPage({
   const projectCode = safeStr(project?.project_code ?? "").trim();
   const projectColour = safeStr(project?.colour ?? "#00b8db");
 
-  // ✅ Canonical URL ref: always UUID (prevents subpage mismatch + reserved collisions)
+  // ✅ Canonical URL ref = UUID
   const projectRefForUrls = projectUuid;
 
   const flash = flashText(sp?.msg, sp?.conflicts);
@@ -275,24 +300,13 @@ export default async function ProjectPage({
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=DM+Mono:wght@400;500&display=swap');
         *, *::before, *::after { box-sizing: border-box; }
-        .pp-nav-link {
-          border-radius: 8px; padding: 7px 14px; font-size: 13px; font-weight: 600;
-          text-decoration: none; border: 1.5px solid #e2e8f0; color: #475569;
-          font-family: 'DM Sans', sans-serif; transition: all 0.15s; white-space: nowrap;
-        }
+        .pp-nav-link { border-radius: 8px; padding: 7px 14px; font-size: 13px; font-weight: 600; text-decoration: none; border: 1.5px solid #e2e8f0; color: #475569; font-family: 'DM Sans', sans-serif; transition: all 0.15s; white-space: nowrap; }
         .pp-nav-link:hover { border-color: #00b8db; color: #00b8db; background: rgba(0,184,219,0.04); }
         .pp-nav-link.active { background: #00b8db; border-color: #00b8db; color: white; }
         .pp-card { background: white; border-radius: 12px; border: 1.5px solid #e2e8f0; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
-        .pp-section-label {
-          font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
-          color: #94a3b8; margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
-        }
+        .pp-section-label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
         .pp-section-label::after { content: ''; flex: 1; height: 1px; background: #f1f5f9; }
-        .stat-card {
-          background: white; border-radius: 12px; border: 1.5px solid #e2e8f0; padding: 18px 20px;
-          display: flex; flex-direction: column; gap: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-          transition: border-color 0.15s; cursor: pointer;
-        }
+        .stat-card { background: white; border-radius: 12px; border: 1.5px solid #e2e8f0; padding: 18px 20px; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); transition: border-color 0.15s; cursor: pointer; }
         .stat-card:hover { border-color: #cbd5e1; }
         .raid-quad { background: #f8fafc; border-radius: 10px; border: 1.5px solid #e2e8f0; padding: 16px; }
         .raid-quad-label { font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 10px; }
@@ -301,14 +315,8 @@ export default async function ProjectPage({
         .activity-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid #f8fafc; }
         .activity-item:last-child { border-bottom: none; }
         .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 700; white-space: nowrap; }
-        @media (max-width: 900px) {
-          .two-col { grid-template-columns: 1fr !important; }
-          .four-col { grid-template-columns: repeat(2, 1fr) !important; }
-        }
-        @media (max-width: 560px) {
-          .four-col { grid-template-columns: 1fr 1fr !important; }
-          .raid-grid { grid-template-columns: 1fr 1fr !important; }
-        }
+        @media (max-width: 900px) { .two-col { grid-template-columns: 1fr !important; } .four-col { grid-template-columns: repeat(2, 1fr) !important; } }
+        @media (max-width: 560px) { .four-col { grid-template-columns: 1fr 1fr !important; } .raid-grid { grid-template-columns: 1fr 1fr !important; } }
       `}</style>
 
       <main style={{ minHeight: "100vh", background: "#f8fafc", fontFamily: "'DM Sans', sans-serif" }}>
@@ -377,6 +385,7 @@ export default async function ProjectPage({
                   )}
                 </div>
               </div>
+
               {canEdit && (
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                   <a
@@ -396,15 +405,9 @@ export default async function ProjectPage({
             </div>
 
             <nav style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-              <Link className="pp-nav-link active" href={`/projects/${projectRefForUrls}`}>
-                Overview
-              </Link>
-              <Link className="pp-nav-link" href={`/projects/${projectRefForUrls}/artifacts`}>
-                Artifacts
-              </Link>
-              <Link className="pp-nav-link" href={`/projects/${projectRefForUrls}/changes`}>
-                Changes
-              </Link>
+              <Link className="pp-nav-link active" href={`/projects/${projectRefForUrls}`}>Overview</Link>
+              <Link className="pp-nav-link" href={`/projects/${projectRefForUrls}/artifacts`}>Artifacts</Link>
+              <Link className="pp-nav-link" href={`/projects/${projectRefForUrls}/changes`}>Changes</Link>
               <Link className="pp-nav-link" href={`/projects/${projectRefForUrls}/approvals`}>
                 Approvals
                 {pendingApprovals.length > 0 && (
@@ -413,12 +416,8 @@ export default async function ProjectPage({
                   </span>
                 )}
               </Link>
-              <Link className="pp-nav-link" href={`/projects/${projectRefForUrls}/members`}>
-                Members
-              </Link>
-              <Link className="pp-nav-link" href="/heatmap" style={{ marginLeft: "auto" }}>
-                Full heatmap →
-              </Link>
+              <Link className="pp-nav-link" href={`/projects/${projectRefForUrls}/members`}>Members</Link>
+              <Link className="pp-nav-link" href="/heatmap" style={{ marginLeft: "auto" }}>Full heatmap →</Link>
             </nav>
           </header>
 
