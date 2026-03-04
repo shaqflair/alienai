@@ -2,15 +2,15 @@
 // Scope resolution helpers for org-wide portfolio dashboards + safe fallbacks.
 //
 // Exports:
-//  - resolveActiveProjectScope (existing contract, keep)
+//  - resolveActiveProjectScope (member-safe)
 //  - resolveOrgActiveProjectScope (org-wide project ids)
-//  - filterActiveProjectIds (optional filtering helper; safe no-op degradation)
+//  - filterActiveProjectIds (optional: apply lightweight project filters; FAIL-OPEN)
 
 import "server-only";
 
 type SupabaseLike = any;
 
-type ActiveScope = {
+export type ActiveScope = {
   orgId: string | null;
   projectIds: string[];
   mode: "org" | "member";
@@ -18,6 +18,11 @@ type ActiveScope = {
 
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+async function getUserId(supabase: SupabaseLike): Promise<string | null> {
+  const { data: auth } = await supabase.auth.getUser();
+  return auth?.user?.id ? String(auth.user.id) : null;
 }
 
 async function tryProjectsByOrg(supabase: SupabaseLike, orgId: string) {
@@ -31,8 +36,7 @@ async function tryProjectsByOrg(supabase: SupabaseLike, orgId: string) {
 }
 
 async function getActiveOrgId(supabase: SupabaseLike): Promise<string | null> {
-  const { data: auth } = await supabase.auth.getUser();
-  const userId = auth?.user?.id;
+  const userId = await getUserId(supabase);
   if (!userId) return null;
 
   // profiles.active_organisation_id is your standard
@@ -48,18 +52,13 @@ async function getActiveOrgId(supabase: SupabaseLike): Promise<string | null> {
 }
 
 /**
- * Existing helper (keep name/signature expectation).
- * Member-scope: returns projects the user can see (via membership tables or their active project).
- * This implementation is conservative + tolerant; if you already had a better one, keep yours
- * and only add the missing exports below.
+ * Member-scope:
+ * - Prefer membership tables
+ * - Fail-open fallback to org projects if orgId is known
  */
 export async function resolveActiveProjectScope(supabase: SupabaseLike): Promise<ActiveScope> {
   const orgId = await getActiveOrgId(supabase);
-
-  // Best effort: project_memberships / project_members (common names)
-  // If these tables don’t exist, we degrade to org projects if orgId is known.
-  const { data: auth } = await supabase.auth.getUser();
-  const userId = auth?.user?.id;
+  const userId = await getUserId(supabase);
 
   if (userId) {
     // Try project_memberships
@@ -68,6 +67,7 @@ export async function resolveActiveProjectScope(supabase: SupabaseLike): Promise
         .from("project_memberships")
         .select("project_id")
         .eq("user_id", userId);
+
       if (!error && Array.isArray(data) && data.length) {
         return {
           orgId,
@@ -76,6 +76,7 @@ export async function resolveActiveProjectScope(supabase: SupabaseLike): Promise
         };
       }
     }
+
     // Try project_members
     {
       const { data, error } = await supabase.from("project_members").select("project_id").eq("user_id", userId);
@@ -99,13 +100,13 @@ export async function resolveActiveProjectScope(supabase: SupabaseLike): Promise
 }
 
 /**
- * ORG-wide scope: returns *all* projects in the user’s active organisation.
- * This is what your portfolio dashboard endpoints should use.
+ * ORG-wide scope:
+ * returns *all* projects in the user’s active organisation.
+ * Fail-open to member scope if orgId missing or schema doesn’t match.
  */
 export async function resolveOrgActiveProjectScope(supabase: SupabaseLike): Promise<ActiveScope> {
   const orgId = await getActiveOrgId(supabase);
   if (!orgId) {
-    // If user has no active org, fallback to member scope.
     return resolveActiveProjectScope(supabase);
   }
 
@@ -120,9 +121,11 @@ export async function resolveOrgActiveProjectScope(supabase: SupabaseLike): Prom
 }
 
 /**
- * Optional helper used by some routes.
- * If filters are provided, we *try* to apply them server-side; otherwise return ids unchanged.
- * Degrades gracefully to “no-op” if schema doesn’t support requested filters.
+ * Optional helper used by some routes to apply lightweight project filters
+ * (NOT "active vs inactive" logic).
+ *
+ * IMPORTANT: FAIL-OPEN.
+ * If filters cannot be applied (missing columns), return input ids unchanged.
  */
 export async function filterActiveProjectIds(
   supabase: SupabaseLike,
@@ -131,11 +134,12 @@ export async function filterActiveProjectIds(
 ): Promise<string[]> {
   const ids = Array.isArray(projectIds) ? projectIds.filter(Boolean) : [];
   if (!ids.length) return [];
+
   const f = filters ?? {};
   if (!f || Object.keys(f).length === 0) return ids;
 
   try {
-    // Very conservative: only apply a couple of common filters if present.
+    // Only attempt filters if the columns exist; if any error, fail-open to ids.
     let q = supabase.from("projects").select("id").in("id", ids);
 
     if (Array.isArray(f.status) && f.status.length) q = q.in("status", f.status);
