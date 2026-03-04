@@ -157,7 +157,7 @@ importers:
         specifier: ^4
         version: 4.2.1
       '@tauri-apps/cli':
-        specifier: ^2.10.1
+        specifier: ^2.0.0
         version: 2.10.1
       '@types/file-saver':
         specifier: ^2.0.7
