@@ -1,8 +1,10 @@
-﻿// src/app/api/portfolio/resource-activity/route.ts — REBUILT v4 (ORG-WIDE + filter-ready)
+﻿// src/app/api/portfolio/resource-activity/route.ts — REBUILT v5 (ORG-WIDE + filter-ready) — FIX "No org"
 // Adds:
 //   ✅ RA-F1: Scope aligned with resolveOrgActiveProjectScope (org-wide dashboard)
 //   ✅ RA-F2: Supports filters (GET + POST)
 //   ✅ RA-F3: Allocation filtering by project_id if available; graceful fallback if not
+// Fixes:
+//   ✅ RA-F4: Use scoped.orgId (not organisationId) + correct function signature
 // Keeps:
 //   • forward-looking week ranges
 //   ✅ no-store caching
@@ -145,7 +147,8 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
       break;
     }
     lastErr = error;
-    if (!looksMissingRelation(error)) break;
+    // tolerate optional column misses / relation misses
+    if (!(looksMissingRelation(error) || looksMissingColumn(error))) break;
   }
 
   if (!rows.length) {
@@ -218,8 +221,8 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
   const dateFrom = weeks[0] || isoDate(startMonday);
   const dateTo = weeks[weeks.length - 1] || isoDate(endMonday);
 
-  // ── ORG-WIDE project scope (dashboard)
-  const scoped = await resolveOrgActiveProjectScope(supabase, user.id);
+  // ── ORG-WIDE project scope (dashboard)  ✅ FIX signature + property names
+  const scoped = await resolveOrgActiveProjectScope(supabase);
   const scopedProjectIds: string[] = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
 
   // Apply dashboard filters (within org scope)
@@ -227,9 +230,23 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
   const projectIds = filtered.projectIds;
 
   // ── Org members (capacity is org-wide)
-  const orgId = scoped?.organisationId ?? null;
+  const orgId = (scoped as any)?.orgId ?? null;
+
+  // If orgId cannot be resolved, degrade gracefully (don’t 400 the whole chart)
   if (!orgId) {
-    const res = NextResponse.json({ ok: false, error: "No org" }, { status: 400 });
+    const res = NextResponse.json({
+      ok: true,
+      weeks: weeks.map((w) => ({ weekStart: w, capacity: 0, allocated: 0, pipeline: 0, utilisationPct: 0 })),
+      dateFrom,
+      dateTo,
+      meta: {
+        note: "No active organisation resolved; returning empty capacity series.",
+        organisationId: null,
+        scope: (scoped as any)?.meta ?? null,
+        filters: filtered.meta,
+        projects: { scoped: scopedProjectIds.length, filtered: projectIds.length },
+      },
+    });
     res.headers.set("Cache-Control", "no-store, max-age=0");
     return res;
   }
@@ -247,7 +264,7 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
       weeks: [],
       dateFrom,
       dateTo,
-      meta: { organisationId: orgId, scope: scoped?.meta ?? null, filters: filtered.meta },
+      meta: { organisationId: orgId, scope: (scoped as any)?.meta ?? null, filters: filtered.meta },
     });
     res.headers.set("Cache-Control", "no-store, max-age=0");
     return res;
@@ -368,7 +385,7 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
     dateTo,
     meta: {
       organisationId: orgId,
-      scope: scoped?.meta ?? null,
+      scope: (scoped as any)?.meta ?? null,
       filters: filtered.meta,
       projects: { scoped: scopedProjectIds.length, filtered: projectIds.length },
       allocations: allocMeta,
