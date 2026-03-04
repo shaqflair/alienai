@@ -2000,12 +2000,12 @@ export default function HomePage({ data }: { data: HomeData }) {
               />
               <KpiCard
                 label="Open Risks"
-                value={raidLoading ? "â€¦" : `${raidDueTotal || kpis.openRisks}`}
+                value={raidLoading ? "…" : `${raidDueTotal || kpis.openRisks}`}
                 sub="high priority"
                 icon={<AlertTriangle className="h-5 w-5" />}
                 colorKey="amber"
                 trendLabel={raidHighSeverity > 0 ? `${raidHighSeverity}` : undefined}
-                onClick={() => router.push(appendFiltersToUrl(`/risks?days=${numericWindowDays}`, urlFilters))}
+                onClick={() => router.push(appendFiltersToUrl(`/insights?tab=raid&days=${numericWindowDays}`, urlFilters))}
                 delay={0.05}
               />
               <KpiCard
