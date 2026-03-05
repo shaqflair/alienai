@@ -92,7 +92,7 @@ async function tryProjectsByOrg(supabase: SupabaseLike, orgId: string) {
   // Try common org FK column names in projects table
   const orgCols = ["organisation_id", "org_id", "organization_id"];
   for (const col of orgCols) {
-    const { data, error } = await supabase.from("projects").select("id").eq(col, orgId).limit(20000);
+    const { data, error } = await supabase.from("projects").select("id").eq(col, orgId).is("deleted_at", null).neq("status", "closed").limit(20000);
     if (!error && Array.isArray(data)) return uniq(data.map((r: any) => r?.id));
   }
   return [];

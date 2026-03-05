@@ -424,7 +424,7 @@ export default async function ProjectPage({
     { id: "overview",  label: "Overview",  href: `/projects/${projectRefForUrls}` },
     { id: "artifacts", label: "Artifacts", href: `/projects/${projectRefForUrls}/artifacts` },
     { id: "members",   label: "Members",   href: `/projects/${projectRefForUrls}/members` },
-    { id: "changes",   label: "Timeline",  href: `/changes` },
+    { id: "changes",   label: "Timeline",  href: `/projects/${projectId}/timeline` },
     { id: "raid",      label: "Risks",     href: `/projects/${projectRefForUrls}/raid` },
   ];
 
@@ -998,7 +998,7 @@ export default async function ProjectPage({
                 )}
               </div>
               <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginTop: 4 }}>
-                <Link href={`/changes`} style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}>
+                <Link href={`/projects/${projectId}/timeline`} style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}>
                   View change board →
                 </Link>
               </div>
