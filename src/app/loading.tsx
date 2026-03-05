@@ -1,3 +1,4 @@
+// src/app/loading.tsx
 "use client";
 
 import CosmosBackdrop from "@/components/ui/CosmosBackdrop";
@@ -17,13 +18,9 @@ export default function Loading() {
           />
         </div>
 
-        <div className="tracking-[0.6em] text-white text-lg font-semibold">
-          Λ L I Ξ N Λ
-        </div>
+        <div className="tracking-[0.6em] text-white text-lg font-semibold">Λ L I Ξ N Λ</div>
 
-        <div className="text-sky-200/70 text-sm">
-          Initialising Governance Intelligence...
-        </div>
+        <div className="text-sky-200/70 text-sm">Initialising Governance Intelligence...</div>
       </div>
     </div>
   );
