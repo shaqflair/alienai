@@ -714,11 +714,11 @@ function DaysPicker({ value, onChange, max }: { value: number; onChange: (v: num
 ============================================================================= */
 
 const ADD_BUTTONS = [
-  { type: "add_allocation",  icon: "?", label: "Add allocation"  },
-  { type: "swap_allocation", icon: "??", label: "Swap person"     },
-  { type: "change_capacity", icon: "?", label: "Change capacity" },
-  { type: "shift_project",   icon: "??", label: "Shift project"   },
-  { type: "add_project",     icon: "???", label: "New project"     },
+  { type: "add_allocation",  icon: "+",  label: "Add allocation"  },
+  { type: "swap_allocation", icon: "<>", label: "Swap person"     },
+  { type: "change_capacity", icon: "~",  label: "Change capacity" },
+  { type: "shift_project",   icon: ">>", label: "Shift project"   },
+  { type: "add_project",     icon: "*",  label: "New project"     },
 ] as const;
 
 export default function ScenarioSimulator({
@@ -1047,11 +1047,11 @@ export default function ScenarioSimulator({
                           {ADD_BUTTONS.find(b => b.type === c.type)?.icon ?? "."}
                         </span>
                         <span style={{ flex: 1, color: "#334155", fontWeight: 600, fontSize: "11px" }}>
-                          {CHANGE_LABELS[c.type]}{" · "}
+                          {CHANGE_LABELS[c.type]}{" - "}
                           <span style={{ color: "#94a3b8", fontWeight: 400 }}>
                             {"personId" in c ? (people.find(p => p.personId === (c as any).personId)?.fullName ?? "") : ""}
                             {"fromPersonId" in c ? (people.find(p => p.personId === (c as any).fromPersonId)?.fullName ?? "") + " ? " + (people.find(p => p.personId === (c as any).toPersonId)?.fullName ?? "") : ""}
-                            {"projectId" in c && !("personId" in c && "fromPersonId" in c) ? " · " + (projects.find(p => p.projectId === (c as any).projectId)?.title ?? "") : ""}
+                            {"projectId" in c && !("personId" in c && "fromPersonId" in c) ? " - " + (projects.find(p => p.projectId === (c as any).projectId)?.title ?? "") : ""}
                           </span>
                         <button type="button" onClick={() => removeChange(i)} style={{
                           background: "none", border: "none", color: "#cbd5e1",
