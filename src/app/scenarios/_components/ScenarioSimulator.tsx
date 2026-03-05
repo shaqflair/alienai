@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // FILE: src/app/scenarios/_components/ScenarioSimulator.tsx
 import ScenarioAIPanel from "./ScenarioAIPanel";
 
@@ -65,21 +65,13 @@ function isoWeekNum(iso: string): number {
 }
 
 const CHANGE_LABELS: Record<string, string> = {
-  add_allocation:    "➕ Add allocation",
-  remove_allocation: "🗑️ Remove allocation",
-  swap_allocation:   "🔄 Swap person",
-  change_capacity:   "⚡ Change capacity",
-  shift_project:     "📅 Shift project",
-  add_project:       "🗂️ Add project",
+  add_allocation:    "Add allocation",
+  remove_allocation: "Remove allocation",
+  swap_allocation:   "Swap person",
+  change_capacity:   "Change capacity",
+  shift_project:     "Shift project",
+  add_project:       "New project",
 };
-
-const PROJECT_COLOURS = [
-  "#00b8db","#3b82f6","#8b5cf6","#10b981","#f59e0b","#ec4899","#ef4444","#f97316",
-];
-
-/* =============================================================================
-   SHARED UI
-============================================================================= */
 
 function Avatar({ name, size = 26 }: { name: string; size?: number }) {
   return (
@@ -722,11 +714,11 @@ function DaysPicker({ value, onChange, max }: { value: number; onChange: (v: num
 ============================================================================= */
 
 const ADD_BUTTONS = [
-  { type: "add_allocation",  icon: "➕", label: "Add allocation"  },
-  { type: "swap_allocation", icon: "🔄", label: "Swap person"     },
-  { type: "change_capacity", icon: "⚡", label: "Change capacity" },
-  { type: "shift_project",   icon: "📅", label: "Shift project"   },
-  { type: "add_project",     icon: "🗂️", label: "New project"     },
+  { type: "add_allocation",  icon: "?", label: "Add allocation"  },
+  { type: "swap_allocation", icon: "??", label: "Swap person"     },
+  { type: "change_capacity", icon: "?", label: "Change capacity" },
+  { type: "shift_project",   icon: "??", label: "Shift project"   },
+  { type: "add_project",     icon: "???", label: "New project"     },
 ] as const;
 
 export default function ScenarioSimulator({
@@ -905,7 +897,7 @@ export default function ScenarioSimulator({
                 display: "flex", alignItems: "center", gap: "6px",
                 fontFamily: "'DM Sans', sans-serif",
               }}>
-                <span style={{ fontSize: "14px" }}>🤖</span>
+                <span style={{ fontSize: "14px" }}>??</span>
                 AI Advisor
                 {showAI && <span style={{ fontSize: "9px", background: "#00b8db", color: "white",
                   borderRadius: "4px", padding: "1px 5px", fontWeight: 900 }}>ON</span>}
@@ -926,7 +918,7 @@ export default function ScenarioSimulator({
                   transition: "all 0.15s",
                 }}
               >
-                {saveMsg || (isPending ? "Saving..." : "💾 Save scenario")}
+                {saveMsg || (isPending ? "Saving..." : "?? Save scenario")}
               </button>
             </div>
           </div>
@@ -1054,9 +1046,13 @@ export default function ScenarioSimulator({
                         <span style={{ fontSize: "13px" }}>
                           {ADD_BUTTONS.find(b => b.type === c.type)?.icon ?? "."}
                         </span>
-                        <span style={{ flex: 1, color: "#334155", fontWeight: 600 }}>
-                          {CHANGE_LABELS[c.type]}
-                        </span>
+                        <span style={{ flex: 1, color: "#334155", fontWeight: 600, fontSize: "11px" }}>
+                          {CHANGE_LABELS[c.type]}{" � "}
+                          <span style={{ color: "#94a3b8", fontWeight: 400 }}>
+                            {"personId" in c ? (people.find(p => p.personId === (c as any).personId)?.fullName ?? "") : ""}
+                            {"fromPersonId" in c ? (people.find(p => p.personId === (c as any).fromPersonId)?.fullName ?? "") + " ? " + (people.find(p => p.personId === (c as any).toPersonId)?.fullName ?? "") : ""}
+                            {"projectId" in c && !("personId" in c && "fromPersonId" in c) ? " � " + (projects.find(p => p.projectId === (c as any).projectId)?.title ?? "") : ""}
+                          </span>
                         <button type="button" onClick={() => removeChange(i)} style={{
                           background: "none", border: "none", color: "#cbd5e1",
                           cursor: "pointer", fontSize: "13px", lineHeight: 1,
@@ -1082,29 +1078,36 @@ export default function ScenarioSimulator({
                   <div style={{ fontSize: "13px", fontWeight: 800, color: "#0f172a",
                                 marginBottom: "8px" }}>Saved scenarios</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
-                    {savedScenarios.map(sc => (
-                      <button key={sc.id} type="button" onClick={() => loadScenario(sc)} style={{
-                        display: "flex", alignItems: "center", gap: "8px",
-                        padding: "8px 10px", borderRadius: "8px",
-                        border: "1.5px solid",
-                        borderColor: scenarioId === sc.id ? "#00b8db" : "#e2e8f0",
-                        background: scenarioId === sc.id ? "rgba(0,184,219,0.06)" : "white",
-                        cursor: "pointer", textAlign: "left",
-                      }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#0f172a",
-                                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {sc.name}
+                      <div key={sc.id} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <button type="button" onClick={() => loadScenario(sc)} style={{
+                          flex: 1, display: "flex", alignItems: "center", gap: "8px",
+                          padding: "8px 10px", borderRadius: "8px", border: "1.5px solid",
+                          borderColor: scenarioId === sc.id ? "#00b8db" : "#e2e8f0",
+                          background: scenarioId === sc.id ? "rgba(0,184,219,0.06)" : "white",
+                          cursor: "pointer", textAlign: "left",
+                        }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: "12px", fontWeight: 700, color: "#0f172a",
+                                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {sc.name}
+                            </div>
+                            <div style={{ fontSize: "10px", color: "#94a3b8" }}>
+                              {sc.changes.length} change{sc.changes.length !== 1 ? "s" : ""}
+                            </div>
                           </div>
-                          <div style={{ fontSize: "10px", color: "#94a3b8" }}>
-                            {sc.changes.length} change{sc.changes.length !== 1 ? "s" : ""}
-                          </div>
-                        </div>
-                        {scenarioId === sc.id && (
-                          <span style={{ fontSize: "10px", color: "#00b8db", fontWeight: 700 }}>Active</span>
-                        )}
-                      </button>
-                    ))}
+                          {scenarioId === sc.id && (
+                            <span style={{ fontSize: "10px", color: "#00b8db", fontWeight: 700 }}>Active</span>
+                          )}
+                        </button>
+                        <button type="button" onClick={() => startTransition(async () => {
+                          await deleteScenario(sc.id);
+                          if (scenarioId === sc.id) newScenario();
+                        })} style={{
+                          padding: "6px 8px", borderRadius: "7px", border: "1.5px solid #fecaca",
+                          background: "white", color: "#ef4444", fontSize: "11px",
+                          cursor: "pointer", flexShrink: 0, fontWeight: 700,
+                        }}>?</button>
+                      </div>
                   </div>
                 </div>
               )}

@@ -1,4 +1,4 @@
-﻿// FILE: src/app/scenarios/page.tsx
+// FILE: src/app/scenarios/page.tsx
 import "server-only";
 
 import { redirect } from "next/navigation";
@@ -140,7 +140,7 @@ export default async function ScenariosPage() {
     id:            String(a.id),
     personId:      String(a.person_id),
     projectId:     String(a.project_id),
-    weekStart:     safeStr(a.week_start_date),
+    weekStart:     safeStr(a.week_start_date).slice(0, 10),
     daysAllocated: parseFloat(String(a.days_allocated ?? 0)),
     allocType:     safeStr(a.allocation_type || "confirmed"),
   } satisfies LiveAllocation));
@@ -148,7 +148,7 @@ export default async function ScenariosPage() {
   // -- Transform exceptions ---------------------------------------------------
   const exceptions: LiveException[] = (exceptionRows as any[]).map((e: any) => ({
     personId:  String(e.person_id),
-    weekStart: safeStr(e.week_start_date),
+    weekStart: safeStr(e.week_start_date).slice(0, 10),
     availDays: parseFloat(String(e.available_days ?? 0)),
   } satisfies LiveException));
 
