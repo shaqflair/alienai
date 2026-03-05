@@ -6,6 +6,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import GlobalSearch from "@/components/search/GlobalSearch";
+import { createClient } from "@/utils/supabase/client";
 
 /* =============================================================================
    TYPES
@@ -811,7 +812,7 @@ export default function Sidebar({
         className={cx(
           "sidebar-root h-screen flex flex-col sticky top-0",
           "bg-white border-r border-slate-200",
-          "overflow-hidden"
+          "overflow-x-hidden"
         )}
         style={{ width: w, minWidth: w }}
       >
@@ -897,9 +898,31 @@ export default function Sidebar({
                 <div className="text-[10px] text-slate-500 truncate">Signed in</div>
               </div>
             )}
+            <button
+              type="button"
+              title="Sign out"
+              onClick={async () => {
+                const supabase = createClient();
+                await supabase.auth.signOut();
+                window.location.href = "/login";
+              }}
+              className={cx(
+                "flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center",
+                "text-slate-400 hover:text-rose-600 hover:bg-rose-50",
+                "transition-all duration-150"
+              )}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                <polyline points="16 17 21 12 16 7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+            </button>
           </div>
         </div>
       </aside>
     </>
   );
 }
+
+
