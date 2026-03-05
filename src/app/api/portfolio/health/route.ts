@@ -519,7 +519,7 @@ async function fetchStaleActivity(supabase: any, projectIds: string[]) {
 /* ─── core handler ─── */
 
 async function handle(req: Request, method: "GET" | "POST") {
-  const supabase = createClient();
+  const supabase = await createClient();
 
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr || !auth?.user?.id) return jsonErr("Not authenticated", 401, { authErr: authErr?.message });
