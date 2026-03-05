@@ -1,4 +1,4 @@
-﻿"use server";
+"use server";
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -71,21 +71,14 @@ export async function saveScenario(formData: FormData) {
   revalidatePath("/scenarios");
 }
 
-export async function deleteScenario(formData: FormData) {
+export async function deleteScenario(scenarioId: string) {
   const supabase = await createClient();
   await requireUser(supabase);
-
-  const scenario_id = norm(formData.get("scenario_id"));
-  const org_id = norm(formData.get("organisation_id"));
-
   const { error } = await supabase
     .from("scenarios")
     .delete()
-    .eq("id", scenario_id)
-    .eq("organisation_id", org_id);
-
+    .eq("id", scenarioId);
   if (error) throwDb(error, "scenarios.delete");
-
   revalidatePath("/scenarios");
-  redirect("/scenarios");
 }
+
