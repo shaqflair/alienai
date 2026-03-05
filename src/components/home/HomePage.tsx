@@ -4035,21 +4035,10 @@ export default function HomePage({ data }: { data: HomeData }) {
                 value={fpVarianceLabel}
 
                 sub={fpHasData ? `Budget ${fpRag === "G" ? "on track" : fpRag === "A" ? "watch" : "over"}` : "variance"}
-
                 icon={<DollarSign className="h-5 w-5" />}
-
                 colorKey={fpColorKey}
-
+                trendLabel={fpVarianceNum != null && fpVarianceNum !== 0 ? fpVarianceLabel : undefined}
                 onClick={() => router.push("/budget")}
-                    router.push(
-
-                      appendFiltersToUrl(`/projects/${firstProjectRef}/artifacts/${(fpSummary as any).artifact_id}?panel=intelligence`, urlFilters),
-
-                    );
-
-                  else if (firstProjectRef) router.push(appendFiltersToUrl(`/projects/${firstProjectRef}/artifacts/new?type=FINANCIAL_PLAN`, urlFilters));
-
-                }}
 
                 delay={0.15}
 
