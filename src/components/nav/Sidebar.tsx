@@ -647,12 +647,19 @@ export default function Sidebar({
         .sidebar-root {
           width: ${w};
           min-width: ${w};
-          transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
-                      min-width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+          will-change: width, min-width;
+          transition:
+            width 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+            min-width 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .sidebar-root { transition: none !important; }
+          .sb-fade { transition: none !important; }
         }
       `}</style>
 
       <aside
+        data-collapsed={collapsed ? "1" : "0"}
         className={cx("sidebar-root h-screen flex flex-col sticky top-0", "bg-white border-r border-slate-200", "overflow-hidden")}
         style={{ width: w, minWidth: w }}
       >
@@ -660,7 +667,6 @@ export default function Sidebar({
         <div
           className={cx(
             "relative flex items-center border-b border-slate-200 h-14 flex-shrink-0",
-            // ✅ When collapsed, reduce padding/gap so we don’t clip controls in 64px
             collapsed ? "px-2" : "px-4",
             collapsed ? "gap-2" : "gap-3"
           )}
@@ -672,16 +678,21 @@ export default function Sidebar({
             </div>
           </div>
 
-          {!collapsed && (
-            <div className="min-w-0">
-              <div className="text-sm font-black tracking-tight text-slate-900 truncate">
-                <AlienaWordmarkTop />
-              </div>
-              {orgName && <div className="text-[10px] text-slate-500 truncate font-medium">{orgName}</div>}
+          {/* Brand text (fade/slide instead of pop) */}
+          <div
+            className={cx(
+              "sb-fade min-w-0",
+              "transition-all duration-200 ease-out",
+              collapsed ? "opacity-0 translate-x-2 pointer-events-none w-0" : "opacity-100 translate-x-0"
+            )}
+          >
+            <div className="text-sm font-black tracking-tight text-slate-900 truncate">
+              <AlienaWordmarkTop />
             </div>
-          )}
+            {orgName && <div className="text-[10px] text-slate-500 truncate font-medium">{orgName}</div>}
+          </div>
 
-          {/* ✅ Toggle button is absolute so it is NEVER clipped when sidebar is 64px */}
+          {/* Toggle button (never clipped; subtle hover like Linear) */}
           <button
             type="button"
             onClick={toggleCollapse}
@@ -692,13 +703,23 @@ export default function Sidebar({
               "transition-all duration-150"
             )}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={collapsed ? "Expand" : "Collapse"}
           >
             {collapsed ? Icons.chevronRight : Icons.chevronLeft}
           </button>
         </div>
 
-        {/* -- Search -- */}
-        {!collapsed && <GlobalSearch />}
+        {/* -- Search (animate height/opacity instead of unmount pop) -- */}
+        <div
+          className={cx(
+            "sb-fade px-2",
+            "transition-all duration-200 ease-out",
+            collapsed ? "max-h-0 opacity-0 pointer-events-none -mt-2" : "max-h-20 opacity-100 mt-0"
+          )}
+          style={{ overflow: "hidden" }}
+        >
+          <GlobalSearch />
+        </div>
 
         {/* -- Scrollable nav -- */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden py-3 px-2 flex flex-col gap-1">
@@ -725,12 +746,18 @@ export default function Sidebar({
             <div className={cx("flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center", "bg-sky-100 text-sky-700 text-xs font-black")}>
               {(userName || "U").charAt(0).toUpperCase()}
             </div>
-            {!collapsed && (
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-semibold text-slate-900 truncate">{userName || "Account"}</div>
-                <div className="text-[10px] text-slate-500 truncate">Signed in</div>
-              </div>
-            )}
+
+            {/* User text fade/slide like the brand */}
+            <div
+              className={cx(
+                "sb-fade min-w-0 flex-1",
+                "transition-all duration-200 ease-out",
+                collapsed ? "opacity-0 translate-x-2 pointer-events-none w-0" : "opacity-100 translate-x-0"
+              )}
+            >
+              <div className="text-xs font-semibold text-slate-900 truncate">{userName || "Account"}</div>
+              <div className="text-[10px] text-slate-500 truncate">Signed in</div>
+            </div>
           </div>
         </div>
       </aside>
