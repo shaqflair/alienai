@@ -216,7 +216,7 @@ function DiffHeatmap({
               fontSize: "9px", color: w === todayMon ? "#00b8db" : "#94a3b8",
               fontWeight: w === todayMon ? 800 : 500,
             }}>
-              W{isoWeekNum(w)}
+              {new Date(w + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
             </div>
           ))}
           <div style={{ width: 2, background: "#e2e8f0", margin: "0 4px" }} />
@@ -227,7 +227,7 @@ function DiffHeatmap({
               fontSize: "9px", color: w === todayMon ? "#00b8db" : "#94a3b8",
               fontWeight: w === todayMon ? 800 : 500,
             }}>
-              W{isoWeekNum(w)}
+              {new Date(w + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
             </div>
           ))}
           <div style={{ width: "60px", textAlign: "center", fontSize: "9px", color: "#94a3b8" }}>
@@ -1181,3 +1181,4 @@ export default function ScenarioSimulator({
     </>
   );
 }
+
