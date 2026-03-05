@@ -6,7 +6,6 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import GlobalSearch from "@/components/search/GlobalSearch";
-import { createClient } from "@/utils/supabase/client";
 
 /* =============================================================================
    TYPES
@@ -107,16 +106,7 @@ function safeUpper(x: unknown) {
 
 const Icons = {
   dashboard: (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="7" height="7" />
       <rect x="14" y="3" width="7" height="7" />
       <rect x="14" y="14" width="7" height="7" />
@@ -124,30 +114,12 @@ const Icons = {
     </svg>
   ),
   projects: (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
     </svg>
   ),
   heatmap: (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="4" height="4" rx="1" />
       <rect x="10" y="3" width="4" height="4" rx="1" />
       <rect x="17" y="3" width="4" height="4" rx="1" />
@@ -160,16 +132,7 @@ const Icons = {
     </svg>
   ),
   allocations: (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
       <circle cx="9" cy="7" r="4" />
       <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
@@ -177,31 +140,13 @@ const Icons = {
     </svg>
   ),
   people: (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
       <circle cx="12" cy="7" r="4" />
     </svg>
   ),
   leave: (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
       <line x1="16" y1="2" x2="16" y2="6" />
       <line x1="8" y1="2" x2="8" y2="6" />
@@ -210,74 +155,29 @@ const Icons = {
     </svg>
   ),
   settings: (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />
       <path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M4.93 19.07l1.41-1.41M19.07 19.07l-1.41-1.41M12 2v2M12 20v2M2 12h2M20 12h2" />
     </svg>
   ),
   timesheet: (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="10" />
       <polyline points="12 6 12 12 16 14" />
     </svg>
   ),
   scenarios: (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18" />
     </svg>
   ),
   chevronLeft: (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="15 18 9 12 15 6" />
     </svg>
   ),
   chevronRight: (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="9 18 15 12 9 6" />
     </svg>
   ),
@@ -291,7 +191,6 @@ const ALIENA_LOGO_URL =
   "https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png";
 
 function AlienaWordmarkTop() {
-  // ΛLIΞNΛ with ONLY the I (after L) in blue
   return (
     <span className="inline-flex items-baseline leading-none">
       <span>ΛL</span>
@@ -300,6 +199,7 @@ function AlienaWordmarkTop() {
     </span>
   );
 }
+
 /* =============================================================================
    NAV ITEM COMPONENT
 ============================================================================= */
@@ -320,16 +220,9 @@ function SidebarItem({ item, collapsed }: { item: NavItem; collapsed: boolean })
           : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
       )}
     >
-      {active && (
-        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-sky-500 rounded-r-full" />
-      )}
+      {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-sky-500 rounded-r-full" />}
 
-      <span
-        className={cx(
-          "flex-shrink-0 transition-colors",
-          active ? "text-sky-600" : "text-slate-400 group-hover:text-slate-600"
-        )}
-      >
+      <span className={cx("flex-shrink-0 transition-colors", active ? "text-sky-600" : "text-slate-400 group-hover:text-slate-600")}>
         {item.icon}
       </span>
 
@@ -337,12 +230,7 @@ function SidebarItem({ item, collapsed }: { item: NavItem; collapsed: boolean })
         <>
           <span className="flex-1 truncate">{item.label}</span>
           {item.badge && (
-            <span
-              className={cx(
-                "text-[10px] font-bold px-1.5 py-0.5 rounded-md",
-                active ? "bg-sky-100 text-sky-700" : "bg-slate-100 text-slate-600"
-              )}
-            >
+            <span className={cx("text-[10px] font-bold px-1.5 py-0.5 rounded-md", active ? "bg-sky-100 text-sky-700" : "bg-slate-100 text-slate-600")}>
               {item.badge}
             </span>
           )}
@@ -376,9 +264,7 @@ function SidebarGroup({ group, collapsed }: { group: NavGroup; collapsed: boolea
     <div className="flex flex-col gap-0.5">
       {!collapsed && (
         <div className="px-3 pb-1 pt-2">
-          <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">
-            {group.label}
-          </span>
+          <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">{group.label}</span>
         </div>
       )}
       {collapsed && <div className="h-3" />}
@@ -397,7 +283,6 @@ function ProjectContextStrip({ projectRef, collapsed }: { projectRef: string; co
   const pathname = usePathname();
   const base = `/projects/${projectRef}`;
 
-  // ✅ Ensure delivery governance is always present
   const subItems = [
     { href: base, label: "Overview" },
     { href: `${base}/artifacts`, label: "Artifacts" },
@@ -409,13 +294,10 @@ function ProjectContextStrip({ projectRef, collapsed }: { projectRef: string; co
 
   if (collapsed) return null;
 
-  // ✅ Fix: make links clickable even if some overlay exists above
   return (
     <div className="relative z-20 pointer-events-auto mx-2 mb-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
       <div className="px-1 pb-1.5">
-        <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">
-          Current project
-        </span>
+        <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Current project</span>
       </div>
       <div className="flex flex-col gap-0.5">
         {subItems.map((item) => {
@@ -476,10 +358,7 @@ function isGovernanceKey(kUpper: string) {
 
 function groupForKey(kUpper: string): GroupName {
   const u = safeUpper(kUpper);
-  if (
-    ["PROJECT_CHARTER", "STAKEHOLDER_REGISTER", "WBS", "SCHEDULE", "FINANCIAL_PLAN", "WEEKLY_REPORT"].includes(u)
-  )
-    return "Plan";
+  if (["PROJECT_CHARTER", "STAKEHOLDER_REGISTER", "WBS", "SCHEDULE", "FINANCIAL_PLAN", "WEEKLY_REPORT"].includes(u)) return "Plan";
   if (isRaidKey(u) || isChangeKey(u) || isGovernanceKey(u)) return "Control";
   return "Close";
 }
@@ -524,10 +403,8 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
   }, [projectRef]);
 
   const items = useMemo(() => (Array.isArray(data?.items) ? data!.items : []), [data]);
-
   const visible = useMemo(() => items, [items]);
 
-  // Split governance vs normal artifacts
   const artifactItems = useMemo(() => visible.filter((it) => !isGovernanceKey(it.ui_kind || it.key)), [visible]);
   const governanceItems = useMemo(() => visible.filter((it) => isGovernanceKey(it.ui_kind || it.key)), [visible]);
 
@@ -564,11 +441,7 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
       <div className="px-3 py-2.5 border-b border-slate-200 bg-slate-50">
         <div className="flex items-center justify-between">
           <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Artifacts</span>
-          <Link
-            href={`/projects/${projectRef}/artifacts/new`}
-            className="text-[10px] font-bold text-sky-700 hover:text-sky-600"
-            prefetch={false}
-          >
+          <Link href={`/projects/${projectRef}/artifacts/new`} className="text-[10px] font-bold text-sky-700 hover:text-sky-600" prefetch={false}>
             + New
           </Link>
         </div>
@@ -577,9 +450,7 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
 
         <div className="mt-1 flex items-center gap-2">
           {data?.projectCode && (
-            <code className="font-mono text-[10px] text-slate-600 bg-white border border-slate-200 px-1.5 py-0.5 rounded">
-              {data.projectCode}
-            </code>
+            <code className="font-mono text-[10px] text-slate-600 bg-white border border-slate-200 px-1.5 py-0.5 rounded">{data.projectCode}</code>
           )}
           {data?.role && <span className="text-[10px] font-semibold capitalize text-slate-500">{data.role}</span>}
         </div>
@@ -613,15 +484,10 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
       </div>
 
       <div className="px-2 py-2">
-        {err && (
-          <div className="px-2 py-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg">{err}</div>
-        )}
+        {err && <div className="px-2 py-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg">{err}</div>}
 
-        {!err && items.length === 0 && (
-          <div className="px-2 py-6 text-center text-xs text-slate-500">No artifacts found</div>
-        )}
+        {!err && items.length === 0 && <div className="px-2 py-6 text-center text-xs text-slate-500">No artifacts found</div>}
 
-        {/* Groups */}
         {(["Plan", "Control", "Close"] as const).map((g) => {
           const list = grouped[g];
           if (!list?.length) return null;
@@ -652,33 +518,18 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
                       key={it.key}
                       href={it.href}
                       prefetch={false}
-                      className={cx(
-                        "block rounded-lg border px-2.5 py-2 transition",
-                        isActive ? "border-sky-200 bg-sky-50" : "border-transparent hover:bg-slate-50"
-                      )}
+                      className={cx("block rounded-lg border px-2.5 py-2 transition", isActive ? "border-sky-200 bg-sky-50" : "border-transparent hover:bg-slate-50")}
                       title={it.label}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <div
-                            className={cx(
-                              "text-xs font-semibold truncate",
-                              it.current ? "text-slate-900" : "text-slate-600"
-                            )}
-                          >
-                            {it.label}
-                          </div>
+                          <div className={cx("text-xs font-semibold truncate", it.current ? "text-slate-900" : "text-slate-600")}>{it.label}</div>
                           <div className="mt-0.5 text-[10px] text-slate-500">
                             {it.current ? "Current" : it.canCreate ? "Not created" : "—"}
                             {it.current?.is_locked ? <span className="ml-1.5 text-slate-400">🔒</span> : null}
                           </div>
                         </div>
-                        <span
-                          className={cx(
-                            "shrink-0 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold",
-                            badge.cls
-                          )}
-                        >
+                        <span className={cx("shrink-0 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold", badge.cls)}>
                           {it.current ? badge.label : it.canCreate ? "Create" : "View"}
                         </span>
                       </div>
@@ -690,39 +541,32 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
           );
         })}
 
-        {/* ✅ Governance (Delivery Governance) — ALWAYS SHOW (fallback to /governance if API doesn't return a governance item) */}
         <div className="mt-2 pt-2 border-t border-slate-200">
           <div className="px-2 pb-1 flex items-center justify-between">
             <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Delivery governance</span>
-            <span className="text-[10px] font-semibold text-slate-400 tabular-nums">
-              {governanceItems.length ? governanceItems.length : 1}
-            </span>
+            <span className="text-[10px] font-semibold text-slate-400 tabular-nums">{governanceItems.length ? governanceItems.length : 1}</span>
           </div>
 
           <div className="space-y-1">
-            {(showGovernanceFallback
-              ? [{ key: "__delivery_governance__", label: "Delivery Governance", href: governanceFallbackHref }]
-              : governanceItems
-            ).map((it: any) => {
-              const href = safeStr(it?.href) || governanceFallbackHref;
-              const label = safeStr(it?.label) || "Delivery Governance";
-              const isActive = activeHref.includes(`/projects/${projectRef}/governance`);
+            {(showGovernanceFallback ? [{ key: "__delivery_governance__", label: "Delivery Governance", href: governanceFallbackHref }] : governanceItems).map(
+              (it: any) => {
+                const href = safeStr(it?.href) || governanceFallbackHref;
+                const label = safeStr(it?.label) || "Delivery Governance";
+                const isActive = activeHref.includes(`/projects/${projectRef}/governance`);
 
-              return (
-                <Link
-                  key={it.key}
-                  href={href}
-                  prefetch={false}
-                  className={cx(
-                    "block rounded-lg border px-2.5 py-2 transition",
-                    isActive ? "border-sky-200 bg-sky-50" : "border-transparent hover:bg-slate-50"
-                  )}
-                >
-                  <div className="text-xs font-semibold text-slate-900">{label}</div>
-                  <div className="mt-0.5 text-[10px] text-slate-500">Hub</div>
-                </Link>
-              );
-            })}
+                return (
+                  <Link
+                    key={it.key}
+                    href={href}
+                    prefetch={false}
+                    className={cx("block rounded-lg border px-2.5 py-2 transition", isActive ? "border-sky-200 bg-sky-50" : "border-transparent hover:bg-slate-50")}
+                  >
+                    <div className="text-xs font-semibold text-slate-900">{label}</div>
+                    <div className="mt-0.5 text-[10px] text-slate-500">Hub</div>
+                  </Link>
+                );
+              }
+            )}
           </div>
         </div>
       </div>
@@ -809,45 +653,41 @@ export default function Sidebar({
       `}</style>
 
       <aside
-        className={cx(
-          "sidebar-root h-screen flex flex-col sticky top-0",
-          "bg-white border-r border-slate-200",
-          "overflow-x-hidden"
-        )}
+        className={cx("sidebar-root h-screen flex flex-col sticky top-0", "bg-white border-r border-slate-200", "overflow-hidden")}
         style={{ width: w, minWidth: w }}
       >
         {/* -- Logo + brand -- */}
-        <div className={cx("flex items-center gap-3 px-4 border-b border-slate-200", "h-14 flex-shrink-0")}>
-          {/* ✅ Replace old logo with Aliena logo */}
-          <div className="flex-shrink-0">
+        <div
+          className={cx(
+            "relative flex items-center border-b border-slate-200 h-14 flex-shrink-0",
+            // ✅ When collapsed, reduce padding/gap so we don’t clip controls in 64px
+            collapsed ? "px-2" : "px-4",
+            collapsed ? "gap-2" : "gap-3"
+          )}
+        >
+          {/* Logo */}
+          <div className={cx("flex-shrink-0", collapsed ? "mx-auto" : "")}>
             <div className="w-8 h-8 rounded-xl overflow-hidden ring-1 ring-slate-200 bg-white">
-              <Image
-                src={ALIENA_LOGO_URL}
-                alt="Aliena"
-                width={32}
-                height={32}
-                priority
-                className="w-full h-full object-cover"
-              />
+              <Image src={ALIENA_LOGO_URL} alt="Aliena" width={32} height={32} priority className="w-full h-full object-cover" />
             </div>
           </div>
 
           {!collapsed && (
             <div className="min-w-0">
-              {/* ✅ Replace any ResForce with ΛLIΞNΛ */}
               <div className="text-sm font-black tracking-tight text-slate-900 truncate">
                 <AlienaWordmarkTop />
               </div>
-
               {orgName && <div className="text-[10px] text-slate-500 truncate font-medium">{orgName}</div>}
             </div>
           )}
 
+          {/* ✅ Toggle button is absolute so it is NEVER clipped when sidebar is 64px */}
           <button
             type="button"
             onClick={toggleCollapse}
             className={cx(
-              "ml-auto flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center",
+              "absolute right-2 top-1/2 -translate-y-1/2",
+              "w-7 h-7 rounded-lg flex items-center justify-center",
               "text-slate-500 hover:text-slate-900 hover:bg-slate-100",
               "transition-all duration-150"
             )}
@@ -866,14 +706,12 @@ export default function Sidebar({
             <SidebarGroup key={group.label} group={group} collapsed={collapsed} />
           ))}
 
-          {/* Project context strip */}
           {projectRef && (
             <div className="mt-2">
               <ProjectContextStrip projectRef={projectRef} collapsed={collapsed} />
             </div>
           )}
 
-          {/* ✅ MERGED: Artifacts sidebar content inside left sidebar */}
           {projectRef && <ProjectArtifactsInline projectRef={projectRef} collapsed={collapsed} />}
         </div>
 
@@ -884,12 +722,7 @@ export default function Sidebar({
           ))}
 
           <div className={cx("mt-1 flex items-center gap-3 px-3 py-2.5 rounded-xl", "bg-slate-50 border border-slate-200")}>
-            <div
-              className={cx(
-                "flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center",
-                "bg-sky-100 text-sky-700 text-xs font-black"
-              )}
-            >
+            <div className={cx("flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center", "bg-sky-100 text-sky-700 text-xs font-black")}>
               {(userName || "U").charAt(0).toUpperCase()}
             </div>
             {!collapsed && (
@@ -898,31 +731,9 @@ export default function Sidebar({
                 <div className="text-[10px] text-slate-500 truncate">Signed in</div>
               </div>
             )}
-            <button
-              type="button"
-              title="Sign out"
-              onClick={async () => {
-                const supabase = createClient();
-                await supabase.auth.signOut();
-                window.location.href = "/login";
-              }}
-              className={cx(
-                "flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center",
-                "text-slate-400 hover:text-rose-600 hover:bg-rose-50",
-                "transition-all duration-150"
-              )}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-                <polyline points="16 17 21 12 16 7"/>
-                <line x1="21" y1="12" x2="9" y2="12"/>
-              </svg>
-            </button>
           </div>
         </div>
       </aside>
     </>
   );
 }
-
-
