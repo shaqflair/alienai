@@ -84,6 +84,7 @@ type UpdateArtifactJsonResult = { ok: boolean; error?: string };
 export type ArtifactDetailClientHostProps = {
   projectId: string;
   artifactId: string;
+  organisationId?: string;
 
   mode: ArtifactDetailClientMode;
 
@@ -138,12 +139,14 @@ function getArtifactVersion(typedInitialJson: any) {
 function FinancialPlanEditorHost({
   projectId,
   artifactId,
+  organisationId,
   initialJson,
   readOnly,
   updateArtifactJsonAction,
 }: {
   projectId: string;
   artifactId: string;
+  organisationId?: string;
   initialJson: any;
   readOnly: boolean;
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
@@ -189,7 +192,7 @@ function FinancialPlanEditorHost({
     <FinancialPlanEditor
       content={content}
       onChange={handleChange}
-       organisationId={projectId}
+       organisationId={organisationId ?? projectId}
              readOnly={readOnly}
     />
   );
@@ -199,7 +202,7 @@ function FinancialPlanEditorHost({
 
 export default function ArtifactDetailClientHost(props: ArtifactDetailClientHostProps) {
   const {
-    projectId, artifactId, mode, isEditable, lockLayout,
+    projectId, artifactId, organisationId, mode, isEditable, lockLayout,
     charterInitial, typedInitialJson, rawContentJson, rawContentText,
     projectTitle, projectManagerName, projectStartDate, projectFinishDate,
     latestWbsJson, wbsArtifactId,
