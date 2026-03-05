@@ -24,6 +24,7 @@ function jsonOk(data: any, status = 200) {
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;
 }
+
 function jsonErr(error: string, status = 400, meta?: any) {
   const res = NextResponse.json({ ok: false, error, meta }, { status });
   res.headers.set("Cache-Control", "no-store, max-age=0");
@@ -42,7 +43,6 @@ function looksMissingColumn(err: any) {
   return msg.includes("column") && msg.includes("does not exist");
 }
 
-// ✅ Consistent with other endpoints: accepts "all" and returns union
 function clampDaysParam(v: any): 7 | 14 | 30 | 60 | "all" {
   const s = String(v ?? "").trim().toLowerCase();
   if (s === "all") return "all";
@@ -353,8 +353,9 @@ async function fetchScheduleAgg(supabase: any, projectIds: string[], windowDays:
 
 async function fetchRaidStats(supabase: any, projectIds: string[]) {
   const today = ymd(new Date());
- const { data: raidRows, error: rErr } = await supabase
-  .from("raid_items")
+
+  const { data: raidRows, error: rErr } = await supabase
+    .from("raid_items")
     .select("id, project_id, status, due_date, probability, severity")
     .in("project_id", projectIds)
     .limit(20000);
@@ -362,8 +363,8 @@ async function fetchRaidStats(supabase: any, projectIds: string[]) {
   if (rErr) return { ok: false, error: rErr.message, open_high: 0, overdue: 0, sla_high: 0 };
 
   const rows = Array.isArray(raidRows) ? raidRows : [];
-  let overdue = 0,
-    openHigh = 0;
+  let overdue = 0;
+  let openHigh = 0;
 
   for (const r of rows) {
     const st = String((r as any)?.status || "").toLowerCase();
@@ -373,8 +374,7 @@ async function fetchRaidStats(supabase: any, projectIds: string[]) {
 
     const p = clamp0to100((r as any)?.probability);
     const s = clamp0to100((r as any)?.severity);
-    const score =
-      (r as any)?.probability == null || (r as any)?.severity == null ? null : Math.round((p * s) / 100);
+    const score = (r as any)?.probability == null || (r as any)?.severity == null ? null : Math.round((p * s) / 100);
     if (!closed && score != null && score >= 70) openHigh++;
   }
 
@@ -382,25 +382,21 @@ async function fetchRaidStats(supabase: any, projectIds: string[]) {
 
   try {
     const raidIds = rows.map((x: any) => x.id).filter(Boolean);
-
     if (raidIds.length) {
-      const { data: preds } = await supabase
+      const { data: preds, error: pErr } = await supabase
         .from("raid_sla_predictions")
         .select("raid_item_id, breach_probability, predicted_at")
         .in("raid_item_id", raidIds)
         .order("predicted_at", { ascending: false })
         .limit(20000);
 
-      if (Array.isArray(preds)) {
+      if (!pErr && Array.isArray(preds)) {
         const seen = new Set<string>();
-
         for (const p of preds) {
           const id = String((p as any)?.raid_item_id || "");
           if (!id || seen.has(id)) continue;
-
           seen.add(id);
           const bp = num((p as any)?.breach_probability, -1);
-
           if (bp >= 70) slaHigh++;
         }
       }
@@ -408,4 +404,233 @@ async function fetchRaidStats(supabase: any, projectIds: string[]) {
   } catch {}
 
   return { ok: true, error: null, open_high: openHigh, overdue, sla_high: slaHigh };
+}
+
+async function fetchPendingApprovals(supabase: any, projectIds: string[]) {
+  // Best-effort: supports either approval steps table or cached view if you have it.
+  const candidates = [
+    {
+      table: "artifact_approval_steps",
+      select: "id, project_id, status",
+      statusCol: "status",
+    },
+    {
+      table: "approval_steps",
+      select: "id, project_id, status",
+      statusCol: "status",
+    },
+  ];
+
+  for (const c of candidates) {
+    try {
+      const { data, error } = await supabase.from(c.table).select(c.select).in("project_id", projectIds).limit(20000);
+      if (error) {
+        if (looksMissingRelation(error)) continue;
+        return { ok: false, error: error.message, pending: 0, source: c.table };
+      }
+      const rows = Array.isArray(data) ? data : [];
+      const pending = rows.filter((r: any) => {
+        const st = String(r?.[c.statusCol] || "").toLowerCase();
+        return st === "pending" || st === "awaiting" || st === "in_review" || st === "submitted";
+      }).length;
+      return { ok: true, error: null, pending, source: c.table };
+    } catch (e: any) {
+      // keep trying other tables
+    }
+  }
+
+  return { ok: false, error: "approvals table not found", pending: 0, source: null };
+}
+
+async function fetchStaleActivity(supabase: any, projectIds: string[]) {
+  // FIX-PH1: stale cadence excludes projects created < 7 days ago
+  const meta: any = { ok: true, notes: [] as string[] };
+
+  const selectSets = [
+    "id, created_at, updated_at, last_activity_at",
+    "id, created_at, updated_at",
+    "id, created_at",
+  ];
+
+  let rows: any[] = [];
+  let lastErr: any = null;
+
+  for (const sel of selectSets) {
+    const { data, error } = await supabase.from("projects").select(sel).in("id", projectIds).limit(20000);
+    if (!error && Array.isArray(data)) {
+      rows = data;
+      lastErr = null;
+      break;
+    }
+    lastErr = error;
+    if (!(looksMissingRelation(error) || looksMissingColumn(error))) break;
+  }
+
+  if (!rows.length) {
+    meta.ok = false;
+    meta.notes.push("Could not read projects for stale activity; defaulting stale=0.");
+    if (lastErr?.message) meta.notes.push(lastErr.message);
+    return { ok: false, stale7d: 0, meta };
+  }
+
+  const now = new Date();
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
+  let stale = 0;
+
+  for (const p of rows) {
+    const createdAt = p?.created_at ? new Date(p.created_at) : null;
+    if (createdAt && now.getTime() - createdAt.getTime() < sevenDaysMs) {
+      // exclude very new projects from stale penalty
+      continue;
+    }
+
+    const last =
+      (p as any)?.last_activity_at || (p as any)?.updated_at || (p as any)?.created_at || null;
+
+    if (!last) continue;
+
+    const lastDt = new Date(last);
+    if (!Number.isFinite(lastDt.getTime())) continue;
+
+    if (now.getTime() - lastDt.getTime() >= sevenDaysMs) stale++;
+  }
+
+  return { ok: true, stale7d: stale, meta };
+}
+
+/* ---------------- core handler ---------------- */
+
+async function handle(req: Request, method: "GET" | "POST") {
+  const supabase = createClient();
+
+  const { data: auth, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !auth?.user?.id) return jsonErr("Not authenticated", 401, { authErr: authErr?.message });
+
+  const url = new URL(req.url);
+  const daysParam = clampDaysParam(url.searchParams.get("days"));
+  const windowDays = normalizeWindowDays(daysParam);
+
+  let filters: PortfolioFilters = {};
+  if (method === "GET") {
+    filters = parseFiltersFromUrl(url);
+  } else {
+    let body: any = null;
+    try {
+      body = await req.json();
+    } catch {}
+    filters = parseFiltersFromBody(body);
+  }
+
+  // ✅ Explicit user binding (your step 4)
+  const scoped = await resolveOrgActiveProjectScope(supabase, auth.user.id);
+
+  // contract: helper returns { scopedIdsRaw, scopedIdsActive, source, orgScope, ... }
+  const scopeMeta = (scoped as any)?.meta ?? (scoped as any) ?? {};
+  const orgId = (scoped as any)?.organisationId ?? (scopeMeta as any)?.organisationId ?? null;
+
+  const scopedIdsRaw: string[] = Array.isArray((scoped as any)?.scopedIdsRaw)
+    ? (scoped as any).scopedIdsRaw
+    : Array.isArray(scopeMeta?.scopedIdsRaw)
+      ? scopeMeta.scopedIdsRaw
+      : Array.isArray((scoped as any)?.projectIds)
+        ? (scoped as any).projectIds
+        : [];
+
+  // ✅ Active project filter (fixed: helper returns string[])
+  let activeIds: string[] = [];
+  let activeMeta: any = { applied: false };
+
+  try {
+    const maybeActive = await filterActiveProjectIds(supabase, scopedIdsRaw);
+    if (Array.isArray(maybeActive)) {
+      activeIds = maybeActive;
+      activeMeta = { applied: true, before: scopedIdsRaw.length, after: activeIds.length };
+    } else if (maybeActive && typeof maybeActive === "object") {
+      // tolerate older helper shapes
+      const ids = (maybeActive as any).projectIds ?? (maybeActive as any).ids ?? [];
+      activeIds = Array.isArray(ids) ? ids : [];
+      activeMeta = { applied: true, ...(maybeActive as any).meta, before: scopedIdsRaw.length, after: activeIds.length };
+    }
+  } catch (e: any) {
+    activeMeta = { applied: false, error: String(e?.message || e || "active filter failed") };
+  }
+
+  // ✅ FAIL-OPEN safeguard: if active filter collapses to 0 but raw had projects, keep raw
+  let scopedIds = activeIds.length ? activeIds : scopedIdsRaw;
+  if (!activeIds.length && scopedIdsRaw.length) {
+    activeMeta.failOpen = true;
+    activeMeta.note = "Active filter returned 0; using raw scoped ids to avoid false-empty.";
+  }
+
+  // Apply filters (within org scope)
+  const filtered = await applyProjectFilters(supabase, scopedIds, filters);
+  const finalProjectIds = filtered.projectIds;
+
+  // fetch metrics (best effort)
+  const schedule = await fetchScheduleAgg(supabase, finalProjectIds, windowDays);
+  const raid = await fetchRaidStats(supabase, finalProjectIds);
+  const approvals = await fetchPendingApprovals(supabase, finalProjectIds);
+  const activity = await fetchStaleActivity(supabase, finalProjectIds);
+
+  const scheduleScore = computeScheduleScore(schedule.ok ? schedule.data : null);
+  const raidScore = computeRaidScore({ open_high: raid.open_high, overdue: raid.overdue, sla_high: raid.sla_high });
+  const approvalsScore = computeApprovalsScore(approvals.pending);
+  const activityScore = computeActivityScore(activity.stale7d);
+
+  // Flow score is best-effort placeholder unless you have a canonical flow table
+  const flowScore = 85;
+
+  const parts = {
+    schedule: scheduleScore.score,
+    raid: raidScore,
+    flow: flowScore,
+    approvals: approvalsScore,
+    activity: activityScore,
+  };
+
+  const portfolioScore = weightedPortfolioScore(parts);
+
+  const meta = {
+    organisationId: orgId,
+    days: daysParam,
+    windowDays,
+    filters: filtered.meta,
+    active: activeMeta,
+    scope: {
+      ...scopeMeta,
+      // Ensure these are visible even if helper returns them at top-level
+      scopedIdsRaw: (scopeMeta as any)?.scopedIdsRaw ?? scopedIdsRaw,
+      scopedIdsActive: (scopeMeta as any)?.scopedIdsActive ?? activeIds,
+      source: (scopeMeta as any)?.source ?? (scoped as any)?.source ?? "unknown",
+      orgScope: (scopeMeta as any)?.orgScope ?? (scoped as any)?.orgScope ?? null,
+    },
+    notes: [] as string[],
+  };
+
+  if (!finalProjectIds.length) {
+    meta.notes.push("No projects in scope after filtering.");
+  }
+
+  return jsonOk({
+    projectCount: finalProjectIds.length,
+    score: portfolioScore,
+    parts,
+    schedule: schedule.ok ? schedule.data : null,
+    raid: raid.ok ? { open_high: raid.open_high, overdue: raid.overdue, sla_high: raid.sla_high } : null,
+    approvals: { pending: approvals.pending, source: approvals.source, ok: approvals.ok, error: approvals.error ?? null },
+    activity: { stale7d: activity.stale7d, ok: activity.ok, meta: activity.meta },
+    meta,
+  });
+}
+
+/* ---------------- route exports ---------------- */
+
+// ✅ This is what stops your 405s in the screenshot.
+export async function GET(req: Request) {
+  return handle(req, "GET");
+}
+
+export async function POST(req: Request) {
+  return handle(req, "POST");
 }
