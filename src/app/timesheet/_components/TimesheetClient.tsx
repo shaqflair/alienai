@@ -1,4 +1,4 @@
-"use client";
+ï»¿"use client";
 // FILE: src/app/timesheet/_components/TimesheetClient.tsx
 
 import { useState, useTransition } from "react";
@@ -18,20 +18,20 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 export const NON_PROJECT_CATEGORIES: {
   id: string; label: string; colour: string; icon: string;
 }[] = [
-  { id: "annual_leave",   label: "Annual Leave",   colour: "#3b82f6", icon: "???" },
-  { id: "public_holiday", label: "Public Holiday",  colour: "#8b5cf6", icon: "??" },
-  { id: "sick_leave",     label: "Sick Leave",      colour: "#f59e0b", icon: "??" },
-  { id: "training",       label: "Training",        colour: "#10b981", icon: "??" },
-  { id: "other_admin",    label: "Other / Admin",   colour: "#64748b", icon: "??" },
+  { id: "annual_leave",   label: "Annual Leave",   colour: "#3b82f6", icon: "\u{1F3D6}\uFE0F" },
+  { id: "public_holiday", label: "Public Holiday",  colour: "#8b5cf6", icon: "\u{1F389}" },
+  { id: "sick_leave",     label: "Sick Leave",      colour: "#f59e0b", icon: "\u{1F912}" },
+  { id: "training",       label: "Training",        colour: "#10b981", icon: "\u{1F4DA}" },
+  { id: "other_admin",    label: "Other / Admin",   colour: "#64748b", icon: "\u{1F4CB}" },
 ];
 
 const STATUS_META: Record<string, {
   label: string; colour: string; bg: string; border: string; icon: string;
 }> = {
-  draft:     { label: "Draft",              colour: "#64748b", bg: "#f1f5f9",              border: "#e2e8f0",              icon: "??"  },
-  submitted: { label: "Pending Approval",   colour: "#d97706", bg: "rgba(245,158,11,0.1)", border: "rgba(245,158,11,0.3)", icon: "?"  },
-  approved:  { label: "Approved",           colour: "#059669", bg: "rgba(16,185,129,0.1)", border: "rgba(16,185,129,0.3)", icon: "?"  },
-  rejected:  { label: "Rejected — Rework",  colour: "#dc2626", bg: "rgba(239,68,68,0.1)",  border: "rgba(239,68,68,0.3)",  icon: "?"  },
+  draft:     { label: "Draft",              colour: "#64748b", bg: "#f1f5f9",              border: "#e2e8f0",              icon: "\u270F\uFE0F"  },
+  submitted: { label: "Pending Approval",   colour: "#d97706", bg: "rgba(245,158,11,0.1)", border: "rgba(245,158,11,0.3)", icon: "\u23F3"  },
+  approved:  { label: "Approved",           colour: "#059669", bg: "rgba(16,185,129,0.1)", border: "rgba(16,185,129,0.3)", icon: "\u2705"  },
+  rejected:  { label: "Rejected \u2014 Rework",  colour: "#dc2626", bg: "rgba(239,68,68,0.1)",  border: "rgba(239,68,68,0.3)",  icon: "\u274C"  },
 };
 
 /* =============================================================================
@@ -50,7 +50,7 @@ function fmtDate(iso: string): string {
 }
 
 function fmtWeek(iso: string): string {
-  return `${fmtDate(iso)} – ${fmtDate(addDays(iso, 6))}`;
+  return `${fmtDate(iso)} \u2013 ${fmtDate(addDays(iso, 6))}`;
 }
 
 function prevMonday(d: string) { return addDays(d, -7); }
@@ -161,7 +161,7 @@ function StatusBanner({
           fontSize: "12px", fontWeight: 800, cursor: reworking ? "not-allowed" : "pointer",
           whiteSpace: "nowrap", opacity: reworking ? 0.7 : 1,
         }}>
-          {reworking ? "Opening..." : "?? Rework & resubmit"}
+          {reworking ? "Opening..." : "\u270F\uFE0F Rework & resubmit"}
         </button>
       )}
     </div>
@@ -178,7 +178,7 @@ function LockedBanner({ cutoffWeeks }: { cutoffWeeks: number }) {
       background: "rgba(100,116,139,0.08)", border: "1.5px solid #e2e8f0",
       display: "flex", alignItems: "center", gap: "12px",
     }}>
-      <span style={{ fontSize: "20px" }}>??</span>
+      <span style={{ fontSize: "20px" }}>{"\u{1F512}"}</span>
       <div>
         <div style={{ fontSize: "13px", fontWeight: 800, color: "#475569", marginBottom: "2px" }}>
           This week is locked
@@ -274,7 +274,7 @@ function AddCategoryRow({ usedCategories, onAdd }: {
 }
 
 /* =============================================================================
-   EMPTY STATE — shown when no project rows and no saved entries
+   EMPTY STATE
 ============================================================================= */
 function NoProjectsHint({ hasProjects }: { hasProjects: boolean }) {
   if (hasProjects) return null;
@@ -287,19 +287,19 @@ function NoProjectsHint({ hasProjects }: { hasProjects: boolean }) {
           background: "rgba(14,116,144,0.04)",
           border: "1.5px dashed rgba(14,116,144,0.2)",
         }}>
-          <span style={{ fontSize: "20px" }}>??</span>
+          <span style={{ fontSize: "20px" }}>{"\u{1F4CB}"}</span>
           <div>
             <div style={{ fontSize: "13px", fontWeight: 700, color: "#0e7490", marginBottom: "3px" }}>
               No projects allocated for this week
             </div>
             <div style={{ fontSize: "12px", color: "#64748b" }}>
-              You don't have any active allocations covering this week.
-              Use the <strong>"+ Add project row"</strong> dropdown below to manually add a project,
-              or ask your manager to allocate you to a project via the{" "}
+              {"You don't have any active allocations covering this week. "}
+              {"Use the "}<strong>{"\"+ Add project row\""}</strong>{" dropdown below to manually add a project, "}
+              {"or ask your manager to allocate you to a project via the "}
               <a href="/allocations/new" style={{ color: "#0e7490", fontWeight: 700 }}>
                 Allocate resource
-              </a>{" "}
-              page.
+              </a>
+              {" page."}
             </div>
           </div>
         </div>
@@ -309,7 +309,7 @@ function NoProjectsHint({ hasProjects }: { hasProjects: boolean }) {
 }
 
 /* =============================================================================
-   REMOVE BUTTON — shared style for × on both project and category rows
+   REMOVE BUTTON
 ============================================================================= */
 function RemoveRowBtn({ onClick }: { onClick: () => void }) {
   return (
@@ -325,7 +325,7 @@ function RemoveRowBtn({ onClick }: { onClick: () => void }) {
       onMouseEnter={e => (e.currentTarget.style.color = "#94a3b8")}
       onMouseLeave={e => (e.currentTarget.style.color = "#cbd5e1")}
       title="Remove row"
-    >×</button>
+    >{"\u00D7"}</button>
   );
 }
 
@@ -363,8 +363,6 @@ export default function TimesheetClient({
     buildInitialGrid(timesheetData.entries, initialWeekStart)
   );
 
-  // Initialise rowProjects from allocatedProjectIds (this week's allocs)
-  // PLUS any projects that already have saved entries for this week.
   const [rowProjects, setRowProjects] = useState<TimesheetProject[]>(() => {
     const entryProjectIds = new Set(
       timesheetData.entries.map(e => e.projectId).filter(Boolean) as string[]
@@ -472,7 +470,7 @@ export default function TimesheetClient({
         submitFd.set("timesheet_id", id);
         await submitTimesheetAction(submitFd);
         setTsData(d => ({ ...d, status: "submitted" }));
-        setSuccess("? Timesheet submitted — your line manager has been notified");
+        setSuccess("\u2705 Timesheet submitted \u2014 your line manager has been notified");
       } catch (e: any) { setError(e?.message ?? "Failed to submit"); }
     });
   }
@@ -485,7 +483,7 @@ export default function TimesheetClient({
         fd.set("timesheet_id", tsData.id!);
         await recallTimesheetAction(fd);
         setTsData(d => ({ ...d, status: "draft" }));
-        setSuccess("Timesheet recalled — you can now edit and resubmit");
+        setSuccess("Timesheet recalled \u2014 you can now edit and resubmit");
       } catch (e: any) { setError(e?.message ?? "Failed to recall"); }
     });
   }
@@ -498,7 +496,7 @@ export default function TimesheetClient({
         fd.set("timesheet_id", tsData.id!);
         await reworkTimesheetAction(fd);
         setTsData(d => ({ ...d, status: "draft", reviewerNote: null }));
-        setSuccess("Timesheet opened for rework — make your changes and resubmit");
+        setSuccess("Timesheet opened for rework \u2014 make your changes and resubmit");
       } catch (e: any) { setError(e?.message ?? "Failed to open for rework"); }
     });
   }
@@ -534,7 +532,7 @@ export default function TimesheetClient({
                   fontSize: "10px", fontWeight: 800, padding: "3px 8px",
                   borderRadius: "5px", background: "#f1f5f9", color: "#64748b",
                   border: "1px solid #e2e8f0",
-                }}>?? Locked</span>
+                }}>{"\u{1F512}"} Locked</span>
               )}
             </div>
           </div>
@@ -545,7 +543,6 @@ export default function TimesheetClient({
           </div>
         </div>
 
-        {/* Flash messages */}
         {error   && <div style={errorStyle}>{error}</div>}
         {success && <div style={successStyle}>{success}</div>}
 
@@ -583,10 +580,8 @@ export default function TimesheetClient({
               </thead>
               <tbody>
 
-                {/* Empty state when no project rows at all */}
                 <NoProjectsHint hasProjects={rowProjects.length > 0} />
 
-                {/* PROJECT ROWS */}
                 {rowProjects.map(project => (
                   <tr key={project.id} style={{ borderBottom: "1px solid #f8fafc" }}>
                     <td style={{ padding: "8px 16px" }}>
@@ -610,7 +605,6 @@ export default function TimesheetClient({
                             ALLOC
                           </span>
                         )}
-                        {/* ? FIX: show remove button for ALL projects when not read-only */}
                         {!isReadOnly && (
                           <RemoveRowBtn onClick={() => removeProjectRow(project.id)} />
                         )}
@@ -628,13 +622,12 @@ export default function TimesheetClient({
                     <td style={{ padding: "6px 12px", textAlign: "center" }}>
                       <span style={{ fontSize: "12px", fontWeight: 800,
                                      color: rowTotal(project.id) > 0 ? "#0e7490" : "#cbd5e1" }}>
-                        {rowTotal(project.id) || "–"}
+                        {rowTotal(project.id) || "\u2013"}
                       </span>
                     </td>
                   </tr>
                 ))}
 
-                {/* NON-PROJECT CATEGORY ROWS */}
                 {rowCategories.map(catId => {
                   const cat = NON_PROJECT_CATEGORIES.find(c => c.id === catId);
                   if (!cat) return null;
@@ -659,14 +652,13 @@ export default function TimesheetClient({
                       ))}
                       <td style={{ padding: "6px 12px", textAlign: "center" }}>
                         <span style={{ fontSize: "12px", fontWeight: 800, color: rowTotal(catId) > 0 ? "#8b5cf6" : "#cbd5e1" }}>
-                          {rowTotal(catId) || "–"}
+                          {rowTotal(catId) || "\u2013"}
                         </span>
                       </td>
                     </tr>
                   );
                 })}
 
-                {/* ADD ROW CONTROLS */}
                 {!isReadOnly && (
                   <tr>
                     <td colSpan={9} style={{ padding: "8px 12px" }}>
@@ -685,7 +677,6 @@ export default function TimesheetClient({
                   </tr>
                 )}
 
-                {/* DAY TOTALS ROW */}
                 <tr style={{ borderTop: "1.5px solid #f1f5f9", background: "#f8fafc" }}>
                   <td style={{ padding: "8px 16px" }}>
                     <span style={{ fontSize: "10px", fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Daily total</span>
@@ -693,13 +684,13 @@ export default function TimesheetClient({
                   {days.map((d, i) => (
                     <td key={i} style={{ padding: "8px 6px", textAlign: "center", background: d.isWeekend ? "#f1f5f9" : "#f8fafc" }}>
                       <span style={{ fontSize: "12px", fontWeight: 800, color: dayTotal(i) > 8 ? "#dc2626" : dayTotal(i) > 0 ? "#0f172a" : "#e2e8f0" }}>
-                        {dayTotal(i) || "–"}
+                        {dayTotal(i) || "\u2013"}
                       </span>
                     </td>
                   ))}
                   <td style={{ padding: "8px 12px", textAlign: "center" }}>
                     <span style={{ fontSize: "13px", fontWeight: 900, color: weekTotal() > 0 ? "#0e7490" : "#e2e8f0" }}>
-                      {weekTotal() || "–"}
+                      {weekTotal() || "\u2013"}
                     </span>
                   </td>
                 </tr>
@@ -707,7 +698,6 @@ export default function TimesheetClient({
             </table>
           </div>
 
-          {/* Footer actions */}
           <div style={{ padding: "12px 16px", borderTop: "1.5px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap", background: "#fafafa" }}>
             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
               <span style={{ fontSize: "12px", color: "#94a3b8" }}>
@@ -728,7 +718,7 @@ export default function TimesheetClient({
               )}
               {tsData.status === "submitted" && (
                 <button type="button" onClick={handleRecall} disabled={submitting} style={secondaryBtnStyle(submitting)}>
-                  {submitting ? "..." : "? Recall to draft"}
+                  {submitting ? "..." : "\u21A9 Recall to draft"}
                 </button>
               )}
               {isAdmin && tsData.id && (
@@ -740,7 +730,6 @@ export default function TimesheetClient({
           </div>
         </div>
 
-        {/* Recent weeks */}
         <div style={{ background: "white", borderRadius: "12px", border: "1.5px solid #e2e8f0", padding: "16px" }}>
           <div style={{ fontSize: "10px", fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "10px" }}>Recent weeks</div>
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
@@ -751,7 +740,7 @@ export default function TimesheetClient({
                 <button key={t.weekStart + idx} type="button" onClick={() => navigate(t.weekStart)} style={{ padding: "5px 10px", borderRadius: "7px", border: `1.5px solid ${isCurrentWeek ? "#0e7490" : "#e2e8f0"}`, background: isCurrentWeek ? "rgba(14,116,144,0.08)" : "white", cursor: "pointer", fontSize: "11px", fontWeight: 600, color: isCurrentWeek ? "#0e7490" : "#475569", display: "flex", gap: "6px", alignItems: "center", opacity: withinCutoff ? 1 : 0.5 }}>
                   <span>{fmtDate(t.weekStart)}</span>
                   {t.status !== "draft" && <StatusBadge status={t.status} />}
-                  {!withinCutoff && <span title="Locked" style={{ fontSize: "10px" }}>??</span>}
+                  {!withinCutoff && <span title="Locked" style={{ fontSize: "10px" }}>{"\u{1F512}"}</span>}
                 </button>
               );
             })}
