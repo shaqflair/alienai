@@ -22,41 +22,40 @@ type Project = {
   finish_date: string | null;
   created_at: string;
   pm_name: string | null;
+  health?: number | null;
+  rag?: "G" | "A" | "R" | null;
 };
 
 function formatDate(d: string | null | undefined) {
   if (!d) return null;
-  try {
-    return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-  } catch {
-    return d;
-  }
+  try { return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); }
+  catch { return d; }
 }
-
-// ✅ Always use UUID so all sub-pages (members, approvals, artifacts) work correctly.
-function projectRef(p: Project) {
-  return p.id;
+function formatDateShort(d: string | null | undefined) {
+  if (!d) return null;
+  try { return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short" }); }
+  catch { return d; }
 }
+function daysUntil(d: string | null | undefined): number | null {
+  if (!d) return null;
+  try { return Math.ceil((new Date(d).getTime() - Date.now()) / 86_400_000); }
+  catch { return null; }
+}
+function projectRef(p: Project) { return p.id; }
+function safeStr(x: any) { return typeof x === "string" ? x : x == null ? "" : String(x); }
 
 async function setProjectStatus(formData: FormData) {
   "use server";
   const supabase = await createClient();
-  const {
-    data: { user },
-    error: uErr,
-  } = await supabase.auth.getUser();
+  const { data: { user }, error: uErr } = await supabase.auth.getUser();
   if (uErr) throw uErr;
   if (!user) redirect("/login");
-
   const projectId = (formData.get("project_id") as string) || "";
   const status = (formData.get("status") as string) || "";
   const next = (formData.get("next") as string) || "/projects";
-
   if (!projectId || !["active", "closed"].includes(status)) redirect(next);
-
   const { error } = await supabase.from("projects").update({ status }).eq("id", projectId);
   if (error) throw error;
-
   redirect(next);
 }
 
@@ -66,28 +65,19 @@ export default async function ProjectsPage({
   searchParams?: Promise<{ filter?: string; sort?: string; q?: string; debug?: string }>;
 }) {
   const supabase = await createClient();
-
-  const {
-    data: { user },
-    error: authErr,
-  } = await supabase.auth.getUser();
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
   if (authErr) throw authErr;
   if (!user) redirect("/login");
 
   const activeOrgId = await getActiveOrgId();
   if (!activeOrgId) redirect("/settings?err=no_active_org");
 
-  // ✅ IMPORTANT:
-  // - We list "my projects" by membership
-  // - AND we hard-scope to the ACTIVE ORG to prevent cross-org bleed
-  // - AND we ignore removed memberships by checking removed_at (more robust than is_active quirks)
   const { data: memberRows, error: memErr } = await supabase
     .from("project_members")
     .select("project_id, role, removed_at")
     .eq("user_id", user.id)
     .is("removed_at", null)
     .limit(20000);
-
   if (memErr) throw memErr;
 
   const memberProjectIds = (memberRows ?? []).map((r: any) => String(r?.project_id || "").trim()).filter(Boolean);
@@ -104,8 +94,23 @@ export default async function ProjectsPage({
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(20000);
-
     if (pErr) throw pErr;
+
+    // Try to get RAG scores
+    const projectIds = (pData ?? []).map((p: any) => p.id);
+    let ragMap = new Map<string, { health: number; rag: string }>();
+    if (projectIds.length > 0) {
+      const { data: ragData } = await supabase
+        .from("project_rag_scores")
+        .select("project_id, health, rag")
+        .in("project_id", projectIds)
+        .order("created_at", { ascending: false });
+      if (ragData) {
+        for (const r of ragData) {
+          if (!ragMap.has(r.project_id)) ragMap.set(r.project_id, { health: Number(r.health), rag: r.rag });
+        }
+      }
+    }
 
     projects = (pData ?? []).map((p: any) => ({
       id: String(p.id),
@@ -118,6 +123,8 @@ export default async function ProjectsPage({
       finish_date: p.finish_date ?? null,
       created_at: String(p.created_at),
       pm_name: null,
+      health: ragMap.get(p.id)?.health ?? null,
+      rag: (ragMap.get(p.id)?.rag as any) ?? null,
     }));
   }
 
@@ -125,7 +132,6 @@ export default async function ProjectsPage({
   const filter = (sp.filter ?? "Active").trim();
   const sortMode = (sp.sort ?? "Newest").trim();
   const query = (sp.q ?? "").trim().toLowerCase();
-  const debug = String(sp.debug ?? "").trim() === "1";
 
   const filtered = projects
     .filter((p) => {
@@ -140,77 +146,267 @@ export default async function ProjectsPage({
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
 
-  const activeCt = projects.filter((p) => (p.status ?? "active").toLowerCase() !== "closed").length;
-  const closedCt = projects.filter((p) => (p.status ?? "").toLowerCase() === "closed").length;
-
-  // Optional server logs for “why do I see X projects?”
-  if (debug) {
-    console.log("PROJECTS_PAGE_DEBUG_v2", {
-      userId: user.id,
-      activeOrgId,
-      memberRows: memberRows?.length ?? 0,
-      memberProjectIds: memberProjectIds.length,
-      projectsLoaded: projects.length,
-      filter,
-      sortMode,
-      query,
-    });
-  }
+  const activeCt  = projects.filter((p) => (p.status ?? "active").toLowerCase() !== "closed").length;
+  const closedCt  = projects.filter((p) => (p.status ?? "").toLowerCase() === "closed").length;
+  const atRiskCt  = projects.filter((p) => (p.status ?? "active").toLowerCase() !== "closed" && p.rag === "R").length;
+  const healthAvg = (() => {
+    const scored = projects.filter((p) => (p.status ?? "active").toLowerCase() !== "closed" && p.health != null);
+    if (!scored.length) return null;
+    return Math.round(scored.reduce((s, p) => s + (p.health ?? 0), 0) / scored.length);
+  })();
 
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
-        *, *::before, *::after { box-sizing: border-box; }
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-        .pl-action:hover  { background: #f1f5f9 !important; border-color: #cbd5e1 !important; }
-        .pl-row:hover     { box-shadow: 0 2px 12px rgba(0,0,0,0.06); border-color: #cbd5e1 !important; }
-        .pl-filter:hover  { background: #f1f5f9 !important; }
-        .pl-close:hover   { background: #fef9c3 !important; }
-        .pl-input:focus   { border-color: #06b6d4 !important; outline: none; box-shadow: 0 0 0 3px rgba(6,182,212,0.1); }
-        .pl-sec-btn:hover { background: #f1f5f9 !important; }
-        .pl-debug { font-family: 'DM Mono', ui-monospace, monospace; }
+        :root {
+          --ink:       #0a0e17;
+          --ink-2:     #3d4454;
+          --ink-3:     #7c8494;
+          --surface:   #ffffff;
+          --surface-2: #f5f7fa;
+          --border:    #e4e8ef;
+          --border-2:  #cdd3de;
+          --green:     #16a34a;
+          --green-bg:  #dcfce7;
+          --amber:     #d97706;
+          --amber-bg:  #fef3c7;
+          --red:       #dc2626;
+          --red-bg:    #fee2e2;
+          --blue:      #2563eb;
+          --blue-bg:   #eff6ff;
+          --teal:      #0d9488;
+          --teal-bg:   #f0fdfa;
+        }
+
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--surface-2); color: var(--ink); }
+
+        /* ── Hero banner ── */
+        .hero {
+          background: linear-gradient(135deg, #0a0e17 0%, #141b2e 50%, #0d1829 100%);
+          padding: 40px 48px 0;
+          position: relative; overflow: hidden;
+        }
+        .hero::before {
+          content: '';
+          position: absolute; inset: 0;
+          background:
+            radial-gradient(ellipse 60% 50% at 80% 20%, rgba(13,148,136,0.12) 0%, transparent 60%),
+            radial-gradient(ellipse 40% 60% at 10% 80%, rgba(37,99,235,0.08) 0%, transparent 60%);
+          pointer-events: none;
+        }
+        .hero-grid {
+          position: absolute; inset: 0; opacity: 0.04;
+          background-image: linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px),
+                            linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px);
+          background-size: 40px 40px;
+          pointer-events: none;
+        }
+
+        /* ── Stats strip ── */
+        .stat-strip { display: flex; gap: 0; margin-bottom: 32px; position: relative; z-index: 1; }
+        .stat-pill {
+          display: flex; align-items: center; gap: 10px;
+          padding: 16px 24px; border-right: 1px solid rgba(255,255,255,0.08);
+        }
+        .stat-pill:last-child { border-right: none; }
+        .stat-pill-val { font-size: 28px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px; line-height: 1; }
+        .stat-pill-lbl { font-size: 12px; color: rgba(255,255,255,0.45); font-weight: 500; margin-top: 2px; }
+        .stat-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+        /* ── Hero title ── */
+        .hero-title { font-size: 32px; font-weight: 800; color: #fff; letter-spacing: -0.5px; margin-bottom: 6px; position: relative; z-index: 1; }
+        .hero-sub   { font-size: 14px; color: rgba(255,255,255,0.45); margin-bottom: 28px; position: relative; z-index: 1; }
+
+        /* ── Toolbar ── */
+        .toolbar {
+          display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+          background: rgba(255,255,255,0.04); border-top: 1px solid rgba(255,255,255,0.07);
+          padding: 14px 48px; position: relative; z-index: 1;
+        }
+        .filter-tab {
+          padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
+          text-decoration: none; cursor: pointer; border: 1px solid transparent;
+          color: rgba(255,255,255,0.5); transition: all 0.15s; white-space: nowrap;
+          font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        .filter-tab:hover  { color: rgba(255,255,255,0.8); background: rgba(255,255,255,0.07); }
+        .filter-tab.active { color: #ffffff; background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.15); }
+        .search-box {
+          display: flex; align-items: center; gap: 8px;
+          background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 9px; padding: 7px 13px; flex: 1; max-width: 320px;
+          transition: border-color 0.15s, background 0.15s;
+        }
+        .search-box:focus-within { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); }
+        .search-box input {
+          border: none; outline: none; background: transparent; font-size: 13px;
+          color: #fff; font-family: 'Plus Jakarta Sans', sans-serif; width: 100%;
+        }
+        .search-box input::placeholder { color: rgba(255,255,255,0.35); }
+        .sort-tab {
+          padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 600;
+          text-decoration: none; color: rgba(255,255,255,0.45); border: 1px solid transparent;
+          transition: all 0.15s; white-space: nowrap; font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        .sort-tab:hover  { color: rgba(255,255,255,0.7); }
+        .sort-tab.active { color: #fff; background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.15); }
+        .new-btn {
+          display: inline-flex; align-items: center; gap: 6px;
+          padding: 7px 16px; border-radius: 9px; font-size: 13px; font-weight: 700;
+          background: var(--teal); color: white; text-decoration: none; border: none;
+          cursor: pointer; font-family: 'Plus Jakarta Sans', sans-serif;
+          transition: opacity 0.15s; white-space: nowrap; margin-left: auto;
+        }
+        .new-btn:hover { opacity: 0.88; }
+
+        /* ── Content area ── */
+        .content { padding: 28px 48px 64px; }
+        .count-label { font-size: 12px; font-weight: 600; color: var(--ink-3); margin-bottom: 16px; letter-spacing: 0.04em; text-transform: uppercase; }
+
+        /* ── Project card ── */
+        .project-card {
+          background: var(--surface); border: 1px solid var(--border);
+          border-radius: 14px; padding: 0;
+          transition: box-shadow 0.2s, border-color 0.2s, transform 0.2s;
+          overflow: hidden; position: relative;
+          animation: fadeUp 0.35s ease both;
+        }
+        .project-card:hover {
+          box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+          border-color: var(--border-2);
+          transform: translateY(-1px);
+        }
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateY(12px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .card-accent { width: 4px; position: absolute; left: 0; top: 0; bottom: 0; border-radius: 14px 0 0 14px; }
+        .card-inner  { padding: 20px 20px 20px 24px; display: flex; align-items: center; gap: 16px; }
+
+        /* ── Health ring ── */
+        .health-ring { flex-shrink: 0; position: relative; width: 52px; height: 52px; }
+        .health-ring svg { transform: rotate(-90deg); }
+        .health-ring-val {
+          position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+          font-size: 11px; font-weight: 800; letter-spacing: -0.3px;
+        }
+
+        /* ── Card body ── */
+        .card-body { flex: 1; min-width: 0; }
+        .card-title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; flex-wrap: wrap; }
+        .card-title {
+          font-size: 15px; font-weight: 700; color: var(--ink); text-decoration: none;
+          transition: color 0.15s;
+        }
+        .card-title:hover { color: var(--teal); }
+        .code-badge {
+          font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500;
+          padding: 2px 7px; border-radius: 5px; background: var(--surface-2);
+          color: var(--ink-3); border: 1px solid var(--border); letter-spacing: 0.02em;
+        }
+        .status-badge {
+          font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px;
+        }
+        .card-meta { font-size: 12px; color: var(--ink-3); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .meta-sep { width: 3px; height: 3px; border-radius: 50%; background: var(--border-2); flex-shrink: 0; }
+
+        /* ── Progress bar ── */
+        .progress-wrap { margin-top: 10px; }
+        .progress-track { height: 4px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
+        .progress-fill  { height: 100%; border-radius: 99px; transition: width 0.6s cubic-bezier(0.16,1,0.3,1); }
+
+        /* ── Date range ── */
+        .date-range {
+          display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+          flex-shrink: 0; min-width: 120px;
+        }
+        .date-range-label { font-size: 11px; color: var(--ink-3); font-weight: 500; text-align: right; }
+        .date-range-val   { font-size: 12px; color: var(--ink-2); font-weight: 600; text-align: right; font-family: 'JetBrains Mono', monospace; }
+        .days-chip {
+          font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px;
+        }
+
+        /* ── Actions ── */
+        .card-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
+        .act-btn {
+          display: inline-flex; align-items: center; gap: 4px;
+          padding: 6px 11px; border-radius: 8px; font-size: 12px; font-weight: 600;
+          text-decoration: none; border: 1px solid var(--border); color: var(--ink-2);
+          background: var(--surface); transition: all 0.15s; white-space: nowrap;
+          font-family: 'Plus Jakarta Sans', sans-serif; cursor: pointer;
+        }
+        .act-btn:hover { background: var(--surface-2); border-color: var(--border-2); color: var(--ink); }
+        .act-btn.close { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+        .act-btn.close:hover { background: #fef3c7; }
+        .act-btn.reopen { color: var(--ink-2); }
+        .divider { height: 16px; width: 1px; background: var(--border); flex-shrink: 0; }
+
+        /* ── Empty state ── */
+        .empty { text-align: center; padding: 72px 0; color: var(--ink-3); }
+        .empty-icon { font-size: 48px; margin-bottom: 12px; }
+        .empty-title { font-size: 16px; font-weight: 700; color: var(--ink-2); margin-bottom: 6px; }
+        .empty-sub   { font-size: 13px; }
+
+        /* ── Pipeline badge ── */
+        .pipeline-badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px; background: rgba(124,58,237,0.08); color: #7c3aed; }
+
+        /* ── Hidden class for JS search ── */
+        .js-hidden { display: none !important; }
+
+        @media (max-width: 900px) {
+          .hero        { padding: 28px 20px 0; }
+          .toolbar     { padding: 12px 20px; }
+          .content     { padding: 20px 20px 48px; }
+          .date-range  { display: none; }
+          .card-actions { gap: 4px; }
+          .stat-strip  { flex-wrap: wrap; gap: 0; }
+        }
+        @media (max-width: 600px) {
+          .act-btn span { display: none; }
+          .card-inner  { gap: 10px; padding: 14px 14px 14px 18px; }
+        }
       `}</style>
 
-      <main
-        style={{
-          minHeight: "100vh",
-          background: "#f8fafc",
-          fontFamily: "'DM Sans', -apple-system, sans-serif",
-          color: "#0f172a",
-        }}
-      >
-        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 32px 60px" }}>
-          {/* ── Header ── */}
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24, gap: 16, flexWrap: "wrap" }}>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
-              <div style={{ width: 42, height: 42, borderRadius: 12, background: "#e0f7fa", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>
-                <svg width="18" height="18" fill="none" viewBox="0 0 24 24">
-                  <path stroke="#06b6d4" strokeWidth="2" strokeLinecap="round" d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
-              </div>
-              <div>
-                <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0, letterSpacing: "-.5px" }}>Projects</h1>
-                <p style={{ fontSize: 13, color: "#64748b", margin: "3px 0 0" }}>Your portfolio entry point — search, filter, and jump into governance.</p>
-              </div>
+      {/* Live search JS */}
+      <script dangerouslySetInnerHTML={{ __html: `
+        (function(){
+          function init(){
+            var input = document.getElementById('live-search');
+            if(!input) return;
+            input.addEventListener('input', function(){
+              var q = this.value.toLowerCase().trim();
+              document.querySelectorAll('.project-card[data-search]').forEach(function(el){
+                if(!q || el.dataset.search.includes(q)) el.classList.remove('js-hidden');
+                else el.classList.add('js-hidden');
+              });
+              var vis = document.querySelectorAll('.project-card:not(.js-hidden)').length;
+              var lbl = document.getElementById('count-label');
+              if(lbl) lbl.textContent = vis + ' project' + (vis !== 1 ? 's' : '');
+            });
+          }
+          if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+          else init();
+        })();
+      `}} />
+
+      <main>
+        {/* ── HERO ── */}
+        <div className="hero">
+          <div className="hero-grid" />
+
+          <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+            <div>
+              <div className="hero-title">Projects</div>
+              <div className="hero-sub">Your portfolio command centre — monitor health, manage governance.</div>
             </div>
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", paddingTop: 4 }}>
               <Link
                 href="/artifacts"
-                className="pl-sec-btn"
-                style={{
-                  background: "white",
-                  color: "#0f172a",
-                  border: "1px solid #e2e8f0",
-                  borderRadius: 10,
-                  padding: "9px 16px",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  textDecoration: "none",
-                  display: "inline-flex",
-                  alignItems: "center",
-                }}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 9, border: "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: 600, textDecoration: "none", background: "rgba(255,255,255,0.05)", transition: "all 0.15s" }}
               >
                 Global artifacts
               </Link>
@@ -218,299 +414,282 @@ export default async function ProjectsPage({
             </div>
           </div>
 
-          {/* ── Optional debug strip ── */}
-          {debug && (
-            <div
-              className="pl-debug"
-              style={{
-                marginBottom: 14,
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: "1px solid #e2e8f0",
-                background: "white",
-                fontSize: 12,
-                color: "#64748b",
-              }}
-            >
-              <div>debug=1</div>
-              <div>activeOrgId: {activeOrgId}</div>
-              <div>memberRows: {memberRows?.length ?? 0} • memberProjectIds: {memberProjectIds.length} • projectsLoaded: {projects.length}</div>
-            </div>
-          )}
-
-          {/* ── Stats strip ── */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
-            {[
-              { label: "Total", value: projects.length, colour: "#06b6d4" },
-              { label: "Active", value: activeCt, colour: "#10b981" },
-              { label: "Closed", value: closedCt, colour: "#94a3b8" },
-            ].map((s) => (
-              <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 14px", background: "white", border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 13, color: "#64748b" }}>
-                <span style={{ width: 7, height: 7, borderRadius: "50%", background: s.colour, display: "inline-block" }} />
-                <span style={{ fontWeight: 700, color: "#0f172a", marginRight: 2 }}>{s.value}</span>
-                {s.label}
+          {/* Stats strip */}
+          <div className="stat-strip">
+            <div className="stat-pill">
+              <div>
+                <div className="stat-pill-val">{projects.length}</div>
+                <div className="stat-pill-lbl">Total projects</div>
               </div>
-            ))}
+            </div>
+            <div className="stat-pill">
+              <div className="stat-dot" style={{ background: "#22c55e" }} />
+              <div>
+                <div className="stat-pill-val">{activeCt}</div>
+                <div className="stat-pill-lbl">Active</div>
+              </div>
+            </div>
+            <div className="stat-pill">
+              <div className="stat-dot" style={{ background: "#94a3b8" }} />
+              <div>
+                <div className="stat-pill-val">{closedCt}</div>
+                <div className="stat-pill-lbl">Closed</div>
+              </div>
+            </div>
+            {atRiskCt > 0 && (
+              <div className="stat-pill">
+                <div className="stat-dot" style={{ background: "#ef4444" }} />
+                <div>
+                  <div className="stat-pill-val" style={{ color: "#fca5a5" }}>{atRiskCt}</div>
+                  <div className="stat-pill-lbl">At risk</div>
+                </div>
+              </div>
+            )}
+            {healthAvg != null && (
+              <div className="stat-pill">
+                <div>
+                  <div className="stat-pill-val" style={{ color: healthAvg >= 85 ? "#86efac" : healthAvg >= 70 ? "#fcd34d" : "#fca5a5" }}>
+                    {healthAvg}%
+                  </div>
+                  <div className="stat-pill-lbl">Avg health</div>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* ── Toolbar (server-driven via URL params) ── */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
-            {/* Filter */}
+          {/* Toolbar */}
+          <div className="toolbar">
             <div style={{ display: "flex", gap: 4 }}>
               {["Active", "Closed", "All"].map((f) => (
                 <Link
                   key={f}
-                  href={`/projects?filter=${f}&sort=${sortMode}&q=${encodeURIComponent(query)}${debug ? "&debug=1" : ""}`}
-                  className={filter === f ? "" : "pl-filter"}
-                  style={{
-                    background: filter === f ? "#06b6d4" : "white",
-                    border: `1px solid ${filter === f ? "#06b6d4" : "#e2e8f0"}`,
-                    borderRadius: 8,
-                    padding: "7px 14px",
-                    fontSize: 13,
-                    fontWeight: filter === f ? 700 : 500,
-                    color: filter === f ? "white" : "#64748b",
-                    textDecoration: "none",
-                    display: "inline-block",
-                  }}
+                  href={`/projects?filter=${f}&sort=${sortMode}&q=${encodeURIComponent(query)}`}
+                  className={`filter-tab${filter === f ? " active" : ""}`}
                 >
                   {f}
+                  <span style={{ marginLeft: 5, fontSize: 10, opacity: 0.6 }}>
+                    {f === "Active" ? activeCt : f === "Closed" ? closedCt : projects.length}
+                  </span>
                 </Link>
               ))}
             </div>
 
-            {/* Search */}
-            <form method="get" action="/projects" style={{ position: "relative", flex: 1, maxWidth: 300 }}>
-              <input type="hidden" name="filter" value={filter} />
-              <input type="hidden" name="sort" value={sortMode} />
-              {debug && <input type="hidden" name="debug" value="1" />}
-              <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="13" height="13" viewBox="0 0 24 24" fill="none">
-                <circle cx="11" cy="11" r="8" stroke="#94a3b8" strokeWidth="2" />
-                <path d="m21 21-4.35-4.35" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" />
+            <div className="search-box">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <circle cx="11" cy="11" r="8" stroke="rgba(255,255,255,0.4)" strokeWidth="2"/>
+                <path d="m21 21-4.35-4.35" stroke="rgba(255,255,255,0.4)" strokeWidth="2" strokeLinecap="round"/>
               </svg>
               <input
-                name="q"
-                defaultValue={query}
+                id="live-search"
                 placeholder="Search projects…"
-                className="pl-input"
-                style={{
-                  width: "100%",
-                  border: "1px solid #e2e8f0",
-                  borderRadius: 8,
-                  padding: "8px 10px 8px 30px",
-                  fontSize: 13,
-                  background: "white",
-                  fontFamily: "inherit",
-                }}
+                defaultValue={query}
+                autoComplete="off"
               />
-            </form>
+            </div>
 
-            {/* Sort */}
-            <div style={{ display: "flex", gap: 4, marginLeft: "auto" }}>
+            <div style={{ display: "flex", gap: 2 }}>
               {["Newest", "A-Z"].map((s) => (
                 <Link
                   key={s}
-                  href={`/projects?filter=${filter}&sort=${s}&q=${encodeURIComponent(query)}${debug ? "&debug=1" : ""}`}
-                  className={sortMode === s ? "" : "pl-filter"}
-                  style={{
-                    background: sortMode === s ? "#06b6d4" : "white",
-                    border: `1px solid ${sortMode === s ? "#06b6d4" : "#e2e8f0"}`,
-                    borderRadius: 8,
-                    padding: "7px 14px",
-                    fontSize: 13,
-                    fontWeight: sortMode === s ? 700 : 500,
-                    color: sortMode === s ? "white" : "#64748b",
-                    textDecoration: "none",
-                    display: "inline-block",
-                  }}
+                  href={`/projects?filter=${filter}&sort=${s}&q=${encodeURIComponent(query)}`}
+                  className={`sort-tab${sortMode === s ? " active" : ""}`}
                 >
                   {s}
                 </Link>
               ))}
             </div>
           </div>
+        </div>
 
-          <p style={{ fontSize: 13, color: "#94a3b8", fontWeight: 500, margin: "0 0 10px" }}>
+        {/* ── CONTENT ── */}
+        <div className="content">
+          <div className="count-label" id="count-label">
             {filtered.length} project{filtered.length !== 1 ? "s" : ""}
-          </p>
+          </div>
 
-          {/* ── Project list ── */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {filtered.map((p) => {
-              const ref = projectRef(p);
-              const colour = p.colour ?? "#06b6d4";
-              const dateRange =
-                p.start_date && p.finish_date ? `${formatDate(p.start_date)} — ${formatDate(p.finish_date)}` : p.start_date ? `From ${formatDate(p.start_date)}` : null;
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {filtered.map((p, i) => {
+              const ref      = projectRef(p);
+              const colour   = p.colour ?? "#0d9488";
               const isActive = (p.status ?? "active").toLowerCase() !== "closed";
+              const health   = p.health;
+              const rag      = p.rag;
+              const daysLeft = daysUntil(p.finish_date);
+
+              // Health ring calc
+              const ringRadius = 20;
+              const ringCirc   = 2 * Math.PI * ringRadius;
+              const ringOffset = health != null ? ringCirc * (1 - health / 100) : ringCirc;
+              const ringColor  = health == null ? "#e4e8ef"
+                : health >= 85 ? "#16a34a"
+                : health >= 70 ? "#d97706"
+                : "#dc2626";
+
+              const healthBg = health == null ? "#f5f7fa"
+                : health >= 85 ? "#dcfce7"
+                : health >= 70 ? "#fef3c7"
+                : "#fee2e2";
+
+              const statusBg    = isActive ? "#dcfce7" : "#f1f5f9";
+              const statusColor = isActive ? "#15803d" : "#64748b";
+
+              const daysColor = daysLeft == null ? "#64748b"
+                : daysLeft < 0  ? "#dc2626"
+                : daysLeft < 30 ? "#d97706"
+                : "#16a34a";
+              const daysBg = daysLeft == null ? "#f1f5f9"
+                : daysLeft < 0  ? "#fee2e2"
+                : daysLeft < 30 ? "#fef3c7"
+                : "#dcfce7";
+
+              const searchAttr = `${p.title} ${p.project_code ?? ""} ${p.pm_name ?? ""}`.toLowerCase();
 
               return (
                 <div
                   key={p.id}
-                  className="pl-row"
-                  style={{
-                    background: "white",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: 14,
-                    padding: "16px 20px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 14,
-                    transition: "box-shadow 0.15s, border-color 0.15s",
-                  }}
+                  className="project-card"
+                  data-search={searchAttr}
+                  style={{ animationDelay: `${i * 0.04}s` }}
                 >
-                  {/* Colour dot */}
-                  <span style={{ width: 10, height: 10, borderRadius: "50%", background: colour, flexShrink: 0 }} />
+                  <div className="card-accent" style={{ background: colour }} />
+                  <div className="card-inner">
+                    {/* Health ring */}
+                    <div className="health-ring">
+                      <svg width="52" height="52" viewBox="0 0 52 52">
+                        <circle cx="26" cy="26" r={ringRadius} fill="none" stroke="#f0f2f5" strokeWidth="5" />
+                        <circle
+                          cx="26" cy="26" r={ringRadius} fill="none"
+                          stroke={ringColor} strokeWidth="5"
+                          strokeDasharray={ringCirc}
+                          strokeDashoffset={ringOffset}
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                      <div className="health-ring-val" style={{ color: ringColor }}>
+                        {health != null ? `${health}` : "—"}
+                      </div>
+                    </div>
 
-                  {/* Info */}
-                  <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                      <Link href={`/projects/${ref}`} style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", textDecoration: "none" }} className="pl-action">
-                        {p.title}
-                      </Link>
-                      {p.project_code && (
-                        <span
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 700,
-                            background: "#f1f5f9",
-                            color: "#64748b",
-                            borderRadius: 6,
-                            padding: "2px 7px",
-                            border: "1px solid #e2e8f0",
-                            fontFamily: "'DM Mono', monospace",
-                          }}
-                        >
-                          {p.project_code}
+                    {/* Main content */}
+                    <div className="card-body">
+                      <div className="card-title-row">
+                        <Link href={`/projects/${ref}`} className="card-title">
+                          {p.title}
+                        </Link>
+                        {p.project_code && (
+                          <span className="code-badge">{p.project_code}</span>
+                        )}
+                        <span className="status-badge" style={{ background: statusBg, color: statusColor }}>
+                          {isActive ? "Active" : "Closed"}
                         </span>
-                      )}
-                      <span style={{ fontSize: 11, fontWeight: 700, borderRadius: 6, padding: "2px 7px", background: isActive ? "#dcfce7" : "#f1f5f9", color: isActive ? "#15803d" : "#64748b" }}>
-                        {isActive ? "Active" : "Closed"}
-                      </span>
-                      {p.resource_status === "pipeline" && (
-                        <span style={{ fontSize: 11, fontWeight: 700, borderRadius: 6, padding: "2px 7px", background: "rgba(124,58,237,0.08)", color: "#7c3aed", border: "1px solid rgba(124,58,237,0.2)" }}>
-                          Pipeline
+                        {p.resource_status === "pipeline" && (
+                          <span className="pipeline-badge">Pipeline</span>
+                        )}
+                      </div>
+
+                      <div className="card-meta">
+                        <span>
+                          PM: <span style={{ color: "#2563eb", fontWeight: 600 }}>{p.pm_name ?? "Unassigned"}</span>
                         </span>
+                        <span className="meta-sep" />
+                        <span>Created {formatDate(p.created_at)}</span>
+                        {roleMap[p.id] && (
+                          <>
+                            <span className="meta-sep" />
+                            <span style={{ textTransform: "capitalize" }}>{String(roleMap[p.id])}</span>
+                          </>
+                        )}
+                        {p.start_date && p.finish_date && (
+                          <>
+                            <span className="meta-sep" />
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.5, flexShrink: 0 }}>
+                                <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="2"/>
+                                <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                              </svg>
+                              {formatDateShort(p.start_date)} — {formatDateShort(p.finish_date)}
+                            </span>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Health bar */}
+                      {health != null && (
+                        <div className="progress-wrap">
+                          <div className="progress-track">
+                            <div
+                              className="progress-fill"
+                              style={{
+                                width: `${health}%`,
+                                background: ringColor,
+                              }}
+                            />
+                          </div>
+                        </div>
                       )}
                     </div>
 
-                    <div style={{ fontSize: 12, color: "#94a3b8", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <span>
-                        PM: <span style={{ color: p.pm_name ? "#0f172a" : "#06b6d4" }}>{p.pm_name ?? "Unassigned"}</span>
-                      </span>
-                      <span style={{ width: 3, height: 3, borderRadius: "50%", background: "#cbd5e1", display: "inline-block" }} />
-                      <span>Created {formatDate(p.created_at)}</span>
-                      {roleMap[p.id] && (
+                    {/* Date / days remaining */}
+                    <div className="date-range">
+                      {daysLeft != null && (
                         <>
-                          <span style={{ width: 3, height: 3, borderRadius: "50%", background: "#cbd5e1", display: "inline-block" }} />
-                          <span style={{ textTransform: "capitalize" }}>{String(roleMap[p.id])}</span>
+                          <span className="days-chip" style={{ background: daysBg, color: daysColor }}>
+                            {daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : `${daysLeft}d left`}
+                          </span>
+                          <span className="date-range-label">Due {formatDateShort(p.finish_date)}</span>
                         </>
                       )}
                     </div>
 
-                    {dateRange && (
-                      <div style={{ fontSize: 12, color: "#94a3b8", display: "flex", alignItems: "center" }}>
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ marginRight: 4, opacity: 0.5, flexShrink: 0 }}>
-                          <rect x="3" y="4" width="18" height="18" rx="2" stroke="#64748b" strokeWidth="2" />
-                          <path d="M16 2v4M8 2v4M3 10h18" stroke="#64748b" strokeWidth="2" strokeLinecap="round" />
+                    {/* Actions */}
+                    <div className="card-actions">
+                      <Link href={`/projects/${ref}`} className="act-btn">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                          <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2"/>
+                          <path d="M12 8v4l3 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                         </svg>
-                        {dateRange}
-                      </div>
-                    )}
-                  </div>
+                        <span>Overview</span>
+                      </Link>
+                      <Link href={`/projects/${ref}/artifacts`} className="act-btn">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" strokeWidth="2"/>
+                          <path d="M14 2v6h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                        </svg>
+                        <span>Artifacts</span>
+                      </Link>
+                      <Link href={`/projects/${ref}/members`} className="act-btn">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                          <circle cx="9" cy="7" r="4" stroke="currentColor" strokeWidth="2"/>
+                          <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                        </svg>
+                        <span>Members</span>
+                      </Link>
 
-                  {/* ── Action buttons — all real links ── */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
-                    <Link
-                      href={`/projects/${ref}`}
-                      className="pl-action"
-                      style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 11px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 12, fontWeight: 500, color: "#475569", textDecoration: "none", background: "white" }}
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                        <circle cx="12" cy="12" r="9" stroke="#64748b" strokeWidth="2" />
-                        <path d="M12 8v4l3 3" stroke="#64748b" strokeWidth="2" strokeLinecap="round" />
-                      </svg>
-                      Overview
-                    </Link>
+                      <div className="divider" />
 
-                    <Link
-                      href={`/projects/${ref}/artifacts`}
-                      className="pl-action"
-                      style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 11px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 12, fontWeight: 500, color: "#475569", textDecoration: "none", background: "white" }}
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="#64748b" strokeWidth="2" />
-                        <path d="M14 2v6h6" stroke="#64748b" strokeWidth="2" strokeLinecap="round" />
-                      </svg>
-                      Artifacts
-                    </Link>
-
-                    <Link
-                      href={`/projects/${ref}/members`}
-                      className="pl-action"
-                      style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 11px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 12, fontWeight: 500, color: "#475569", textDecoration: "none", background: "white" }}
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                        <circle cx="9" cy="7" r="4" stroke="#64748b" strokeWidth="2" />
-                        <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" stroke="#64748b" strokeWidth="2" strokeLinecap="round" />
-                      </svg>
-                      Members
-                    </Link>
-
-                    <Link
-                      href={`/projects/${ref}/approvals`}
-                      className="pl-action"
-                      style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 11px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 12, fontWeight: 500, color: "#475569", textDecoration: "none", background: "white" }}
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                        <polyline points="20 6 9 17 4 12" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                      Approvals
-                    </Link>
-
-                    {/* Close/Reopen */}
-                    <form action={setProjectStatus} style={{ display: "contents" }}>
-                      <input type="hidden" name="project_id" value={p.id} />
-                      <input type="hidden" name="status" value={isActive ? "closed" : "active"} />
-                      <input type="hidden" name="next" value="/projects" />
-                      <button
-                        type="submit"
-                        className="pl-close"
-                        style={{
-                          padding: "6px 14px",
-                          border: `1px solid ${isActive ? "#fde68a" : "#e2e8f0"}`,
-                          borderRadius: 8,
-                          fontSize: 12,
-                          fontWeight: 700,
-                          color: isActive ? "#92400e" : "#475569",
-                          background: isActive ? "#fffbeb" : "white",
-                          cursor: "pointer",
-                          fontFamily: "inherit",
-                        }}
-                      >
-                        {isActive ? "Close" : "Reopen"}
-                      </button>
-                    </form>
-
-                    {/* ⋮ menu — links to project settings */}
-                    <Link
-                      href={`/projects/${ref}`}
-                      style={{ padding: "6px 8px", border: "1px solid #e2e8f0", borderRadius: 8, background: "white", display: "flex", alignItems: "center", color: "#64748b", textDecoration: "none" }}
-                      className="pl-action"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                        <circle cx="12" cy="5" r="1.5" fill="#64748b" />
-                        <circle cx="12" cy="12" r="1.5" fill="#64748b" />
-                        <circle cx="12" cy="19" r="1.5" fill="#64748b" />
-                      </svg>
-                    </Link>
+                      <form action={setProjectStatus} style={{ display: "contents" }}>
+                        <input type="hidden" name="project_id" value={p.id} />
+                        <input type="hidden" name="status" value={isActive ? "closed" : "active"} />
+                        <input type="hidden" name="next" value="/projects" />
+                        <button type="submit" className={`act-btn ${isActive ? "close" : "reopen"}`}>
+                          {isActive ? "Close" : "Reopen"}
+                        </button>
+                      </form>
+                    </div>
                   </div>
                 </div>
               );
             })}
 
             {filtered.length === 0 && (
-              <div style={{ textAlign: "center", padding: "48px 0", color: "#94a3b8", fontSize: 14 }}>
-                {projects.length === 0 ? <>No projects yet.</> : "No projects match your filters."}
+              <div className="empty">
+                <div className="empty-icon">📂</div>
+                <div className="empty-title">
+                  {projects.length === 0 ? "No projects yet" : "No projects match your filters"}
+                </div>
+                <div className="empty-sub">
+                  {projects.length === 0 ? "Create your first project to get started." : "Try adjusting your search or filters."}
+                </div>
               </div>
             )}
           </div>
