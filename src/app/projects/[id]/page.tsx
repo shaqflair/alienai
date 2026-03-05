@@ -236,6 +236,7 @@ export default async function ProjectPage({
     raidResult,
     myProjectMembershipsResult,
     ragResult,
+    projectHealthResult,
   ] = await Promise.allSettled([
     fetchProjectResourceData(projectUuid),
     supabase.from("changes").select("id, title, status, created_at, change_type")
@@ -245,13 +246,18 @@ export default async function ProjectPage({
     supabase.from("project_members").select("id, role, removed_at, is_active, user_id")
       .eq("project_id", projectUuid).is("removed_at", null),
     supabase.from("raid_items").select("id, type, title, status, priority")
-      .eq("project_id", projectUuid).in("status", ["open", "active", "in_progress"])
-      .order("priority", { ascending: false }).limit(20),
+      .eq("project_id", projectUuid)
+      .not("status", "in", '("closed","resolved","done","completed","archived")')
+      .order("priority", { ascending: false }).limit(50),
     supabase.from("project_members").select("project_id")
       .eq("user_id", auth.user.id).is("removed_at", null),
     supabase.from("project_rag_scores")
       .select("health, rag, schedule_health, budget_health, scope_health, quality_health")
       .eq("project_id", projectUuid).order("created_at", { ascending: false }).limit(1),
+    // Also try project-level health columns as fallback
+    supabase.from("projects")
+      .select("health_score, rag_status, schedule_health, budget_health, scope_health, quality_health")
+      .eq("id", projectUuid).maybeSingle(),
   ]);
 
   const resource = resourceData.status === "fulfilled" ? resourceData.value : null;
@@ -261,6 +267,16 @@ export default async function ProjectPage({
   const members = membersResult.status === "fulfilled" ? membersResult.value.data ?? [] : [];
   const raidItems = raidResult.status === "fulfilled" ? raidResult.value.data ?? [] : [];
   const ragScore = ragResult.status === "fulfilled" ? (ragResult.value.data ?? [])[0] ?? null : null;
+  const projectHealthFallback = projectHealthResult.status === "fulfilled" ? projectHealthResult.value.data ?? null : null;
+
+  // Merge: prefer dedicated RAG scores table, fall back to project-level columns
+  const resolvedHealth: Record<string, number | null> = {
+    health:          ragScore?.health          ?? (projectHealthFallback as any)?.health_score ?? null,
+    schedule_health: ragScore?.schedule_health ?? (projectHealthFallback as any)?.schedule_health ?? null,
+    budget_health:   ragScore?.budget_health   ?? (projectHealthFallback as any)?.budget_health ?? null,
+    scope_health:    ragScore?.scope_health    ?? (projectHealthFallback as any)?.scope_health ?? null,
+    quality_health:  ragScore?.quality_health  ?? (projectHealthFallback as any)?.quality_health ?? null,
+  };
 
   // Build switcher list
   let switcherProjects: { id: string; title: string; project_code: string | null; colour: string | null }[] = [];
@@ -292,19 +308,19 @@ export default async function ProjectPage({
   const flashErr = sp?.err ? `Error: ${sp.err}` : null;
   const daysLeft = daysUntil(project?.finish_date);
 
-  const risks     = raidItems.filter((r: any) => r.type === "risk");
-  const issues    = raidItems.filter((r: any) => r.type === "issue");
-  const actions   = raidItems.filter((r: any) => r.type === "action");
-  const decisions = raidItems.filter((r: any) => r.type === "decision");
+  const risks       = raidItems.filter((r: any) => r.type === "risk");
+  const assumptions = raidItems.filter((r: any) => r.type === "assumption");
+  const issues      = raidItems.filter((r: any) => r.type === "issue");
+  const dependencies = raidItems.filter((r: any) => r.type === "dependency");
   const totalMembers = members.length;
   const openRisks    = risks.length;
 
   // Health scores
-  const healthScore    = ragScore?.health           != null ? Math.round(Number(ragScore.health))           : null;
-  const scheduleHealth = ragScore?.schedule_health  != null ? Math.round(Number(ragScore.schedule_health))  : healthScore;
-  const budgetHealth   = ragScore?.budget_health    != null ? Math.round(Number(ragScore.budget_health))    : (healthScore != null ? Math.max(0, healthScore - 2) : null);
-  const scopeHealth    = ragScore?.scope_health     != null ? Math.round(Number(ragScore.scope_health))     : (healthScore != null ? Math.max(0, healthScore - 4) : null);
-  const qualityHealth  = ragScore?.quality_health   != null ? Math.round(Number(ragScore.quality_health))   : (healthScore != null ? Math.max(0, healthScore - 6) : null);
+  const healthScore    = resolvedHealth.health          != null ? Math.round(Number(resolvedHealth.health))          : null;
+  const scheduleHealth = resolvedHealth.schedule_health != null ? Math.round(Number(resolvedHealth.schedule_health)) : healthScore;
+  const budgetHealth   = resolvedHealth.budget_health   != null ? Math.round(Number(resolvedHealth.budget_health))   : (healthScore != null ? Math.max(0, healthScore - 2) : null);
+  const scopeHealth    = resolvedHealth.scope_health    != null ? Math.round(Number(resolvedHealth.scope_health))    : (healthScore != null ? Math.max(0, healthScore - 4) : null);
+  const qualityHealth  = resolvedHealth.quality_health  != null ? Math.round(Number(resolvedHealth.quality_health))  : (healthScore != null ? Math.max(0, healthScore - 6) : null);
 
   const pmName = safeStr((project as any)?.project_manager ?? (project as any)?.pm_name ?? "").trim() || "Unassigned";
 
@@ -312,7 +328,7 @@ export default async function ProjectPage({
     { id: "overview",  label: "Overview",  href: `/projects/${projectRefForUrls}` },
     { id: "artifacts", label: "Artifacts", href: `/projects/${projectRefForUrls}/artifacts` },
     { id: "members",   label: "Members",   href: `/projects/${projectRefForUrls}/members` },
-    { id: "changes",   label: "Timeline",  href: `/projects/${projectRefForUrls}/changes` },
+    { id: "changes",   label: "Timeline",  href: `/changes` },
     { id: "raid",      label: "Risks",     href: `/projects/${projectRefForUrls}/raid` },
   ];
 
@@ -653,11 +669,9 @@ export default async function ProjectPage({
             <div className="card" style={{ padding: "24px" }}>
               <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 12 }}>Project Description</h3>
               <p style={{ fontSize: 14, color: "var(--text-2)", lineHeight: 1.7, margin: 0 }}>
-                {safeStr(project?.description).trim() ||
-                  `${projectTitle} is currently ${isActive ? "active and progressing well" : "closed"}.${
+                {`${projectTitle} is currently ${isActive ? "active and progressing well" : "closed"}.${
                     healthScore != null ? ` The project is tracking at ${healthScore}% health with all major milestones on schedule.` : ""
-                  }${project?.finish_date ? ` The team is working towards the delivery deadline of ${formatDateShort(project?.finish_date)}.` : ""}`
-                }
+                  }${project?.finish_date ? ` The team is working towards the delivery deadline of ${formatDateShort(project?.finish_date)}.` : ""}`}
               </p>
 
               {/* Quick action links */}
@@ -740,10 +754,10 @@ export default async function ProjectPage({
               </div>
               <div className="raid-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
                 {[
-                  { label: "Risks",     items: risks,     color: risks.length    > 0 ? "var(--red)"   : "var(--text-3)", border: risks.length    > 0 ? "rgba(239,68,68,0.2)"   : "var(--border)" },
-                  { label: "Issues",    items: issues,    color: issues.length   > 0 ? "var(--amber)" : "var(--text-3)", border: issues.length   > 0 ? "rgba(245,158,11,0.2)"  : "var(--border)" },
-                  { label: "Actions",   items: actions,   color: "var(--blue)",   border: "var(--border)" },
-                  { label: "Decisions", items: decisions, color: "#8b5cf6",        border: "var(--border)" },
+                  { label: "Risks",        items: risks,        color: risks.length    > 0 ? "var(--red)"   : "var(--text-3)", border: risks.length    > 0 ? "rgba(239,68,68,0.2)"   : "var(--border)" },
+                  { label: "Assumptions",  items: assumptions,  color: "var(--blue)",   border: "var(--border)" },
+                  { label: "Issues",       items: issues,       color: issues.length   > 0 ? "var(--amber)" : "var(--text-3)", border: issues.length   > 0 ? "rgba(245,158,11,0.2)"  : "var(--border)" },
+                  { label: "Dependencies", items: dependencies, color: "#8b5cf6",        border: "var(--border)" },
                 ].map(({ label, items, color, border }) => (
                   <div key={label} className="raid-quad" style={{ borderColor: border }}>
                     <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color, marginBottom: 8 }}>
@@ -799,8 +813,8 @@ export default async function ProjectPage({
                 )}
               </div>
               <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginTop: 4 }}>
-                <Link href={`/projects/${projectRefForUrls}/changes`} style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}>
-                  View all changes →
+                <Link href={`/changes`} style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}>
+                  View change board →
                 </Link>
               </div>
             </div>
