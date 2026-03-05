@@ -1,4 +1,4 @@
-﻿// src/lib/server/project-scope.ts
+// src/lib/server/project-scope.ts
 // Scope resolution helpers for org-wide portfolio dashboards + safe fallbacks.
 //
 // Exports:
@@ -70,7 +70,7 @@ async function getActiveOrgId(supabase: SupabaseLike, userId: string): Promise<s
     }
   }
 
-    // 2) fallback: first org membership — only if profile had no active_organisation_id
+  // 2) fallback: first org membership — only if profile had no active_organisation_id
   {
     const { data, error } = await supabase
       .from("organisation_members")
@@ -168,8 +168,8 @@ export async function resolveActiveProjectScope(
 
 /**
  * ORG-wide scope:
- * returns *all* projects in the userâ€™s active organisation.
- * Fail-open to member scope if orgId missing or schema doesnâ€™t match.
+ * returns *all* projects in the user’s active organisation.
+ * Fail-open to member scope if orgId missing or schema doesn’t match.
  */
 export async function resolveOrgActiveProjectScope(
   supabase: SupabaseLike,
@@ -180,14 +180,12 @@ export async function resolveOrgActiveProjectScope(
 
   const organisationId = await getActiveOrgId(supabase, uid);
   if (!organisationId) {
-    // fallback to membership
     const fallback = await resolveActiveProjectScope(supabase, uid);
     return { ...fallback, meta: { ...(fallback.meta || {}), orgScope: "missing_org" } };
   }
 
   const orgProjectIds = await tryProjectsByOrg(supabase, organisationId);
 
-  // if schema differs or none found, fallback to membership
   if (!orgProjectIds.length) {
     const fallback = await resolveActiveProjectScope(supabase, uid);
     return {
@@ -207,57 +205,81 @@ export async function resolveOrgActiveProjectScope(
 
 /**
  * Active-only filter (terminal state exclusion).
+ * Contract: returns string[] (NOT an object) to match dashboard routes.
+ *
  * FAIL-OPEN: if filter can't be applied due to schema drift, return input ids unchanged.
+ *
+ * IMPORTANT:
+ * - Do NOT treat planned finish dates (e.g., end_date) as “completed”.
+ * - Only terminal timestamps (closed_at/completed_at/ended_at/etc.) or terminal statuses should exclude a project.
  */
-export async function filterActiveProjectIds(supabase: SupabaseLike, projectIds: string[]): Promise<{ projectIds: string[]; error?: any }> {
+export async function filterActiveProjectIds(supabase: SupabaseLike, projectIds: string[]): Promise<string[]> {
   const ids = uniq(projectIds);
-  if (!ids.length) return { projectIds: [] };
+  if (!ids.length) return [];
 
-  // Try wide select; fallback to minimal if columns missing.
   const wide =
-    "id, deleted_at, removed_at, archived_at, closed_at, completed_at, ended_at, end_date, is_archived, is_live, status, lifecycle_status, delivery_status";
+    "id, deleted_at, removed_at, archived_at, closed_at, completed_at, ended_at, is_archived, is_live, status, lifecycle_status, delivery_status";
   const minimal = "id";
 
   let rows: any[] = [];
   try {
     const { data, error } = await supabase.from("projects").select(wide).in("id", ids).limit(20000);
-    if (!error && Array.isArray(data)) rows = data;
-    else {
+
+    if (!error && Array.isArray(data)) {
+      rows = data;
+    } else {
       const msg = safeStr(error?.message).toLowerCase();
+      // schema drift → fail-open via minimal select
       if (msg.includes("column") || msg.includes("does not exist")) {
         const { data: d2, error: e2 } = await supabase.from("projects").select(minimal).in("id", ids).limit(20000);
-        if (e2 || !Array.isArray(d2)) return { projectIds: ids, error: e2 || error };
-        return { projectIds: uniq(d2.map((r: any) => r?.id)) };
+        if (e2 || !Array.isArray(d2)) return ids; // fail-open
+        return uniq(d2.map((r: any) => r?.id));
       }
-      return { projectIds: ids, error };
+      return ids; // fail-open on other errors too
     }
-  } catch (e: any) {
-    return { projectIds: ids, error: e };
+  } catch {
+    return ids; // fail-open
   }
 
   const norm = (v: any) => safeStr(v).trim().toLowerCase();
-  const isDone = (s: any) => ["done", "closed", "completed", "complete", "cancelled", "canceled", "inactive"].includes(norm(s));
+
+  const isTerminalStatus = (s: any) => {
+    const x = norm(s);
+    return (
+      x === "closed" ||
+      x === "done" ||
+      x === "completed" ||
+      x === "complete" ||
+      x === "cancelled" ||
+      x === "canceled" ||
+      x === "inactive" ||
+      x === "archived"
+    );
+  };
 
   const active = rows.filter((p: any) => {
     if (!p) return false;
 
+    // hard excludes
     const deletedAt = p.deleted_at ?? p.removed_at ?? null;
     const archivedAt = p.archived_at ?? null;
     const closedAt = p.closed_at ?? null;
-    const completedAt = p.completed_at ?? p.end_date ?? p.ended_at ?? null;
+    const completedAt = p.completed_at ?? null;
+    const endedAt = p.ended_at ?? null;
 
-    if (deletedAt || archivedAt || closedAt || completedAt) return false;
+    if (deletedAt || archivedAt || closedAt || completedAt || endedAt) return false;
+
     if (p.is_archived === true || norm(p.is_archived) === "true") return false;
-
     if (p.is_live === false || norm(p.is_live) === "false") return false;
 
+    // status-like excludes
     const statusLike = p.status ?? p.lifecycle_status ?? p.delivery_status ?? null;
-    if (statusLike != null && isDone(statusLike)) return false;
+    if (statusLike != null && isTerminalStatus(statusLike)) return false;
 
     return true;
   });
 
   const out = uniq(active.map((r: any) => r?.id));
-  return { projectIds: out.length ? out : ids };
+  // If for any reason we filtered everything (bad data), fail-open to avoid zeroing dashboards
+  return out.length ? out : ids;
 }
-
