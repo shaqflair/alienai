@@ -1,4 +1,4 @@
-﻿// src/app/projects/page.tsx  — world-class light theme redesign
+// src/app/projects/page.tsx  � world-class light theme redesign
 import "server-only";
 
 import Link from "next/link";
@@ -169,7 +169,7 @@ export default async function ProjectsPage({
 
         .page { min-height: 100vh; }
 
-        /* ─── TOP BAR ─── */
+        /* --- TOP BAR --- */
         .topbar {
           display: flex; align-items: center; justify-content: space-between;
           padding: 0 60px;
@@ -201,7 +201,7 @@ export default async function ProjectsPage({
         .btn-dark { background: var(--ink); color: var(--white); border-color: var(--ink); }
         .btn-dark:hover { background: #333; border-color: #333; color: var(--white); }
 
-        /* ─── MASTHEAD ─── */
+        /* --- MASTHEAD --- */
         .masthead {
           padding: 60px 60px 0;
           border-bottom: 2px solid var(--rule-heavy);
@@ -243,7 +243,7 @@ export default async function ProjectsPage({
           margin-top: 5px;
         }
 
-        /* ─── TOOLBAR ─── */
+        /* --- TOOLBAR --- */
         .toolbar {
           display: flex; align-items: stretch;
           border-bottom: 1px solid var(--rule);
@@ -291,7 +291,7 @@ export default async function ProjectsPage({
         .s-tab:hover { color: var(--ink-2); }
         .s-tab.active { color: var(--ink); font-weight: 500; }
 
-        /* ─── COL HEADER ─── */
+        /* --- COL HEADER --- */
         .col-header {
           display: grid;
           grid-template-columns: 1fr 130px 90px 100px 36px;
@@ -306,7 +306,7 @@ export default async function ProjectsPage({
         }
         .ch-r { text-align: right; }
 
-        /* ─── PROJECT ROW ─── */
+        /* --- PROJECT ROW --- */
         .p-row {
           display: grid;
           grid-template-columns: 1fr 130px 90px 100px 36px;
@@ -334,7 +334,7 @@ export default async function ProjectsPage({
           to   { opacity: 1; }
         }
 
-        /* ─── CELL: MAIN ─── */
+        /* --- CELL: MAIN --- */
         .c-main {
           padding: 20px 24px 20px 0;
           min-width: 0; display: flex; flex-direction: column; gap: 5px;
@@ -355,7 +355,7 @@ export default async function ProjectsPage({
         }
         .rm-sep { color: var(--rule); }
 
-        /* ─── CELL: TIMELINE ─── */
+        /* --- CELL: TIMELINE --- */
         .c-tl {
           padding: 0 16px;
           display: flex; flex-direction: column; justify-content: center; gap: 5px;
@@ -376,7 +376,7 @@ export default async function ProjectsPage({
         .tl-over { color: var(--red); }
         .tl-nil { color: var(--ink-4); }
 
-        /* ─── CELL: HEALTH ─── */
+        /* --- CELL: HEALTH --- */
         .c-health {
           padding: 0 16px; display: flex; align-items: center; justify-content: flex-end;
           border-left: 1px solid var(--rule);
@@ -397,7 +397,7 @@ export default async function ProjectsPage({
         .rp-a { background: var(--amber-bg); color: var(--amber); }
         .rp-r { background: var(--red-bg);   color: var(--red); }
 
-        /* ─── CELL: STATUS ─── */
+        /* --- CELL: STATUS --- */
         .c-status {
           padding: 0 16px; display: flex; align-items: center; justify-content: center;
           border-left: 1px solid var(--rule);
@@ -410,7 +410,7 @@ export default async function ProjectsPage({
         .st-closed   { background: var(--off);       color: var(--ink-4); }
         .st-pipeline { background: #f5f3ff;           color: #5b21b6; }
 
-        /* ─── CELL: ARROW ─── */
+        /* --- CELL: ARROW --- */
         .c-arrow {
           display: flex; align-items: center; justify-content: flex-end;
           border-left: 1px solid var(--rule); padding-left: 10px;
@@ -421,7 +421,7 @@ export default async function ProjectsPage({
           transition: opacity 0.12s, transform 0.12s;
         }
 
-        /* ─── ROW HOVER PANEL ─── */
+        /* --- ROW HOVER PANEL --- */
         .row-actions-panel {
           position: absolute; right: 60px; top: 50%; transform: translateY(-50%);
           display: flex; gap: 0;
@@ -444,7 +444,7 @@ export default async function ProjectsPage({
         .ra-close { color: var(--amber); }
         .ra-close:hover { background: var(--amber); color: var(--white); border-color: var(--amber); }
 
-        /* ─── EMPTY STATE ─── */
+        /* --- EMPTY STATE --- */
         .empty {
           padding: 96px 60px;
           border-bottom: 1px solid var(--rule);
@@ -456,7 +456,7 @@ export default async function ProjectsPage({
         }
         .empty-sub { font-size: 13px; color: var(--ink-3); font-weight: 400; }
 
-        /* ─── FOOTER ─── */
+        /* --- FOOTER --- */
         .page-footer {
           display: flex; justify-content: space-between; align-items: center;
           padding: 16px 60px; border-top: 1px solid var(--rule);
@@ -511,7 +511,7 @@ export default async function ProjectsPage({
 
       <div className="page">
 
-        {/* ── TOP BAR ── */}
+        {/* -- TOP BAR -- */}
         <div className="topbar">
           <div className="topbar-left">
             <Link href="/home" className="topbar-crumb">Portfolio</Link>
@@ -530,7 +530,7 @@ export default async function ProjectsPage({
           </div>
         </div>
 
-        {/* ── MASTHEAD ── */}
+        {/* -- MASTHEAD -- */}
         <div className="masthead">
           <div className="mast-grid">
             <div>
@@ -575,7 +575,7 @@ export default async function ProjectsPage({
           </div>
         </div>
 
-        {/* ── TOOLBAR ── */}
+        {/* -- TOOLBAR -- */}
         <div className="toolbar">
           <div className="filter-tabs">
             {(["Active", "Closed", "All"] as const).map((f) => (
@@ -593,7 +593,7 @@ export default async function ProjectsPage({
               <circle cx="11" cy="11" r="8" stroke="#bbbbbb" strokeWidth="1.5"/>
               <path d="m21 21-4.35-4.35" stroke="#bbbbbb" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
-            <input id="sq" placeholder="Search projects…" defaultValue={query} autoComplete="off" />
+            <input id="sq" placeholder="Search projects�" defaultValue={query} autoComplete="off" />
           </div>
           <div className="sort-tabs">
             {(["Newest", "A-Z"] as const).map((s) => (
@@ -608,7 +608,7 @@ export default async function ProjectsPage({
           </div>
         </div>
 
-        {/* ── COLUMN HEADERS ── */}
+        {/* -- COLUMN HEADERS -- */}
         <div className="col-header">
           <div className="ch">Project</div>
           <div className="ch">Timeline</div>
@@ -617,7 +617,7 @@ export default async function ProjectsPage({
           <div className="ch" />
         </div>
 
-        {/* ── ROWS ── */}
+        {/* -- ROWS -- */}
         {filtered.map((p, i) => {
           const colour   = p.colour || "#111111";
           const isActive = (p.status ?? "active").toLowerCase() !== "closed";
@@ -638,7 +638,7 @@ export default async function ProjectsPage({
           const tlCls = daysLeft == null ? "tl-nil"
             : daysLeft < 0 ? "tl-over" : daysLeft < 30 ? "tl-warn" : "tl-ok";
 
-          const tlLabel = daysLeft == null ? "—"
+          const tlLabel = daysLeft == null ? "�"
             : daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue`
             : daysLeft === 0 ? "Due today" : `${daysLeft}d left`;
 
@@ -662,7 +662,7 @@ export default async function ProjectsPage({
               {/* Main */}
               <div className="c-main">
                 <div className="row-name-line">
-                  <Link href={`/projects/${p.id}`} className="row-name" onClick={(e) => e.stopPropagation()}>
+                  <Link href={`/projects/${p.id}`} className="row-name">
                     {p.title}
                   </Link>
                   {p.project_code && <span className="row-code">{p.project_code}</span>}
@@ -683,8 +683,8 @@ export default async function ProjectsPage({
               {/* Timeline */}
               <div className="c-tl">
                 <div className="tl-dates">
-                  <span>{fmtShort(p.start_date) ?? "—"}</span>
-                  <span>{fmtShort(p.finish_date) ?? "—"}</span>
+                  <span>{fmtShort(p.start_date) ?? "�"}</span>
+                  <span>{fmtShort(p.finish_date) ?? "�"}</span>
                 </div>
                 <div className="tl-bar">
                   <div className="tl-fill" style={{ width: `${tlPct}%`, background: tlColor }} />
@@ -700,7 +700,7 @@ export default async function ProjectsPage({
                     <span className={`h-num ${hCls}`}>{health}%</span>
                   </>
                 ) : (
-                  <span className="h-num h-n">—</span>
+                  <span className="h-num h-n">�</span>
                 )}
               </div>
 
@@ -715,7 +715,7 @@ export default async function ProjectsPage({
               </div>
 
               {/* Hover action panel */}
-              <div className="row-actions-panel" onClick={(e) => e.stopPropagation()}>
+              <div className="row-actions-panel">
                 <Link href={`/projects/${p.id}`} className="ra-btn">Overview &#8594;</Link>
                 <Link href={`/projects/${p.id}/artifacts`} className="ra-btn">Artifacts</Link>
                 <Link href={`/projects/${p.id}/members`}   className="ra-btn">Members</Link>
@@ -746,7 +746,7 @@ export default async function ProjectsPage({
           </div>
         )}
 
-        {/* ── FOOTER ── */}
+        {/* -- FOOTER -- */}
         <div className="page-footer">
           <span className="footer-txt" id="row-count">
             {filtered.length} project{filtered.length !== 1 ? "s" : ""}
