@@ -4040,12 +4040,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
                 colorKey={fpColorKey}
 
-                trendLabel={fpVarianceNum != null && fpVarianceNum !== 0 ? fpVarianceLabel : undefined}
-
-                onClick={() => {
-
-                  if (fpHasData && (fpSummary as any).artifact_id)
-
+                onClick={() => router.push("/budget")}
                     router.push(
 
                       appendFiltersToUrl(`/projects/${firstProjectRef}/artifacts/${(fpSummary as any).artifact_id}?panel=intelligence`, urlFilters),
