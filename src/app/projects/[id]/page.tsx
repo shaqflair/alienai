@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-/* ─── helpers ─────────────────────────────────────────────────────────────── */
+/*  helpers  */
 
 function safeParam(x: unknown): string {
   return typeof x === "string" ? x : Array.isArray(x) ? String(x[0] ?? "") : "";
@@ -87,23 +87,23 @@ function flashText(msg: string | undefined, conflicts: string | undefined) {
   if (!msg) return null;
   if (msg === "allocated") {
     const c = conflicts ? parseInt(conflicts) : 0;
-    return c > 0 ? `✓ Allocated — ${c} conflict week${c > 1 ? "s" : ""} flagged` : "✓ Resource allocated successfully";
+    return c > 0 ? ` Allocated  ${c} conflict week${c > 1 ? "s" : ""} flagged` : " Resource allocated successfully";
   }
   if (msg === "allocation_removed") return "Allocation removed.";
   if (msg === "week_removed") return "Week removed.";
   if (msg === "week_updated") return "Week updated.";
-  if (msg === "converted_to_confirmed") return "✓ Project converted to Confirmed — now live on the capacity heatmap.";
+  if (msg === "converted_to_confirmed") return " Project converted to Confirmed  now live on the capacity heatmap.";
   return null;
 }
 
 function formatDate(d: string | null | undefined) {
-  if (!d) return "—";
+  if (!d) return "";
   try { return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); }
   catch { return d as string; }
 }
 
 function formatDateShort(d: string | null | undefined) {
-  if (!d) return "—";
+  if (!d) return "";
   try { return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); }
   catch { return d as string; }
 }
@@ -164,7 +164,7 @@ async function convertPipelineToConfirmed(formData: FormData) {
   redirect(`${returnTo}?msg=converted_to_confirmed`);
 }
 
-/* ─── Page ────────────────────────────────────────────────────────────────── */
+/*  Page  */
 
 export default async function ProjectPage({
   params,
@@ -178,7 +178,7 @@ export default async function ProjectPage({
   if (authErr) throw authErr;
   if (!auth?.user) redirect("/login");
 
-  // ✅ Await params + searchParams (Next.js 15)
+  //  Await params + searchParams (Next.js 15)
   const { id: _paramId } = await params;
   const rawId = safeParam(_paramId).trim();
   const sp = (await searchParams) ?? {};
@@ -267,15 +267,15 @@ export default async function ProjectPage({
   const milestones   = scheduleMilestonesResult.status === "fulfilled" ? scheduleMilestonesResult.value.data ?? [] : [];
   const changeReqs   = changeRequestsResult.status === "fulfilled" ? changeRequestsResult.value.data ?? [] : [];
 
-  /* ──────────────────────────────────────────────────────────────
-     HEALTH SCORE — 4 real dimensions, each with its own signal
-     ────────────────────────────────────────────────────────────── */
+  /* 
+     HEALTH SCORE  4 real dimensions, each with its own signal
+      */
   function clamp(n: number) { return Math.max(0, Math.min(100, Math.round(n))); }
   const today = new Date().toISOString().slice(0, 10);
 
-  // ── 1. SCHEDULE (35%) ──────────────────────────────────────────
-  // Source: schedule_milestones — overdue count, critical-path flag, baseline slip
-  // Green ≥85 | Amber ≥70 | Red <70
+  //  1. SCHEDULE (35%) 
+  // Source: schedule_milestones  overdue count, critical-path flag, baseline slip
+  // Green 85 | Amber 70 | Red <70
   type ScheduleDetail = { total: number; overdue: number; critical: number; avgSlipDays: number };
   const scheduleDetail: ScheduleDetail = { total: 0, overdue: 0, critical: 0, avgSlipDays: 0 };
   const scheduleHealth = (() => {
@@ -304,9 +304,9 @@ export default async function ProjectPage({
     return clamp(score);
   })();
 
-  // ── 2. RAID / RISK (30%) ───────────────────────────────────────
-  // Source: raid_items — probability × severity matrix, overdue items
-  // Each item with composite score ≥70 deducts 8pts; ≥50 deducts 4pts; overdue deducts 6pts
+  //  2. RAID / RISK (30%) 
+  // Source: raid_items  probability  severity matrix, overdue items
+  // Each item with composite score 70 deducts 8pts; 50 deducts 4pts; overdue deducts 6pts
   type RaidDetail = { total: number; highRisk: number; overdue: number };
   const raidDetail: RaidDetail = { total: 0, highRisk: 0, overdue: 0 };
   const raidHealth = (() => {
@@ -326,9 +326,9 @@ export default async function ProjectPage({
     return clamp(score);
   })();
 
-  // ── 3. BUDGET (20%) ────────────────────────────────────────────
+  //  3. BUDGET (20%) 
   // Source: allocations vs budget_days (from fetchProjectResourceData)
-  // 0–90% utilisation = healthy; 90–110% = amber; >110% = red; no budget set = null
+  // 090% utilisation = healthy; 90110% = amber; >110% = red; no budget set = null
   type BudgetDetail = { budgetDays: number | null; allocatedDays: number; utilisationPct: number | null };
   const budgetDetail: BudgetDetail = {
     budgetDays:     resource?.budgetSummary?.budgetDays     ?? null,
@@ -337,14 +337,14 @@ export default async function ProjectPage({
   };
   const budgetHealth = (() => {
     const pct = budgetDetail.utilisationPct;
-    if (pct == null) return null;         // no budget set — exclude from score
+    if (pct == null) return null;         // no budget set  exclude from score
     if (pct <= 90)  return clamp(100);
-    if (pct <= 100) return clamp(100 - (pct - 90) * 3);   // slight amber 90–100%
-    if (pct <= 120) return clamp(70 - (pct - 100) * 2);   // red zone 100–120%
+    if (pct <= 100) return clamp(100 - (pct - 90) * 3);   // slight amber 90100%
+    if (pct <= 120) return clamp(70 - (pct - 100) * 2);   // red zone 100120%
     return clamp(30);                                       // severely over
   })();
 
-  // ── 4. GOVERNANCE / APPROVALS (15%) ────────────────────────────
+  //  4. GOVERNANCE / APPROVALS (15%) 
   // Source: pending artifact approvals + open change requests
   // Each pending item adds friction; stale approvals signal governance breakdown
   type GovernanceDetail = { pendingApprovalCount: number; openChangeRequests: number };
@@ -361,7 +361,7 @@ export default async function ProjectPage({
     return clamp(score);
   })();
 
-  // ── OVERALL: weighted average of available dimensions ──────────
+  //  OVERALL: weighted average of available dimensions 
   const healthScore = (() => {
     const dims = [
       { val: scheduleHealth,   w: 35 },
@@ -405,7 +405,7 @@ export default async function ProjectPage({
   const flashErr = sp?.err ? `Error: ${sp.err}` : null;
   const daysLeft = daysUntil(project?.finish_date);
 
-  // RAID type filter — exact lowercase match only (no startsWith to avoid "risk"/"role" collision)
+  // RAID type filter  exact lowercase match only (no startsWith to avoid "risk"/"role" collision)
   function raidType(r: any, type: string) {
     return String(r.type ?? "").toLowerCase().trim() === type;
   }
@@ -451,7 +451,7 @@ export default async function ProjectPage({
         }
         body { font-family: 'Geist', -apple-system, sans-serif; }
 
-        /* ── Switcher ── */
+        /*  Switcher  */
         .sw-wrap { position: relative; }
         .sw-trigger {
           display: inline-flex; align-items: center; gap: 7px;
@@ -488,7 +488,7 @@ export default async function ProjectPage({
         .sw-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
         .sw-code { font-family: 'Geist Mono', monospace; font-size: 11px; color: var(--text-3); margin-left: auto; padding-left: 8px; }
 
-        /* ── Tab nav ── */
+        /*  Tab nav  */
         .tab-link {
           padding: 11px 2px; font-size: 14px; font-weight: 500; color: var(--text-2);
           text-decoration: none; border-bottom: 2px solid transparent;
@@ -497,17 +497,17 @@ export default async function ProjectPage({
         .tab-link:hover  { color: var(--text-1); }
         .tab-link.active { color: var(--text-1); border-bottom-color: var(--text-1); font-weight: 600; }
 
-        /* ── Cards ── */
+        /*  Cards  */
         .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); }
         .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 20px; transition: box-shadow 0.15s; }
         .stat-card:hover { box-shadow: 0 2px 14px rgba(0,0,0,0.07); }
         .stat-icon { width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center; margin-bottom: 14px; font-size: 18px; }
 
-        /* ── Health bars ── */
+        /*  Health bars  */
         .hbar-track { height: 6px; background: var(--border); border-radius: 99px; overflow: hidden; margin-top: 5px; }
         .hbar-fill  { height: 100%; border-radius: 99px; transition: width 0.6s cubic-bezier(0.16,1,0.3,1); }
 
-        /* ── Health Score tooltips ── */
+        /*  Health Score tooltips  */
         .hs-tip-trigger { position: relative; }
         .hs-tip-box {
           display: none; position: absolute; left: 50%; bottom: calc(100% + 8px);
@@ -531,11 +531,11 @@ export default async function ProjectPage({
         .raid-item  { font-size: 12px; color: var(--text-2); padding: 5px 0; border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .raid-item:last-child { border-bottom: none; }
 
-        /* ── Activity ── */
+        /*  Activity  */
         .act-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--surface-2); }
         .act-item:last-child { border-bottom: none; }
 
-        /* ── Action btn ── */
+        /*  Action btn  */
         .action-btn {
           display: inline-flex; align-items: center; gap: 5px;
           padding: 6px 13px; border-radius: 8px; font-size: 12px; font-weight: 600;
@@ -547,11 +547,11 @@ export default async function ProjectPage({
         .action-btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
         .action-btn.primary:hover { opacity: 0.9; }
 
-        /* ── Flash ── */
+        /*  Flash  */
         .flash-ok  { padding: 10px 16px; border-radius: 9px; background: rgba(34,197,94,0.07); border: 1px solid rgba(34,197,94,0.22); font-size: 13px; color: #15803d; font-weight: 500; }
         .flash-err { padding: 10px 16px; border-radius: 9px; background: #fef2f2; border: 1px solid #fecaca; font-size: 13px; color: #dc2626; font-weight: 500; }
 
-        /* ── Responsive ── */
+        /*  Responsive  */
         @media (max-width: 960px) {
           .stat-grid { grid-template-columns: repeat(2,1fr) !important; }
           .two-col   { grid-template-columns: 1fr !important; }
@@ -583,7 +583,7 @@ export default async function ProjectPage({
       <main style={{ minHeight: "100vh", background: "var(--surface-2)", fontFamily: "'Geist', sans-serif" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 28px 64px" }}>
 
-          {/* ── Top bar: breadcrumb + switcher ── */}
+          {/*  Top bar: breadcrumb + switcher  */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 12, flexWrap: "wrap" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--text-3)", fontWeight: 500 }}>
               <Link href="/projects" style={{ color: "var(--text-3)", textDecoration: "none" }}>Projects</Link>
@@ -608,7 +608,7 @@ export default async function ProjectPage({
                     <circle cx="11" cy="11" r="8" stroke="var(--text-3)" strokeWidth="2"/>
                     <path d="m21 21-4.35-4.35" stroke="var(--text-3)" strokeWidth="2" strokeLinecap="round"/>
                   </svg>
-                  <input id="sw-input" placeholder="Search projects…" autoComplete="off" />
+                  <input id="sw-input" placeholder="Search projects" autoComplete="off" />
                 </div>
                 <div className="sw-list">
                   {switcherProjects.map((p) => (
@@ -636,7 +636,7 @@ export default async function ProjectPage({
           {flash    && <div className="flash-ok"  style={{ marginBottom: 14 }}>{flash}</div>}
           {flashErr && <div className="flash-err" style={{ marginBottom: 14 }}>{flashErr}</div>}
 
-          {/* ── Project header + tabs (single white card) ── */}
+          {/*  Project header + tabs (single white card)  */}
           <div className="card" style={{ marginBottom: 20 }}>
             {/* Header content */}
             <div style={{ padding: "22px 28px 0" }}>
@@ -674,25 +674,25 @@ export default async function ProjectPage({
                 <span>
                   PM: <Link href={`/projects/${projectRefForUrls}/members`} style={{ color: "var(--blue)", fontWeight: 500, textDecoration: "none" }}>{pmName}</Link>
                 </span>
-                <span style={{ color: "var(--border-2)" }}>·</span>
+                <span style={{ color: "var(--border-2)" }}></span>
                 <span>Created {formatDate(project?.created_at)}</span>
-                <span style={{ color: "var(--border-2)" }}>·</span>
+                <span style={{ color: "var(--border-2)" }}></span>
                 <span style={{ textTransform: "capitalize", fontWeight: 500 }}>{myRole}</span>
                 {(project?.start_date || project?.finish_date) && (
                   <>
-                    <span style={{ color: "var(--border-2)" }}>·</span>
+                    <span style={{ color: "var(--border-2)" }}></span>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.45 }}>
                         <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="2"/>
                         <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                       </svg>
-                      {formatDateShort(project?.start_date)} — {formatDateShort(project?.finish_date)}
+                      {formatDateShort(project?.start_date)}  {formatDateShort(project?.finish_date)}
                     </span>
                   </>
                 )}
                 {daysLeft !== null && (
                   <>
-                    <span style={{ color: "var(--border-2)" }}>·</span>
+                    <span style={{ color: "var(--border-2)" }}></span>
                     <span style={{ fontWeight: 600, fontSize: 13, color: daysLeft < 0 ? "var(--red)" : daysLeft < 30 ? "var(--amber)" : "var(--green)" }}>
                       {daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : `${daysLeft}d remaining`}
                     </span>
@@ -717,7 +717,7 @@ export default async function ProjectPage({
                       <input type="hidden" name="project_id" value={project.id} />
                       <input type="hidden" name="return_to" value={`/projects/${projectRefForUrls}`} />
                       <button type="submit" className="action-btn" style={{ background: "#7c3aed", borderColor: "#7c3aed", color: "white" }}>
-                        ✓ Convert to confirmed
+                         Convert to confirmed
                       </button>
                     </form>
                   )}
@@ -741,26 +741,26 @@ export default async function ProjectPage({
             </div>
           </div>
 
-          {/* ── Stat cards ── */}
+          {/*  Stat cards  */}
           <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 16 }}>
             <div className="stat-card">
-              <div className="stat-icon" style={{ background: "#dcfce7" }}>💚</div>
+              <div className="stat-icon" style={{ background: "#dcfce7" }}></div>
               <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>Health Score</div>
               <div style={{ fontSize: 28, fontWeight: 700, color: "var(--text-1)", lineHeight: 1 }}>
-                {healthScore != null ? `${healthScore}%` : "—"}
+                {healthScore != null ? `${healthScore}%` : ""}
               </div>
               <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>On track</div>
             </div>
 
             <div className="stat-card">
-              <div className="stat-icon" style={{ background: "#ede9fe" }}>👤</div>
+              <div className="stat-icon" style={{ background: "#ede9fe" }}></div>
               <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>Project Manager</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", lineHeight: 1.2 }}>{pmName}</div>
               <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>Assigned</div>
             </div>
 
             <div className="stat-card">
-              <div className="stat-icon" style={{ background: "#dbeafe" }}>📅</div>
+              <div className="stat-icon" style={{ background: "#dbeafe" }}></div>
               <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>Start Date</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", lineHeight: 1.2 }}>
                 {formatDateShort(project?.start_date)}
@@ -769,7 +769,7 @@ export default async function ProjectPage({
             </div>
 
             <div className="stat-card">
-              <div className="stat-icon" style={{ background: "#f3f4f6" }}>🏁</div>
+              <div className="stat-icon" style={{ background: "#f3f4f6" }}></div>
               <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>End Date</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", lineHeight: 1.2 }}>
                 {formatDateShort(project?.finish_date)}
@@ -778,7 +778,7 @@ export default async function ProjectPage({
             </div>
           </div>
 
-          {/* ── Description + Health Score ── */}
+          {/*  Description + Health Score  */}
           <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14, marginBottom: 16 }}>
             {/* Description */}
             <div className="card" style={{ padding: "24px" }}>
@@ -812,34 +812,34 @@ export default async function ProjectPage({
             {/* Health Score breakdown */}
             <div className="card" style={{ padding: "24px" }}>
               <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 4 }}>Health Score</h3>
-              <p style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 20 }}>Computed from live project data — hover each bar for detail.</p>
+              <p style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 20 }}>Computed from live project data  hover each bar for detail.</p>
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                 {([
                   {
                     label:   "Schedule",
                     value:   scheduleHealth,
                     weight:  35,
-                    icon:    "📅",
+                    icon:    "",
                     tooltip: scheduleHealth != null
                       ? `Based on ${scheduleDetail.total} milestone${scheduleDetail.total !== 1 ? "s" : ""}. ${scheduleDetail.overdue} overdue${scheduleDetail.critical > 0 ? ` (${scheduleDetail.critical} on critical path)` : ""}. Avg baseline slip: ${scheduleDetail.avgSlipDays}d.`
                       : "No schedule milestones found for this project.",
-                    empty: "No milestones — add schedule milestones to track this.",
+                    empty: "No milestones  add schedule milestones to track this.",
                   },
                   {
                     label:   "RAID Risk",
                     value:   raidHealth,
                     weight:  30,
-                    icon:    "⚠️",
+                    icon:    "",
                     tooltip: raidHealth != null
-                      ? `${raidDetail.total} open item${raidDetail.total !== 1 ? "s" : ""}. ${raidDetail.highRisk} high-risk (prob × severity ≥ 70). ${raidDetail.overdue} past due date.`
+                      ? `${raidDetail.total} open item${raidDetail.total !== 1 ? "s" : ""}. ${raidDetail.highRisk} high-risk (prob  severity  70). ${raidDetail.overdue} past due date.`
                       : "No open RAID items found for this project.",
-                    empty: "No open RAID items — log risks and issues to track this.",
+                    empty: "No open RAID items  log risks and issues to track this.",
                   },
                   {
                     label:   "Budget",
                     value:   budgetHealth,
                     weight:  20,
-                    icon:    "💰",
+                    icon:    "",
                     tooltip: budgetDetail.utilisationPct != null
                       ? `${budgetDetail.allocatedDays}d allocated of ${budgetDetail.budgetDays ?? "?"}d budget (${budgetDetail.utilisationPct}% utilisation). ${budgetDetail.utilisationPct <= 90 ? "On track." : budgetDetail.utilisationPct <= 100 ? "Approaching budget limit." : "Over budget."}`
                       : "No budget days set on this project.",
@@ -849,7 +849,7 @@ export default async function ProjectPage({
                     label:   "Governance",
                     value:   governanceHealth,
                     weight:  15,
-                    icon:    "✅",
+                    icon:    "",
                     tooltip: `${govDetail.pendingApprovalCount} pending approval${govDetail.pendingApprovalCount !== 1 ? "s" : ""}. ${govDetail.openChangeRequests} open change request${govDetail.openChangeRequests !== 1 ? "s" : ""}. High backlogs reduce this score.`,
                     empty:   "",
                   },
@@ -879,7 +879,7 @@ export default async function ProjectPage({
                             }}>{ragLabel}</span>
                           )}
                           <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)", minWidth: 32, textAlign: "right" }}>
-                            {value != null ? `${value}%` : "—"}
+                            {value != null ? `${value}%` : ""}
                           </span>
                         </div>
                       </div>
@@ -914,7 +914,7 @@ export default async function ProjectPage({
             </div>
           </div>
 
-          {/* ── Resource Planning (if available) ── */}
+          {/*  Resource Planning (if available)  */}
           {resource && (
             <div className="card" style={{ padding: "24px", marginBottom: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-3)", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
@@ -925,7 +925,7 @@ export default async function ProjectPage({
             </div>
           )}
 
-          {/* ── RAID + Recent Activity ── */}
+          {/*  RAID + Recent Activity  */}
           <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 14 }}>
             {/* RAID */}
             <div className="card" style={{ padding: "24px" }}>
@@ -934,7 +934,7 @@ export default async function ProjectPage({
                   RAID log
                 </span>
                 <Link href={`/projects/${projectRefForUrls}/raid`} style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}>
-                  View full RAID →
+                  View full RAID 
                 </Link>
               </div>
               <div className="raid-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
@@ -972,7 +972,7 @@ export default async function ProjectPage({
                   <>
                     {pendingApprovals.slice(0, 2).map((a: any) => (
                       <div key={a.id} className="act-item">
-                        <div style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>⏳</div>
+                        <div style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}></div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{ fontSize: 12, fontWeight: 600, color: "var(--text-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>{a.title}</p>
                           <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2, margin: 0 }}>Approval pending</p>
@@ -983,7 +983,7 @@ export default async function ProjectPage({
                       const col = ({ approved: "#22c55e", rejected: "#ef4444", pending: "#f59e0b", draft: "#94a3b8" } as any)[c.status] ?? "#64748b";
                       return (
                         <div key={c.id} className="act-item">
-                          <div style={{ width: 28, height: 28, borderRadius: 8, background: `${col}18`, border: `1px solid ${col}30`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0 }}>⚡</div>
+                          <div style={{ width: 28, height: 28, borderRadius: 8, background: `${col}18`, border: `1px solid ${col}30`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0 }}></div>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <p style={{ fontSize: 12, fontWeight: 600, color: "var(--text-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>{c.title}</p>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
@@ -999,7 +999,7 @@ export default async function ProjectPage({
               </div>
               <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginTop: 4 }}>
                 <Link href={`/projects/${projectId}/timeline`} style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}>
-                  View change board →
+                  View change board 
                 </Link>
               </div>
             </div>
