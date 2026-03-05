@@ -920,7 +920,7 @@ function calcRagAgg(
 
     const letter = String(it?.rag || "").toUpperCase() as RagLetter;
 
-    if (pid && ["G", "A", "R"].includes(letter)) byPid.set(pid, { rag: letter, health: Number(it?.health) });
+    if (pid && ["G", "A", "R"].includes(letter)) byPid.set(pid, { rag: letter, health: it?.health != null ? Number(it.health) : NaN });
 
   }
 
@@ -950,11 +950,9 @@ function calcRagAgg(
 
     else if (hit.rag === "A") a++;
 
-    else r++;
-
     const h = Number(hit.health);
+    vals.push(Number.isFinite(h) && h > 0 ? clamp01to100(h) : hit.rag === "G" ? 90 : hit.rag === "A" ? 78 : 45);
 
-    vals.push(Number.isFinite(h) ? clamp01to100(h) : hit.rag === "G" ? 90 : hit.rag === "A" ? 78 : 45);
 
   }
 
