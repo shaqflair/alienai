@@ -240,7 +240,8 @@ export async function GET(req: NextRequest) {
     const { data: projects, error: projectErr } = await supabase
       .from("projects")
       .select("id, title")
-      .eq("status", "active");
+      .eq("status", "active")
+      .is("deleted_at", null);
 
     if (projectErr) throw projectErr;
     if (!projects || projects.length === 0) {

@@ -97,8 +97,9 @@ async function loadActiveProjectsForOrg(supabase: any, orgId: string) {
     .select("id, title, client_name, project_code, department, project_manager, project_manager_id, created_at, deleted_at")
     .eq("organisation_id", orgId)
     .is("deleted_at", null)
+    .neq("status", "closed")
     .order("created_at", { ascending: false })
-    .limit(12);
+    .limit(200);
 
   if (projErr) throw new Error(projErr.message || "Failed to load projects");
   const projList = Array.isArray(projects) ? projects : [];
