@@ -847,7 +847,53 @@
   .stagger-6  { animation-delay: 0.24s; }
   .stagger-7  { animation-delay: 0.28s; }
   .stagger-8  { animation-delay: 0.32s; }
+/* ===== Aliena Aurora Background ===== */
+.aurora {
+  position: absolute;
+  inset: -25%;
+  filter: blur(60px);
+  opacity: 0.55;
+  transform: translate3d(0,0,0);
+  will-change: transform;
+}
 
+.aurora-a {
+  background: radial-gradient(closest-side, rgba(0,184,219,0.20), rgba(0,184,219,0.0) 70%);
+  animation: auroraFloatA 16s ease-in-out infinite;
+}
+
+.aurora-b {
+  background: radial-gradient(closest-side, rgba(88,101,242,0.18), rgba(88,101,242,0.0) 72%);
+  animation: auroraFloatB 22s ease-in-out infinite;
+}
+
+.aurora-c {
+  background: radial-gradient(closest-side, rgba(255,255,255,0.06), rgba(255,255,255,0.0) 70%);
+  animation: auroraFloatC 28s ease-in-out infinite;
+}
+
+@keyframes auroraFloatA {
+  0%   { transform: translate(-8%, -4%) scale(1.05); }
+  50%  { transform: translate(10%, 6%) scale(1.12); }
+  100% { transform: translate(-8%, -4%) scale(1.05); }
+}
+
+@keyframes auroraFloatB {
+  0%   { transform: translate(12%, -8%) scale(1.0); }
+  50%  { transform: translate(-6%, 10%) scale(1.15); }
+  100% { transform: translate(12%, -8%) scale(1.0); }
+}
+
+@keyframes auroraFloatC {
+  0%   { transform: translate(0%, 8%) scale(1.0); }
+  50%  { transform: translate(0%, -10%) scale(1.08); }
+  100% { transform: translate(0%, 8%) scale(1.0); }
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .aurora-a, .aurora-b, .aurora-c { animation: none !important; }
+}
   /* ════════════════════════════════════════════════════════════════════
      ALIENA WORDMARK — retained exactly
      ════════════════════════════════════════════════════════════════════ */
