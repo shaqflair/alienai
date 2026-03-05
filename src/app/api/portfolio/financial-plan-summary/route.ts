@@ -1,20 +1,20 @@
-﻿// src/app/api/portfolio/financial-plan-summary/route.ts — REBUILT v4 (ORG-WIDE + filter-ready)
+﻿// src/app/api/portfolio/financial-plan-summary/route.ts — REBUILT v5 (ORG-WIDE + filter-ready + ACTIVE FILTER)
 // Used by: What-if Simulator (portfolio-level financial impact)
 //
 // Changes:
 //   ✅ FPS-F1: ORG-wide dashboard scope via resolveOrgActiveProjectScope (still RLS-safe)
-// Keeps:
 //   ✅ FPS-F2: Supports dashboard filters (project name, code, PM, department)
 //            - POST (recommended): { filters }
 //            - GET (compat): ?name=...&code=...&pm=...&dept=...
 //   ✅ FPS-F3: Graceful handling of artifact.content as JSON object or JSON string
 //   ✅ FPS-F4: Cache-Control no-store everywhere
+//   ✅ FPS-F5: Active project filter applied (exclude closed/terminal projects) + FAIL-OPEN safeguard
 
 import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveOrgActiveProjectScope } from "@/lib/server/project-scope";
+import { resolveOrgActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
 
 export const runtime = "nodejs";
 
@@ -203,7 +203,28 @@ async function handle(req: Request, filters: PortfolioFilters) {
 
   // 1) ORG-wide dashboard scope
   const scoped = await resolveOrgActiveProjectScope(supabase, user.id);
-  const scopedProjectIds = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
+  const scopedProjectIdsRaw = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
+
+  // ✅ FPS-F5: active project filter + FAIL-OPEN safeguard
+  let scopedProjectIds: string[] = [];
+  let active_filter_ok = true;
+  let active_filter_error: string | null = null;
+
+  try {
+    const filteredActive = await filterActiveProjectIds(supabase, scopedProjectIdsRaw);
+    scopedProjectIds = filteredActive;
+
+    // FAIL-OPEN: never allow false-zeroing the org dashboard
+    if (!scopedProjectIds.length && scopedProjectIdsRaw.length) {
+      scopedProjectIds = scopedProjectIdsRaw;
+      active_filter_ok = false;
+      active_filter_error = "active filter returned 0 ids; failing open to raw scope";
+    }
+  } catch (e: any) {
+    scopedProjectIds = scopedProjectIdsRaw; // fail-open
+    active_filter_ok = false;
+    active_filter_error = safeStr(e?.message || e || "active filter failed");
+  }
 
   // 2) apply filters (within scope)
   const filtered = await applyProjectFilters(supabase, scopedProjectIds, filters);
@@ -214,7 +235,17 @@ async function handle(req: Request, filters: PortfolioFilters) {
       ok: true,
       portfolio: { totalBudget: 0, totalForecast: 0, totalActual: 0, projectCount: 0, withPlanCount: 0 },
       projects: [],
-      meta: { organisationId: scoped?.organisationId ?? null, scope: scoped?.meta ?? null, filters: filtered.meta },
+      meta: {
+        organisationId: scoped?.organisationId ?? null,
+        scope: {
+          ...(scoped?.meta ?? {}),
+          scopedIdsRaw: scopedProjectIdsRaw.length,
+          scopedIdsActive: scopedProjectIds.length,
+          active_filter_ok,
+          active_filter_error,
+        },
+        filters: filtered.meta,
+      },
     });
   }
 
@@ -348,7 +379,17 @@ async function handle(req: Request, filters: PortfolioFilters) {
     ok: true,
     portfolio,
     projects: summaries,
-    meta: { organisationId: scoped?.organisationId ?? null, scope: scoped?.meta ?? null, filters: filtered.meta },
+    meta: {
+      organisationId: scoped?.organisationId ?? null,
+      scope: {
+        ...(scoped?.meta ?? {}),
+        scopedIdsRaw: scopedProjectIdsRaw.length,
+        scopedIdsActive: scopedProjectIds.length,
+        active_filter_ok,
+        active_filter_error,
+      },
+      filters: filtered.meta,
+    },
   });
 }
 

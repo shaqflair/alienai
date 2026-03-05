@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/milestones-due/route.ts — REBUILT v4 (ORG-WIDE + filter-ready)
+﻿// src/app/api/portfolio/milestones-due/route.ts — REBUILT v5 (ORG-WIDE + filter-ready + ACTIVE FILTER)
 // Adds:
 //   ✅ MD-F1: Supports dashboard filters (project name, code, PM, department)
 //            - POST (recommended): { days, filters }
@@ -8,12 +8,13 @@
 //   ✅ no-store caching
 // Changes:
 //   ✅ ORG-WIDE scope via resolveOrgActiveProjectScope (still RLS-safe)
+//   ✅ MD-F2: active project filter applied (exclude closed/terminal projects) + fail-open safeguard
 
 import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveOrgActiveProjectScope } from "@/lib/server/project-scope";
+import { resolveOrgActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
 
 export const runtime = "nodejs";
 
@@ -219,7 +220,27 @@ async function handle(req: Request, opts: { days: 7 | 14 | 30 | 60; filters: Por
 
   // ✅ ORG-WIDE scope for dashboards
   const scoped = await resolveOrgActiveProjectScope(supabase, userId);
-  const scopedProjectIds = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
+  const scopedProjectIdsRaw = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
+
+  // ✅ MD-F2: active filter + fail-open safeguard
+  let scopedProjectIds: string[] = [];
+  let active_filter_ok = true;
+  let active_filter_error: string | null = null;
+
+  try {
+    scopedProjectIds = await filterActiveProjectIds(supabase, scopedProjectIdsRaw);
+
+    // FAIL-OPEN: never allow false-zeroing the org dashboard
+    if (!scopedProjectIds.length && scopedProjectIdsRaw.length) {
+      scopedProjectIds = scopedProjectIdsRaw;
+      active_filter_ok = false;
+      active_filter_error = "active filter returned 0 ids; failing open to raw scope";
+    }
+  } catch (e: any) {
+    scopedProjectIds = scopedProjectIdsRaw; // fail-open
+    active_filter_ok = false;
+    active_filter_error = safeStr(e?.message || e || "active filter failed");
+  }
 
   const filtered = await applyProjectFilters(supabase, scopedProjectIds, opts.filters);
   const projectIds = filtered.projectIds;
@@ -230,7 +251,13 @@ async function handle(req: Request, opts: { days: 7 | 14 | 30 | 60; filters: Por
       count: 0,
       meta: {
         organisationId: scoped?.organisationId ?? null,
-        scope: scoped?.meta ?? null,
+        scope: {
+          ...(scoped?.meta ?? {}),
+          scopedIdsRaw: scopedProjectIdsRaw.length,
+          scopedIdsActive: scopedProjectIds.length,
+          active_filter_ok,
+          active_filter_error,
+        },
         filters: filtered.meta,
       },
     });
@@ -244,7 +271,13 @@ async function handle(req: Request, opts: { days: 7 | 14 | 30 | 60; filters: Por
     count: r.count,
     meta: {
       organisationId: scoped?.organisationId ?? null,
-      scope: scoped?.meta ?? null,
+      scope: {
+        ...(scoped?.meta ?? {}),
+        scopedIdsRaw: scopedProjectIdsRaw.length,
+        scopedIdsActive: scopedProjectIds.length,
+        active_filter_ok,
+        active_filter_error,
+      },
       filters: filtered.meta,
       projectCount: projectIds.length,
     },

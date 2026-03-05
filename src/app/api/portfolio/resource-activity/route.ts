@@ -1,19 +1,20 @@
-﻿// src/app/api/portfolio/resource-activity/route.ts — REBUILT v5 (ORG-WIDE + filter-ready) — FIX "No org"
+﻿// src/app/api/portfolio/resource-activity/route.ts — REBUILT v6 (ORG-WIDE + filter-ready + ACTIVE FILTER)
 // Adds:
 //   ✅ RA-F1: Scope aligned with resolveOrgActiveProjectScope (org-wide dashboard)
 //   ✅ RA-F2: Supports filters (GET + POST)
 //   ✅ RA-F3: Allocation filtering by project_id if available; graceful fallback if not
 // Fixes:
-//   ✅ RA-F4: Use scoped.orgId (not organisationId) + correct function signature
+//   ✅ RA-F4: "No org" degrade gracefully (kept)
+//   ✅ RA-F5: no-store caching
+//   ✅ RA-F6: active project filter applied (exclude closed/terminal projects) + fail-open safeguard
 // Keeps:
 //   • forward-looking week ranges
-//   ✅ no-store caching
 
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveOrgActiveProjectScope } from "@/lib/server/project-scope";
+import { resolveOrgActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
 
 export const runtime = "nodejs";
 
@@ -74,6 +75,11 @@ function addDays(d: Date, n: number): Date {
 
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
+}
+
+function withNoStore(res: NextResponse) {
+  res.headers.set("Cache-Control", "no-store, max-age=0");
+  return res;
 }
 
 /* ---------------- filters ---------------- */
@@ -198,11 +204,7 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
   const { data: auth, error: authErr } = await supabase.auth.getUser();
 
   const user = auth?.user ?? null;
-  if (authErr || !user) {
-    const res = NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-    res.headers.set("Cache-Control", "no-store, max-age=0");
-    return res;
-  }
+  if (authErr || !user) return withNoStore(NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 }));
 
   const days = Math.min(90, Math.max(7, Number.isFinite(opts.days) ? opts.days : 30));
 
@@ -221,11 +223,31 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
   const dateFrom = weeks[0] || isoDate(startMonday);
   const dateTo = weeks[weeks.length - 1] || isoDate(endMonday);
 
-  // ── ORG-WIDE project scope (dashboard)  ✅ FIX signature + property names
-  const scoped = await resolveOrgActiveProjectScope(supabase);
-  const scopedProjectIds: string[] = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
+  // ── ORG-WIDE project scope (dashboard)
+  const scoped = await resolveOrgActiveProjectScope(supabase, user.id);
+  const scopedProjectIdsRaw: string[] = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
 
-  // Apply dashboard filters (within org scope)
+  // ✅ RA-F6: active filter + fail-open safeguard
+  let scopedProjectIds: string[] = [];
+  let active_filter_ok = true;
+  let active_filter_error: string | null = null;
+
+  try {
+    scopedProjectIds = await filterActiveProjectIds(supabase, scopedProjectIdsRaw);
+
+    // FAIL-OPEN: never allow false-zeroing the org dashboard
+    if (!scopedProjectIds.length && scopedProjectIdsRaw.length) {
+      scopedProjectIds = scopedProjectIdsRaw;
+      active_filter_ok = false;
+      active_filter_error = "active filter returned 0 ids; failing open to raw scope";
+    }
+  } catch (e: any) {
+    scopedProjectIds = scopedProjectIdsRaw; // fail-open
+    active_filter_ok = false;
+    active_filter_error = safeStr(e?.message || e || "active filter failed");
+  }
+
+  // Apply dashboard filters (within active org scope)
   const filtered = await applyProjectFilters(supabase, scopedProjectIds, opts.filters);
   const projectIds = filtered.projectIds;
 
@@ -234,21 +256,27 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
 
   // If orgId cannot be resolved, degrade gracefully (don’t 400 the whole chart)
   if (!orgId) {
-    const res = NextResponse.json({
-      ok: true,
-      weeks: weeks.map((w) => ({ weekStart: w, capacity: 0, allocated: 0, pipeline: 0, utilisationPct: 0 })),
-      dateFrom,
-      dateTo,
-      meta: {
-        note: "No active organisation resolved; returning empty capacity series.",
-        organisationId: null,
-        scope: (scoped as any)?.meta ?? null,
-        filters: filtered.meta,
-        projects: { scoped: scopedProjectIds.length, filtered: projectIds.length },
-      },
-    });
-    res.headers.set("Cache-Control", "no-store, max-age=0");
-    return res;
+    return withNoStore(
+      NextResponse.json({
+        ok: true,
+        weeks: weeks.map((w) => ({ weekStart: w, capacity: 0, allocated: 0, pipeline: 0, utilisationPct: 0 })),
+        dateFrom,
+        dateTo,
+        meta: {
+          note: "No active organisation resolved; returning empty capacity series.",
+          organisationId: null,
+          scope: {
+            ...(scoped as any)?.meta,
+            scopedIdsRaw: scopedProjectIdsRaw.length,
+            scopedIdsActive: scopedProjectIds.length,
+            active_filter_ok,
+            active_filter_error,
+          },
+          filters: filtered.meta,
+          projects: { scoped: scopedProjectIdsRaw.length, active: scopedProjectIds.length, filtered: projectIds.length },
+        },
+      })
+    );
   }
 
   const { data: members } = await supabase
@@ -259,15 +287,25 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
 
   const memberUserIds = (members ?? []).map((m: any) => String(m.user_id)).filter(Boolean);
   if (!memberUserIds.length) {
-    const res = NextResponse.json({
-      ok: true,
-      weeks: [],
-      dateFrom,
-      dateTo,
-      meta: { organisationId: orgId, scope: (scoped as any)?.meta ?? null, filters: filtered.meta },
-    });
-    res.headers.set("Cache-Control", "no-store, max-age=0");
-    return res;
+    return withNoStore(
+      NextResponse.json({
+        ok: true,
+        weeks: [],
+        dateFrom,
+        dateTo,
+        meta: {
+          organisationId: orgId,
+          scope: {
+            ...(scoped as any)?.meta,
+            scopedIdsRaw: scopedProjectIdsRaw.length,
+            scopedIdsActive: scopedProjectIds.length,
+            active_filter_ok,
+            active_filter_error,
+          },
+          filters: filtered.meta,
+        },
+      })
+    );
   }
 
   // ── Profiles (default capacity)
@@ -378,22 +416,27 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
     };
   });
 
-  const res = NextResponse.json({
-    ok: true,
-    weeks: result,
-    dateFrom,
-    dateTo,
-    meta: {
-      organisationId: orgId,
-      scope: (scoped as any)?.meta ?? null,
-      filters: filtered.meta,
-      projects: { scoped: scopedProjectIds.length, filtered: projectIds.length },
-      allocations: allocMeta,
-    },
-  });
-
-  res.headers.set("Cache-Control", "no-store, max-age=0");
-  return res;
+  return withNoStore(
+    NextResponse.json({
+      ok: true,
+      weeks: result,
+      dateFrom,
+      dateTo,
+      meta: {
+        organisationId: orgId,
+        scope: {
+          ...(scoped as any)?.meta,
+          scopedIdsRaw: scopedProjectIdsRaw.length,
+          scopedIdsActive: scopedProjectIds.length,
+          active_filter_ok,
+          active_filter_error,
+        },
+        filters: filtered.meta,
+        projects: { scoped: scopedProjectIdsRaw.length, active: scopedProjectIds.length, filtered: projectIds.length },
+        allocations: allocMeta,
+      },
+    })
+  );
 }
 
 /* ---------------- routes ---------------- */
@@ -406,9 +449,7 @@ export async function GET(req: NextRequest) {
     return await handle(req, { days, filters });
   } catch (e: any) {
     console.error("[resource-activity][GET]", e);
-    const res = NextResponse.json({ ok: false, error: safeStr(e?.message || e) }, { status: 500 });
-    res.headers.set("Cache-Control", "no-store, max-age=0");
-    return res;
+    return withNoStore(NextResponse.json({ ok: false, error: safeStr(e?.message || e) }, { status: 500 }));
   }
 }
 
@@ -420,8 +461,6 @@ export async function POST(req: NextRequest) {
     return await handle(req, { days, filters });
   } catch (e: any) {
     console.error("[resource-activity][POST]", e);
-    const res = NextResponse.json({ ok: false, error: safeStr(e?.message || e) }, { status: 500 });
-    res.headers.set("Cache-Control", "no-store, max-age=0");
-    return res;
+    return withNoStore(NextResponse.json({ ok: false, error: safeStr(e?.message || e) }, { status: 500 }));
   }
 }
