@@ -802,7 +802,7 @@ export default function ScenarioSimulator({
 
   const diffs = useMemo(() => {
     try {
-      return computeDiff(liveState, scenarioState, weeks);
+      return computeDiff(liveState, scenarioState, weeks, people);
     } catch {
       return [];
     }

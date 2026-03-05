@@ -1,40 +1,98 @@
 ﻿// FILE: src/app/scenarios/_lib/scenario-engine.ts
+//
+// Types match EXACTLY what page.tsx passes in:
+//   LiveAllocation  -> weekStart + daysAllocated (one row per week)
+//   LiveException   -> weekStart + availDays
+//   LiveProject     -> startDate/endDate nullable
 
-export type LivePerson = { personId: string; fullName: string; capacityDays: number };
-export type LiveProject = { projectId: string; title: string; colour: string; startDate: string; endDate: string };
-export type LiveAllocation = { personId: string; projectId: string; daysPerWeek: number; startDate: string; endDate: string };
-export type LiveException = { personId: string; weekStart: string; capacityOverride: number };
+/* =============================================================================
+   TYPES
+============================================================================= */
+
+export type LivePerson = {
+  personId:     string;
+  fullName:     string;
+  capacityDays: number;
+  department?:  string | null;
+  empType?:     string;
+};
+
+export type LiveProject = {
+  projectId:    string;
+  title:        string;
+  colour:       string;
+  startDate:    string | null;
+  endDate:      string | null;
+  projectCode?: string | null;
+  status?:      string;
+  winProb?:     number;
+};
+
+export type LiveAllocation = {
+  id:            string;
+  personId:      string;
+  projectId:     string;
+  weekStart:     string;
+  daysAllocated: number;
+  allocType?:    string;
+};
+
+export type LiveException = {
+  personId:  string;
+  weekStart: string;
+  availDays: number;
+};
+
 export type ScenarioChange =
-  | { type: "add_allocation"; personId: string; projectId: string; startDate: string; endDate: string; daysPerWeek: number }
+  | { type: "add_allocation";  personId: string; projectId: string; startDate: string; endDate: string; daysPerWeek: number }
   | { type: "swap_allocation"; fromPersonId: string; toPersonId: string; projectId: string; startDate: string; endDate: string }
   | { type: "change_capacity"; personId: string; newCapacity: number; startDate: string; endDate: string }
-  | { type: "shift_project"; projectId: string; shiftWeeks: number }
-  | { type: "add_project"; projectId: string; title: string; colour: string; startDate: string; endDate: string; daysPerWeek: number; personId: string };
-export type Scenario = { id: string; name: string; changes: ScenarioChange[] };
+  | { type: "shift_project";   projectId: string; shiftWeeks: number }
+  | { type: "add_project";     projectId: string; title: string; colour: string; startDate: string; endDate: string; daysPerWeek: number; personId: string };
+
+export type Scenario = {
+  id:           string;
+  name:         string;
+  description?: string;
+  changes:      ScenarioChange[];
+  createdAt?:   string;
+  updatedAt?:   string;
+};
+
 export type PersonDiff = {
-  personId: string;
-  fullName: string;
+  personId:     string;
+  fullName:     string;
   capacityDays: number;
-  scenarioCap: number;
-  deltaAvg: number;
-  cells: { weekStart: string; livePct: number; scenarioPct: number; delta: number; changed: boolean }[];
+  scenarioCap:  number;
+  deltaAvg:     number;
+  cells: {
+    weekStart:   string;
+    livePct:     number;
+    scenarioPct: number;
+    delta:       number;
+    changed:     boolean;
+  }[];
 };
+
 export type ComputedState = {
-  conflictScore: number;
+  conflictScore:  number;
   totalOverAlloc: number;
-  warnings: { message: string; severity: "critical" | "warning" }[];
-  personStats: Map<string, { weeklyPct: Map<string, number>; capacityDays: number; scenarioCap?: number }>;
+  warnings:       { message: string; severity: "critical" | "warning" }[];
+  personStats:    Map<string, { weeklyPct: Map<string, number>; capacityDays: number }>;
 };
+
 export type SuggestedPerson = {
-  personId: string;
-  fullName: string;
-  avgAvailDays: number;
+  personId:      string;
+  fullName:      string;
+  avgAvailDays:  number;
   conflictWeeks: number;
-  score: number;
+  score:         number;
   canFullyCover: boolean;
 };
 
-/* ── Helpers ─────────────────────────────────────────────────────────────── */
+/* =============================================================================
+   HELPERS
+============================================================================= */
 
 function getMondayOf(iso: string): string {
   const d = new Date(iso + "T00:00:00");
@@ -49,13 +107,19 @@ function addWeeks(iso: string, n: number): string {
   return d.toISOString().split("T")[0];
 }
 
-/** Returns true if week [weekStart, weekStart+6] overlaps [start, end] */
-function weekOverlaps(weekStart: string, allocStart: string, allocEnd: string): boolean {
-  const wEnd = addWeeks(weekStart, 1);
-  return weekStart < allocEnd && wEnd > allocStart;
+function weeksInDateRange(startDate: string, endDate: string): string[] {
+  const weeks: string[] = [];
+  let curr = getMondayOf(startDate);
+  while (curr <= endDate) {
+    weeks.push(curr);
+    curr = addWeeks(curr, 1);
+  }
+  return weeks;
 }
 
-/* ── weeksInRange ────────────────────────────────────────────────────────── */
+/* =============================================================================
+   weeksInRange
+============================================================================= */
 
 export function weeksInRange(from: string, to: string): string[] {
   const weeks: string[] = [];
@@ -68,68 +132,66 @@ export function weeksInRange(from: string, to: string): string[] {
   return weeks;
 }
 
-/* ── applyChanges ────────────────────────────────────────────────────────── */
+/* =============================================================================
+   applyChanges
+============================================================================= */
 
 export function applyChanges(
-  people: LivePerson[],
-  projects: LiveProject[],
+  people:      LivePerson[],
+  projects:    LiveProject[],
   allocations: LiveAllocation[],
-  exceptions: LiveException[],
-  changes: ScenarioChange[]
+  exceptions:  LiveException[],
+  changes:     ScenarioChange[]
 ): { allocations: LiveAllocation[]; projects: LiveProject[]; scenarioCap: Map<string, number> } {
-  let scAllocs: LiveAllocation[] = allocations.map(a => ({ ...a }));
-  let scProjects: LiveProject[]  = projects.map(p => ({ ...p }));
+  let scAllocs:   LiveAllocation[] = allocations.map(a => ({ ...a }));
+  let scProjects: LiveProject[]    = projects.map(p => ({ ...p }));
   const scenarioCap = new Map<string, number>();
 
   for (const change of changes) {
+
     if (change.type === "add_allocation") {
-      scAllocs.push({
-        personId:   change.personId,
-        projectId:  change.projectId,
-        daysPerWeek: change.daysPerWeek,
-        startDate:  change.startDate,
-        endDate:    change.endDate,
-      });
+      for (const w of weeksInDateRange(change.startDate, change.endDate)) {
+        scAllocs.push({
+          id: `sc_add_${change.personId}_${change.projectId}_${w}`,
+          personId: change.personId,
+          projectId: change.projectId,
+          weekStart: w,
+          daysAllocated: change.daysPerWeek,
+          allocType: "scenario",
+        });
+      }
     }
 
     else if (change.type === "swap_allocation") {
-      scAllocs = scAllocs.map(a => {
-        if (
-          a.personId  === change.fromPersonId &&
-          a.projectId === change.projectId &&
-          a.startDate <= change.endDate &&
-          a.endDate   >= change.startDate
-        ) {
-          return { ...a, personId: change.toPersonId };
-        }
-        return a;
-      });
+      const swapWeeks = new Set(weeksInDateRange(change.startDate, change.endDate));
+      scAllocs = scAllocs.map(a =>
+        a.personId === change.fromPersonId && a.projectId === change.projectId && swapWeeks.has(a.weekStart)
+          ? { ...a, personId: change.toPersonId, allocType: "scenario" }
+          : a
+      );
     }
 
     else if (change.type === "change_capacity") {
-      // Store per-person-week capacity overrides
-      const weeks = weeksInRange(change.startDate, change.endDate);
-      for (const w of weeks) {
+      for (const w of weeksInDateRange(change.startDate, change.endDate)) {
         scenarioCap.set(`${change.personId}::${w}`, change.newCapacity);
       }
     }
 
     else if (change.type === "shift_project") {
-      scProjects = scProjects.map(p => {
-        if (p.projectId !== change.projectId) return p;
-        const newStart = addWeeks(p.startDate, change.shiftWeeks);
-        const newEnd   = addWeeks(p.endDate,   change.shiftWeeks);
-        return { ...p, startDate: newStart, endDate: newEnd };
-      });
-      // Also shift allocations on that project
-      scAllocs = scAllocs.map(a => {
-        if (a.projectId !== change.projectId) return a;
-        return {
-          ...a,
-          startDate: addWeeks(a.startDate, change.shiftWeeks),
-          endDate:   addWeeks(a.endDate,   change.shiftWeeks),
-        };
-      });
+      scProjects = scProjects.map(p =>
+        p.projectId === change.projectId
+          ? {
+              ...p,
+              startDate: p.startDate ? addWeeks(p.startDate, change.shiftWeeks) : null,
+              endDate:   p.endDate   ? addWeeks(p.endDate,   change.shiftWeeks) : null,
+            }
+          : p
+      );
+      scAllocs = scAllocs.map(a =>
+        a.projectId === change.projectId
+          ? { ...a, weekStart: addWeeks(a.weekStart, change.shiftWeeks), allocType: "scenario" }
+          : a
+      );
     }
 
     else if (change.type === "add_project") {
@@ -140,177 +202,124 @@ export function applyChanges(
         startDate: change.startDate,
         endDate:   change.endDate,
       });
-      scAllocs.push({
-        personId:    change.personId,
-        projectId:   change.projectId,
-        daysPerWeek: change.daysPerWeek,
-        startDate:   change.startDate,
-        endDate:     change.endDate,
-      });
+      for (const w of weeksInDateRange(change.startDate, change.endDate)) {
+        scAllocs.push({
+          id: `sc_proj_${change.projectId}_${w}`,
+          personId: change.personId,
+          projectId: change.projectId,
+          weekStart: w,
+          daysAllocated: change.daysPerWeek,
+          allocType: "scenario",
+        });
+      }
     }
   }
 
   return { allocations: scAllocs, projects: scProjects, scenarioCap };
 }
 
-/* ── computeState ────────────────────────────────────────────────────────── */
+/* =============================================================================
+   computeState
+============================================================================= */
 
 export function computeState(
-  people: LivePerson[],
-  projects: LiveProject[],
-  allocations: LiveAllocation[],
-  exceptions: LiveException[],
-  weeks: string[],
+  people:       LivePerson[],
+  projects:     LiveProject[],
+  allocations:  LiveAllocation[],
+  exceptions:   LiveException[],
+  weeks:        string[],
   capOverrides: Map<string, number>
 ): ComputedState {
-  // Build exception lookup: personId::weekStart -> overrideCapacity
   const exMap = new Map<string, number>();
   for (const ex of exceptions) {
-    exMap.set(`${ex.personId}::${ex.weekStart}`, ex.capacityOverride);
+    exMap.set(`${ex.personId}::${ex.weekStart}`, ex.availDays);
   }
 
-  const personStats = new Map<string, {
-    weeklyPct: Map<string, number>;
-    capacityDays: number;
-    scenarioCap?: number;
-  }>();
+  const allocMap = new Map<string, number>();
+  for (const a of allocations) {
+    const key = `${a.personId}::${a.weekStart}`;
+    allocMap.set(key, (allocMap.get(key) ?? 0) + a.daysAllocated);
+  }
 
-  let totalOverAlloc = 0;
+  const personStats = new Map<string, { weeklyPct: Map<string, number>; capacityDays: number }>();
   const warnings: ComputedState["warnings"] = [];
+  let totalOverAlloc = 0;
 
   for (const person of people) {
     const weeklyPct = new Map<string, number>();
 
     for (const week of weeks) {
-      // Resolve capacity for this person+week
-      const scenCapKey = `${person.personId}::${week}`;
-      const cap =
-        capOverrides.get(scenCapKey) ??
-        exMap.get(scenCapKey) ??
-        person.capacityDays;
-
-      if (cap === 0) {
-        weeklyPct.set(week, 0);
-        continue;
-      }
-
-      // Sum allocated days across all overlapping allocations
-      let allocatedDays = 0;
-      for (const alloc of allocations) {
-        if (alloc.personId !== person.personId) continue;
-        if (!weekOverlaps(week, alloc.startDate, alloc.endDate)) continue;
-        allocatedDays += alloc.daysPerWeek;
-      }
-
-      const pct = Math.round((allocatedDays / cap) * 100);
+      const key = `${person.personId}::${week}`;
+      const cap = capOverrides.get(key) ?? exMap.get(key) ?? person.capacityDays;
+      if (cap <= 0) { weeklyPct.set(week, 0); continue; }
+      const allocated = allocMap.get(key) ?? 0;
+      if (allocated === 0) { weeklyPct.set(week, 0); continue; }
+      const pct = Math.round((allocated / cap) * 100);
       weeklyPct.set(week, pct);
-
       if (pct > 100) totalOverAlloc++;
     }
 
-    personStats.set(person.personId, {
-      weeklyPct,
-      capacityDays: person.capacityDays,
-    });
+    personStats.set(person.personId, { weeklyPct, capacityDays: person.capacityDays });
+
+    const critWeeks = [...weeklyPct.values()].filter(p => p > 110).length;
+    const overWeeks = [...weeklyPct.values()].filter(p => p > 100 && p <= 110).length;
+    if (critWeeks > 0)
+      warnings.push({ severity: "critical", message: `${person.fullName} >110% for ${critWeeks}w` });
+    else if (overWeeks > 0)
+      warnings.push({ severity: "warning", message: `${person.fullName} over-allocated ${overWeeks}w` });
   }
 
-  // Conflict score: weighted over-allocation metric (0-100)
-  const allPcts: number[] = [];
-  for (const [, stats] of personStats) {
-    for (const [, pct] of stats.weeklyPct) {
-      allPcts.push(pct);
-    }
-  }
-
-  const overAllocPcts = allPcts.filter(p => p > 100);
+  const allPcts  = [...personStats.values()].flatMap(s => [...s.weeklyPct.values()]);
+  const overPcts = allPcts.filter(p => p > 100);
   let conflictScore = 0;
-  if (allPcts.length > 0 && overAllocPcts.length > 0) {
-    const avgOver = overAllocPcts.reduce((s, p) => s + (p - 100), 0) / overAllocPcts.length;
-    const breadth = overAllocPcts.length / allPcts.length; // 0..1
+  if (allPcts.length > 0 && overPcts.length > 0) {
+    const avgOver = overPcts.reduce((s, p) => s + (p - 100), 0) / overPcts.length;
+    const breadth = overPcts.length / allPcts.length;
     conflictScore = Math.min(100, Math.round(breadth * 60 + (avgOver / 50) * 40));
-  }
-
-  // Generate warnings
-  for (const [personId, stats] of personStats) {
-    const person = people.find(p => p.personId === personId);
-    if (!person) continue;
-    const critWeeks = [...stats.weeklyPct.values()].filter(p => p > 110).length;
-    const overWeeks = [...stats.weeklyPct.values()].filter(p => p > 100).length;
-    if (critWeeks > 0) {
-      warnings.push({
-        severity: "critical",
-        message: `${person.fullName} is >110% for ${critWeeks} week${critWeeks > 1 ? "s" : ""}`,
-      });
-    } else if (overWeeks > 0) {
-      warnings.push({
-        severity: "warning",
-        message: `${person.fullName} is over-allocated for ${overWeeks} week${overWeeks > 1 ? "s" : ""}`,
-      });
-    }
   }
 
   return { conflictScore, totalOverAlloc, warnings, personStats };
 }
 
-/* ── computeDiff ─────────────────────────────────────────────────────────── */
+/* =============================================================================
+   computeDiff
+============================================================================= */
 
 export function computeDiff(
-  live: ComputedState,
+  live:     ComputedState,
   scenario: ComputedState,
-  weeks: string[],
-  people?: LivePerson[]
+  weeks:    string[],
+  people?:  LivePerson[]
 ): PersonDiff[] {
   const diffs: PersonDiff[] = [];
+  const allIds = new Set([...live.personStats.keys(), ...scenario.personStats.keys()]);
 
-  // Union of all personIds across both states
-  const allPersonIds = new Set([
-    ...live.personStats.keys(),
-    ...scenario.personStats.keys(),
-  ]);
-
-  for (const personId of allPersonIds) {
+  for (const personId of allIds) {
     const liveStats = live.personStats.get(personId);
     const scStats   = scenario.personStats.get(personId);
     if (!liveStats && !scStats) continue;
 
     const capacityDays = liveStats?.capacityDays ?? scStats?.capacityDays ?? 5;
-    const scenarioCap  = scStats?.capacityDays   ?? capacityDays;
-
     const cells: PersonDiff["cells"] = [];
-    let deltaSum = 0;
-    let deltaCount = 0;
+    let deltaSum = 0, deltaCount = 0;
 
     for (const week of weeks) {
       const livePct     = liveStats?.weeklyPct.get(week) ?? 0;
       const scenarioPct = scStats?.weeklyPct.get(week)   ?? 0;
       const delta       = scenarioPct - livePct;
       const changed     = delta !== 0;
-
       cells.push({ weekStart: week, livePct, scenarioPct, delta, changed });
-
-      if (changed) {
-        deltaSum += delta;
-        deltaCount++;
-      }
+      if (changed) { deltaSum += delta; deltaCount++; }
     }
 
-    const deltaAvg = deltaCount > 0 ? Math.round(deltaSum / deltaCount) : 0;
+    if (!cells.some(c => c.livePct > 0 || c.scenarioPct > 0)) continue;
 
-    // Only include people who appear in the scenario state (have allocations)
-    // or have changes relative to live
-    const hasAnyAlloc = cells.some(c => c.scenarioPct > 0 || c.livePct > 0);
-    if (!hasAnyAlloc) continue;
-
-    // We need fullName — look it up from scenario stats first, then live
-    // The personStats map doesn't store fullName, so we resolve it from the change
-    // The caller (component) will map personId -> fullName via people prop
-    // We include personId and will resolve below
     diffs.push({
       personId,
-      fullName: people?.find(p => p.personId === personId)?.fullName ?? personId,
+      fullName:     people?.find(p => p.personId === personId)?.fullName ?? personId,
       capacityDays,
-      scenarioCap,
-      deltaAvg,
+      scenarioCap:  capacityDays,
+      deltaAvg:     deltaCount > 0 ? Math.round(deltaSum / deltaCount) : 0,
       cells,
     });
   }
@@ -318,62 +327,49 @@ export function computeDiff(
   return diffs;
 }
 
-/* ── autoSuggest ─────────────────────────────────────────────────────────── */
+/* =============================================================================
+   autoSuggest
+============================================================================= */
 
 export function autoSuggest(
-  people: LivePerson[],
+  people:      LivePerson[],
   allocations: LiveAllocation[],
-  exceptions: LiveException[],
-  start: string,
-  end: string,
-  daysNeeded: number
+  exceptions:  LiveException[],
+  start:       string,
+  end:         string,
+  daysNeeded:  number
 ): SuggestedPerson[] {
-  const weeks = weeksInRange(start, end);
+  const weeks = weeksInDateRange(start, end);
+
   const exMap = new Map<string, number>();
-  for (const ex of exceptions) {
-    exMap.set(`${ex.personId}::${ex.weekStart}`, ex.capacityOverride);
+  for (const ex of exceptions) exMap.set(`${ex.personId}::${ex.weekStart}`, ex.availDays);
+
+  const allocMap = new Map<string, number>();
+  for (const a of allocations) {
+    const key = `${a.personId}::${a.weekStart}`;
+    allocMap.set(key, (allocMap.get(key) ?? 0) + a.daysAllocated);
   }
 
-  const results: SuggestedPerson[] = [];
-
-  for (const person of people) {
-    let totalAvail = 0;
-    let conflictWeeks = 0;
-    let fullCoverWeeks = 0;
-
-    for (const week of weeks) {
-      const cap = exMap.get(`${person.personId}::${week}`) ?? person.capacityDays;
-      let allocated = 0;
-      for (const alloc of allocations) {
-        if (alloc.personId !== person.personId) continue;
-        if (!weekOverlaps(week, alloc.startDate, alloc.endDate)) continue;
-        allocated += alloc.daysPerWeek;
+  return people
+    .map(person => {
+      let totalAvail = 0, conflictWeeks = 0, fullCoverWeeks = 0;
+      for (const week of weeks) {
+        const key   = `${person.personId}::${week}`;
+        const cap   = exMap.get(key) ?? person.capacityDays;
+        const alloc = allocMap.get(key) ?? 0;
+        const avail = Math.max(0, cap - alloc);
+        totalAvail += avail;
+        if (avail < daysNeeded) conflictWeeks++;
+        else fullCoverWeeks++;
       }
-      const avail = Math.max(0, cap - allocated);
-      totalAvail += avail;
-      if (avail < daysNeeded) conflictWeeks++;
-      if (avail >= daysNeeded) fullCoverWeeks++;
-    }
-
-    const avgAvailDays = weeks.length > 0 ? Math.round((totalAvail / weeks.length) * 10) / 10 : 0;
-    const canFullyCover = fullCoverWeeks === weeks.length;
-
-    // Score: higher = better fit. Penalise conflicts, reward availability.
-    const score = Math.round(
-      (avgAvailDays / Math.max(1, person.capacityDays)) * 60 +
-      ((weeks.length - conflictWeeks) / Math.max(1, weeks.length)) * 40
-    );
-
-    results.push({
-      personId:    person.personId,
-      fullName:    person.fullName,
-      avgAvailDays,
-      conflictWeeks,
-      score,
-      canFullyCover,
-    });
-  }
-
-  // Sort by score descending
-  return results.sort((a, b) => b.score - a.score).slice(0, 5);
+      const avgAvailDays  = weeks.length > 0 ? Math.round((totalAvail / weeks.length) * 10) / 10 : 0;
+      const canFullyCover = fullCoverWeeks === weeks.length;
+      const score         = Math.round(
+        (avgAvailDays / Math.max(1, person.capacityDays)) * 60 +
+        ((weeks.length - conflictWeeks) / Math.max(1, weeks.length)) * 40
+      );
+      return { personId: person.personId, fullName: person.fullName, avgAvailDays, conflictWeeks, score, canFullyCover };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
 }
