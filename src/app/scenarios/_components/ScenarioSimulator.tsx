@@ -1078,6 +1078,7 @@ export default function ScenarioSimulator({
                   <div style={{ fontSize: "13px", fontWeight: 800, color: "#0f172a",
                                 marginBottom: "8px" }}>Saved scenarios</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+                    {savedScenarios.map((sc) => (
                       <div key={sc.id} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                         <button type="button" onClick={() => loadScenario(sc)} style={{
                           flex: 1, display: "flex", alignItems: "center", gap: "8px",
@@ -1106,8 +1107,9 @@ export default function ScenarioSimulator({
                           padding: "6px 8px", borderRadius: "7px", border: "1.5px solid #fecaca",
                           background: "white", color: "#ef4444", fontSize: "11px",
                           cursor: "pointer", flexShrink: 0, fontWeight: 700,
-                        }}>?</button>
+                        }}>X</button>
                       </div>
+                    ))}
                   </div>
                 </div>
               )}
