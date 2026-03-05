@@ -15,6 +15,7 @@ import type { Metadata } from "next";
 import { DM_Sans, DM_Mono } from "next/font/google";
 import { createClient } from "@/utils/supabase/server";
 import SidebarShell from "@/components/nav/SidebarShell";
+import CosmosBackdrop from "@/components/ui/CosmosBackdrop";
 import "./globals.css";
 
 export const runtime = "nodejs";
@@ -58,7 +59,6 @@ export const metadata: Metadata = {
   },
 
   themeColor: "#0a0d14",
-
   manifest: "/manifest.json",
 };
 
@@ -170,16 +170,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         />
       </head>
 
-      <body
-        className="bg-[#0a0d14] text-slate-100 antialiased font-sans"
-        style={{
-          background:
-            "radial-gradient(circle at 20% 20%, rgba(0,184,219,0.15), transparent 40%), radial-gradient(circle at 80% 70%, rgba(99,102,241,0.12), transparent 40%), #0a0d14",
-        }}
-      >
-        <SidebarShell userName={userName} orgName={orgName} projectCount={activeProjectCount}>
-          {children}
-        </SidebarShell>
+      <body className="text-slate-100 antialiased font-sans bg-[#000810]">
+        {/* Global cosmic background (fixed, behind everything) */}
+        <CosmosBackdrop />
+
+        {/* App content above the canvas */}
+        <div className="relative z-10">
+          <SidebarShell userName={userName} orgName={orgName} projectCount={activeProjectCount}>
+            {children}
+          </SidebarShell>
+        </div>
       </body>
     </html>
   );
