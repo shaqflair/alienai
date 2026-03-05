@@ -118,7 +118,6 @@ function daysUntil(d: string | null | undefined): number | null {
 }
 
 async function getOrgMembership(supabase: any, organisationId: string, userId: string) {
-  // Returns: { isMember, isAdmin, role }
   const { data, error } = await supabase
     .from("organisation_members")
     .select("role, is_active, removed_at")
@@ -127,7 +126,6 @@ async function getOrgMembership(supabase: any, organisationId: string, userId: s
     .maybeSingle();
 
   if (error) {
-    // If table doesn't exist in a given env, degrade safely (treat as not a member)
     if (String(error?.message || "").toLowerCase().includes("does not exist")) {
       return { isMember: false, isAdmin: false, role: "" };
     }
@@ -162,7 +160,6 @@ async function convertPipelineToConfirmed(formData: FormData) {
   const returnTo = safeStr(formData.get("return_to")).trim() || "/projects";
   if (!projectId) redirect(`${returnTo}?err=missing_project_id`);
 
-  // Ensure project is in active org (prevents cross-org updates)
   const { data: projRow, error: projErr } = await supabase
     .from("projects")
     .select("id, organisation_id, resource_status")
@@ -171,7 +168,6 @@ async function convertPipelineToConfirmed(formData: FormData) {
   if (projErr) throw projErr;
   if (!projRow?.id || String(projRow.organisation_id) !== activeOrgId) redirect(`${returnTo}?err=forbidden`);
 
-  // Member role OR org admin can convert
   const { data: memRows, error: memErr } = await supabase
     .from("project_members")
     .select("role, removed_at, is_active")
@@ -200,38 +196,41 @@ export default async function ProjectPage({
   params,
   searchParams,
 }: {
-  params: { id?: string };
-  searchParams?: { msg?: string; conflicts?: string; err?: string };
+  // ✅ FIX: Both params and searchParams are Promises in Next.js 15
+  params: Promise<{ id?: string }>;
+  searchParams?: Promise<{ msg?: string; conflicts?: string; err?: string }>;
 }) {
   const supabase = await createClient();
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr) throw authErr;
   if (!auth?.user) redirect("/login");
 
+  // ✅ FIX: Await params before accessing .id
+  const { id: _paramId } = await params;
+  const rawId = safeParam(_paramId).trim();
+
+  // ✅ FIX: Await searchParams before accessing its properties
+  const sp = (await searchParams) ?? {};
+
   let activeOrgId = await getActiveOrgId();
   if (!activeOrgId) {
-    // Cookie not set - resolve org from project UUID directly
-    if (looksLikeUuid(safeParam(params?.id))) {
+    if (looksLikeUuid(rawId)) {
       const { data: proj } = await supabase.from("projects")
-        .select("organisation_id").eq("id", safeParam(params?.id)).maybeSingle();
+        .select("organisation_id").eq("id", rawId).maybeSingle();
       if (proj?.organisation_id) activeOrgId = String(proj.organisation_id);
     }
     if (!activeOrgId) notFound();
   }
 
-  const rawId = safeParam(params?.id).trim();
-  const sp = searchParams ?? {};
   if (!rawId) notFound();
 
   const lower = rawId.toLowerCase();
   if (RESERVED.has(lower)) redirect("/projects");
 
-  // Resolve UUID within org (for human IDs); UUID verified by org-bound fetch below.
   const resolved = await resolveProjectUuidFast(supabase, rawId, activeOrgId);
   if (!resolved?.projectUuid) notFound();
   const projectUuid = String(resolved.projectUuid);
 
-  // Fetch project WITH org constraint (UUID safety check)
   let project = resolved.project ?? null;
   if (!project) {
     const { data: p, error: pErr } = await supabase
@@ -247,10 +246,8 @@ export default async function ProjectPage({
     if (String(project?.organisation_id ?? "") !== activeOrgId) notFound();
   }
 
-  // ✅ ORG membership (this is the key fix for your 404)
   const org = await getOrgMembership(supabase, activeOrgId, auth.user.id);
 
-  // Project membership
   const { data: memRows, error: memErr } = await supabase
     .from("project_members")
     .select("role, removed_at, is_active")
@@ -262,7 +259,6 @@ export default async function ProjectPage({
 
   const projectRole = bestProjectRole(memRows as any);
 
-  // ✅ Allow: org member OR project member (admin handled inside org.isAdmin)
   const canSeeProject = org.isMember || Boolean(projectRole);
   if (!canSeeProject) notFound();
 
@@ -288,7 +284,6 @@ export default async function ProjectPage({
   const projectCode = safeStr(project?.project_code ?? "").trim();
   const projectColour = safeStr(project?.colour ?? "#00b8db");
 
-  // ✅ Canonical URL ref = UUID
   const projectRefForUrls = projectUuid;
 
   const flash = flashText(sp?.msg, sp?.conflicts);
