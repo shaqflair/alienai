@@ -58,8 +58,8 @@ function uniq<T>(arr: T[]) {
 }
 
 function ragFromScore(score: number): "G" | "A" | "R" {
-  if (score <= 40) return "R";
-  if (score <= 70) return "A";
+  if (score < 70) return "R";
+  if (score < 85) return "A";
   return "G";
 }
 
@@ -556,6 +556,22 @@ async function buildOrgBrain(opts: {
   const byProjHighRaid = mapCount(highRaid);
   const byProjOverdueRaid = mapCount(overdueRaid);
 
+  // Fetch cron-computed health to align with portfolio/project page
+  const { data: cronHealthRows } = await supabase
+    .from("project_health")
+    .select("project_id, overall_rag")
+    .in("project_id", projectIds);
+  const cronHealthMap = new Map<string, string>();
+  for (const r of (cronHealthRows ?? []) as any[]) {
+    if (r?.project_id && r?.overall_rag) cronHealthMap.set(String(r.project_id), String(r.overall_rag));
+  }
+  function cronRagToScore(rag: string): number | null {
+    if (rag === "green") return 90;
+    if (rag === "amber") return 75;
+    if (rag === "red")   return 50;
+    return null;
+  }
+
   const projectScores = projects.map((p: any) => {
     const overdueApprovalsN = byProjOverdueApprovals.get(p.id) ?? 0;
     const breachedTasksN = byProjBreachedTasks.get(p.id) ?? 0;
@@ -582,6 +598,9 @@ async function buildOrgBrain(opts: {
     if (!isNew && idle > idleDays) score -= 10;
 
     score = clamp(score, 0, 100);
+    // Blend with cron health if available (60% cron, 40% signals)
+    const cronScore = cronRagToScore(cronHealthMap.get(p.id) ?? "");
+    if (cronScore !== null) score = Math.round(score * 0.4 + cronScore * 0.6);
 
     const signals: ProjectSignals = {
       overdue_approvals: overdueApprovalsN,
