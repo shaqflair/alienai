@@ -21,20 +21,20 @@ type Project = {
   start_date: string | null;
   finish_date: string | null;
   created_at: string;
-  pm_name: string | null;
   health?: number | null;
   rag?: "G" | "A" | "R" | null;
 };
 
-function formatDate(d: string | null | undefined) {
-  if (!d) return null;
-  try { return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); }
-  catch { return d; }
-}
+function safeStr(x: any) { return typeof x === "string" ? x : x == null ? "" : String(x); }
 function formatDateShort(d: string | null | undefined) {
   if (!d) return null;
-  try { return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short" }); }
-  catch { return d; }
+  try { return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" }); }
+  catch { return null; }
+}
+function formatDateLong(d: string | null | undefined) {
+  if (!d) return null;
+  try { return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); }
+  catch { return null; }
 }
 function daysUntil(d: string | null | undefined): number | null {
   if (!d) return null;
@@ -42,7 +42,6 @@ function daysUntil(d: string | null | undefined): number | null {
   catch { return null; }
 }
 function projectRef(p: Project) { return p.id; }
-function safeStr(x: any) { return typeof x === "string" ? x : x == null ? "" : String(x); }
 
 async function setProjectStatus(formData: FormData) {
   "use server";
@@ -62,7 +61,7 @@ async function setProjectStatus(formData: FormData) {
 export default async function ProjectsPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ filter?: string; sort?: string; q?: string; debug?: string }>;
+  searchParams?: Promise<{ filter?: string; sort?: string; q?: string }>;
 }) {
   const supabase = await createClient();
   const { data: { user }, error: authErr } = await supabase.auth.getUser();
@@ -96,7 +95,6 @@ export default async function ProjectsPage({
       .limit(20000);
     if (pErr) throw pErr;
 
-    // Try to get RAG scores
     const projectIds = (pData ?? []).map((p: any) => p.id);
     let ragMap = new Map<string, { health: number; rag: string }>();
     if (projectIds.length > 0) {
@@ -114,7 +112,7 @@ export default async function ProjectsPage({
 
     projects = (pData ?? []).map((p: any) => ({
       id: String(p.id),
-      title: String(p.title ?? "Untitled project"),
+      title: String(p.title ?? "Untitled"),
       project_code: p.project_code ?? null,
       colour: p.colour ?? null,
       status: p.status ?? null,
@@ -122,16 +120,15 @@ export default async function ProjectsPage({
       start_date: p.start_date ?? null,
       finish_date: p.finish_date ?? null,
       created_at: String(p.created_at),
-      pm_name: null,
       health: ragMap.get(p.id)?.health ?? null,
       rag: (ragMap.get(p.id)?.rag as any) ?? null,
     }));
   }
 
   const sp = (await searchParams) ?? {};
-  const filter = (sp.filter ?? "Active").trim();
+  const filter   = (sp.filter ?? "Active").trim();
   const sortMode = (sp.sort ?? "Newest").trim();
-  const query = (sp.q ?? "").trim().toLowerCase();
+  const query    = (sp.q ?? "").trim().toLowerCase();
 
   const filtered = projects
     .filter((p) => {
@@ -158,543 +155,600 @@ export default async function ProjectsPage({
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         :root {
-          --ink:       #0a0e17;
-          --ink-2:     #3d4454;
-          --ink-3:     #7c8494;
-          --surface:   #ffffff;
-          --surface-2: #f5f7fa;
-          --border:    #e4e8ef;
-          --border-2:  #cdd3de;
-          --green:     #16a34a;
-          --green-bg:  #dcfce7;
-          --amber:     #d97706;
-          --amber-bg:  #fef3c7;
-          --red:       #dc2626;
-          --red-bg:    #fee2e2;
-          --blue:      #2563eb;
-          --blue-bg:   #eff6ff;
-          --teal:      #0d9488;
-          --teal-bg:   #f0fdfa;
+          --bg:         #07090f;
+          --bg-2:       #0d1117;
+          --surface:    #111620;
+          --surface-2:  #161d2e;
+          --border:     rgba(255,255,255,0.07);
+          --border-2:   rgba(255,255,255,0.12);
+          --text:       #f0f4ff;
+          --text-2:     #8892a4;
+          --text-3:     #4a5568;
+          --teal:       #2dd4bf;
+          --teal-dim:   rgba(45,212,191,0.12);
+          --teal-glow:  rgba(45,212,191,0.25);
         }
 
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--surface-2); color: var(--ink); }
+        html, body { background: var(--bg); color: var(--text); font-family: 'Instrument Sans', sans-serif; }
 
-        /* ── Hero banner ── */
-        .hero {
-          background: linear-gradient(135deg, #0a0e17 0%, #141b2e 50%, #0d1829 100%);
-          padding: 40px 48px 0;
-          position: relative; overflow: hidden;
+        /* ── PAGE WRAPPER ── */
+        .page { min-height: 100vh; background: var(--bg); }
+
+        /* ── HEADER ── */
+        .header {
+          padding: 52px 56px 0;
+          position: relative;
+          background: linear-gradient(180deg, #0a0f1e 0%, var(--bg) 100%);
         }
-        .hero::before {
+        .header::after {
+          content: '';
+          position: absolute;
+          bottom: 0; left: 0; right: 0; height: 1px;
+          background: var(--border);
+        }
+
+        /* Noise texture overlay */
+        .header::before {
           content: '';
           position: absolute; inset: 0;
-          background:
-            radial-gradient(ellipse 60% 50% at 80% 20%, rgba(13,148,136,0.12) 0%, transparent 60%),
-            radial-gradient(ellipse 40% 60% at 10% 80%, rgba(37,99,235,0.08) 0%, transparent 60%);
-          pointer-events: none;
-        }
-        .hero-grid {
-          position: absolute; inset: 0; opacity: 0.04;
-          background-image: linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px),
-                            linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px);
-          background-size: 40px 40px;
-          pointer-events: none;
+          background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+          background-size: 200px 200px;
+          opacity: 0.4; pointer-events: none; z-index: 0;
         }
 
-        /* ── Stats strip ── */
-        .stat-strip { display: flex; gap: 0; margin-bottom: 32px; position: relative; z-index: 1; }
-        .stat-pill {
-          display: flex; align-items: center; gap: 10px;
-          padding: 16px 24px; border-right: 1px solid rgba(255,255,255,0.08);
+        .header-inner { position: relative; z-index: 1; }
+
+        /* Glow orbs */
+        .orb-teal {
+          position: absolute; top: -60px; right: 200px;
+          width: 400px; height: 300px; border-radius: 50%;
+          background: radial-gradient(ellipse, rgba(45,212,191,0.07) 0%, transparent 70%);
+          pointer-events: none; z-index: 0;
         }
-        .stat-pill:last-child { border-right: none; }
-        .stat-pill-val { font-size: 28px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px; line-height: 1; }
-        .stat-pill-lbl { font-size: 12px; color: rgba(255,255,255,0.45); font-weight: 500; margin-top: 2px; }
-        .stat-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .orb-blue {
+          position: absolute; top: 20px; right: -100px;
+          width: 500px; height: 400px; border-radius: 50%;
+          background: radial-gradient(ellipse, rgba(59,130,246,0.05) 0%, transparent 70%);
+          pointer-events: none; z-index: 0;
+        }
 
-        /* ── Hero title ── */
-        .hero-title { font-size: 32px; font-weight: 800; color: #fff; letter-spacing: -0.5px; margin-bottom: 6px; position: relative; z-index: 1; }
-        .hero-sub   { font-size: 14px; color: rgba(255,255,255,0.45); margin-bottom: 28px; position: relative; z-index: 1; }
+        /* ── TITLE ROW ── */
+        .title-row {
+          display: flex; align-items: flex-start; justify-content: space-between;
+          gap: 20px; flex-wrap: wrap; margin-bottom: 36px;
+        }
+        .page-title {
+          font-family: 'Syne', sans-serif;
+          font-size: 42px; font-weight: 800; color: var(--text);
+          letter-spacing: -1.5px; line-height: 1; margin-bottom: 8px;
+        }
+        .page-sub { font-size: 14px; color: var(--text-2); font-weight: 400; }
 
-        /* ── Toolbar ── */
+        /* ── HEADER ACTIONS ── */
+        .header-actions { display: flex; gap: 10px; align-items: center; padding-top: 6px; }
+        .btn-ghost {
+          display: inline-flex; align-items: center; gap: 7px;
+          padding: 9px 18px; border-radius: 10px; font-size: 13px; font-weight: 600;
+          border: 1px solid var(--border-2); color: var(--text-2);
+          background: rgba(255,255,255,0.03); text-decoration: none;
+          transition: all 0.15s; font-family: 'Instrument Sans', sans-serif;
+          white-space: nowrap;
+        }
+        .btn-ghost:hover { background: rgba(255,255,255,0.07); color: var(--text); border-color: rgba(255,255,255,0.18); }
+        .btn-primary {
+          display: inline-flex; align-items: center; gap: 7px;
+          padding: 9px 18px; border-radius: 10px; font-size: 13px; font-weight: 700;
+          background: var(--teal); color: #0a0e17; border: none; cursor: pointer;
+          text-decoration: none; transition: opacity 0.15s; white-space: nowrap;
+          font-family: 'Instrument Sans', sans-serif;
+          box-shadow: 0 0 24px rgba(45,212,191,0.3);
+        }
+        .btn-primary:hover { opacity: 0.88; }
+
+        /* ── STATS ROW ── */
+        .stats-row {
+          display: flex; gap: 0; margin-bottom: 0;
+          border-top: 1px solid var(--border);
+          border-bottom: none;
+        }
+        .stat-item {
+          display: flex; flex-direction: column; gap: 3px;
+          padding: 18px 28px; border-right: 1px solid var(--border);
+          position: relative;
+        }
+        .stat-item:first-child { padding-left: 0; }
+        .stat-item:last-child { border-right: none; }
+        .stat-val {
+          font-family: 'Syne', sans-serif;
+          font-size: 22px; font-weight: 700; color: var(--text);
+          letter-spacing: -0.5px; line-height: 1;
+        }
+        .stat-lbl { font-size: 11px; color: var(--text-3); font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; }
+        .stat-indicator { display: inline-flex; align-items: center; gap: 5px; }
+        .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+
+        /* ── TOOLBAR ── */
         .toolbar {
-          display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-          background: rgba(255,255,255,0.04); border-top: 1px solid rgba(255,255,255,0.07);
-          padding: 14px 48px; position: relative; z-index: 1;
-        }
-        .filter-tab {
-          padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
-          text-decoration: none; cursor: pointer; border: 1px solid transparent;
-          color: rgba(255,255,255,0.5); transition: all 0.15s; white-space: nowrap;
-          font-family: 'Plus Jakarta Sans', sans-serif;
-        }
-        .filter-tab:hover  { color: rgba(255,255,255,0.8); background: rgba(255,255,255,0.07); }
-        .filter-tab.active { color: #ffffff; background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.15); }
-        .search-box {
           display: flex; align-items: center; gap: 8px;
-          background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1);
-          border-radius: 9px; padding: 7px 13px; flex: 1; max-width: 320px;
-          transition: border-color 0.15s, background 0.15s;
+          padding: 16px 56px; flex-wrap: wrap;
+          border-bottom: 1px solid var(--border);
+          background: var(--bg);
+          position: sticky; top: 0; z-index: 50;
+          backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
         }
-        .search-box:focus-within { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); }
-        .search-box input {
+        .filter-group { display: flex; gap: 2px; background: rgba(255,255,255,0.04); border-radius: 10px; padding: 3px; border: 1px solid var(--border); }
+        .f-tab {
+          padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 600;
+          text-decoration: none; color: var(--text-3); transition: all 0.15s;
+          white-space: nowrap; font-family: 'Instrument Sans', sans-serif;
+        }
+        .f-tab:hover  { color: var(--text-2); background: rgba(255,255,255,0.05); }
+        .f-tab.active { background: rgba(255,255,255,0.1); color: var(--text); }
+        .f-tab-count  { margin-left: 5px; font-size: 10px; opacity: 0.5; }
+
+        .search-wrap {
+          display: flex; align-items: center; gap: 8px;
+          background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+          border-radius: 10px; padding: 7px 13px; flex: 1; max-width: 280px;
+          transition: all 0.15s;
+        }
+        .search-wrap:focus-within { border-color: var(--border-2); background: rgba(255,255,255,0.07); box-shadow: 0 0 0 3px rgba(45,212,191,0.06); }
+        .search-wrap input {
           border: none; outline: none; background: transparent; font-size: 13px;
-          color: #fff; font-family: 'Plus Jakarta Sans', sans-serif; width: 100%;
+          color: var(--text); font-family: 'Instrument Sans', sans-serif; width: 100%;
         }
-        .search-box input::placeholder { color: rgba(255,255,255,0.35); }
-        .sort-tab {
-          padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 600;
-          text-decoration: none; color: rgba(255,255,255,0.45); border: 1px solid transparent;
-          transition: all 0.15s; white-space: nowrap; font-family: 'Plus Jakarta Sans', sans-serif;
-        }
-        .sort-tab:hover  { color: rgba(255,255,255,0.7); }
-        .sort-tab.active { color: #fff; background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.15); }
-        .new-btn {
-          display: inline-flex; align-items: center; gap: 6px;
-          padding: 7px 16px; border-radius: 9px; font-size: 13px; font-weight: 700;
-          background: var(--teal); color: white; text-decoration: none; border: none;
-          cursor: pointer; font-family: 'Plus Jakarta Sans', sans-serif;
-          transition: opacity 0.15s; white-space: nowrap; margin-left: auto;
-        }
-        .new-btn:hover { opacity: 0.88; }
+        .search-wrap input::placeholder { color: var(--text-3); }
 
-        /* ── Content area ── */
-        .content { padding: 28px 48px 64px; }
-        .count-label { font-size: 12px; font-weight: 600; color: var(--ink-3); margin-bottom: 16px; letter-spacing: 0.04em; text-transform: uppercase; }
-
-        /* ── Project card ── */
-        .project-card {
-          background: var(--surface); border: 1px solid var(--border);
-          border-radius: 14px; padding: 0;
-          transition: box-shadow 0.2s, border-color 0.2s, transform 0.2s;
-          overflow: hidden; position: relative;
-          animation: fadeUp 0.35s ease both;
+        .sort-group { display: flex; gap: 2px; background: rgba(255,255,255,0.04); border-radius: 10px; padding: 3px; border: 1px solid var(--border); margin-left: auto; }
+        .s-tab {
+          padding: 6px 12px; border-radius: 7px; font-size: 12px; font-weight: 600;
+          text-decoration: none; color: var(--text-3); transition: all 0.15s;
+          font-family: 'Instrument Sans', sans-serif;
         }
-        .project-card:hover {
-          box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        .s-tab:hover  { color: var(--text-2); }
+        .s-tab.active { background: rgba(255,255,255,0.1); color: var(--text); }
+
+        /* ── LIST ── */
+        .list-wrap { padding: 28px 56px 80px; }
+        .list-meta { font-size: 11px; font-weight: 600; color: var(--text-3); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 16px; }
+
+        /* ── PROJECT CARD ── */
+        .p-card {
+          position: relative;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 16px; margin-bottom: 8px;
+          overflow: hidden;
+          transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+          animation: riseIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+        .p-card:hover {
           border-color: var(--border-2);
+          box-shadow: 0 4px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05);
           transform: translateY(-1px);
         }
-        @keyframes fadeUp {
-          from { opacity: 0; transform: translateY(12px); }
+        .p-card:hover .card-glow { opacity: 1; }
+
+        @keyframes riseIn {
+          from { opacity: 0; transform: translateY(8px); }
           to   { opacity: 1; transform: translateY(0); }
         }
 
-        .card-accent { width: 4px; position: absolute; left: 0; top: 0; bottom: 0; border-radius: 14px 0 0 14px; }
-        .card-inner  { padding: 20px 20px 20px 24px; display: flex; align-items: center; gap: 16px; }
-
-        /* ── Health ring ── */
-        .health-ring { flex-shrink: 0; position: relative; width: 52px; height: 52px; }
-        .health-ring svg { transform: rotate(-90deg); }
-        .health-ring-val {
-          position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-          font-size: 11px; font-weight: 800; letter-spacing: -0.3px;
+        /* Left colour accent */
+        .card-stripe {
+          position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+          border-radius: 16px 0 0 16px;
         }
 
-        /* ── Card body ── */
-        .card-body { flex: 1; min-width: 0; }
-        .card-title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; flex-wrap: wrap; }
-        .card-title {
-          font-size: 15px; font-weight: 700; color: var(--ink); text-decoration: none;
-          transition: color 0.15s;
+        /* Hover glow from stripe colour */
+        .card-glow {
+          position: absolute; left: 0; top: 0; bottom: 0; width: 200px;
+          opacity: 0; transition: opacity 0.3s; pointer-events: none;
+          border-radius: 16px 0 0 16px;
         }
-        .card-title:hover { color: var(--teal); }
-        .code-badge {
+
+        .card-row {
+          display: grid;
+          grid-template-columns: 1fr auto auto;
+          align-items: center;
+          gap: 20px; padding: 18px 20px 18px 24px;
+        }
+
+        /* ── LEFT: project info ── */
+        .card-info { min-width: 0; }
+        .card-title-row { display: flex; align-items: center; gap: 9px; margin-bottom: 7px; flex-wrap: wrap; }
+        .card-name {
+          font-size: 15px; font-weight: 700; color: var(--text); text-decoration: none;
+          letter-spacing: -0.2px; transition: color 0.15s;
+        }
+        .card-name:hover { color: var(--teal); }
+        .code-pill {
           font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500;
-          padding: 2px 7px; border-radius: 5px; background: var(--surface-2);
-          color: var(--ink-3); border: 1px solid var(--border); letter-spacing: 0.02em;
+          padding: 2px 7px; border-radius: 5px;
+          background: rgba(255,255,255,0.05); color: var(--text-3);
+          border: 1px solid var(--border); letter-spacing: 0.03em;
         }
-        .status-badge {
+        .status-pill {
           font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px;
+          letter-spacing: 0.03em;
         }
-        .card-meta { font-size: 12px; color: var(--ink-3); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .meta-sep { width: 3px; height: 3px; border-radius: 50%; background: var(--border-2); flex-shrink: 0; }
+        .status-active { background: rgba(34,197,94,0.12); color: #4ade80; }
+        .status-closed { background: rgba(148,163,184,0.1); color: #64748b; }
+        .status-pipeline { background: rgba(167,139,250,0.12); color: #a78bfa; }
 
-        /* ── Progress bar ── */
-        .progress-wrap { margin-top: 10px; }
-        .progress-track { height: 4px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
-        .progress-fill  { height: 100%; border-radius: 99px; transition: width 0.6s cubic-bezier(0.16,1,0.3,1); }
+        .card-meta { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-3); flex-wrap: wrap; }
+        .meta-dot  { width: 2px; height: 2px; background: var(--text-3); border-radius: 50%; opacity: 0.4; flex-shrink: 0; }
+        .pm-link   { color: #60a5fa; font-weight: 600; text-decoration: none; }
+        .pm-link:hover { color: #93c5fd; }
 
-        /* ── Date range ── */
-        .date-range {
-          display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
-          flex-shrink: 0; min-width: 120px;
-        }
-        .date-range-label { font-size: 11px; color: var(--ink-3); font-weight: 500; text-align: right; }
-        .date-range-val   { font-size: 12px; color: var(--ink-2); font-weight: 600; text-align: right; font-family: 'JetBrains Mono', monospace; }
-        .days-chip {
+        /* ── MIDDLE: timeline bar ── */
+        .card-timeline { width: 200px; flex-shrink: 0; }
+        .timeline-dates { display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-3); margin-bottom: 5px; }
+        .timeline-track { height: 4px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden; position: relative; }
+        .timeline-fill  { height: 100%; border-radius: 99px; position: absolute; left: 0; top: 0; transition: width 0.5s cubic-bezier(0.16,1,0.3,1); }
+        .timeline-label { margin-top: 5px; display: flex; align-items: center; justify-content: flex-end; }
+        .days-badge {
           font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px;
+          font-family: 'Instrument Sans', sans-serif;
         }
+        .days-ok      { background: rgba(34,197,94,0.12);  color: #4ade80; }
+        .days-warn    { background: rgba(251,191,36,0.12);  color: #fbbf24; }
+        .days-overdue { background: rgba(248,113,113,0.12); color: #f87171; }
+        .days-none    { background: rgba(255,255,255,0.05); color: var(--text-3); }
 
-        /* ── Actions ── */
-        .card-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
-        .act-btn {
-          display: inline-flex; align-items: center; gap: 4px;
-          padding: 6px 11px; border-radius: 8px; font-size: 12px; font-weight: 600;
-          text-decoration: none; border: 1px solid var(--border); color: var(--ink-2);
-          background: var(--surface); transition: all 0.15s; white-space: nowrap;
-          font-family: 'Plus Jakarta Sans', sans-serif; cursor: pointer;
+        /* ── RIGHT: actions ── */
+        .card-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+        .act {
+          display: inline-flex; align-items: center; gap: 5px;
+          padding: 7px 13px; border-radius: 9px; font-size: 12px; font-weight: 600;
+          text-decoration: none; border: 1px solid var(--border); color: var(--text-2);
+          background: rgba(255,255,255,0.03); transition: all 0.15s; white-space: nowrap;
+          font-family: 'Instrument Sans', sans-serif; cursor: pointer;
         }
-        .act-btn:hover { background: var(--surface-2); border-color: var(--border-2); color: var(--ink); }
-        .act-btn.close { background: #fffbeb; border-color: #fde68a; color: #92400e; }
-        .act-btn.close:hover { background: #fef3c7; }
-        .act-btn.reopen { color: var(--ink-2); }
-        .divider { height: 16px; width: 1px; background: var(--border); flex-shrink: 0; }
+        .act:hover { background: rgba(255,255,255,0.07); border-color: var(--border-2); color: var(--text); }
+        .act-overview:hover { border-color: rgba(45,212,191,0.3); color: var(--teal); }
+        .act-close { border-color: rgba(251,191,36,0.2); color: #fbbf24; background: rgba(251,191,36,0.05); }
+        .act-close:hover { background: rgba(251,191,36,0.1); border-color: rgba(251,191,36,0.4); }
+        .act-reopen { }
+        .v-line { width: 1px; height: 14px; background: var(--border); flex-shrink: 0; }
 
-        /* ── Empty state ── */
-        .empty { text-align: center; padding: 72px 0; color: var(--ink-3); }
-        .empty-icon { font-size: 48px; margin-bottom: 12px; }
-        .empty-title { font-size: 16px; font-weight: 700; color: var(--ink-2); margin-bottom: 6px; }
-        .empty-sub   { font-size: 13px; }
+        /* ── HEALTH SCORE inline ── */
+        .health-inline {
+          display: inline-flex; align-items: center; gap: 5px;
+          font-size: 11px; font-weight: 700;
+          padding: 3px 9px; border-radius: 7px;
+        }
+        .health-g { background: rgba(34,197,94,0.1);  color: #4ade80; }
+        .health-a { background: rgba(251,191,36,0.1);  color: #fbbf24; }
+        .health-r { background: rgba(248,113,113,0.1); color: #f87171; }
+        .health-n { background: rgba(255,255,255,0.05); color: var(--text-3); }
 
-        /* ── Pipeline badge ── */
-        .pipeline-badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px; background: rgba(124,58,237,0.08); color: #7c3aed; }
+        /* ── EMPTY ── */
+        .empty { padding: 80px 0; text-align: center; }
+        .empty-icon { font-size: 40px; margin-bottom: 14px; }
+        .empty-title { font-size: 15px; font-weight: 700; color: var(--text-2); margin-bottom: 6px; }
+        .empty-sub   { font-size: 13px; color: var(--text-3); }
 
-        /* ── Hidden class for JS search ── */
+        /* ── HIDDEN ── */
         .js-hidden { display: none !important; }
 
-        @media (max-width: 900px) {
-          .hero        { padding: 28px 20px 0; }
-          .toolbar     { padding: 12px 20px; }
-          .content     { padding: 20px 20px 48px; }
-          .date-range  { display: none; }
-          .card-actions { gap: 4px; }
-          .stat-strip  { flex-wrap: wrap; gap: 0; }
+        @media (max-width: 1024px) {
+          .header     { padding: 36px 24px 0; }
+          .toolbar    { padding: 12px 24px; }
+          .list-wrap  { padding: 20px 24px 60px; }
+          .card-timeline { display: none; }
         }
-        @media (max-width: 600px) {
-          .act-btn span { display: none; }
-          .card-inner  { gap: 10px; padding: 14px 14px 14px 18px; }
+        @media (max-width: 768px) {
+          .page-title { font-size: 28px; }
+          .stats-row  { flex-wrap: wrap; }
+          .act span   { display: none; }
+          .card-row   { grid-template-columns: 1fr auto; gap: 12px; }
         }
       `}</style>
 
-      {/* Live search JS */}
       <script dangerouslySetInnerHTML={{ __html: `
         (function(){
-          function init(){
-            var input = document.getElementById('live-search');
-            if(!input) return;
-            input.addEventListener('input', function(){
-              var q = this.value.toLowerCase().trim();
-              document.querySelectorAll('.project-card[data-search]').forEach(function(el){
-                if(!q || el.dataset.search.includes(q)) el.classList.remove('js-hidden');
-                else el.classList.add('js-hidden');
+          function boot(){
+            var inp = document.getElementById('live-q');
+            if(!inp) return;
+            var lbl = document.getElementById('list-count');
+            inp.addEventListener('input', function(){
+              var q = this.value.toLowerCase();
+              var cards = document.querySelectorAll('.p-card');
+              var n = 0;
+              cards.forEach(function(c){
+                var show = !q || (c.dataset.s||'').includes(q);
+                c.classList.toggle('js-hidden', !show);
+                if(show) n++;
               });
-              var vis = document.querySelectorAll('.project-card:not(.js-hidden)').length;
-              var lbl = document.getElementById('count-label');
-              if(lbl) lbl.textContent = vis + ' project' + (vis !== 1 ? 's' : '');
+              if(lbl) lbl.textContent = n + ' project' + (n!==1?'s':'');
             });
           }
-          if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-          else init();
+          document.readyState==='loading' ? document.addEventListener('DOMContentLoaded',boot) : boot();
         })();
       `}} />
 
-      <main>
-        {/* ── HERO ── */}
-        <div className="hero">
-          <div className="hero-grid" />
+      <div className="page">
 
-          <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-            <div>
-              <div className="hero-title">Projects</div>
-              <div className="hero-sub">Your portfolio command centre — monitor health, manage governance.</div>
-            </div>
-            <div style={{ display: "flex", gap: 10, alignItems: "center", paddingTop: 4 }}>
-              <Link
-                href="/artifacts"
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 9, border: "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: 600, textDecoration: "none", background: "rgba(255,255,255,0.05)", transition: "all 0.15s" }}
-              >
-                Global artifacts
-              </Link>
-              <CreateProjectModal activeOrgId={activeOrgId ?? ""} userId={user.id} />
-            </div>
-          </div>
+        {/* ── HEADER ── */}
+        <div className="header">
+          <div className="orb-teal" />
+          <div className="orb-blue" />
+          <div className="header-inner">
 
-          {/* Stats strip */}
-          <div className="stat-strip">
-            <div className="stat-pill">
+            <div className="title-row">
               <div>
-                <div className="stat-pill-val">{projects.length}</div>
-                <div className="stat-pill-lbl">Total projects</div>
+                <div className="page-title">Projects</div>
+                <div className="page-sub">Portfolio command centre — monitor health, track delivery, manage governance.</div>
+              </div>
+              <div className="header-actions">
+                <Link href="/artifacts" className="btn-ghost">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" strokeWidth="2"/>
+                    <path d="M14 2v6h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                  </svg>
+                  Global artifacts
+                </Link>
+                <CreateProjectModal activeOrgId={activeOrgId ?? ""} userId={user.id} />
               </div>
             </div>
-            <div className="stat-pill">
-              <div className="stat-dot" style={{ background: "#22c55e" }} />
-              <div>
-                <div className="stat-pill-val">{activeCt}</div>
-                <div className="stat-pill-lbl">Active</div>
+
+            {/* Stats row */}
+            <div className="stats-row">
+              <div className="stat-item">
+                <div className="stat-val">{projects.length}</div>
+                <div className="stat-lbl">Total</div>
               </div>
-            </div>
-            <div className="stat-pill">
-              <div className="stat-dot" style={{ background: "#94a3b8" }} />
-              <div>
-                <div className="stat-pill-val">{closedCt}</div>
-                <div className="stat-pill-lbl">Closed</div>
-              </div>
-            </div>
-            {atRiskCt > 0 && (
-              <div className="stat-pill">
-                <div className="stat-dot" style={{ background: "#ef4444" }} />
-                <div>
-                  <div className="stat-pill-val" style={{ color: "#fca5a5" }}>{atRiskCt}</div>
-                  <div className="stat-pill-lbl">At risk</div>
+              <div className="stat-item">
+                <div className="stat-indicator">
+                  <span className="dot" style={{ background: "#4ade80" }} />
+                  <span className="stat-val" style={{ color: "#4ade80" }}>{activeCt}</span>
                 </div>
+                <div className="stat-lbl">Active</div>
               </div>
-            )}
-            {healthAvg != null && (
-              <div className="stat-pill">
-                <div>
-                  <div className="stat-pill-val" style={{ color: healthAvg >= 85 ? "#86efac" : healthAvg >= 70 ? "#fcd34d" : "#fca5a5" }}>
+              <div className="stat-item">
+                <div className="stat-indicator">
+                  <span className="dot" style={{ background: "#64748b" }} />
+                  <span className="stat-val" style={{ color: "#64748b" }}>{closedCt}</span>
+                </div>
+                <div className="stat-lbl">Closed</div>
+              </div>
+              {atRiskCt > 0 && (
+                <div className="stat-item">
+                  <div className="stat-indicator">
+                    <span className="dot" style={{ background: "#f87171" }} />
+                    <span className="stat-val" style={{ color: "#f87171" }}>{atRiskCt}</span>
+                  </div>
+                  <div className="stat-lbl">At risk</div>
+                </div>
+              )}
+              {healthAvg != null && (
+                <div className="stat-item">
+                  <div className="stat-val" style={{ color: healthAvg >= 85 ? "#4ade80" : healthAvg >= 70 ? "#fbbf24" : "#f87171" }}>
                     {healthAvg}%
                   </div>
-                  <div className="stat-pill-lbl">Avg health</div>
+                  <div className="stat-lbl">Avg health</div>
                 </div>
-              </div>
-            )}
-          </div>
-
-          {/* Toolbar */}
-          <div className="toolbar">
-            <div style={{ display: "flex", gap: 4 }}>
-              {["Active", "Closed", "All"].map((f) => (
-                <Link
-                  key={f}
-                  href={`/projects?filter=${f}&sort=${sortMode}&q=${encodeURIComponent(query)}`}
-                  className={`filter-tab${filter === f ? " active" : ""}`}
-                >
-                  {f}
-                  <span style={{ marginLeft: 5, fontSize: 10, opacity: 0.6 }}>
-                    {f === "Active" ? activeCt : f === "Closed" ? closedCt : projects.length}
-                  </span>
-                </Link>
-              ))}
+              )}
             </div>
 
-            <div className="search-box">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                <circle cx="11" cy="11" r="8" stroke="rgba(255,255,255,0.4)" strokeWidth="2"/>
-                <path d="m21 21-4.35-4.35" stroke="rgba(255,255,255,0.4)" strokeWidth="2" strokeLinecap="round"/>
-              </svg>
-              <input
-                id="live-search"
-                placeholder="Search projects…"
-                defaultValue={query}
-                autoComplete="off"
-              />
-            </div>
-
-            <div style={{ display: "flex", gap: 2 }}>
-              {["Newest", "A-Z"].map((s) => (
-                <Link
-                  key={s}
-                  href={`/projects?filter=${filter}&sort=${s}&q=${encodeURIComponent(query)}`}
-                  className={`sort-tab${sortMode === s ? " active" : ""}`}
-                >
-                  {s}
-                </Link>
-              ))}
-            </div>
           </div>
         </div>
 
-        {/* ── CONTENT ── */}
-        <div className="content">
-          <div className="count-label" id="count-label">
+        {/* ── TOOLBAR ── */}
+        <div className="toolbar">
+          <div className="filter-group">
+            {(["Active","Closed","All"] as const).map((f) => (
+              <Link
+                key={f}
+                href={`/projects?filter=${f}&sort=${sortMode}&q=${encodeURIComponent(query)}`}
+                className={`f-tab${filter === f ? " active" : ""}`}
+              >
+                {f}
+                <span className="f-tab-count">
+                  {f === "Active" ? activeCt : f === "Closed" ? closedCt : projects.length}
+                </span>
+              </Link>
+            ))}
+          </div>
+
+          <div className="search-wrap">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+              <circle cx="11" cy="11" r="8" stroke="#4a5568" strokeWidth="2"/>
+              <path d="m21 21-4.35-4.35" stroke="#4a5568" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+            <input id="live-q" placeholder="Search by name or code…" defaultValue={query} autoComplete="off" />
+          </div>
+
+          <div className="sort-group">
+            {(["Newest","A-Z"] as const).map((s) => (
+              <Link
+                key={s}
+                href={`/projects?filter=${filter}&sort=${s}&q=${encodeURIComponent(query)}`}
+                className={`s-tab${sortMode === s ? " active" : ""}`}
+              >
+                {s}
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        {/* ── LIST ── */}
+        <div className="list-wrap">
+          <div className="list-meta" id="list-count">
             {filtered.length} project{filtered.length !== 1 ? "s" : ""}
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {filtered.map((p, i) => {
-              const ref      = projectRef(p);
-              const colour   = p.colour ?? "#0d9488";
-              const isActive = (p.status ?? "active").toLowerCase() !== "closed";
-              const health   = p.health;
-              const rag      = p.rag;
-              const daysLeft = daysUntil(p.finish_date);
+          {filtered.map((p, i) => {
+            const ref      = projectRef(p);
+            const colour   = p.colour || "#2dd4bf";
+            const isActive = (p.status ?? "active").toLowerCase() !== "closed";
+            const health   = p.health;
+            const rag      = p.rag;
+            const daysLeft = daysUntil(p.finish_date);
 
-              // Health ring calc
-              const ringRadius = 20;
-              const ringCirc   = 2 * Math.PI * ringRadius;
-              const ringOffset = health != null ? ringCirc * (1 - health / 100) : ringCirc;
-              const ringColor  = health == null ? "#e4e8ef"
-                : health >= 85 ? "#16a34a"
-                : health >= 70 ? "#d97706"
-                : "#dc2626";
+            // Timeline progress (0–100%)
+            let timelineProgress = 0;
+            if (p.start_date && p.finish_date) {
+              const s = new Date(p.start_date).getTime();
+              const e = new Date(p.finish_date).getTime();
+              const n = Date.now();
+              timelineProgress = Math.min(100, Math.max(0, Math.round(((n - s) / (e - s)) * 100)));
+            }
 
-              const healthBg = health == null ? "#f5f7fa"
-                : health >= 85 ? "#dcfce7"
-                : health >= 70 ? "#fef3c7"
-                : "#fee2e2";
+            const timelineColor = daysLeft == null ? colour
+              : daysLeft < 0 ? "#f87171"
+              : daysLeft < 30 ? "#fbbf24"
+              : colour;
 
-              const statusBg    = isActive ? "#dcfce7" : "#f1f5f9";
-              const statusColor = isActive ? "#15803d" : "#64748b";
+            const daysCls = daysLeft == null ? "days-none"
+              : daysLeft < 0 ? "days-overdue"
+              : daysLeft < 30 ? "days-warn"
+              : "days-ok";
 
-              const daysColor = daysLeft == null ? "#64748b"
-                : daysLeft < 0  ? "#dc2626"
-                : daysLeft < 30 ? "#d97706"
-                : "#16a34a";
-              const daysBg = daysLeft == null ? "#f1f5f9"
-                : daysLeft < 0  ? "#fee2e2"
-                : daysLeft < 30 ? "#fef3c7"
-                : "#dcfce7";
+            const daysLabel = daysLeft == null ? "No end date"
+              : daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue`
+              : daysLeft === 0 ? "Due today"
+              : `${daysLeft}d left`;
 
-              const searchAttr = `${p.title} ${p.project_code ?? ""} ${p.pm_name ?? ""}`.toLowerCase();
+            const healthCls = health == null ? "health-n"
+              : rag === "G" || health >= 85 ? "health-g"
+              : rag === "A" || health >= 70 ? "health-a"
+              : "health-r";
 
-              return (
+            const searchAttr = `${p.title} ${p.project_code ?? ""}`.toLowerCase();
+
+            return (
+              <div
+                key={p.id}
+                className="p-card"
+                data-s={searchAttr}
+                style={{ animationDelay: `${Math.min(i * 0.05, 0.4)}s` }}
+              >
+                {/* Colour stripe */}
+                <div className="card-stripe" style={{ background: colour }} />
+
+                {/* Hover glow */}
                 <div
-                  key={p.id}
-                  className="project-card"
-                  data-search={searchAttr}
-                  style={{ animationDelay: `${i * 0.04}s` }}
-                >
-                  <div className="card-accent" style={{ background: colour }} />
-                  <div className="card-inner">
-                    {/* Health ring */}
-                    <div className="health-ring">
-                      <svg width="52" height="52" viewBox="0 0 52 52">
-                        <circle cx="26" cy="26" r={ringRadius} fill="none" stroke="#f0f2f5" strokeWidth="5" />
-                        <circle
-                          cx="26" cy="26" r={ringRadius} fill="none"
-                          stroke={ringColor} strokeWidth="5"
-                          strokeDasharray={ringCirc}
-                          strokeDashoffset={ringOffset}
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                      <div className="health-ring-val" style={{ color: ringColor }}>
-                        {health != null ? `${health}` : "—"}
-                      </div>
-                    </div>
+                  className="card-glow"
+                  style={{ background: `linear-gradient(to right, ${colour}10, transparent)` }}
+                />
 
-                    {/* Main content */}
-                    <div className="card-body">
-                      <div className="card-title-row">
-                        <Link href={`/projects/${ref}`} className="card-title">
-                          {p.title}
-                        </Link>
-                        {p.project_code && (
-                          <span className="code-badge">{p.project_code}</span>
-                        )}
-                        <span className="status-badge" style={{ background: statusBg, color: statusColor }}>
-                          {isActive ? "Active" : "Closed"}
-                        </span>
-                        {p.resource_status === "pipeline" && (
-                          <span className="pipeline-badge">Pipeline</span>
-                        )}
-                      </div>
-
-                      <div className="card-meta">
-                        <span>
-                          PM: <span style={{ color: "#2563eb", fontWeight: 600 }}>{p.pm_name ?? "Unassigned"}</span>
-                        </span>
-                        <span className="meta-sep" />
-                        <span>Created {formatDate(p.created_at)}</span>
-                        {roleMap[p.id] && (
-                          <>
-                            <span className="meta-sep" />
-                            <span style={{ textTransform: "capitalize" }}>{String(roleMap[p.id])}</span>
-                          </>
-                        )}
-                        {p.start_date && p.finish_date && (
-                          <>
-                            <span className="meta-sep" />
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.5, flexShrink: 0 }}>
-                                <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="2"/>
-                                <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                              </svg>
-                              {formatDateShort(p.start_date)} — {formatDateShort(p.finish_date)}
-                            </span>
-                          </>
-                        )}
-                      </div>
-
-                      {/* Health bar */}
+                <div className="card-row">
+                  {/* ── Info ── */}
+                  <div className="card-info">
+                    <div className="card-title-row">
+                      <Link href={`/projects/${ref}`} className="card-name">{p.title}</Link>
+                      {p.project_code && <span className="code-pill">{p.project_code}</span>}
+                      <span className={`status-pill ${isActive ? "status-active" : "status-closed"}`}>
+                        {isActive ? "Active" : "Closed"}
+                      </span>
+                      {p.resource_status === "pipeline" && (
+                        <span className="status-pill status-pipeline">Pipeline</span>
+                      )}
                       {health != null && (
-                        <div className="progress-wrap">
-                          <div className="progress-track">
-                            <div
-                              className="progress-fill"
-                              style={{
-                                width: `${health}%`,
-                                background: ringColor,
-                              }}
-                            />
-                          </div>
-                        </div>
+                        <span className={`health-inline ${healthCls}`}>
+                          <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                          </svg>
+                          {health}%
+                        </span>
                       )}
                     </div>
 
-                    {/* Date / days remaining */}
-                    <div className="date-range">
-                      {daysLeft != null && (
+                    <div className="card-meta">
+                      <span>PM: <a href={`/projects/${ref}/members`} className="pm-link">
+                        {(p as any).pm_name ?? "Unassigned"}
+                      </a></span>
+                      <span className="meta-dot" />
+                      <span>Created {formatDateLong(p.created_at)}</span>
+                      {roleMap[p.id] && (
                         <>
-                          <span className="days-chip" style={{ background: daysBg, color: daysColor }}>
-                            {daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : `${daysLeft}d left`}
-                          </span>
-                          <span className="date-range-label">Due {formatDateShort(p.finish_date)}</span>
+                          <span className="meta-dot" />
+                          <span style={{ textTransform: "capitalize", color: "var(--text-3)" }}>{String(roleMap[p.id])}</span>
                         </>
                       )}
                     </div>
+                  </div>
 
-                    {/* Actions */}
-                    <div className="card-actions">
-                      <Link href={`/projects/${ref}`} className="act-btn">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                          <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2"/>
-                          <path d="M12 8v4l3 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                        </svg>
-                        <span>Overview</span>
-                      </Link>
-                      <Link href={`/projects/${ref}/artifacts`} className="act-btn">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" strokeWidth="2"/>
-                          <path d="M14 2v6h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                        </svg>
-                        <span>Artifacts</span>
-                      </Link>
-                      <Link href={`/projects/${ref}/members`} className="act-btn">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                          <circle cx="9" cy="7" r="4" stroke="currentColor" strokeWidth="2"/>
-                          <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                        </svg>
-                        <span>Members</span>
-                      </Link>
-
-                      <div className="divider" />
-
-                      <form action={setProjectStatus} style={{ display: "contents" }}>
-                        <input type="hidden" name="project_id" value={p.id} />
-                        <input type="hidden" name="status" value={isActive ? "closed" : "active"} />
-                        <input type="hidden" name="next" value="/projects" />
-                        <button type="submit" className={`act-btn ${isActive ? "close" : "reopen"}`}>
-                          {isActive ? "Close" : "Reopen"}
-                        </button>
-                      </form>
+                  {/* ── Timeline ── */}
+                  <div className="card-timeline">
+                    <div className="timeline-dates">
+                      <span>{formatDateShort(p.start_date) ?? "—"}</span>
+                      <span>{formatDateShort(p.finish_date) ?? "—"}</span>
+                    </div>
+                    <div className="timeline-track">
+                      <div
+                        className="timeline-fill"
+                        style={{ width: `${timelineProgress}%`, background: timelineColor }}
+                      />
+                    </div>
+                    <div className="timeline-label">
+                      <span className={`days-badge ${daysCls}`}>{daysLabel}</span>
                     </div>
                   </div>
-                </div>
-              );
-            })}
 
-            {filtered.length === 0 && (
-              <div className="empty">
-                <div className="empty-icon">📂</div>
-                <div className="empty-title">
-                  {projects.length === 0 ? "No projects yet" : "No projects match your filters"}
-                </div>
-                <div className="empty-sub">
-                  {projects.length === 0 ? "Create your first project to get started." : "Try adjusting your search or filters."}
+                  {/* ── Actions ── */}
+                  <div className="card-actions">
+                    <Link href={`/projects/${ref}`} className="act act-overview">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke="currentColor" strokeWidth="2"/>
+                      </svg>
+                      <span>Overview</span>
+                    </Link>
+                    <Link href={`/projects/${ref}/artifacts`} className="act">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" strokeWidth="2"/>
+                        <path d="M14 2v6h6" stroke="currentColor" strokeWidth="2"/>
+                      </svg>
+                      <span>Artifacts</span>
+                    </Link>
+                    <Link href={`/projects/${ref}/members`} className="act">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                        <circle cx="9" cy="7" r="4" stroke="currentColor" strokeWidth="2"/>
+                        <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                      </svg>
+                      <span>Members</span>
+                    </Link>
+
+                    <div className="v-line" />
+
+                    <form action={setProjectStatus} style={{ display: "contents" }}>
+                      <input type="hidden" name="project_id" value={p.id} />
+                      <input type="hidden" name="status" value={isActive ? "closed" : "active"} />
+                      <input type="hidden" name="next" value="/projects" />
+                      <button type="submit" className={`act ${isActive ? "act-close" : "act-reopen"}`}>
+                        {isActive ? "Close" : "Reopen"}
+                      </button>
+                    </form>
+                  </div>
                 </div>
               </div>
-            )}
-          </div>
+            );
+          })}
+
+          {filtered.length === 0 && (
+            <div className="empty">
+              <div className="empty-icon">🌌</div>
+              <div className="empty-title">
+                {projects.length === 0 ? "No projects yet" : "Nothing matches your filters"}
+              </div>
+              <div className="empty-sub">
+                {projects.length === 0
+                  ? "Create your first project to get started."
+                  : "Try a different search term or filter."}
+              </div>
+            </div>
+          )}
         </div>
-      </main>
+
+      </div>
     </>
   );
 }
