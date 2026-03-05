@@ -1,4 +1,4 @@
-// src/app/projects/page.tsx  — world-class light theme redesign
+// src/app/projects/page.tsx   world-class light theme redesign
 import "server-only";
 
 import Link from "next/link";
@@ -593,7 +593,7 @@ export default async function ProjectsPage({
               <circle cx="11" cy="11" r="8" stroke="#bbbbbb" strokeWidth="1.5"/>
               <path d="m21 21-4.35-4.35" stroke="#bbbbbb" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
-            <input id="sq" placeholder="Search projects…" defaultValue={query} autoComplete="off" />
+            <input id="sq" placeholder="Search projects" defaultValue={query} autoComplete="off" />
           </div>
           <div className="sort-tabs">
             {(["Newest", "A-Z"] as const).map((s) => (
@@ -638,7 +638,7 @@ export default async function ProjectsPage({
           const tlCls = daysLeft == null ? "tl-nil"
             : daysLeft < 0 ? "tl-over" : daysLeft < 30 ? "tl-warn" : "tl-ok";
 
-          const tlLabel = daysLeft == null ? "—"
+          const tlLabel = daysLeft == null ? ""
             : daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue`
             : daysLeft === 0 ? "Due today" : `${daysLeft}d left`;
 
@@ -683,8 +683,8 @@ export default async function ProjectsPage({
               {/* Timeline */}
               <div className="c-tl">
                 <div className="tl-dates">
-                  <span>{fmtShort(p.start_date) ?? "—"}</span>
-                  <span>{fmtShort(p.finish_date) ?? "—"}</span>
+                  <span>{fmtShort(p.start_date) ?? ""}</span>
+                  <span>{fmtShort(p.finish_date) ?? ""}</span>
                 </div>
                 <div className="tl-bar">
                   <div className="tl-fill" style={{ width: `${tlPct}%`, background: tlColor }} />
@@ -700,7 +700,7 @@ export default async function ProjectsPage({
                     <span className={`h-num ${hCls}`}>{health}%</span>
                   </>
                 ) : (
-                  <span className="h-num h-n">—</span>
+                  <span className="h-num h-n"></span>
                 )}
               </div>
 
