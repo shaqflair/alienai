@@ -1,11 +1,12 @@
 ﻿"use client";
 // FILE: src/components/nav/Sidebar.tsx
 
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import GlobalSearch from "@/components/search/GlobalSearch";
+import { createClient } from "@/utils/supabase/client";
 
 /* =============================================================================
    TYPES
@@ -214,7 +215,6 @@ function SidebarItem({ item, collapsed }: { item: NavItem; collapsed: boolean })
       className={cx(
         "group relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium",
         "ring-1 ring-transparent",
-        // hover lift + smoothing
         "transition-all duration-150 ease-out",
         "hover:-translate-y-[1px] hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)]",
         active
@@ -222,7 +222,7 @@ function SidebarItem({ item, collapsed }: { item: NavItem; collapsed: boolean })
           : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
       )}
     >
-      {/* Active rail (animated) */}
+      {/* Active rail */}
       <span
         className={cx(
           "absolute left-0 top-1/2 -translate-y-1/2 w-0.5 rounded-r-full",
@@ -230,7 +230,7 @@ function SidebarItem({ item, collapsed }: { item: NavItem; collapsed: boolean })
           active ? "h-6 opacity-100 bg-sky-500" : "h-2 opacity-0 bg-sky-400"
         )}
       />
-      {/* rail glow behind active (Linear-ish) */}
+      {/* rail glow */}
       <span
         className={cx(
           "pointer-events-none absolute -left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full",
@@ -242,7 +242,6 @@ function SidebarItem({ item, collapsed }: { item: NavItem; collapsed: boolean })
       <span
         className={cx(
           "flex-shrink-0 transition-all duration-150 ease-out",
-          // icon lift on hover
           "group-hover:-translate-y-[0.5px]",
           active ? "text-sky-600" : "text-slate-400 group-hover:text-slate-600"
         )}
@@ -387,7 +386,8 @@ function isGovernanceKey(kUpper: string) {
 
 function groupForKey(kUpper: string): GroupName {
   const u = safeUpper(kUpper);
-  if (["PROJECT_CHARTER", "STAKEHOLDER_REGISTER", "WBS", "SCHEDULE", "FINANCIAL_PLAN", "WEEKLY_REPORT"].includes(u)) return "Plan";
+  if (["PROJECT_CHARTER", "STAKEHOLDER_REGISTER", "WBS", "SCHEDULE", "FINANCIAL_PLAN", "WEEKLY_REPORT"].includes(u))
+    return "Plan";
   if (isRaidKey(u) || isChangeKey(u) || isGovernanceKey(u)) return "Control";
   return "Close";
 }
@@ -628,11 +628,17 @@ export default function Sidebar({
   orgName?: string | null;
   projectCount?: number;
 }) {
+  const router = useRouter();
   const pathname = usePathname();
   const projectRef = getActiveProjectRef(pathname);
 
   const [collapsed, setCollapsed] = useState(false);
   const [mounted, setMounted] = useState(false);
+
+  // auth UI
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -646,6 +652,42 @@ export default function Sidebar({
       localStorage.setItem(STORAGE_KEY, next ? "1" : "0");
       return next;
     });
+  }
+
+  // close user menu on outside click + Escape
+  useEffect(() => {
+    if (!userMenuOpen) return;
+
+    const onDown = (e: MouseEvent) => {
+      const el = userMenuRef.current;
+      if (!el) return;
+      if (!el.contains(e.target as any)) setUserMenuOpen(false);
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setUserMenuOpen(false);
+    };
+
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [userMenuOpen]);
+
+  async function handleSignOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+    } finally {
+      setSigningOut(false);
+      setUserMenuOpen(false);
+      router.push("/login");
+      router.refresh();
+    }
   }
 
   const projectBadge = projectCount > 0 ? String(projectCount) : undefined;
@@ -694,7 +736,6 @@ export default function Sidebar({
         @media (prefers-reduced-motion: reduce) {
           .sidebar-root { transition: none !important; }
           .sb-fade { transition: none !important; }
-          .sb-lift { transition: none !important; }
         }
       `}</style>
 
@@ -704,15 +745,7 @@ export default function Sidebar({
         style={{ width: w, minWidth: w }}
       >
         {/* -- Logo + brand -- */}
-        <div
-          className={cx(
-            "relative flex items-center border-b border-slate-200 h-14 flex-shrink-0",
-            // spacing fix: keep logo centered + toggle clear
-            collapsed ? "px-3 justify-center" : "px-4",
-            "gap-3"
-          )}
-        >
-          {/* Subtle logo glow (collapsed only) */}
+        <div className={cx("relative flex items-center border-b border-slate-200 h-14 flex-shrink-0", collapsed ? "px-3 justify-center" : "px-4", "gap-3")}>
           {collapsed && (
             <div className="pointer-events-none absolute inset-0">
               <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-14 h-14 rounded-full bg-sky-200/40 blur-[18px]" />
@@ -720,14 +753,12 @@ export default function Sidebar({
             </div>
           )}
 
-          {/* Logo */}
           <div className={cx("relative flex-shrink-0", collapsed ? "mx-auto pr-4" : "")}>
             <div className="w-8 h-8 rounded-xl overflow-hidden ring-1 ring-slate-200 bg-white shadow-[0_10px_28px_rgba(2,132,199,0.06)]">
               <Image src={ALIENA_LOGO_URL} alt="Aliena" width={32} height={32} priority className="w-full h-full object-cover" />
             </div>
           </div>
 
-          {/* Brand text (fade/slide) */}
           <div
             className={cx(
               "sb-fade min-w-0",
@@ -741,7 +772,6 @@ export default function Sidebar({
             {orgName && <div className="text-[10px] text-slate-500 truncate font-medium">{orgName}</div>}
           </div>
 
-          {/* Toggle button (give breathing room from logo) */}
           <button
             type="button"
             onClick={toggleCollapse}
@@ -758,7 +788,7 @@ export default function Sidebar({
           </button>
         </div>
 
-        {/* -- Search (animate in/out instead of pop) -- */}
+        {/* -- Search -- */}
         <div
           className={cx(
             "sb-fade px-2",
@@ -791,28 +821,76 @@ export default function Sidebar({
             <SidebarItem key={item.href} item={item} collapsed={collapsed} />
           ))}
 
-          <div
-            className={cx(
-              "mt-1 flex items-center gap-3 px-3 py-2.5 rounded-xl",
-              "bg-slate-50 border border-slate-200",
-              "transition-all duration-150 ease-out",
-              "hover:-translate-y-[1px] hover:shadow-[0_10px_24px_rgba(15,23,42,0.06)]"
-            )}
-          >
-            <div className={cx("flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center", "bg-sky-100 text-sky-700 text-xs font-black")}>
-              {(userName || "U").charAt(0).toUpperCase()}
-            </div>
-
-            <div
+          {/* Auth tile + menu */}
+          <div ref={userMenuRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setUserMenuOpen((v) => !v)}
               className={cx(
-                "sb-fade min-w-0 flex-1",
-                "transition-all duration-200 ease-out",
-                collapsed ? "opacity-0 translate-x-2 pointer-events-none w-0" : "opacity-100 translate-x-0"
+                "mt-1 w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl",
+                "bg-slate-50 border border-slate-200",
+                "transition-all duration-150 ease-out",
+                "hover:-translate-y-[1px] hover:shadow-[0_10px_24px_rgba(15,23,42,0.06)]"
               )}
+              aria-label="Account menu"
             >
-              <div className="text-xs font-semibold text-slate-900 truncate">{userName || "Account"}</div>
-              <div className="text-[10px] text-slate-500 truncate">Signed in</div>
-            </div>
+              <div className={cx("flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center", "bg-sky-100 text-sky-700 text-xs font-black")}>
+                {(userName || "U").charAt(0).toUpperCase()}
+              </div>
+
+              <div
+                className={cx(
+                  "sb-fade min-w-0 flex-1",
+                  "transition-all duration-200 ease-out",
+                  collapsed ? "opacity-0 translate-x-2 pointer-events-none w-0" : "opacity-100 translate-x-0"
+                )}
+              >
+                <div className="text-xs font-semibold text-slate-900 truncate">{userName || "Guest"}</div>
+                <div className="text-[10px] text-slate-500 truncate">{userName ? "Signed in" : "Not signed in"}</div>
+              </div>
+
+              {!collapsed && (
+                <span className="text-slate-400 text-xs font-black">{userMenuOpen ? "▴" : "▾"}</span>
+              )}
+            </button>
+
+            {/* Popover */}
+            {userMenuOpen && !collapsed && (
+              <div
+                className={cx(
+                  "absolute left-0 right-0 bottom-[56px]",
+                  "rounded-xl border border-slate-200 bg-white shadow-2xl",
+                  "p-2 z-50"
+                )}
+              >
+                {userName ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleSignOut}
+                      disabled={signingOut}
+                      className={cx(
+                        "w-full flex items-center justify-between px-3 py-2 rounded-lg",
+                        "text-sm font-semibold",
+                        "hover:bg-slate-50 transition",
+                        signingOut ? "text-slate-400" : "text-rose-700"
+                      )}
+                    >
+                      <span>{signingOut ? "Signing out…" : "Sign out"}</span>
+                      <span className="text-[10px] font-bold text-slate-400">↩</span>
+                    </button>
+                  </>
+                ) : (
+                  <Link
+                    href="/login"
+                    className="block w-full px-3 py-2 rounded-lg text-sm font-semibold text-sky-700 hover:bg-sky-50 transition"
+                    onClick={() => setUserMenuOpen(false)}
+                  >
+                    Sign in
+                  </Link>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </aside>
