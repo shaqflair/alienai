@@ -1,7 +1,7 @@
 // src/components/projects/MembersClient.tsx
 "use client";
 
-import React, { useMemo, useState, useTransition } from "react";
+import React, { useMemo, useState } from "react";
 
 import {
   updateMemberRole,
@@ -26,16 +26,14 @@ export type InviteRow = {
   id: string;
   email: string;
   role: Role;
-  status?: string; // e.g. "pending"
-  // Support both shapes (server page currently uses invited_at)
-  invited_at?: string | null;
-  created_at?: string | null;
+  status?: string;
+  invited_at?: string | null; // preferred
+  created_at?: string | null; // tolerated
   expires_at?: string | null;
-  project_id?: string; // tolerate
 };
 
 function canManage(myRole: Role) {
-  return String(myRole).toLowerCase() === "owner"; // strict v1
+  return String(myRole).toLowerCase() === "owner";
 }
 
 function Pill({
@@ -130,25 +128,33 @@ export default function MembersClient({
   members: MemberRow[];
   invites: InviteRow[];
 }) {
-  const [pending, startTransition] = useTransition();
+  const manage = canManage(myRole);
+
+  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>("");
 
-  const manage = canManage(myRole);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<Role>("viewer");
 
   const sortedMembers = useMemo(() => {
     const rank = (r: string) => (r === "owner" ? 0 : r === "editor" ? 1 : 2);
     return [...(members ?? [])].sort((a, b) => rank(String(a.role)) - rank(String(b.role)));
   }, [members]);
 
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<Role>("viewer");
-
-  function handleError(e: any) {
-    const msg = e?.message || String(e);
-    setErr(msg);
+  async function run(fn: () => Promise<void>) {
+    setErr("");
+    setBusy(true);
+    try {
+      await fn();
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      setErr(msg);
+    } finally {
+      setBusy(false);
+    }
   }
 
-  const pendingLabel = pending ? <Pill tone="info">Working…</Pill> : null;
+  const busyBadge = busy ? <Pill tone="info">Working…</Pill> : null;
 
   return (
     <div className="space-y-8">
@@ -170,7 +176,7 @@ export default function MembersClient({
         <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-4">
           <div className="flex items-center justify-between gap-3">
             <div className="font-semibold text-gray-900">Invite member</div>
-            {pendingLabel}
+            {busyBadge}
           </div>
 
           <div className="flex flex-wrap items-end gap-3">
@@ -181,7 +187,7 @@ export default function MembersClient({
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
                 placeholder="name@company.com"
-                disabled={pending}
+                disabled={busy}
               />
             </div>
 
@@ -191,7 +197,7 @@ export default function MembersClient({
                 className="rounded border border-gray-200 px-3 py-2 text-sm disabled:opacity-60"
                 value={inviteRole}
                 onChange={(e) => setInviteRole(e.target.value as Role)}
-                disabled={pending}
+                disabled={busy}
               >
                 <option value="viewer">viewer</option>
                 <option value="editor">editor</option>
@@ -202,18 +208,13 @@ export default function MembersClient({
             <button
               type="button"
               className="rounded border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-60"
-              disabled={pending || !inviteEmail.trim() || !isEmailLike(inviteEmail)}
-              onClick={() => {
-                setErr("");
-                startTransition(async () => {
-                  try {
-                    await inviteMember(projectId, inviteEmail.trim(), inviteRole as any);
-                    setInviteEmail("");
-                  } catch (e) {
-                    handleError(e);
-                  }
-                });
-              }}
+              disabled={busy || !inviteEmail.trim() || !isEmailLike(inviteEmail)}
+              onClick={() =>
+                run(async () => {
+                  await inviteMember(projectId, inviteEmail.trim(), inviteRole as any);
+                  setInviteEmail("");
+                })
+              }
             >
               Invite
             </button>
@@ -234,7 +235,7 @@ export default function MembersClient({
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="font-semibold text-gray-900">Active members</div>
           <div className="flex items-center gap-2">
-            {pendingLabel}
+            {busyBadge}
             <Pill>{sortedMembers.length} total</Pill>
           </div>
         </div>
@@ -262,17 +263,12 @@ export default function MembersClient({
                       <select
                         className="rounded border border-gray-200 px-2 py-1 text-sm disabled:opacity-60"
                         value={String(m.role)}
-                        disabled={pending}
-                        onChange={(e) => {
-                          setErr("");
-                          startTransition(async () => {
-                            try {
-                              await updateMemberRole(projectId, m.user_id, e.target.value as any);
-                            } catch (err) {
-                              handleError(err);
-                            }
-                          });
-                        }}
+                        disabled={busy}
+                        onChange={(e) =>
+                          run(async () => {
+                            await updateMemberRole(projectId, m.user_id, e.target.value as any);
+                          })
+                        }
                       >
                         <option value="viewer">viewer</option>
                         <option value="editor">editor</option>
@@ -288,32 +284,22 @@ export default function MembersClient({
                       <div className="flex flex-wrap gap-2">
                         <ConfirmInline
                           label="Remove from project"
-                          disabled={pending}
-                          onConfirm={() => {
-                            setErr("");
-                            startTransition(async () => {
-                              try {
-                                await removeMember(projectId, m.user_id);
-                              } catch (e) {
-                                handleError(e);
-                              }
-                            });
-                          }}
+                          disabled={busy}
+                          onConfirm={() =>
+                            run(async () => {
+                              await removeMember(projectId, m.user_id);
+                            })
+                          }
                         />
                         <button
                           type="button"
                           className="rounded border border-gray-200 px-2 py-1 text-sm hover:bg-gray-50 disabled:opacity-60"
-                          disabled={pending}
-                          onClick={() => {
-                            setErr("");
-                            startTransition(async () => {
-                              try {
-                                await restoreMember(projectId, m.user_id);
-                              } catch (e) {
-                                handleError(e);
-                              }
-                            });
-                          }}
+                          disabled={busy}
+                          onClick={() =>
+                            run(async () => {
+                              await restoreMember(projectId, m.user_id);
+                            })
+                          }
                         >
                           Restore
                         </button>
@@ -342,7 +328,7 @@ export default function MembersClient({
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="font-semibold text-gray-900">Pending invites</div>
           <div className="flex items-center gap-2">
-            {pendingLabel}
+            {busyBadge}
             <Pill>{(invites ?? []).length} pending</Pill>
           </div>
         </div>
@@ -365,9 +351,7 @@ export default function MembersClient({
                   <tr key={inv.id} className="border-b last:border-b-0">
                     <td className="py-2 pr-3">
                       <div className="font-medium text-gray-900">{inv.email}</div>
-                      {invitedAt ? (
-                        <div className="text-xs text-gray-600">Invited: {fmtUtc(invitedAt)}</div>
-                      ) : null}
+                      {invitedAt ? <div className="text-xs text-gray-600">Invited: {fmtUtc(invitedAt)}</div> : null}
                     </td>
 
                     <td className="py-2 pr-3">
@@ -380,34 +364,24 @@ export default function MembersClient({
                           <button
                             type="button"
                             className="rounded border border-gray-200 px-2 py-1 text-sm hover:bg-gray-50 disabled:opacity-60"
-                            disabled={pending}
-                            onClick={() => {
-                              setErr("");
-                              startTransition(async () => {
-                                try {
-                                  await resendInvite(inv.id, projectId);
-                                } catch (e) {
-                                  handleError(e);
-                                }
-                              });
-                            }}
+                            disabled={busy}
+                            onClick={() =>
+                              run(async () => {
+                                await resendInvite(inv.id, projectId);
+                              })
+                            }
                           >
                             Resend invite
                           </button>
 
                           <ConfirmInline
                             label="Revoke invite"
-                            disabled={pending}
-                            onConfirm={() => {
-                              setErr("");
-                              startTransition(async () => {
-                                try {
-                                  await revokeInvite(inv.id, projectId);
-                                } catch (e) {
-                                  handleError(e);
-                                }
-                              });
-                            }}
+                            disabled={busy}
+                            onConfirm={() =>
+                              run(async () => {
+                                await revokeInvite(inv.id, projectId);
+                              })
+                            }
                           />
                         </div>
                       ) : (
