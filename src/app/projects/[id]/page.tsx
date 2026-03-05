@@ -208,8 +208,16 @@ export default async function ProjectPage({
   if (authErr) throw authErr;
   if (!auth?.user) redirect("/login");
 
-  const activeOrgId = await getActiveOrgId();
-  if (!activeOrgId) notFound();
+  let activeOrgId = await getActiveOrgId();
+  if (!activeOrgId) {
+    // Cookie not set - resolve org from project UUID directly
+    if (looksLikeUuid(safeParam(params?.id))) {
+      const { data: proj } = await supabase.from("projects")
+        .select("organisation_id").eq("id", safeParam(params?.id)).maybeSingle();
+      if (proj?.organisation_id) activeOrgId = String(proj.organisation_id);
+    }
+    if (!activeOrgId) notFound();
+  }
 
   const rawId = safeParam(params?.id).trim();
   const sp = searchParams ?? {};

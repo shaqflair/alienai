@@ -127,7 +127,7 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
 
   // --- Read active org cookie (Next 16: cookies() is async)
   const cookieStore = await cookies();
-  const cookieOrgId = safeStr(cookieStore.get("active_org_id")?.value).trim();
+  const cookieOrgId = safeStr(cookieStore.get("n")?.value).trim();
 
   // --- Org memberships (source of truth)
   const { data: orgMems, error: orgMemErr } = await supabase
