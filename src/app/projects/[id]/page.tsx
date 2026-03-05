@@ -267,69 +267,111 @@ export default async function ProjectPage({
   const milestones   = scheduleMilestonesResult.status === "fulfilled" ? scheduleMilestonesResult.value.data ?? [] : [];
   const changeReqs   = changeRequestsResult.status === "fulfilled" ? changeRequestsResult.value.data ?? [] : [];
 
-  /* ── Compute health scores from live data (mirrors /api/portfolio/health logic) ── */
+  /* ──────────────────────────────────────────────────────────────
+     HEALTH SCORE — 4 real dimensions, each with its own signal
+     ────────────────────────────────────────────────────────────── */
   function clamp(n: number) { return Math.max(0, Math.min(100, Math.round(n))); }
   const today = new Date().toISOString().slice(0, 10);
 
-  // Schedule health: penalise overdue milestones + slip
+  // ── 1. SCHEDULE (35%) ──────────────────────────────────────────
+  // Source: schedule_milestones — overdue count, critical-path flag, baseline slip
+  // Green ≥85 | Amber ≥70 | Red <70
+  type ScheduleDetail = { total: number; overdue: number; critical: number; avgSlipDays: number };
+  const scheduleDetail: ScheduleDetail = { total: 0, overdue: 0, critical: 0, avgSlipDays: 0 };
   const scheduleHealth = (() => {
-    if (!milestones.length) return null;
-    let score = 100;
-    let slipSum = 0, slipCount = 0;
-    for (const m of milestones as any[]) {
-      const st  = String(m.status ?? "").toLowerCase();
+    const ms = milestones as any[];
+    if (!ms.length) return null;
+    let score = 100, slipSum = 0, slipCount = 0;
+    scheduleDetail.total = ms.length;
+    for (const m of ms) {
+      const st   = String(m.status ?? "").toLowerCase();
       const done = ["completed","done","closed"].includes(st);
-      const end  = m.end_date ? String(m.end_date).slice(0, 10) : null;
-      const base = m.baseline_end ? String(m.baseline_end).slice(0, 10) : null;
+      const end  = m.end_date  ? String(m.end_date).slice(0,10)  : null;
+      const base = m.baseline_end ? String(m.baseline_end).slice(0,10) : null;
       if (!done && end && end < today) {
-        score -= m.critical_path_flag ? 12 : 8;
+        scheduleDetail.overdue++;
+        const penalty = m.critical_path_flag ? 12 : 8;
+        if (m.critical_path_flag) scheduleDetail.critical++;
+        score -= penalty;
       }
       if (end && base) {
         const slip = Math.max(0, Math.round((new Date(end).getTime() - new Date(base).getTime()) / 86400000));
         slipSum += slip; slipCount++;
       }
     }
-    const avgSlip = slipCount ? slipSum / slipCount : 0;
-    score -= Math.min(15, Math.round(avgSlip * 1.5));
+    scheduleDetail.avgSlipDays = slipCount ? Math.round(slipSum / slipCount) : 0;
+    score -= Math.min(15, Math.round(scheduleDetail.avgSlipDays * 1.5));
     return clamp(score);
   })();
 
-  // RAID health: penalise high-probability open risks/issues
+  // ── 2. RAID / RISK (30%) ───────────────────────────────────────
+  // Source: raid_items — probability × severity matrix, overdue items
+  // Each item with composite score ≥70 deducts 8pts; ≥50 deducts 4pts; overdue deducts 6pts
+  type RaidDetail = { total: number; highRisk: number; overdue: number };
+  const raidDetail: RaidDetail = { total: 0, highRisk: 0, overdue: 0 };
   const raidHealth = (() => {
-    if (!raidItems.length) return null;
+    const items = raidItems as any[];
+    if (!items.length) return null;
     let score = 100;
-    for (const r of raidItems as any[]) {
+    raidDetail.total = items.length;
+    for (const r of items) {
       const p = Number(r.probability ?? 0);
-      const s = Number(r.severity ?? 0);
-      const riskScore = (p > 0 && s > 0) ? Math.round((p * s) / 100) : 0;
-      if (riskScore >= 70) score -= 8;
-      else if (riskScore >= 50) score -= 4;
-      const due = r.due_date ? String(r.due_date).slice(0, 10) : null;
-      if (due && due < today) score -= 6;
+      const s = Number(r.severity   ?? 0);
+      const composite = (p > 0 && s > 0) ? Math.round((p * s) / 100) : 0;
+      if (composite >= 70) { score -= 8;  raidDetail.highRisk++; }
+      else if (composite >= 50) { score -= 4; }
+      const due = r.due_date ? String(r.due_date).slice(0,10) : null;
+      if (due && due < today) { score -= 6; raidDetail.overdue++; }
     }
     return clamp(score);
   })();
 
-  // Approvals health: penalise pending approvals / change requests
-  const approvalsHealth = (() => {
-    const pending = pendingApprovals.length;
-    const pendingCRs = (changeReqs as any[]).filter((c) => ["pending","open","submitted"].includes(String(c.status ?? "").toLowerCase())).length;
+  // ── 3. BUDGET (20%) ────────────────────────────────────────────
+  // Source: allocations vs budget_days (from fetchProjectResourceData)
+  // 0–90% utilisation = healthy; 90–110% = amber; >110% = red; no budget set = null
+  type BudgetDetail = { budgetDays: number | null; allocatedDays: number; utilisationPct: number | null };
+  const budgetDetail: BudgetDetail = {
+    budgetDays:     resource?.budgetSummary?.budgetDays     ?? null,
+    allocatedDays:  resource?.budgetSummary?.allocatedDays  ?? 0,
+    utilisationPct: resource?.budgetSummary?.utilisationPct ?? null,
+  };
+  const budgetHealth = (() => {
+    const pct = budgetDetail.utilisationPct;
+    if (pct == null) return null;         // no budget set — exclude from score
+    if (pct <= 90)  return clamp(100);
+    if (pct <= 100) return clamp(100 - (pct - 90) * 3);   // slight amber 90–100%
+    if (pct <= 120) return clamp(70 - (pct - 100) * 2);   // red zone 100–120%
+    return clamp(30);                                       // severely over
+  })();
+
+  // ── 4. GOVERNANCE / APPROVALS (15%) ────────────────────────────
+  // Source: pending artifact approvals + open change requests
+  // Each pending item adds friction; stale approvals signal governance breakdown
+  type GovernanceDetail = { pendingApprovalCount: number; openChangeRequests: number };
+  const govDetail: GovernanceDetail = {
+    pendingApprovalCount: pendingApprovals.length,
+    openChangeRequests:   (changeReqs as any[]).filter(
+      (c) => ["pending","open","submitted","draft"].includes(String(c.status ?? "").toLowerCase())
+    ).length,
+  };
+  const governanceHealth = (() => {
     let score = 100;
-    score -= Math.min(30, pending * 5);
-    score -= Math.min(20, pendingCRs * 3);
+    score -= Math.min(35, govDetail.pendingApprovalCount * 5);
+    score -= Math.min(25, govDetail.openChangeRequests   * 4);
     return clamp(score);
   })();
 
-  // Weighted overall: schedule 40%, raid 35%, approvals 25%
+  // ── OVERALL: weighted average of available dimensions ──────────
   const healthScore = (() => {
-    const sources = [
-      { val: scheduleHealth, w: 40 },
-      { val: raidHealth,     w: 35 },
-      { val: approvalsHealth,w: 25 },
-    ].filter((s) => s.val != null) as { val: number; w: number }[];
-    if (!sources.length) return null;
-    const totalW = sources.reduce((s, x) => s + x.w, 0);
-    const weighted = sources.reduce((s, x) => s + x.val * x.w, 0);
+    const dims = [
+      { val: scheduleHealth,   w: 35 },
+      { val: raidHealth,       w: 30 },
+      { val: budgetHealth,     w: 20 },
+      { val: governanceHealth, w: 15 },
+    ].filter((d) => d.val != null) as { val: number; w: number }[];
+    if (!dims.length) return null;
+    const totalW   = dims.reduce((s, d) => s + d.w, 0);
+    const weighted = dims.reduce((s, d) => s + d.val * d.w, 0);
     return clamp(weighted / totalW);
   })();
 
@@ -363,24 +405,18 @@ export default async function ProjectPage({
   const flashErr = sp?.err ? `Error: ${sp.err}` : null;
   const daysLeft = daysUntil(project?.finish_date);
 
-  // Case-insensitive RAID type matching — handles "Risk","risk","R","RISK" etc.
-  function matchType(r: any, ...names: string[]) {
-    const t = String(r.type ?? "").toLowerCase().trim();
-    return names.some(n => t === n.toLowerCase() || t.startsWith(n[0].toLowerCase()));
+  // RAID type filter — exact lowercase match only (no startsWith to avoid "risk"/"role" collision)
+  function raidType(r: any, type: string) {
+    return String(r.type ?? "").toLowerCase().trim() === type;
   }
-  const risks        = raidItems.filter((r: any) => matchType(r, "risk"));
-  const assumptions  = raidItems.filter((r: any) => matchType(r, "assumption"));
-  const issues       = raidItems.filter((r: any) => matchType(r, "issue"));
-  const dependencies = raidItems.filter((r: any) => matchType(r, "dependency"));
+  const risks        = raidItems.filter((r: any) => raidType(r, "risk"));
+  const assumptions  = raidItems.filter((r: any) => raidType(r, "assumption"));
+  const issues       = raidItems.filter((r: any) => raidType(r, "issue"));
+  const dependencies = raidItems.filter((r: any) => raidType(r, "dependency"));
   const totalMembers = members.length;
   const openRisks    = risks.length;
 
-  // Health scores
-  // scheduleHealth, raidHealth, approvalsHealth, healthScore already computed above
-  // Map to display names
-  const budgetHealth  = approvalsHealth; // proxy: change pressure affects budget
-  const scopeHealth   = raidHealth;      // proxy: open RAID items threaten scope
-  const qualityHealth = scheduleHealth;  // proxy: schedule slip signals quality risk
+  // scheduleHealth, raidHealth, budgetHealth, governanceHealth, healthScore computed above
 
   const pmName = safeStr((project as any)?.project_manager ?? (project as any)?.pm_name ?? "").trim() || "Unassigned";
 
@@ -471,7 +507,26 @@ export default async function ProjectPage({
         .hbar-track { height: 6px; background: var(--border); border-radius: 99px; overflow: hidden; margin-top: 5px; }
         .hbar-fill  { height: 100%; border-radius: 99px; transition: width 0.6s cubic-bezier(0.16,1,0.3,1); }
 
-        /* ── RAID ── */
+        /* ── Health Score tooltips ── */
+        .hs-tip-trigger { position: relative; }
+        .hs-tip-box {
+          display: none; position: absolute; left: 50%; bottom: calc(100% + 8px);
+          transform: translateX(-50%);
+          background: #0a0e17; color: #e2e8f0;
+          font-size: 11px; font-weight: 400; line-height: 1.5;
+          padding: 8px 12px; border-radius: 8px;
+          width: 240px; white-space: normal; text-align: left;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+          z-index: 100; pointer-events: none;
+        }
+        .hs-tip-box::after {
+          content: ''; position: absolute; top: 100%; left: 50%;
+          transform: translateX(-50%);
+          border: 5px solid transparent; border-top-color: #0a0e17;
+        }
+        .hs-tip-trigger:hover .hs-tip-box { display: block; }
+        .health-row:hover { opacity: 1; }
+
         .raid-quad  { background: var(--surface-2); border-radius: 10px; border: 1px solid var(--border); padding: 14px; }
         .raid-item  { font-size: 12px; color: var(--text-2); padding: 5px 0; border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .raid-item:last-child { border-bottom: none; }
@@ -756,36 +811,106 @@ export default async function ProjectPage({
 
             {/* Health Score breakdown */}
             <div className="card" style={{ padding: "24px" }}>
-              <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 18 }}>Health Score</h3>
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                {[
-                  { label: "Schedule", value: scheduleHealth },
-                  { label: "Budget",   value: budgetHealth },
-                  { label: "Scope",    value: scopeHealth },
-                  { label: "Quality",  value: qualityHealth },
-                ].map(({ label, value }) => (
-                  <div key={label}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                      <span style={{ fontSize: 13, color: "var(--text-2)", fontWeight: 500 }}>{label}</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)" }}>
-                        {value != null ? `${value}%` : "—"}
-                      </span>
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 4 }}>Health Score</h3>
+              <p style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 20 }}>Computed from live project data — hover each bar for detail.</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {([
+                  {
+                    label:   "Schedule",
+                    value:   scheduleHealth,
+                    weight:  35,
+                    icon:    "📅",
+                    tooltip: scheduleHealth != null
+                      ? `Based on ${scheduleDetail.total} milestone${scheduleDetail.total !== 1 ? "s" : ""}. ${scheduleDetail.overdue} overdue${scheduleDetail.critical > 0 ? ` (${scheduleDetail.critical} on critical path)` : ""}. Avg baseline slip: ${scheduleDetail.avgSlipDays}d.`
+                      : "No schedule milestones found for this project.",
+                    empty: "No milestones — add schedule milestones to track this.",
+                  },
+                  {
+                    label:   "RAID Risk",
+                    value:   raidHealth,
+                    weight:  30,
+                    icon:    "⚠️",
+                    tooltip: raidHealth != null
+                      ? `${raidDetail.total} open item${raidDetail.total !== 1 ? "s" : ""}. ${raidDetail.highRisk} high-risk (prob × severity ≥ 70). ${raidDetail.overdue} past due date.`
+                      : "No open RAID items found for this project.",
+                    empty: "No open RAID items — log risks and issues to track this.",
+                  },
+                  {
+                    label:   "Budget",
+                    value:   budgetHealth,
+                    weight:  20,
+                    icon:    "💰",
+                    tooltip: budgetDetail.utilisationPct != null
+                      ? `${budgetDetail.allocatedDays}d allocated of ${budgetDetail.budgetDays ?? "?"}d budget (${budgetDetail.utilisationPct}% utilisation). ${budgetDetail.utilisationPct <= 90 ? "On track." : budgetDetail.utilisationPct <= 100 ? "Approaching budget limit." : "Over budget."}`
+                      : "No budget days set on this project.",
+                    empty: "Set budget days on the project to track this.",
+                  },
+                  {
+                    label:   "Governance",
+                    value:   governanceHealth,
+                    weight:  15,
+                    icon:    "✅",
+                    tooltip: `${govDetail.pendingApprovalCount} pending approval${govDetail.pendingApprovalCount !== 1 ? "s" : ""}. ${govDetail.openChangeRequests} open change request${govDetail.openChangeRequests !== 1 ? "s" : ""}. High backlogs reduce this score.`,
+                    empty:   "",
+                  },
+                ] as { label: string; value: number | null; weight: number; icon: string; tooltip: string; empty: string }[]).map(({ label, value, weight, icon, tooltip, empty }) => {
+                  const barColor = value == null ? "var(--border)"
+                    : value >= 85 ? "var(--green)"
+                    : value >= 70 ? "var(--amber)"
+                    : "var(--red)";
+                  const ragLabel = value == null ? null : value >= 85 ? "Green" : value >= 70 ? "Amber" : "Red";
+                  return (
+                    <div key={label} style={{ position: "relative" }} className="health-row">
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 13 }}>{icon}</span>
+                          <span style={{ fontSize: 13, color: "var(--text-2)", fontWeight: 600 }}>{label}</span>
+                          <span style={{ fontSize: 10, color: "var(--text-3)", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 5px", fontWeight: 500 }}>{weight}%</span>
+                          {/* Tooltip trigger */}
+                          <span className="hs-tip-trigger" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: "50%", background: "var(--surface-2)", border: "1px solid var(--border)", fontSize: 9, color: "var(--text-3)", cursor: "default", fontWeight: 700, flexShrink: 0 }}>?
+                            <span className="hs-tip-box">{tooltip}</span>
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {ragLabel && (
+                            <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 20,
+                              background: ragLabel === "Green" ? "rgba(22,163,74,0.1)" : ragLabel === "Amber" ? "rgba(217,119,6,0.1)" : "rgba(220,38,38,0.1)",
+                              color: ragLabel === "Green" ? "var(--green)" : ragLabel === "Amber" ? "var(--amber)" : "var(--red)",
+                            }}>{ragLabel}</span>
+                          )}
+                          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)", minWidth: 32, textAlign: "right" }}>
+                            {value != null ? `${value}%` : "—"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="hbar-track">
+                        <div className="hbar-fill" style={{ width: `${value ?? 0}%`, background: barColor }} />
+                      </div>
+                      {value == null && empty && (
+                        <p style={{ fontSize: 10, color: "var(--text-3)", margin: "4px 0 0", fontStyle: "italic" }}>{empty}</p>
+                      )}
                     </div>
-                    <div className="hbar-track">
-                      <div
-                        className="hbar-fill"
-                        style={{
-                          width: `${value ?? 0}%`,
-                          background: value == null ? "var(--border)"
-                            : value >= 85 ? "var(--green)"
-                            : value >= 70 ? "var(--amber)"
-                            : "var(--red)",
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
+              {/* Overall RAG indicator */}
+              {healthScore != null && (
+                <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 600 }}>Overall RAG</span>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    {[{ t: "Red", min: 0, max: 69 }, { t: "Amber", min: 70, max: 84 }, { t: "Green", min: 85, max: 100 }].map(({ t, min, max }) => {
+                      const active = healthScore >= min && healthScore <= max;
+                      return (
+                        <span key={t} style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20,
+                          background: active ? (t === "Green" ? "rgba(22,163,74,0.12)" : t === "Amber" ? "rgba(217,119,6,0.12)" : "rgba(220,38,38,0.12)") : "var(--surface-2)",
+                          color: active ? (t === "Green" ? "var(--green)" : t === "Amber" ? "var(--amber)" : "var(--red)") : "var(--text-3)",
+                          border: active ? `1px solid ${t === "Green" ? "rgba(22,163,74,0.25)" : t === "Amber" ? "rgba(217,119,6,0.25)" : "rgba(220,38,38,0.25)"}` : "1px solid var(--border)",
+                        }}>{t}</span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
