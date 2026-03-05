@@ -1,4 +1,4 @@
-﻿// src/app/api/cron/project-health/generate/route.ts
+// src/app/api/cron/project-health/generate/route.ts
 // Synthesises cross-artifact health snapshot daily
 // vercel.json: { "path": "/api/cron/project-health/generate", "schedule": "0 7 * * *" }
 // Run after other crons (exec-intel/raid/schedule all at 06:00, this at 07:00)
@@ -84,7 +84,7 @@ const JSON_SCHEMA = {
   },
 };
 
-// ─── Load artifact health from Supabase intelligence tables ──────────────────
+// --- Load artifact health from Supabase intelligence tables ------------------
 
 async function loadArtifactHealth(
   supabase: ReturnType<typeof getSupabase>,
@@ -164,7 +164,7 @@ async function loadArtifactHealth(
   return artifacts;
 }
 
-// ─── Generate health for one project ─────────────────────────────────────────
+// --- Generate health for one project -----------------------------------------
 
 async function generateHealthForProject(
   projectId: string,
@@ -221,7 +221,7 @@ Provide a concise executive health brief. Narrative: 2-3 sentences.`;
   }
 }
 
-// ─── Cron handler ─────────────────────────────────────────────────────────────
+// --- Cron handler -------------------------------------------------------------
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
@@ -239,7 +239,7 @@ export async function GET(req: NextRequest) {
 
     const { data: projects, error: projectErr } = await supabase
       .from("projects")
-      .select("id, name")
+      .select("id, title")
       .eq("status", "active");
 
     if (projectErr) throw projectErr;
@@ -278,7 +278,7 @@ export async function GET(req: NextRequest) {
 
         const { result, signals, overallRag, fallback } = await generateHealthForProject(
           project.id,
-          project.name,
+          project.title,
           artifacts,
           snapshotData
         );
