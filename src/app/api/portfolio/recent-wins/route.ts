@@ -128,6 +128,18 @@ async function handle(req: NextRequest, days: number, limit: number) {
     }
   }
 
+  // Enrich projById with any project_ids from topWins not already loaded
+  const winPids = [...new Set(topWins.map((w: any) => safeStr(w?.project_id).trim()).filter(Boolean))];
+  const missingPids = winPids.filter(pid => !projById.has(pid));
+  if (missingPids.length) {
+    const { data: extraProjs } = await supabase
+      .from("projects")
+      .select("id, title, project_code, project_manager, project_manager_id")
+      .in("id", missingPids)
+      .limit(200);
+    for (const p of extraProjs ?? []) projById.set(String((p as any).id), p);
+  }
+
   // Get budget wins
   const budgetWins = await getBudgetWins(supabase, projectIds, since, projById);
 
