@@ -846,9 +846,6 @@ export default function Sidebar({
                 )}
               >
                 <div className="text-xs font-semibold text-slate-900 truncate">{userName || "Guest"}</div>
-                <div className="text-[10px] text-slate-500 truncate">{userName ? "Signed in" : "Not signed in"}</div>
-              </div>
-
               {!collapsed && (
                 <span className="text-slate-400 text-xs font-black">{userMenuOpen ? "▴" : "▾"}</span>
               )}
