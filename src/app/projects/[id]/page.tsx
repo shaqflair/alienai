@@ -363,10 +363,11 @@ export default async function ProjectPage({
   const flashErr = sp?.err ? `Error: ${sp.err}` : null;
   const daysLeft = daysUntil(project?.finish_date);
 
-  const risks       = raidItems.filter((r: any) => r.type === "risk");
-  const assumptions = raidItems.filter((r: any) => r.type === "assumption");
-  const issues      = raidItems.filter((r: any) => r.type === "issue");
-  const dependencies = raidItems.filter((r: any) => r.type === "dependency");
+  function matchType(r: any, ...names: string[]) { const t = String(r.type ?? "").toLowerCase().trim(); return names.some(n => t === n.toLowerCase() || t.startsWith(n[0].toLowerCase())); }
+  const risks        = raidItems.filter((r: any) => matchType(r, "risk"));
+  const assumptions  = raidItems.filter((r: any) => matchType(r, "assumption"));
+  const issues       = raidItems.filter((r: any) => matchType(r, "issue"));
+  const dependencies = raidItems.filter((r: any) => matchType(r, "dependency"));
   const totalMembers = members.length;
   const openRisks    = risks.length;
 

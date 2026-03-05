@@ -49,6 +49,22 @@ function avatarCol(name: string) {
   return AVATAR_COLS[name.charCodeAt(0) % AVATAR_COLS.length];
 }
 
+function derivePeriodsFromAllocations(allocations) {
+  const weekKeys = Array.from(new Set(allocations.map(a => a.weekStartDate))).filter(Boolean).sort();
+  return weekKeys.map(key => {
+    const d = new Date(key + "T00:00:00");
+    return { key, label: d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) };
+  });
+}
+
+function derivePeriodsFromAllocations(allocations) {
+  const weekKeys = Array.from(new Set(allocations.map(a => a.weekStartDate))).filter(Boolean).sort();
+  return weekKeys.map(key => {
+    const d = new Date(key + "T00:00:00");
+    return { key, label: d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) };
+  });
+}
+
 const ROLES = [
   "Designer","Senior Designer","Lead Designer",
   "Engineer","Senior Engineer","Lead Engineer","Principal Engineer",
@@ -659,7 +675,8 @@ function MiniHeatmap({
     lookup.get(a.personId)!.set(a.weekStartDate, a);
   }
 
-  const visiblePeriods = periods.slice(0, 16);
+  const resolvedPeriods = periods.length > 0 ? periods : derivePeriodsFromAllocations(allocations);
+  const visiblePeriods = resolvedPeriods.slice(0, 20);
   const cellW = 36;
 
   return (
