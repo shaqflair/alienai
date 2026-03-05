@@ -17,6 +17,10 @@ import { createClient } from "@/utils/supabase/server";
 import SidebarShell from "@/components/nav/SidebarShell";
 import "./globals.css";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const dmSans = DM_Sans({
   subsets: ["latin"],
   variable: "--font-dm-sans",
@@ -35,8 +39,7 @@ export const metadata: Metadata = {
     template: "%s | ΛLIΞNΛ",
     default: "ΛLIΞNΛ",
   },
-  description:
-    "ΛLIΞNΛ — AI Governance & Delivery Intelligence Platform",
+  description: "ΛLIΞNΛ — AI Governance & Delivery Intelligence Platform",
 
   icons: {
     icon: "https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png",
@@ -60,24 +63,13 @@ export const metadata: Metadata = {
 };
 
 // Routes that should NOT show the sidebar
-const AUTH_PREFIXES = [
-  "/login",
-  "/signup",
-  "/auth",
-  "/invite",
-  "/reset-password",
-  "/verify",
-];
+const AUTH_PREFIXES = ["/login", "/signup", "/auth", "/invite", "/reset-password", "/verify"];
 
 function isAuthRoute(pathname: string): boolean {
   return AUTH_PREFIXES.some((p) => pathname.startsWith(p));
 }
 
-export default async function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
   let userName: string | null = null;
   let orgName: string | null = null;
   let activeProjectCount = 0;
@@ -95,18 +87,42 @@ export default async function RootLayout({
         user.email ||
         null;
 
+      // ✅ Determine ACTIVE organisation (profiles.active_organisation_id)
+      // Fallback: first membership if active org is null/unset
+      let orgId: string | null = null;
+
       try {
-        const { data: memRow } = await supabase
-          .from("organisation_members")
-          .select("organisation_id")
-          .eq("user_id", user.id)
-          .is("removed_at", null)
-          .limit(1)
+        const { data: prof } = await supabase
+          .from("profiles")
+          .select("active_organisation_id")
+          .eq("id", user.id)
           .maybeSingle();
 
-        const orgId = memRow?.organisation_id ?? null;
+        orgId = (prof?.active_organisation_id as string | null) ?? null;
+      } catch {
+        // ignore
+      }
 
-        if (orgId) {
+      if (!orgId) {
+        try {
+          const { data: memRow } = await supabase
+            .from("organisation_members")
+            .select("organisation_id")
+            .eq("user_id", user.id)
+            .is("removed_at", null)
+            .order("created_at", { ascending: true })
+            .limit(1)
+            .maybeSingle();
+
+          orgId = memRow?.organisation_id ?? null;
+        } catch {
+          // ignore
+        }
+      }
+
+      // ✅ Fetch org name + project count for ACTIVE org
+      if (orgId) {
+        try {
           const { data: orgRow } = await supabase
             .from("organisations")
             .select("name")
@@ -114,7 +130,11 @@ export default async function RootLayout({
             .maybeSingle();
 
           orgName = orgRow?.name ?? null;
+        } catch {
+          // ignore
+        }
 
+        try {
           const { count } = await supabase
             .from("projects")
             .select("id", { count: "exact", head: true })
@@ -124,10 +144,14 @@ export default async function RootLayout({
             .not("status", "ilike", "%closed%");
 
           activeProjectCount = count ?? 0;
+        } catch {
+          // ignore
         }
-      } catch {}
+      }
     }
-  } catch {}
+  } catch {
+    // ignore
+  }
 
   return (
     <html lang="en" className={`${dmSans.variable} ${dmMono.variable}`}>
@@ -153,11 +177,7 @@ export default async function RootLayout({
             "radial-gradient(circle at 20% 20%, rgba(0,184,219,0.15), transparent 40%), radial-gradient(circle at 80% 70%, rgba(99,102,241,0.12), transparent 40%), #0a0d14",
         }}
       >
-        <SidebarShell
-          userName={userName}
-          orgName={orgName}
-          projectCount={activeProjectCount}
-        >
+        <SidebarShell userName={userName} orgName={orgName} projectCount={activeProjectCount}>
           {children}
         </SidebarShell>
       </body>
