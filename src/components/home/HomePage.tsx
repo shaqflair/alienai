@@ -3516,6 +3516,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   const apiScore = phData?.ok ? clamp01to100(phData.portfolio_health) : null;
 
+  const fallbackScore = ragAgg.scored ? ragAgg.avgHealth : clamp01to100(kpis.portfolioHealth);
   const portfolioScore = (apiScore != null && apiScore > 0) ? apiScore : fallbackScore;
 
 
