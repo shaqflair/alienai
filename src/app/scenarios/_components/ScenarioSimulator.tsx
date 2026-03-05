@@ -1051,8 +1051,8 @@ export default function ScenarioSimulator({
                           <span style={{ color: "#94a3b8", fontWeight: 400 }}>
                             {"personId" in c ? (people.find(p => p.personId === (c as any).personId)?.fullName ?? "") : ""}
                             {"fromPersonId" in c ? (people.find(p => p.personId === (c as any).fromPersonId)?.fullName ?? "") + " ? " + (people.find(p => p.personId === (c as any).toPersonId)?.fullName ?? "") : ""}
-                            {"projectId" in c && !("personId" in c && "fromPersonId" in c) ? " - " + (projects.find(p => p.projectId === (c as any).projectId)?.title ?? "") : ""}
                           </span>
+                        </span>
                         <button type="button" onClick={() => removeChange(i)} style={{
                           background: "none", border: "none", color: "#cbd5e1",
                           cursor: "pointer", fontSize: "13px", lineHeight: 1,
