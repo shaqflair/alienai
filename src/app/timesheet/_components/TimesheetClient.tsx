@@ -309,6 +309,27 @@ function NoProjectsHint({ hasProjects }: { hasProjects: boolean }) {
 }
 
 /* =============================================================================
+   REMOVE BUTTON — shared style for × on both project and category rows
+============================================================================= */
+function RemoveRowBtn({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        marginLeft: "auto", background: "none", border: "none",
+        color: "#cbd5e1", cursor: "pointer", fontSize: "16px",
+        padding: "0 2px", lineHeight: 1, flexShrink: 0,
+        transition: "color 0.15s",
+      }}
+      onMouseEnter={e => (e.currentTarget.style.color = "#94a3b8")}
+      onMouseLeave={e => (e.currentTarget.style.color = "#cbd5e1")}
+      title="Remove row"
+    >×</button>
+  );
+}
+
+/* =============================================================================
    MAIN CLIENT
 ============================================================================= */
 export default function TimesheetClient({
@@ -342,22 +363,16 @@ export default function TimesheetClient({
     buildInitialGrid(timesheetData.entries, initialWeekStart)
   );
 
-  // ─── FIX: initialise rowProjects from allocatedProjectIds (this week's allocs)
+  // Initialise rowProjects from allocatedProjectIds (this week's allocs)
   // PLUS any projects that already have saved entries for this week.
-  // If neither exist, the grid starts empty but projects are available in the
-  // "Add project row" dropdown — so the user can always add them manually.
   const [rowProjects, setRowProjects] = useState<TimesheetProject[]>(() => {
-    // Projects with saved entries this week
     const entryProjectIds = new Set(
       timesheetData.entries.map(e => e.projectId).filter(Boolean) as string[]
     );
-
-    // Prefer to show: this-week allocations first, then any with saved entries
     const thisWeekProjects = projects.filter(p => allocatedProjectIds.includes(p.id));
     const entryOnlyProjects = projects.filter(
       p => entryProjectIds.has(p.id) && !allocatedProjectIds.includes(p.id)
     );
-
     return [...thisWeekProjects, ...entryOnlyProjects];
   });
 
@@ -379,6 +394,16 @@ export default function TimesheetClient({
 
   function setHours(rowKey: string, dayIdx: number, hours: number) {
     setGrid(g => ({ ...g, [rowKey]: { ...(g[rowKey] ?? {}), [dayIdx]: hours } }));
+  }
+
+  function removeProjectRow(projectId: string) {
+    setRowProjects(r => r.filter(p => p.id !== projectId));
+    setGrid(g => { const next = { ...g }; delete next[projectId]; return next; });
+  }
+
+  function removeCategoryRow(catId: string) {
+    setRowCategories(r => r.filter(c => c !== catId));
+    setGrid(g => { const next = { ...g }; delete next[catId]; return next; });
   }
 
   function rowTotal(rowKey: string): number {
@@ -585,19 +610,9 @@ export default function TimesheetClient({
                             ALLOC
                           </span>
                         )}
-                        {/* Allow removing manually-added rows (not this-week alloc rows) */}
-                        {!isReadOnly && !allocatedProjectIds.includes(project.id) && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setRowProjects(r => r.filter(p => p.id !== project.id));
-                              setGrid(g => { const next = { ...g }; delete next[project.id]; return next; });
-                            }}
-                            style={{ marginLeft: "auto", background: "none", border: "none",
-                                     color: "#cbd5e1", cursor: "pointer", fontSize: "14px",
-                                     padding: "0", lineHeight: 1 }}
-                            title="Remove row"
-                          >×</button>
+                        {/* ✅ FIX: show remove button for ALL projects when not read-only */}
+                        {!isReadOnly && (
+                          <RemoveRowBtn onClick={() => removeProjectRow(project.id)} />
                         )}
                       </div>
                     </td>
@@ -633,10 +648,7 @@ export default function TimesheetClient({
                             <div style={{ fontSize: "10px", color: "#94a3b8" }}>Non-project time</div>
                           </div>
                           {!isReadOnly && (
-                            <button type="button" onClick={() => {
-                              setRowCategories(r => r.filter(c => c !== catId));
-                              setGrid(g => { const next = { ...g }; delete next[catId]; return next; });
-                            }} style={{ marginLeft: "auto", background: "none", border: "none", color: "#cbd5e1", cursor: "pointer", fontSize: "14px", padding: "0", lineHeight: 1 }} title="Remove row">×</button>
+                            <RemoveRowBtn onClick={() => removeCategoryRow(catId)} />
                           )}
                         </div>
                       </td>
