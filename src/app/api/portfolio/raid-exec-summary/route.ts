@@ -1,13 +1,15 @@
-﻿// src/app/api/portfolio/raid-exec-summary/route.ts — REBUILT v7 (Org view + filter-ready)
+﻿// src/app/api/portfolio/raid-exec-summary/route.ts — REBUILT v8 (ORG-WIDE + filter-ready + active-only FAIL-OPEN)
 // Fixes / Adds:
-//   ✅ RES-F1: ORG-WIDE project scope via resolveOrgActiveProjectScope (all projects in user's organisation) with safe fallback inside helper
+//   ✅ RES-F1: ORG-WIDE project scope via resolveOrgActiveProjectScope(supabase, userId) (dashboard aligned)
 //   ✅ RES-F2: clampDays supports "all" → 60 (HomePage sends days=all)
 //   ✅ RES-F3: Cache-Control: no-store across ALL responses (json + md/pdf/pptx downloads)
 //   ✅ RES-F4: Supports dashboard filters (GET): name, code, pm, dept
-//   ✅ RES-F5: Project links prefer project_code (human id) over UUID
+//   ✅ RES-F5: Project links prefer project_code (human id) over UUID (fallback to UUID if missing)
+//   ✅ RES-F6: Active-only filter uses filterActiveProjectIds but FAIL-OPEN if helper returns 0 / errors
+//   ✅ RES-F7: resolveOrgName tries active org first (if profiles.active_organisation_id exists), otherwise membership fallback
 // Keeps:
-//   ✅ Active project filter (exclude closed/deleted projects)
 //   ✅ resolveClientNameFromProjects fixed select("id, client_name")
+//   ✅ Puppeteer/Chromium pdf generation + PPTX generation
 
 import "server-only";
 
@@ -187,6 +189,16 @@ function parseFiltersFromUrl(url: URL): PortfolioFilters {
   return out;
 }
 
+function looksMissingRelation(err: any) {
+  const msg = String(err?.message || err || "").toLowerCase();
+  return msg.includes("does not exist") || msg.includes("relation") || msg.includes("42p01");
+}
+
+function looksMissingColumn(err: any) {
+  const msg = String(err?.message || err || "").toLowerCase();
+  return msg.includes("column") && msg.includes("does not exist");
+}
+
 // Filter projects within candidate scope (best-effort if optional cols don't exist)
 async function applyProjectFilters(supabase: any, scopedProjectIds: string[], filters: PortfolioFilters) {
   const meta: any = { applied: false, filters, notes: [] as string[] };
@@ -211,7 +223,8 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
       break;
     }
     lastErr = error;
-    continue;
+    // tolerate optional schema differences
+    if (!(looksMissingRelation(error) || looksMissingColumn(error))) break;
   }
 
   if (!rows.length) {
@@ -303,6 +316,26 @@ type ExecSummary = {
 /* ---------------- data helpers ---------------- */
 
 async function resolveOrgName(supabase: any, userId: string) {
+  // Prefer profile.active_organisation_id if present, else fallback to any membership join.
+  try {
+    const { data: prof, error: pErr } = await supabase
+      .from("profiles")
+      .select("active_organisation_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    const activeOrgId = safeStr(prof?.active_organisation_id).trim();
+    if (!pErr && activeOrgId) {
+      const { data: orgRow, error: oErr } = await supabase.from("organisations").select("id,name").eq("id", activeOrgId).maybeSingle();
+      if (!oErr) {
+        const nm = safeStr(orgRow?.name).trim();
+        if (nm) return nm;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
   try {
     const { data, error } = await supabase
       .from("organisation_members")
@@ -340,6 +373,31 @@ async function resolveClientNameFromProjects(supabase: any, projectIds: string[]
   }
 }
 
+async function normalizeActiveIdsFailOpen(supabase: any, baseIds: string[]) {
+  const failOpen = (reason: string) => ({ ids: baseIds, ok: false, error: reason });
+
+  try {
+    const r: any = await filterActiveProjectIds(supabase, baseIds);
+
+    // string[] return
+    if (Array.isArray(r)) {
+      const ids = r.filter(Boolean);
+      if (!ids.length && baseIds.length) return failOpen("active filter returned 0 ids; failing open");
+      return { ids, ok: true, error: null as string | null };
+    }
+
+    // { projectIds } return
+    const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
+    const ok = r?.ok !== false;
+    const errMsg = r?.error ? safeStr(r.error?.message || r.error) : null;
+
+    if (!ids.length && baseIds.length) return failOpen(errMsg || "active filter returned 0 ids; failing open");
+    return { ids, ok, error: errMsg };
+  } catch (e: any) {
+    return failOpen(safeStr(e?.message || e || "active filter failed"));
+  }
+}
+
 async function buildExecSummary(args: {
   supabase: any;
   userId: string;
@@ -352,21 +410,22 @@ async function buildExecSummary(args: {
 
   const meta: any = { scope_source: null, filters: null };
 
-  // ✅ Org-wide scope helper (safe fallback inside helper)
-  const orgScoped = await resolveOrgActiveProjectScope(supabase);
+  // ✅ RES-F1: ORG-wide scope helper (dashboard aligned)
+  const orgScoped: any = await resolveOrgActiveProjectScope(supabase, userId);
   const baseProjectIds = uniqStrings(orgScoped?.projectIds || []);
-  meta.scope_source = { kind: "org_scope_helper", ok: Boolean(baseProjectIds.length), meta: orgScoped?.meta ?? null };
+  meta.scope_source = { kind: "resolveOrgActiveProjectScope", ok: Boolean(baseProjectIds.length), meta: orgScoped?.meta ?? null };
+  meta.organisationId = orgScoped?.organisationId ?? orgScoped?.orgId ?? null;
 
   if (!baseProjectIds.length) return { ok: false, error: "No accessible projects found.", meta };
 
-  // ✅ Active-only filter (matches shared exclusion list)
-  const active = await filterActiveProjectIds(supabase, baseProjectIds);
-  const activeProjectIds = uniqStrings(active?.projectIds || []);
+  // ✅ Active-only filter — FAIL-OPEN
+  const active = await normalizeActiveIdsFailOpen(supabase, baseProjectIds);
+  const activeProjectIds = uniqStrings(active.ids || []);
   meta.active_filter = {
     before: baseProjectIds.length,
     after: activeProjectIds.length,
-    ok: Boolean(active?.ok),
-    error: active?.error ?? null,
+    ok: active.ok,
+    error: active.error ?? null,
   };
 
   if (!activeProjectIds.length) return { ok: false, error: "No active projects found.", meta };
@@ -407,10 +466,12 @@ async function buildExecSummary(args: {
     };
   }
 
-  const [dbOrg, dbClient] = await Promise.all([resolveOrgName(supabase, userId), resolveClientNameFromProjects(supabase, projectIds)]);
+  const [dbOrg, dbClient] = await Promise.all([
+    resolveOrgName(supabase, userId),
+    resolveClientNameFromProjects(supabase, projectIds),
+  ]);
 
-  const org_name =
-    dbOrg || safeStr(process.env.ORG_NAME || process.env.NEXT_PUBLIC_ORG_NAME).trim() || null;
+  const org_name = dbOrg || safeStr(process.env.ORG_NAME || process.env.NEXT_PUBLIC_ORG_NAME).trim() || null;
   const client_name = (dbClient || null) as string | null;
 
   // Window dates
@@ -542,7 +603,7 @@ async function buildExecSummary(args: {
       exposure_total_fmt,
       overdue,
       note: r.ai_rollup ? String(r.ai_rollup).slice(0, 240) : null,
-      // ✅ RES-F5: prefer project_code for routes
+      // ✅ RES-F5: prefer project_code for routes (fallback to UUID)
       href: ref ? `/projects/${encodeURIComponent(ref)}/raid` : null,
     };
   });
@@ -632,7 +693,10 @@ async function buildExecSummary(args: {
       { key: "exposure", title: "Financial Exposure Hotspots", items: byExposure },
       { key: "decisions", title: "Decisions Required (Next Actions)", items: decisions },
     ],
-    meta: { ...meta, projectCounts: { base: baseProjectIds.length, active: activeProjectIds.length, filtered: projectIds.length } },
+    meta: {
+      ...meta,
+      projectCounts: { base: baseProjectIds.length, active: activeProjectIds.length, filtered: projectIds.length },
+    },
   };
 }
 
@@ -671,8 +735,12 @@ function renderPdfHtml(summary: ExecSummary) {
                 const hot = (bp != null && bp >= 70) || (sc != null && sc >= 70) || overdue;
                 const pills: string[] = [];
                 pills.push(`<span class="pill ${overdue ? "pill-danger" : "pill-neutral"}">Due: ${esc(due)}</span>`);
-                if (sc != null) pills.push(`<span class="pill ${hot && sc >= 70 ? "pill-warn" : "pill-neutral"}">Score: ${esc(sc)}</span>`);
-                if (bp != null) pills.push(`<span class="pill ${bp >= 70 ? "pill-warn" : "pill-neutral"}">SLA: ${esc(bp)}%</span>`);
+                if (sc != null)
+                  pills.push(
+                    `<span class="pill ${hot && sc >= 70 ? "pill-warn" : "pill-neutral"}">Score: ${esc(sc)}</span>`,
+                  );
+                if (bp != null)
+                  pills.push(`<span class="pill ${bp >= 70 ? "pill-warn" : "pill-neutral"}">SLA: ${esc(bp)}%</span>`);
                 if (x.exposure_total_fmt) pills.push(`<span class="pill pill-neutral">Exposure: ${esc(x.exposure_total_fmt)}</span>`);
                 if (x.owner_label) pills.push(`<span class="pill pill-neutral">Owner: ${esc(x.owner_label)}</span>`);
                 const note = x.note || x.prompt ? `<div class="note">${esc(x.note || x.prompt)}</div>` : "";
@@ -932,7 +1000,8 @@ export async function GET(req: NextRequest) {
 
     if (format === "pptx") {
       const pptxBuf = await renderPptxFromSummary(summary);
-      const base = sanitizeFilename(summary.client_name || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
+      const base =
+        sanitizeFilename(summary.client_name || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
       return new NextResponse(Buffer.from(pptxBuf), {
         status: 200,
         headers: {
@@ -945,7 +1014,8 @@ export async function GET(req: NextRequest) {
 
     const html = renderPdfHtml(summary);
     const pdf = await renderPdfFromHtml(html);
-    const base = sanitizeFilename(summary.client_name || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
+    const base =
+      sanitizeFilename(summary.client_name || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
     return new NextResponse(Buffer.from(pdf), {
       status: 200,
       headers: {

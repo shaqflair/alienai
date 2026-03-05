@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/financial-plan-summary/route.ts — REBUILT v5 (ORG-WIDE + filter-ready + ACTIVE FILTER)
+﻿// src/app/api/portfolio/financial-plan-summary/route.ts — REBUILT v5.1 (ORG-WIDE + filter-ready + ACTIVE FILTER normalized)
 // Used by: What-if Simulator (portfolio-level financial impact)
 //
 // Changes:
@@ -9,6 +9,7 @@
 //   ✅ FPS-F3: Graceful handling of artifact.content as JSON object or JSON string
 //   ✅ FPS-F4: Cache-Control no-store everywhere
 //   ✅ FPS-F5: Active project filter applied (exclude closed/terminal projects) + FAIL-OPEN safeguard
+//   ✅ FPS-F6: normalize filterActiveProjectIds return contract (string[] OR { projectIds })
 
 import "server-only";
 
@@ -68,6 +69,32 @@ function safeJson(x: any): any {
 function num(x: any, fallback = 0) {
   const n = Number(x);
   return Number.isFinite(n) ? n : fallback;
+}
+
+async function normalizeActiveIds(supabase: any, rawIds: string[]) {
+  const failOpen = (reason: string) => ({
+    ids: rawIds,
+    ok: false,
+    error: reason,
+  });
+
+  try {
+    const r: any = await filterActiveProjectIds(supabase, rawIds);
+
+    // string[]
+    if (Array.isArray(r)) {
+      const ids = r.filter(Boolean);
+      if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
+      return { ids, ok: true, error: null as string | null };
+    }
+
+    // { projectIds }
+    const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
+    if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
+    return { ids, ok: !r?.error, error: r?.error ? safeStr(r.error?.message || r.error) : null };
+  } catch (e: any) {
+    return failOpen(safeStr(e?.message || e || "active filter failed"));
+  }
 }
 
 /* ---------------- filters ---------------- */
@@ -205,26 +232,9 @@ async function handle(req: Request, filters: PortfolioFilters) {
   const scoped = await resolveOrgActiveProjectScope(supabase, user.id);
   const scopedProjectIdsRaw = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
 
-  // ✅ FPS-F5: active project filter + FAIL-OPEN safeguard
-  let scopedProjectIds: string[] = [];
-  let active_filter_ok = true;
-  let active_filter_error: string | null = null;
-
-  try {
-    const filteredActive = await filterActiveProjectIds(supabase, scopedProjectIdsRaw);
-    scopedProjectIds = filteredActive;
-
-    // FAIL-OPEN: never allow false-zeroing the org dashboard
-    if (!scopedProjectIds.length && scopedProjectIdsRaw.length) {
-      scopedProjectIds = scopedProjectIdsRaw;
-      active_filter_ok = false;
-      active_filter_error = "active filter returned 0 ids; failing open to raw scope";
-    }
-  } catch (e: any) {
-    scopedProjectIds = scopedProjectIdsRaw; // fail-open
-    active_filter_ok = false;
-    active_filter_error = safeStr(e?.message || e || "active filter failed");
-  }
+  // ✅ active project filter + FAIL-OPEN (normalized)
+  const active = await normalizeActiveIds(supabase, scopedProjectIdsRaw);
+  const scopedProjectIds = active.ids;
 
   // 2) apply filters (within scope)
   const filtered = await applyProjectFilters(supabase, scopedProjectIds, filters);
@@ -241,8 +251,8 @@ async function handle(req: Request, filters: PortfolioFilters) {
           ...(scoped?.meta ?? {}),
           scopedIdsRaw: scopedProjectIdsRaw.length,
           scopedIdsActive: scopedProjectIds.length,
-          active_filter_ok,
-          active_filter_error,
+          active_filter_ok: active.ok,
+          active_filter_error: active.error,
         },
         filters: filtered.meta,
       },
@@ -385,8 +395,8 @@ async function handle(req: Request, filters: PortfolioFilters) {
         ...(scoped?.meta ?? {}),
         scopedIdsRaw: scopedProjectIdsRaw.length,
         scopedIdsActive: scopedProjectIds.length,
-        active_filter_ok,
-        active_filter_error,
+        active_filter_ok: active.ok,
+        active_filter_error: active.error,
       },
       filters: filtered.meta,
     },

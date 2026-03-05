@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/milestones-due/route.ts — REBUILT v5 (ORG-WIDE + filter-ready + ACTIVE FILTER)
+﻿// src/app/api/portfolio/milestones-due/route.ts — REBUILT v5.1 (ORG-WIDE + filter-ready + ACTIVE FILTER normalized)
 // Adds:
 //   ✅ MD-F1: Supports dashboard filters (project name, code, PM, department)
 //            - POST (recommended): { days, filters }
@@ -8,7 +8,8 @@
 //   ✅ no-store caching
 // Changes:
 //   ✅ ORG-WIDE scope via resolveOrgActiveProjectScope (still RLS-safe)
-//   ✅ MD-F2: active project filter applied (exclude closed/terminal projects) + fail-open safeguard
+//   ✅ MD-F2: active project filter applied (exclude closed/terminal projects) + FAIL-OPEN safeguard
+//   ✅ MD-F3: normalize filterActiveProjectIds return contract (string[] OR { projectIds })
 
 import "server-only";
 
@@ -72,10 +73,37 @@ function ok(data: any, status = 200) {
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;
 }
+
 function err(message: string, status = 400, meta?: any) {
   const res = NextResponse.json({ ok: false, error: message, meta }, { status });
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;
+}
+
+async function normalizeActiveIds(supabase: any, rawIds: string[]) {
+  const failOpen = (reason: string) => ({
+    ids: rawIds,
+    ok: false,
+    error: reason,
+  });
+
+  try {
+    const r: any = await filterActiveProjectIds(supabase, rawIds);
+
+    // string[]
+    if (Array.isArray(r)) {
+      const ids = r.filter(Boolean);
+      if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
+      return { ids, ok: true, error: null as string | null };
+    }
+
+    // { projectIds }
+    const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
+    if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
+    return { ids, ok: !r?.error, error: r?.error ? safeStr(r.error?.message || r.error) : null };
+  } catch (e: any) {
+    return failOpen(safeStr(e?.message || e || "active filter failed"));
+  }
 }
 
 /* ---------------- filters ---------------- */
@@ -218,29 +246,13 @@ async function handle(req: Request, opts: { days: 7 | 14 | 30 | 60; filters: Por
   const userId = auth?.user?.id || null;
   if (authErr || !userId) return err("Not authenticated", 401);
 
-  // ✅ ORG-WIDE scope for dashboards
+  // ORG-wide scope
   const scoped = await resolveOrgActiveProjectScope(supabase, userId);
   const scopedProjectIdsRaw = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
 
-  // ✅ MD-F2: active filter + fail-open safeguard
-  let scopedProjectIds: string[] = [];
-  let active_filter_ok = true;
-  let active_filter_error: string | null = null;
-
-  try {
-    scopedProjectIds = await filterActiveProjectIds(supabase, scopedProjectIdsRaw);
-
-    // FAIL-OPEN: never allow false-zeroing the org dashboard
-    if (!scopedProjectIds.length && scopedProjectIdsRaw.length) {
-      scopedProjectIds = scopedProjectIdsRaw;
-      active_filter_ok = false;
-      active_filter_error = "active filter returned 0 ids; failing open to raw scope";
-    }
-  } catch (e: any) {
-    scopedProjectIds = scopedProjectIdsRaw; // fail-open
-    active_filter_ok = false;
-    active_filter_error = safeStr(e?.message || e || "active filter failed");
-  }
+  // ✅ active filter (normalized + fail-open)
+  const active = await normalizeActiveIds(supabase, scopedProjectIdsRaw);
+  const scopedProjectIds = active.ids;
 
   const filtered = await applyProjectFilters(supabase, scopedProjectIds, opts.filters);
   const projectIds = filtered.projectIds;
@@ -255,8 +267,8 @@ async function handle(req: Request, opts: { days: 7 | 14 | 30 | 60; filters: Por
           ...(scoped?.meta ?? {}),
           scopedIdsRaw: scopedProjectIdsRaw.length,
           scopedIdsActive: scopedProjectIds.length,
-          active_filter_ok,
-          active_filter_error,
+          active_filter_ok: active.ok,
+          active_filter_error: active.error,
         },
         filters: filtered.meta,
       },
@@ -275,8 +287,8 @@ async function handle(req: Request, opts: { days: 7 | 14 | 30 | 60; filters: Por
         ...(scoped?.meta ?? {}),
         scopedIdsRaw: scopedProjectIdsRaw.length,
         scopedIdsActive: scopedProjectIds.length,
-        active_filter_ok,
-        active_filter_error,
+        active_filter_ok: active.ok,
+        active_filter_error: active.error,
       },
       filters: filtered.meta,
       projectCount: projectIds.length,

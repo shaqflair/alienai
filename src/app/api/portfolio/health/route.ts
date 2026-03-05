@@ -353,8 +353,8 @@ async function fetchScheduleAgg(supabase: any, projectIds: string[], windowDays:
 
 async function fetchRaidStats(supabase: any, projectIds: string[]) {
   const today = ymd(new Date());
-  const { data: raidRows, error: rErr } = await supabase
-    .from("raid_items")
+ const { data: raidRows, error: rErr } = await supabase
+  .from("raid_items")
     .select("id, project_id, status, due_date, probability, severity")
     .in("project_id", projectIds)
     .limit(20000);
@@ -379,23 +379,28 @@ async function fetchRaidStats(supabase: any, projectIds: string[]) {
   }
 
   let slaHigh = 0;
+
   try {
     const raidIds = rows.map((x: any) => x.id).filter(Boolean);
+
     if (raidIds.length) {
-      const { data: preds, error: pErr } = await supabase
+      const { data: preds } = await supabase
         .from("raid_sla_predictions")
         .select("raid_item_id, breach_probability, predicted_at")
         .in("raid_item_id", raidIds)
         .order("predicted_at", { ascending: false })
         .limit(20000);
 
-      if (!pErr && Array.isArray(preds)) {
+      if (Array.isArray(preds)) {
         const seen = new Set<string>();
+
         for (const p of preds) {
           const id = String((p as any)?.raid_item_id || "");
           if (!id || seen.has(id)) continue;
+
           seen.add(id);
           const bp = num((p as any)?.breach_probability, -1);
+
           if (bp >= 70) slaHigh++;
         }
       }
@@ -403,323 +408,4 @@ async function fetchRaidStats(supabase: any, projectIds: string[]) {
   } catch {}
 
   return { ok: true, error: null, open_high: openHigh, overdue, sla_high: slaHigh };
-}
-
-async function fetchApprovalsPending(supabase: any, projectIds: string[]) {
-  try {
-    const { data, error } = await supabase
-      .from("approval_steps")
-      .select("id, project_id, status, decided_at")
-      .in("project_id", projectIds);
-
-    if (error) {
-      if (looksMissingRelation(error)) return { ok: false, pending: 0, error: "approval_steps missing" };
-      return { ok: false, pending: 0, error: error.message };
-    }
-
-    const pending = (data || []).filter((r: any) => {
-      if (r?.decided_at) return false;
-      const s = String(r?.status || "").toLowerCase();
-      return s === "" || s === "pending" || s === "open";
-    }).length;
-
-    return { ok: true, pending, error: null };
-  } catch (e: any) {
-    return { ok: false, pending: 0, error: String(e?.message || e || "approvals query failed") };
-  }
-}
-
-async function fetchActivityStaleProjects7d(supabase: any, projectIds: string[]) {
-  const candidates = ["activity_events", "activity_log", "project_activity", "activity"];
-  let table: string | null = null;
-
-  for (const t of candidates) {
-    const { error } = await supabase.from(t).select("id", { head: true, count: "exact" }).limit(1);
-    if (!error) {
-      table = t;
-      break;
-    }
-    if (!looksMissingRelation(error)) {
-      table = t;
-      break;
-    }
-  }
-
-  if (!table) return { ok: false, table: null, stale_projects_7d: 0, error: "no activity table found" };
-
-  const since7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const since7Iso = since7.toISOString();
-
-  const { data, error } = await supabase
-    .from(table)
-    .select("project_id, created_at")
-    .in("project_id", projectIds)
-    .gte("created_at", since7Iso)
-    .order("created_at", { ascending: false })
-    .limit(20000);
-
-  if (error) return { ok: false, table, stale_projects_7d: 0, error: error.message };
-
-  const active = new Set<string>();
-  for (const r of Array.isArray(data) ? data : []) {
-    const pid = String((r as any)?.project_id || "").trim();
-    if (pid) active.add(pid);
-  }
-
-  // exclude newly created projects from stale denominator
-  let eligibleIds = projectIds;
-  try {
-    const { data: projRows } = await supabase.from("projects").select("id, created_at").in("id", projectIds).limit(20000);
-    if (Array.isArray(projRows)) {
-      eligibleIds = projRows
-        .filter((p: any) => {
-          const createdAt = p?.created_at ? new Date(String(p.created_at)) : null;
-          return !createdAt || createdAt.getTime() <= since7.getTime();
-        })
-        .map((p: any) => String(p?.id || "").trim())
-        .filter(Boolean);
-    }
-  } catch {}
-
-  const stale = Math.max(0, eligibleIds.filter((id) => !active.has(id)).length);
-
-  return {
-    ok: true,
-    table,
-    stale_projects_7d: stale,
-    error: null,
-    meta: { eligible: eligibleIds.length, active: active.size, total: projectIds.length },
-  };
-}
-
-async function fetchFlowScore(supabase: any, projectIds: string[], days = 30) {
-  try {
-    const { data, error } = await supabase.rpc("get_flow_warning_signals", { p_project_ids: projectIds, p_days: days });
-    if (error) {
-      if (looksMissingRelation(error)) return { ok: false, score: 85, error: "flow RPC missing" };
-      return { ok: false, score: 85, error: error.message };
-    }
-
-    const j = typeof data === "string" ? null : data;
-    const projects = Array.isArray((j as any)?.projects) ? (j as any).projects : [];
-    let worstSlip = 0,
-      worstBlockedRatio = 0,
-      worstStageShare = 0,
-      worstCycleVar = 0;
-
-    for (const p of projects) {
-      worstSlip = Math.max(worstSlip, clamp0to100(p?.forecast?.slip_probability));
-      worstBlockedRatio = Math.max(worstBlockedRatio, num(p?.blocked?.blocked_ratio_pct ?? p?.blocked?.blocked_ratio, 0));
-      worstStageShare = Math.max(worstStageShare, num(p?.bottleneck?.top_stage_share, 0));
-      worstCycleVar = Math.max(worstCycleVar, num(p?.cycle_time_variance_pct, 0));
-    }
-
-    let score = 100;
-    if (worstSlip >= 70) score -= 25;
-    else if (worstSlip >= 45) score -= 12;
-    if (worstBlockedRatio >= 15) score -= 20;
-    else if (worstBlockedRatio >= 10) score -= 10;
-    if (worstStageShare >= 55) score -= 15;
-    else if (worstStageShare >= 40) score -= 8;
-    if (worstCycleVar >= 25) score -= 10;
-
-    return {
-      ok: true,
-      score: clamp0to100(score),
-      error: null,
-      worst: { worstSlip, worstBlockedRatio, worstStageShare, worstCycleVar },
-    };
-  } catch (e: any) {
-    return { ok: false, score: 85, error: String(e?.message || e || "flow RPC failed") };
-  }
-}
-
-/* ---------------- shared handler ---------------- */
-
-async function handle(req: Request, opts: { daysParam: 7 | 14 | 30 | 60 | "all"; filters: PortfolioFilters }) {
-  const supabase = await createClient();
-  const { data: auth, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !auth?.user) return jsonErr("Not authenticated", 401);
-
-  const windowDays = normalizeWindowDays(opts.daysParam);
-
-  // ✅ ORG-WIDE scope for dashboards
-  const scoped = await resolveOrgActiveProjectScope(supabase);
-  const scopedProjectIdsRaw = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
-
-  // ✅ PH-F5: active project filter (helper returns string[]) + FAIL-OPEN safeguard
-  let scopedProjectIds: string[] = [];
-  let active_filter_ok = true;
-  let active_filter_error: string | null = null;
-
-  try {
-    const activeIds = await filterActiveProjectIds(supabase, scopedProjectIdsRaw);
-    scopedProjectIds = Array.isArray(activeIds) ? activeIds.filter(Boolean) : [];
-
-    // FAIL-OPEN: never allow false-zeroing the org dashboard
-    if (!scopedProjectIds.length && scopedProjectIdsRaw.length) {
-      scopedProjectIds = scopedProjectIdsRaw;
-      active_filter_ok = false;
-      active_filter_error = "active filter returned 0 ids; failing open to raw scope";
-    }
-  } catch (e: any) {
-    scopedProjectIds = scopedProjectIdsRaw; // ✅ fail-open
-    active_filter_ok = false;
-    active_filter_error = String(e?.message || e || "active filter failed");
-  }
-
-  const filtered = await applyProjectFilters(supabase, scopedProjectIds, opts.filters);
-  const projectIds = filtered.projectIds;
-
-  if (!projectIds.length) {
-    return jsonOk({
-      portfolio_health: 0,
-      days: opts.daysParam,
-      windowDays,
-      projectCount: 0,
-      drivers: [],
-      parts: { schedule: 0, raid: 0, flow: 0, approvals: 0, activity: 0 },
-      schedule: null,
-      meta: {
-        note: hasAnyFilters(opts.filters) ? "No projects matched the selected filters." : "No active projects in scope.",
-        organisationId: (scoped as any)?.organisationId ?? (scoped as any)?.orgId ?? null,
-        scope: {
-          ...(((scoped as any)?.meta || {}) as any),
-          scopedIdsRaw: scopedProjectIdsRaw.length,
-          scopedIdsActive: scopedProjectIds.length,
-          active_filter_ok,
-          active_filter_error,
-        },
-        filters: filtered.meta,
-      },
-    });
-  }
-
-  const [scheduleAgg, raid, approvals, activity, flow] = await Promise.all([
-    fetchScheduleAgg(supabase, projectIds, windowDays),
-    fetchRaidStats(supabase, projectIds),
-    fetchApprovalsPending(supabase, projectIds),
-    fetchActivityStaleProjects7d(supabase, projectIds),
-    fetchFlowScore(supabase, projectIds, 30),
-  ]);
-
-  const scheduleKpis = scheduleAgg.ok ? scheduleAgg.data : null;
-  const schedulePart = scheduleKpis
-    ? computeScheduleScore(scheduleKpis)
-    : { score: 85, note: scheduleAgg.error || "Schedule data unavailable." };
-
-  const raidPart = raid.ok ? computeRaidScore({ open_high: raid.open_high, overdue: raid.overdue, sla_high: raid.sla_high }) : 85;
-  const approvalsPart = approvals.ok ? computeApprovalsScore(approvals.pending) : 90;
-  const activityPart = activity.ok ? computeActivityScore(activity.stale_projects_7d) : 90;
-  const flowPart = num((flow as any)?.score, 85);
-
-  const portfolioHealth = weightedPortfolioScore({
-    schedule: schedulePart.score,
-    raid: raidPart,
-    flow: flowPart,
-    approvals: approvalsPart,
-    activity: activityPart,
-  });
-
-  const drivers = [
-    {
-      key: "schedule",
-      label: "Schedule",
-      score: schedulePart.score,
-      detail: scheduleKpis
-        ? `Due: ${num(scheduleKpis.milestones_due_window)} • Overdue: ${num(scheduleKpis.milestones_overdue)} • CP overdue: ${num(
-            scheduleKpis.critical_overdue,
-          )} • Avg slip: ${num(scheduleKpis.avg_slip_days)}d • AI high-risk due: ${num(scheduleKpis.ai_high_risk_due_window)}`
-        : schedulePart.note || "No schedule signal.",
-    },
-    {
-      key: "raid",
-      label: "RAID",
-      score: raidPart,
-      detail: raid.ok
-        ? `High exposure open: ${raid.open_high} • Overdue: ${raid.overdue} • SLA ≥70%: ${raid.sla_high}`
-        : raid.error || "RAID signal unavailable.",
-    },
-    {
-      key: "flow",
-      label: "Flow",
-      score: flowPart,
-      detail: (flow as any)?.ok ? "Derived from flow warning signals (30d predictors)." : (flow as any)?.error || "Flow signal unavailable.",
-    },
-    {
-      key: "approvals",
-      label: "Approvals",
-      score: approvalsPart,
-      detail: approvals.ok ? `Pending: ${approvals.pending}` : approvals.error || "Approvals signal unavailable.",
-    },
-    {
-      key: "activity",
-      label: "Cadence",
-      score: activityPart,
-      detail: activity.ok
-        ? `Stale projects (7d): ${activity.stale_projects_7d}${(activity as any).meta ? ` (eligible: ${(activity as any).meta.eligible})` : ""}`
-        : activity.error || "Cadence signal unavailable.",
-    },
-  ].sort((a, b) => a.score - b.score);
-
-  return jsonOk({
-    portfolio_health: portfolioHealth,
-    days: opts.daysParam,
-    windowDays,
-    projectCount: projectIds.length,
-    parts: { schedule: schedulePart.score, raid: raidPart, flow: flowPart, approvals: approvalsPart, activity: activityPart },
-    schedule: scheduleKpis,
-    drivers,
-    meta: {
-      notes: { schedule: schedulePart.note },
-      inputs: { windowDays, projectIdsCount: projectIds.length },
-      organisationId: (scoped as any)?.organisationId ?? (scoped as any)?.orgId ?? null,
-      scope: {
-        ...(((scoped as any)?.meta || {}) as any),
-        scopedIdsRaw: scopedProjectIdsRaw.length,
-        scopedIdsActive: scopedProjectIds.length,
-        active_filter_ok,
-        active_filter_error,
-      },
-      filters: filtered.meta,
-      queries: {
-        schedule: { ok: scheduleAgg.ok, error: scheduleAgg.error || null },
-        raid: { ok: raid.ok, error: raid.error || null },
-        approvals: { ok: approvals.ok, error: approvals.error || null },
-        activity: {
-          ok: activity.ok,
-          error: activity.error || null,
-          table: (activity as any).table ?? null,
-          meta: (activity as any).meta ?? null,
-        },
-        flow: { ok: (flow as any).ok ?? false, error: (flow as any).error || null, worst: (flow as any).worst || null },
-      },
-    },
-  });
-}
-
-/* ---------------- routes ---------------- */
-
-export async function GET(req: Request) {
-  try {
-    const url = new URL(req.url);
-    const daysParam = clampDaysParam(url.searchParams.get("days"));
-    const filters = parseFiltersFromUrl(url);
-    return await handle(req, { daysParam, filters });
-  } catch (e: any) {
-    console.error("[GET /api/portfolio/health]", e);
-    return jsonErr(String(e?.message || e || "Portfolio health failed"), 500);
-  }
-}
-
-export async function POST(req: Request) {
-  try {
-    const body = await req.json().catch(() => ({}));
-    const daysParam = clampDaysParam(body?.days ?? body?.windowDays ?? body?.rangeDays ?? null);
-    const filters = parseFiltersFromBody(body);
-    return await handle(req, { daysParam, filters });
-  } catch (e: any) {
-    console.error("[POST /api/portfolio/health]", e);
-    return jsonErr(String(e?.message || e || "Portfolio health failed"), 500);
-  }
 }

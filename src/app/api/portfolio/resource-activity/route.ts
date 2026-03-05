@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/resource-activity/route.ts — REBUILT v6 (ORG-WIDE + filter-ready + ACTIVE FILTER)
+﻿// src/app/api/portfolio/resource-activity/route.ts — REBUILT v6.1 (ORG-WIDE + filter-ready + ACTIVE FILTER normalized)
 // Adds:
 //   ✅ RA-F1: Scope aligned with resolveOrgActiveProjectScope (org-wide dashboard)
 //   ✅ RA-F2: Supports filters (GET + POST)
@@ -7,6 +7,7 @@
 //   ✅ RA-F4: "No org" degrade gracefully (kept)
 //   ✅ RA-F5: no-store caching
 //   ✅ RA-F6: active project filter applied (exclude closed/terminal projects) + fail-open safeguard
+//   ✅ RA-F7: normalize filterActiveProjectIds return contract (string[] OR { projectIds }) + fail-open
 // Keeps:
 //   • forward-looking week ranges
 
@@ -197,6 +198,34 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
   return { projectIds: outIds, meta };
 }
 
+/* ---------------- active filter normalizer ---------------- */
+
+async function normalizeActiveIds(supabase: any, rawIds: string[]) {
+  const failOpen = (reason: string) => ({
+    ids: rawIds,
+    ok: false,
+    error: reason,
+  });
+
+  try {
+    const r: any = await filterActiveProjectIds(supabase, rawIds);
+
+    // string[]
+    if (Array.isArray(r)) {
+      const ids = r.filter(Boolean);
+      if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
+      return { ids, ok: true, error: null as string | null };
+    }
+
+    // { projectIds }
+    const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
+    if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
+    return { ids, ok: !r?.error, error: r?.error ? safeStr(r.error?.message || r.error) : null };
+  } catch (e: any) {
+    return failOpen(safeStr(e?.message || e || "active filter failed"));
+  }
+}
+
 /* ---------------- handler ---------------- */
 
 async function handle(req: NextRequest, opts: { days: number; filters: PortfolioFilters }) {
@@ -227,25 +256,9 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
   const scoped = await resolveOrgActiveProjectScope(supabase, user.id);
   const scopedProjectIdsRaw: string[] = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
 
-  // ✅ RA-F6: active filter + fail-open safeguard
-  let scopedProjectIds: string[] = [];
-  let active_filter_ok = true;
-  let active_filter_error: string | null = null;
-
-  try {
-    scopedProjectIds = await filterActiveProjectIds(supabase, scopedProjectIdsRaw);
-
-    // FAIL-OPEN: never allow false-zeroing the org dashboard
-    if (!scopedProjectIds.length && scopedProjectIdsRaw.length) {
-      scopedProjectIds = scopedProjectIdsRaw;
-      active_filter_ok = false;
-      active_filter_error = "active filter returned 0 ids; failing open to raw scope";
-    }
-  } catch (e: any) {
-    scopedProjectIds = scopedProjectIdsRaw; // fail-open
-    active_filter_ok = false;
-    active_filter_error = safeStr(e?.message || e || "active filter failed");
-  }
+  // ✅ RA-F6/RA-F7: active filter + fail-open safeguard (normalized return)
+  const active = await normalizeActiveIds(supabase, scopedProjectIdsRaw);
+  const scopedProjectIds = active.ids;
 
   // Apply dashboard filters (within active org scope)
   const filtered = await applyProjectFilters(supabase, scopedProjectIds, opts.filters);
@@ -269,13 +282,13 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
             ...(scoped as any)?.meta,
             scopedIdsRaw: scopedProjectIdsRaw.length,
             scopedIdsActive: scopedProjectIds.length,
-            active_filter_ok,
-            active_filter_error,
+            active_filter_ok: active.ok,
+            active_filter_error: active.error,
           },
           filters: filtered.meta,
           projects: { scoped: scopedProjectIdsRaw.length, active: scopedProjectIds.length, filtered: projectIds.length },
         },
-      })
+      }),
     );
   }
 
@@ -299,12 +312,12 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
             ...(scoped as any)?.meta,
             scopedIdsRaw: scopedProjectIdsRaw.length,
             scopedIdsActive: scopedProjectIds.length,
-            active_filter_ok,
-            active_filter_error,
+            active_filter_ok: active.ok,
+            active_filter_error: active.error,
           },
           filters: filtered.meta,
         },
-      })
+      }),
     );
   }
 
@@ -428,14 +441,14 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
           ...(scoped as any)?.meta,
           scopedIdsRaw: scopedProjectIdsRaw.length,
           scopedIdsActive: scopedProjectIds.length,
-          active_filter_ok,
-          active_filter_error,
+          active_filter_ok: active.ok,
+          active_filter_error: active.error,
         },
         filters: filtered.meta,
         projects: { scoped: scopedProjectIdsRaw.length, active: scopedProjectIds.length, filtered: projectIds.length },
         allocations: allocMeta,
       },
-    })
+    }),
   );
 }
 
