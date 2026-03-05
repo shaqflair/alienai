@@ -204,7 +204,7 @@ export default async function ProjectPage({
   if (!project) {
     const { data: p, error: pErr } = await supabase
       .from("projects")
-      .select("id, organisation_id, title, project_code, colour, start_date, finish_date, resource_status, description, status, created_at, project_manager_id")
+      .select("id, organisation_id, title, project_code, colour, start_date, finish_date, resource_status, status, created_at, project_manager_id")
       .eq("id", projectUuid).eq("organisation_id", activeOrgId).maybeSingle();
     if (pErr) throw pErr;
     if (!p?.id) notFound();
