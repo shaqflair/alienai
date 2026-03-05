@@ -1,4 +1,7 @@
 ﻿// src/app/projects/[id]/members/page.tsx
+
+import "server-only";
+
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
@@ -82,14 +85,9 @@ export default async function MembersPage({
         <div className="flex items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold">Members</h1>
-            <p className="text-sm text-gray-600">
-              You don’t have access to view members for this project.
-            </p>
+            <p className="text-sm text-gray-600">You don’t have access to view members for this project.</p>
           </div>
-          <Link
-            href={`/projects/${projectId}`}
-            className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50"
-          >
+          <Link href={`/projects/${projectId}`} className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50">
             Back
           </Link>
         </div>
@@ -99,7 +97,7 @@ export default async function MembersPage({
 
   const myRole = (me.role ?? "viewer") as Role;
 
-  // Pending invites (include token for copy link)
+  // Pending invites
   const { data: invitesData, error: invitesErr } = await supabase
     .from("project_invites")
     .select("id,project_id,email,role,created_at,accepted_at,invited_by,status,token,expires_at")
@@ -172,6 +170,8 @@ export default async function MembersPage({
   const freshToken = tokenFromRedirect || (invitesRaw.find((x) => x.token)?.token ?? "");
   const invitePath = freshToken ? `/invite/${encodeURIComponent(freshToken)}` : "";
 
+  const isOwner = String(myRole).toLowerCase() === "owner";
+
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-4">
       <div className="flex items-start justify-between gap-3">
@@ -183,21 +183,16 @@ export default async function MembersPage({
           </p>
         </div>
 
-        <Link
-          href={`/projects/${projectId}`}
-          className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50"
-        >
+        <Link href={`/projects/${projectId}`} className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50">
           Back
         </Link>
       </div>
 
-      {/* Success + copy link (owner UX) */}
-      {String(myRole).toLowerCase() === "owner" && invited === "1" && invitePath ? (
+      {/* Success + copy link (owner UX) — SERVER SAFE (no onClick) */}
+      {isOwner && invited === "1" && invitePath ? (
         <div className="rounded-xl border bg-white p-4 space-y-2">
           <div className="text-sm font-medium">Invite created</div>
-          <div className="text-xs text-gray-600">
-            Share this link with the invited user to accept:
-          </div>
+          <div className="text-xs text-gray-600">Share this link with the invited user to accept:</div>
 
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -205,39 +200,27 @@ export default async function MembersPage({
               value={invitePath}
               className="flex-1 min-w-[280px] rounded-md border px-3 py-2 text-sm"
             />
-            <button
-              type="button"
-              className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(invitePath);
-                } catch {}
-              }}
-            >
-              Copy link
-            </button>
+
+            <Link href={invitePath} className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50">
+              Open
+            </Link>
 
             <Link
-              href={invitePath}
+              href={`/projects/${projectId}/members/invite`}
               className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
             >
-              Open
+              Invite another
             </Link>
           </div>
 
           <div className="text-xs text-gray-500">
-            Tip: send the full URL by copying from your browser address bar, or implement email sending next.
+            Tip: click into the field above and press <span className="font-medium">Ctrl+C</span> to copy, or copy the
+            full URL from your browser address bar.
           </div>
         </div>
       ) : null}
 
-      <MembersClient
-        projectId={projectId}
-        myRole={String(myRole)}
-        members={members}
-        invites={invites}
-      />
+      <MembersClient projectId={projectId} myRole={String(myRole)} members={members} invites={invites} />
     </div>
   );
 }
-
