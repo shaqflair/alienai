@@ -363,7 +363,11 @@ export default async function ProjectPage({
   const flashErr = sp?.err ? `Error: ${sp.err}` : null;
   const daysLeft = daysUntil(project?.finish_date);
 
-  function matchType(r: any, ...names: string[]) { const t = String(r.type ?? "").toLowerCase().trim(); return names.some(n => t === n.toLowerCase() || t.startsWith(n[0].toLowerCase())); }
+  // Case-insensitive RAID type matching — handles "Risk","risk","R","RISK" etc.
+  function matchType(r: any, ...names: string[]) {
+    const t = String(r.type ?? "").toLowerCase().trim();
+    return names.some(n => t === n.toLowerCase() || t.startsWith(n[0].toLowerCase()));
+  }
   const risks        = raidItems.filter((r: any) => matchType(r, "risk"));
   const assumptions  = raidItems.filter((r: any) => matchType(r, "assumption"));
   const issues       = raidItems.filter((r: any) => matchType(r, "issue"));
@@ -881,3 +885,4 @@ export default async function ProjectPage({
     </>
   );
 }
+
