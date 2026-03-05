@@ -2024,7 +2024,7 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
 
       : rag === "A"
 
-        ? `Health 70â€“84% (${health}%). Some signals need attention â€” review slippage, open risks/issues, or approval queues.`
+        ? `Health 70-84% (${health}%). Some signals need attention â€” review slippage, open risks/issues, or approval queues.`
 
         : rag === "R"
 
@@ -2090,9 +2090,9 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
 
           <div className="mt-2 pt-2 border-t border-gray-100 text-[10px] text-gray-400">
 
-            Thresholds: <span className="text-green-600 font-semibold">Green >= 85%</span> ·{" "}
+            Thresholds: <span className="text-green-600 font-semibold">Green ≥ 85%</span> ·{" "}
 
-            <span className="text-amber-600 font-semibold">Amber 70â€“84%</span> ·{" "}
+            <span className="text-amber-600 font-semibold">Amber 70-84%</span> ·{" "}
 
             <span className="text-red-500 font-semibold">Red {"<"} 70%</span>
 
@@ -4244,7 +4244,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
                           label: "Green",
 
-                          threshold: ">= 85% health",
+                          threshold: "≥ 85% health",
 
                           from: "#f0fdf4",
 
