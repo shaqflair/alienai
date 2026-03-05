@@ -212,17 +212,41 @@ function SidebarItem({ item, collapsed }: { item: NavItem; collapsed: boolean })
       href={item.href}
       title={collapsed ? item.label : undefined}
       className={cx(
-        "group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium",
-        "transition-all duration-150 relative",
+        "group relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium",
         "ring-1 ring-transparent",
+        // hover lift + smoothing
+        "transition-all duration-150 ease-out",
+        "hover:-translate-y-[1px] hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)]",
         active
           ? "bg-sky-50 text-sky-700 ring-sky-200 shadow-[0_0_0_1px_rgba(14,165,233,0.18)]"
           : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
       )}
     >
-      {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-sky-500 rounded-r-full" />}
+      {/* Active rail (animated) */}
+      <span
+        className={cx(
+          "absolute left-0 top-1/2 -translate-y-1/2 w-0.5 rounded-r-full",
+          "transition-all duration-200 ease-out",
+          active ? "h-6 opacity-100 bg-sky-500" : "h-2 opacity-0 bg-sky-400"
+        )}
+      />
+      {/* rail glow behind active (Linear-ish) */}
+      <span
+        className={cx(
+          "pointer-events-none absolute -left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full",
+          "transition-all duration-200 ease-out",
+          active ? "opacity-100 blur-[10px] bg-sky-200" : "opacity-0 blur-[10px] bg-sky-200"
+        )}
+      />
 
-      <span className={cx("flex-shrink-0 transition-colors", active ? "text-sky-600" : "text-slate-400 group-hover:text-slate-600")}>
+      <span
+        className={cx(
+          "flex-shrink-0 transition-all duration-150 ease-out",
+          // icon lift on hover
+          "group-hover:-translate-y-[0.5px]",
+          active ? "text-sky-600" : "text-slate-400 group-hover:text-slate-600"
+        )}
+      >
         {item.icon}
       </span>
 
@@ -230,7 +254,12 @@ function SidebarItem({ item, collapsed }: { item: NavItem; collapsed: boolean })
         <>
           <span className="flex-1 truncate">{item.label}</span>
           {item.badge && (
-            <span className={cx("text-[10px] font-bold px-1.5 py-0.5 rounded-md", active ? "bg-sky-100 text-sky-700" : "bg-slate-100 text-slate-600")}>
+            <span
+              className={cx(
+                "text-[10px] font-bold px-1.5 py-0.5 rounded-md transition-colors",
+                active ? "bg-sky-100 text-sky-700" : "bg-slate-100 text-slate-600"
+              )}
+            >
               {item.badge}
             </span>
           )}
@@ -307,7 +336,7 @@ function ProjectContextStrip({ projectRef, collapsed }: { projectRef: string; co
               key={item.href}
               href={item.href}
               className={cx(
-                "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all",
+                "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-150",
                 active ? "bg-sky-50 text-sky-700" : "text-slate-600 hover:text-slate-900 hover:bg-white"
               )}
             >
@@ -518,12 +547,18 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
                       key={it.key}
                       href={it.href}
                       prefetch={false}
-                      className={cx("block rounded-lg border px-2.5 py-2 transition", isActive ? "border-sky-200 bg-sky-50" : "border-transparent hover:bg-slate-50")}
+                      className={cx(
+                        "block rounded-lg border px-2.5 py-2 transition-all duration-150 ease-out",
+                        "hover:-translate-y-[1px] hover:shadow-[0_8px_22px_rgba(15,23,42,0.06)]",
+                        isActive ? "border-sky-200 bg-sky-50" : "border-transparent hover:bg-slate-50"
+                      )}
                       title={it.label}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <div className={cx("text-xs font-semibold truncate", it.current ? "text-slate-900" : "text-slate-600")}>{it.label}</div>
+                          <div className={cx("text-xs font-semibold truncate", it.current ? "text-slate-900" : "text-slate-600")}>
+                            {it.label}
+                          </div>
                           <div className="mt-0.5 text-[10px] text-slate-500">
                             {it.current ? "Current" : it.canCreate ? "Not created" : "—"}
                             {it.current?.is_locked ? <span className="ml-1.5 text-slate-400">🔒</span> : null}
@@ -559,7 +594,11 @@ function ProjectArtifactsInline({ projectRef, collapsed }: { projectRef: string;
                     key={it.key}
                     href={href}
                     prefetch={false}
-                    className={cx("block rounded-lg border px-2.5 py-2 transition", isActive ? "border-sky-200 bg-sky-50" : "border-transparent hover:bg-slate-50")}
+                    className={cx(
+                      "block rounded-lg border px-2.5 py-2 transition-all duration-150 ease-out",
+                      "hover:-translate-y-[1px] hover:shadow-[0_8px_22px_rgba(15,23,42,0.06)]",
+                      isActive ? "border-sky-200 bg-sky-50" : "border-transparent hover:bg-slate-50"
+                    )}
                   >
                     <div className="text-xs font-semibold text-slate-900">{label}</div>
                     <div className="mt-0.5 text-[10px] text-slate-500">Hub</div>
@@ -655,6 +694,7 @@ export default function Sidebar({
         @media (prefers-reduced-motion: reduce) {
           .sidebar-root { transition: none !important; }
           .sb-fade { transition: none !important; }
+          .sb-lift { transition: none !important; }
         }
       `}</style>
 
@@ -667,18 +707,27 @@ export default function Sidebar({
         <div
           className={cx(
             "relative flex items-center border-b border-slate-200 h-14 flex-shrink-0",
-            collapsed ? "px-2" : "px-4",
-            collapsed ? "gap-2" : "gap-3"
+            // spacing fix: keep logo centered + toggle clear
+            collapsed ? "px-3 justify-center" : "px-4",
+            "gap-3"
           )}
         >
+          {/* Subtle logo glow (collapsed only) */}
+          {collapsed && (
+            <div className="pointer-events-none absolute inset-0">
+              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-14 h-14 rounded-full bg-sky-200/40 blur-[18px]" />
+              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-indigo-200/30 blur-[16px]" />
+            </div>
+          )}
+
           {/* Logo */}
-          <div className={cx("flex-shrink-0", collapsed ? "mx-auto" : "")}>
-            <div className="w-8 h-8 rounded-xl overflow-hidden ring-1 ring-slate-200 bg-white">
+          <div className={cx("relative flex-shrink-0", collapsed ? "mx-auto pr-4" : "")}>
+            <div className="w-8 h-8 rounded-xl overflow-hidden ring-1 ring-slate-200 bg-white shadow-[0_10px_28px_rgba(2,132,199,0.06)]">
               <Image src={ALIENA_LOGO_URL} alt="Aliena" width={32} height={32} priority className="w-full h-full object-cover" />
             </div>
           </div>
 
-          {/* Brand text (fade/slide instead of pop) */}
+          {/* Brand text (fade/slide) */}
           <div
             className={cx(
               "sb-fade min-w-0",
@@ -692,12 +741,12 @@ export default function Sidebar({
             {orgName && <div className="text-[10px] text-slate-500 truncate font-medium">{orgName}</div>}
           </div>
 
-          {/* Toggle button (never clipped; subtle hover like Linear) */}
+          {/* Toggle button (give breathing room from logo) */}
           <button
             type="button"
             onClick={toggleCollapse}
             className={cx(
-              "absolute right-2 top-1/2 -translate-y-1/2",
+              "absolute right-1 top-1/2 -translate-y-1/2",
               "w-7 h-7 rounded-lg flex items-center justify-center",
               "text-slate-500 hover:text-slate-900 hover:bg-slate-100",
               "transition-all duration-150"
@@ -709,7 +758,7 @@ export default function Sidebar({
           </button>
         </div>
 
-        {/* -- Search (animate height/opacity instead of unmount pop) -- */}
+        {/* -- Search (animate in/out instead of pop) -- */}
         <div
           className={cx(
             "sb-fade px-2",
@@ -742,12 +791,18 @@ export default function Sidebar({
             <SidebarItem key={item.href} item={item} collapsed={collapsed} />
           ))}
 
-          <div className={cx("mt-1 flex items-center gap-3 px-3 py-2.5 rounded-xl", "bg-slate-50 border border-slate-200")}>
+          <div
+            className={cx(
+              "mt-1 flex items-center gap-3 px-3 py-2.5 rounded-xl",
+              "bg-slate-50 border border-slate-200",
+              "transition-all duration-150 ease-out",
+              "hover:-translate-y-[1px] hover:shadow-[0_10px_24px_rgba(15,23,42,0.06)]"
+            )}
+          >
             <div className={cx("flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center", "bg-sky-100 text-sky-700 text-xs font-black")}>
               {(userName || "U").charAt(0).toUpperCase()}
             </div>
 
-            {/* User text fade/slide like the brand */}
             <div
               className={cx(
                 "sb-fade min-w-0 flex-1",
