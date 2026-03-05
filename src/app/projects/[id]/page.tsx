@@ -227,7 +227,7 @@ export default async function ProjectPage({
   const myRole = org.isAdmin && !projectRole ? "admin" : projectRole || (org.role || "viewer");
   const canEdit = org.isAdmin || myRole === "owner" || myRole === "editor";
 
-  // All data in parallel — including all org projects for the switcher
+  // All data in parallel
   const [
     resourceData,
     changesResult,
@@ -235,8 +235,8 @@ export default async function ProjectPage({
     membersResult,
     raidResult,
     myProjectMembershipsResult,
-    ragResult,
-    projectHealthResult,
+    scheduleMilestonesResult,
+    changeRequestsResult,
   ] = await Promise.allSettled([
     fetchProjectResourceData(projectUuid),
     supabase.from("changes").select("id, title, status, created_at, change_type")
@@ -245,38 +245,93 @@ export default async function ProjectPage({
       .eq("project_id", projectUuid).eq("status", "pending").order("created_at", { ascending: false }).limit(5),
     supabase.from("project_members").select("id, role, removed_at, is_active, user_id")
       .eq("project_id", projectUuid).is("removed_at", null),
-    supabase.from("raid_items").select("id, type, title, status, priority")
+    supabase.from("raid_items").select("id, type, title, status, priority, due_date, probability, severity")
       .eq("project_id", projectUuid)
       .not("status", "in", '("closed","resolved","done","completed","archived")')
-      .order("priority", { ascending: false }).limit(50),
+      .order("priority", { ascending: false }).limit(100),
     supabase.from("project_members").select("project_id")
       .eq("user_id", auth.user.id).is("removed_at", null),
-    supabase.from("project_rag_scores")
-      .select("health, rag, schedule_health, budget_health, scope_health, quality_health")
-      .eq("project_id", projectUuid).order("created_at", { ascending: false }).limit(1),
-    // Also try project-level health columns as fallback
-    supabase.from("projects")
-      .select("health_score, rag_status, schedule_health, budget_health, scope_health, quality_health")
-      .eq("id", projectUuid).maybeSingle(),
+    supabase.from("schedule_milestones")
+      .select("id, status, end_date, baseline_end, critical_path_flag, ai_delay_prob, progress_pct, risk_score")
+      .eq("project_id", projectUuid).limit(500),
+    supabase.from("change_requests")
+      .select("id, status").eq("project_id", projectUuid).limit(100),
   ]);
 
-  const resource = resourceData.status === "fulfilled" ? resourceData.value : null;
-  const periods = resource ? projectWeekPeriods(resource.project.start_date, resource.project.finish_date) : [];
-  const changes = changesResult.status === "fulfilled" ? changesResult.value.data ?? [] : [];
+  const resource     = resourceData.status === "fulfilled" ? resourceData.value : null;
+  const periods      = resource ? projectWeekPeriods(resource.project.start_date, resource.project.finish_date) : [];
+  const changes      = changesResult.status === "fulfilled" ? changesResult.value.data ?? [] : [];
   const pendingApprovals = approvalsResult.status === "fulfilled" ? approvalsResult.value.data ?? [] : [];
-  const members = membersResult.status === "fulfilled" ? membersResult.value.data ?? [] : [];
-  const raidItems = raidResult.status === "fulfilled" ? raidResult.value.data ?? [] : [];
-  const ragScore = ragResult.status === "fulfilled" ? (ragResult.value.data ?? [])[0] ?? null : null;
-  const projectHealthFallback = projectHealthResult.status === "fulfilled" ? projectHealthResult.value.data ?? null : null;
+  const members      = membersResult.status === "fulfilled" ? membersResult.value.data ?? [] : [];
+  const raidItems    = raidResult.status === "fulfilled" ? raidResult.value.data ?? [] : [];
+  const milestones   = scheduleMilestonesResult.status === "fulfilled" ? scheduleMilestonesResult.value.data ?? [] : [];
+  const changeReqs   = changeRequestsResult.status === "fulfilled" ? changeRequestsResult.value.data ?? [] : [];
 
-  // Merge: prefer dedicated RAG scores table, fall back to project-level columns
-  const resolvedHealth: Record<string, number | null> = {
-    health:          ragScore?.health          ?? (projectHealthFallback as any)?.health_score ?? null,
-    schedule_health: ragScore?.schedule_health ?? (projectHealthFallback as any)?.schedule_health ?? null,
-    budget_health:   ragScore?.budget_health   ?? (projectHealthFallback as any)?.budget_health ?? null,
-    scope_health:    ragScore?.scope_health    ?? (projectHealthFallback as any)?.scope_health ?? null,
-    quality_health:  ragScore?.quality_health  ?? (projectHealthFallback as any)?.quality_health ?? null,
-  };
+  /* ── Compute health scores from live data (mirrors /api/portfolio/health logic) ── */
+  function clamp(n: number) { return Math.max(0, Math.min(100, Math.round(n))); }
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Schedule health: penalise overdue milestones + slip
+  const scheduleHealth = (() => {
+    if (!milestones.length) return null;
+    let score = 100;
+    let slipSum = 0, slipCount = 0;
+    for (const m of milestones as any[]) {
+      const st  = String(m.status ?? "").toLowerCase();
+      const done = ["completed","done","closed"].includes(st);
+      const end  = m.end_date ? String(m.end_date).slice(0, 10) : null;
+      const base = m.baseline_end ? String(m.baseline_end).slice(0, 10) : null;
+      if (!done && end && end < today) {
+        score -= m.critical_path_flag ? 12 : 8;
+      }
+      if (end && base) {
+        const slip = Math.max(0, Math.round((new Date(end).getTime() - new Date(base).getTime()) / 86400000));
+        slipSum += slip; slipCount++;
+      }
+    }
+    const avgSlip = slipCount ? slipSum / slipCount : 0;
+    score -= Math.min(15, Math.round(avgSlip * 1.5));
+    return clamp(score);
+  })();
+
+  // RAID health: penalise high-probability open risks/issues
+  const raidHealth = (() => {
+    if (!raidItems.length) return null;
+    let score = 100;
+    for (const r of raidItems as any[]) {
+      const p = Number(r.probability ?? 0);
+      const s = Number(r.severity ?? 0);
+      const riskScore = (p > 0 && s > 0) ? Math.round((p * s) / 100) : 0;
+      if (riskScore >= 70) score -= 8;
+      else if (riskScore >= 50) score -= 4;
+      const due = r.due_date ? String(r.due_date).slice(0, 10) : null;
+      if (due && due < today) score -= 6;
+    }
+    return clamp(score);
+  })();
+
+  // Approvals health: penalise pending approvals / change requests
+  const approvalsHealth = (() => {
+    const pending = pendingApprovals.length;
+    const pendingCRs = (changeReqs as any[]).filter((c) => ["pending","open","submitted"].includes(String(c.status ?? "").toLowerCase())).length;
+    let score = 100;
+    score -= Math.min(30, pending * 5);
+    score -= Math.min(20, pendingCRs * 3);
+    return clamp(score);
+  })();
+
+  // Weighted overall: schedule 40%, raid 35%, approvals 25%
+  const healthScore = (() => {
+    const sources = [
+      { val: scheduleHealth, w: 40 },
+      { val: raidHealth,     w: 35 },
+      { val: approvalsHealth,w: 25 },
+    ].filter((s) => s.val != null) as { val: number; w: number }[];
+    if (!sources.length) return null;
+    const totalW = sources.reduce((s, x) => s + x.w, 0);
+    const weighted = sources.reduce((s, x) => s + x.val * x.w, 0);
+    return clamp(weighted / totalW);
+  })();
 
   // Build switcher list
   let switcherProjects: { id: string; title: string; project_code: string | null; colour: string | null }[] = [];
@@ -316,11 +371,11 @@ export default async function ProjectPage({
   const openRisks    = risks.length;
 
   // Health scores
-  const healthScore    = resolvedHealth.health          != null ? Math.round(Number(resolvedHealth.health))          : null;
-  const scheduleHealth = resolvedHealth.schedule_health != null ? Math.round(Number(resolvedHealth.schedule_health)) : healthScore;
-  const budgetHealth   = resolvedHealth.budget_health   != null ? Math.round(Number(resolvedHealth.budget_health))   : (healthScore != null ? Math.max(0, healthScore - 2) : null);
-  const scopeHealth    = resolvedHealth.scope_health    != null ? Math.round(Number(resolvedHealth.scope_health))    : (healthScore != null ? Math.max(0, healthScore - 4) : null);
-  const qualityHealth  = resolvedHealth.quality_health  != null ? Math.round(Number(resolvedHealth.quality_health))  : (healthScore != null ? Math.max(0, healthScore - 6) : null);
+  // scheduleHealth, raidHealth, approvalsHealth, healthScore already computed above
+  // Map to display names
+  const budgetHealth  = approvalsHealth; // proxy: change pressure affects budget
+  const scopeHealth   = raidHealth;      // proxy: open RAID items threaten scope
+  const qualityHealth = scheduleHealth;  // proxy: schedule slip signals quality risk
 
   const pmName = safeStr((project as any)?.project_manager ?? (project as any)?.pm_name ?? "").trim() || "Unassigned";
 
