@@ -134,7 +134,16 @@ async function handle(req: NextRequest, days: number, limit: number) {
   // Merge all wins, sort by date, limit
   const allWins = [...topWins, ...budgetWins]
     .sort((a, b) => isoSortKey(b.happened_at).localeCompare(isoSortKey(a.happened_at)))
-    .slice(0, limit);
+    .slice(0, limit)
+    .map((w: any) => {
+      const pid = safeStr(w?.project_id || w?.project_id).trim();
+      const proj = projById.get(pid);
+      const pmId = safeStr(proj?.project_manager_id).trim();
+      const pmName = (pmId && pmById.get(pmId)) || safeStr(proj?.project_manager).trim() || null;
+      const projCode = safeStr(proj?.project_code || w?.project_code).trim() || null;
+      const projName = safeStr(proj?.title || w?.project_title || w?.project_name).trim() || null;
+      return { ...w, pm_name: pmName || null, project_code: projCode || w?.project_code || null, project_name: projName || w?.project_name || null };
+    });
 
   const res = NextResponse.json({
     ok: true,
