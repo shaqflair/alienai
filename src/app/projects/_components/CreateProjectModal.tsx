@@ -69,7 +69,7 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
 
   function reset() {
     setStep(1); setName(""); setPm(""); setPmUserId(null); setPmSearch(""); setPmOpen(false);
-    setSponsor(""); setSponsorId(null); setSponsorSearch(""); setSponsorOpen(false); setProjectType(""); setStartDate(""); setEndDate("");
+    setSponsor(""); setSponsorId(null); setSponsorSearch(""); setSponsorOpen(false); setProjectType(""); setSponsor(""); setSponsorId(null); setSponsorSearch(""); setSponsorOpen(false); setProjectType(""); setStartDate(""); setEndDate("");
     setCode(""); setDept(""); setResStatus("confirmed"); setColour(COLOURS[0]); setError(null);
   }
 
@@ -250,6 +250,45 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                                 <span style={{ fontSize: 11, color: "#94a3b8" }}>{m.email}</span>
                               </div>
                             ))}
+                          {members.filter(m => !sponsorSearch || m.name.toLowerCase().includes(sponsorSearch.toLowerCase()) || m.email.toLowerCase().includes(sponsorSearch.toLowerCase())).length === 0 && (
+                            <div style={{ padding: "10px 14px", fontSize: 13, color: "#94a3b8" }}>No members found</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <p style={hintStyle}>Executive accountable for budget and decisions.</p>
+                  </Field>
+                  <Field label="Project type">
+                    <select style={inputStyle} value={projectType} onChange={e => setProjectType(e.target.value)}>
+                      <option value="">Select type...</option>
+                      <option value="IT">IT</option>
+                      <option value="Infrastructure">Infrastructure</option>
+                      <option value="Change">Change</option>
+                      <option value="BAU Enhancement">BAU Enhancement</option>
+                      <option value="Regulatory">Regulatory</option>
+                      <option value="Digital Transformation">Digital Transformation</option>
+                      <option value="Product">Product</option>
+                      <option value="Other">Other</option>
+                    </select>
+                    <p style={hintStyle}>Used for portfolio filtering and reporting.</p>
+                  </Field>
+                  <Field label="Sponsor">
+                    <div style={{ position: "relative" }}>
+                      <input style={inputStyle} placeholder="Search by name or email..." value={sponsorSearch}
+                        onChange={e => { setSponsorSearch(e.target.value); setSponsorOpen(true); setSponsorId(null); }}
+                        onFocus={() => setSponsorOpen(true)} autoComplete="off" />
+                      {sponsorOpen && (
+                        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50, background: "white", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,.1)", maxHeight: 180, overflowY: "auto", marginTop: 4 }}>
+                          {members.filter(m => !sponsorSearch || m.name.toLowerCase().includes(sponsorSearch.toLowerCase()) || m.email.toLowerCase().includes(sponsorSearch.toLowerCase())).map(m => (
+                            <div key={m.user_id}
+                              onClick={() => { setSponsor(m.name || m.email); setSponsorId(m.user_id); setSponsorSearch(m.name || m.email); setSponsorOpen(false); }}
+                              style={{ padding: "9px 14px", cursor: "pointer", fontSize: 13, display: "flex", flexDirection: "column", gap: 2, borderBottom: "1px solid #f1f5f9" }}
+                              onMouseEnter={e => (e.currentTarget.style.background = "#f8fafc")}
+                              onMouseLeave={e => (e.currentTarget.style.background = "white")}>
+                              <span style={{ fontWeight: 600, color: "#0f172a" }}>{m.name || "—"}</span>
+                              <span style={{ fontSize: 11, color: "#94a3b8" }}>{m.email}</span>
+                            </div>
+                          ))}
                           {members.filter(m => !sponsorSearch || m.name.toLowerCase().includes(sponsorSearch.toLowerCase()) || m.email.toLowerCase().includes(sponsorSearch.toLowerCase())).length === 0 && (
                             <div style={{ padding: "10px 14px", fontSize: 13, color: "#94a3b8" }}>No members found</div>
                           )}
