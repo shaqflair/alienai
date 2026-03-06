@@ -1,4 +1,3 @@
-// src/components/projects/MembersClient.tsx
 "use client";
 
 import React, { useMemo, useState } from "react";
@@ -15,20 +14,24 @@ import {
 export type Role = "owner" | "editor" | "viewer" | (string & {});
 
 export type MemberRow = {
+  project_id?: string;
   user_id: string;
   full_name?: string | null;
+  display_name?: string | null;
   email?: string | null;
   role: Role;
-  status?: string; // e.g. "active"
+  removed_at?: string | null;
+  status?: string;
 };
 
 export type InviteRow = {
   id: string;
+  project_id?: string;
   email: string;
   role: Role;
   status?: string;
-  invited_at?: string | null; // preferred
-  created_at?: string | null; // tolerated
+  invited_at?: string | null;
+  created_at?: string | null;
   expires_at?: string | null;
 };
 
@@ -72,7 +75,7 @@ function ConfirmInline({
     return (
       <button
         type="button"
-        className="rounded border border-gray-200 px-2 py-1 text-sm hover:bg-gray-50 disabled:opacity-60"
+        className="rounded border border-gray-200 px-2 py-1 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
         onClick={() => setArmed(true)}
         disabled={disabled}
       >
@@ -86,7 +89,7 @@ function ConfirmInline({
       <span className="text-sm text-red-600">Are you sure?</span>
       <button
         type="button"
-        className="rounded border border-red-300 px-2 py-1 text-sm hover:bg-red-50 disabled:opacity-60"
+        className="rounded border border-red-300 px-2 py-1 text-sm text-red-700 hover:bg-red-50 disabled:opacity-60"
         onClick={onConfirm}
         disabled={disabled}
       >
@@ -94,7 +97,7 @@ function ConfirmInline({
       </button>
       <button
         type="button"
-        className="rounded border border-gray-200 px-2 py-1 text-sm hover:bg-gray-50 disabled:opacity-60"
+        className="rounded border border-gray-200 px-2 py-1 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
         onClick={() => setArmed(false)}
         disabled={disabled}
       >
@@ -131,7 +134,7 @@ export default function MembersClient({
   const manage = canManage(myRole);
 
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string>("");
+  const [err, setErr] = useState("");
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<Role>("viewer");
@@ -147,8 +150,7 @@ export default function MembersClient({
     try {
       await fn();
     } catch (e: any) {
-      const msg = e?.message || String(e);
-      setErr(msg);
+      setErr(e?.message || String(e));
     } finally {
       setBusy(false);
     }
@@ -157,13 +159,13 @@ export default function MembersClient({
   const busyBadge = busy ? <Pill tone="info">Working…</Pill> : null;
 
   return (
-    <div className="space-y-8">
+    <div className="relative z-[2] space-y-8 bg-white p-6 text-gray-900 opacity-100">
       {err ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 flex items-start justify-between gap-3">
+        <div className="flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
           <div className="whitespace-pre-wrap">{err}</div>
           <button
             type="button"
-            className="shrink-0 rounded-md border border-red-200 bg-white px-2 py-1 text-xs hover:bg-red-50"
+            className="shrink-0 rounded-md border border-red-200 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-50"
             onClick={() => setErr("")}
           >
             Dismiss
@@ -171,9 +173,8 @@ export default function MembersClient({
         </div>
       ) : null}
 
-      {/* Invite */}
       {manage ? (
-        <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-4">
+        <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div className="font-semibold text-gray-900">Invite member</div>
             {busyBadge}
@@ -183,7 +184,7 @@ export default function MembersClient({
             <div className="space-y-1">
               <div className="text-xs font-medium text-gray-700">Email</div>
               <input
-                className="w-[280px] rounded border border-gray-200 px-3 py-2 text-sm disabled:opacity-60"
+                className="w-[280px] rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 disabled:opacity-60"
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
                 placeholder="name@company.com"
@@ -194,7 +195,7 @@ export default function MembersClient({
             <div className="space-y-1">
               <div className="text-xs font-medium text-gray-700">Role</div>
               <select
-                className="rounded border border-gray-200 px-3 py-2 text-sm disabled:opacity-60"
+                className="rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 disabled:opacity-60"
                 value={inviteRole}
                 onChange={(e) => setInviteRole(e.target.value as Role)}
                 disabled={busy}
@@ -207,7 +208,7 @@ export default function MembersClient({
 
             <button
               type="button"
-              className="rounded border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-60"
+              className="rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
               disabled={busy || !inviteEmail.trim() || !isEmailLike(inviteEmail)}
               onClick={() =>
                 run(async () => {
@@ -225,13 +226,12 @@ export default function MembersClient({
           </div>
         </div>
       ) : (
-        <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-700">
-          You can view members. Only <b>owners</b> can invite/remove/change roles.
+        <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-700 shadow-sm">
+          You can view members. Only <b>owners</b> can invite, remove, or change roles.
         </div>
       )}
 
-      {/* Members */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4">
+      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="font-semibold text-gray-900">Active members</div>
           <div className="flex items-center gap-2">
@@ -243,7 +243,7 @@ export default function MembersClient({
         <div className="overflow-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-gray-600">
-              <tr className="border-b">
+              <tr className="border-b border-gray-200">
                 <th className="py-2 pr-3 font-medium">Member</th>
                 <th className="py-2 pr-3 font-medium">Role</th>
                 <th className="py-2 pr-3 font-medium">Actions</th>
@@ -251,65 +251,71 @@ export default function MembersClient({
             </thead>
 
             <tbody>
-              {sortedMembers.map((m) => (
-                <tr key={m.user_id} className="border-b last:border-b-0">
-                  <td className="py-2 pr-3">
-                    <div className="font-medium text-gray-900">{m.full_name || m.email || m.user_id}</div>
-                    {m.email ? <div className="text-xs text-gray-600">{m.email}</div> : null}
-                  </td>
+              {sortedMembers.map((m) => {
+                const memberName = m.display_name || m.full_name || m.email || m.user_id;
+                const isSelf = m.user_id === "me";
 
-                  <td className="py-2 pr-3">
-                    {manage ? (
-                      <select
-                        className="rounded border border-gray-200 px-2 py-1 text-sm disabled:opacity-60"
-                        value={String(m.role)}
-                        disabled={busy}
-                        onChange={(e) =>
-                          run(async () => {
-                            await updateMemberRole(projectId, m.user_id, e.target.value as any);
-                          })
-                        }
-                      >
-                        <option value="viewer">viewer</option>
-                        <option value="editor">editor</option>
-                        <option value="owner">owner</option>
-                      </select>
-                    ) : (
-                      <Pill>{String(m.role)}</Pill>
-                    )}
-                  </td>
+                return (
+                  <tr key={m.user_id} className="border-b border-gray-200 last:border-b-0">
+                    <td className="py-3 pr-3">
+                      <div className="font-medium text-gray-900">{memberName}</div>
+                      {m.email ? <div className="text-xs text-gray-600">{m.email}</div> : null}
+                    </td>
 
-                  <td className="py-2 pr-3">
-                    {manage ? (
-                      <div className="flex flex-wrap gap-2">
-                        <ConfirmInline
-                          label="Remove from project"
+                    <td className="py-3 pr-3">
+                      {manage ? (
+                        <select
+                          className="rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 disabled:opacity-60"
+                          value={String(m.role)}
                           disabled={busy}
-                          onConfirm={() =>
+                          onChange={(e) =>
                             run(async () => {
-                              await removeMember(projectId, m.user_id);
-                            })
-                          }
-                        />
-                        <button
-                          type="button"
-                          className="rounded border border-gray-200 px-2 py-1 text-sm hover:bg-gray-50 disabled:opacity-60"
-                          disabled={busy}
-                          onClick={() =>
-                            run(async () => {
-                              await restoreMember(projectId, m.user_id);
+                              await updateMemberRole(projectId, m.user_id, e.target.value as any);
                             })
                           }
                         >
-                          Restore
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-gray-400">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                          <option value="viewer">viewer</option>
+                          <option value="editor">editor</option>
+                          <option value="owner">owner</option>
+                        </select>
+                      ) : (
+                        <Pill>{String(m.role)}</Pill>
+                      )}
+                    </td>
+
+                    <td className="py-3 pr-3">
+                      {manage ? (
+                        <div className="flex flex-wrap gap-2">
+                          <ConfirmInline
+                            label="Remove from project"
+                            disabled={busy}
+                            onConfirm={() =>
+                              run(async () => {
+                                await removeMember(projectId, m.user_id);
+                              })
+                            }
+                          />
+
+                          <button
+                            type="button"
+                            className="rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                            disabled={busy}
+                            onClick={() =>
+                              run(async () => {
+                                await restoreMember(projectId, m.user_id);
+                              })
+                            }
+                          >
+                            Restore
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
 
               {sortedMembers.length === 0 ? (
                 <tr>
@@ -323,8 +329,7 @@ export default function MembersClient({
         </div>
       </div>
 
-      {/* Invites */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4">
+      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="font-semibold text-gray-900">Pending invites</div>
           <div className="flex items-center gap-2">
@@ -336,7 +341,7 @@ export default function MembersClient({
         <div className="overflow-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-gray-600">
-              <tr className="border-b">
+              <tr className="border-b border-gray-200">
                 <th className="py-2 pr-3 font-medium">Email</th>
                 <th className="py-2 pr-3 font-medium">Role</th>
                 <th className="py-2 pr-3 font-medium">Actions</th>
@@ -348,22 +353,22 @@ export default function MembersClient({
                 const invitedAt = inv.invited_at ?? inv.created_at ?? null;
 
                 return (
-                  <tr key={inv.id} className="border-b last:border-b-0">
-                    <td className="py-2 pr-3">
+                  <tr key={inv.id} className="border-b border-gray-200 last:border-b-0">
+                    <td className="py-3 pr-3">
                       <div className="font-medium text-gray-900">{inv.email}</div>
                       {invitedAt ? <div className="text-xs text-gray-600">Invited: {fmtUtc(invitedAt)}</div> : null}
                     </td>
 
-                    <td className="py-2 pr-3">
+                    <td className="py-3 pr-3">
                       <Pill>{String(inv.role)}</Pill>
                     </td>
 
-                    <td className="py-2 pr-3">
+                    <td className="py-3 pr-3">
                       {manage ? (
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
-                            className="rounded border border-gray-200 px-2 py-1 text-sm hover:bg-gray-50 disabled:opacity-60"
+                            className="rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                             disabled={busy}
                             onClick={() =>
                               run(async () => {

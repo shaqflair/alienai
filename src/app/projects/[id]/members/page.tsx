@@ -1,6 +1,4 @@
-﻿// src/app/projects/[id]/members/page.tsx
-
-import "server-only";
+﻿import "server-only";
 
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -9,6 +7,10 @@ import MembersClient, {
   type MemberRow as ClientMemberRow,
   type InviteRow as ClientInviteRow,
 } from "@/components/projects/MembersClient";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type Role = "owner" | "editor" | "viewer" | (string & {});
 
@@ -25,6 +27,42 @@ function safeQuery(x: string | string[] | undefined): string {
   return typeof x === "string" ? x : "";
 }
 
+function looksLikeUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || "").trim(),
+  );
+}
+
+function toText(x: any) {
+  if (x == null) return "";
+  if (typeof x === "string") return x;
+  if (typeof x === "number") return Number.isFinite(x) ? String(x) : "";
+  if (typeof x === "bigint") return String(x);
+  try {
+    return String(x);
+  } catch {
+    return "";
+  }
+}
+
+async function resolveProjectUuid(supabase: any, identifier: string): Promise<string | null> {
+  const id = toText(identifier).trim();
+  if (!id) return null;
+
+  if (looksLikeUuid(id)) return id;
+
+  const { data, error } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("project_code", id)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  const uuid = toText(data?.id).trim();
+  return uuid || null;
+}
+
 export default async function MembersPage({
   params,
   searchParams,
@@ -37,8 +75,8 @@ export default async function MembersPage({
   const p = await Promise.resolve(params as any);
   const sp = await Promise.resolve(searchParams as any);
 
-  const projectId = safeParam(p?.id);
-  if (!projectId) return notFound();
+  const projectIdentifier = safeParam(p?.id).trim();
+  if (!projectIdentifier || projectIdentifier === "undefined") return notFound();
 
   const invited = safeQuery(sp?.invited);
   const tokenFromRedirect = safeQuery(sp?.token);
@@ -50,20 +88,21 @@ export default async function MembersPage({
 
   const myUserId = auth.user.id;
 
-  // Load project
+  const projectUuid = await resolveProjectUuid(supabase, projectIdentifier);
+  if (!projectUuid) return notFound();
+
   const { data: project, error: projErr } = await supabase
     .from("projects")
-    .select("id,title")
-    .eq("id", projectId)
-    .single();
+    .select("id,title,project_code")
+    .eq("id", projectUuid)
+    .maybeSingle();
 
-  if (projErr || !project) return notFound();
+  if (projErr || !project?.id) return notFound();
 
-  // Members (active)
   const { data: membersData, error: membersErr } = await supabase
     .from("project_members")
     .select("project_id,user_id,role,removed_at,created_at")
-    .eq("project_id", projectId)
+    .eq("project_id", projectUuid)
     .is("removed_at", null)
     .order("created_at", { ascending: true });
 
@@ -77,19 +116,28 @@ export default async function MembersPage({
     created_at: string | null;
   }>;
 
-  // Must be a member to view
   const me = membersRaw.find((m) => m.user_id === myUserId);
   if (!me) {
     return (
-      <div className="max-w-4xl mx-auto p-6 space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-semibold">Members</h1>
-            <p className="text-sm text-gray-600">You don’t have access to view members for this project.</p>
+      <div className="relative z-[1] min-h-screen bg-white">
+        <div className="mx-auto max-w-4xl px-6 py-8">
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h1 className="text-2xl font-semibold text-gray-900">Members</h1>
+                <p className="mt-2 text-sm text-gray-600">
+                  You do not have access to view members for this project.
+                </p>
+              </div>
+
+              <Link
+                href={`/projects/${projectIdentifier}`}
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Back
+              </Link>
+            </div>
           </div>
-          <Link href={`/projects/${projectId}`} className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50">
-            Back
-          </Link>
         </div>
       </div>
     );
@@ -97,11 +145,10 @@ export default async function MembersPage({
 
   const myRole = (me.role ?? "viewer") as Role;
 
-  // Pending invites
   const { data: invitesData, error: invitesErr } = await supabase
     .from("project_invites")
     .select("id,project_id,email,role,created_at,accepted_at,invited_by,status,token,expires_at")
-    .eq("project_id", projectId)
+    .eq("project_id", projectUuid)
     .is("accepted_at", null)
     .order("created_at", { ascending: false });
 
@@ -120,7 +167,6 @@ export default async function MembersPage({
     expires_at?: string | null;
   }>;
 
-  // Profiles enrichment (optional)
   const userIds = uniq(membersRaw.map((m) => m.user_id).filter(Boolean));
 
   const profilesById = new Map<
@@ -157,7 +203,6 @@ export default async function MembersPage({
     };
   });
 
-  // Keep MembersClient stable: map created_at -> invited_at
   const invites: ClientInviteRow[] = invitesRaw.map((i) => ({
     id: i.id,
     project_id: i.project_id,
@@ -166,61 +211,79 @@ export default async function MembersPage({
     invited_at: i.created_at ?? null,
   }));
 
-  // Prefer token from redirect, otherwise newest invite token
   const freshToken = tokenFromRedirect || (invitesRaw.find((x) => x.token)?.token ?? "");
   const invitePath = freshToken ? `/invite/${encodeURIComponent(freshToken)}` : "";
 
   const isOwner = String(myRole).toLowerCase() === "owner";
+  const projectTitle = toText(project.title).trim() || "Untitled project";
+  const projectCode = toText(project.project_code).trim();
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Members</h1>
-          <p className="text-sm text-gray-600">
-            Project: <span className="font-medium">{project.title ?? project.id}</span>
-            <span className="ml-2 text-xs text-gray-500">• Your role: {String(myRole)}</span>
-          </p>
-        </div>
-
-        <Link href={`/projects/${projectId}`} className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50">
-          Back
-        </Link>
-      </div>
-
-      {/* Success + copy link (owner UX) — SERVER SAFE (no onClick) */}
-      {isOwner && invited === "1" && invitePath ? (
-        <div className="rounded-xl border bg-white p-4 space-y-2">
-          <div className="text-sm font-medium">Invite created</div>
-          <div className="text-xs text-gray-600">Share this link with the invited user to accept:</div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              readOnly
-              value={invitePath}
-              className="flex-1 min-w-[280px] rounded-md border px-3 py-2 text-sm"
-            />
-
-            <Link href={invitePath} className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50">
-              Open
-            </Link>
+    <div className="relative z-[1] min-h-screen bg-white">
+      <div className="mx-auto max-w-5xl px-6 py-8 space-y-6">
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold text-gray-900">Members</h1>
+              <p className="mt-2 text-sm text-gray-600">
+                Project: <span className="font-medium text-gray-900">{projectTitle}</span>
+                {projectCode ? <span className="ml-2 text-gray-500">({projectCode})</span> : null}
+                <span className="ml-2 text-xs text-gray-500">• Your role: {String(myRole)}</span>
+              </p>
+            </div>
 
             <Link
-              href={`/projects/${projectId}/members/invite`}
-              className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
+              href={`/projects/${projectIdentifier}`}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
             >
-              Invite another
+              Back
             </Link>
           </div>
-
-          <div className="text-xs text-gray-500">
-            Tip: click into the field above and press <span className="font-medium">Ctrl+C</span> to copy, or copy the
-            full URL from your browser address bar.
-          </div>
         </div>
-      ) : null}
 
-      <MembersClient projectId={projectId} myRole={String(myRole)} members={members} invites={invites} />
+        {isOwner && invited === "1" && invitePath ? (
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm space-y-3">
+            <div className="text-sm font-medium text-gray-900">Invite created</div>
+            <div className="text-xs text-gray-600">Share this link with the invited user to accept:</div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                readOnly
+                value={invitePath}
+                className="min-w-[280px] flex-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800"
+              />
+
+              <Link
+                href={invitePath}
+                className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Open
+              </Link>
+
+              <Link
+                href={`/projects/${projectIdentifier}/members/invite`}
+                className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Invite another
+              </Link>
+            </div>
+
+            <div className="text-xs text-gray-500">
+              Tip: click into the field above and press <span className="font-medium">Ctrl+C</span> to copy, or copy the
+              full URL from your browser address bar.
+            </div>
+          </div>
+        ) : null}
+
+        <div className="rounded-2xl border border-gray-200 bg-white p-0 shadow-sm">
+          <MembersClient
+            projectId={projectUuid}
+            myRole={String(myRole)}
+            members={members}
+            invites={invites}
+          />
+        </div>
+      </div>
     </div>
   );
 }
