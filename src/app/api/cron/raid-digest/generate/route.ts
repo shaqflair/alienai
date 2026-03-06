@@ -54,7 +54,7 @@ async function buildOrgDigest(supabase: any, orgId: string, orgName: string) {
     .from("projects")
     .select("id")
     .eq("organisation_id", orgId)
-    .not("resource_status", "in", "("Closed","Cancelled","Completed")");
+    .not('resource_status', 'in', '("Closed","Cancelled","Completed")')");
 
   const projectIds = (projects ?? []).map((p: any) => safeStr(p.id)).filter(Boolean);
 
