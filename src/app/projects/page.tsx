@@ -235,7 +235,7 @@ export default async function ProjectsPage({
         .kpi-cell:last-child { border-right: none; margin-right: 0; }
         .kpi-num {
           font-family: var(--mono); font-size: 28px; font-weight: 400;
-          color: var(--ink); line-height: 1; letter-spacing: -1px;
+          color:var(--ink); line-height: 1; letter-spacing: -1px;
         }
         .kpi-lbl {
           font-family: var(--mono); font-size: 9px; font-weight: 400;
@@ -393,7 +393,7 @@ export default async function ProjectsPage({
           font-family: var(--mono); font-size: 9px; font-weight: 500;
           padding: 2px 5px; letter-spacing: 0.08em;
         }
-        .rp-g { background: var(--ink-1-bg); color: #0f172a; }
+        .rp-g { background: transparent; color: #0f172a; }
         .rp-a { background: var(--amber-bg); color: var(--amber); }
         .rp-r { background: var(--red-bg);   color: var(--red); }
 
@@ -406,9 +406,9 @@ export default async function ProjectsPage({
           font-family: var(--mono); font-size: 9px; font-weight: 500;
           letter-spacing: 0.1em; text-transform: uppercase; padding: 3px 8px;
         }
-        .st-active   { background: var(--ink-1-bg); color: #0f172a; }
+        .st-active { background: transparent; color: #111; border: 1px solid #111; letter-spacing: 0.08em; font-size: 10px; text-transform: uppercase; font-weight: 500; }
         .st-closed   { background: var(--off);       color: var(--ink-4); }
-        .st-pipeline { background: #f5f3ff;           color: #5b21b6; }
+        .st-pipeline { background: transparent; color: #555; border: 1px solid #999; letter-spacing: 0.08em; font-size: 10px; text-transform: uppercase; font-weight: 500; }
 
         /* --- CELL: ARROW --- */
         .c-arrow {
@@ -545,22 +545,22 @@ export default async function ProjectsPage({
                   <div className="kpi-lbl">Total</div>
                 </div>
                 <div className="kpi-cell">
-                  <div className="kpi-num" style={{ color: "#0f172a" }}>{activeCt}</div>
+                  <div className="kpi-num" style={{ color:var(--ink)"#0f172a" }}>{activeCt}</div>
                   <div className="kpi-lbl">Active</div>
                 </div>
                 <div className="kpi-cell">
-                  <div className="kpi-num" style={{ color: "var(--ink-4)" }}>{closedCt}</div>
+                  <div className="kpi-num" style={{ color:var(--ink)"var(--ink-4)" }}>{closedCt}</div>
                   <div className="kpi-lbl">Closed</div>
                 </div>
                 {atRiskCt > 0 && (
                   <div className="kpi-cell">
-                    <div className="kpi-num" style={{ color: "var(--red)" }}>{atRiskCt}</div>
+                    <div className="kpi-num" style={{ color:var(--ink)"var(--red)" }}>{atRiskCt}</div>
                     <div className="kpi-lbl">At Risk</div>
                   </div>
                 )}
                 {healthAvg != null && (
                   <div className="kpi-cell">
-                    <div className="kpi-num" style={{ color: healthAvg >= 85 ? "var(--ink-1)" : healthAvg >= 70 ? "var(--amber)" : "var(--red)" }}>
+                    <div className="kpi-num" style={{ color: var(--ink)"var(--ink-1)" : healthAvg >= 70 ? "var(--amber)" : "var(--red)" }}>
                       {healthAvg}<span style={{ fontSize: 14, fontWeight: 300 }}>%</span>
                     </div>
                     <div className="kpi-lbl">Avg Health</div>
