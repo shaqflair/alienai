@@ -115,10 +115,9 @@ export default async function TimesheetPage({
     const p = (a as any).projects;
     if (!p || p.deleted_at) continue;
 
-    // Only active/confirmed/pipeline projects
+    // Exclude closed/cancelled/completed projects only
     const rs = safeStr(p.resource_status).toLowerCase();
-    // Exclude closed, completed, cancelled projects
-    if (rs !== "active") continue;
+    if (["closed","cancelled","canceled","completed","inactive","archived"].includes(rs)) continue;
 
     const pid = safeStr(p.id);
 
@@ -168,8 +167,7 @@ export default async function TimesheetPage({
       if (!p || p.deleted_at) continue;
       if (safeStr(p.organisation_id) !== organisationId) continue;
       const rs = safeStr(p.resource_status).toLowerCase();
-      if (rs !== "active") continue;
-      if (rs && !["confirmed", "pipeline", "active", ""].includes(rs)) continue;
+      if (["closed","cancelled","canceled","completed","inactive","archived"].includes(rs)) continue;
       const pid = safeStr(p.id);
       if (!projectMap.has(pid)) {
         projectMap.set(pid, {
