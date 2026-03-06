@@ -91,6 +91,15 @@ function getMondayOf(date: Date): Date {
   return d;
 }
 
+// FIX: normalise any ISO date string to its Monday — used to key exception maps
+// so that lookups using Monday-keyed weeklyPeriods always hit correctly.
+function getMondayStr(iso: string): string {
+  const d = new Date(iso + "T00:00:00");
+  const day = d.getDay();
+  d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+  return d.toISOString().split("T")[0];
+}
+
 function toIso(d: Date): string {
   return d.toISOString().split("T")[0];
 }
@@ -274,11 +283,15 @@ export async function fetchHeatmapData(
     .gte("week_start_date", dateFrom)
     .lte("week_start_date", dateTo);
 
+  // FIX: normalise exception week_start_date to Monday before keying the map.
+  // weeklyPeriods uses Monday keys (from getMondayOf), so a raw DB date that
+  // isn't already a Monday would never match in the lookup below.
   const exceptionMap = new Map<string, Map<string, number>>();
   for (const ex of exceptionRows ?? []) {
-    const pid = String(ex.person_id);
+    const pid     = String(ex.person_id);
+    const weekKey = getMondayStr(String(ex.week_start_date));   // ← normalised
     if (!exceptionMap.has(pid)) exceptionMap.set(pid, new Map());
-    exceptionMap.get(pid)!.set(String(ex.week_start_date), parseFloat(String(ex.available_days)));
+    exceptionMap.get(pid)!.set(weekKey, parseFloat(String(ex.available_days)));
   }
 
   // Fetch allocations
@@ -312,7 +325,8 @@ export async function fetchHeatmapData(
   for (const alloc of allocRows ?? []) {
     const pid    = String(alloc.person_id);
     const projId = String(alloc.project_id);
-    const week   = String(alloc.week_start_date);
+    // FIX: normalise allocation week key to Monday for consistent map lookups
+    const week   = getMondayStr(String(alloc.week_start_date));
     const days   = parseFloat(String(alloc.days_allocated));
     const proj   = (alloc as any).projects;
     if (!proj) continue;
