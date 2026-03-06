@@ -435,6 +435,9 @@ function RaiseItemModal({ projects, onClose, onSuccess }: {
   const [description, setDescription] = React.useState("");
   const [priority,    setPriority]    = React.useState<typeof PRIORITIES[number]>("Medium");
   const [dueDate,     setDueDate]     = React.useState("");
+  const [probability, setProbability] = React.useState(50);
+  const [severity,    setSeverity]    = React.useState(50);
+  const [responsePlan,setResponsePlan]= React.useState("");
   const [owner,       setOwner]       = React.useState("");
   const [saving,      setSaving]      = React.useState(false);
   const [error,       setError]       = React.useState<string | null>(null);
@@ -530,6 +533,40 @@ function RaiseItemModal({ projects, onClose, onSuccess }: {
             <textarea value={description} onChange={e => setDescription(e.target.value)}
               placeholder="Describe the risk/issue, its impact and context..."
               rows={3} style={{ ...INP, resize:"vertical", fontFamily:T.body, fontSize:13 }} />
+          </div>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
+            <div>
+              <label style={LBL}>Probability: {probability}%</label>
+              <input type="range" min={0} max={100} step={5} value={probability}
+                onChange={e => setProbability(Number(e.target.value))}
+                style={{ width:"100%", accentColor: T.ink }} />
+              <div style={{ display:"flex", justifyContent:"space-between" }}>
+                <span style={{ fontFamily:T.mono, fontSize:9, color:T.ink5 }}>0%</span>
+                <span style={{ fontFamily:T.mono, fontSize:9, color:T.ink5 }}>100%</span>
+              </div>
+            </div>
+            <div>
+              <label style={LBL}>Severity: {severity}%</label>
+              <input type="range" min={0} max={100} step={5} value={severity}
+                onChange={e => setSeverity(Number(e.target.value))}
+                style={{ width:"100%", accentColor: T.ink }} />
+              <div style={{ display:"flex", justifyContent:"space-between" }}>
+                <span style={{ fontFamily:T.mono, fontSize:9, color:T.ink5 }}>0%</span>
+                <span style={{ fontFamily:T.mono, fontSize:9, color:T.ink5 }}>100%</span>
+              </div>
+            </div>
+          </div>
+          <div style={{ background:"#f5f3f0", padding:"8px 12px", borderRadius:2 }}>
+            <span style={{ fontFamily:T.mono, fontSize:10, color:T.ink3 }}>
+              Risk Score: <strong style={{ color: T.ink }}>{Math.round((probability * severity) / 100)}</strong>
+              <span style={{ color:T.ink4 }}> = {probability}% × {severity}% ÷ 100</span>
+            </span>
+          </div>
+          <div>
+            <label style={LBL}>Response Plan / Mitigation</label>
+            <textarea value={responsePlan} onChange={e => setResponsePlan(e.target.value)}
+              placeholder="How will this be mitigated or managed..."
+              rows={2} style={{ ...INP, resize:"vertical", fontFamily:T.body, fontSize:13 }} />
           </div>
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
             <div>
