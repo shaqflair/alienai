@@ -85,7 +85,9 @@ export async function POST(req: NextRequest) {
       { project_id: project.id, user_id: auth.user.id, type: "WEEKLY_REPORT",    title: "Weekly Report",            approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
       { project_id: project.id, user_id: auth.user.id, type: "LESSONS_LEARNED",  title: "Lessons Learned",          approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
       { project_id: project.id, user_id: auth.user.id, type: "PROJECT_CHARTER",  title: "Project Charter",          approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
-      { project_id: project.id, user_id: auth.user.id, type: "RAID",             title: "RAID Log",                 approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
+      { project_id: project.id, user_id: auth.user.id, type: "RAID",                    title: "RAID Log",                 approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
+      { project_id: project.id, user_id: auth.user.id, type: "STAKEHOLDER_REGISTER",  title: "Stakeholder Register",     approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
+      { project_id: project.id, user_id: auth.user.id, type: "PROJECT_CLOSURE_REPORT", title: "Project Closure Report",  approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
     ]);
     // Note: insert errors are intentionally ignored — duplicates or missing cols won't block project creation
 
