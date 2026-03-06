@@ -150,8 +150,8 @@ export default async function ProjectsPage({
           --ink-2:      #2a5a66;
           --ink-3:      #5a9aa8;
           --ink-4:      #96c8d4;
-          --green:      #047857;
-          --green-bg:   #ecfdf5;
+          --ink-1:      #047857;
+          --ink-1-bg:   #ecfdf5;
           --amber:      #b45309;
           --amber-bg:   #fffbeb;
           --red:        #b91c1c;
@@ -371,7 +371,7 @@ export default async function ProjectsPage({
           font-family: var(--mono); font-size: 9px; font-weight: 500;
           text-align: right; letter-spacing: 0.03em;
         }
-        .tl-ok { color: var(--green); }
+        .tl-ok { color: #0f172a; }
         .tl-warn { color: var(--amber); }
         .tl-over { color: var(--red); }
         .tl-nil { color: var(--ink-4); }
@@ -385,7 +385,7 @@ export default async function ProjectsPage({
         .h-num {
           font-family: var(--mono); font-size: 14px; font-weight: 500;
         }
-        .h-g { color: var(--green); }
+        .h-g { color: #0f172a; }
         .h-a { color: var(--amber); }
         .h-r { color: var(--red); }
         .h-n { color: var(--ink-4); }
@@ -393,7 +393,7 @@ export default async function ProjectsPage({
           font-family: var(--mono); font-size: 9px; font-weight: 500;
           padding: 2px 5px; letter-spacing: 0.08em;
         }
-        .rp-g { background: var(--green-bg); color: var(--green); }
+        .rp-g { background: var(--ink-1-bg); color: #0f172a; }
         .rp-a { background: var(--amber-bg); color: var(--amber); }
         .rp-r { background: var(--red-bg);   color: var(--red); }
 
@@ -406,7 +406,7 @@ export default async function ProjectsPage({
           font-family: var(--mono); font-size: 9px; font-weight: 500;
           letter-spacing: 0.1em; text-transform: uppercase; padding: 3px 8px;
         }
-        .st-active   { background: var(--green-bg); color: var(--green); }
+        .st-active   { background: var(--ink-1-bg); color: #0f172a; }
         .st-closed   { background: var(--off);       color: var(--ink-4); }
         .st-pipeline { background: #f5f3ff;           color: #5b21b6; }
 
@@ -545,7 +545,7 @@ export default async function ProjectsPage({
                   <div className="kpi-lbl">Total</div>
                 </div>
                 <div className="kpi-cell">
-                  <div className="kpi-num" style={{ color: "var(--green)" }}>{activeCt}</div>
+                  <div className="kpi-num" style={{ color: "#0f172a" }}>{activeCt}</div>
                   <div className="kpi-lbl">Active</div>
                 </div>
                 <div className="kpi-cell">
@@ -560,7 +560,7 @@ export default async function ProjectsPage({
                 )}
                 {healthAvg != null && (
                   <div className="kpi-cell">
-                    <div className="kpi-num" style={{ color: healthAvg >= 85 ? "var(--green)" : healthAvg >= 70 ? "var(--amber)" : "var(--red)" }}>
+                    <div className="kpi-num" style={{ color: healthAvg >= 85 ? "var(--ink-1)" : healthAvg >= 70 ? "var(--amber)" : "var(--red)" }}>
                       {healthAvg}<span style={{ fontSize: 14, fontWeight: 300 }}>%</span>
                     </div>
                     <div className="kpi-lbl">Avg Health</div>
