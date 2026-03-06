@@ -425,6 +425,7 @@ export default async function ProjectPage({
     { id: "artifacts", label: "Artifacts",     href: `/projects/${projectRefForUrls}/artifacts` },
     { id: "schedule",  label: "Schedule",      href: `/projects/${projectRefForUrls}/schedule` },
     { id: "wbs",       label: "WBS",           href: `/projects/${projectRefForUrls}/wbs` },
+    { id: "financial", label: "Financial Plan", href: `/projects/${projectRefForUrls}/artifacts?filter=financial_plan` },
     { id: "members",   label: "Members",       href: `/projects/${projectRefForUrls}/members` },
     { id: "changes",   label: "Change Board",  href: `/projects/${projectRefForUrls}/change` },
     { id: "raid",      label: "Risks",         href: `/projects/${projectRefForUrls}/raid` },
