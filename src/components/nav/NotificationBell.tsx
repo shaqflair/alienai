@@ -42,6 +42,7 @@ type NotifType =
   | "mention"
   | "portfolio_signal"
   | "success_signal"
+  | "raid_weekly_digest"
   | "system"
   | string;
 
@@ -141,6 +142,7 @@ function deriveSeverity(n: NotificationRow): Severity {
   if (t.includes("approval") || b.includes("approval")) return "medium";
   if (t.includes("ai")) return "medium";
   if (t.includes("success")) return "success";
+  if (t === "raid_weekly_digest") return "medium";
   return "info";
 }
 
@@ -152,6 +154,7 @@ function iconFor(n: NotificationRow) {
   if (t.includes("ai") || t.includes("slip")) return <Sparkles className="h-4 w-4" />;
   if (t.includes("overdue") || b === "overdue" || isOverdue(n)) return <Clock3 className="h-4 w-4" />;
   if (t.includes("success")) return <Trophy className="h-4 w-4" />;
+  if (t === "raid_weekly_digest") return <ShieldCheck className="h-4 w-4" />;
   if (deriveSeverity(n) === "high") return <AlertTriangle className="h-4 w-4" />;
   return <CircleDot className="h-4 w-4" />;
 }
@@ -173,7 +176,7 @@ function tabPredicate(tab: Tab, n: NotificationRow) {
   const b = safeStr(n.bucket).toLowerCase();
 
   if (tab === "approvals") return t.includes("approval") || b.includes("approval");
-  if (tab === "ai") return t.includes("ai") || t.includes("slip");
+  if (tab === "ai") return t.includes("ai") || t.includes("slip") || t === "raid_weekly_digest";
 
   if (tab === "action") {
     return (
