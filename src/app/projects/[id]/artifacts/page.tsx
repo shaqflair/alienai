@@ -255,6 +255,7 @@ function canonType(x: any) {
   )
     return "PROJECT_CLOSURE_REPORT";
 
+  if (raw.includes("financial")) return "FINANCIAL_PLAN";
   return raw.toUpperCase().replace(/\s+/g, "_");
 }
 
@@ -270,6 +271,8 @@ function phaseForCanonType(typeKey: string): Phase {
     case "RAID":
     case "CHANGE_REQUESTS":
       return "Monitoring & Controlling";
+    case "FINANCIAL_PLAN":
+      return "Planning";
     case "LESSONS_LEARNED":
     case "PROJECT_CLOSURE_REPORT":
       return "Closing";
