@@ -189,9 +189,8 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                         style={inputStyle}
                         placeholder="Search by name or email..."
                         value={pmSearch}
-                        onChange={e => { setPmSearch(e.target.value); setPmOpen(true); setPmUserId(null); setPm(""); }}
-                        onFocus={() => setPmOpen(true)}
-                        onBlur={() => setTimeout(() => setPmOpen(false), 150)}
+                        onChange={e => { setPmSearch(e.target.value); setPmOpen(e.target.value.length > 0); setPmUserId(null); setPm(""); }}
+                        onBlur={() => setTimeout(() => setPmOpen(false), 200)}
                         autoComplete="off"
                       />
                       {pmOpen && members.length > 0 && (
@@ -223,9 +222,8 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                         style={inputStyle}
                         placeholder="Search by name or email..."
                         value={sponsorSearch}
-                        onChange={e => { setSponsorSearch(e.target.value); setSponsorOpen(true); setSponsorId(null); setSponsor(""); }}
-                        onFocus={() => setSponsorOpen(true)}
-                        onBlur={() => setTimeout(() => setSponsorOpen(false), 150)}
+                        onChange={e => { setSponsorSearch(e.target.value); setSponsorOpen(e.target.value.length > 0); setSponsorId(null); setSponsor(""); }}
+                        onBlur={() => setTimeout(() => setSponsorOpen(false), 200)}
                         autoComplete="off"
                       />
                       {sponsorOpen && members.length > 0 && (
