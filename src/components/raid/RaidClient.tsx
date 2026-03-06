@@ -524,6 +524,40 @@ function EditItemModal({ item, onClose, onSaved }: {
   const [dueDate,     setDueDate]     = React.useState(item.due_date || "");
   const [saving,      setSaving]      = React.useState(false);
   const [error,       setError]       = React.useState<string | null>(null);
+  const [aiPrompt,    setAiPrompt]    = React.useState("");
+  const [aiDrafting,  setAiDrafting]  = React.useState(false);
+  const [aiDraftErr,  setAiDraftErr]  = React.useState<string|null>(null);
+  const [aiDraftDone, setAiDraftDone] = React.useState(false);
+
+  async function handleAiDraft() {
+    if (!aiPrompt.trim()) return;
+    setAiDrafting(true); setAiDraftErr(null); setAiDraftDone(false);
+    try {
+      const res = await fetch("/api/raid/ai-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: aiPrompt, projectId }),
+      });
+      const j = await res.json();
+      if (!j.ok) throw new Error(j.error || "AI draft failed");
+      const d = j.draft;
+      if (d.type)          setType(d.type);
+      if (d.priority)      setPriority(d.priority);
+      if (d.impact)        setImpact(d.impact);
+      if (d.title)         setTitle(d.title);
+      if (d.description)   setDescription(d.description);
+      if (d.probability != null) setProbability(d.probability);
+      if (d.severity != null)    setSeverity(d.severity);
+      if (d.response_plan) setResponsePlan(d.response_plan);
+      if (d.next_steps)    setNextSteps(d.next_steps);
+      if (d.notes)         setNotes(d.notes);
+      setAiDraftDone(true);
+    } catch(e: any) {
+      setAiDraftErr(e?.message ?? "AI draft failed");
+    } finally {
+      setAiDrafting(false);
+    }
+  }
 
   const INP: React.CSSProperties = {
     width: "100%", boxSizing: "border-box", padding: "8px 10px",
@@ -696,6 +730,40 @@ function RaiseItemModal({ projects, onClose, onSuccess }: {
   const [owner,       setOwner]       = React.useState("");
   const [saving,      setSaving]      = React.useState(false);
   const [error,       setError]       = React.useState<string | null>(null);
+  const [aiPrompt,    setAiPrompt]    = React.useState("");
+  const [aiDrafting,  setAiDrafting]  = React.useState(false);
+  const [aiDraftErr,  setAiDraftErr]  = React.useState<string|null>(null);
+  const [aiDraftDone, setAiDraftDone] = React.useState(false);
+
+  async function handleAiDraft() {
+    if (!aiPrompt.trim()) return;
+    setAiDrafting(true); setAiDraftErr(null); setAiDraftDone(false);
+    try {
+      const res = await fetch("/api/raid/ai-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: aiPrompt, projectId }),
+      });
+      const j = await res.json();
+      if (!j.ok) throw new Error(j.error || "AI draft failed");
+      const d = j.draft;
+      if (d.type)          setType(d.type);
+      if (d.priority)      setPriority(d.priority);
+      if (d.impact)        setImpact(d.impact);
+      if (d.title)         setTitle(d.title);
+      if (d.description)   setDescription(d.description);
+      if (d.probability != null) setProbability(d.probability);
+      if (d.severity != null)    setSeverity(d.severity);
+      if (d.response_plan) setResponsePlan(d.response_plan);
+      if (d.next_steps)    setNextSteps(d.next_steps);
+      if (d.notes)         setNotes(d.notes);
+      setAiDraftDone(true);
+    } catch(e: any) {
+      setAiDraftErr(e?.message ?? "AI draft failed");
+    } finally {
+      setAiDrafting(false);
+    }
+  }
 
   async function handleSubmit() {
     if (!title.trim())       { setError("Title is required.");       return; }
@@ -765,6 +833,54 @@ function RaiseItemModal({ projects, onClose, onSuccess }: {
         </div>
 
         <div style={{ padding:"20px 24px",display:"flex",flexDirection:"column",gap:16,overflowY:"auto",flex:1 }}>
+          {/* AI Draft Panel */}
+          <div style={{ background:"linear-gradient(135deg,#0f172a 0%,#1e293b 100%)",
+            borderRadius:4, padding:"14px 16px", border:"1px solid #334155" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+              <span style={{ fontSize:16 }}>✨</span>
+              <span style={{ fontFamily:T.mono, fontSize:10, fontWeight:700,
+                letterSpacing:"0.1em", color:"#e2e8f0", textTransform:"uppercase" }}>
+                AI Draft Assistant
+              </span>
+              <span style={{ fontFamily:T.mono, fontSize:9, color:"#64748b",
+                marginLeft:"auto" }}>Describe the situation, AI fills the form</span>
+            </div>
+            <textarea
+              value={aiPrompt}
+              onChange={e => { setAiPrompt(e.target.value); setAiDraftDone(false); }}
+              placeholder="e.g. Our key supplier may not deliver the integration module by go-live due to their financial difficulties..."
+              rows={3}
+              style={{ width:"100%", boxSizing:"border-box", padding:"10px 12px",
+                fontFamily:T.body, fontSize:13, color:"#f1f5f9",
+                background:"rgba(255,255,255,0.07)", border:"1px solid #334155",
+                borderRadius:2, resize:"vertical", outline:"none" }}
+            />
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:8 }}>
+              <button
+                onClick={handleAiDraft}
+                disabled={aiDrafting || !aiPrompt.trim()}
+                style={{ padding:"8px 18px", fontFamily:T.mono, fontSize:10, fontWeight:700,
+                  letterSpacing:"0.07em", textTransform:"uppercase",
+                  background: aiDrafting ? "#334155" : "#6366f1",
+                  color:"#fff", border:"none", borderRadius:2,
+                  cursor: aiDrafting || !aiPrompt.trim() ? "default" : "pointer",
+                  opacity: !aiPrompt.trim() ? 0.5 : 1 }}
+              >
+                {aiDrafting ? "Drafting…" : "✨ AI Draft"}
+              </button>
+              {aiDraftDone && (
+                <span style={{ fontFamily:T.mono, fontSize:10, color:"#4ade80" }}>
+                  ✓ Form filled — review and adjust below
+                </span>
+              )}
+              {aiDraftErr && (
+                <span style={{ fontFamily:T.mono, fontSize:10, color:"#f87171" }}>
+                  {aiDraftErr}
+                </span>
+              )}
+            </div>
+          </div>
+
           <div>
             <label style={LBL}>Project *</label>
             <select value={projectId} onChange={e => setProjectId(e.target.value)} style={INP}>
