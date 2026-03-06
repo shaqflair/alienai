@@ -708,12 +708,18 @@ function RaiseItemModal({ projects, onClose, onSuccess }: {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          project_id:  projectId,
+          project_id:    projectId,
           type, priority, status: "Open",
-          title:       title.trim(),
-          description: description.trim(),
-          due_date:    dueDate || null,
-          owner_label: owner.trim(),
+          title:         title.trim(),
+          description:   description.trim(),
+          due_date:      dueDate || null,
+          owner_label:   owner.trim(),
+          probability,
+          severity,
+          impact,
+          response_plan: responsePlan.trim()  || null,
+          next_steps:    nextSteps.trim()     || null,
+          notes:         notes.trim()         || null,
         }),
       });
       if (!res.ok) {
