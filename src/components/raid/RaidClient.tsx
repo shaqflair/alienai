@@ -736,27 +736,6 @@ export default function RaidPortfolioClient({
                     <span style={{ fontSize: 14, lineHeight: 1 }}>+</span>
                     Raise Risk / Issue
                   </button>
-                      {raiseProjects.map(p => (
-                        <a
-                          key={p.id}
-                          href={`/projects/${p.id}/raid`}
-                          style={{
-                            display: "block", padding: "9px 14px",
-                            fontFamily: T.mono, fontSize: 11, color: T.ink2,
-                            textDecoration: "none",
-                            borderBottom: `1px solid ${T.hr}`,
-                          }}
-                          onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.background = T.bg; }}
-                          onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.background = "transparent"; }}
-                        >
-                          {p.code && (
-                            <span style={{ color: T.ink4, marginRight: 8, fontWeight: 600 }}>{p.code}</span>
-                          )}
-                          {p.title}
-                        </a>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
