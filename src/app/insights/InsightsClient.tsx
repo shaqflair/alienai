@@ -910,16 +910,14 @@ export default function InsightsClient() {
                 </div>
               ) : sections.map((sec) => (
                 <SectionPanel key={sec.key} section={sec} />
-              ))}
-              <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 8 }}>
-                <Link href="/risks" style={{
-                  fontFamily: T.mono, fontSize: 10, fontWeight: 600, letterSpacing: "0.1em",
-                  color: "#1d4ed8", textDecoration: "none", borderBottom: "1px solid #bfdbfe", paddingBottom: 1,
-                }}>
-                  OPEN FULL RAID REGISTER →
-                </Link>
-              </div>
-            </div>
+             <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 8 }}>
+  <Link href="/portfolio/raid" style={{
+    fontFamily: T.mono, fontSize: 10, fontWeight: 600, letterSpacing: "0.1em",
+    color: "#1d4ed8", textDecoration: "none", borderBottom: "1px solid #bfdbfe", paddingBottom: 1,
+  }}>
+    OPEN FULL RAID REGISTER →
+  </Link>
+</div>            </div>
           )}
 
           {/* ── AI SIGNALS TAB ── */}
