@@ -143,18 +143,18 @@ export default async function ProjectsPage({
 
         :root {
           --white:      #ffffff;
-          --off:        #f7f7f5;
-          --rule:       #e2e2de;
-          --rule-heavy: #111111;
-          --ink:        #111111;
-          --ink-2:      #444444;
-          --ink-3:      #888888;
-          --ink-4:      #bbbbbb;
-          --green:      #14532d;
-          --green-bg:   #f0fdf4;
-          --amber:      #78350f;
-          --amber-bg:   #fefce8;
-          --red:        #7f1d1d;
+          --off:        #f0fafb;
+          --rule:       #d4edf0;
+          --rule-heavy: #0d2d35;
+          --ink:        #0d2d35;
+          --ink-2:      #2a5a66;
+          --ink-3:      #5a9aa8;
+          --ink-4:      #96c8d4;
+          --green:      #047857;
+          --green-bg:   #ecfdf5;
+          --amber:      #b45309;
+          --amber-bg:   #fffbeb;
+          --red:        #b91c1c;
           --red-bg:     #fef2f2;
           --font:       'Familjen Grotesk', 'Helvetica Neue', sans-serif;
           --mono:       'DM Mono', 'Courier New', monospace;
