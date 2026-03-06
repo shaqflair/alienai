@@ -419,6 +419,155 @@ const SORTS: { v: SortKey; l: string }[] = [
   { v: "type",     l: "Type"        },
 ];
 
+/* ─── Raise Item Modal ──────────────────────────────────────────────────────────────────────── */
+
+const ITEM_TYPES = ["Risk","Issue","Assumption","Dependency"] as const;
+const PRIORITIES = ["Critical","High","Medium","Low"] as const;
+
+function RaiseItemModal({ projects, onClose, onSuccess }: {
+  projects: { id: string; title: string; code: string | null }[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [projectId,   setProjectId]   = React.useState(projects[0]?.id ?? "");
+  const [type,        setType]        = React.useState<typeof ITEM_TYPES[number]>("Risk");
+  const [title,       setTitle]       = React.useState("");
+  const [description, setDescription] = React.useState("");
+  const [priority,    setPriority]    = React.useState<typeof PRIORITIES[number]>("Medium");
+  const [dueDate,     setDueDate]     = React.useState("");
+  const [owner,       setOwner]       = React.useState("");
+  const [saving,      setSaving]      = React.useState(false);
+  const [error,       setError]       = React.useState<string | null>(null);
+
+  async function handleSubmit() {
+    if (!title.trim())       { setError("Title is required.");       return; }
+    if (!description.trim()) { setError("Description is required."); return; }
+    if (!owner.trim())       { setError("Owner is required.");       return; }
+    if (!projectId)          { setError("Select a project.");        return; }
+    setSaving(true); setError(null);
+    try {
+      const res = await fetch("/api/raid", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id:  projectId,
+          type, priority, status: "Open",
+          title:       title.trim(),
+          description: description.trim(),
+          due_date:    dueDate || null,
+          owner_label: owner.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.error ?? ("HTTP " + res.status));
+      }
+      onSuccess();
+      onClose();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const INP: React.CSSProperties = {
+    width: "100%", boxSizing: "border-box", padding: "8px 10px",
+    fontFamily: T.mono, fontSize: 12, color: T.ink,
+    background: "#fff", border: "1px solid " + T.hr, borderRadius: 2, outline: "none",
+  };
+  const LBL: React.CSSProperties = {
+    display: "block", marginBottom: 5, fontFamily: T.mono, fontSize: 9,
+    fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: T.ink4,
+  };
+
+  return (
+    <div style={{ position:"fixed",inset:0,zIndex:1000,background:"rgba(0,0,0,0.45)",
+      display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background:T.surface,borderRadius:4,border:"1px solid "+T.hr,
+        boxShadow:"0 24px 80px rgba(0,0,0,0.2)",width:"100%",maxWidth:560,
+        animation:"fadeUp 0.2s ease both",overflow:"hidden" }}>
+
+        <div style={{ padding:"20px 24px 16px",borderBottom:"1px solid "+T.hr,
+          display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+          <div>
+            <div style={{ fontFamily:T.serif,fontSize:20,fontWeight:700,color:T.ink }}>Raise New Item</div>
+            <Cap>Risk · Issue · Assumption · Dependency</Cap>
+          </div>
+          <button onClick={onClose} style={{ background:"none",border:"none",cursor:"pointer",
+            fontFamily:T.mono,fontSize:18,color:T.ink4,padding:"4px 8px",lineHeight:1 }}>x</button>
+        </div>
+
+        <div style={{ padding:"20px 24px",display:"flex",flexDirection:"column",gap:16 }}>
+          <div>
+            <label style={LBL}>Project *</label>
+            <select value={projectId} onChange={e => setProjectId(e.target.value)} style={INP}>
+              {projects.map(p => <option key={p.id} value={p.id}>{p.code ? p.code+" — " : ""}{p.title}</option>)}
+            </select>
+          </div>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+            <div>
+              <label style={LBL}>Type *</label>
+              <select value={type} onChange={e => setType(e.target.value as any)} style={INP}>
+                {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={LBL}>Priority</label>
+              <select value={priority} onChange={e => setPriority(e.target.value as any)} style={INP}>
+                {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style={LBL}>Title *</label>
+            <input value={title} onChange={e => setTitle(e.target.value)}
+              placeholder="Concise title for this item" style={INP} />
+          </div>
+          <div>
+            <label style={LBL}>Description *</label>
+            <textarea value={description} onChange={e => setDescription(e.target.value)}
+              placeholder="Describe the risk/issue, its impact and context..."
+              rows={3} style={{ ...INP, resize:"vertical", fontFamily:T.body, fontSize:13 }} />
+          </div>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+            <div>
+              <label style={LBL}>Owner *</label>
+              <input value={owner} onChange={e => setOwner(e.target.value)}
+                placeholder="Name or team" style={INP} />
+            </div>
+            <div>
+              <label style={LBL}>Due Date</label>
+              <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={INP} />
+            </div>
+          </div>
+          {error && (
+            <div style={{ padding:"10px 14px",borderRadius:2,
+              background:RAG_CONFIG.R.bg,border:"1px solid "+RAG_CONFIG.R.border,
+              fontFamily:T.mono,fontSize:11,color:RAG_CONFIG.R.fg }}>{error}</div>
+          )}
+        </div>
+
+        <div style={{ padding:"14px 24px 20px",borderTop:"1px solid "+T.hr,
+          display:"flex",justifyContent:"flex-end",gap:10 }}>
+          <button onClick={onClose} style={{ padding:"9px 20px",fontFamily:T.mono,fontSize:10,
+            fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase",
+            background:"transparent",color:T.ink3,border:"1px solid "+T.hr,borderRadius:2,cursor:"pointer" }}>
+            Cancel
+          </button>
+          <button onClick={handleSubmit} disabled={saving} style={{ padding:"9px 20px",
+            fontFamily:T.mono,fontSize:10,fontWeight:600,letterSpacing:"0.07em",
+            textTransform:"uppercase",background:saving?T.ink3:T.ink,color:"#fff",
+            border:"none",borderRadius:2,cursor:saving?"default":"pointer" }}>
+            {saving ? "Saving..." : "Raise Item"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Main component ────────────────────────────────────────────────────────── */
 
 export default function RaidPortfolioClient({
@@ -439,6 +588,7 @@ export default function RaidPortfolioClient({
   const [search,     setSearch]     = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showRaise,  setShowRaise]  = useState(false);
+  const [showModal,  setShowModal]  = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -573,7 +723,7 @@ export default function RaidPortfolioClient({
                 <Mono size={10} color={T.ink5}>{nowUK()}</Mono>
                 <div style={{ position: "relative" }}>
                   <button
-                    onClick={() => setShowRaise(s => !s)}
+                    onClick={() => setShowModal(true)}
                     style={{
                       display: "inline-flex", alignItems: "center", gap: 6,
                       padding: "7px 16px",
@@ -586,24 +736,6 @@ export default function RaidPortfolioClient({
                     <span style={{ fontSize: 14, lineHeight: 1 }}>+</span>
                     Raise Risk / Issue
                   </button>
-                  {showRaise && (
-                    <div
-                      style={{
-                        position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 200,
-                        background: T.surface, border: `1px solid ${T.hr}`,
-                        borderRadius: 3, boxShadow: "0 8px 24px rgba(0,0,0,0.1)",
-                        minWidth: 280, overflow: "hidden",
-                      }}
-                      onMouseLeave={() => setShowRaise(false)}
-                    >
-                      <div style={{ padding: "10px 14px 8px", borderBottom: `1px solid ${T.hr}` }}>
-                        <Cap>Select project to raise item in</Cap>
-                      </div>
-                      {raiseProjects.length === 0 && (
-                        <div style={{ padding: "14px 18px" }}>
-                          <Mono size={11} color={T.ink4}>No projects loaded yet.</Mono>
-                        </div>
-                      )}
                       {raiseProjects.map(p => (
                         <a
                           key={p.id}
@@ -939,6 +1071,13 @@ export default function RaidPortfolioClient({
 
         </div>
       </div>
+      {showModal && (
+        <RaiseItemModal
+          projects={raiseProjects}
+          onClose={() => setShowModal(false)}
+          onSuccess={() => fetchData()}
+        />
+      )}
     </>
   );
 }
