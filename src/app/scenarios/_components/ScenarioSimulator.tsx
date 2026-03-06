@@ -1343,21 +1343,34 @@ export default function ScenarioSimulator({
 
               {/* Filter bar */}
               {people.length > 1 && (
-                <div style={{ padding: "10px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginRight: 4 }}>Filter</span>
-                  {people.map((p: any) => (
-                    <button key={p.personId} onClick={() => setFilterPeople((prev: string[]) =>
-                      prev.includes(p.personId) ? prev.filter((x: string) => x !== p.personId) : [...prev, p.personId]
-                    )} style={{
-                      padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer",
-                      border: "1.5px solid " + (filterPeople.includes(p.personId) ? "#00b8db" : "#e2e8f0"),
-                      background: filterPeople.includes(p.personId) ? "#e0f7fa" : "#fff",
-                      color: filterPeople.includes(p.personId) ? "#0284c7" : "#64748b",
-                    }}>{p.fullName.split(" ")[0]}</button>
-                  ))}
+                <div style={{ padding: "10px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 12, alignItems: "center" }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em" }}>Filter people</span>
+                  <select
+                    multiple
+                    value={filterPeople}
+                    onChange={e => {
+                      const selected = Array.from(e.target.selectedOptions).map(o => o.value);
+                      setFilterPeople(selected);
+                    }}
+                    style={{
+                      border: "1.5px solid #e2e8f0", borderRadius: 8, fontSize: 12,
+                      padding: "4px 8px", color: "#0f172a", background: "#fff",
+                      minWidth: 180, maxWidth: 260,
+                      height: Math.min(people.length, 5) * 28 + "px",
+                    }}
+                  >
+                    {people.map((p: any) => (
+                      <option key={p.personId} value={p.personId}>{p.fullName}</option>
+                    ))}
+                  </select>
                   {filterPeople.length > 0 && (
-                    <button onClick={() => setFilterPeople([])} style={{ fontSize: 10, color: "#94a3b8", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Clear</button>
+                    <button onClick={() => setFilterPeople([])} style={{
+                      fontSize: 11, color: "#64748b", background: "#f1f5f9",
+                      border: "1px solid #e2e8f0", borderRadius: 6,
+                      padding: "4px 10px", cursor: "pointer", fontWeight: 600,
+                    }}>Show all</button>
                   )}
+                  <span style={{ fontSize: 10, color: "#94a3b8" }}>Hold Ctrl / Cmd to select multiple</span>
                 </div>
               )}
 
