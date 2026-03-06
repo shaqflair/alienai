@@ -268,8 +268,8 @@ function DiffHeatmap({
 
             {/* Scenario cells */}
             {visWeeks.map(w => {
-              const cell  = diff.cells.find(c => c.weekStart === w);
-              const pct   = cell?.scenarioPct ?? 0;
+              const cell    = diff.cells.find(c => c.weekStart === w);
+              const pct     = cell?.scenarioPct ?? 0;
               const changed = cell?.changed ?? false;
               return (
                 <Cell key={`sc-${w}`} pct={pct} highlight={changed} delta={cell?.delta} isToday={w === todayMon} />
@@ -401,8 +401,6 @@ function AddAllocationForm({
   );
 }
 
-// FIX Bug 3: SwapForm now collects daysPerWeek so applyChanges can synthesise
-// rows for weeks where fromPerson had no existing allocation.
 function SwapForm({
   people, projects, onAdd, onCancel,
 }: {
@@ -538,12 +536,12 @@ function AddProjectForm({
   people: LivePerson[]; allocations: LiveAllocation[]; exceptions: LiveException[];
   onAdd: (c: ScenarioChange) => void; onCancel: () => void;
 }) {
-  const [title,      setTitle]      = useState("");
-  const [personId,   setPersonId]   = useState(people[0]?.personId ?? "");
-  const [startDate,  setStartDate]  = useState("");
-  const [endDate,    setEndDate]    = useState("");
-  const [daysPerWk,  setDaysPerWk]  = useState(3);
-  const [colour,     setColour]     = useState(PROJECT_COLOURS[4]);
+  const [title,       setTitle]       = useState("");
+  const [personId,    setPersonId]    = useState(people[0]?.personId ?? "");
+  const [startDate,   setStartDate]   = useState("");
+  const [endDate,     setEndDate]     = useState("");
+  const [daysPerWk,   setDaysPerWk]   = useState(3);
+  const [colour,      setColour]      = useState(PROJECT_COLOURS[4]);
   const [suggestions, setSuggestions] = useState<SuggestedPerson[]>([]);
 
   function runSuggest() {
@@ -619,7 +617,7 @@ function AddProjectForm({
                       )}
                     </div>
                     <div style={{ fontSize: "10px", color: "#94a3b8" }}>
-                      {s.avgAvailDays}d/wk available . {s.conflictWeeks} conflict wks
+                      {s.avgAvailDays}d/wk available · {s.conflictWeeks} conflict wks
                     </div>
                   </div>
                   <div style={{
@@ -717,7 +715,7 @@ function DaysPicker({ value, onChange, max }: { value: number; onChange: (v: num
 ============================================================================= */
 
 const ADD_BUTTONS = [
-  { type: "add_allocation",  icon: "＋",  label: "Add allocation"  },
+  { type: "add_allocation",  icon: "＋", label: "Add allocation"  },
   { type: "swap_allocation", icon: "⇄",  label: "Swap person"     },
   { type: "change_capacity", icon: "~",  label: "Change capacity" },
   { type: "shift_project",   icon: "»",  label: "Shift project"   },
@@ -775,7 +773,7 @@ export default function ScenarioSimulator({
     try {
       return applyChanges(people, projects, allocations, exceptions, changes);
     } catch {
-      return { allocations: allocations, projects: projects, scenarioCap: new Map() };
+      return { allocations, projects, scenarioCap: new Map() };
     }
   }, [people, projects, allocations, exceptions, changes]);
 
@@ -799,9 +797,12 @@ export default function ScenarioSimulator({
     }
   }, [liveState, scenarioState, weeks, people]);
 
-  const liveScore     = liveState?.conflictScore  ?? 0;
+  const liveScore     = liveState?.conflictScore   ?? 0;
   const scenarioScore = scenarioState?.conflictScore ?? 0;
   const scoreDelta    = scenarioScore - liveScore;
+
+  // Whether we're editing an existing saved scenario
+  const isEditing = scenarioId !== null;
 
   async function handleSave() {
     const fd = new FormData();
@@ -838,6 +839,14 @@ export default function ScenarioSimulator({
 
   function removeChange(i: number) {
     setChanges(cs => cs.filter((_, j) => j !== i));
+  }
+
+  // Save button label: reflects whether creating new or updating existing
+  function saveLabel() {
+    if (saveMsg)    return saveMsg;
+    if (isPending)  return "Saving...";
+    if (isEditing)  return "💾 Update scenario";
+    return "💾 Save scenario";
   }
 
   return (
@@ -883,7 +892,6 @@ export default function ScenarioSimulator({
                 color: "#475569", fontSize: "12px", fontWeight: 600, cursor: "pointer",
               }}>New</button>
 
-              {/* FIX Bug 1: removed literal "??" strings, replaced with real icons */}
               <button type="button" onClick={() => setShowAI(s => !s)} style={{
                 padding: "8px 16px", borderRadius: "9px", border: "1.5px solid",
                 borderColor: showAI ? "#00b8db" : "#e2e8f0",
@@ -899,12 +907,11 @@ export default function ScenarioSimulator({
                   borderRadius: "4px", padding: "1px 5px", fontWeight: 900 }}>ON</span>}
               </button>
 
-              {/* FIX Bug 1: removed "??" prefix from Save scenario label */}
               <button
                 type="button"
                 onClick={handleSave}
                 disabled={isPending || changes.length === 0}
-                title={changes.length === 0 ? "Add at least one change to save" : "Save this scenario"}
+                title={changes.length === 0 ? "Add at least one change to save" : isEditing ? "Update this scenario" : "Save as new scenario"}
                 style={{
                   padding: "8px 18px", borderRadius: "8px", border: "none",
                   background: changes.length === 0 ? "#cbd5e1" : "#00b8db",
@@ -915,7 +922,7 @@ export default function ScenarioSimulator({
                   transition: "all 0.15s",
                 }}
               >
-                {saveMsg || (isPending ? "Saving..." : "💾 Save scenario")}
+                {saveLabel()}
               </button>
             </div>
           </div>
@@ -1107,8 +1114,14 @@ export default function ScenarioSimulator({
                               {sc.changes.length} change{sc.changes.length !== 1 ? "s" : ""}
                             </div>
                           </div>
+                          {/* FIX: "Editing" is clearer than "Active" -- makes it obvious
+                              that clicking Save will overwrite this scenario */}
                           {scenarioId === sc.id && (
-                            <span style={{ fontSize: "10px", color: "#00b8db", fontWeight: 700 }}>Active</span>
+                            <span style={{
+                              fontSize: "10px", color: "#00b8db", fontWeight: 700,
+                              background: "rgba(0,184,219,0.1)", padding: "2px 7px",
+                              borderRadius: "4px",
+                            }}>Editing</span>
                           )}
                         </button>
                         <button type="button" onClick={() => startTransition(async () => {
