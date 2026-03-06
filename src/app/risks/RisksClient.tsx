@@ -151,6 +151,74 @@ async function readJsonSafe(res: Response) {
   }
 }
 
+function AiPanel({ itemId }: { itemId: string }) {
+  const [loading, setLoading] = React.useState(false);
+  const [data,    setData]    = React.useState<any>(null);
+  const [err,     setErr]     = React.useState<string|null>(null);
+
+  async function refresh() {
+    setLoading(true); setErr(null);
+    try {
+      const res = await fetch("/api/raid-log/ai-refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: itemId }),
+      });
+      const j = await res.json();
+      if (!j.ok) throw new Error(j.error || "Failed");
+      setData(j);
+    } catch(e: any) {
+      setErr(e?.message ?? "Failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <button
+        onClick={refresh}
+        disabled={loading}
+        className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition disabled:opacity-50"
+      >
+        {loading ? "Analysing…" : "✨ AI Refresh"}
+      </button>
+      {err && <p className="mt-2 text-sm text-rose-600">{err}</p>}
+      {data && (
+        <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`rounded-full border px-3 py-1 text-xs font-bold ${data.escalate ? "border-rose-400 bg-rose-50 text-rose-700" : "border-emerald-400 bg-emerald-50 text-emerald-700"}`}>
+              {data.escalate ? "⚠ Escalate" : "✓ Monitor"}
+            </span>
+            <span className="rounded-full border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-600">
+              Score {data.score} · {data.band}
+            </span>
+            <span className="rounded-full border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-600">
+              Confidence {Math.round((data.confidence ?? 0) * 100)}%
+            </span>
+            {(data.signals ?? []).map((s: string) => (
+              <span key={s} className="rounded-full border border-amber-300 bg-amber-50 text-amber-700 px-2 py-0.5 text-xs font-medium">{s}</span>
+            ))}
+          </div>
+          <p className="text-sm text-gray-700 leading-relaxed">{data.summary}</p>
+          {data.next_action && (
+            <div className="rounded-lg bg-blue-50 border border-blue-200 px-3 py-2 text-sm text-blue-800">
+              <span className="font-semibold">Next action: </span>{data.next_action}
+            </div>
+          )}
+          {data.recommendations?.length > 0 && (
+            <ol className="space-y-1 pl-4 list-decimal">
+              {data.recommendations.map((r: string, i: number) => (
+                <li key={i} className="text-sm text-gray-700">{r}</li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RisksClient({
   initialWindowDays,
   initialScope,
@@ -513,13 +581,16 @@ export default function RisksClient({
                           <td className="px-6 py-4">{it.owner_label || "—"}</td>
 
                           <td className="px-6 py-4 text-right">
-                            <button
-                              className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 transition font-medium"
-                              onClick={() => router.push(`/projects/${it.project_id}/raid`)}
-                              title="Open project RAID"
-                            >
-                              Open <ArrowUpRight className="h-4 w-4" />
-                            </button>
+                            <div className="flex flex-col items-end gap-2">
+                              <button
+                                className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 transition font-medium"
+                                onClick={() => router.push(`/projects/${it.project_id}/raid`)}
+                                title="Open project RAID"
+                              >
+                                Open <ArrowUpRight className="h-4 w-4" />
+                              </button>
+                              <AiPanel itemId={it.id} />
+                            </div>
                           </td>
                         </tr>
                       );
