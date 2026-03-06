@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
       const mapped = statusMap[statusP];
       if (mapped) q = q.eq("status", mapped);
     } else {
-      q = q.not("status", "in", "("Closed","Invalid")");
+      q = q.not('status', 'in', '("Closed","Invalid")');
     }
 
     // Scope filter (using last_updated as proxy since no due_date)
