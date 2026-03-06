@@ -300,6 +300,34 @@ function SectionRule({ label }: { label?: string }) {
 /* ─── Detail drawer ─────────────────────────────────────────────────────────── */
 
 function DetailDrawer({ item }: { item: RaidItem }) {
+  const [showEdit,   setShowEdit]   = React.useState(false);
+  const [localItem,  setLocalItem]  = React.useState<Partial<RaidItem>>({});
+  const [assessing,  setAssessing]  = React.useState(false);
+  const [aiFinErr,   setAiFinErr]   = React.useState<string|null>(null);
+  const [aiFinData,  setAiFinData]  = React.useState<{
+    est_cost_impact: number|null; est_revenue_at_risk: number|null;
+    est_penalties: number|null; est_schedule_days: number|null;
+    confidence: string; reasoning: string; key_assumptions: string[];
+  } | null>(null);
+
+  async function assessImpact() {
+    setAssessing(true); setAiFinErr(null);
+    try {
+      const res = await fetch("/api/raid/financial-impact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ raidItemId: item.id }),
+      });
+      const j = await res.json();
+      if (!j.ok) throw new Error(j.error || "Assessment failed");
+      setAiFinData(j);
+    } catch(e: any) {
+      setAiFinErr(e?.message ?? "Failed");
+    } finally {
+      setAssessing(false);
+    }
+  }
+
   const rag      = itemRag(item);
   const exposure = totalExposure(item);
   const slr      = slaRag(item.sla_breach_probability, item.sla_days_to_breach);
@@ -375,19 +403,79 @@ function DetailDrawer({ item }: { item: RaidItem }) {
             </div>
           </div>
 
-          <div style={{ marginTop: 22 }}>
-            <Link
-              href={`/projects/${item.project_id}/raid`}
-              onClick={(e) => e.stopPropagation()}
+          <div style={{ marginTop: 16, display:"flex", flexDirection:"column", gap:8 }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); assessImpact(); }}
+              disabled={assessing}
               style={{
-                fontFamily: T.mono, fontSize: 10, fontWeight: 600,
-                letterSpacing: "0.1em", color: "#1d4ed8",
-                textDecoration: "none",
-                borderBottom: "1px solid #bfdbfe", paddingBottom: 1,
+                padding:"7px 12px", fontFamily:T.mono, fontSize:10, fontWeight:600,
+                letterSpacing:"0.07em", textTransform:"uppercase",
+                background: assessing ? T.ink4 : T.ink, color:"#fff",
+                border:"none", borderRadius:2, cursor: assessing ? "default":"pointer",
+                width:"100%",
               }}
             >
-              OPEN IN PROJECT REGISTER &rarr;
-            </Link>
+              {assessing ? "Assessing…" : "AI Assess Financial Impact"}
+            </button>
+            {aiFinErr && (
+              <div style={{ fontFamily:T.mono, fontSize:10, color:RAG_CONFIG.R.fg, padding:"6px 8px",
+                background:RAG_CONFIG.R.bg, borderRadius:2 }}>{aiFinErr}</div>
+            )}
+            {aiFinData && (
+              <div style={{ background:"rgba(255,255,255,0.6)", borderRadius:2, padding:"10px 12px",
+                border:`1px solid ${T.hr}`, display:"flex", flexDirection:"column", gap:6 }}>
+                {[
+                  ["Cost Impact",     aiFinData.est_cost_impact],
+                  ["Revenue at Risk", aiFinData.est_revenue_at_risk],
+                  ["Penalties",       aiFinData.est_penalties],
+                ] .map(([k,v]) => (
+                  <div key={k as string} style={{ display:"flex", justifyContent:"space-between" }}>
+                    <Mono size={10} color={T.ink4}>{k}</Mono>
+                    <Mono size={10} color={T.ink2} weight={600}>{fmtMoney("£", v as number|null)}</Mono>
+                  </div>
+                ))}
+                {aiFinData.est_schedule_days != null && (
+                  <div style={{ display:"flex", justifyContent:"space-between" }}>
+                    <Mono size={10} color={T.ink4}>Schedule Slippage</Mono>
+                    <Mono size={10} color={T.ink2} weight={600}>{aiFinData.est_schedule_days}d</Mono>
+                  </div>
+                )}
+                <div style={{ borderTop:`1px solid ${T.hr}`, paddingTop:6, marginTop:2 }}>
+                  <Mono size={9} color={T.ink5}>Confidence: {aiFinData.confidence}</Mono>
+                  <div style={{ marginTop:4, fontFamily:T.body, fontSize:11, color:T.ink4,
+                    lineHeight:1.5 }}>{aiFinData.reasoning}</div>
+                </div>
+              </div>
+            )}
+            <div style={{ display:"flex", gap:10, alignItems:"center", marginTop:4 }}>
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowEdit(true); }}
+                style={{ padding:"6px 14px", fontFamily:T.mono, fontSize:10, fontWeight:600,
+                  letterSpacing:"0.07em", textTransform:"uppercase",
+                  background:T.ink, color:"#fff", border:"none", borderRadius:2, cursor:"pointer" }}
+              >
+                Edit Item
+              </button>
+              <Link
+                href={`/projects/${item.project_id}/raid`}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  fontFamily: T.mono, fontSize: 10, fontWeight: 600,
+                  letterSpacing: "0.1em", color: "#1d4ed8",
+                  textDecoration: "none",
+                  borderBottom: "1px solid #bfdbfe", paddingBottom: 1,
+                }}
+              >
+                OPEN IN PROJECT REGISTER &rarr;
+              </Link>
+            </div>
+            {showEdit && (
+              <EditItemModal
+                item={{ ...item, ...localItem } as RaidItem}
+                onClose={() => setShowEdit(false)}
+                onSaved={(updates) => setLocalItem(prev => ({ ...prev, ...updates }))}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -418,6 +506,170 @@ const SORTS: { v: SortKey; l: string }[] = [
   { v: "due_date", l: "Due Date"    },
   { v: "type",     l: "Type"        },
 ];
+
+/* ─── Edit Item Modal ─────────────────────────────────────────────────────── */
+function EditItemModal({ item, onClose, onSaved }: {
+  item: RaidItem;
+  onClose: () => void;
+  onSaved: (updated: Partial<RaidItem>) => void;
+}) {
+  const [type,        setType]        = React.useState(item.type);
+  const [title,       setTitle]       = React.useState(item.title);
+  const [description, setDescription] = React.useState(item.description || "");
+  const [priority,    setPriority]    = React.useState(item.priority || "Medium");
+  const [status,      setStatus]      = React.useState(item.status || "Open");
+  const [probability, setProbability] = React.useState(item.probability ?? 50);
+  const [severity,    setSeverity]    = React.useState(item.severity ?? 50);
+  const [owner,       setOwner]       = React.useState(item.owner_label || "");
+  const [dueDate,     setDueDate]     = React.useState(item.due_date || "");
+  const [saving,      setSaving]      = React.useState(false);
+  const [error,       setError]       = React.useState<string | null>(null);
+
+  const INP: React.CSSProperties = {
+    width: "100%", boxSizing: "border-box", padding: "8px 10px",
+    fontFamily: T.mono, fontSize: 12, color: T.ink,
+    background: "#fff", border: "1px solid " + T.hr, borderRadius: 2, outline: "none",
+  };
+  const LBL: React.CSSProperties = {
+    display: "block", marginBottom: 5, fontFamily: T.mono, fontSize: 9,
+    fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: T.ink4,
+  };
+
+  async function handleSave() {
+    if (!title.trim()) { setError("Title is required."); return; }
+    setSaving(true); setError(null);
+    try {
+      const res = await fetch(`/api/raid/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type, title: title.trim(), description: description.trim(),
+          priority, status, probability, severity,
+          owner_label: owner.trim(), due_date: dueDate || null,
+          expected_updated_at: item.updated_at,
+        }),
+      });
+      const j = await res.json();
+      if (!j.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      onSaved({ type, title: title.trim(), description: description.trim(),
+        priority, status, probability, severity,
+        owner_label: owner.trim(), due_date: dueDate || null,
+        score: Math.round((probability * severity) / 100),
+      });
+      onClose();
+    } catch(e: any) {
+      setError(e?.message ?? "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ position:"fixed",inset:0,zIndex:1000,background:"rgba(0,0,0,0.45)",
+      display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background:T.surface,borderRadius:4,border:"1px solid "+T.hr,
+        boxShadow:"0 24px 80px rgba(0,0,0,0.2)",width:"100%",maxWidth:580,
+        maxHeight:"90vh",overflowY:"auto" }}>
+
+        <div style={{ padding:"20px 24px 16px",borderBottom:"1px solid "+T.hr,
+          display:"flex",justifyContent:"space-between",alignItems:"center",
+          position:"sticky",top:0,background:T.surface,zIndex:1 }}>
+          <div>
+            <div style={{ fontFamily:T.serif,fontSize:20,fontWeight:700,color:T.ink }}>Edit Item</div>
+            <Cap>{item.project_title}</Cap>
+          </div>
+          <button onClick={onClose} style={{ background:"none",border:"none",cursor:"pointer",
+            fontFamily:T.mono,fontSize:18,color:T.ink4,padding:"4px 8px" }}>x</button>
+        </div>
+
+        <div style={{ padding:"20px 24px",display:"flex",flexDirection:"column",gap:14 }}>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12 }}>
+            <div>
+              <label style={LBL}>Type</label>
+              <select value={type} onChange={e => setType(e.target.value)} style={INP}>
+                {["Risk","Issue","Assumption","Dependency"].map(t => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={LBL}>Priority</label>
+              <select value={priority} onChange={e => setPriority(e.target.value)} style={INP}>
+                {["Critical","High","Medium","Low"].map(p => <option key={p}>{p}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={LBL}>Status</label>
+              <select value={status} onChange={e => setStatus(e.target.value)} style={INP}>
+                {["Open","In Progress","Mitigated","Closed","Invalid"].map(s => <option key={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style={LBL}>Title *</label>
+            <input value={title} onChange={e => setTitle(e.target.value)} style={INP} />
+          </div>
+          <div>
+            <label style={LBL}>Description</label>
+            <textarea value={description} onChange={e => setDescription(e.target.value)}
+              rows={3} style={{ ...INP, resize:"vertical", fontFamily:T.body, fontSize:13 }} />
+          </div>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
+            <div>
+              <label style={LBL}>Probability: {probability}%</label>
+              <input type="range" min={0} max={100} step={5} value={probability}
+                onChange={e => setProbability(Number(e.target.value))}
+                style={{ width:"100%", accentColor: T.ink }} />
+            </div>
+            <div>
+              <label style={LBL}>Severity: {severity}%</label>
+              <input type="range" min={0} max={100} step={5} value={severity}
+                onChange={e => setSeverity(Number(e.target.value))}
+                style={{ width:"100%", accentColor: T.ink }} />
+            </div>
+          </div>
+          <div style={{ background:"#f5f3f0", padding:"8px 12px", borderRadius:2 }}>
+            <span style={{ fontFamily:T.mono, fontSize:10, color:T.ink3 }}>
+              Risk Score: <strong style={{ color:T.ink }}>{Math.round((probability * severity) / 100)}</strong>
+              <span style={{ color:T.ink4 }}> = {probability}% × {severity}% ÷ 100</span>
+            </span>
+          </div>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+            <div>
+              <label style={LBL}>Owner</label>
+              <input value={owner} onChange={e => setOwner(e.target.value)}
+                placeholder="Name or team" style={INP} />
+            </div>
+            <div>
+              <label style={LBL}>Due Date</label>
+              <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={INP} />
+            </div>
+          </div>
+          {error && (
+            <div style={{ padding:"10px 14px",borderRadius:2,
+              background:RAG_CONFIG.R.bg,border:"1px solid "+RAG_CONFIG.R.border,
+              fontFamily:T.mono,fontSize:11,color:RAG_CONFIG.R.fg }}>{error}</div>
+          )}
+        </div>
+
+        <div style={{ padding:"14px 24px 20px",borderTop:"1px solid "+T.hr,
+          display:"flex",justifyContent:"flex-end",gap:10,
+          position:"sticky",bottom:0,background:T.surface }}>
+          <button onClick={onClose} style={{ padding:"9px 20px",fontFamily:T.mono,fontSize:10,
+            fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase",
+            background:"transparent",color:T.ink3,border:"1px solid "+T.hr,borderRadius:2,cursor:"pointer" }}>
+            Cancel
+          </button>
+          <button onClick={handleSave} disabled={saving} style={{ padding:"9px 20px",
+            fontFamily:T.mono,fontSize:10,fontWeight:600,letterSpacing:"0.07em",
+            textTransform:"uppercase",background:saving?T.ink3:T.ink,color:"#fff",
+            border:"none",borderRadius:2,cursor:saving?"default":"pointer" }}>
+            {saving ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ─── Raise Item Modal ──────────────────────────────────────────────────────────────────────── */
 
