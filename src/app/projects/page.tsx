@@ -1,4 +1,4 @@
-﻿// src/app/projects/page.tsx   world-class light theme redesign
+// src/app/projects/page.tsx   world-class light theme redesign
 import "server-only";
 
 import Link from "next/link";

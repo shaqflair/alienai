@@ -1,4 +1,4 @@
-﻿// FILE: src/app/projects/[id]/page.tsx
+// FILE: src/app/projects/[id]/page.tsx
 import "server-only";
 
 import Link from "next/link";
@@ -549,7 +549,7 @@ export default async function ProjectPage({
           transition: border-color 0.15s, background 0.15s; white-space: nowrap; cursor: pointer;
         }
         .action-btn:hover { border-color: var(--border-2); background: var(--surface-2); }
-        .action-btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+        .action-btn.primary { background:"#000000"; border-color:"#000000"; color: white; }
         .action-btn.primary:hover { opacity: 0.9; }
 
         /*  Flash  */
@@ -647,7 +647,7 @@ export default async function ProjectPage({
             <div style={{ padding: "22px 28px 0" }}>
               {/* Title row */}
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
-                <span style={{ width: 10, height: 10, borderRadius: "50%", background: "var(--green)", display: "inline-block", flexShrink: 0 }} />
+                <span style={{ width: 10, height: 10, borderRadius: "50%", background:"#000000", display: "inline-block", flexShrink: 0 }} />
                 <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--text-1)", letterSpacing: "-0.3px", margin: 0 }}>
                   {projectTitle}
                 </h1>
