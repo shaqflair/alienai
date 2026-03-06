@@ -1,4 +1,4 @@
-// src/app/projects/page.tsx   world-class light theme redesign
+﻿// src/app/projects/page.tsx   world-class light theme redesign
 import "server-only";
 
 import Link from "next/link";
@@ -535,7 +535,7 @@ export default async function ProjectsPage({
           <div className="mast-grid">
             <div>
               <div className="page-title">
-                Project<br /><em>Register</em>
+                Portfolio Projects
               </div>
             </div>
             <div className="mast-right">

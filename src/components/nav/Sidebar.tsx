@@ -814,10 +814,11 @@ export default function Sidebar({
 
   const NAV_GROUPS: NavGroup[] = [
     {
-      label: "Overview",
+      label: "Portfolio",
       items: [
         { href: "/", label: "Overview", icon: Icons.dashboard, exact: true },
         { href: "/projects", label: "Projects", icon: Icons.projects, badge: projectBadge },
+        { href: "/portfolio/raid", label: "RAID", icon: Icons.raid },
       ],
     },
     {
