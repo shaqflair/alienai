@@ -64,7 +64,7 @@ async function buildOrgDigest(supabase: any, orgId: string, orgName: string) {
       .from("raid_items")
       .select("id,type,title,description,probability,severity,status,priority,due_date,owner_label,ai_rollup,project_id")
       .in("project_id", projectIds)
-      .not("status", "in", "("Closed","Invalid")")
+      .not('status', 'in', '(Closed","Invalid")')
       .order("updated_at", { ascending: false })
       .limit(200);
     raidItems = (data ?? []).map((r: any) => ({
@@ -86,7 +86,7 @@ async function buildOrgDigest(supabase: any, orgId: string, orgName: string) {
     .from("raid_log")
     .select("id,type,name,likelihood,severity,status,priority,owner,last_updated,organisation_id")
     .eq("organisation_id", orgId)
-    .not("status", "in", "("Closed","Invalid")")
+    .not('status', 'in', '(Closed","Invalid")')
     .order("last_updated", { ascending: false })
     .limit(200);
 
