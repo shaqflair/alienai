@@ -513,11 +513,7 @@ export default async function ProjectsPage({
 
         {/* -- TOP BAR -- */}
         <div className="topbar">
-          <div className="topbar-left">
-            <Link href="/home" className="topbar-crumb">Portfolio</Link>
-            <span className="topbar-slash">/</span>
-            <span className="topbar-current">Projects</span>
-          </div>
+          <div className="topbar-left"><span style={{ color: "#0f172a", fontWeight: 700 }}>Portfolio Projects</span></div>
           <div className="topbar-right">
             <Link href="/artifacts" className="btn">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
