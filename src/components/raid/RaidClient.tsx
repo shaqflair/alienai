@@ -869,7 +869,7 @@ function RaiseItemModal({ projects, onClose, onSuccess }: {
         </div>
 
         <div style={{ padding:"14px 24px 20px",borderTop:"1px solid "+T.hr,
-          display:"flex",justifyContent:"flex-end",gap:10 }}>
+          display:"flex",justifyContent:"flex-end",gap:10,flexShrink:0 }}>
           <button onClick={onClose} style={{ padding:"9px 20px",fontFamily:T.mono,fontSize:10,
             fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase",
             background:"transparent",color:T.ink3,border:"1px solid "+T.hr,borderRadius:2,cursor:"pointer" }}>
