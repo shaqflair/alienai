@@ -605,7 +605,7 @@ export default function RaidPortfolioClient({
                         </div>
                       )}
                       {raiseProjects.map(p => (
-                        
+                        <a
                           key={p.id}
                           href={`/projects/${p.id}/raid`}
                           style={{
