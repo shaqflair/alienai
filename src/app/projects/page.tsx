@@ -545,22 +545,22 @@ export default async function ProjectsPage({
                   <div className="kpi-lbl">Total</div>
                 </div>
                 <div className="kpi-cell">
-                  <div className="kpi-num" style={{ color:var(--ink)"#0f172a" }}>{activeCt}</div>
+                  <div className="kpi-num" style={{ color: "#111" }}>{activeCt}</div>
                   <div className="kpi-lbl">Active</div>
                 </div>
                 <div className="kpi-cell">
-                  <div className="kpi-num" style={{ color:var(--ink)"var(--ink-4)" }}>{closedCt}</div>
+                  <div className="kpi-num" style={{ color: "#999" }}>{closedCt}</div>
                   <div className="kpi-lbl">Closed</div>
                 </div>
                 {atRiskCt > 0 && (
                   <div className="kpi-cell">
-                    <div className="kpi-num" style={{ color:var(--ink)"var(--red)" }}>{atRiskCt}</div>
+                    <div className="kpi-num" style={{ color: "#c00" }}>{atRiskCt}</div>
                     <div className="kpi-lbl">At Risk</div>
                   </div>
                 )}
                 {healthAvg != null && (
                   <div className="kpi-cell">
-                    <div className="kpi-num" style={{ color: var(--ink)"var(--ink-1)" : healthAvg >= 70 ? "var(--amber)" : "var(--red)" }}>
+                    <div className="kpi-num" style={{ color: healthAvg >= 90 ? "#111" : healthAvg >= 70 ? "#b45309" : "#c00" }}>
                       {healthAvg}<span style={{ fontSize: 14, fontWeight: 300 }}>%</span>
                     </div>
                     <div className="kpi-lbl">Avg Health</div>
