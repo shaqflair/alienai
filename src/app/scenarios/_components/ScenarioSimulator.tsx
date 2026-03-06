@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 // FILE: src/app/scenarios/_components/ScenarioSimulator.tsx
 import ScenarioAIPanel from "./ScenarioAIPanel";
 
@@ -844,6 +844,8 @@ export default function ScenarioSimulator({
   const [activeForm,      setActiveForm]      = useState<string | null>(null);
   const [saveMsg,         setSaveMsg]         = useState<string | null>(null);
   const [showAI,          setShowAI]          = useState(false);
+  const [filterPeople,   setFilterPeople]   = useState<string[]>([]);
+  const [filterProjects, setFilterProjects] = useState<string[]>([]);
   const [isPending,       startTransition]    = useTransition();
   const [localScenarios,  setLocalScenarios]  = useState<Scenario[]>(savedScenarios);
   const router = useRouter();
@@ -893,6 +895,22 @@ export default function ScenarioSimulator({
       return [];
     }
   }, [liveState, scenarioState, weeks, people]);
+
+  const filteredDiffs = useMemo(() => {
+    let d = diffs ?? [];
+    if (filterPeople.length)   d = d.filter(x => filterPeople.includes(x.personId));
+    return d;
+  }, [diffs, filterPeople]);
+
+  // Unique projects in live allocations for filter
+  const liveProjectOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const a of allocations) {
+      const proj = projects.find((p: any) => p.projectId === a.projectId);
+      if (proj) seen.set(proj.projectId, proj.projectTitle ?? proj.projectId);
+    }
+    return Array.from(seen.entries()).map(([id, title]) => ({ id, title }));
+  }, [allocations, projects]);
 
   const liveScore     = liveState?.conflictScore   ?? 0;
   const scenarioScore = scenarioState?.conflictScore ?? 0;
@@ -1300,6 +1318,30 @@ export default function ScenarioSimulator({
                   </div>
                 </div>
 
+              </div>
+
+              {/* Filter bar */}
+              {(people.length > 1 || liveProjectOptions.length > 0) && (
+                <div style={{ padding: "10px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em" }}>People</span>
+                    {people.map((p: any) => (
+                      <button key={p.personId} onClick={() => setFilterPeople(prev =>
+                        prev.includes(p.personId) ? prev.filter(x => x !== p.personId) : [...prev, p.personId]
+                      )} style={{
+                        padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                        border: "1.5px solid " + (filterPeople.includes(p.personId) ? "#00b8db" : "#e2e8f0"),
+                        background: filterPeople.includes(p.personId) ? "#e0f7fa" : "#fff",
+                        color: filterPeople.includes(p.personId) ? "#0284c7" : "#64748b",
+                      }}>{p.fullName.split(" ")[0]}</button>
+                    ))}
+                    {filterPeople.length > 0 && (
+                      <button onClick={() => setFilterPeople([])} style={{ fontSize: 10, color: "#94a3b8", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Clear</button>
+                    )}
+                  </div>
+                </div>
+              )}
+
                 {/* Score comparison */}
                 <div style={{
                   display: "flex", gap: "16px", marginLeft: "auto",
@@ -1324,7 +1366,7 @@ export default function ScenarioSimulator({
               </div>
 
               <div style={{ padding: "16px 20px" }}>
-                <DiffHeatmap diffs={diffs} weeks={weeks} />
+                <DiffHeatmap diffs={filteredDiffs} weeks={weeks} />
               </div>
             </div>
           </div>
