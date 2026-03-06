@@ -609,6 +609,30 @@ export default function TimesheetClient({
                           <RemoveRowBtn onClick={() => removeProjectRow(project.id)} />
                         )}
                       </div>
+                      {project.allocatedDaysThisWeek != null && (() => {
+                        const allocH  = Math.round(project.allocatedDaysThisWeek! * 8);
+                        const bookedH = rowTotal(project.id);
+                        const pct     = allocH > 0 ? Math.min(100, Math.round((bookedH / allocH) * 100)) : 0;
+                        const over    = bookedH > allocH;
+                        const barCol  = over ? "#ef4444" : pct >= 75 ? "#f59e0b" : "#0e7490";
+                        return (
+                          <div style={{ marginTop: 5 }}>
+                            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:2 }}>
+                              <span style={{ fontSize:"9px", color:"#94a3b8" }}>
+                                {bookedH}h booked · {allocH}h allocated
+                              </span>
+                              <span style={{ fontSize:"9px", fontWeight:700,
+                                color: over ? "#ef4444" : pct >= 75 ? "#f59e0b" : "#10b981" }}>
+                                {over ? `+${bookedH - allocH}h over` : `${pct}%`}
+                              </span>
+                            </div>
+                            <div style={{ height:3, borderRadius:99, background:"#f1f5f9" }}>
+                              <div style={{ height:"100%", borderRadius:99, transition:"width 0.3s",
+                                width:`${pct}%`, background: barCol }} />
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </td>
                     {days.map((d, i) => (
                       <td key={i} style={{ padding: "6px", background: d.isWeekend ? "#f8fafc" : "transparent" }}>

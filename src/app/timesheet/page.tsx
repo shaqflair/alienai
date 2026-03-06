@@ -30,6 +30,7 @@ function weekIsWithinCutoff(weekStart: string, cutoffWeeks: number): boolean {
 
 export type TimesheetProject = {
   id: string; title: string; code: string | null; colour: string;
+  allocatedDaysThisWeek: number | null;
 };
 
 export type TimesheetEntry = {
@@ -98,6 +99,7 @@ export default async function TimesheetPage({
       week_start_date,
       start_date,
       end_date,
+      days_per_week,
       projects:projects!allocations_project_id_fkey(
         id, title, project_code, colour, resource_status, deleted_at
       )
@@ -107,6 +109,7 @@ export default async function TimesheetPage({
 
   const projectMap           = new Map<string, TimesheetProject>();
   const allocatedThisWeekIds = new Set<string>();
+  const allocDaysPerWeek     = new Map<string, number>();
 
   for (const a of allocRows ?? []) {
     const p = (a as any).projects;
@@ -124,6 +127,7 @@ export default async function TimesheetPage({
       title:  safeStr(p.title),
       code:   p.project_code ?? null,
       colour: safeStr(p.colour) || "#00b8db",
+      allocatedDaysThisWeek: null,
     });
 
     // Check if this allocation covers the viewed week.
@@ -142,6 +146,12 @@ export default async function TimesheetPage({
 
     if (coversThisWeek) {
       allocatedThisWeekIds.add(pid);
+      // Store days_per_week — keep max if multiple allocations
+      const dpw = Number((a as any).days_per_week) || 0;
+      if (dpw > 0) {
+        const existing = allocDaysPerWeek.get(pid) ?? 0;
+        allocDaysPerWeek.set(pid, Math.max(existing, dpw));
+      }
     }
   }
 
@@ -172,6 +182,12 @@ export default async function TimesheetPage({
         allocatedThisWeekIds.add(pid);
       }
     }
+  }
+
+  // Enrich with allocated days
+  for (const [pid, dpw] of allocDaysPerWeek) {
+    const proj = projectMap.get(pid);
+    if (proj) proj.allocatedDaysThisWeek = dpw;
   }
 
   // Sort: this-week allocations first, then the rest alphabetically
