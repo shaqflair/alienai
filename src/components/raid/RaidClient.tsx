@@ -438,6 +438,9 @@ function RaiseItemModal({ projects, onClose, onSuccess }: {
   const [probability, setProbability] = React.useState(50);
   const [severity,    setSeverity]    = React.useState(50);
   const [responsePlan,setResponsePlan]= React.useState("");
+  const [impact,      setImpact]      = React.useState<"low"|"medium"|"high"|"critical">("medium");
+  const [nextSteps,   setNextSteps]   = React.useState("");
+  const [notes,       setNotes]       = React.useState("");
   const [owner,       setOwner]       = React.useState("");
   const [saving,      setSaving]      = React.useState(false);
   const [error,       setError]       = React.useState<string | null>(null);
@@ -509,7 +512,7 @@ function RaiseItemModal({ projects, onClose, onSuccess }: {
               {projects.map(p => <option key={p.id} value={p.id}>{p.code ? p.code+" — " : ""}{p.title}</option>)}
             </select>
           </div>
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12 }}>
             <div>
               <label style={LBL}>Type *</label>
               <select value={type} onChange={e => setType(e.target.value as any)} style={INP}>
@@ -520,6 +523,12 @@ function RaiseItemModal({ projects, onClose, onSuccess }: {
               <label style={LBL}>Priority</label>
               <select value={priority} onChange={e => setPriority(e.target.value as any)} style={INP}>
                 {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={LBL}>Impact</label>
+              <select value={impact} onChange={e => setImpact(e.target.value as any)} style={INP}>
+                {["low","medium","high","critical"].map(v => <option key={v} value={v}>{v.charAt(0).toUpperCase()+v.slice(1)}</option>)}
               </select>
             </div>
           </div>
@@ -567,6 +576,20 @@ function RaiseItemModal({ projects, onClose, onSuccess }: {
             <textarea value={responsePlan} onChange={e => setResponsePlan(e.target.value)}
               placeholder="How will this be mitigated or managed..."
               rows={2} style={{ ...INP, resize:"vertical", fontFamily:T.body, fontSize:13 }} />
+          </div>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+            <div>
+              <label style={LBL}>Next Steps</label>
+              <textarea value={nextSteps} onChange={e => setNextSteps(e.target.value)}
+                placeholder="Immediate actions to take..."
+                rows={2} style={{ ...INP, resize:"vertical", fontFamily:T.body, fontSize:13 }} />
+            </div>
+            <div>
+              <label style={LBL}>Notes</label>
+              <textarea value={notes} onChange={e => setNotes(e.target.value)}
+                placeholder="Additional context or comments..."
+                rows={2} style={{ ...INP, resize:"vertical", fontFamily:T.body, fontSize:13 }} />
+            </div>
           </div>
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
             <div>
