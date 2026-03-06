@@ -751,7 +751,8 @@ function RaiseItemModal({ projects, onClose, onSuccess }: {
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ background:T.surface,borderRadius:4,border:"1px solid "+T.hr,
         boxShadow:"0 24px 80px rgba(0,0,0,0.2)",width:"100%",maxWidth:560,
-        animation:"fadeUp 0.2s ease both",overflow:"hidden" }}>
+        animation:"fadeUp 0.2s ease both",overflow:"hidden",
+        maxHeight:"92vh",display:"flex",flexDirection:"column" }}>
 
         <div style={{ padding:"20px 24px 16px",borderBottom:"1px solid "+T.hr,
           display:"flex",justifyContent:"space-between",alignItems:"center" }}>
@@ -763,7 +764,7 @@ function RaiseItemModal({ projects, onClose, onSuccess }: {
             fontFamily:T.mono,fontSize:18,color:T.ink4,padding:"4px 8px",lineHeight:1 }}>x</button>
         </div>
 
-        <div style={{ padding:"20px 24px",display:"flex",flexDirection:"column",gap:16 }}>
+        <div style={{ padding:"20px 24px",display:"flex",flexDirection:"column",gap:16,overflowY:"auto",flex:1 }}>
           <div>
             <label style={LBL}>Project *</label>
             <select value={projectId} onChange={e => setProjectId(e.target.value)} style={INP}>
