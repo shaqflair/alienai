@@ -3,6 +3,7 @@
 import ScenarioAIPanel from "./ScenarioAIPanel";
 
 import { useState, useMemo, useTransition, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import {
   applyChanges, computeState, computeDiff, autoSuggest, weeksInRange,
   type LivePerson, type LiveProject, type LiveAllocation, type LiveException,
@@ -642,6 +643,99 @@ function AddProjectForm({
   );
 }
 
+/* =============================================================================
+   REMOVE / REDUCE ALLOCATION FORM
+============================================================================= */
+
+function RemoveAllocationForm({ people, projects, allocations, onAdd, onCancel }: {
+  people:      LivePerson[];
+  projects:    LiveProject[];
+  allocations: LiveAllocation[];
+  onAdd:       (c: ScenarioChange) => void;
+  onCancel:    () => void;
+}) {
+  const [personId,  setPersonId]  = useState(people[0]?.personId ?? "");
+  const [projectId, setProjectId] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate,   setEndDate]   = useState("");
+  const [mode,      setMode]      = useState<"remove" | "reduce">("remove");
+  const [reduceTo,  setReduceTo]  = useState(2);
+
+  // Find projects this person actually has allocations on
+  const personAllocs  = allocations.filter(a => a.personId === personId);
+  const personProjIds = Array.from(new Set(personAllocs.map(a => a.projectId)));
+  const personProjects = projects.filter(p => personProjIds.includes(p.projectId));
+
+  // Auto-fill date range from existing allocations when project selected
+  function onProjectChange(pid: string) {
+    setProjectId(pid);
+    const rows = personAllocs.filter(a => a.projectId === pid).map(a => a.weekStart).sort();
+    if (rows.length) { setStartDate(rows[0]); setEndDate(rows[rows.length - 1]); }
+  }
+
+  function handleSubmit() {
+    if (!personId || !projectId || !startDate || !endDate) return;
+    onAdd({
+      type: "remove_allocation",
+      personId,
+      projectId,
+      startDate,
+      endDate,
+      newDaysPerWeek: mode === "reduce" ? reduceTo : undefined,
+    });
+  }
+
+  const person = people.find(p => p.personId === personId);
+  const maxDays = person?.capacityDays ?? 5;
+
+  return (
+    <FormShell title="Reduce / remove allocation" onSubmit={handleSubmit} onCancel={onCancel}>
+      <Row label="Person">
+        <select value={personId} onChange={e => { setPersonId(e.target.value); setProjectId(""); }} style={inputStyle}>
+          {people.map(p => <option key={p.personId} value={p.personId}>{p.fullName}</option>)}
+        </select>
+      </Row>
+      <Row label="Project">
+        {personProjects.length === 0
+          ? <div style={{ fontSize: "12px", color: "#94a3b8", padding: "8px 0" }}>No allocations found for this person.</div>
+          : <select value={projectId} onChange={e => onProjectChange(e.target.value)} style={inputStyle}>
+              <option value="">— select project —</option>
+              {personProjects.map(p => <option key={p.projectId} value={p.projectId}>{p.title}</option>)}
+            </select>
+        }
+      </Row>
+      <TwoCol>
+        <Row label="From week">
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={inputStyle} />
+        </Row>
+        <Row label="To week">
+          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={inputStyle} />
+        </Row>
+      </TwoCol>
+      <Row label="Action">
+        <div style={{ display: "flex", gap: "6px" }}>
+          {(["remove", "reduce"] as const).map(m => (
+            <button key={m} type="button" onClick={() => setMode(m)} style={{
+              flex: 1, padding: "7px", borderRadius: "7px", border: "1.5px solid",
+              borderColor: mode === m ? "#ef4444" : "#e2e8f0",
+              background: mode === m ? "rgba(239,68,68,0.07)" : "white",
+              color: mode === m ? "#ef4444" : "#64748b",
+              fontSize: "12px", fontWeight: 700, cursor: "pointer",
+            }}>
+              {m === "remove" ? "Remove entirely" : "Reduce days"}
+            </button>
+          ))}
+        </div>
+      </Row>
+      {mode === "reduce" && (
+        <Row label={`Reduce to (max ${maxDays}d)`}>
+          <DaysPicker value={reduceTo} onChange={setReduceTo} max={Math.max(maxDays - 0.5, 0.5)} />
+        </Row>
+      )}
+    </FormShell>
+  );
+}
+
 /* -- Form shell + helpers -- */
 
 function FormShell({ title, children, onSubmit, onCancel }: {
@@ -715,11 +809,12 @@ function DaysPicker({ value, onChange, max }: { value: number; onChange: (v: num
 ============================================================================= */
 
 const ADD_BUTTONS = [
-  { type: "add_allocation",  icon: "＋", label: "Add allocation"  },
-  { type: "swap_allocation", icon: "⇄",  label: "Swap person"     },
-  { type: "change_capacity", icon: "~",  label: "Change capacity" },
-  { type: "shift_project",   icon: "»",  label: "Shift project"   },
-  { type: "add_project",     icon: "★",  label: "New project"     },
+  { type: "add_allocation",    icon: "＋", label: "Add allocation"    },
+  { type: "remove_allocation", icon: "−", label: "Reduce / remove"   },
+  { type: "swap_allocation",   icon: "⇄",  label: "Swap person"       },
+  { type: "change_capacity",   icon: "~",  label: "Change capacity"   },
+  { type: "shift_project",     icon: "»",  label: "Shift project"     },
+  { type: "add_project",       icon: "★",  label: "New project"       },
 ] as const;
 
 export default function ScenarioSimulator({
@@ -750,6 +845,7 @@ export default function ScenarioSimulator({
   const [saveMsg,      setSaveMsg]      = useState<string | null>(null);
   const [showAI,       setShowAI]       = useState(false);
   const [isPending,    startTransition] = useTransition();
+  const router = useRouter();
 
   const today  = new Date().toISOString().split("T")[0];
   const [from, setFrom] = useState(getMondayOf(today));
@@ -816,6 +912,7 @@ export default function ScenarioSimulator({
         const result = await saveScenario(fd) as any;
         if (result?.id) setScenarioId(result.id);
         setSaveMsg("Saved ✓");
+        router.refresh();
         setTimeout(() => setSaveMsg(null), 2000);
       } catch (err: any) {
         setSaveMsg(`Error: ${err.message}`);
@@ -1008,6 +1105,15 @@ export default function ScenarioSimulator({
                         onCancel={() => setActiveForm(null)}
                       />
                     )}
+                    {activeForm === "remove_allocation" && (
+                      <RemoveAllocationForm
+                        people={people}
+                        projects={[...projects, ...scProjects.filter(p => !projects.find(lp => lp.projectId === p.projectId))]}
+                        allocations={allocations}
+                        onAdd={c => { setChanges(cs => [...cs, c]); setActiveForm(null); }}
+                        onCancel={() => setActiveForm(null)}
+                      />
+                    )}
                     {activeForm === "swap_allocation" && (
                       <SwapForm
                         people={people}
@@ -1127,6 +1233,7 @@ export default function ScenarioSimulator({
                         <button type="button" onClick={() => startTransition(async () => {
                           await deleteScenario(sc.id);
                           if (scenarioId === sc.id) newScenario();
+                          router.refresh();
                         })} style={{
                           padding: "6px 8px", borderRadius: "7px", border: "1.5px solid #fecaca",
                           background: "white", color: "#ef4444", fontSize: "11px",

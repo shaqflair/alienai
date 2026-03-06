@@ -46,11 +46,12 @@ export type LiveException = {
 // FIX Bug 3: added optional daysPerWeek to swap_allocation so synthesised rows
 // have a real allocation amount instead of always defaulting to 5d.
 export type ScenarioChange =
-  | { type: "add_allocation";  personId: string; projectId: string; startDate: string; endDate: string; daysPerWeek: number }
-  | { type: "swap_allocation"; fromPersonId: string; toPersonId: string; projectId: string; startDate: string; endDate: string; daysPerWeek?: number }
-  | { type: "change_capacity"; personId: string; newCapacity: number; startDate: string; endDate: string }
-  | { type: "shift_project";   projectId: string; shiftWeeks: number }
-  | { type: "add_project";     projectId: string; title: string; colour: string; startDate: string; endDate: string; daysPerWeek: number; personId: string };
+  | { type: "add_allocation";    personId: string; projectId: string; startDate: string; endDate: string; daysPerWeek: number }
+  | { type: "remove_allocation"; personId: string; projectId: string; startDate: string; endDate: string; newDaysPerWeek?: number }
+  | { type: "swap_allocation";   fromPersonId: string; toPersonId: string; projectId: string; startDate: string; endDate: string; daysPerWeek?: number }
+  | { type: "change_capacity";   personId: string; newCapacity: number; startDate: string; endDate: string }
+  | { type: "shift_project";     projectId: string; shiftWeeks: number }
+  | { type: "add_project";       projectId: string; title: string; colour: string; startDate: string; endDate: string; daysPerWeek: number; personId: string };
 
 export type Scenario = {
   id:           string;
@@ -161,6 +162,35 @@ export function applyChanges(
           daysAllocated: change.daysPerWeek,
           allocType: "scenario",
         });
+      }
+    }
+
+    else if (change.type === "remove_allocation") {
+      const removeWeeks = new Set(weeksInDateRange(change.startDate, change.endDate));
+      if (change.newDaysPerWeek !== undefined && change.newDaysPerWeek > 0) {
+        // Reduce to newDaysPerWeek — update existing rows, add if missing
+        const mutated = new Set<string>();
+        scAllocs = scAllocs.map(a => {
+          if (a.personId === change.personId && a.projectId === change.projectId && removeWeeks.has(a.weekStart)) {
+            mutated.add(a.weekStart);
+            return { ...a, daysAllocated: change.newDaysPerWeek!, allocType: "scenario" };
+          }
+          return a;
+        });
+        for (const w of removeWeeks) {
+          if (!mutated.has(w)) {
+            scAllocs.push({
+              id: `sc_reduce_${change.personId}_${change.projectId}_${w}`,
+              personId: change.personId, projectId: change.projectId,
+              weekStart: w, daysAllocated: change.newDaysPerWeek!, allocType: "scenario",
+            });
+          }
+        }
+      } else {
+        // Full remove — filter out all matching rows in window
+        scAllocs = scAllocs.filter(a =>
+          !(a.personId === change.personId && a.projectId === change.projectId && removeWeeks.has(a.weekStart))
+        );
       }
     }
 
