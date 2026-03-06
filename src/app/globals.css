@@ -18,18 +18,18 @@
 :root {
   color-scheme: light;
   --radius: 0.4375rem;
-  --background: oklch(100% 0 0);
-  --foreground: oklch(25% 0.02 230);
+  --background: #111111;
+  --foreground: #111111;
   --primary: #000000;
-  --border: oklch(88% 0.02 225);
+  --border: #111111;
   --grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.03'/%3E%3C/svg%3E");
 }
 
 .dark {
   color-scheme: dark;
-  --background: oklch(12% 0.03 230);
-  --foreground: oklch(95% 0.01 225);
-  --border: oklch(25% 0.04 230);
+  --background: #111111;
+  --foreground: #111111;
+  --border: #111111;
 }
 
 @layer base {

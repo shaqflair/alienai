@@ -142,16 +142,16 @@ export default async function ProjectsPage({
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         :root {
-          --white:      #ffffff;
-          --off:        #f0fafb;
-          --rule:       #d4edf0;
-          --rule-heavy: #0d2d35;
-          --ink:        #0d2d35;
-          --ink-2:      #2a5a66;
-          --ink-3:      #5a9aa8;
-          --ink-4:      #96c8d4;
-          --ink-1:      #047857;
-          --ink-1-bg:   #ecfdf5;
+          --white:   #ffffff;
+          --off:     #f5f5f5;
+          --rule:    #e8e8e8;
+          --rule-heavy: #222222;
+          --ink:     #0a0a0a;
+          --ink-2:   #333333;
+          --ink-3:   #666666;
+          --ink-4:   #999999;
+          --ink-1:   #1a1a1a;
+          --ink-1-bg: transparent;
           --amber:      #b45309;
           --amber-bg:   #fffbeb;
           --red:        #b91c1c;
