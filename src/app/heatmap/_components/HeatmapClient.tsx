@@ -213,28 +213,60 @@ function AskAIPanel({ data, onClose }: { data: HeatmapData; onClose: () => void 
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-  // Build a compact context summary from heatmap data
+  // Build a detailed per-period context so the AI can answer availability questions accurately
   function buildContext(): string {
     const lines: string[] = [
-      `Resource Heatmap summary — ${data.dateFrom} to ${data.dateTo}`,
-      `Total people: ${data.people.length}`,
-      `Granularity: ${data.granularity}`,
+      `Resource Heatmap — ${data.dateFrom} to ${data.dateTo}`,
+      `Granularity: ${data.granularity} | People: ${data.people.length}`,
+      `Periods covered: ${data.periods.map(p => p.label).join(", ")}`,
       "",
-      "PEOPLE UTILISATION:",
+      "CAPACITY KEY: Each period shows [utilisation% | allocated_days / capacity_days | available_days_remaining]",
+      "0% or -- means FULLY AVAILABLE (no allocations that period).",
+      "",
+      "PEOPLE — PER-PERIOD BREAKDOWN:",
     ];
+
     for (const p of data.people) {
-      const projList = p.projects.map(pr => `${pr.projectCode || pr.projectTitle}(${pr.totalDays}d)`).join(", ");
-      lines.push(
-        `• ${p.fullName} | ${p.jobTitle || p.department || "—"} | ${p.defaultCapacityDays}d/wk capacity | avg util: ${p.avgUtilisationPct}% | peak: ${p.peakUtilisationPct}% | projects: ${projList || "none"}`
-      );
+      const cap = p.defaultCapacityDays;
+      lines.push(`\n▶ ${p.fullName} | ${p.jobTitle || p.department || "no role"} | ${cap}d/wk capacity`);
+
+      // Per-period row
+      const periodRows = data.periods.map(period => {
+        const cell = p.summaryCells.find(c => c.periodKey === period.key);
+        if (!cell || cell.capacityDays === 0) return `  ${period.label}: NO DATA`;
+        const pct    = cell.utilisationPct;
+        const alloc  = cell.daysAllocated;
+        const totalCap = cell.capacityDays;
+        const avail  = Math.max(0, totalCap - alloc);
+        const status = pct === 0   ? "FULLY AVAILABLE"
+                     : pct < 75   ? "available"
+                     : pct < 95   ? "busy"
+                     : pct <= 110 ? "at limit"
+                     : "OVERALLOCATED";
+        return `  ${period.label}: ${pct}% [${alloc}d allocated / ${totalCap}d capacity = ${avail}d free] — ${status}`;
+      });
+      lines.push(...periodRows);
+
+      // Project summary
+      const projList = p.projects.map(pr => `${pr.projectCode || pr.projectTitle}(${pr.totalDays}d total)`).join(", ");
+      lines.push(`  Projects: ${projList || "none assigned"}`);
     }
+
     if (data.pipelineGaps.length > 0) {
-      lines.push("", "PIPELINE GAPS:");
+      lines.push("\n\nPIPELINE RESOURCE GAPS:");
       for (const g of data.pipelineGaps) {
-        const gapStr = g.cells.filter(c => c.gapDays > 0).map(c => `${c.periodKey}: ${c.gapDays}d gap`).join(", ");
-        lines.push(`• ${g.projectTitle} (${g.winProbability}% win) — gaps: ${gapStr || "none"}`);
+        const gapStr = g.cells.filter(c => c.gapDays > 0)
+          .map(c => `${c.periodKey}: needs ${c.gapDays}d (weighted: ${c.weightedDemand.toFixed(1)}d at ${g.winProbability}% win prob)`)
+          .join(", ");
+        lines.push(`• ${g.projectTitle} — ${gapStr || "no gaps"}`);
       }
     }
+
+    lines.push("\n\nINSTRUCTIONS FOR AI:");
+    lines.push("- 0% utilisation = person has NO allocations that period = they ARE available");
+    lines.push("- Answer availability questions using the per-period data above, not just averages");
+    lines.push("- Cite specific periods and day counts in your answers");
+
     return lines.join("\n");
   }
 
