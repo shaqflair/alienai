@@ -43,9 +43,11 @@ export type LiveException = {
   availDays: number;
 };
 
+// FIX Bug 3: added optional daysPerWeek to swap_allocation so synthesised rows
+// have a real allocation amount instead of always defaulting to 5d.
 export type ScenarioChange =
   | { type: "add_allocation";  personId: string; projectId: string; startDate: string; endDate: string; daysPerWeek: number }
-  | { type: "swap_allocation"; fromPersonId: string; toPersonId: string; projectId: string; startDate: string; endDate: string }
+  | { type: "swap_allocation"; fromPersonId: string; toPersonId: string; projectId: string; startDate: string; endDate: string; daysPerWeek?: number }
   | { type: "change_capacity"; personId: string; newCapacity: number; startDate: string; endDate: string }
   | { type: "shift_project";   projectId: string; shiftWeeks: number }
   | { type: "add_project";     projectId: string; title: string; colour: string; startDate: string; endDate: string; daysPerWeek: number; personId: string };
@@ -162,13 +164,41 @@ export function applyChanges(
       }
     }
 
+    // FIX Bug 3: swap only mutated existing rows, so if fromPerson had no
+    // allocation row for a given week, toPerson got nothing and never appeared
+    // in the heatmap. Now we track which weeks were mutated and synthesise rows
+    // for any week that had no source row to mutate.
     else if (change.type === "swap_allocation") {
       const swapWeeks = new Set(weeksInDateRange(change.startDate, change.endDate));
-      scAllocs = scAllocs.map(a =>
-        a.personId === change.fromPersonId && a.projectId === change.projectId && swapWeeks.has(a.weekStart)
-          ? { ...a, personId: change.toPersonId, allocType: "scenario" }
-          : a
-      );
+      const mutatedWeeks = new Set<string>();
+
+      scAllocs = scAllocs.map(a => {
+        if (
+          a.personId === change.fromPersonId &&
+          a.projectId === change.projectId &&
+          swapWeeks.has(a.weekStart)
+        ) {
+          mutatedWeeks.add(a.weekStart);
+          return { ...a, personId: change.toPersonId, allocType: "scenario" };
+        }
+        return a;
+      });
+
+      // Synthesise rows for weeks where fromPerson had no existing allocation
+      for (const w of swapWeeks) {
+        if (!mutatedWeeks.has(w)) {
+          scAllocs.push({
+            id: `sc_swap_${change.toPersonId}_${change.projectId}_${w}`,
+            personId:      change.toPersonId,
+            projectId:     change.projectId,
+            weekStart:     w,
+            // Use the explicit daysPerWeek if the form provided it, else fall
+            // back to the org standard of 5d
+            daysAllocated: change.daysPerWeek ?? 5,
+            allocType:     "scenario",
+          });
+        }
+      }
     }
 
     else if (change.type === "change_capacity") {
@@ -256,7 +286,8 @@ export function computeState(
       if (allocated === 0) { weeklyPct.set(week, 0); continue; }
       const pct = Math.round((allocated / cap) * 100);
       weeklyPct.set(week, pct);
-      if (pct > 100) totalOverAlloc++;
+      // FIX Bug 2: was pct > 100, missing the exactly-at-limit case
+      if (pct >= 100) totalOverAlloc++;
     }
 
     personStats.set(person.personId, { weeklyPct, capacityDays: person.capacityDays });
@@ -270,7 +301,9 @@ export function computeState(
   }
 
   const allPcts  = [...personStats.values()].flatMap(s => [...s.weeklyPct.values()]);
-  const overPcts = allPcts.filter(p => p > 100);
+  // FIX Bug 2: was > 100, so exactly-100% allocations were invisible to the
+  // conflict scorer, keeping the score at 0 even for fully-loaded teams.
+  const overPcts = allPcts.filter(p => p >= 100);
   let conflictScore = 0;
   if (allPcts.length > 0 && overPcts.length > 0) {
     const avgOver = overPcts.reduce((s, p) => s + (p - 100), 0) / overPcts.length;

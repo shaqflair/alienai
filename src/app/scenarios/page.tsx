@@ -80,13 +80,19 @@ export default async function ScenariosPage() {
         .is("deleted_at", null)
         .order("title")
     ),
-    safeQuery(
-      supabase
-        .from("allocations")
-        .select("id, person_id, project_id, week_start_date, days_allocated, allocation_type, created_at")
-        .gte("week_start_date", eightWksAgo)
-        .lte("week_start_date", sixMoAhead)
-    ),
+    // FIX Bug 4: scope allocations to this org's members so we never pull
+    // cross-org rows if RLS is misconfigured. Falls back to empty if
+    // memberUserIds is empty (safeQuery handles gracefully).
+    memberUserIds.length > 0
+      ? safeQuery(
+          supabase
+            .from("allocations")
+            .select("id, person_id, project_id, week_start_date, days_allocated, allocation_type, created_at")
+            .in("person_id", memberUserIds)
+            .gte("week_start_date", eightWksAgo)
+            .lte("week_start_date", sixMoAhead)
+        )
+      : Promise.resolve([]),
     // capacity_exceptions may not exist -- safeQuery handles gracefully
     safeQuery(
       supabase

@@ -73,6 +73,11 @@ const CHANGE_LABELS: Record<string, string> = {
   add_project:       "New project",
 };
 
+const PROJECT_COLOURS = [
+  "#00b8db","#3b82f6","#8b5cf6","#ec4899",
+  "#f59e0b","#10b981","#ef4444","#64748b",
+];
+
 function Avatar({ name, size = 26 }: { name: string; size?: number }) {
   return (
     <div style={{
@@ -163,7 +168,7 @@ function DiffHeatmap({
 }) {
   const today    = new Date().toISOString().split("T")[0];
   const todayMon = getMondayOf(today);
-  const visWeeks = weeks.slice(0, 20);   // cap at 20 for readability
+  const visWeeks = weeks.slice(0, 20);
 
   if (!diffs.length) {
     return (
@@ -181,14 +186,12 @@ function DiffHeatmap({
         <div style={{ display: "flex", marginBottom: "4px" }}>
           <div style={{ width: "160px", minWidth: "160px", flexShrink: 0 }} />
           <div style={{ display: "flex" }}>
-            {/* Live label */}
             <div style={{ width: visWeeks.length * CELL_W, textAlign: "center",
                           fontSize: "10px", fontWeight: 800, color: "#64748b",
                           letterSpacing: "0.05em", textTransform: "uppercase",
                           borderRight: "2px dashed #e2e8f0", paddingBottom: "4px" }}>
               Live
             </div>
-            {/* Scenario label */}
             <div style={{ width: visWeeks.length * CELL_W, textAlign: "center",
                           fontSize: "10px", fontWeight: 800, color: "#00b8db",
                           letterSpacing: "0.05em", textTransform: "uppercase",
@@ -201,7 +204,6 @@ function DiffHeatmap({
         {/* Week sub-headers */}
         <div style={{ display: "flex", marginBottom: "6px" }}>
           <div style={{ width: "160px", minWidth: "160px", flexShrink: 0 }} />
-          {/* Live weeks */}
           {visWeeks.map(w => (
             <div key={`live-${w}`} style={{
               width: CELL_W, minWidth: CELL_W, textAlign: "center",
@@ -212,7 +214,6 @@ function DiffHeatmap({
             </div>
           ))}
           <div style={{ width: 2, background: "#e2e8f0", margin: "0 4px" }} />
-          {/* Scenario weeks */}
           {visWeeks.map(w => (
             <div key={`sc-${w}`} style={{
               width: CELL_W, minWidth: CELL_W, textAlign: "center",
@@ -233,7 +234,6 @@ function DiffHeatmap({
             display: "flex", alignItems: "center",
             marginBottom: "4px",
           }}>
-            {/* Name */}
             <div style={{
               width: "160px", minWidth: "160px", flexShrink: 0,
               display: "flex", alignItems: "center", gap: "6px",
@@ -264,7 +264,6 @@ function DiffHeatmap({
               );
             })}
 
-            {/* Divider */}
             <div style={{ width: 2, alignSelf: "stretch", background: "#e2e8f0", margin: "0 4px" }} />
 
             {/* Scenario cells */}
@@ -277,7 +276,6 @@ function DiffHeatmap({
               );
             })}
 
-            {/* Delta avg */}
             <div style={{
               width: "60px", textAlign: "center", flexShrink: 0,
               fontSize: "12px", fontWeight: 800,
@@ -403,22 +401,25 @@ function AddAllocationForm({
   );
 }
 
+// FIX Bug 3: SwapForm now collects daysPerWeek so applyChanges can synthesise
+// rows for weeks where fromPerson had no existing allocation.
 function SwapForm({
   people, projects, onAdd, onCancel,
 }: {
   people: LivePerson[]; projects: LiveProject[];
   onAdd: (c: ScenarioChange) => void; onCancel: () => void;
 }) {
-  const [fromPerson, setFromPerson] = useState(people[0]?.personId ?? "");
-  const [toPerson,   setToPerson]   = useState(people[1]?.personId ?? "");
-  const [projectId,  setProjectId]  = useState(projects[0]?.projectId ?? "");
-  const [startDate,  setStartDate]  = useState("");
-  const [endDate,    setEndDate]    = useState("");
+  const [fromPerson,  setFromPerson]  = useState(people[0]?.personId ?? "");
+  const [toPerson,    setToPerson]    = useState(people[1]?.personId ?? "");
+  const [projectId,   setProjectId]   = useState(projects[0]?.projectId ?? "");
+  const [startDate,   setStartDate]   = useState("");
+  const [endDate,     setEndDate]     = useState("");
+  const [daysPerWeek, setDaysPerWeek] = useState(3);
 
   return (
     <FormShell title="Swap person" onCancel={onCancel} onSubmit={() => {
       if (!fromPerson || !toPerson || !projectId || !startDate || !endDate) return;
-      onAdd({ type: "swap_allocation", fromPersonId: fromPerson, toPersonId: toPerson, projectId, startDate, endDate });
+      onAdd({ type: "swap_allocation", fromPersonId: fromPerson, toPersonId: toPerson, projectId, startDate, endDate, daysPerWeek });
     }}>
       <TwoCol>
         <Row label="From">
@@ -442,6 +443,9 @@ function SwapForm({
         <Row label="From week"><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={inputStyle} /></Row>
         <Row label="To week"><input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={inputStyle} /></Row>
       </TwoCol>
+      <Row label={`Days/week -- ${daysPerWeek}d`}>
+        <DaysPicker value={daysPerWeek} onChange={setDaysPerWeek} max={5} />
+      </Row>
     </FormShell>
   );
 }
@@ -511,7 +515,7 @@ function ShiftProjectForm({
                 background: direction === d ? "rgba(0,184,219,0.1)" : "white",
                 color: direction === d ? "#00b8db" : "#475569",
                 fontSize: "12px", fontWeight: 700, cursor: "pointer",
-              }}>{d === 1 ? " Push out" : " Pull in"}</button>
+              }}>{d === 1 ? "Push out" : "Pull in"}</button>
             ))}
           </div>
         </Row>
@@ -585,7 +589,6 @@ function AddProjectForm({
         <DaysPicker value={daysPerWk} onChange={v => { setDaysPerWk(v); setSuggestions([]); }} max={5} />
       </Row>
 
-      {/* Auto-suggest */}
       {startDate && endDate && (
         <div>
           <button type="button" onClick={runSuggest} style={{
@@ -593,7 +596,7 @@ function AddProjectForm({
             border: "1.5px solid #00b8db", background: "rgba(0,184,219,0.08)",
             color: "#00b8db", fontSize: "12px", fontWeight: 700, cursor: "pointer",
             marginBottom: "8px",
-          }}> Auto-suggest best fit</button>
+          }}>Auto-suggest best fit</button>
 
           {suggestions.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
@@ -612,7 +615,7 @@ function AddProjectForm({
                       {s.fullName}
                       {s.canFullyCover && (
                         <span style={{ marginLeft: 6, fontSize: "10px", color: "#10b981",
-                                       fontWeight: 700 }}>[check] Full cover</span>
+                                       fontWeight: 700 }}>✓ Full cover</span>
                       )}
                     </div>
                     <div style={{ fontSize: "10px", color: "#94a3b8" }}>
@@ -714,11 +717,11 @@ function DaysPicker({ value, onChange, max }: { value: number; onChange: (v: num
 ============================================================================= */
 
 const ADD_BUTTONS = [
-  { type: "add_allocation",  icon: "+",  label: "Add allocation"  },
-  { type: "swap_allocation", icon: "<>", label: "Swap person"     },
+  { type: "add_allocation",  icon: "＋",  label: "Add allocation"  },
+  { type: "swap_allocation", icon: "⇄",  label: "Swap person"     },
   { type: "change_capacity", icon: "~",  label: "Change capacity" },
-  { type: "shift_project",   icon: ">>", label: "Shift project"   },
-  { type: "add_project",     icon: "*",  label: "New project"     },
+  { type: "shift_project",   icon: "»",  label: "Shift project"   },
+  { type: "add_project",     icon: "★",  label: "New project"     },
 ] as const;
 
 export default function ScenarioSimulator({
@@ -736,14 +739,12 @@ export default function ScenarioSimulator({
   organisationId:  string;
   savedScenarios:  Scenario[];
 }) {
-  // Defensive defaults -- guard against undefined props
-  const people        = peopleProp        ?? [];
-  const projects      = projectsProp      ?? [];
-  const allocations   = allocationsProp   ?? [];
-  const exceptions    = exceptionsProp    ?? [];
+  const people         = peopleProp        ?? [];
+  const projects       = projectsProp      ?? [];
+  const allocations    = allocationsProp   ?? [];
+  const exceptions     = exceptionsProp    ?? [];
   const savedScenarios = savedScenariosProp ?? [];
 
-  // -- Scenario state --------------------------------------------------------
   const [scenarioId,   setScenarioId]   = useState<string | null>(null);
   const [scenarioName, setScenarioName] = useState("New scenario");
   const [changes,      setChanges]      = useState<ScenarioChange[]>([]);
@@ -752,7 +753,6 @@ export default function ScenarioSimulator({
   const [showAI,       setShowAI]       = useState(false);
   const [isPending,    startTransition] = useTransition();
 
-  // Date range for the diff view
   const today  = new Date().toISOString().split("T")[0];
   const [from, setFrom] = useState(getMondayOf(today));
   const [to,   setTo]   = useState(() => {
@@ -763,12 +763,11 @@ export default function ScenarioSimulator({
 
   const weeks = useMemo(() => weeksInRange(from, to).slice(0, 20), [from, to]);
 
-  // -- Compute states --------------------------------------------------------
   const liveState = useMemo(() => {
     try {
       return computeState(people, projects, allocations, exceptions, weeks, new Map());
     } catch {
-      return { people: [], conflictScore: 0, totalOverAlloc: 0, warnings: [] };
+      return { people: [], conflictScore: 0, totalOverAlloc: 0, warnings: [], personStats: new Map() };
     }
   }, [people, projects, allocations, exceptions, weeks]);
 
@@ -780,15 +779,15 @@ export default function ScenarioSimulator({
     }
   }, [people, projects, allocations, exceptions, changes]);
 
-  const scAllocs   = applyResult?.allocations  ?? allocations;
-  const scProjects = applyResult?.projects     ?? projects;
-  const scenarioCap = applyResult?.scenarioCap ?? new Map<string, number>();
+  const scAllocs    = applyResult?.allocations  ?? allocations;
+  const scProjects  = applyResult?.projects     ?? projects;
+  const scenarioCap = applyResult?.scenarioCap  ?? new Map<string, number>();
 
   const scenarioState = useMemo(() => {
     try {
       return computeState(people, scProjects, scAllocs, exceptions, weeks, scenarioCap);
     } catch {
-      return { people: [], conflictScore: 0, totalOverAlloc: 0, warnings: [] };
+      return { people: [], conflictScore: 0, totalOverAlloc: 0, warnings: [], personStats: new Map() };
     }
   }, [people, scProjects, scAllocs, exceptions, weeks, scenarioCap]);
 
@@ -798,13 +797,12 @@ export default function ScenarioSimulator({
     } catch {
       return [];
     }
-  }, [liveState, scenarioState, weeks]);
+  }, [liveState, scenarioState, weeks, people]);
 
   const liveScore     = liveState?.conflictScore  ?? 0;
   const scenarioScore = scenarioState?.conflictScore ?? 0;
   const scoreDelta    = scenarioScore - liveScore;
 
-  // -- Save scenario ---------------------------------------------------------
   async function handleSave() {
     const fd = new FormData();
     if (scenarioId) fd.set("scenario_id", scenarioId);
@@ -816,7 +814,7 @@ export default function ScenarioSimulator({
       try {
         const result = await saveScenario(fd) as any;
         if (result?.id) setScenarioId(result.id);
-        setSaveMsg("Saved [check]");
+        setSaveMsg("Saved ✓");
         setTimeout(() => setSaveMsg(null), 2000);
       } catch (err: any) {
         setSaveMsg(`Error: ${err.message}`);
@@ -824,7 +822,6 @@ export default function ScenarioSimulator({
     });
   }
 
-  // -- Load scenario ---------------------------------------------------------
   function loadScenario(sc: Scenario) {
     setScenarioId(sc.id);
     setScenarioName(sc.name);
@@ -869,15 +866,14 @@ export default function ScenarioSimulator({
                 What-if Simulator
               </h1>
               <p style={{ fontSize: "13px", color: "#94a3b8", margin: 0 }}>
-                Model changes without touching live data . {changes.length} change{changes.length !== 1 ? "s" : ""} in scenario
+                Model changes without touching live data · {changes.length} change{changes.length !== 1 ? "s" : ""} in scenario
               </p>
             </div>
 
             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-              {/* Date range */}
               <input type="date" value={from} onChange={e => setFrom(e.target.value)}
                 style={{ ...inputStyle, width: "130px" }} />
-              <span style={{ color: "#94a3b8", fontSize: "12px" }}> {'->'}</span>
+              <span style={{ color: "#94a3b8", fontSize: "12px" }}>{'->'}</span>
               <input type="date" value={to} onChange={e => setTo(e.target.value)}
                 style={{ ...inputStyle, width: "130px" }} />
 
@@ -887,7 +883,7 @@ export default function ScenarioSimulator({
                 color: "#475569", fontSize: "12px", fontWeight: 600, cursor: "pointer",
               }}>New</button>
 
-              {/* AI Advisor button */}
+              {/* FIX Bug 1: removed literal "??" strings, replaced with real icons */}
               <button type="button" onClick={() => setShowAI(s => !s)} style={{
                 padding: "8px 16px", borderRadius: "9px", border: "1.5px solid",
                 borderColor: showAI ? "#00b8db" : "#e2e8f0",
@@ -897,12 +893,13 @@ export default function ScenarioSimulator({
                 display: "flex", alignItems: "center", gap: "6px",
                 fontFamily: "'DM Sans', sans-serif",
               }}>
-                <span style={{ fontSize: "14px" }}>??</span>
+                <span style={{ fontSize: "14px" }}>✨</span>
                 AI Advisor
                 {showAI && <span style={{ fontSize: "9px", background: "#00b8db", color: "white",
                   borderRadius: "4px", padding: "1px 5px", fontWeight: 900 }}>ON</span>}
               </button>
 
+              {/* FIX Bug 1: removed "??" prefix from Save scenario label */}
               <button
                 type="button"
                 onClick={handleSave}
@@ -918,7 +915,7 @@ export default function ScenarioSimulator({
                   transition: "all 0.15s",
                 }}
               >
-                {saveMsg || (isPending ? "Saving..." : "?? Save scenario")}
+                {saveMsg || (isPending ? "Saving..." : "💾 Save scenario")}
               </button>
             </div>
           </div>
@@ -997,29 +994,43 @@ export default function ScenarioSimulator({
                 ) : (
                   <div style={{ animation: "slideUp 0.15s ease" }}>
                     {activeForm === "add_allocation" && (
-                      <AddAllocationForm people={people} projects={[...projects, ...scProjects.filter(p => !projects.find(lp => lp.projectId === p.projectId))]}
+                      <AddAllocationForm
+                        people={people}
+                        projects={[...projects, ...scProjects.filter(p => !projects.find(lp => lp.projectId === p.projectId))]}
                         onAdd={c => { setChanges(cs => [...cs, c]); setActiveForm(null); }}
-                        onCancel={() => setActiveForm(null)} />
+                        onCancel={() => setActiveForm(null)}
+                      />
                     )}
                     {activeForm === "swap_allocation" && (
-                      <SwapForm people={people} projects={projects}
+                      <SwapForm
+                        people={people}
+                        projects={projects}
                         onAdd={c => { setChanges(cs => [...cs, c]); setActiveForm(null); }}
-                        onCancel={() => setActiveForm(null)} />
+                        onCancel={() => setActiveForm(null)}
+                      />
                     )}
                     {activeForm === "change_capacity" && (
-                      <CapacityChangeForm people={people}
+                      <CapacityChangeForm
+                        people={people}
                         onAdd={c => { setChanges(cs => [...cs, c]); setActiveForm(null); }}
-                        onCancel={() => setActiveForm(null)} />
+                        onCancel={() => setActiveForm(null)}
+                      />
                     )}
                     {activeForm === "shift_project" && (
-                      <ShiftProjectForm projects={projects}
+                      <ShiftProjectForm
+                        projects={projects}
                         onAdd={c => { setChanges(cs => [...cs, c]); setActiveForm(null); }}
-                        onCancel={() => setActiveForm(null)} />
+                        onCancel={() => setActiveForm(null)}
+                      />
                     )}
                     {activeForm === "add_project" && (
-                      <AddProjectForm people={people} allocations={allocations} exceptions={exceptions}
+                      <AddProjectForm
+                        people={people}
+                        allocations={allocations}
+                        exceptions={exceptions}
                         onAdd={c => { setChanges(cs => [...cs, c]); setActiveForm(null); }}
-                        onCancel={() => setActiveForm(null)} />
+                        onCancel={() => setActiveForm(null)}
+                      />
                     )}
                   </div>
                 )}
@@ -1044,19 +1055,19 @@ export default function ScenarioSimulator({
                         fontSize: "12px",
                       }}>
                         <span style={{ fontSize: "13px" }}>
-                          {ADD_BUTTONS.find(b => b.type === c.type)?.icon ?? "."}
+                          {ADD_BUTTONS.find(b => b.type === c.type)?.icon ?? "·"}
                         </span>
                         <span style={{ flex: 1, color: "#334155", fontWeight: 600, fontSize: "11px" }}>
-                          {CHANGE_LABELS[c.type]}{" - "}
+                          {CHANGE_LABELS[c.type]}{" — "}
                           <span style={{ color: "#94a3b8", fontWeight: 400 }}>
                             {"personId" in c ? (people.find(p => p.personId === (c as any).personId)?.fullName ?? "") : ""}
-                            {"fromPersonId" in c ? (people.find(p => p.personId === (c as any).fromPersonId)?.fullName ?? "") + " ? " + (people.find(p => p.personId === (c as any).toPersonId)?.fullName ?? "") : ""}
+                            {"fromPersonId" in c ? (people.find(p => p.personId === (c as any).fromPersonId)?.fullName ?? "") + " → " + (people.find(p => p.personId === (c as any).toPersonId)?.fullName ?? "") : ""}
                           </span>
                         </span>
                         <button type="button" onClick={() => removeChange(i)} style={{
                           background: "none", border: "none", color: "#cbd5e1",
                           cursor: "pointer", fontSize: "13px", lineHeight: 1,
-                        }}>x</button>
+                        }}>✕</button>
                       </div>
                     ))}
                   </div>
@@ -1107,7 +1118,7 @@ export default function ScenarioSimulator({
                           padding: "6px 8px", borderRadius: "7px", border: "1.5px solid #fecaca",
                           background: "white", color: "#ef4444", fontSize: "11px",
                           cursor: "pointer", flexShrink: 0, fontWeight: 700,
-                        }}>X</button>
+                        }}>✕</button>
                       </div>
                     ))}
                   </div>
@@ -1130,10 +1141,10 @@ export default function ScenarioSimulator({
               }}>
                 <div>
                   <div style={{ fontSize: "14px", fontWeight: 800, color: "#0f172a" }}>
-                    Impact diff -- Live vs Scenario
+                    Impact diff — Live vs Scenario
                   </div>
                   <div style={{ fontSize: "11px", color: "#94a3b8" }}>
-                    {(diffs ?? []).filter(d => d.cells.some(c => c.changed)).length} people affected .{" "}
+                    {(diffs ?? []).filter(d => d.cells.some(c => c.changed)).length} people affected ·{" "}
                     {(diffs ?? []).flatMap(d => d.cells).filter(c => c.changed).length} weeks changed
                   </div>
                 </div>
@@ -1150,7 +1161,7 @@ export default function ScenarioSimulator({
                     <div style={{ fontSize: "9px", color: "#94a3b8", textTransform: "uppercase",
                                   letterSpacing: "0.05em" }}>Live</div>
                   </div>
-                  <div style={{ fontSize: "18px", color: "#e2e8f0", alignSelf: "center" }}> {'->'}</div>
+                  <div style={{ fontSize: "18px", color: "#e2e8f0", alignSelf: "center" }}>→</div>
                   <div style={{ textAlign: "center" }}>
                     <div style={{ fontSize: "16px", fontWeight: 800,
                                   color: scoreDelta > 0 ? "#ef4444" : scoreDelta < 0 ? "#10b981" : "#64748b",
@@ -1186,4 +1197,3 @@ export default function ScenarioSimulator({
     </>
   );
 }
-
