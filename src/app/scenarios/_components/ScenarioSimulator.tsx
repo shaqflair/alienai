@@ -2,7 +2,7 @@
 // FILE: src/app/scenarios/_components/ScenarioSimulator.tsx
 import ScenarioAIPanel from "./ScenarioAIPanel";
 
-import { useState, useMemo, useTransition, useCallback, useRef } from "react";
+import { useState, useMemo, useTransition, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   applyChanges, computeState, computeDiff, autoSuggest, weeksInRange,
@@ -898,13 +898,16 @@ export default function ScenarioSimulator({
   const scenarioScore = scenarioState?.conflictScore ?? 0;
   const scoreDelta    = scenarioScore - liveScore;
 
-  // Keep local list in sync when the server prop refreshes
-  // (avoids stale list after save/delete + router.refresh())
-  const prevSaved = useRef(savedScenarios);
-  if (prevSaved.current !== savedScenarios) {
-    prevSaved.current = savedScenarios;
-    setLocalScenarios(savedScenarios);
-  }
+  // Sync local list when the server prop updates AFTER a confirmed server action.
+  // useEffect (not during-render) prevents overwriting optimistic deletes mid-flight.
+  const pendingDeletes = useRef(new Set<string>());
+  useEffect(() => {
+    // Filter out any ids still being deleted so a stale router.refresh()
+    // mid-flight doesn't resurrect them before the server confirms removal.
+    setLocalScenarios(
+      savedScenarios.filter(s => !pendingDeletes.current.has(s.id))
+    );
+  }, [savedScenarios]);
 
   // Whether we're editing an existing saved scenario
   const isEditing = scenarioId !== null;
@@ -947,6 +950,7 @@ export default function ScenarioSimulator({
   }
 
   function deleteLocalScenario(id: string) {
+    pendingDeletes.current.add(id);              // guard against stale refresh
     setLocalScenarios(ls => ls.filter(s => s.id !== id));
     if (scenarioId === id) newScenario();
   }
@@ -1258,6 +1262,7 @@ export default function ScenarioSimulator({
                           deleteLocalScenario(sc.id); // instant UI update
                           startTransition(async () => {
                             await deleteScenario(sc.id);
+                            pendingDeletes.current.delete(sc.id); // server confirmed
                             router.refresh(); // sync server state
                           });
                         }} style={{
