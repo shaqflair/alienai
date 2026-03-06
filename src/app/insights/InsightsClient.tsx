@@ -7,7 +7,7 @@
 //   /api/portfolio/health             — portfolio health score + drivers
 //   /api/ai/briefing                  — AI insights feed (changes, finance, resources)
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 /* ─── Google Fonts ──────────────────────────────────────────────────────────── */
@@ -1038,6 +1038,14 @@ export default function InsightsClient() {
   const sections = execData?.sections ?? [];
   const healthScore = health ? Math.max(0, Math.min(100, Math.round(num(health.portfolio_health)))) : null;
 
+  const firstRaidHref = useMemo(() => {
+    for (const section of sections) {
+      const match = section.items?.find((item) => item.href && String(item.href).trim());
+      if (match?.href) return match.href;
+    }
+    return null;
+  }, [sections]);
+
   const TABS: { k: typeof activeTab; l: string }[] = [
     { k: "overview", l: "Overview" },
     { k: "raid", l: "RAID Register" },
@@ -1488,7 +1496,7 @@ export default function InsightsClient() {
 
                   <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 8 }}>
                     <Link
-                      href="/portfolio/raid"
+                      href={firstRaidHref || "#"}
                       style={{
                         fontFamily: T.mono,
                         fontSize: 10,
@@ -1498,7 +1506,10 @@ export default function InsightsClient() {
                         textDecoration: "none",
                         borderBottom: "1px solid #bfdbfe",
                         paddingBottom: 1,
+                        pointerEvents: firstRaidHref ? "auto" : "none",
+                        opacity: firstRaidHref ? 1 : 0.5,
                       }}
+                      aria-disabled={!firstRaidHref}
                     >
                       OPEN FULL RAID REGISTER →
                     </Link>
