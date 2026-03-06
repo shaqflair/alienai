@@ -424,7 +424,7 @@ export default async function ProjectPage({
     { id: "overview",  label: "Overview",  href: `/projects/${projectRefForUrls}` },
     { id: "artifacts", label: "Artifacts", href: `/projects/${projectRefForUrls}/artifacts` },
     { id: "members",   label: "Members",   href: `/projects/${projectRefForUrls}/members` },
-    { id: "changes",   label: "Timeline",  href: `/projects/${projectRefForUrls}/timeline` },
+    { id: "changes",   label: "Change Board",  href: `/projects/${projectRefForUrls}/change` },
     { id: "raid",      label: "Risks",     href: `/projects/${projectRefForUrls}/raid` },
   ];
 

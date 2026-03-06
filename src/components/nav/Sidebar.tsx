@@ -411,7 +411,7 @@ function ProjectContextStrip({ projectRef, collapsed }: { projectRef: string; co
   const subItems = [
     { href: base, label: "Overview" },
     { href: `${base}/artifacts`, label: "Artifacts" },
-    { href: `${base}/changes`, label: "Changes" },
+    { href: `${base}/change`, label: "Changes" },
     { href: `${base}/approvals`, label: "Approvals" },
     { href: `${base}/members`, label: "Members" },
     { href: `${base}/governance`, label: "Delivery governance" },
