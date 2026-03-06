@@ -2,7 +2,7 @@
 // FILE: src/app/scenarios/_components/ScenarioSimulator.tsx
 import ScenarioAIPanel from "./ScenarioAIPanel";
 
-import { useState, useMemo, useTransition, useCallback } from "react";
+import { useState, useMemo, useTransition, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   applyChanges, computeState, computeDiff, autoSuggest, weeksInRange,
@@ -838,13 +838,14 @@ export default function ScenarioSimulator({
   const exceptions     = exceptionsProp    ?? [];
   const savedScenarios = savedScenariosProp ?? [];
 
-  const [scenarioId,   setScenarioId]   = useState<string | null>(null);
-  const [scenarioName, setScenarioName] = useState("New scenario");
-  const [changes,      setChanges]      = useState<ScenarioChange[]>([]);
-  const [activeForm,   setActiveForm]   = useState<string | null>(null);
-  const [saveMsg,      setSaveMsg]      = useState<string | null>(null);
-  const [showAI,       setShowAI]       = useState(false);
-  const [isPending,    startTransition] = useTransition();
+  const [scenarioId,      setScenarioId]      = useState<string | null>(null);
+  const [scenarioName,    setScenarioName]    = useState("New scenario");
+  const [changes,         setChanges]         = useState<ScenarioChange[]>([]);
+  const [activeForm,      setActiveForm]      = useState<string | null>(null);
+  const [saveMsg,         setSaveMsg]         = useState<string | null>(null);
+  const [showAI,          setShowAI]          = useState(false);
+  const [isPending,       startTransition]    = useTransition();
+  const [localScenarios,  setLocalScenarios]  = useState<Scenario[]>(savedScenarios);
   const router = useRouter();
 
   const today  = new Date().toISOString().split("T")[0];
@@ -897,6 +898,14 @@ export default function ScenarioSimulator({
   const scenarioScore = scenarioState?.conflictScore ?? 0;
   const scoreDelta    = scenarioScore - liveScore;
 
+  // Keep local list in sync when the server prop refreshes
+  // (avoids stale list after save/delete + router.refresh())
+  const prevSaved = useRef(savedScenarios);
+  if (prevSaved.current !== savedScenarios) {
+    prevSaved.current = savedScenarios;
+    setLocalScenarios(savedScenarios);
+  }
+
   // Whether we're editing an existing saved scenario
   const isEditing = scenarioId !== null;
 
@@ -910,7 +919,17 @@ export default function ScenarioSimulator({
     startTransition(async () => {
       try {
         const result = await saveScenario(fd) as any;
-        if (result?.id) setScenarioId(result.id);
+        if (result?.id) {
+          setScenarioId(result.id);
+          // Optimistically add/update in local list so it appears immediately
+          setLocalScenarios(ls => {
+            const existing = ls.find(s => s.id === result.id);
+            const updated: Scenario = { id: result.id, name: scenarioName, changes };
+            return existing
+              ? ls.map(s => s.id === result.id ? updated : s)
+              : [...ls, updated];
+          });
+        }
         setSaveMsg("Saved ✓");
         router.refresh();
         setTimeout(() => setSaveMsg(null), 2000);
@@ -925,6 +944,11 @@ export default function ScenarioSimulator({
     setScenarioName(sc.name);
     setChanges(sc.changes);
     setActiveForm(null);
+  }
+
+  function deleteLocalScenario(id: string) {
+    setLocalScenarios(ls => ls.filter(s => s.id !== id));
+    if (scenarioId === id) newScenario();
   }
 
   function newScenario() {
@@ -1194,7 +1218,7 @@ export default function ScenarioSimulator({
               )}
 
               {/* Saved scenarios */}
-              {savedScenarios.length > 0 && (
+              {localScenarios.length > 0 && (
                 <div style={{
                   background: "white", borderRadius: "12px",
                   border: "1.5px solid #e2e8f0", padding: "14px 16px",
@@ -1202,7 +1226,7 @@ export default function ScenarioSimulator({
                   <div style={{ fontSize: "13px", fontWeight: 800, color: "#0f172a",
                                 marginBottom: "8px" }}>Saved scenarios</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
-                    {savedScenarios.map((sc) => (
+                    {localScenarios.map((sc) => (
                       <div key={sc.id} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                         <button type="button" onClick={() => loadScenario(sc)} style={{
                           flex: 1, display: "flex", alignItems: "center", gap: "8px",
@@ -1230,11 +1254,13 @@ export default function ScenarioSimulator({
                             }}>Editing</span>
                           )}
                         </button>
-                        <button type="button" onClick={() => startTransition(async () => {
-                          await deleteScenario(sc.id);
-                          if (scenarioId === sc.id) newScenario();
-                          router.refresh();
-                        })} style={{
+                        <button type="button" onClick={() => {
+                          deleteLocalScenario(sc.id); // instant UI update
+                          startTransition(async () => {
+                            await deleteScenario(sc.id);
+                            router.refresh(); // sync server state
+                          });
+                        }} style={{
                           padding: "6px 8px", borderRadius: "7px", border: "1.5px solid #fecaca",
                           background: "white", color: "#ef4444", fontSize: "11px",
                           cursor: "pointer", flexShrink: 0, fontWeight: 700,
