@@ -80,9 +80,8 @@ export default async function ScenariosPage() {
         .is("deleted_at", null)
         .order("title")
     ),
-    // FIX Bug 4: scope allocations to this org's members so we never pull
-    // cross-org rows if RLS is misconfigured. Falls back to empty if
-    // memberUserIds is empty (safeQuery handles gracefully).
+    // Scope allocations to this org's members so we never pull cross-org rows
+    // if RLS is misconfigured. Falls back to empty if memberUserIds is empty.
     memberUserIds.length > 0
       ? safeQuery(
           supabase
@@ -142,19 +141,24 @@ export default async function ScenariosPage() {
   } satisfies LiveProject));
 
   // -- Transform allocations --------------------------------------------------
+  // FIX: normalise weekStart to Monday so allocMap keys match the Monday-keyed
+  // weeks produced by weeksInRange() and applyChanges(). Without this, any
+  // DB row whose week_start_date isn't already a Monday silently misses every
+  // lookup in computeState, leaving the Live heatmap empty.
   const allocations: LiveAllocation[] = (allocRows as any[]).map((a: any) => ({
     id:            String(a.id),
     personId:      String(a.person_id),
     projectId:     String(a.project_id),
-    weekStart:     safeStr(a.week_start_date).slice(0, 10),
+    weekStart:     getMondayOf(safeStr(a.week_start_date).slice(0, 10)),
     daysAllocated: parseFloat(String(a.days_allocated ?? 0)),
     allocType:     safeStr(a.allocation_type || "confirmed"),
   } satisfies LiveAllocation));
 
   // -- Transform exceptions ---------------------------------------------------
+  // FIX: same Monday normalisation so exception lookups in computeState match.
   const exceptions: LiveException[] = (exceptionRows as any[]).map((e: any) => ({
     personId:  String(e.person_id),
-    weekStart: safeStr(e.week_start_date).slice(0, 10),
+    weekStart: getMondayOf(safeStr(e.week_start_date).slice(0, 10)),
     availDays: parseFloat(String(e.available_days ?? 0)),
   } satisfies LiveException));
 
