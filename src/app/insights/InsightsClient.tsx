@@ -1086,7 +1086,7 @@ export default function InsightsClient() {
   const sections = execData?.sections ?? [];
   const healthScore = health ? Math.max(0, Math.min(100, Math.round(num(health.portfolio_health)))) : null;
 
-  const fullRaidRegisterHref = "/risks";
+  const fullRaidRegisterHref = "/portfolio/raid";
 
   const TABS: { k: typeof activeTab; l: string }[] = [
     { k: "overview", l: "Overview" },
