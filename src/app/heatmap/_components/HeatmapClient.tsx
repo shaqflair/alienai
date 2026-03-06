@@ -397,9 +397,28 @@ function GranToggle({value,onChange}:{value:Granularity;onChange:(g:Granularity)
 
 function HCell({cell,cw,cur}:{cell:AllocationCell|null;cw:number;cur:boolean}){
   const pct=cell?.utilisationPct??0,c=UC[tier(pct)],ex=cell?.hasException??false;
-  return<div title={cell?`${cell.daysAllocated}d / ${cell.capacityDays}d (${pct}%)${ex?" — Reduced capacity":""}`:"—"} style={{width:cw-2,minWidth:cw-2,height:"34px",borderRadius:"5px",background:cur&&pct===0?"rgba(0,184,219,0.04)":c.bg,border:`1px solid ${ex?"rgba(99,102,241,0.35)":cur?"rgba(0,184,219,0.2)":c.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"11px",fontWeight:700,fontFamily:"'DM Mono',monospace",color:pct===0?(ex?"#a5b4fc":"#e2e8f0"):c.text,cursor:cell&&cell.allocationIds.length>0?"pointer":"default",transition:"all 0.1s",position:"relative",flexShrink:0}}>
-    {pct>0?ulabel(pct):"--"}
-    {ex&&<div style={{position:"absolute",top:"3px",right:"3px",width:"5px",height:"5px",borderRadius:"50%",background:"#818cf8",boxShadow:"0 0 0 1px white"}}/>}
+  const isLeaveOnly = ex && pct===0;
+  const cap = cell?.capacityDays??0;
+  const avail = cell?.daysAllocated!==undefined ? cap - cell.daysAllocated : cap;
+  const tooltip = isLeaveOnly
+    ? `Leave / exception this week — ${cap}d available, 0d allocated`
+    : cell ? `${cell.daysAllocated}d / ${cell.capacityDays}d (${pct}%)${ex?" — Capacity exception":""}`
+    : "—";
+  return<div title={tooltip} style={{
+    width:cw-2,minWidth:cw-2,height:"34px",borderRadius:"5px",
+    background: isLeaveOnly ? "rgba(99,102,241,0.08)" : cur&&pct===0 ? "rgba(0,184,219,0.04)" : c.bg,
+    border:`1px solid ${isLeaveOnly?"rgba(99,102,241,0.4)":ex?"rgba(99,102,241,0.35)":cur?"rgba(0,184,219,0.2)":c.border}`,
+    display:"flex",alignItems:"center",justifyContent:"center",gap:"3px",
+    fontSize:"11px",fontWeight:700,fontFamily:"'DM Mono',monospace",
+    color: isLeaveOnly?"#818cf8" : pct===0?"#e2e8f0":c.text,
+    cursor:cell&&cell.allocationIds.length>0?"pointer":"default",
+    transition:"all 0.1s",position:"relative",flexShrink:0,
+  }}>
+    {isLeaveOnly
+      ? <><span style={{fontSize:"12px",lineHeight:1}}>🏖</span><span style={{fontSize:"9px",fontWeight:700,color:"#818cf8",letterSpacing:"0.04em"}}>LEAVE</span></>
+      : pct>0 ? ulabel(pct) : "--"
+    }
+    {ex&&!isLeaveOnly&&<div style={{position:"absolute",top:"3px",right:"3px",width:"5px",height:"5px",borderRadius:"50%",background:"#818cf8",boxShadow:"0 0 0 1px white"}}/>}
     {pct>0&&<div style={{position:"absolute",bottom:0,left:0,height:"3px",borderRadius:"0 0 4px 4px",width:`${Math.min(pct,100)}%`,background:c.text,opacity:0.4}}/>}
   </div>;
 }

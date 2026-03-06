@@ -92,12 +92,17 @@ function getMondayOf(date: Date): Date {
   return d;
 }
 
-/** Normalise any ISO date string to its Monday — ensures consistent map keys. */
+/** Normalise any ISO date string to its Monday — ensures consistent map keys.
+ *  Strips time/timezone before parsing (handles full ISO timestamps from Supabase).
+ *  Uses UTC throughout to avoid server timezone shifting the day.
+ */
 function toMonday(iso: string): string {
-  const d   = new Date(iso + "T00:00:00");
-  const day = d.getDay();
-  d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
-  return d.toISOString().split("T")[0];
+  const dateOnly = String(iso ?? "").trim().slice(0, 10); // always "YYYY-MM-DD"
+  const d = new Date(dateOnly + "T00:00:00Z");            // force UTC parse
+  if (isNaN(d.getTime())) return dateOnly;                // guard invalid input
+  const day = d.getUTCDay();                              // 0=Sun, 1=Mon ... 6=Sat
+  d.setUTCDate(d.getUTCDate() - (day === 0 ? 6 : day - 1));
+  return d.toISOString().slice(0, 10);
 }
 
 function toIso(d: Date): string {
@@ -266,19 +271,30 @@ export async function fetchHeatmapData(filters: HeatmapFilters): Promise<Heatmap
 
     if (!exErr && exceptionRows) {
       exceptionCount = exceptionRows.length;
+      // DEBUG: log raw exception rows and the person IDs we queried
+      console.log("[heatmap] exception query returned", exceptionRows.length, "rows");
+      console.log("[heatmap] queried personIds:", allPersonIds.slice(0, 5));
+      console.log("[heatmap] raw exception rows:", JSON.stringify(exceptionRows.slice(0, 5)));
       for (const ex of exceptionRows) {
         const pid     = String(ex.person_id);
-        // normalise to Monday so the key matches weeklyPeriods
-        const weekKey = toMonday(String(ex.week_start_date));
+        const rawDate = String(ex.week_start_date);
+        const weekKey = toMonday(rawDate);
+        // DEBUG: log each exception mapping
+        console.log(`[heatmap] exception pid=${pid} rawDate=${rawDate} -> weekKey=${weekKey} avail=${ex.available_days}`);
         if (!exceptionMap.has(pid)) exceptionMap.set(pid, new Map());
         // Use the minimum if multiple exceptions map to same Monday
         const existing = exceptionMap.get(pid)!.get(weekKey);
         const avail    = parseFloat(String(ex.available_days));
         exceptionMap.get(pid)!.set(weekKey, existing !== undefined ? Math.min(existing, avail) : avail);
       }
+    } else if (exErr) {
+      console.log("[heatmap] exception query error:", exErr.message, exErr.code);
+    } else {
+      console.log("[heatmap] exception query returned null/empty rows");
     }
-  } catch {
+  } catch (catchErr: any) {
     // capacity_exceptions table may not exist — silently continue
+    console.log("[heatmap] exception query threw:", catchErr?.message);
   }
 
   // ── Allocations ────────────────────────────────────────────────────────────
