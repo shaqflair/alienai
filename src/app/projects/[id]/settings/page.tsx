@@ -1,4 +1,4 @@
-﻿import { redirect, notFound } from "next/navigation";
+import { redirect, notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
 
@@ -51,7 +51,7 @@ export default async function ProjectSettingsPage({
   // Load project (include branding fields)
   const { data: project, error: projectErr } = await supabase
     .from("projects")
-    .select("id, title, client_name, client_logo_url, brand_primary_color")
+    .select("id, title, client_name, client_logo_url, brand_primary_color, resource_status, win_probability")
     .eq("id", projectId)
     .single();
 
@@ -97,6 +97,24 @@ export default async function ProjectSettingsPage({
 
     if (error) throw new Error(error.message);
 
+    revalidatePath(`/projects/${pid}/settings`);
+  }
+
+  async function savePipelineAction(formData: FormData) {
+    "use server";
+    const supabase = await createClient();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) redirect("/login");
+    const pid = String(formData.get("project_id") ?? "");
+    if (!pid) notFound();
+    const { data: mem } = await supabase.from("project_members").select("role")
+      .eq("project_id", pid).eq("user_id", auth.user.id).maybeSingle();
+    const role = String((mem as any)?.role ?? "viewer").toLowerCase();
+    if (!(role === "owner" || role === "editor")) throw new Error("Permission denied");
+    const resource_status  = String(formData.get("resource_status") ?? "pipeline");
+    const win_probability  = Math.min(100, Math.max(0, parseInt(String(formData.get("win_probability") ?? "50"), 10)));
+    const { error } = await supabase.from("projects").update({ resource_status, win_probability }).eq("id", pid);
+    if (error) throw new Error(error.message);
     revalidatePath(`/projects/${pid}/settings`);
   }
 
@@ -199,6 +217,49 @@ export default async function ProjectSettingsPage({
       </section>
 
       {/* Members */}
+      {/* Pipeline & Status */}
+      <section className="border rounded-2xl bg-white p-5 space-y-4">
+        <div>
+          <div className="font-medium">Pipeline &amp; Status</div>
+          <div className="text-xs text-gray-500">Controls heatmap demand weighting and project visibility.</div>
+        </div>
+        <form action={savePipelineAction} className="grid gap-4">
+          <input type="hidden" name="project_id" value={projectId} />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Resource Status</label>
+              <select name="resource_status" defaultValue={String((project as any).resource_status ?? "pipeline")}
+                disabled={!canEdit}
+                className="border rounded-lg px-3 py-2 text-sm bg-white">
+                <option value="pipeline">Pipeline</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="active">Active</option>
+                <option value="on_hold">On Hold</option>
+                <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                Win Probability <span className="text-gray-400 font-normal">(pipeline only)</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <input type="number" name="win_probability" min={0} max={100} step={5}
+                  defaultValue={String((project as any).win_probability ?? 50)}
+                  disabled={!canEdit}
+                  className="border rounded-lg px-3 py-2 text-sm w-24" />
+                <span className="text-sm text-gray-500">% — weights demand on heatmap</span>
+              </div>
+            </div>
+          </div>
+          {canEdit && (
+            <button type="submit" className="w-fit px-4 py-2 rounded-xl bg-black text-white text-sm">
+              Save status
+            </button>
+          )}
+        </form>
+      </section>
+
       <MembersSection projectId={projectId} myUserId={auth.user.id} />
     </div>
   );
