@@ -1318,30 +1318,6 @@ export default function ScenarioSimulator({
                   </div>
                 </div>
 
-              </div>
-
-              {/* Filter bar */}
-              {(people.length > 1 || liveProjectOptions.length > 0) && (
-                <div style={{ padding: "10px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em" }}>People</span>
-                    {people.map((p: any) => (
-                      <button key={p.personId} onClick={() => setFilterPeople(prev =>
-                        prev.includes(p.personId) ? prev.filter(x => x !== p.personId) : [...prev, p.personId]
-                      )} style={{
-                        padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer",
-                        border: "1.5px solid " + (filterPeople.includes(p.personId) ? "#00b8db" : "#e2e8f0"),
-                        background: filterPeople.includes(p.personId) ? "#e0f7fa" : "#fff",
-                        color: filterPeople.includes(p.personId) ? "#0284c7" : "#64748b",
-                      }}>{p.fullName.split(" ")[0]}</button>
-                    ))}
-                    {filterPeople.length > 0 && (
-                      <button onClick={() => setFilterPeople([])} style={{ fontSize: 10, color: "#94a3b8", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Clear</button>
-                    )}
-                  </div>
-                </div>
-              )}
-
                 {/* Score comparison */}
                 <div style={{
                   display: "flex", gap: "16px", marginLeft: "auto",
@@ -1364,6 +1340,26 @@ export default function ScenarioSimulator({
                   </div>
                 </div>
               </div>
+
+              {/* Filter bar */}
+              {people.length > 1 && (
+                <div style={{ padding: "10px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginRight: 4 }}>Filter</span>
+                  {people.map((p: any) => (
+                    <button key={p.personId} onClick={() => setFilterPeople((prev: string[]) =>
+                      prev.includes(p.personId) ? prev.filter((x: string) => x !== p.personId) : [...prev, p.personId]
+                    )} style={{
+                      padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                      border: "1.5px solid " + (filterPeople.includes(p.personId) ? "#00b8db" : "#e2e8f0"),
+                      background: filterPeople.includes(p.personId) ? "#e0f7fa" : "#fff",
+                      color: filterPeople.includes(p.personId) ? "#0284c7" : "#64748b",
+                    }}>{p.fullName.split(" ")[0]}</button>
+                  ))}
+                  {filterPeople.length > 0 && (
+                    <button onClick={() => setFilterPeople([])} style={{ fontSize: 10, color: "#94a3b8", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Clear</button>
+                  )}
+                </div>
+              )}
 
               <div style={{ padding: "16px 20px" }}>
                 <DiffHeatmap diffs={filteredDiffs} weeks={weeks} />
