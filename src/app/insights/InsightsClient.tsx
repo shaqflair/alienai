@@ -7,7 +7,7 @@
 //   /api/portfolio/health             — portfolio health score + drivers
 //   /api/ai/briefing                  — AI insights feed (changes, finance, resources)
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 
 /* ─── Google Fonts ──────────────────────────────────────────────────────────── */
@@ -1086,15 +1086,7 @@ export default function InsightsClient() {
   const sections = execData?.sections ?? [];
   const healthScore = health ? Math.max(0, Math.min(100, Math.round(num(health.portfolio_health)))) : null;
 
-  const fullRaidRegisterHref = useMemo(() => {
-    for (const section of sections) {
-      for (const item of section.items ?? []) {
-        const href = canonicalRaidHref(item.href, item.project_id);
-        if (href) return href;
-      }
-    }
-    return null;
-  }, [sections]);
+  const fullRaidRegisterHref = "/risks";
 
   const TABS: { k: typeof activeTab; l: string }[] = [
     { k: "overview", l: "Overview" },
@@ -1546,10 +1538,7 @@ export default function InsightsClient() {
 
                   <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 8 }}>
                     <Link
-                      href={fullRaidRegisterHref || "#"}
-                      onClick={(e) => {
-                        if (!fullRaidRegisterHref) e.preventDefault();
-                      }}
+                      href={fullRaidRegisterHref}
                       style={{
                         fontFamily: T.mono,
                         fontSize: 10,
@@ -1559,10 +1548,7 @@ export default function InsightsClient() {
                         textDecoration: "none",
                         borderBottom: "1px solid #bfdbfe",
                         paddingBottom: 1,
-                        pointerEvents: fullRaidRegisterHref ? "auto" : "none",
-                        opacity: fullRaidRegisterHref ? 1 : 0.5,
                       }}
-                      aria-disabled={!fullRaidRegisterHref}
                     >
                       OPEN FULL RAID REGISTER →
                     </Link>
