@@ -181,7 +181,7 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                 <>
                   <Field label="Project name">
                     <input style={inputStyle} placeholder="e.g. Project Venus" value={name}
-                      onChange={e => setName(e.target.value)} autoFocus />
+                      onChange={e => setName(e.target.value)} />
                   </Field>
                   <Field label="Project manager">
                     <div style={{ position: "relative" }}>

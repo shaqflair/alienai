@@ -13,18 +13,29 @@ export async function GET(req: NextRequest) {
   const orgId = req.nextUrl.searchParams.get("orgId");
   if (!orgId) return NextResponse.json({ error: "orgId required" }, { status: 400 });
 
-  const { data, error } = await supabase
+  // First get org members
+  const { data: orgMembers, error: omErr } = await supabase
     .from("organisation_members")
-    .select("user_id, profiles(full_name, email)")
-    .eq("organisation_id", orgId)
-    .is("removed_at", null);
+    .select("user_id")
+    .eq("organisation_id", orgId);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (omErr) return NextResponse.json({ error: omErr.message }, { status: 500 });
+  if (!orgMembers?.length) return NextResponse.json({ members: [] });
 
-  const members = (data ?? []).map((m: any) => ({
-    user_id: m.user_id,
-    name:  m.profiles?.full_name ?? "",
-    email: m.profiles?.email    ?? "",
+  const userIds = orgMembers.map((m: any) => m.user_id);
+
+  // Then get profiles for those users
+  const { data: profiles, error: pErr } = await supabase
+    .from("profiles")
+    .select("id, full_name, email")
+    .in("id", userIds);
+
+  if (pErr) return NextResponse.json({ error: pErr.message }, { status: 500 });
+
+  const members = (profiles ?? []).map((p: any) => ({
+    user_id: p.id,
+    name:  p.full_name ?? "",
+    email: p.email    ?? "",
   }));
 
   return NextResponse.json({ members });
