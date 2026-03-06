@@ -4058,7 +4058,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
                     <h3 className="font-semibold text-gray-900">Resource Activity</h3>
 
-                    <p className="text-xs text-gray-400 mt-0.5">Week-on-week capacity vs demand · {windowDays === "all" ? "60" : windowDays} days</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Week-on-week capacity vs demand (FTE) · {windowDays === "all" ? "60" : windowDays} days</p>
 
                   </div>
 

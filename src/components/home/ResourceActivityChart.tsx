@@ -117,7 +117,7 @@ export default function ResourceActivityChart({ weeks: propWeeks, days, loading 
         {yTicks.map(tick=>(
           <g key={tick}>
             <line x1={PAD.l} y1={yPos(tick)} x2={W-PAD.r} y2={yPos(tick)} stroke="#f1f5f9" strokeWidth="1"/>
-            <text x={PAD.l-6} y={yPos(tick)+3.5} textAnchor="end" fill="#94a3b8" fontSize="10">{tick}</text>
+            <text x={PAD.l-6} y={yPos(tick)+3.5} textAnchor="end" fill="#94a3b8" fontSize="10">{(tick/5).toFixed(1)}</text>
           </g>
         ))}
         <path d={catmullRom(capPts,  true,floorY)} fill="url(#rcCapGrad)"/>
@@ -139,9 +139,9 @@ export default function ResourceActivityChart({ weeks: propWeeks, days, loading 
               <rect x={tx+TW-44} y={ty+5} width={36} height={16} rx="8" fill={utilBg(up)}/>
               <text x={tx+TW-26} y={ty+16} fontSize="10" fontWeight="800" textAnchor="middle" fill={utilColor(up)}>{up}%</text>
               {[
-                {label:"Capacity", value:`${hovData.capacity}d`, color:"#93c5fd", dy:36},
-                {label:"Allocated",value:`${hovData.allocated}d`,color:"#34d399", dy:56},
-                {label:"Pipeline", value:`${hovData.pipeline}d`, color:"#a78bfa", dy:76},
+                {label:"Capacity", value:`${(hovData.capacity/5).toFixed(1)} FTE`, color:"#93c5fd", dy:36},
+                {label:"Allocated",value:`${(hovData.allocated/5).toFixed(1)} FTE`,color:"#34d399", dy:56},
+                {label:"Pipeline", value:`${(hovData.pipeline/5).toFixed(1)} FTE`, color:"#a78bfa", dy:76},
               ].map(({label,value,color,dy})=>(
                 <g key={label}>
                   <circle cx={tx+16} cy={ty+dy-4} r="4" fill={color}/>
