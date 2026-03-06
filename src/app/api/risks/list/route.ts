@@ -99,6 +99,21 @@ export async function GET(req: NextRequest) {
     const { data: rows, error: rowErr } = await q;
     if (rowErr) return jsonErr(rowErr.message, 500);
 
+    // Resolve owner UUIDs to full names via profiles
+    const ownerIds = [...new Set(
+      (rows ?? []).map((r: any) => r.owner).filter((o: any) => o && typeof o === "string")
+    )];
+    const ownerMap = new Map<string, string>();
+    if (ownerIds.length) {
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("user_id, full_name")
+        .in("user_id", ownerIds);
+      for (const p of profiles ?? []) {
+        if (p.user_id && p.full_name) ownerMap.set(String(p.user_id), String(p.full_name));
+      }
+    }
+
     const items = (rows ?? []).map((r: any) => {
       const id        = String(r.id);
       const prob      = r.likelihood != null ? Number(r.likelihood) : null;
@@ -135,7 +150,7 @@ export async function GET(req: NextRequest) {
         est_penalties:       null,
         due_date:    null,
         due_date_uk: null,
-        owner_label: String(r.owner || ""),
+        owner_label: r.owner ? (ownerMap.get(String(r.owner)) || String(r.owner)) : "",
         ai_rollup:   String(r.ai_rollup || ""),
         created_at:  String(r.last_updated || ""),
         updated_at:  String(r.last_updated || ""),
