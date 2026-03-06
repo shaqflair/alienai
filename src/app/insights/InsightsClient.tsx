@@ -169,6 +169,53 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> 
   }
 }
 
+function cleanText(v: unknown): string | null {
+  const s = typeof v === "string" ? v.trim() : String(v ?? "").trim();
+  return s || null;
+}
+
+function buildProjectRaidHref(projectId: string | null | undefined): string | null {
+  const pid = cleanText(projectId);
+  if (!pid) return null;
+  return `/projects/${encodeURIComponent(pid)}/raid`;
+}
+
+function canonicalRaidHref(rawHref?: string | null, projectId?: string | null): string | null {
+  const directProjectHref = buildProjectRaidHref(projectId);
+  const raw = cleanText(rawHref);
+
+  if (!raw) return directProjectHref;
+
+  if (raw.startsWith("/projects/")) {
+    const match = raw.match(/^\/projects\/([^/?#]+)\/raid(?:[/?#].*)?$/i);
+    if (match?.[1]) return `/projects/${encodeURIComponent(match[1])}/raid`;
+  }
+
+  if (raw.startsWith("/portfolio/raid")) {
+    try {
+      const url = new URL(raw, "http://localhost");
+      const pid =
+        cleanText(url.searchParams.get("projectId")) ||
+        cleanText(url.searchParams.get("project_id")) ||
+        cleanText(url.searchParams.get("id")) ||
+        cleanText(projectId);
+
+      return buildProjectRaidHref(pid);
+    } catch {
+      return directProjectHref;
+    }
+  }
+
+  if (raw.includes("/projects/") && raw.includes("/raid")) {
+    const idx = raw.indexOf("/projects/");
+    const sliced = raw.slice(idx);
+    const match = sliced.match(/^\/projects\/([^/?#]+)\/raid(?:[/?#].*)?$/i);
+    if (match?.[1]) return `/projects/${encodeURIComponent(match[1])}/raid`;
+  }
+
+  return directProjectHref;
+}
+
 /* ─── Atoms ─────────────────────────────────────────────────────────────────── */
 
 function Mono({
@@ -465,6 +512,7 @@ function RaidItemRow({
   const rag = scoreRag(item.score ?? null);
   const rc = RAG[rag];
   const over = item.overdue;
+  const projectRaidHref = canonicalRaidHref(item.href, item.project_id);
 
   return (
     <>
@@ -664,10 +712,10 @@ function RaidItemRow({
                       ))}
                   </div>
 
-                  {item.href && (
+                  {projectRaidHref && (
                     <div style={{ marginTop: 16 }}>
                       <Link
-                        href={item.href}
+                        href={projectRaidHref}
                         onClick={(e) => e.stopPropagation()}
                         style={{
                           fontFamily: T.mono,
@@ -1038,10 +1086,12 @@ export default function InsightsClient() {
   const sections = execData?.sections ?? [];
   const healthScore = health ? Math.max(0, Math.min(100, Math.round(num(health.portfolio_health)))) : null;
 
-  const firstRaidHref = useMemo(() => {
+  const fullRaidRegisterHref = useMemo(() => {
     for (const section of sections) {
-      const match = section.items?.find((item) => item.href && String(item.href).trim());
-      if (match?.href) return match.href;
+      for (const item of section.items ?? []) {
+        const href = canonicalRaidHref(item.href, item.project_id);
+        if (href) return href;
+      }
     }
     return null;
   }, [sections]);
@@ -1496,7 +1546,10 @@ export default function InsightsClient() {
 
                   <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 8 }}>
                     <Link
-                      href={firstRaidHref || "#"}
+                      href={fullRaidRegisterHref || "#"}
+                      onClick={(e) => {
+                        if (!fullRaidRegisterHref) e.preventDefault();
+                      }}
                       style={{
                         fontFamily: T.mono,
                         fontSize: 10,
@@ -1506,10 +1559,10 @@ export default function InsightsClient() {
                         textDecoration: "none",
                         borderBottom: "1px solid #bfdbfe",
                         paddingBottom: 1,
-                        pointerEvents: firstRaidHref ? "auto" : "none",
-                        opacity: firstRaidHref ? 1 : 0.5,
+                        pointerEvents: fullRaidRegisterHref ? "auto" : "none",
+                        opacity: fullRaidRegisterHref ? 1 : 0.5,
                       }}
-                      aria-disabled={!firstRaidHref}
+                      aria-disabled={!fullRaidRegisterHref}
                     >
                       OPEN FULL RAID REGISTER →
                     </Link>
