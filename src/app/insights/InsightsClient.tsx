@@ -904,22 +904,35 @@ export default function InsightsClient() {
           {/* ── RAID TAB ── */}
           {!execLoading && activeTab === "raid" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 20, animation: "fadeUp 0.4s 0.1s ease both" }}>
-              {sections.length === 0 || sections.every(s => s.items.length === 0) ? (
-                <div style={{ background: T.surface, border: `1px solid ${T.hr}`, padding: "80px", textAlign: "center" }}>
-                  <Mono size={12} color={T.ink5}>No items match the current window and scope.</Mono>
-                </div>
-              ) : sections.map((sec) => (
-                <SectionPanel key={sec.key} section={sec} />
-             <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 8 }}>
-  <Link href="/portfolio/raid" style={{
-    fontFamily: T.mono, fontSize: 10, fontWeight: 600, letterSpacing: "0.1em",
-    color: "#1d4ed8", textDecoration: "none", borderBottom: "1px solid #bfdbfe", paddingBottom: 1,
-  }}>
-    OPEN FULL RAID REGISTER →
-  </Link>
-</div>            </div>
-          )}
+            {sections.length === 0 || sections.every((s) => s.items.length === 0) ? (
+  <div style={{ background: T.surface, border: `1px solid ${T.hr}`, padding: "80px", textAlign: "center" }}>
+    <Mono size={12} color={T.ink5}>No items match the current window and scope.</Mono>
+  </div>
+) : (
+  <>
+    {sections.map((sec) => (
+      <SectionPanel key={sec.key} section={sec} />
+    ))}
 
+    <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 8 }}>
+      <Link
+        href="/portfolio/raid"
+        style={{
+          fontFamily: T.mono,
+          fontSize: 10,
+          fontWeight: 600,
+          letterSpacing: "0.1em",
+          color: "#1d4ed8",
+          textDecoration: "none",
+          borderBottom: "1px solid #bfdbfe",
+          paddingBottom: 1,
+        }}
+      >
+        OPEN FULL RAID REGISTER →
+      </Link>
+    </div>
+  </>
+)}
           {/* ── AI SIGNALS TAB ── */}
           {activeTab === "ai" && (
             <div style={{ animation: "fadeUp 0.4s 0.1s ease both" }}>
