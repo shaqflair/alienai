@@ -438,6 +438,7 @@ export default function RaidPortfolioClient({
   const [sortKey,    setSortKey]    = useState<SortKey>("score");
   const [search,     setSearch]     = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showRaise,  setShowRaise]  = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -493,6 +494,15 @@ export default function RaidPortfolioClient({
       exposure: all.reduce((s, i) => s + totalExposure(i), 0),
       sym:      all.find((i) => i.currency_symbol)?.currency_symbol ?? "£",
     };
+  }, [data]);
+
+  const raiseProjects = useMemo(() => {
+    if (!data?.items?.length) return [];
+    const seen = new Set<string>();
+    return data.items
+      .filter(i => { if (seen.has(i.project_id)) return false; seen.add(i.project_id); return true; })
+      .map(i => ({ id: i.project_id, title: i.project_title, code: i.project_code }))
+      .sort((a, b) => a.title.localeCompare(b.title));
   }, [data]);
 
   /* ── Table cell styles ── */
@@ -559,7 +569,64 @@ export default function RaidPortfolioClient({
                 <span style={{ color: T.ink5 }}>·</span>
                 <Cap>RAID REGISTER</Cap>
               </div>
-              <Mono size={10} color={T.ink5}>{nowUK()}</Mono>
+              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                <Mono size={10} color={T.ink5}>{nowUK()}</Mono>
+                <div style={{ position: "relative" }}>
+                  <button
+                    onClick={() => setShowRaise(s => !s)}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                      padding: "7px 16px",
+                      fontFamily: T.mono, fontSize: 10, fontWeight: 600,
+                      letterSpacing: "0.07em", textTransform: "uppercase",
+                      background: T.ink, color: "#fff",
+                      border: "none", borderRadius: 2, cursor: "pointer",
+                    }}
+                  >
+                    <span style={{ fontSize: 14, lineHeight: 1 }}>+</span>
+                    Raise Risk / Issue
+                  </button>
+                  {showRaise && (
+                    <div
+                      style={{
+                        position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 200,
+                        background: T.surface, border: `1px solid ${T.hr}`,
+                        borderRadius: 3, boxShadow: "0 8px 24px rgba(0,0,0,0.1)",
+                        minWidth: 280, overflow: "hidden",
+                      }}
+                      onMouseLeave={() => setShowRaise(false)}
+                    >
+                      <div style={{ padding: "10px 14px 8px", borderBottom: `1px solid ${T.hr}` }}>
+                        <Cap>Select project to raise item in</Cap>
+                      </div>
+                      {raiseProjects.length === 0 && (
+                        <div style={{ padding: "14px 18px" }}>
+                          <Mono size={11} color={T.ink4}>No projects loaded yet.</Mono>
+                        </div>
+                      )}
+                      {raiseProjects.map(p => (
+                        
+                          key={p.id}
+                          href={`/projects/${p.id}/raid`}
+                          style={{
+                            display: "block", padding: "9px 14px",
+                            fontFamily: T.mono, fontSize: 11, color: T.ink2,
+                            textDecoration: "none",
+                            borderBottom: `1px solid ${T.hr}`,
+                          }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.background = T.bg; }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.background = "transparent"; }}
+                        >
+                          {p.code && (
+                            <span style={{ color: T.ink4, marginRight: 8, fontWeight: 600 }}>{p.code}</span>
+                          )}
+                          {p.title}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 32 }}>
