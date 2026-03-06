@@ -1,4 +1,4 @@
-// FILE: src/app/projects/[id]/page.tsx
+﻿// FILE: src/app/projects/[id]/page.tsx
 import "server-only";
 
 import Link from "next/link";
@@ -421,11 +421,15 @@ export default async function ProjectPage({
   const pmName = safeStr((project as any)?.project_manager ?? (project as any)?.pm_name ?? "").trim() || "Unassigned";
 
   const tabs = [
-    { id: "overview",  label: "Overview",  href: `/projects/${projectRefForUrls}` },
-    { id: "artifacts", label: "Artifacts", href: `/projects/${projectRefForUrls}/artifacts` },
-    { id: "members",   label: "Members",   href: `/projects/${projectRefForUrls}/members` },
+    { id: "overview",  label: "Overview",      href: `/projects/${projectRefForUrls}` },
+    { id: "artifacts", label: "Artifacts",     href: `/projects/${projectRefForUrls}/artifacts` },
+    { id: "schedule",  label: "Schedule",      href: `/projects/${projectRefForUrls}/schedule` },
+    { id: "wbs",       label: "WBS",           href: `/projects/${projectRefForUrls}/wbs` },
+    { id: "members",   label: "Members",       href: `/projects/${projectRefForUrls}/members` },
     { id: "changes",   label: "Change Board",  href: `/projects/${projectRefForUrls}/change` },
-    { id: "raid",      label: "Risks",     href: `/projects/${projectRefForUrls}/raid` },
+    { id: "raid",      label: "Risks",         href: `/projects/${projectRefForUrls}/raid` },
+    { id: "lessons",   label: "Lessons",       href: `/projects/${projectRefForUrls}/lessons` },
+    { id: "weekly",    label: "Weekly Report", href: `/projects/${projectRefForUrls}/artifacts?type=weekly_report` },
   ];
 
   return (
