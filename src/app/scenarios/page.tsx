@@ -60,9 +60,15 @@ export default async function ScenariosPage() {
       .eq("organisation_id", organisationId)
       .is("removed_at", null)
   );
-  const memberUserIds = (memberUserIdRows as any[]).map((r: any) => String(r.user_id)).filter(Boolean);
+  const memberUserIds = (memberUserIdRows as any[])
+    .map((r: any) => String(r.user_id))
+    .filter(Boolean);
 
-  const [memberRows, projectRows, allocRows, exceptionRows, scenarioRows] = await Promise.all([
+  // Fetch people and projects first -- we need project IDs to correctly scope
+  // allocations (allocations has no organisation_id column; scoping via
+  // project_id is the guaranteed-correct approach since projects is already
+  // filtered by organisation_id above).
+  const [memberRows, projectRows] = await Promise.all([
     memberUserIds.length > 0
       ? safeQuery(
           supabase
@@ -80,14 +86,21 @@ export default async function ScenariosPage() {
         .is("deleted_at", null)
         .order("title")
     ),
-    // Scope allocations to this org's members so we never pull cross-org rows
-    // if RLS is misconfigured. Falls back to empty if memberUserIds is empty.
-    memberUserIds.length > 0
+  ]);
+
+  // Derive project IDs for scoping allocations
+  const projectIds = (projectRows as any[]).map((p: any) => String(p.id)).filter(Boolean);
+
+  // Now fetch allocations, exceptions, and scenarios in parallel
+  const [allocRows, exceptionRows, scenarioRows] = await Promise.all([
+    // Scope by project_id: allocations.project_id → projects.id → organisation_id
+    // This is the only reliable org-scope since allocations has no org column.
+    projectIds.length > 0
       ? safeQuery(
           supabase
             .from("allocations")
-            .select("id, person_id, project_id, week_start_date, days_allocated, allocation_type, created_at")
-            .in("person_id", memberUserIds)
+            .select("id, person_id, project_id, week_start_date, days_allocated, allocation_type")
+            .in("project_id", projectIds)
             .gte("week_start_date", eightWksAgo)
             .lte("week_start_date", sixMoAhead)
         )
@@ -100,7 +113,7 @@ export default async function ScenariosPage() {
         .gte("week_start_date", thisWeek)
         .lte("week_start_date", sixMoAhead)
     ),
-    // scenarios table may not exist yet
+    // scenarios table may not exist yet -- safeQuery handles gracefully
     safeQuery(
       supabase
         .from("scenarios")
@@ -141,10 +154,10 @@ export default async function ScenariosPage() {
   } satisfies LiveProject));
 
   // -- Transform allocations --------------------------------------------------
-  // FIX: normalise weekStart to Monday so allocMap keys match the Monday-keyed
-  // weeks produced by weeksInRange() and applyChanges(). Without this, any
-  // DB row whose week_start_date isn't already a Monday silently misses every
-  // lookup in computeState, leaving the Live heatmap empty.
+  // weekStart is normalised to Monday so it always matches the Monday-keyed
+  // weeks produced by weeksInRange() and applyChanges() in the engine.
+  // Without this, any DB row not stored as a Monday silently misses every
+  // allocMap lookup in computeState, leaving the Live heatmap empty.
   const allocations: LiveAllocation[] = (allocRows as any[]).map((a: any) => ({
     id:            String(a.id),
     personId:      String(a.person_id),
@@ -155,7 +168,7 @@ export default async function ScenariosPage() {
   } satisfies LiveAllocation));
 
   // -- Transform exceptions ---------------------------------------------------
-  // FIX: same Monday normalisation so exception lookups in computeState match.
+  // Same Monday normalisation for consistent key lookups in computeState.
   const exceptions: LiveException[] = (exceptionRows as any[]).map((e: any) => ({
     personId:  String(e.person_id),
     weekStart: getMondayOf(safeStr(e.week_start_date).slice(0, 10)),
