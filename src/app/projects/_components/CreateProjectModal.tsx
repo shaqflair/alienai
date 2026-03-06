@@ -191,9 +191,10 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                         value={pmSearch}
                         onChange={e => { setPmSearch(e.target.value); setPmOpen(true); setPmUserId(null); setPm(""); }}
                         onFocus={() => setPmOpen(true)}
+                        onBlur={() => setTimeout(() => setPmOpen(false), 150)}
                         autoComplete="off"
                       />
-                      {pmOpen && (
+                      {pmOpen && members.length > 0 && (
                         <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50, background: "white", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,.1)", maxHeight: 200, overflowY: "auto", marginTop: 4 }}>
                           {members
                             .filter(m => !pmSearch || m.name.toLowerCase().includes(pmSearch.toLowerCase()) || m.email.toLowerCase().includes(pmSearch.toLowerCase()))
@@ -224,9 +225,10 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
                         value={sponsorSearch}
                         onChange={e => { setSponsorSearch(e.target.value); setSponsorOpen(true); setSponsorId(null); setSponsor(""); }}
                         onFocus={() => setSponsorOpen(true)}
+                        onBlur={() => setTimeout(() => setSponsorOpen(false), 150)}
                         autoComplete="off"
                       />
-                      {sponsorOpen && (
+                      {sponsorOpen && members.length > 0 && (
                         <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50, background: "white", border: "1.5px solid #e2e8f0", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,.1)", maxHeight: 180, overflowY: "auto", marginTop: 4 }}>
                           {members
                             .filter(m => !sponsorSearch || m.name.toLowerCase().includes(sponsorSearch.toLowerCase()) || m.email.toLowerCase().includes(sponsorSearch.toLowerCase()))
