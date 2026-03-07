@@ -8,7 +8,7 @@ import { getActiveOrgId } from "@/utils/org/active-org";
 import { fetchProjectResourceData, projectWeekPeriods } from "./_lib/resource-data";
 import ProjectResourcePanel from "./_components/ProjectResourcePanel";
 import AssignPmButton from "./_components/AssignPmButton";
-import { generatePID, insertRoleRequirements } from "./actions";
+import { insertRoleRequirements } from "./actions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -1010,11 +1010,9 @@ export default async function ProjectPage({
                     + New artifact
                   </Link>
 
-                  <form action={generatePID} style={{ display: "contents" }}>
-                    <input type="hidden" name="project_id" value={projectUuid}/>
-                    <input type="hidden" name="return_to"  value={`/projects/${projectRefForUrls}`}/>
-                    <button type="submit" className="action-btn">Generate PID</button>
-                  </form>
+                  <Link href={`/projects/${projectRefForUrls}/artifacts`} className="action-btn">
+                    Project Charter
+                  </Link>
 
                   {project?.resource_status === "pipeline" && (
                     <form action={convertPipelineToConfirmed} style={{ display: "contents" }}>
