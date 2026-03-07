@@ -1,4 +1,5 @@
 import "server-only";
+
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
@@ -6,13 +7,26 @@ import { getActiveOrgId } from "@/utils/org/active-org";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function jsonOk(d: any)            { return NextResponse.json({ ok: true, ...d }); }
-function jsonErr(e: string, s=400) { return NextResponse.json({ ok: false, error: e }, { status: s }); }
-function ss(x: any): string        { return typeof x === "string" ? x : x == null ? "" : String(x); }
+function jsonOk(d: any, status = 200) {
+  const res = NextResponse.json({ ok: true, ...d }, { status });
+  res.headers.set("Cache-Control", "no-store, max-age=0");
+  return res;
+}
+
+function jsonErr(e: string, s = 400) {
+  const res = NextResponse.json({ ok: false, error: e }, { status: s });
+  res.headers.set("Cache-Control", "no-store, max-age=0");
+  return res;
+}
+
+function ss(x: any): string {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
 
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();
+
     const { data: auth } = await supabase.auth.getUser();
     if (!auth?.user) return jsonErr("Unauthorized", 401);
 
@@ -20,7 +34,11 @@ export async function POST(req: NextRequest) {
     if (!orgId) return jsonErr("No active organisation", 400);
 
     let body: any = {};
-    try { body = await req.json(); } catch { return jsonErr("Invalid JSON", 400); }
+    try {
+      body = await req.json();
+    } catch {
+      return jsonErr("Invalid JSON", 400);
+    }
 
     const projectId = ss(body.project_id).trim();
     if (!projectId) return jsonErr("project_id is required", 400);
@@ -31,6 +49,7 @@ export async function POST(req: NextRequest) {
       .eq("id", projectId)
       .eq("organisation_id", orgId)
       .maybeSingle();
+
     if (!proj?.id) return jsonErr("Project not found", 404);
 
     const { data: mem } = await supabase
@@ -42,22 +61,67 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     const role = ss(mem?.role).toLowerCase();
-    if (!["admin", "owner", "manager"].includes(role)) return jsonErr("Insufficient permissions", 403);
+    if (!["admin", "owner", "manager"].includes(role)) {
+      return jsonErr("Insufficient permissions", 403);
+    }
 
-    const pmUserId = body.pm_user_id ?? null;
-    const pmName   = ss(body.pm_name).trim() || null;
+    const rawPmUserId = body.pm_user_id;
+    const pmUserId =
+      rawPmUserId == null || ss(rawPmUserId).trim() === ""
+        ? null
+        : ss(rawPmUserId).trim();
+
+    let pmName = ss(body.pm_name).trim() || null;
+
+    if (pmUserId && !pmName) {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("full_name, display_name, name, email, user_id, id")
+        .or(`user_id.eq.${pmUserId},id.eq.${pmUserId}`)
+        .maybeSingle();
+
+      pmName =
+        ss((prof as any)?.full_name).trim() ||
+        ss((prof as any)?.display_name).trim() ||
+        ss((prof as any)?.name).trim() ||
+        ss((prof as any)?.email).trim() ||
+        null;
+    }
+
+    if (pmUserId) {
+      const { data: targetMember } = await supabase
+        .from("organisation_members")
+        .select("user_id")
+        .eq("organisation_id", orgId)
+        .eq("user_id", pmUserId)
+        .is("removed_at", null)
+        .maybeSingle();
+
+      if (!targetMember?.user_id) {
+        return jsonErr("Selected PM is not an active organisation member", 400);
+      }
+    }
+
+    const updatePayload: Record<string, any> = {
+      pm_user_id: pmUserId,
+      project_manager_id: pmUserId,
+      pm_name: pmName,
+      updated_at: new Date().toISOString(),
+    };
 
     const { error } = await supabase
       .from("projects")
-      .update({
-        pm_user_id:          pmUserId,
-        project_manager_id:  pmUserId,
-      })
-      .eq("id", projectId);
+      .update(updatePayload)
+      .eq("id", projectId)
+      .eq("organisation_id", orgId);
 
     if (error) return jsonErr(error.message, 400);
 
-    return jsonOk({ pm_user_id: pmUserId, pm_name: pmName });
+    return jsonOk({
+      project_id: projectId,
+      pm_user_id: pmUserId,
+      pm_name: pmName,
+    });
   } catch (e: any) {
     console.error("[POST /api/projects/assign-pm]", e);
     return jsonErr(ss(e?.message) || "Server error", 500);
