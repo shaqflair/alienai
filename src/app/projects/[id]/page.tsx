@@ -149,9 +149,10 @@ function daysUntil(d: string | null | undefined): number | null {
 async function getOrgMembership(supabase: any, organisationId: string, userId: string) {
   const { data, error } = await supabase
     .from("organisation_members")
-    .select("role, is_active, removed_at")
+    .select("role")
     .eq("organisation_id", organisationId)
     .eq("user_id", userId)
+    .is("removed_at", null)
     .maybeSingle();
 
   if (error) {
@@ -161,12 +162,10 @@ async function getOrgMembership(supabase: any, organisationId: string, userId: s
     throw error;
   }
 
-  const active = typeof data?.is_active === "boolean" ? data.is_active : data?.removed_at == null;
   const role = String(data?.role ?? "").toLowerCase();
-
   return {
-    isMember: Boolean(active) && Boolean(role),
-    isAdmin: Boolean(active) && (role === "admin" || role === "owner"),
+    isMember: Boolean(role),
+    isAdmin: role === "admin" || role === "owner",
     role,
   };
 }
@@ -270,7 +269,7 @@ export default async function ProjectPage({
     const { data: p, error: pErr } = await supabase
       .from("projects")
       .select(
-        "id, organisation_id, title, project_code, colour, start_date, finish_date, resource_status, status, created_at, project_manager_id, pm_user_id, pm_name, project_manager_name, project_manager",
+        "id, organisation_id, title, project_code, colour, start_date, finish_date, resource_status, status, created_at, project_manager_id, pm_user_id"
       )
       .eq("id", projectUuid)
       .eq("organisation_id", activeOrgId)
@@ -519,30 +518,34 @@ export default async function ProjectPage({
     }
   }
 
-  let resolvedPmName = safeStr(
-    (project as any)?.pm_name ??
-      (project as any)?.project_manager_name ??
-      (project as any)?.project_manager ??
-      "",
-  ).trim();
+  const pmUserId = safeStr((project as any)?.pm_user_id ?? (project as any)?.project_manager_id ?? "").trim();
 
-  if (!resolvedPmName) {
-    const pmUserId = safeStr((project as any)?.pm_user_id ?? (project as any)?.project_manager_id ?? "").trim();
+  let resolvedPmName = "";
+  let resolvedPmJobTitle = "";
 
-    if (pmUserId) {
-      const { data: pmProfile } = await supabase
-        .from("profiles")
-        .select("full_name, display_name, name, email, user_id, id")
-        .or(`user_id.eq.${pmUserId},id.eq.${pmUserId}`)
-        .maybeSingle();
+  if (pmUserId) {
+    const { data: pmProfile } = await supabase
+      .from("profiles")
+      .select("full_name, display_name, name, email, user_id, id")
+      .or(`user_id.eq.${pmUserId},id.eq.${pmUserId}`)
+      .maybeSingle();
 
-      resolvedPmName =
-        safeStr((pmProfile as any)?.full_name).trim() ||
-        safeStr((pmProfile as any)?.display_name).trim() ||
-        safeStr((pmProfile as any)?.name).trim() ||
-        safeStr((pmProfile as any)?.email).trim() ||
-        "";
-    }
+    resolvedPmName =
+      safeStr((pmProfile as any)?.full_name).trim() ||
+      safeStr((pmProfile as any)?.display_name).trim() ||
+      safeStr((pmProfile as any)?.name).trim() ||
+      safeStr((pmProfile as any)?.email).trim() ||
+      "";
+
+    const { data: orgPm } = await supabase
+      .from("organisation_members")
+      .select("job_title")
+      .eq("organisation_id", activeOrgId)
+      .eq("user_id", pmUserId)
+      .is("removed_at", null)
+      .maybeSingle();
+
+    resolvedPmJobTitle = safeStr((orgPm as any)?.job_title).trim();
   }
 
   const projectTitle = safeStr(project?.title ?? "Project") || "Project";
@@ -567,6 +570,7 @@ export default async function ProjectPage({
   const totalMembers = members.length;
   const openRisks = risks.length;
   const pmName = resolvedPmName || "Unassigned";
+  const pmJobTitle = resolvedPmJobTitle || "";
 
   const artifactHref = (type: string) => {
     const a = (keyArtifacts as any[]).find((x) => x.type === type);
@@ -905,15 +909,22 @@ export default async function ProjectPage({
                   />
                 </span>
 
-                <span style={{ color: "var(--border-2)" }}></span>
+                {pmJobTitle ? (
+                  <>
+                    <span style={{ color: "var(--border-2)" }}>•</span>
+                    <span style={{ fontSize: 12, color: "var(--text-3)" }}>{pmJobTitle}</span>
+                  </>
+                ) : null}
+
+                <span style={{ color: "var(--border-2)" }}>•</span>
                 <span>Created {formatDate(project?.created_at)}</span>
 
-                <span style={{ color: "var(--border-2)" }}></span>
+                <span style={{ color: "var(--border-2)" }}>•</span>
                 <span style={{ textTransform: "capitalize", fontWeight: 500 }}>{myRole}</span>
 
                 {(project?.start_date || project?.finish_date) && (
                   <>
-                    <span style={{ color: "var(--border-2)" }}></span>
+                    <span style={{ color: "var(--border-2)" }}>•</span>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.45 }}>
                         <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="2" />
@@ -926,7 +937,7 @@ export default async function ProjectPage({
 
                 {daysLeft !== null && (
                   <>
-                    <span style={{ color: "var(--border-2)" }}></span>
+                    <span style={{ color: "var(--border-2)" }}>•</span>
                     <span
                       style={{
                         fontWeight: 600,
@@ -1034,7 +1045,9 @@ export default async function ProjectPage({
               <div className="stat-icon" style={{ background: "#ede9fe" }}></div>
               <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>Project Manager</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", lineHeight: 1.2 }}>{pmName}</div>
-              <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>Assigned</div>
+              <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>
+                {pmJobTitle || "Assigned"}
+              </div>
             </div>
 
             <div className="stat-card">
