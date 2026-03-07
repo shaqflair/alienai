@@ -12,7 +12,6 @@
 import React from "react";
 import { usePathname } from "next/navigation";
 import Sidebar from "./Sidebar";
-import VoiceGreeting from "@/components/brand/VoiceGreeting";
 
 // Optional (safe) offline helpers — add these files as previously listed:
 //   src/lib/offline/sync.ts (exports syncNow)
@@ -55,7 +54,7 @@ export default function SidebarShell({
 
   // Only greet on authenticated app pages (i.e., when sidebar is shown)
   // This avoids voice on login/signup/invite routes.
-  const enableVoice = showSidebar;
+ 
 
   const [isOffline, setIsOffline] = React.useState(false);
   const [syncing, setSyncing] = React.useState(false);
@@ -128,7 +127,7 @@ export default function SidebarShell({
 
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
-      <VoiceGreeting userName={userName} enabled={enableVoice} />
+      
       <Sidebar userName={userName} orgName={orgName} projectCount={projectCount} />
 
       <main
