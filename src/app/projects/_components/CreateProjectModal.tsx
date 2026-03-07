@@ -770,27 +770,7 @@ export default function CreateProjectModal({ activeOrgId }: Props) {
                     </span>
                   </div>
 
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: 12,
-                    }}
-                  >
-                    <Field label="Project code">
-                      <input
-                        style={inputStyle}
-                        placeholder="e.g. ATL-01"
-                        value={code}
-                        onChange={(e) => setCode(e.target.value)}
-                      />
-                      <p style={hintStyle}>
-                        <span style={{ color: "#06b6d4", fontWeight: 600 }}>
-                          ✦ Auto-generated
-                        </span>{" "}
-                        — edit to override.
-                      </p>
-                    </Field>
+                
 
                     <Field label="Department">
                       <input
