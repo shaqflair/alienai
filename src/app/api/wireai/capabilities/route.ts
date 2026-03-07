@@ -1,4 +1,3 @@
-// src/app/api/wireai/capabilities/route.ts
 import "server-only";
 
 import { NextResponse } from "next/server";
@@ -52,33 +51,25 @@ function debugEnabled(req: Request) {
   return Boolean(expected) && got === expected;
 }
 
-// ─── Provider resolution (mirrors generate route) ──────────────────────────
-
-type NormalisedProvider = "mock" | "wireai" | "openai";
+// ─── Provider resolution (mirrors generate route exactly) ──────────────────
 
 function resolveProvider(): {
   raw: string;
-  normalised: NormalisedProvider;
+  normalised: "mock" | "openai";
   hasKey: boolean;
   model: string;
   temperature: number;
 } {
   const raw = (env("AI_PROVIDER") || "mock").toLowerCase();
-
-  // Key can live in either var (generate route supports both)
-  const hasKey = !!env("OPENAI_API_KEY") || !!env("WIRE_AI_API_KEY");
-
+  const hasKey = !!env("WIRE_AI_API_KEY") || !!env("OPENAI_API_KEY");
   const model = env("OPENAI_MODEL") || "gpt-4.1-mini";
   const temperature = Number(env("OPENAI_TEMPERATURE") || "0.2") || 0.2;
 
-  const normalised: NormalisedProvider =
-    raw === "mock" ? "mock" : raw === "wireai" ? "wireai" : "openai";
-
   return {
     raw,
-    normalised,
+    normalised: raw === "mock" ? "mock" : "openai",
     hasKey,
-    model: normalised === "mock" ? "mock" : model,
+    model: raw === "mock" ? "mock" : model,
     temperature,
   };
 }
@@ -104,18 +95,15 @@ type CapabilityMatrix = {
   reason: string;
   ready: boolean;
 
+  // Only when debug is enabled (never required by the UI)
   debug?: {
     hasKey: boolean;
-    normalised: NormalisedProvider;
-    raw: string;
+    normalised: "mock" | "openai";
   };
 };
 
 function buildCapabilities(provider: ReturnType<typeof resolveProvider>, debugOn: boolean): CapabilityMatrix {
   const isMock = provider.normalised === "mock";
-
-  // In mock mode we consider AI "ready" (offline placeholders).
-  // In live mode we require a key.
   const isReady = isMock || provider.hasKey;
 
   const modes = {
@@ -145,9 +133,7 @@ function buildCapabilities(provider: ReturnType<typeof resolveProvider>, debugOn
     ready: isReady,
   };
 
-  if (debugOn) {
-    out.debug = { hasKey: provider.hasKey, normalised: provider.normalised, raw: provider.raw };
-  }
+  if (debugOn) out.debug = { hasKey: provider.hasKey, normalised: provider.normalised };
 
   return out;
 }
@@ -159,9 +145,7 @@ export async function GET(req: Request) {
   try {
     const supabase = await createClient();
     const { data: auth, error } = await supabase.auth.getUser();
-    if (error || !auth?.user) {
-      return json({ ok: false, error: "Not authenticated" }, 401);
-    }
+    if (error || !auth?.user) return json({ ok: false, error: "Not authenticated" }, 401);
   } catch {
     return json({ ok: false, error: "Auth check failed" }, 401);
   }
@@ -170,20 +154,9 @@ export async function GET(req: Request) {
   const provider = resolveProvider();
   const capabilities = buildCapabilities(provider, debugOn);
 
-  // ✅ Compatibility: expose booleans at top-level so clients that do
-  // `data.full` still work, while also returning `capabilities`.
-  return json({
-    ok: true,
-
-    // top-level (legacy/simple consumers)
-    full: capabilities.full,
-    section: capabilities.section,
-    suggest: capabilities.suggest,
-    validate: capabilities.validate,
-
-    // full payload
-    capabilities,
-  });
+  // ✅ IMPORTANT: flatten so UI can read data.full / data.section / etc.
+  // Keep `capabilities` nested too (handy for debugging and future callers).
+  return json({ ok: true, ...capabilities, capabilities });
 }
 
 export async function POST() {

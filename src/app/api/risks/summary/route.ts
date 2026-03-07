@@ -1,4 +1,4 @@
-// src/app/api/portfolio/risk-counts/route.ts
+// src/app/api/risks/summary/route.ts
 // ✅ Org-scoped: all org members see portfolio-wide risk counts.
 import "server-only";
 import { NextResponse } from "next/server";
