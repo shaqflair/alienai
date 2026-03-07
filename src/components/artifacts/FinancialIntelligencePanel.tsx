@@ -129,12 +129,24 @@ export default function FinancialIntelligencePanel({
   content, monthlyData, fyConfig, lastUpdatedAt,
   raidItems, approvalDelays, onSignalsChange, autoOpen = false,
 }: Props) {
-  const panelRef       = useRef<HTMLDivElement>(null);
+  const panelRef          = useRef<HTMLDivElement>(null);
+  const mountedRef        = useRef(true);
+  const abortRef          = useRef<AbortController | null>(null);
   const [signals, setSignals]       = useState<Signal[]>([]);
   const [aiAnalysis, setAiAnalysis] = useState<FinancialAIAnalysis | null>(null);
   const [aiLoading, setAiLoading]   = useState(false);
   const [aiError, setAiError]       = useState<string | null>(null);
   const [activeTab, setActiveTab]   = useState<"signals" | "ai">("signals");
+
+  // Track mounted state so async callbacks never setState after unmount
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      // Abort any in-flight AI fetch when component unmounts
+      abortRef.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     const sigs = analyseFinancialPlan(content, monthlyData, fyConfig, { lastUpdatedAt });
@@ -142,33 +154,40 @@ export default function FinancialIntelligencePanel({
     onSignalsChange?.(sigs);
   }, [content, monthlyData, fyConfig, lastUpdatedAt, onSignalsChange]);
 
+  // FIX: clear the timeout on unmount to prevent parentNode crash
   useEffect(() => {
-    if (autoOpen) {
-      setTimeout(() => {
-        panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 300);
-      triggerAI();
-    }
+    if (!autoOpen) return;
+    const timer = setTimeout(() => {
+      panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 300);
+    triggerAI();
+    return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoOpen]);
 
   const triggerAI = useCallback(async () => {
-    setAiLoading(true);
-    setAiError(null);
-    setActiveTab("ai");
+    // Abort any previous in-flight request
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    if (mountedRef.current) { setAiLoading(true); setAiError(null); setActiveTab("ai"); }
     try {
       const res = await fetch("/api/ai/financial-intelligence", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content, monthlyData, fyConfig, lastUpdatedAt, raidItems, approvalDelays }),
+        signal: controller.signal,
       });
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       const data = await res.json();
-      setAiAnalysis(data.analysis);
+      // Only update state if still mounted
+      if (mountedRef.current) setAiAnalysis(data.analysis);
     } catch (e: any) {
-      setAiError(e?.message ?? "AI analysis failed.");
+      if (e?.name === "AbortError") return; // navigated away — silently drop
+      if (mountedRef.current) setAiError(e?.message ?? "AI analysis failed.");
     } finally {
-      setAiLoading(false);
+      if (mountedRef.current) setAiLoading(false);
     }
   }, [content, monthlyData, fyConfig, lastUpdatedAt, raidItems, approvalDelays]);
 
