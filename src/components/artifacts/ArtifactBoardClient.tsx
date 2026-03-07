@@ -34,6 +34,16 @@ import {
 } from "@/app/projects/[id]/artifacts/actions";
 
 /* =========================================================
+   Board-manageable types (mirrors server actions constraint)
+   Only these types show Clone / Delete buttons
+========================================================= */
+const BOARD_MANAGEABLE_TYPES = new Set([
+  "PROJECT_CHARTER",
+  "PROJECT_CLOSURE_REPORT",
+  "SCHEDULE",
+]);
+
+/* =========================================================
    Types
 ========================================================= */
 
@@ -122,10 +132,6 @@ function initialsFromEmail(email: string) {
   return local.slice(0, 2).toUpperCase();
 }
 
-/**
- * ✅ Keep query/hash but normalise module paths.
- * Mirrors API normaliser behaviour.
- */
 function normalizeArtifactLink(href: string) {
   const raw = safeStr(href).trim();
   if (!raw) return "";
@@ -174,15 +180,6 @@ function safeNum(x: any, fb = 0) {
   return Number.isFinite(n) ? n : fb;
 }
 
-/**
- * ✅ Prefer server-provided link for due items.
- * Falls back to building a safe project route if link is missing.
- *
- * IMPORTANT:
- * - Always trust `item.href`/`item.link` if it is app-relative
- * - Prefer project UUID routing when available
- * - When we have an artifactId, route via artifacts board query (future-proof)
- */
 function aiItemHref(args: { item: any; fallbackProjectRef: string }) {
   const { item, fallbackProjectRef } = args;
 
@@ -211,7 +208,6 @@ function aiItemHref(args: { item: any; fallbackProjectRef: string }) {
       ""
   ).trim();
 
-  // If we have project + artifactId, go via artifacts board (stable)
   if (projectRef && artifactId && looksLikeUuid(artifactId)) {
     const qs = new URLSearchParams();
     qs.set("artifactId", artifactId);
@@ -256,7 +252,6 @@ function canonType(x: any): string {
     .replace(/[_-]+/g, "_")
     .trim();
 
-  // ✅ Governance module row
   if (
     t === "governance" ||
     t === "delivery_governance" ||
@@ -290,7 +285,6 @@ function canonType(x: any): string {
   if (t.includes("schedule") || t.includes("roadmap") || t.includes("gantt"))
     return "SCHEDULE";
 
-  // ✅ FINANCIAL_PLAN — must be before "change" check
   if (
     t === "financial_plan" ||
     t === "financial plan" ||
@@ -385,7 +379,6 @@ function isVirtualRow(row: ArtifactBoardRow) {
 }
 
 function rowHref(projectRef: string, projectUuid: string, row: ArtifactBoardRow) {
-  // ✅ First-class override for virtual rows / server-provided href
   const direct = safeStr((row as any).href).trim();
   if (direct) return normalizeArtifactLink(direct);
 
@@ -395,7 +388,6 @@ function rowHref(projectRef: string, projectUuid: string, row: ArtifactBoardRow)
   if (tk === "RAID" || tk === "RAID_LOG") return `/projects/${projectRef}/raid`;
   if (tk === "GOVERNANCE") return `/projects/${projectRef}/governance`;
 
-  // ✅ Financial plan virtual row → new artifact page
   const id = safeStr(row.id).trim();
   if (id === "__financial_plan__")
     return `/projects/${projectRef}/artifacts/new?type=financial_plan`;
@@ -553,15 +545,19 @@ function ArtifactTableRow({
 
   const virtual = isVirtualRow(row);
   const opensArtifact = rowOpensArtifactDetail(row);
+  const tk = rowTypeKey(row);
+  const isBoardManageable = BOARD_MANAGEABLE_TYPES.has(tk);
 
   const canDelete =
     !virtual &&
+    isBoardManageable &&
     row.canDeleteDraft !== false &&
     row.status === "Draft" &&
     !row.isBaseline &&
     !row.isLocked &&
     !row.deletedAt;
-  const canClone = !virtual;
+
+  const canClone = !virtual && isBoardManageable;
   const canMakeCurrent = !virtual && opensArtifact;
 
   const phaseCfg = PHASE_CONFIG[row.phase];
@@ -630,19 +626,20 @@ function ArtifactTableRow({
             </button>
           )}
 
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (!canClone) return;
-              onClone(row.id);
-            }}
-            disabled={isCloning || !canClone || !projectUuid || !looksLikeUuid(projectUuid)}
-            className="p-1 rounded hover:bg-blue-50 transition-colors disabled:opacity-30"
-            style={{ color: "#2563EB" }}
-            title={canClone ? "Clone" : "Not available for modules"}
-          >
-            {isCloning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
-          </button>
+          {canClone && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onClone(row.id);
+              }}
+              disabled={isCloning || !projectUuid || !looksLikeUuid(projectUuid)}
+              className="p-1 rounded hover:bg-blue-50 transition-colors disabled:opacity-30"
+              style={{ color: "#2563EB" }}
+              title="Clone"
+            >
+              {isCloning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
+            </button>
+          )}
 
           {canDelete && (
             <button
@@ -655,7 +652,7 @@ function ArtifactTableRow({
               style={{ color: "#DC2626" }}
               title="Delete draft"
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
             </button>
           )}
 
@@ -893,14 +890,14 @@ function AiPanel({
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState("");
-  const [scope, setScope] = useState<AiScope>(canProject ? "project" : "org"); // ✅ auto-default if project UUID missing
+  const [scope, setScope] = useState<AiScope>(canProject ? "project" : "org");
 
   useEffect(() => {
     if (open) {
       setLoading(false);
       setResult(null);
       setError("");
-      setScope(canProject ? "project" : "org"); // ✅ auto-default on open
+      setScope(canProject ? "project" : "org");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -940,10 +937,8 @@ function AiPanel({
     setError("");
 
     try {
-      // ✅ New canonical API usage: GET /api/ai/events (due soon in next 14 days)
       const qs = new URLSearchParams();
       qs.set("windowDays", "14");
-      // eventType kept for backward compatibility (route can ignore it)
       qs.set("eventType", "artifact_due");
       if (scope === "project") qs.set("project_id", projectUuid);
 
@@ -979,7 +974,6 @@ function AiPanel({
   const projectRef = projectHumanId || projectCode || projectUuid;
   const scopeLabel = scope === "org" ? "All projects" : "This project";
 
-  // Group by project (only meaningful in org scope)
   const grouped = useMemo(() => {
     if (scope !== "org") return null;
     const map = new Map<string, { label: string; items: any[]; sortKey: string }>();
@@ -1025,7 +1019,6 @@ function AiPanel({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* ✅ Scope toggle (Project disabled if no UUID) */}
             <div className="inline-flex items-center rounded-lg border border-[#E5E7EB] overflow-hidden bg-[#FAFAFA]" style={{ height: 28 }}>
               <button
                 onClick={() => {
@@ -1069,7 +1062,6 @@ function AiPanel({
         </div>
 
         <div className="flex-1 overflow-auto p-4">
-          {/* Optional tiny counts header (org scope only) */}
           {scope === "org" && counts && (
             <div className="mb-3 p-3 rounded-lg border border-[#EEF2FF]" style={{ background: "#FAFBFF" }}>
               <div className="flex items-center justify-between">
@@ -1290,7 +1282,6 @@ export default function ArtifactBoardClient(props: {
     const arts = Array.isArray(props.artifacts) ? props.artifacts : [];
 
     if (incoming.length) {
-      // ✅ preserve href/isVirtual from server rows
       return applyCurrentFallback(incoming.map((r, i) => ({ ...r, __idx: i })));
     }
     if (!arts.length) return [];
@@ -1401,12 +1392,14 @@ export default function ArtifactBoardClient(props: {
       return;
     }
     setCloningId(id);
+    setActionError("");
     try {
       const fd = new FormData();
       fd.set("projectId", projectUuid);
       fd.set("artifactId", id);
       const res = await cloneArtifactAction(fd);
-      if (res?.ok && res?.newArtifactId) router.push(`/projects/${projectRef}/artifacts/${res.newArtifactId}`);
+      if (!res?.ok) throw new Error(res?.error ?? "Clone failed");
+      if (res.newArtifactId) router.push(`/projects/${projectRef}/artifacts/${res.newArtifactId}`);
     } catch (e: any) {
       setActionError(e.message);
     } finally {
@@ -1419,11 +1412,10 @@ export default function ArtifactBoardClient(props: {
     if (!projectUuid || !looksLikeUuid(projectUuid)) return;
     if (!looksLikeUuid(id)) return;
     setDeletingId(id);
+    setActionError("");
     try {
-      const fd = new FormData();
-      fd.set("projectId", projectUuid);
-      fd.set("artifactId", id);
-      await deleteDraftArtifactAction(fd);
+      const res = await deleteDraftArtifactAction({ projectId: projectUuid, artifactId: id });
+      if (!res?.ok) throw new Error(res?.error ?? "Delete failed");
       router.refresh();
     } catch (e: any) {
       setActionError(e.message);
@@ -1436,6 +1428,7 @@ export default function ArtifactBoardClient(props: {
     if (!projectUuid || !looksLikeUuid(projectUuid)) return;
     if (!looksLikeUuid(id)) return;
     setMakingCurrentId(id);
+    setActionError("");
     try {
       await setArtifactCurrentAction({ projectId: projectUuid, artifactId: id });
       router.refresh();
@@ -1514,7 +1507,6 @@ export default function ArtifactBoardClient(props: {
               <div className="flex items-center gap-2">
                 <StatsRow rows={filteredRows} />
                 <div className="w-px h-5 bg-[#E5E7EB] mx-1 hidden md:block" />
-                {/* ✅ Do NOT hard-disable: org/portfolio scope can run without project UUID */}
                 <button
                   onClick={() => setAiOpen(true)}
                   className="flex items-center gap-1.5 px-3 py-[7px] rounded-lg text-[12px] font-medium bg-violet-50 text-violet-600 border border-violet-100 hover:bg-violet-100 transition-colors"
