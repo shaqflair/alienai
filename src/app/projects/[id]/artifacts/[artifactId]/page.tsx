@@ -1,4 +1,4 @@
-// src/app/projects/[id]/artifacts/[artifactId]/page.tsx
+ï»¿// src/app/projects/[id]/artifacts/[artifactId]/page.tsx
 
 import "server-only";
 
@@ -790,7 +790,7 @@ export default async function ArtifactDetailPage({
 
               className="w-full md:w-[520px] text-2xl font-semibold border rounded-xl px-3 py-2"
 
-              placeholder="Artifact title…"
+              placeholder="Artifact titleâ€¦"
 
             />
 
@@ -818,7 +818,7 @@ export default async function ArtifactDetailPage({
 
           </span>
 
-          <span className="opacity-40">•</span>
+          <span className="opacity-40">â€¢</span>
 
           <span className="text-xs">
 
@@ -832,13 +832,13 @@ export default async function ArtifactDetailPage({
 
             <>
 
-              <span className="opacity-40">•</span>
+              <span className="opacity-40">â€¢</span>
 
               <span className="text-xs">
 
-                Project dates: <span className="font-mono">{projectStartDate || "—"}</span> ?{" "}
+                Project dates: <span className="font-mono">{projectStartDate || "â€”"}</span> ?{" "}
 
-                <span className="font-mono">{projectFinishDate || "—"}</span>
+                <span className="font-mono">{projectFinishDate || "â€”"}</span>
 
               </span>
 
@@ -1150,7 +1150,7 @@ export default async function ArtifactDetailPage({
 
 
 
-      {/* fallback editor — NOT for weekly report, financial plan, or any typed mode */}
+      {/* fallback editor â€” NOT for weekly report, financial plan, or any typed mode */}
 
       {!isWeeklyReport &&
 
