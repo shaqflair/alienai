@@ -1,4 +1,4 @@
-﻿// // src/components/editors/WBSEditor.tsx
+// // src/components/editors/WBSEditor.tsx
 "use client";
 
 import React, {
@@ -408,7 +408,7 @@ const DEFAULT_VIEW_STATE: ViewState = {
 
 type SaveMode = "idle" | "dirty" | "saving" | "saved" | "error";
 
-// ─── STATUS CONFIG ────────────────────────────────────────────────────────────
+// --- STATUS CONFIG ------------------------------------------------------------
 const STATUS_CONFIG: Record<
   WbsStatus,
   {
@@ -454,7 +454,7 @@ const STATUS_CONFIG: Record<
   },
 };
 
-// ─── LEVEL ACCENT PALETTE — left border stripe per depth ──────────────────────
+// --- LEVEL ACCENT PALETTE � left border stripe per depth ----------------------
 const LEVEL_STRIPE = [
   "border-l-slate-800",
   "border-l-indigo-400",
@@ -702,6 +702,7 @@ const WbsRowCard = React.memo(function WbsRowCard(props: {
     isCollapsed,
     detailsOpen,
     readOnly,
+    autoRollup,
 
     statusShown,
     progressShown,
@@ -747,7 +748,7 @@ const WbsRowCard = React.memo(function WbsRowCard(props: {
             }}
             className="w-6 h-6 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all shrink-0 text-[10px]"
           >
-            {isCollapsed ? "▸" : "▾"}
+            {isCollapsed ? "?" : "?"}
           </button>
         ) : (
           <div className="w-6 h-6 shrink-0 flex items-center justify-center">
@@ -756,7 +757,7 @@ const WbsRowCard = React.memo(function WbsRowCard(props: {
         )}
 
         <code className="text-[11px] font-mono text-slate-400 tabular-nums shrink-0 w-10 text-right">
-          {r.code || "—"}
+          {r.code || "�"}
         </code>
 
         <input
@@ -799,7 +800,7 @@ const WbsRowCard = React.memo(function WbsRowCard(props: {
             }}
             className="opacity-0 group-hover:opacity-100 text-[11px] px-2 py-1 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-all"
           >
-            {detailsOpen ? "↑ Hide" : "↓ Details"}
+            {detailsOpen ? "? Hide" : "? Details"}
           </button>
 
           {!readOnly && renderRowActions(r.id)}
@@ -840,10 +841,10 @@ const WbsRowCard = React.memo(function WbsRowCard(props: {
                 : "bg-orange-50 border-orange-200 text-orange-800"
             }`}
           >
-            <option value="">— not set —</option>
-            <option value="S">S – Small</option>
-            <option value="M">M – Medium</option>
-            <option value="L">L – Large</option>
+            <option value="">� not set �</option>
+            <option value="S">S � Small</option>
+            <option value="M">M � Medium</option>
+            <option value="L">L � Large</option>
           </select>
         </div>
 
@@ -881,7 +882,7 @@ const WbsRowCard = React.memo(function WbsRowCard(props: {
             {[
               { label: "Owner", value: r.owner ?? "", key: "owner", placeholder: "Assign owner" },
               { label: "Predecessor", value: r.predecessor ?? "", key: "predecessor", placeholder: "e.g. 1.2" },
-              { label: "Tags", value: joinTags(r.tags), key: "tags", placeholder: "governance, risk…" },
+              { label: "Tags", value: joinTags(r.tags), key: "tags", placeholder: "governance, risk�" },
             ].map((field) => (
               <div key={field.key}>
                 <label className="block text-[9px] uppercase tracking-widest text-slate-400 mb-1 font-semibold">
@@ -911,7 +912,7 @@ const WbsRowCard = React.memo(function WbsRowCard(props: {
                 value={r.description ?? ""}
                 disabled={!!readOnly}
                 rows={3}
-                placeholder="Context, notes, approach…"
+                placeholder="Context, notes, approach�"
                 onFocus={() => onEnsureArtifact()}
                 onChange={(e) => onUpdateRow(r.id, { description: e.target.value })}
                 className="w-full text-sm bg-white border border-slate-200 rounded-lg px-3 py-2 resize-y min-h-[68px] outline-none focus:ring-1 focus:ring-slate-400 focus:border-slate-400 transition-all placeholder:text-slate-300"
@@ -925,7 +926,7 @@ const WbsRowCard = React.memo(function WbsRowCard(props: {
                 value={r.acceptance_criteria ?? ""}
                 disabled={!!readOnly}
                 rows={4}
-                placeholder={"• Must be measurable\n• Must be testable"}
+                placeholder={"� Must be measurable\n� Must be testable"}
                 onFocus={() => onEnsureArtifact()}
                 onChange={(e) => onUpdateRow(r.id, { acceptance_criteria: e.target.value })}
                 className="w-full text-sm bg-white border border-slate-200 rounded-lg px-3 py-2 resize-y min-h-[92px] outline-none focus:ring-1 focus:ring-slate-400 focus:border-slate-400 transition-all placeholder:text-slate-300"
@@ -1307,7 +1308,7 @@ export default function WBSEditor({
       next.add(nextId);
       return next;
     });
-    setMsg("⚠️ Next effort gap selected");
+    setMsg("?? Next effort gap selected");
     setTimeout(() => setMsg(""), 1200);
   }
 
@@ -1460,7 +1461,7 @@ export default function WBSEditor({
     const safeArtifactId = safeStr(artifactIdLocal).trim();
 
     if (!safeProjectId || !safeArtifactId) {
-      if (!silent) setMsg("⛔ Missing project or artifact id");
+      if (!silent) setMsg("? Missing project or artifact id");
       setSaveMode("error");
       return;
     }
@@ -1493,7 +1494,7 @@ export default function WBSEditor({
         throw new Error((json as any)?.error || (json as any)?.message || `Save failed (${resp.status})`);
       }
 
-      // ✅ sync rows -> wbs_items (tolerant)
+      // ? sync rows -> wbs_items (tolerant)
       await syncWbsItems({
         projectId: safeProjectId,
         artifactId: safeArtifactId,
@@ -1505,12 +1506,12 @@ export default function WBSEditor({
       setLastSavedAt(new Date().toISOString());
 
       if (!silent) {
-        setMsg("✅ Saved");
+        setMsg("? Saved");
         setTimeout(() => setMsg(""), 1200);
       }
     } catch (e: any) {
       setSaveMode("error");
-      if (!silent) setMsg(`⛔ ${e?.message || "Save failed"}`);
+      if (!silent) setMsg(`? ${e?.message || "Save failed"}`);
     } finally {
       setSaving(false);
     }
@@ -1623,10 +1624,10 @@ export default function WBSEditor({
       const blob = await resp.blob();
       downloadBlob(blob, pickFilenameFromDisposition(resp.headers.get("content-disposition"), `${base}.xlsx`));
 
-      setMsg("✅ XLSX downloaded");
+      setMsg("? XLSX downloaded");
       setTimeout(() => setMsg(""), 1200);
     } catch (e: any) {
-      setMsg(`⛔ ${e?.message ?? "Export failed"}`);
+      setMsg(`? ${e?.message ?? "Export failed"}`);
     } finally {
       setExportingXlsx(false);
     }
@@ -1641,7 +1642,7 @@ export default function WBSEditor({
 
     const effectiveArtifactId = safeStr(artifactIdLocal).trim();
     if (!effectiveArtifactId) {
-      setMsg("⛔ Missing artifactId");
+      setMsg("? Missing artifactId");
       setTimeout(() => setMsg(""), 1200);
       return;
     }
@@ -1673,7 +1674,7 @@ export default function WBSEditor({
 
         const children = Array.isArray((j as any)?.children) ? ((j as any).children as any[]) : [];
         if (children.length === 0) {
-          setMsg("ℹ️ No expansion suggested");
+          setMsg("?? No expansion suggested");
           setTimeout(() => setMsg(""), 1200);
           return;
         }
@@ -1718,10 +1719,10 @@ export default function WBSEditor({
           return n;
         });
 
-        setMsg("✅ AI expanded");
+        setMsg("? AI expanded");
         setTimeout(() => setMsg(""), 1200);
       } catch (e: any) {
-        setMsg(`⛔ ${e?.message ?? "AI expand failed"}`);
+        setMsg(`? ${e?.message ?? "AI expand failed"}`);
       }
     });
   }
@@ -1729,14 +1730,14 @@ export default function WBSEditor({
   async function aiValidate() {
     setMsg("");
     setValidateOpen(true);
-    setValidateSummary("Validating…");
+    setValidateSummary("Validating�");
 
     await requestCreateArtifactIfNeeded("focus");
     const effectiveArtifactId = safeStr(artifactIdLocal).trim();
 
     if (!effectiveArtifactId) {
-      setValidateSummary("⛔ Missing artifactId");
-      setMsg("⛔ Missing artifactId");
+      setValidateSummary("? Missing artifactId");
+      setMsg("? Missing artifactId");
       setTimeout(() => setMsg(""), 1200);
       return;
     }
@@ -1766,13 +1767,13 @@ export default function WBSEditor({
           }))
         );
 
-        const summary = issues.length ? `Found ${issues.length} improvement(s)` : "Looks good — no issues found.";
+        const summary = issues.length ? `Found ${issues.length} improvement(s)` : "Looks good � no issues found.";
         setValidateSummary(summary);
-        setMsg(`✅ ${summary}`);
+        setMsg(`? ${summary}`);
         setTimeout(() => setMsg(""), 1200);
       } catch (e: any) {
-        setValidateSummary(`⛔ ${e?.message ?? "AI validate failed"}`);
-        setMsg(`⛔ ${e?.message ?? "AI validate failed"}`);
+        setValidateSummary(`? ${e?.message ?? "AI validate failed"}`);
+        setMsg(`? ${e?.message ?? "AI validate failed"}`);
       }
     });
   }
@@ -1786,7 +1787,7 @@ export default function WBSEditor({
     const effectiveArtifactId = safeStr(artifactIdLocal).trim();
 
     if (!effectiveArtifactId) {
-      setMsg("⛔ Missing artifactId");
+      setMsg("? Missing artifactId");
       setTimeout(() => setMsg(""), 1200);
       setGenOpen(false);
       setGenLoading(false);
@@ -1805,7 +1806,7 @@ export default function WBSEditor({
 
       setGeneratedDoc((j as any)?.generated ?? null);
     } catch (e: any) {
-      setMsg(`⛔ ${e?.message ?? "Generate failed"}`);
+      setMsg(`? ${e?.message ?? "Generate failed"}`);
       setTimeout(() => setMsg(""), 1200);
       setGenOpen(false);
     } finally {
@@ -1841,7 +1842,7 @@ export default function WBSEditor({
     setSavedViews(next);
     persistSavedViews(next);
     setActiveViewId(v.id);
-    setMsg("✅ View saved");
+    setMsg("? View saved");
     setTimeout(() => setMsg(""), 1200);
   }
 
@@ -1854,7 +1855,7 @@ export default function WBSEditor({
     setSavedViews(next);
     persistSavedViews(next);
     setActiveViewId("__all");
-    setMsg("✅ View deleted");
+    setMsg("? View deleted");
     setTimeout(() => setMsg(""), 1200);
   }
 
@@ -1867,7 +1868,7 @@ export default function WBSEditor({
     const next = savedViews.map((x) => (x.id === v.id ? { ...x, name: name.trim().slice(0, 48) } : x));
     setSavedViews(next);
     persistSavedViews(next);
-    setMsg("✅ View renamed");
+    setMsg("? View renamed");
     setTimeout(() => setMsg(""), 1200);
   }
 
@@ -1879,19 +1880,19 @@ export default function WBSEditor({
     try {
       window.localStorage.setItem(LS_KEY_MYWORK, next);
     } catch {}
-    setMsg("✅ My Work owner set");
+    setMsg("? My Work owner set");
     setTimeout(() => setMsg(""), 1200);
   }
 
   function applyMyWorkFilter() {
     if (!myWorkOwner.trim()) {
-      setMsg("ℹ️ Set 'My Work owner' first");
+      setMsg("?? Set 'My Work owner' first");
       setTimeout(() => setMsg(""), 1200);
       return;
     }
     setActiveViewId("__all");
     setOwnerFilter(myWorkOwner.trim());
-    setMsg("✅ My Work filter applied");
+    setMsg("? My Work filter applied");
     setTimeout(() => setMsg(""), 1200);
   }
 
@@ -1903,7 +1904,7 @@ export default function WBSEditor({
     return { idToIndex, idToHasChildren };
   }, [coded]);
 
-  // ─── ROW ACTIONS MENU ─────────────────────────────────────────────────────
+  // --- ROW ACTIONS MENU -----------------------------------------------------
   function RowActions({ rowId }: { rowId: string }) {
     const btnRef = useRef<HTMLButtonElement | null>(null);
     const menuRef = useRef<HTMLDivElement | null>(null);
@@ -1966,21 +1967,21 @@ export default function WBSEditor({
         onClick={(e) => e.stopPropagation()}
       >
         {[
-          { label: "+ Add sibling", action: () => addSibling(rowId), disabled: !!readOnly, icon: "↕" },
-          { label: "+ Add child", action: () => addChild(rowId), disabled: !!readOnly, icon: "↳" },
+          { label: "+ Add sibling", action: () => addSibling(rowId), disabled: !!readOnly, icon: "?" },
+          { label: "+ Add child", action: () => addChild(rowId), disabled: !!readOnly, icon: "?" },
           null,
           {
-            label: "Indent →",
+            label: "Indent ?",
             action: () => indent(rowId),
             disabled: !canIndent,
-            icon: "→",
+            icon: "?",
             title: !canIndent ? "Cannot indent the first row" : undefined,
           },
           {
-            label: "← Outdent",
+            label: "? Outdent",
             action: () => outdent(rowId),
             disabled: !canOutdent,
-            icon: "←",
+            icon: "?",
             title: !canOutdent ? "Already at level 0" : undefined,
           },
           null,
@@ -1991,7 +1992,7 @@ export default function WBSEditor({
               aiExpand(rowId);
             },
             disabled: !!readOnly,
-            icon: "✦",
+            icon: "?",
           },
           {
             label: "AI Assistant",
@@ -2000,7 +2001,7 @@ export default function WBSEditor({
               setAssistantOpen(true);
             },
             disabled: !!readOnly,
-            icon: "◈",
+            icon: "?",
           },
           null,
           {
@@ -2008,7 +2009,7 @@ export default function WBSEditor({
             action: () => removeRow(rowId),
             disabled: !canDelete,
             danger: true,
-            icon: "✕",
+            icon: "?",
             title: !canDelete ? "Remove children first" : undefined,
           },
         ].map((item, i) =>
@@ -2049,7 +2050,7 @@ export default function WBSEditor({
           }}
           className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all text-sm tracking-wider leading-none"
         >
-          ···
+          ���
         </button>
         {open && typeof document !== "undefined" ? createPortal(menu, document.body) : null}
       </div>
@@ -2069,7 +2070,7 @@ export default function WBSEditor({
     if (!generatedDoc) return;
     const nextRows = Array.isArray((generatedDoc as any)?.rows) ? (generatedDoc as any).rows : [];
     if (!nextRows.length) {
-      setMsg("⛔ Generated doc has no rows");
+      setMsg("? Generated doc has no rows");
       setTimeout(() => setMsg(""), 1200);
       return;
     }
@@ -2101,11 +2102,11 @@ export default function WBSEditor({
     }));
 
     setGenOpen(false);
-    setMsg("✅ Generated WBS applied");
+    setMsg("? Generated WBS applied");
     setTimeout(() => setMsg(""), 1200);
   }
 
-  // ─── SAVE INDICATOR ───────────────────────────────────────────────────────
+  // --- SAVE INDICATOR -------------------------------------------------------
   function SaveIndicator() {
     const missingId = !readOnly && !safeStr(artifactIdLocal).trim();
     if (missingId)
@@ -2119,7 +2120,7 @@ export default function WBSEditor({
       return (
         <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-slate-100 text-slate-600 border border-slate-200 font-medium animate-pulse">
           <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-          Saving…
+          Saving�
         </span>
       );
     if (saveMode === "dirty")
@@ -2147,7 +2148,7 @@ export default function WBSEditor({
     return null;
   }
 
-  // ─── OVERALL PROGRESS ─────────────────────────────────────────────────────
+  // --- OVERALL PROGRESS -----------------------------------------------------
   const overallProgress = useMemo(() => {
     const leaves = (rolled as any[]).filter((r) => !r._isParent);
     if (!leaves.length) return 0;
@@ -2178,10 +2179,10 @@ export default function WBSEditor({
     onlyMissingEffort
   );
 
-  // ─── RENDER ───────────────────────────────────────────────────────────────
+  // --- RENDER ---------------------------------------------------------------
   return (
     <div className="min-h-screen bg-[#f0ede8] font-[system-ui]">
-      {/* ── TOP BAR ─────────────────────────────────────────────────────────── */}
+      {/* -- TOP BAR ----------------------------------------------------------- */}
       <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
         <div className="max-w-[1800px] mx-auto px-5 h-14 flex items-center gap-3">
           {/* Icon + Title */}
@@ -2251,7 +2252,7 @@ export default function WBSEditor({
                   strokeLinejoin="round"
                 />
               </svg>
-              {exportingXlsx ? "…" : "XLSX"}
+              {exportingXlsx ? "�" : "XLSX"}
             </button>
 
             <button
@@ -2266,7 +2267,7 @@ export default function WBSEditor({
                   fillOpacity="0.7"
                 />
               </svg>
-              {genLoading ? "Generating…" : "AI Generate"}
+              {genLoading ? "Generating�" : "AI Generate"}
             </button>
 
             <button
@@ -2296,7 +2297,7 @@ export default function WBSEditor({
                 dirty ? "bg-slate-900 text-white hover:bg-slate-700 shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
               } disabled:opacity-50`}
             >
-              {saving ? "Saving…" : dirty ? "Save ●" : "Saved"}
+              {saving ? "Saving�" : dirty ? "Save ?" : "Saved"}
             </button>
           </div>
         </div>
@@ -2314,7 +2315,7 @@ export default function WBSEditor({
       </header>
 
       <div className="max-w-[1800px] mx-auto px-5 py-5 space-y-4">
-        {/* ── FILTER BAR ─────────────────────────────────────────────────── */}
+        {/* -- FILTER BAR --------------------------------------------------- */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
           <div className="px-4 py-3 flex flex-wrap items-center gap-2">
             <div className="relative min-w-0 w-64 shrink-0">
@@ -2331,7 +2332,7 @@ export default function WBSEditor({
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Search…"
+                placeholder="Search�"
                 className="w-full pl-8 pr-3 py-1.5 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-slate-300 focus:border-slate-400 focus:bg-white outline-none transition-all"
               />
             </div>
@@ -2497,7 +2498,7 @@ export default function WBSEditor({
               onChange={(e) => setDueFrom(e.target.value)}
               className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 focus:ring-2 focus:ring-slate-300 outline-none text-slate-600"
             />
-            <span className="text-xs text-slate-300">–</span>
+            <span className="text-xs text-slate-300">�</span>
             <input
               type="date"
               value={dueTo}
@@ -2507,7 +2508,7 @@ export default function WBSEditor({
           </div>
         </div>
 
-        {/* ── EFFORT WARNING BANNER ─────────────────────────────────────── */}
+        {/* -- EFFORT WARNING BANNER --------------------------------------- */}
         {missingEffortCount > 0 && (
           <div className="flex items-center justify-between gap-4 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200">
             <div className="flex items-center gap-3">
@@ -2516,7 +2517,7 @@ export default function WBSEditor({
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-900 leading-tight">Work packages missing effort estimate</p>
-                <p className="text-xs text-amber-700 mt-0.5">Roll-ups default to Medium — may skew capacity planning</p>
+                <p className="text-xs text-amber-700 mt-0.5">Roll-ups default to Medium � may skew capacity planning</p>
               </div>
             </div>
             <div className="flex gap-2 shrink-0">
@@ -2530,21 +2531,21 @@ export default function WBSEditor({
                   onlyMissingEffort ? "bg-amber-700 text-white border-amber-700" : "bg-white text-amber-800 border-amber-300 hover:bg-amber-100"
                 }`}
               >
-                {onlyMissingEffort ? "Showing gaps ✓" : "Filter to gaps"}
+                {onlyMissingEffort ? "Showing gaps ?" : "Filter to gaps"}
               </button>
               <button
                 onClick={jumpToNextEffortGap}
                 className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-all"
               >
-                Jump to next →
+                Jump to next ?
               </button>
             </div>
           </div>
         )}
 
-        {/* ── MAIN GRID ────────────────────────────────────────────────── */}
+        {/* -- MAIN GRID -------------------------------------------------- */}
         <div className="grid xl:grid-cols-12 gap-5">
-          {/* ── ROW LIST ─────────────────────────────────────────────── */}
+          {/* -- ROW LIST ----------------------------------------------- */}
           <div className="xl:col-span-8 space-y-2">
             {visibleRows.length === 0 ? (
               <div className="rounded-xl border-2 border-dashed border-slate-200 bg-white p-14 text-center">
@@ -2616,7 +2617,7 @@ export default function WBSEditor({
             {readOnly && <p className="text-[11px] text-center text-slate-400 py-2">Read-only mode</p>}
           </div>
 
-          {/* ── RIGHT RAIL ──────────────────────────────────────────── */}
+          {/* -- RIGHT RAIL -------------------------------------------- */}
           <div className="xl:col-span-4 space-y-4">
             <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden sticky top-[68px]">
               <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
@@ -2725,7 +2726,7 @@ export default function WBSEditor({
                                 }}
                                 className="text-[10px] px-2 py-0.5 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
                               >
-                                Jump →
+                                Jump ?
                               </button>
                             )}
                           </div>
@@ -2757,7 +2758,7 @@ export default function WBSEditor({
                 </div>
                 <div className="p-4 space-y-3">
                   <p className="text-sm text-slate-600">
-                    {genLoading ? "Generating your WBS…" : generatedDoc ? "Preview ready. Apply to replace current rows." : "No output yet."}
+                    {genLoading ? "Generating your WBS�" : generatedDoc ? "Preview ready. Apply to replace current rows." : "No output yet."}
                   </p>
                   {generatedDoc && (
                     <>
