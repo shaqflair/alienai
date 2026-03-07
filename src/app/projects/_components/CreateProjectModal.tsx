@@ -41,14 +41,7 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
       .catch(() => {});
   }, [open, activeOrgId]);
 
-  // Fetch org members for PM picker
-  useEffect(() => {
-    if (!open || !activeOrgId) return;
-    fetch(`/api/org/members?orgId=${activeOrgId}`)
-      .then(r => r.json())
-      .then(d => { if (d.members) setMembers(d.members); })
-      .catch(() => {});
-  }, [open, activeOrgId]);
+
 
   // Auto-generate code from name
   useEffect(() => {
