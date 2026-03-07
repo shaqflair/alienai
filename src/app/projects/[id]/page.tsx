@@ -7,6 +7,7 @@ import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
 import { fetchProjectResourceData, projectWeekPeriods } from "./_lib/resource-data";
 import ProjectResourcePanel from "./_components/ProjectResourcePanel";
+import AssignPmButton from "./_components/AssignPmButton";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -677,9 +678,14 @@ export default async function ProjectPage({
               {/* Meta row */}
               <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--text-2)", flexWrap: "wrap", marginBottom: 14 }}>
                 <span>
-                  PM: <Link href={`/projects/${projectRefForUrls}/members`} style={{ color: "var(--blue)", fontWeight: 500, textDecoration: "none" }}>{pmName}</Link>
-                </span>
-                <span style={{ color: "var(--border-2)" }}></span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+  PM: <AssignPmButton
+    projectId={projectUuid}
+    currentPmName={pmName}
+    currentPmUserId={(project as any)?.pm_user_id ?? null}
+    orgId={activeOrgId}
+  />
+</span>                <span style={{ color: "var(--border-2)" }}></span>
                 <span>Created {formatDate(project?.created_at)}</span>
                 <span style={{ color: "var(--border-2)" }}></span>
                 <span style={{ textTransform: "capitalize", fontWeight: 500 }}>{myRole}</span>
