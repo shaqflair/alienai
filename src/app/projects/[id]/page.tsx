@@ -230,7 +230,7 @@ async function convertPipelineToConfirmed(formData: FormData) {
   redirect(`${returnTo}?msg=converted_to_confirmed`);
 }
 
-/* ─── Inline assign-PM server action (fixes AssignPmButton race) ─── */
+/* ─── Inline assign-PM server action ─── */
 async function assignPmAction(formData: FormData) {
   "use server";
 
@@ -248,7 +248,6 @@ async function assignPmAction(formData: FormData) {
   const activeOrgId = await getActiveOrgId();
   if (!activeOrgId) redirect(`${returnTo}?err=no_active_org`);
 
-  // Auth check
   const org = await getOrgMembership(supabase, activeOrgId, user.id);
   const { data: memRows } = await supabase
     .from("project_members")
@@ -261,7 +260,6 @@ async function assignPmAction(formData: FormData) {
     redirect(`${returnTo}?err=forbidden`);
   }
 
-  // Update both columns so whichever the app reads, it works
   const { error } = await supabase
     .from("projects")
     .update({
@@ -360,7 +358,8 @@ export default async function ProjectPage({
     scheduleMilestonesResult,
     changeRequestsResult,
     keyArtifactsResult,
-    orgMembersResult,
+    // Step 1: fetch org members WITHOUT profile join (join is unreliable across schemas)
+    orgMembersBaseResult,
   ] = await Promise.allSettled([
     fetchProjectResourceData(projectUuid),
     supabase
@@ -410,25 +409,42 @@ export default async function ProjectPage({
       .in("type", ["SCHEDULE", "WBS", "FINANCIAL_PLAN", "WEEKLY_REPORT"])
       .order("created_at", { ascending: false })
       .limit(20),
-    // Fetch org members for PM picker (profiles joined)
+    // Members only — no profile join
     supabase
       .from("organisation_members")
-      .select("user_id, job_title, profiles:user_id(full_name, display_name, email)")
+      .select("user_id, job_title")
       .eq("organisation_id", activeOrgId)
       .is("removed_at", null)
       .limit(200),
   ]);
 
-  const resource       = resourceData.status === "fulfilled" ? resourceData.value : null;
-  const periods        = resource ? projectWeekPeriods(resource.project.start_date, resource.project.finish_date) : [];
-  const changes        = changesResult.status === "fulfilled" ? changesResult.value.data ?? [] : [];
+  const resource         = resourceData.status === "fulfilled" ? resourceData.value : null;
+  const periods          = resource ? projectWeekPeriods(resource.project.start_date, resource.project.finish_date) : [];
+  const changes          = changesResult.status === "fulfilled" ? changesResult.value.data ?? [] : [];
   const pendingApprovals = approvalsResult.status === "fulfilled" ? approvalsResult.value.data ?? [] : [];
-  const members        = membersResult.status === "fulfilled" ? membersResult.value.data ?? [] : [];
-  const raidItems      = raidResult.status === "fulfilled" ? raidResult.value.data ?? [] : [];
-  const milestones     = scheduleMilestonesResult.status === "fulfilled" ? scheduleMilestonesResult.value.data ?? [] : [];
-  const changeReqs     = changeRequestsResult.status === "fulfilled" ? changeRequestsResult.value.data ?? [] : [];
-  const keyArtifacts   = keyArtifactsResult.status === "fulfilled" ? keyArtifactsResult.value.data ?? [] : [];
-  const orgMembers     = orgMembersResult.status === "fulfilled" ? orgMembersResult.value.data ?? [] : [];
+  const members          = membersResult.status === "fulfilled" ? membersResult.value.data ?? [] : [];
+  const raidItems        = raidResult.status === "fulfilled" ? raidResult.value.data ?? [] : [];
+  const milestones       = scheduleMilestonesResult.status === "fulfilled" ? scheduleMilestonesResult.value.data ?? [] : [];
+  const changeReqs       = changeRequestsResult.status === "fulfilled" ? changeRequestsResult.value.data ?? [] : [];
+  const keyArtifacts     = keyArtifactsResult.status === "fulfilled" ? keyArtifactsResult.value.data ?? [] : [];
+  const orgMembersBase   = orgMembersBaseResult.status === "fulfilled" ? orgMembersBaseResult.value.data ?? [] : [];
+
+  // Step 2: fetch profiles separately using user_id column
+  let profileMap = new Map<string, any>();
+  if (orgMembersBase.length > 0) {
+    const userIds = (orgMembersBase as any[]).map((m: any) => m.user_id).filter(Boolean);
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("user_id, full_name, display_name, email, avatar_url")
+      .in("user_id", userIds);
+    profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
+  }
+
+  // Build enriched org members
+  const orgMembers = (orgMembersBase as any[]).map((m: any) => {
+    const p = profileMap.get(m.user_id) ?? {};
+    return { ...m, _profile: p };
+  });
 
   function clamp(n: number) {
     return Math.max(0, Math.min(100, Math.round(n)));
@@ -582,22 +598,22 @@ export default async function ProjectPage({
   let resolvedPmJobTitle = "";
 
   if (pmUserId) {
-    // Try id first (Supabase uid = profiles.id), then user_id column
-    const { data: pmById } = await supabase
+    // Try user_id column first, then id (covers both profile schemas)
+    const { data: pmByUserId } = await supabase
       .from("profiles")
       .select("full_name, display_name, name, email")
-      .eq("id", pmUserId)
+      .eq("user_id", pmUserId)
       .maybeSingle();
 
-    let pmProfile: any = pmById;
+    let pmProfile: any = pmByUserId;
 
     if (!safeStr(pmProfile?.full_name).trim() && !safeStr(pmProfile?.email).trim()) {
-      const { data: pmByUserId } = await supabase
+      const { data: pmById } = await supabase
         .from("profiles")
         .select("full_name, display_name, name, email")
-        .eq("user_id", pmUserId)
+        .eq("id", pmUserId)
         .maybeSingle();
-      if (pmByUserId) pmProfile = pmByUserId;
+      if (pmById) pmProfile = pmById;
     }
 
     resolvedPmName =
@@ -607,10 +623,10 @@ export default async function ProjectPage({
       safeStr(pmProfile?.email).trim()        ||
       "";
 
-    // Last resort: look in already-fetched org members list
+    // Last resort: look in enriched org members
     if (!resolvedPmName) {
-      const fromOrg = (orgMembers as any[]).find((m) => safeStr(m.user_id) === pmUserId);
-      const p = fromOrg?.profiles as any;
+      const fromOrg = orgMembers.find((m: any) => safeStr(m.user_id) === pmUserId);
+      const p = fromOrg?._profile ?? {};
       resolvedPmName =
         safeStr(p?.full_name).trim()    ||
         safeStr(p?.display_name).trim() ||
@@ -629,16 +645,16 @@ export default async function ProjectPage({
     resolvedPmJobTitle = safeStr((orgPm as any)?.job_title).trim();
   }
 
-  // Build PM options list for the select dropdown
-  const pmOptions = (orgMembers as any[]).map((m) => {
-    const p = m.profiles as any;
+  // Build PM options for the select dropdown using enriched org members
+  const pmOptions = orgMembers.map((m: any) => {
+    const p = m._profile ?? {};
     const name =
       safeStr(p?.full_name).trim()    ||
       safeStr(p?.display_name).trim() ||
       safeStr(p?.email).trim()        ||
       safeStr(m.user_id).slice(0, 8);
     return { userId: safeStr(m.user_id), name, jobTitle: safeStr(m.job_title) };
-  }).filter((x) => x.userId);
+  }).filter((x: any) => x.userId);
 
   const projectTitle    = safeStr(project?.title ?? "Project") || "Project";
   const projectCode     = safeStr(project?.project_code ?? "").trim();
@@ -787,7 +803,6 @@ export default async function ProjectPage({
         .action-btn.primary:hover { opacity: 0.9; }
         .flash-ok  { padding: 10px 16px; border-radius: 9px; background: rgba(34,197,94,0.07); border: 1px solid rgba(34,197,94,0.22); font-size: 13px; color: #15803d; font-weight: 500; }
         .flash-err { padding: 10px 16px; border-radius: 9px; background: #fef2f2; border: 1px solid #fecaca; font-size: 13px; color: #dc2626; font-weight: 500; }
-        /* PM picker */
         .pm-form { display: inline-flex; align-items: center; gap: 6px; }
         .pm-select {
           border: 1px solid var(--border); border-radius: 7px; padding: 3px 8px;
@@ -917,15 +932,12 @@ export default async function ProjectPage({
                   <span style={{ fontWeight: 500 }}>PM:</span>
                   {canEdit ? (
                     <>
-                      {/* Primary: rich client dropdown (requires /api/org/members) */}
                       <AssignPmButton
                         projectId={projectUuid}
                         currentPmName={pmName}
                         currentPmUserId={pmUserId || null}
                         orgId={activeOrgId!}
                       />
-
-                      {/* Fallback: plain server-action form (works without JS) */}
                       <noscript>
                         <form action={assignPmAction} className="pm-form">
                           <input type="hidden" name="project_id" value={projectUuid}/>
@@ -937,7 +949,7 @@ export default async function ProjectPage({
                             aria-label="Assign project manager"
                           >
                             <option value="">— Unassigned —</option>
-                            {pmOptions.map((o) => (
+                            {pmOptions.map((o: any) => (
                               <option key={o.userId} value={o.userId}>
                                 {o.name}{o.jobTitle ? ` (${o.jobTitle})` : ""}
                               </option>
@@ -998,7 +1010,6 @@ export default async function ProjectPage({
                     + New artifact
                   </Link>
 
-                  {/* Generate PID */}
                   <form action={generatePID} style={{ display: "contents" }}>
                     <input type="hidden" name="project_id" value={projectUuid}/>
                     <input type="hidden" name="return_to"  value={`/projects/${projectRefForUrls}`}/>

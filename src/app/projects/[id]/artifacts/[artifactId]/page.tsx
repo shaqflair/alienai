@@ -18,6 +18,7 @@ import {
   createArtifactRevision,
   setArtifactCurrent,
   updateArtifactJsonArgs,
+  updateArtifactJsonSilent,
 } from "../actions";
 
 import {
@@ -360,6 +361,13 @@ export default async function ArtifactDetailPage({
     revalidatePath(`/projects/${projectRefForPaths}/artifacts/${artifactId}`);
   }
 
+  // Financial plan uses silent save (no revalidatePath) to prevent Next.js
+  // router refresh from swallowing click events during the 800ms debounce window.
+  // All other artifact types use the standard action which revalidates the page.
+  const jsonSaveAction = isFinancialPlan
+    ? updateArtifactJsonSilent
+    : updateArtifactJsonArgs;
+
   return (
     <main className="mx-auto w-full max-w-[1600px] px-6 py-6 space-y-6 bg-white text-gray-950">
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-gray-700">
@@ -647,7 +655,7 @@ export default async function ArtifactDetailPage({
         canSubmitOrResubmit={canSubmitFromServer}
         approvalStatus={status ?? null}
         submitForApprovalAction={submitAction}
-        updateArtifactJsonAction={updateArtifactJsonArgs}
+        updateArtifactJsonAction={jsonSaveAction}
       />
 
       {!isWeeklyReport &&
