@@ -50,8 +50,8 @@ export async function POST(req: NextRequest) {
     const { error } = await supabase
       .from("projects")
       .update({
-        pm_user_id:           pmUserId,
-        project_manager_name: pmName,
+        pm_user_id:          pmUserId,
+        project_manager_id:  pmUserId,
       })
       .eq("id", projectId);
 
