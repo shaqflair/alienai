@@ -53,7 +53,8 @@ export default function CreateProjectModal({ activeOrgId, userId }: Props) {
 
   function reset() {
     setStep(1); setName(""); setPm(""); setPmUserId(null); setPmSearch(""); setPmOpen(false);
-    setSponsor(""); setSponsorId(null); setSponsorSearch(""); setSponsorOpen(false); setProjectType(""); setSponsor(""); setSponsorId(null); setSponsorSearch(""); setSponsorOpen(false); setProjectType(""); setStartDate(""); setEndDate("");
+    setSponsor(""); setSponsorId(null); setSponsorSearch(""); setSponsorOpen(false);
+    setProjectType(""); setStartDate(""); setEndDate("");
     setCode(""); setDept(""); setResStatus("confirmed"); setColour(COLOURS[0]); setError(null);
   }
 
