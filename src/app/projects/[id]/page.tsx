@@ -13,8 +13,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-/*  helpers  */
-
 function safeParam(x: unknown): string {
   return typeof x === "string" ? x : Array.isArray(x) ? String(x[0] ?? "") : "";
 }
@@ -165,8 +163,6 @@ async function convertPipelineToConfirmed(formData: FormData) {
   redirect(`${returnTo}?msg=converted_to_confirmed`);
 }
 
-/*  Page  */
-
 export default async function ProjectPage({
   params,
   searchParams,
@@ -179,7 +175,6 @@ export default async function ProjectPage({
   if (authErr) throw authErr;
   if (!auth?.user) redirect("/login");
 
-  //  Await params + searchParams (Next.js 15)
   const { id: _paramId } = await params;
   const rawId = safeParam(_paramId).trim();
   const sp = (await searchParams) ?? {};
@@ -228,7 +223,6 @@ export default async function ProjectPage({
   const myRole = org.isAdmin && !projectRole ? "admin" : projectRole || (org.role || "viewer");
   const canEdit = org.isAdmin || myRole === "owner" || myRole === "editor";
 
-  // All data in parallel
   const [
     resourceData,
     changesResult,
@@ -259,24 +253,18 @@ export default async function ProjectPage({
       .select("id, status").eq("project_id", projectUuid).limit(100),
   ]);
 
-  const resource     = resourceData.status === "fulfilled" ? resourceData.value : null;
-  const periods      = resource ? projectWeekPeriods(resource.project.start_date, resource.project.finish_date) : [];
-  const changes      = changesResult.status === "fulfilled" ? changesResult.value.data ?? [] : [];
+  const resource         = resourceData.status === "fulfilled" ? resourceData.value : null;
+  const periods          = resource ? projectWeekPeriods(resource.project.start_date, resource.project.finish_date) : [];
+  const changes          = changesResult.status === "fulfilled" ? changesResult.value.data ?? [] : [];
   const pendingApprovals = approvalsResult.status === "fulfilled" ? approvalsResult.value.data ?? [] : [];
-  const members      = membersResult.status === "fulfilled" ? membersResult.value.data ?? [] : [];
-  const raidItems    = raidResult.status === "fulfilled" ? raidResult.value.data ?? [] : [];
-  const milestones   = scheduleMilestonesResult.status === "fulfilled" ? scheduleMilestonesResult.value.data ?? [] : [];
-  const changeReqs   = changeRequestsResult.status === "fulfilled" ? changeRequestsResult.value.data ?? [] : [];
+  const members          = membersResult.status === "fulfilled" ? membersResult.value.data ?? [] : [];
+  const raidItems        = raidResult.status === "fulfilled" ? raidResult.value.data ?? [] : [];
+  const milestones       = scheduleMilestonesResult.status === "fulfilled" ? scheduleMilestonesResult.value.data ?? [] : [];
+  const changeReqs       = changeRequestsResult.status === "fulfilled" ? changeRequestsResult.value.data ?? [] : [];
 
-  /* 
-     HEALTH SCORE  4 real dimensions, each with its own signal
-      */
   function clamp(n: number) { return Math.max(0, Math.min(100, Math.round(n))); }
   const today = new Date().toISOString().slice(0, 10);
 
-  //  1. SCHEDULE (35%) 
-  // Source: schedule_milestones  overdue count, critical-path flag, baseline slip
-  // Green 85 | Amber 70 | Red <70
   type ScheduleDetail = { total: number; overdue: number; critical: number; avgSlipDays: number };
   const scheduleDetail: ScheduleDetail = { total: 0, overdue: 0, critical: 0, avgSlipDays: 0 };
   const scheduleHealth = (() => {
@@ -287,7 +275,7 @@ export default async function ProjectPage({
     for (const m of ms) {
       const st   = String(m.status ?? "").toLowerCase();
       const done = ["completed","done","closed"].includes(st);
-      const end  = m.end_date  ? String(m.end_date).slice(0,10)  : null;
+      const end  = m.end_date ? String(m.end_date).slice(0,10) : null;
       const base = m.baseline_end ? String(m.baseline_end).slice(0,10) : null;
       if (!done && end && end < today) {
         scheduleDetail.overdue++;
@@ -305,9 +293,6 @@ export default async function ProjectPage({
     return clamp(score);
   })();
 
-  //  2. RAID / RISK (30%) 
-  // Source: raid_items  probability  severity matrix, overdue items
-  // Each item with composite score 70 deducts 8pts; 50 deducts 4pts; overdue deducts 6pts
   type RaidDetail = { total: number; highRisk: number; overdue: number };
   const raidDetail: RaidDetail = { total: 0, highRisk: 0, overdue: 0 };
   const raidHealth = (() => {
@@ -317,9 +302,9 @@ export default async function ProjectPage({
     raidDetail.total = items.length;
     for (const r of items) {
       const p = Number(r.probability ?? 0);
-      const s = Number(r.severity   ?? 0);
+      const s = Number(r.severity ?? 0);
       const composite = (p > 0 && s > 0) ? Math.round((p * s) / 100) : 0;
-      if (composite >= 70) { score -= 8;  raidDetail.highRisk++; }
+      if (composite >= 70) { score -= 8; raidDetail.highRisk++; }
       else if (composite >= 50) { score -= 4; }
       const due = r.due_date ? String(r.due_date).slice(0,10) : null;
       if (due && due < today) { score -= 6; raidDetail.overdue++; }
@@ -327,9 +312,6 @@ export default async function ProjectPage({
     return clamp(score);
   })();
 
-  //  3. BUDGET (20%) 
-  // Source: allocations vs budget_days (from fetchProjectResourceData)
-  // 090% utilisation = healthy; 90110% = amber; >110% = red; no budget set = null
   type BudgetDetail = { budgetDays: number | null; allocatedDays: number; utilisationPct: number | null };
   const budgetDetail: BudgetDetail = {
     budgetDays:     resource?.budgetSummary?.budgetDays     ?? null,
@@ -338,31 +320,27 @@ export default async function ProjectPage({
   };
   const budgetHealth = (() => {
     const pct = budgetDetail.utilisationPct;
-    if (pct == null) return null;         // no budget set  exclude from score
+    if (pct == null) return null;
     if (pct <= 90)  return clamp(100);
-    if (pct <= 100) return clamp(100 - (pct - 90) * 3);   // slight amber 90100%
-    if (pct <= 120) return clamp(70 - (pct - 100) * 2);   // red zone 100120%
-    return clamp(30);                                       // severely over
+    if (pct <= 100) return clamp(100 - (pct - 90) * 3);
+    if (pct <= 120) return clamp(70 - (pct - 100) * 2);
+    return clamp(30);
   })();
 
-  //  4. GOVERNANCE / APPROVALS (15%) 
-  // Source: pending artifact approvals + open change requests
-  // Each pending item adds friction; stale approvals signal governance breakdown
   type GovernanceDetail = { pendingApprovalCount: number; openChangeRequests: number };
   const govDetail: GovernanceDetail = {
     pendingApprovalCount: pendingApprovals.length,
-    openChangeRequests:   (changeReqs as any[]).filter(
+    openChangeRequests: (changeReqs as any[]).filter(
       (c) => ["pending","open","submitted","draft"].includes(String(c.status ?? "").toLowerCase())
     ).length,
   };
   const governanceHealth = (() => {
     let score = 100;
     score -= Math.min(35, govDetail.pendingApprovalCount * 5);
-    score -= Math.min(25, govDetail.openChangeRequests   * 4);
+    score -= Math.min(25, govDetail.openChangeRequests * 4);
     return clamp(score);
   })();
 
-  //  OVERALL: weighted average of available dimensions 
   const healthScore = (() => {
     const dims = [
       { val: scheduleHealth,   w: 35 },
@@ -376,7 +354,6 @@ export default async function ProjectPage({
     return clamp(weighted / totalW);
   })();
 
-  // Build switcher list
   let switcherProjects: { id: string; title: string; project_code: string | null; colour: string | null }[] = [];
   if (myProjectMembershipsResult.status === "fulfilled") {
     const myIds = (myProjectMembershipsResult.value.data ?? []).map((r: any) => String(r.project_id));
@@ -395,18 +372,17 @@ export default async function ProjectPage({
     }
   }
 
-  const projectTitle   = safeStr(project?.title ?? "Project") || "Project";
-  const projectCode    = safeStr(project?.project_code ?? "").trim();
-  const projectColour  = safeStr(project?.colour ?? "#22c55e");
-  const projectStatus  = safeStr(project?.status ?? "active");
-  const isActive       = projectStatus.toLowerCase() !== "closed";
+  const projectTitle  = safeStr(project?.title ?? "Project") || "Project";
+  const projectCode   = safeStr(project?.project_code ?? "").trim();
+  const projectColour = safeStr(project?.colour ?? "#22c55e");
+  const projectStatus = safeStr(project?.status ?? "active");
+  const isActive      = projectStatus.toLowerCase() !== "closed";
   const projectRefForUrls = projectUuid;
 
   const flash    = flashText(sp?.msg, sp?.conflicts);
   const flashErr = sp?.err ? `Error: ${sp.err}` : null;
   const daysLeft = daysUntil(project?.finish_date);
 
-  // RAID type filter  exact lowercase match only (no startsWith to avoid "risk"/"role" collision)
   function raidType(r: any, type: string) {
     return String(r.type ?? "").toLowerCase().trim() === type;
   }
@@ -417,21 +393,19 @@ export default async function ProjectPage({
   const totalMembers = members.length;
   const openRisks    = risks.length;
 
-  // scheduleHealth, raidHealth, budgetHealth, governanceHealth, healthScore computed above
-
   const pmName = safeStr((project as any)?.project_manager ?? (project as any)?.pm_name ?? "").trim() || "Unassigned";
 
   const tabs = [
-    { id: "overview",  label: "Overview",      href: `/projects/${projectRefForUrls}` },
-    { id: "artifacts", label: "Artifacts",     href: `/projects/${projectRefForUrls}/artifacts` },
-    { id: "schedule",  label: "Schedule",      href: `/projects/${projectRefForUrls}/schedule` },
-    { id: "wbs",       label: "WBS",           href: `/projects/${projectRefForUrls}/wbs` },
-    { id: "financial", label: "Financial Plan", href: `/projects/${projectRefForUrls}/artifacts?filter=financial_plan` },
-    { id: "members",   label: "Members",       href: `/projects/${projectRefForUrls}/members` },
-    { id: "changes",   label: "Change Board",  href: `/projects/${projectRefForUrls}/change` },
-    { id: "raid",      label: "Risks",         href: `/projects/${projectRefForUrls}/raid` },
-    { id: "lessons",   label: "Lessons",       href: `/projects/${projectRefForUrls}/lessons` },
-    { id: "weekly",    label: "Weekly Report", href: `/projects/${projectRefForUrls}/artifacts?type=weekly_report` },
+    { id: "overview",  label: "Overview",       href: `/projects/${projectRefForUrls}` },
+    { id: "artifacts", label: "Artifacts",      href: `/projects/${projectRefForUrls}/artifacts` },
+    { id: "schedule",  label: "Schedule",       href: `/projects/${projectRefForUrls}/schedule` },
+    { id: "wbs",       label: "WBS",            href: `/projects/${projectRefForUrls}/wbs` },
+    { id: "financial", label: "Financial Plan", href: `/projects/${projectRefForUrls}/artifacts` },
+    { id: "members",   label: "Members",        href: `/projects/${projectRefForUrls}/members` },
+    { id: "changes",   label: "Change Board",   href: `/projects/${projectRefForUrls}/change` },
+    { id: "raid",      label: "Risks",          href: `/projects/${projectRefForUrls}/raid` },
+    { id: "lessons",   label: "Lessons",        href: `/projects/${projectRefForUrls}/lessons` },
+    { id: "weekly",    label: "Weekly Report",  href: `/projects/${projectRefForUrls}/artifacts` },
   ];
 
   return (
@@ -439,33 +413,29 @@ export default async function ProjectPage({
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap');
         *, *::before, *::after { box-sizing: border-box; }
-
         :root {
-          --accent:       ${projectColour};
-          --surface:      #ffffff;
-          --surface-2:    #f6f8fa;
-          --border:       #e8ecf0;
-          --border-2:     #d0d7de;
-          --text-1:       #0d1117;
-          --text-2:       #57606a;
-          --text-3:       #8b949e;
-          --green:        #22c55e;
-          --amber:        #f59e0b;
-          --red:          #ef4444;
-          --blue:         #3b82f6;
-          --r:            12px;
+          --accent:    ${projectColour};
+          --surface:   #ffffff;
+          --surface-2: #f6f8fa;
+          --border:    #e8ecf0;
+          --border-2:  #d0d7de;
+          --text-1:    #0d1117;
+          --text-2:    #57606a;
+          --text-3:    #8b949e;
+          --green:     #22c55e;
+          --amber:     #f59e0b;
+          --red:       #ef4444;
+          --blue:      #3b82f6;
+          --r:         12px;
         }
         body { font-family: 'Geist', -apple-system, sans-serif; }
-
-        /*  Switcher  */
         .sw-wrap { position: relative; }
         .sw-trigger {
           display: inline-flex; align-items: center; gap: 7px;
           padding: 7px 13px; border-radius: 9px; border: 1px solid var(--border);
           background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 600;
           color: var(--text-2); font-family: 'Geist', sans-serif;
-          transition: border-color 0.15s, box-shadow 0.15s;
-          white-space: nowrap;
+          transition: border-color 0.15s, box-shadow 0.15s; white-space: nowrap;
         }
         .sw-trigger:hover { border-color: var(--border-2); box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
         .sw-dropdown {
@@ -489,12 +459,10 @@ export default async function ProjectPage({
           border-radius: 8px; text-decoration: none; color: var(--text-1);
           font-size: 13px; font-weight: 500; transition: background 0.1s;
         }
-        .sw-item:hover  { background: var(--surface-2); }
-        .sw-item.cur    { background: #f0f6ff; font-weight: 700; }
+        .sw-item:hover { background: var(--surface-2); }
+        .sw-item.cur   { background: #f0f6ff; font-weight: 700; }
         .sw-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
         .sw-code { font-family: 'Geist Mono', monospace; font-size: 11px; color: var(--text-3); margin-left: auto; padding-left: 8px; }
-
-        /*  Tab nav  */
         .tab-link {
           padding: 11px 2px; font-size: 14px; font-weight: 500; color: var(--text-2);
           text-decoration: none; border-bottom: 2px solid transparent;
@@ -502,18 +470,12 @@ export default async function ProjectPage({
         }
         .tab-link:hover  { color: var(--text-1); }
         .tab-link.active { color: var(--text-1); border-bottom-color: var(--text-1); font-weight: 600; }
-
-        /*  Cards  */
         .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); }
         .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 20px; transition: box-shadow 0.15s; }
         .stat-card:hover { box-shadow: 0 2px 14px rgba(0,0,0,0.07); }
         .stat-icon { width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center; margin-bottom: 14px; font-size: 18px; }
-
-        /*  Health bars  */
         .hbar-track { height: 6px; background: var(--border); border-radius: 99px; overflow: hidden; margin-top: 5px; }
         .hbar-fill  { height: 100%; border-radius: 99px; transition: width 0.6s cubic-bezier(0.16,1,0.3,1); }
-
-        /*  Health Score tooltips  */
         .hs-tip-trigger { position: relative; }
         .hs-tip-box {
           display: none; position: absolute; left: 50%; bottom: calc(100% + 8px);
@@ -532,16 +494,11 @@ export default async function ProjectPage({
         }
         .hs-tip-trigger:hover .hs-tip-box { display: block; }
         .health-row:hover { opacity: 1; }
-
         .raid-quad  { background: var(--surface-2); border-radius: 10px; border: 1px solid var(--border); padding: 14px; }
         .raid-item  { font-size: 12px; color: var(--text-2); padding: 5px 0; border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .raid-item:last-child { border-bottom: none; }
-
-        /*  Activity  */
         .act-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--surface-2); }
         .act-item:last-child { border-bottom: none; }
-
-        /*  Action btn  */
         .action-btn {
           display: inline-flex; align-items: center; gap: 5px;
           padding: 6px 13px; border-radius: 8px; font-size: 12px; font-weight: 600;
@@ -550,14 +507,10 @@ export default async function ProjectPage({
           transition: border-color 0.15s, background 0.15s; white-space: nowrap; cursor: pointer;
         }
         .action-btn:hover { border-color: var(--border-2); background: var(--surface-2); }
-       .action-btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
-               .action-btn.primary:hover { opacity: 0.9; }
-
-        /*  Flash  */
+        .action-btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+        .action-btn.primary:hover { opacity: 0.9; }
         .flash-ok  { padding: 10px 16px; border-radius: 9px; background: rgba(34,197,94,0.07); border: 1px solid rgba(34,197,94,0.22); font-size: 13px; color: #15803d; font-weight: 500; }
         .flash-err { padding: 10px 16px; border-radius: 9px; background: #fef2f2; border: 1px solid #fecaca; font-size: 13px; color: #dc2626; font-weight: 500; }
-
-        /*  Responsive  */
         @media (max-width: 960px) {
           .stat-grid { grid-template-columns: repeat(2,1fr) !important; }
           .two-col   { grid-template-columns: 1fr !important; }
@@ -568,7 +521,6 @@ export default async function ProjectPage({
         }
       `}</style>
 
-      {/* Switcher: client-side search filter */}
       <script dangerouslySetInnerHTML={{ __html: `
         (function(){
           function init(){
@@ -589,7 +541,7 @@ export default async function ProjectPage({
       <main style={{ minHeight: "100vh", background: "var(--surface-2)", fontFamily: "'Geist', sans-serif" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 28px 64px" }}>
 
-          {/*  Top bar: breadcrumb + switcher  */}
+          {/* Top bar */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 12, flexWrap: "wrap" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--text-3)", fontWeight: 500 }}>
               <Link href="/projects" style={{ color: "var(--text-3)", textDecoration: "none" }}>Projects</Link>
@@ -597,7 +549,6 @@ export default async function ProjectPage({
               <span style={{ color: "var(--text-1)", fontWeight: 600 }}>{projectTitle}</span>
             </div>
 
-            {/* Project Switcher Dropdown */}
             <div className="sw-wrap" tabIndex={0} style={{ outline: "none" }}>
               <button className="sw-trigger" type="button">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
@@ -618,15 +569,9 @@ export default async function ProjectPage({
                 </div>
                 <div className="sw-list">
                   {switcherProjects.map((p) => (
-                    <Link
-                      key={p.id}
-                      href={`/projects/${p.id}`}
-                      className={`sw-item${p.id === projectUuid ? " cur" : ""}`}
-                    >
+                    <Link key={p.id} href={`/projects/${p.id}`} className={`sw-item${p.id === projectUuid ? " cur" : ""}`}>
                       <span className="sw-dot" style={{ background: safeStr(p.colour ?? "#22c55e") }} />
-                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {p.title}
-                      </span>
+                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</span>
                       {p.project_code && <span className="sw-code">{p.project_code}</span>}
                     </Link>
                   ))}
@@ -638,17 +583,16 @@ export default async function ProjectPage({
             </div>
           </div>
 
-          {/* Flash banners */}
           {flash    && <div className="flash-ok"  style={{ marginBottom: 14 }}>{flash}</div>}
           {flashErr && <div className="flash-err" style={{ marginBottom: 14 }}>{flashErr}</div>}
 
-          {/*  Project header + tabs (single white card)  */}
+          {/* Project header card */}
           <div className="card" style={{ marginBottom: 20 }}>
-            {/* Header content */}
             <div style={{ padding: "22px 28px 0" }}>
+
               {/* Title row */}
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
-                <span style={{ width: 10, height: 10, borderRadius: "50%", background:"#000000", display: "inline-block", flexShrink: 0 }} />
+                <span style={{ width: 10, height: 10, borderRadius: "50%", background: projectColour, display: "inline-block", flexShrink: 0 }} />
                 <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--text-1)", letterSpacing: "-0.3px", margin: 0 }}>
                   {projectTitle}
                 </h1>
@@ -677,18 +621,16 @@ export default async function ProjectPage({
 
               {/* Meta row */}
               <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--text-2)", flexWrap: "wrap", marginBottom: 14 }}>
-                <span>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                    PM: <AssignPmButton
-                      projectId={projectUuid}
-                      currentPmName={pmName}
-                      currentPmUserId={(project as any)?.pm_user_id ?? null}
-                      orgId={activeOrgId}
-                    />
-                  </span>
-                  <span style={{ color: "var(--border-2)" }}></span>
-                  
-                 <span>Created {formatDate(project?.created_at)}</span>
+                  PM: <AssignPmButton
+                    projectId={projectUuid}
+                    currentPmName={pmName}
+                    currentPmUserId={(project as any)?.pm_user_id ?? null}
+                    orgId={activeOrgId}
+                  />
+                </span>
+                <span style={{ color: "var(--border-2)" }}></span>
+                <span>Created {formatDate(project?.created_at)}</span>
                 <span style={{ color: "var(--border-2)" }}></span>
                 <span style={{ textTransform: "capitalize", fontWeight: 500 }}>{myRole}</span>
                 {(project?.start_date || project?.finish_date) && (
@@ -730,7 +672,7 @@ export default async function ProjectPage({
                       <input type="hidden" name="project_id" value={project.id} />
                       <input type="hidden" name="return_to" value={`/projects/${projectRefForUrls}`} />
                       <button type="submit" className="action-btn" style={{ background: "#7c3aed", borderColor: "#7c3aed", color: "white" }}>
-                         Convert to confirmed
+                        Convert to confirmed
                       </button>
                     </form>
                   )}
@@ -754,24 +696,22 @@ export default async function ProjectPage({
             </div>
           </div>
 
-          {/*  Stat cards  */}
+          {/* Stat cards */}
           <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 16 }}>
             <div className="stat-card">
               <div className="stat-icon" style={{ background: "#dcfce7" }}></div>
               <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>Health Score</div>
               <div style={{ fontSize: 28, fontWeight: 700, color: "var(--text-1)", lineHeight: 1 }}>
-                {healthScore != null ? `${healthScore}%` : ""}
+                {healthScore != null ? `${healthScore}%` : "—"}
               </div>
               <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>On track</div>
             </div>
-
             <div className="stat-card">
               <div className="stat-icon" style={{ background: "#ede9fe" }}></div>
               <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>Project Manager</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", lineHeight: 1.2 }}>{pmName}</div>
               <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>Assigned</div>
             </div>
-
             <div className="stat-card">
               <div className="stat-icon" style={{ background: "#dbeafe" }}></div>
               <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>Start Date</div>
@@ -780,7 +720,6 @@ export default async function ProjectPage({
               </div>
               <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>Kickoff</div>
             </div>
-
             <div className="stat-card">
               <div className="stat-icon" style={{ background: "#f3f4f6" }}></div>
               <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>End Date</div>
@@ -791,18 +730,15 @@ export default async function ProjectPage({
             </div>
           </div>
 
-          {/*  Description + Health Score  */}
+          {/* Description + Health Score */}
           <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14, marginBottom: 16 }}>
-            {/* Description */}
             <div className="card" style={{ padding: "24px" }}>
               <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 12 }}>Project Description</h3>
               <p style={{ fontSize: 14, color: "var(--text-2)", lineHeight: 1.7, margin: 0 }}>
                 {`${projectTitle} is currently ${isActive ? "active and progressing well" : "closed"}.${
-                    healthScore != null ? ` The project is tracking at ${healthScore}% health with all major milestones on schedule.` : ""
-                  }${project?.finish_date ? ` The team is working towards the delivery deadline of ${formatDateShort(project?.finish_date)}.` : ""}`}
+                  healthScore != null ? ` The project is tracking at ${healthScore}% health with all major milestones on schedule.` : ""
+                }${project?.finish_date ? ` The team is working towards the delivery deadline of ${formatDateShort(project?.finish_date)}.` : ""}`}
               </p>
-
-              {/* Quick action links */}
               <div style={{ display: "flex", gap: 8, marginTop: 20, flexWrap: "wrap" }}>
                 {[
                   { href: `/projects/${projectRefForUrls}/artifacts`, label: "Artifacts" },
@@ -822,37 +758,33 @@ export default async function ProjectPage({
               </div>
             </div>
 
-            {/* Health Score breakdown */}
             <div className="card" style={{ padding: "24px" }}>
               <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 4 }}>Health Score</h3>
-              <p style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 20 }}>Computed from live project data  hover each bar for detail.</p>
+              <p style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 20 }}>Computed from live project data — hover each bar for detail.</p>
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                 {([
                   {
                     label:   "Schedule",
                     value:   scheduleHealth,
                     weight:  35,
-                    icon:    "",
                     tooltip: scheduleHealth != null
                       ? `Based on ${scheduleDetail.total} milestone${scheduleDetail.total !== 1 ? "s" : ""}. ${scheduleDetail.overdue} overdue${scheduleDetail.critical > 0 ? ` (${scheduleDetail.critical} on critical path)` : ""}. Avg baseline slip: ${scheduleDetail.avgSlipDays}d.`
                       : "No schedule milestones found for this project.",
-                    empty: "No milestones  add schedule milestones to track this.",
+                    empty: "No milestones — add schedule milestones to track this.",
                   },
                   {
                     label:   "RAID Risk",
                     value:   raidHealth,
                     weight:  30,
-                    icon:    "",
                     tooltip: raidHealth != null
-                      ? `${raidDetail.total} open item${raidDetail.total !== 1 ? "s" : ""}. ${raidDetail.highRisk} high-risk (prob  severity  70). ${raidDetail.overdue} past due date.`
+                      ? `${raidDetail.total} open item${raidDetail.total !== 1 ? "s" : ""}. ${raidDetail.highRisk} high-risk. ${raidDetail.overdue} past due date.`
                       : "No open RAID items found for this project.",
-                    empty: "No open RAID items  log risks and issues to track this.",
+                    empty: "No open RAID items — log risks and issues to track this.",
                   },
                   {
                     label:   "Budget",
                     value:   budgetHealth,
                     weight:  20,
-                    icon:    "",
                     tooltip: budgetDetail.utilisationPct != null
                       ? `${budgetDetail.allocatedDays}d allocated of ${budgetDetail.budgetDays ?? "?"}d budget (${budgetDetail.utilisationPct}% utilisation). ${budgetDetail.utilisationPct <= 90 ? "On track." : budgetDetail.utilisationPct <= 100 ? "Approaching budget limit." : "Over budget."}`
                       : "No budget days set on this project.",
@@ -862,31 +794,27 @@ export default async function ProjectPage({
                     label:   "Governance",
                     value:   governanceHealth,
                     weight:  15,
-                    icon:    "",
                     tooltip: `${govDetail.pendingApprovalCount} pending approval${govDetail.pendingApprovalCount !== 1 ? "s" : ""}. ${govDetail.openChangeRequests} open change request${govDetail.openChangeRequests !== 1 ? "s" : ""}. High backlogs reduce this score.`,
                     empty:   "",
                   },
-                ] as { label: string; value: number | null; weight: number; icon: string; tooltip: string; empty: string }[]).map(({ label, value, weight, icon, tooltip, empty }) => {
-                  const barColor = value == null ? "var(--border)"
-                    : value >= 85 ? "var(--green)"
-                    : value >= 70 ? "var(--amber)"
-                    : "var(--red)";
+                ] as { label: string; value: number | null; weight: number; tooltip: string; empty: string }[]).map(({ label, value, weight, tooltip, empty }) => {
+                  const barColor = value == null ? "var(--border)" : value >= 85 ? "var(--green)" : value >= 70 ? "var(--amber)" : "var(--red)";
                   const ragLabel = value == null ? null : value >= 85 ? "Green" : value >= 70 ? "Amber" : "Red";
                   return (
                     <div key={label} style={{ position: "relative" }} className="health-row">
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ fontSize: 13 }}>{icon}</span>
                           <span style={{ fontSize: 13, color: "var(--text-2)", fontWeight: 600 }}>{label}</span>
                           <span style={{ fontSize: 10, color: "var(--text-3)", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 5px", fontWeight: 500 }}>{weight}%</span>
-                          {/* Tooltip trigger */}
-                          <span className="hs-tip-trigger" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: "50%", background: "var(--surface-2)", border: "1px solid var(--border)", fontSize: 9, color: "var(--text-3)", cursor: "default", fontWeight: 700, flexShrink: 0 }}>?
+                          <span className="hs-tip-trigger" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: "50%", background: "var(--surface-2)", border: "1px solid var(--border)", fontSize: 9, color: "var(--text-3)", cursor: "default", fontWeight: 700, flexShrink: 0 }}>
+                            ?
                             <span className="hs-tip-box">{tooltip}</span>
                           </span>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           {ragLabel && (
-                            <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 20,
+                            <span style={{
+                              fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 20,
                               background: ragLabel === "Green" ? "rgba(22,163,74,0.1)" : ragLabel === "Amber" ? "rgba(217,119,6,0.1)" : "rgba(220,38,38,0.1)",
                               color: ragLabel === "Green" ? "var(--green)" : ragLabel === "Amber" ? "var(--amber)" : "var(--red)",
                             }}>{ragLabel}</span>
@@ -906,7 +834,6 @@ export default async function ProjectPage({
                   );
                 })}
               </div>
-              {/* Overall RAG indicator */}
               {healthScore != null && (
                 <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <span style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 600 }}>Overall RAG</span>
@@ -914,7 +841,8 @@ export default async function ProjectPage({
                     {[{ t: "Red", min: 0, max: 69 }, { t: "Amber", min: 70, max: 84 }, { t: "Green", min: 85, max: 100 }].map(({ t, min, max }) => {
                       const active = healthScore >= min && healthScore <= max;
                       return (
-                        <span key={t} style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20,
+                        <span key={t} style={{
+                          fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20,
                           background: active ? (t === "Green" ? "rgba(22,163,74,0.12)" : t === "Amber" ? "rgba(217,119,6,0.12)" : "rgba(220,38,38,0.12)") : "var(--surface-2)",
                           color: active ? (t === "Green" ? "var(--green)" : t === "Amber" ? "var(--amber)" : "var(--red)") : "var(--text-3)",
                           border: active ? `1px solid ${t === "Green" ? "rgba(22,163,74,0.25)" : t === "Amber" ? "rgba(217,119,6,0.25)" : "rgba(220,38,38,0.25)"}` : "1px solid var(--border)",
@@ -927,7 +855,7 @@ export default async function ProjectPage({
             </div>
           </div>
 
-          {/*  Resource Planning (if available)  */}
+          {/* Resource Planning */}
           {resource && (
             <div className="card" style={{ padding: "24px", marginBottom: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-3)", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
@@ -938,23 +866,20 @@ export default async function ProjectPage({
             </div>
           )}
 
-          {/*  RAID + Recent Activity  */}
+          {/* RAID + Recent Activity */}
           <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 14 }}>
-            {/* RAID */}
             <div className="card" style={{ padding: "24px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-3)" }}>
-                  RAID log
-                </span>
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-3)" }}>RAID log</span>
                 <Link href={`/projects/${projectRefForUrls}/raid`} style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}>
-                  View full RAID 
+                  View full RAID →
                 </Link>
               </div>
               <div className="raid-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
                 {[
-                  { label: "Risks",        items: risks,        color: risks.length    > 0 ? "var(--red)"   : "var(--text-3)", border: risks.length    > 0 ? "rgba(239,68,68,0.2)"   : "var(--border)" },
+                  { label: "Risks",        items: risks,        color: risks.length    > 0 ? "var(--red)"   : "var(--text-3)", border: risks.length    > 0 ? "rgba(239,68,68,0.2)"  : "var(--border)" },
                   { label: "Assumptions",  items: assumptions,  color: "var(--blue)",   border: "var(--border)" },
-                  { label: "Issues",       items: issues,       color: issues.length   > 0 ? "var(--amber)" : "var(--text-3)", border: issues.length   > 0 ? "rgba(245,158,11,0.2)"  : "var(--border)" },
+                  { label: "Issues",       items: issues,       color: issues.length   > 0 ? "var(--amber)" : "var(--text-3)", border: issues.length   > 0 ? "rgba(245,158,11,0.2)" : "var(--border)" },
                   { label: "Dependencies", items: dependencies, color: "#8b5cf6",        border: "var(--border)" },
                 ].map(({ label, items, color, border }) => (
                   <div key={label} className="raid-quad" style={{ borderColor: border }}>
@@ -973,7 +898,6 @@ export default async function ProjectPage({
               </div>
             </div>
 
-            {/* Recent Activity */}
             <div className="card" style={{ padding: "24px" }}>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-3)", marginBottom: 14 }}>
                 Recent activity
@@ -1011,8 +935,8 @@ export default async function ProjectPage({
                 )}
               </div>
               <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginTop: 4 }}>
-                <Link href={`/projects/${projectRefForUrls}/timeline`} style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}>
-                  View change board 
+                <Link href={`/projects/${projectRefForUrls}/change`} style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}>
+                  View change board →
                 </Link>
               </div>
             </div>
@@ -1023,4 +947,3 @@ export default async function ProjectPage({
     </>
   );
 }
-
