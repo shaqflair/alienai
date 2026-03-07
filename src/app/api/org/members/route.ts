@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
     const activeOrgId = qOrgId || (await getActiveOrgId().catch(() => null));
     if (!activeOrgId) return jsonErr("No active organisation", 400);
 
+    // Confirm caller is a member
     const { data: callerMem } = await supabase
       .from("organisation_members")
       .select("role")
@@ -42,43 +43,48 @@ export async function GET(req: NextRequest) {
 
     if (!callerMem?.role) return jsonErr("Not a member of this organisation", 403);
 
-    const { data: rows, error } = await supabase
+    // Step 1: fetch members
+    const { data: members, error: membErr } = await supabase
       .from("organisation_members")
-      .select(`
-        user_id,
-        job_title,
-        profiles:user_id (
-          full_name,
-          display_name,
-          email
-        )
-      `)
+      .select("user_id, job_title, role")
       .eq("organisation_id", activeOrgId)
       .is("removed_at", null)
-      .order("user_id", { ascending: true })
+      .order("user_id")
       .limit(500);
 
-    if (error) return jsonErr(error.message, 500);
+    if (membErr) return jsonErr(membErr.message, 500);
+    if (!members?.length) return jsonOk({ members: [] });
 
-    const members = (rows ?? []).map((r: any) => {
-      const p = r.profiles as any;
-      const full_name = ss(p?.full_name).trim() || ss(p?.display_name).trim() || "";
-      const email     = ss(p?.email).trim();
-      const job_title = ss(r.job_title).trim();
+    const userIds = members.map((m: any) => m.user_id).filter(Boolean);
 
-      // `name` = best display string (used as fallback in pickers that don't know full_name)
-      const name = full_name || email || ss(r.user_id).slice(0, 8);
+    // Step 2: profiles.id = auth uid — do NOT join on user_id column (may not exist)
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, full_name, display_name, email, avatar_url, department, job_title")
+      .in("id", userIds);
+
+    const profileMap = new Map((profiles ?? []).map((p: any) => [p.id, p]));
+
+    const result = members.map((m: any) => {
+      const p: any = profileMap.get(m.user_id) ?? {};
+      const full_name = ss(p.full_name).trim() || ss(p.display_name).trim() || "";
+      const email     = ss(p.email).trim();
+      const job_title = ss(m.job_title).trim() || ss(p.job_title).trim();
+      const name      = full_name || email || ss(m.user_id).slice(0, 8);
 
       return {
-        user_id:   ss(r.user_id),
-        full_name, // ← explicit field so ResourcePicker.onPick gets it
-        name,      // ← display fallback
+        user_id:    ss(m.user_id),
+        full_name,
+        name,
         email,
-        job_title, // ← used for rate card lookup
+        avatar_url: ss(p.avatar_url).trim() || null,
+        department: ss(p.department).trim() || null,
+        job_title:  job_title || null,
+        role:       ss(m.role),
       };
     }).filter((m: any) => m.user_id);
 
-    return jsonOk({ members });
+    return jsonOk({ members: result });
   } catch (e: any) {
     console.error("[GET /api/org/members]", e);
     return jsonErr(ss(e?.message) || "Server error", 500);
