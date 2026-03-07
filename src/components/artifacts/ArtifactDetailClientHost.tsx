@@ -131,10 +131,20 @@ function getArtifactVersion(typedInitialJson: any) {
   return Number.isFinite(v) && v > 0 ? v : 1;
 }
 
+function stableStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 /* -----------------------------------------------------------------------
-   ✅ FinancialPlanEditorHost
-   Thin stateful wrapper so FinancialPlanEditor always receives a valid
-   `content` object (never null/undefined) and auto-saves via the action.
+   FinancialPlanEditorHost
+   - always supplies valid content
+   - debounced autosave
+   - cancels pending autosave when user tries to navigate away
+   - avoids duplicate saves for unchanged payloads
    ----------------------------------------------------------------------- */
 function FinancialPlanEditorHost({
   projectId,
@@ -151,7 +161,6 @@ function FinancialPlanEditorHost({
   readOnly: boolean;
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
 }) {
-  // ✅ Safe initialisation — fall back to emptyFinancialPlan() if null/invalid
   const [content, setContent] = useState<FinancialPlanContent>(() => {
     if (
       initialJson &&
@@ -163,38 +172,124 @@ function FinancialPlanEditorHost({
     return emptyFinancialPlan();
   });
 
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
+  const savingRef = useRef(false);
+  const lastQueuedJsonRef = useRef<string>(stableStringify(content));
+  const lastSavedJsonRef = useRef<string>(stableStringify(content));
 
-  const handleChange = useCallback(
-    (updated: FinancialPlanContent) => {
-      setContent(updated);
-
-      if (!updateArtifactJsonAction || readOnly) return;
-
+  const clearPendingSave = useCallback(() => {
+    if (saveTimer.current) {
       clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => {
-        updateArtifactJsonAction({
+      saveTimer.current = null;
+    }
+  }, []);
+
+  const runSave = useCallback(
+    async (updated: FinancialPlanContent) => {
+      if (!updateArtifactJsonAction || readOnly || savingRef.current) return;
+
+      const json = stableStringify(updated);
+      if (!json || json === lastSavedJsonRef.current) return;
+
+      savingRef.current = true;
+      try {
+        const res = await updateArtifactJsonAction({
           artifactId,
           projectId,
           contentJson: updated,
-        }).catch((e) => {
-          console.error("[FinancialPlanEditorHost] save error:", e);
         });
-      }, 800);
+
+        if (res?.ok) {
+          lastSavedJsonRef.current = json;
+        } else {
+          console.error("[FinancialPlanEditorHost] save failed:", res?.error ?? "Unknown error");
+        }
+      } catch (e) {
+        console.error("[FinancialPlanEditorHost] save error:", e);
+      } finally {
+        savingRef.current = false;
+      }
     },
     [artifactId, projectId, readOnly, updateArtifactJsonAction]
   );
 
-  // Cleanup timer on unmount
-  useEffect(() => () => clearTimeout(saveTimer.current), []);
+  const queueSave = useCallback(
+    (updated: FinancialPlanContent) => {
+      if (!updateArtifactJsonAction || readOnly) return;
+
+      const json = stableStringify(updated);
+      if (!json) return;
+      if (json === lastQueuedJsonRef.current && json === lastSavedJsonRef.current) return;
+
+      lastQueuedJsonRef.current = json;
+      clearPendingSave();
+
+      saveTimer.current = setTimeout(() => {
+        saveTimer.current = null;
+        void runSave(updated);
+      }, 800);
+    },
+    [clearPendingSave, readOnly, runSave, updateArtifactJsonAction]
+  );
+
+  const handleChange = useCallback(
+    (updated: FinancialPlanContent) => {
+      setContent(updated);
+      queueSave(updated);
+    },
+    [queueSave]
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      clearPendingSave();
+    };
+  }, [clearPendingSave]);
+
+  useEffect(() => {
+    const handlePointerDownCapture = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+
+      const hostEl = hostRef.current;
+      const clickedInsideEditor = !!hostEl && hostEl.contains(target);
+
+      if (clickedInsideEditor) return;
+
+      const interactive = target.closest("a, button, [role='button']");
+      if (interactive) {
+        clearPendingSave();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        clearPendingSave();
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDownCapture, true);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDownCapture, true);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [clearPendingSave]);
 
   return (
-    <FinancialPlanEditor
-      content={content}
-      onChange={handleChange}
-       organisationId={organisationId ?? projectId}
-             readOnly={readOnly}
-    />
+    <div ref={hostRef} className="relative z-0">
+      <FinancialPlanEditor
+        content={content}
+        onChange={handleChange}
+        organisationId={organisationId ?? projectId}
+        readOnly={readOnly}
+      />
+    </div>
   );
 }
 
@@ -373,10 +468,10 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 updateArtifactJsonAction={updateArtifactJsonAction}
               />
             ) : mode === "financial_plan" ? (
-              // ✅ Uses FinancialPlanEditorHost to safely handle null initialJson
               <FinancialPlanEditorHost
                 projectId={projectId}
                 artifactId={artifactId}
+                organisationId={organisationId}
                 initialJson={typedInitialJson ?? rawContentJson ?? null}
                 readOnly={!isEditable}
                 updateArtifactJsonAction={updateArtifactJsonAction}
@@ -453,4 +548,3 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     </div>
   );
 }
-
