@@ -8,6 +8,7 @@ import { getActiveOrgId } from "@/utils/org/active-org";
 import { fetchProjectResourceData, projectWeekPeriods } from "./_lib/resource-data";
 import ProjectResourcePanel from "./_components/ProjectResourcePanel";
 import AssignPmButton from "./_components/AssignPmButton";
+import { generatePID, insertRoleRequirements } from "./action";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -110,12 +111,15 @@ function flashText(msg: string | undefined, conflicts: string | undefined) {
   if (!msg) return null;
   if (msg === "allocated") {
     const c = conflicts ? parseInt(conflicts) : 0;
-    return c > 0 ? ` Allocated  ${c} conflict week${c > 1 ? "s" : ""} flagged` : " Resource allocated successfully";
+    return c > 0 ? `✓ Allocated  ${c} conflict week${c > 1 ? "s" : ""} flagged` : "✓ Resource allocated successfully";
   }
-  if (msg === "allocation_removed") return "Allocation removed.";
-  if (msg === "week_removed") return "Week removed.";
-  if (msg === "week_updated") return "Week updated.";
-  if (msg === "converted_to_confirmed") return " Project converted to Confirmed — now live on the capacity heatmap.";
+  if (msg === "allocation_removed")    return "Allocation removed.";
+  if (msg === "week_removed")          return "Week removed.";
+  if (msg === "week_updated")          return "Week updated.";
+  if (msg === "converted_to_confirmed") return "✓ Project converted to Confirmed — now live on the capacity heatmap.";
+  if (msg === "pid_created")           return "✓ PID artifact created.";
+  if (msg === "roles_saved")           return "✓ Role requirements saved.";
+  if (msg === "pm_assigned")           return "✓ Project manager updated.";
   return null;
 }
 
@@ -226,6 +230,52 @@ async function convertPipelineToConfirmed(formData: FormData) {
   redirect(`${returnTo}?msg=converted_to_confirmed`);
 }
 
+/* ─── Inline assign-PM server action (fixes AssignPmButton race) ─── */
+async function assignPmAction(formData: FormData) {
+  "use server";
+
+  const supabase = await createClient();
+  const { data: { user }, error: uErr } = await supabase.auth.getUser();
+  if (uErr) throw uErr;
+  if (!user) redirect("/login");
+
+  const projectId  = safeStr(formData.get("project_id")).trim();
+  const pmUserId   = safeStr(formData.get("pm_user_id")).trim();
+  const returnTo   = safeStr(formData.get("return_to")).trim() || "/projects";
+
+  if (!projectId) redirect(`${returnTo}?err=missing_project_id`);
+
+  const activeOrgId = await getActiveOrgId();
+  if (!activeOrgId) redirect(`${returnTo}?err=no_active_org`);
+
+  // Auth check
+  const org = await getOrgMembership(supabase, activeOrgId, user.id);
+  const { data: memRows } = await supabase
+    .from("project_members")
+    .select("role")
+    .eq("project_id", projectId)
+    .eq("user_id", user.id)
+    .is("removed_at", null);
+  const myRole = bestProjectRole(memRows as any);
+  if (!(org.isAdmin || myRole === "owner" || myRole === "editor")) {
+    redirect(`${returnTo}?err=forbidden`);
+  }
+
+  // Update both columns so whichever the app reads, it works
+  const { error } = await supabase
+    .from("projects")
+    .update({
+      pm_user_id:          pmUserId || null,
+      project_manager_id:  pmUserId || null,
+    })
+    .eq("id", projectId)
+    .eq("organisation_id", activeOrgId);
+
+  if (error) throw new Error(error.message);
+
+  redirect(`${returnTo}?msg=pm_assigned`);
+}
+
 export default async function ProjectPage({
   params,
   searchParams,
@@ -310,6 +360,7 @@ export default async function ProjectPage({
     scheduleMilestonesResult,
     changeRequestsResult,
     keyArtifactsResult,
+    orgMembersResult,
   ] = await Promise.allSettled([
     fetchProjectResourceData(projectUuid),
     supabase
@@ -359,17 +410,25 @@ export default async function ProjectPage({
       .in("type", ["SCHEDULE", "WBS", "FINANCIAL_PLAN", "WEEKLY_REPORT"])
       .order("created_at", { ascending: false })
       .limit(20),
+    // Fetch org members for PM picker (profiles joined)
+    supabase
+      .from("organisation_members")
+      .select("user_id, job_title, profiles:user_id(full_name, display_name, email)")
+      .eq("organisation_id", activeOrgId)
+      .is("removed_at", null)
+      .limit(200),
   ]);
 
-  const resource = resourceData.status === "fulfilled" ? resourceData.value : null;
-  const periods = resource ? projectWeekPeriods(resource.project.start_date, resource.project.finish_date) : [];
-  const changes = changesResult.status === "fulfilled" ? changesResult.value.data ?? [] : [];
+  const resource       = resourceData.status === "fulfilled" ? resourceData.value : null;
+  const periods        = resource ? projectWeekPeriods(resource.project.start_date, resource.project.finish_date) : [];
+  const changes        = changesResult.status === "fulfilled" ? changesResult.value.data ?? [] : [];
   const pendingApprovals = approvalsResult.status === "fulfilled" ? approvalsResult.value.data ?? [] : [];
-  const members = membersResult.status === "fulfilled" ? membersResult.value.data ?? [] : [];
-  const raidItems = raidResult.status === "fulfilled" ? raidResult.value.data ?? [] : [];
-  const milestones = scheduleMilestonesResult.status === "fulfilled" ? scheduleMilestonesResult.value.data ?? [] : [];
-  const changeReqs = changeRequestsResult.status === "fulfilled" ? changeRequestsResult.value.data ?? [] : [];
-  const keyArtifacts = keyArtifactsResult.status === "fulfilled" ? keyArtifactsResult.value.data ?? [] : [];
+  const members        = membersResult.status === "fulfilled" ? membersResult.value.data ?? [] : [];
+  const raidItems      = raidResult.status === "fulfilled" ? raidResult.value.data ?? [] : [];
+  const milestones     = scheduleMilestonesResult.status === "fulfilled" ? scheduleMilestonesResult.value.data ?? [] : [];
+  const changeReqs     = changeRequestsResult.status === "fulfilled" ? changeRequestsResult.value.data ?? [] : [];
+  const keyArtifacts   = keyArtifactsResult.status === "fulfilled" ? keyArtifactsResult.value.data ?? [] : [];
+  const orgMembers     = orgMembersResult.status === "fulfilled" ? orgMembersResult.value.data ?? [] : [];
 
   function clamp(n: number) {
     return Math.max(0, Math.min(100, Math.round(n)));
@@ -391,16 +450,15 @@ export default async function ProjectPage({
     scheduleDetail.total = ms.length;
 
     for (const m of ms) {
-      const st = String(m.status ?? "").toLowerCase();
+      const st   = String(m.status ?? "").toLowerCase();
       const done = ["completed", "done", "closed"].includes(st);
-      const end = m.end_date ? String(m.end_date).slice(0, 10) : null;
+      const end  = m.end_date ? String(m.end_date).slice(0, 10) : null;
       const base = m.baseline_end ? String(m.baseline_end).slice(0, 10) : null;
 
       if (!done && end && end < today) {
         scheduleDetail.overdue++;
-        const penalty = m.critical_path_flag ? 12 : 8;
         if (m.critical_path_flag) scheduleDetail.critical++;
-        score -= penalty;
+        score -= m.critical_path_flag ? 12 : 8;
       }
 
       if (end && base) {
@@ -430,8 +488,8 @@ export default async function ProjectPage({
     raidDetail.total = items.length;
 
     for (const r of items) {
-      const p = Number(r.probability ?? 0);
-      const s = Number(r.severity ?? 0);
+      const p         = Number(r.probability ?? 0);
+      const s         = Number(r.severity ?? 0);
       const composite = p > 0 && s > 0 ? Math.round((p * s) / 100) : 0;
 
       if (composite >= 70) {
@@ -453,15 +511,15 @@ export default async function ProjectPage({
 
   type BudgetDetail = { budgetDays: number | null; allocatedDays: number; utilisationPct: number | null };
   const budgetDetail: BudgetDetail = {
-    budgetDays: resource?.budgetSummary?.budgetDays ?? null,
-    allocatedDays: resource?.budgetSummary?.allocatedDays ?? 0,
-    utilisationPct: resource?.budgetSummary?.utilisationPct ?? null,
+    budgetDays:      resource?.budgetSummary?.budgetDays ?? null,
+    allocatedDays:   resource?.budgetSummary?.allocatedDays ?? 0,
+    utilisationPct:  resource?.budgetSummary?.utilisationPct ?? null,
   };
 
   const budgetHealth = (() => {
     const pct = budgetDetail.utilisationPct;
     if (pct == null) return null;
-    if (pct <= 90) return clamp(100);
+    if (pct <= 90)  return clamp(100);
     if (pct <= 100) return clamp(100 - (pct - 90) * 3);
     if (pct <= 120) return clamp(70 - (pct - 100) * 2);
     return clamp(30);
@@ -470,7 +528,7 @@ export default async function ProjectPage({
   type GovernanceDetail = { pendingApprovalCount: number; openChangeRequests: number };
   const govDetail: GovernanceDetail = {
     pendingApprovalCount: pendingApprovals.length,
-    openChangeRequests: (changeReqs as any[]).filter((c) =>
+    openChangeRequests:   (changeReqs as any[]).filter((c) =>
       ["pending", "open", "submitted", "draft"].includes(String(c.status ?? "").toLowerCase()),
     ).length,
   };
@@ -485,14 +543,14 @@ export default async function ProjectPage({
   const healthScore = (() => {
     const dims = [
       { val: scheduleHealth, w: 35 },
-      { val: raidHealth, w: 30 },
-      { val: budgetHealth, w: 20 },
+      { val: raidHealth,     w: 30 },
+      { val: budgetHealth,   w: 20 },
       { val: governanceHealth, w: 15 },
     ].filter((d) => d.val != null) as { val: number; w: number }[];
 
     if (!dims.length) return null;
 
-    const totalW = dims.reduce((s, d) => s + d.w, 0);
+    const totalW   = dims.reduce((s, d) => s + d.w, 0);
     const weighted = dims.reduce((s, d) => s + d.val * d.w, 0);
 
     return clamp(weighted / totalW);
@@ -520,7 +578,7 @@ export default async function ProjectPage({
 
   const pmUserId = safeStr((project as any)?.pm_user_id ?? (project as any)?.project_manager_id ?? "").trim();
 
-  let resolvedPmName = "";
+  let resolvedPmName     = "";
   let resolvedPmJobTitle = "";
 
   if (pmUserId) {
@@ -531,10 +589,10 @@ export default async function ProjectPage({
       .maybeSingle();
 
     resolvedPmName =
-      safeStr((pmProfile as any)?.full_name).trim() ||
+      safeStr((pmProfile as any)?.full_name).trim()    ||
       safeStr((pmProfile as any)?.display_name).trim() ||
-      safeStr((pmProfile as any)?.name).trim() ||
-      safeStr((pmProfile as any)?.email).trim() ||
+      safeStr((pmProfile as any)?.name).trim()         ||
+      safeStr((pmProfile as any)?.email).trim()        ||
       "";
 
     const { data: orgPm } = await supabase
@@ -548,14 +606,25 @@ export default async function ProjectPage({
     resolvedPmJobTitle = safeStr((orgPm as any)?.job_title).trim();
   }
 
-  const projectTitle = safeStr(project?.title ?? "Project") || "Project";
-  const projectCode = safeStr(project?.project_code ?? "").trim();
-  const projectColour = safeStr(project?.colour ?? "#22c55e");
-  const projectStatus = safeStr(project?.status ?? "active");
-  const isActive = projectStatus.toLowerCase() !== "closed";
+  // Build PM options list for the select dropdown
+  const pmOptions = (orgMembers as any[]).map((m) => {
+    const p = m.profiles as any;
+    const name =
+      safeStr(p?.full_name).trim()    ||
+      safeStr(p?.display_name).trim() ||
+      safeStr(p?.email).trim()        ||
+      safeStr(m.user_id).slice(0, 8);
+    return { userId: safeStr(m.user_id), name, jobTitle: safeStr(m.job_title) };
+  }).filter((x) => x.userId);
+
+  const projectTitle    = safeStr(project?.title ?? "Project") || "Project";
+  const projectCode     = safeStr(project?.project_code ?? "").trim();
+  const projectColour   = safeStr(project?.colour ?? "#22c55e");
+  const projectStatus   = safeStr(project?.status ?? "active");
+  const isActive        = projectStatus.toLowerCase() !== "closed";
   const projectRefForUrls = projectUuid;
 
-  const flash = flashText(sp?.msg, sp?.conflicts);
+  const flash    = flashText(sp?.msg, sp?.conflicts);
   const flashErr = sp?.err ? `Error: ${sp.err}` : null;
   const daysLeft = daysUntil(project?.finish_date);
 
@@ -563,14 +632,14 @@ export default async function ProjectPage({
     return String(r.type ?? "").toLowerCase().trim() === type;
   }
 
-  const risks = raidItems.filter((r: any) => raidType(r, "risk"));
-  const assumptions = raidItems.filter((r: any) => raidType(r, "assumption"));
-  const issues = raidItems.filter((r: any) => raidType(r, "issue"));
+  const risks        = raidItems.filter((r: any) => raidType(r, "risk"));
+  const assumptions  = raidItems.filter((r: any) => raidType(r, "assumption"));
+  const issues       = raidItems.filter((r: any) => raidType(r, "issue"));
   const dependencies = raidItems.filter((r: any) => raidType(r, "dependency"));
   const totalMembers = members.length;
-  const openRisks = risks.length;
-  const pmName = resolvedPmName || "Unassigned";
-  const pmJobTitle = resolvedPmJobTitle || "";
+  const openRisks    = risks.length;
+  const pmName       = resolvedPmName || "Unassigned";
+  const pmJobTitle   = resolvedPmJobTitle || "";
 
   const artifactHref = (type: string) => {
     const a = (keyArtifacts as any[]).find((x) => x.type === type);
@@ -580,16 +649,16 @@ export default async function ProjectPage({
   };
 
   const tabs = [
-    { id: "overview", label: "Overview", href: `/projects/${projectRefForUrls}` },
-    { id: "artifacts", label: "Artifacts", href: `/projects/${projectRefForUrls}/artifacts` },
-    { id: "schedule", label: "Schedule", href: artifactHref("SCHEDULE") },
-    { id: "wbs", label: "WBS", href: artifactHref("WBS") },
-    { id: "financial", label: "Financial Plan", href: artifactHref("FINANCIAL_PLAN") },
-    { id: "members", label: "Members", href: `/projects/${projectRefForUrls}/members` },
-    { id: "changes", label: "Change Board", href: `/projects/${projectRefForUrls}/change` },
-    { id: "raid", label: "Risks", href: `/projects/${projectRefForUrls}/raid` },
-    { id: "lessons", label: "Lessons", href: `/projects/${projectRefForUrls}/lessons` },
-    { id: "weekly", label: "Weekly Report", href: artifactHref("WEEKLY_REPORT") },
+    { id: "overview",   label: "Overview",        href: `/projects/${projectRefForUrls}` },
+    { id: "artifacts",  label: "Artifacts",        href: `/projects/${projectRefForUrls}/artifacts` },
+    { id: "schedule",   label: "Schedule",         href: artifactHref("SCHEDULE") },
+    { id: "wbs",        label: "WBS",              href: artifactHref("WBS") },
+    { id: "financial",  label: "Financial Plan",   href: artifactHref("FINANCIAL_PLAN") },
+    { id: "members",    label: "Members",          href: `/projects/${projectRefForUrls}/members` },
+    { id: "changes",    label: "Change Board",     href: `/projects/${projectRefForUrls}/change` },
+    { id: "raid",       label: "Risks",            href: `/projects/${projectRefForUrls}/raid` },
+    { id: "lessons",    label: "Lessons",          href: `/projects/${projectRefForUrls}/lessons` },
+    { id: "weekly",     label: "Weekly Report",    href: artifactHref("WEEKLY_REPORT") },
   ];
 
   return (
@@ -695,6 +764,22 @@ export default async function ProjectPage({
         .action-btn.primary:hover { opacity: 0.9; }
         .flash-ok  { padding: 10px 16px; border-radius: 9px; background: rgba(34,197,94,0.07); border: 1px solid rgba(34,197,94,0.22); font-size: 13px; color: #15803d; font-weight: 500; }
         .flash-err { padding: 10px 16px; border-radius: 9px; background: #fef2f2; border: 1px solid #fecaca; font-size: 13px; color: #dc2626; font-weight: 500; }
+        /* PM picker */
+        .pm-form { display: inline-flex; align-items: center; gap: 6px; }
+        .pm-select {
+          border: 1px solid var(--border); border-radius: 7px; padding: 3px 8px;
+          font-size: 13px; font-family: 'Geist', sans-serif; color: var(--text-1);
+          background: var(--surface); cursor: pointer; outline: none;
+          transition: border-color 0.15s;
+        }
+        .pm-select:focus { border-color: var(--blue); }
+        .pm-save-btn {
+          padding: 3px 10px; border-radius: 7px; border: 1px solid var(--blue);
+          background: var(--blue); color: white; font-size: 12px; font-weight: 600;
+          font-family: 'Geist', sans-serif; cursor: pointer;
+          transition: opacity 0.15s;
+        }
+        .pm-save-btn:hover { opacity: 0.85; }
         @media (max-width: 960px) {
           .stat-grid { grid-template-columns: repeat(2,1fr) !important; }
           .two-col   { grid-template-columns: 1fr !important; }
@@ -728,37 +813,13 @@ export default async function ProjectPage({
 
       <main style={{ minHeight: "100vh", background: "var(--surface-2)", fontFamily: "'Geist', sans-serif" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 28px 64px" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 20,
-              gap: 12,
-              flexWrap: "wrap",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                fontSize: 13,
-                color: "var(--text-3)",
-                fontWeight: 500,
-              }}
-            >
-              <Link href="/projects" style={{ color: "var(--text-3)", textDecoration: "none" }}>
-                Projects
-              </Link>
+
+          {/* ── Breadcrumb + switcher ── */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 12, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--text-3)", fontWeight: 500 }}>
+              <Link href="/projects" style={{ color: "var(--text-3)", textDecoration: "none" }}>Projects</Link>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="m9 18 6-6-6-6"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
+                <path d="m9 18 6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
               <span style={{ color: "var(--text-1)", fontWeight: 600 }}>{projectTitle}</span>
             </div>
@@ -766,147 +827,106 @@ export default async function ProjectPage({
             <div className="sw-wrap" tabIndex={0} style={{ outline: "none" }}>
               <button className="sw-trigger" type="button">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                  <path d="M4 6h16M4 12h16M4 18h7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  <path d="M4 6h16M4 12h16M4 18h7" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                 </svg>
                 Switch project
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="m6 9 6 6 6-6"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
+                  <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </button>
               <div className="sw-dropdown">
                 <div className="sw-search-row">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                    <circle cx="11" cy="11" r="8" stroke="var(--text-3)" strokeWidth="2" />
-                    <path d="m21 21-4.35-4.35" stroke="var(--text-3)" strokeWidth="2" strokeLinecap="round" />
+                    <circle cx="11" cy="11" r="8" stroke="var(--text-3)" strokeWidth="2"/>
+                    <path d="m21 21-4.35-4.35" stroke="var(--text-3)" strokeWidth="2" strokeLinecap="round"/>
                   </svg>
-                  <input id="sw-input" placeholder="Search projects" autoComplete="off" />
+                  <input id="sw-input" placeholder="Search projects" autoComplete="off"/>
                 </div>
                 <div className="sw-list">
                   {switcherProjects.map((p) => (
                     <Link key={p.id} href={`/projects/${p.id}`} className={`sw-item${p.id === projectUuid ? " cur" : ""}`}>
-                      <span className="sw-dot" style={{ background: safeStr(p.colour ?? "#22c55e") }} />
-                      <span
-                        style={{
-                          flex: 1,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {p.title}
-                      </span>
+                      <span className="sw-dot" style={{ background: safeStr(p.colour ?? "#22c55e") }}/>
+                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</span>
                       {p.project_code && <span className="sw-code">{p.project_code}</span>}
                     </Link>
                   ))}
                   {switcherProjects.length === 0 && (
-                    <div style={{ padding: "16px", textAlign: "center", fontSize: 13, color: "var(--text-3)" }}>
-                      No projects found
-                    </div>
+                    <div style={{ padding: "16px", textAlign: "center", fontSize: 13, color: "var(--text-3)" }}>No projects found</div>
                   )}
                 </div>
               </div>
             </div>
           </div>
 
-          {flash && <div className="flash-ok" style={{ marginBottom: 14 }}>{flash}</div>}
+          {flash    && <div className="flash-ok"  style={{ marginBottom: 14 }}>{flash}</div>}
           {flashErr && <div className="flash-err" style={{ marginBottom: 14 }}>{flashErr}</div>}
 
+          {/* ── Project header card ── */}
           <div className="card" style={{ marginBottom: 20 }}>
             <div style={{ padding: "22px 28px 0" }}>
+
+              {/* Title row */}
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
-                <span
-                  style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: "50%",
-                    background: projectColour,
-                    display: "inline-block",
-                    flexShrink: 0,
-                  }}
-                />
-                <h1
-                  style={{
-                    fontSize: 22,
-                    fontWeight: 700,
-                    color: "var(--text-1)",
-                    letterSpacing: "-0.3px",
-                    margin: 0,
-                  }}
-                >
+                <span style={{ width: 10, height: 10, borderRadius: "50%", background: projectColour, display: "inline-block", flexShrink: 0 }}/>
+                <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--text-1)", letterSpacing: "-0.3px", margin: 0 }}>
                   {projectTitle}
                 </h1>
-
                 {projectCode && (
-                  <span
-                    style={{
-                      padding: "2px 9px",
-                      borderRadius: 6,
-                      fontSize: 12,
-                      fontWeight: 600,
-                      background: "#f6f8fa",
-                      color: "var(--text-3)",
-                      border: "1px solid var(--border)",
-                      fontFamily: "'Geist Mono', monospace",
-                    }}
-                  >
+                  <span style={{ padding: "2px 9px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#f6f8fa", color: "var(--text-3)", border: "1px solid var(--border)", fontFamily: "'Geist Mono', monospace" }}>
                     {projectCode}
                   </span>
                 )}
-
-                <span
-                  style={{
-                    padding: "3px 10px",
-                    borderRadius: 20,
-                    fontSize: 11,
-                    fontWeight: 700,
-                    background: isActive ? "#dcfce7" : "#f1f5f9",
-                    color: isActive ? "#15803d" : "var(--text-3)",
-                  }}
-                >
+                <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: isActive ? "#dcfce7" : "#f1f5f9", color: isActive ? "#15803d" : "var(--text-3)" }}>
                   {isActive ? "Active" : "Closed"}
                 </span>
-
                 {project?.resource_status === "pipeline" && (
-                  <span
-                    style={{
-                      padding: "3px 10px",
-                      borderRadius: 20,
-                      fontSize: 11,
-                      fontWeight: 700,
-                      background: "rgba(124,58,237,0.08)",
-                      color: "#7c3aed",
-                    }}
-                  >
+                  <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: "rgba(124,58,237,0.08)", color: "#7c3aed" }}>
                     Pipeline
                   </span>
                 )}
               </div>
 
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  fontSize: 13,
-                  color: "var(--text-2)",
-                  flexWrap: "wrap",
-                  marginBottom: 14,
-                }}
-              >
+              {/* Meta row */}
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--text-2)", flexWrap: "wrap", marginBottom: 14 }}>
+
+                {/* ── PM picker ── */}
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                  PM:{" "}
-                  <AssignPmButton
-                    projectId={projectUuid}
-                    currentPmName={pmName}
-                    currentPmUserId={(project as any)?.pm_user_id ?? (project as any)?.project_manager_id ?? null}
-                    orgId={activeOrgId}
-                  />
+                  <span style={{ fontWeight: 500 }}>PM:</span>
+                  {canEdit ? (
+                    <>
+                      {/* Primary: rich client dropdown (requires /api/org/members) */}
+                      <AssignPmButton
+                        projectId={projectUuid}
+                        currentPmName={pmName}
+                        currentPmUserId={pmUserId || null}
+                        orgId={activeOrgId!}
+                      />
+
+                      {/* Fallback: plain server-action form (works without JS) */}
+                      <noscript>
+                        <form action={assignPmAction} className="pm-form">
+                          <input type="hidden" name="project_id" value={projectUuid}/>
+                          <input type="hidden" name="return_to"  value={`/projects/${projectRefForUrls}`}/>
+                          <select
+                            name="pm_user_id"
+                            defaultValue={pmUserId || ""}
+                            className="pm-select"
+                            aria-label="Assign project manager"
+                          >
+                            <option value="">— Unassigned —</option>
+                            {pmOptions.map((o) => (
+                              <option key={o.userId} value={o.userId}>
+                                {o.name}{o.jobTitle ? ` (${o.jobTitle})` : ""}
+                              </option>
+                            ))}
+                          </select>
+                          <button type="submit" className="pm-save-btn">Save</button>
+                        </form>
+                      </noscript>
+                    </>
+                  ) : (
+                    <span style={{ fontWeight: 600 }}>{pmName}</span>
+                  )}
                 </span>
 
                 {pmJobTitle ? (
@@ -918,7 +938,6 @@ export default async function ProjectPage({
 
                 <span style={{ color: "var(--border-2)" }}>•</span>
                 <span>Created {formatDate(project?.created_at)}</span>
-
                 <span style={{ color: "var(--border-2)" }}>•</span>
                 <span style={{ textTransform: "capitalize", fontWeight: 500 }}>{myRole}</span>
 
@@ -927,8 +946,8 @@ export default async function ProjectPage({
                     <span style={{ color: "var(--border-2)" }}>•</span>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.45 }}>
-                        <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="2" />
-                        <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="2"/>
+                        <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                       </svg>
                       {formatDateShort(project?.start_date)}  {formatDateShort(project?.finish_date)}
                     </span>
@@ -938,25 +957,17 @@ export default async function ProjectPage({
                 {daysLeft !== null && (
                   <>
                     <span style={{ color: "var(--border-2)" }}>•</span>
-                    <span
-                      style={{
-                        fontWeight: 600,
-                        fontSize: 13,
-                        color: daysLeft < 0 ? "var(--red)" : daysLeft < 30 ? "var(--amber)" : "var(--green)",
-                      }}
-                    >
+                    <span style={{ fontWeight: 600, fontSize: 13, color: daysLeft < 0 ? "var(--red)" : daysLeft < 30 ? "var(--amber)" : "var(--green)" }}>
                       {daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : `${daysLeft}d remaining`}
                     </span>
                   </>
                 )}
               </div>
 
+              {/* ── Action buttons ── */}
               {canEdit && (
                 <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-                  <a
-                    href={`/allocations/new?project_id=${projectUuid}&return_to=/projects/${projectRefForUrls}`}
-                    className="action-btn primary"
-                  >
+                  <a href={`/allocations/new?project_id=${projectUuid}&return_to=/projects/${projectRefForUrls}`} className="action-btn primary">
                     + Allocate resource
                   </a>
 
@@ -964,15 +975,18 @@ export default async function ProjectPage({
                     + New artifact
                   </Link>
 
+                  {/* Generate PID */}
+                  <form action={generatePID} style={{ display: "contents" }}>
+                    <input type="hidden" name="project_id" value={projectUuid}/>
+                    <input type="hidden" name="return_to"  value={`/projects/${projectRefForUrls}`}/>
+                    <button type="submit" className="action-btn">Generate PID</button>
+                  </form>
+
                   {project?.resource_status === "pipeline" && (
                     <form action={convertPipelineToConfirmed} style={{ display: "contents" }}>
-                      <input type="hidden" name="project_id" value={project.id} />
-                      <input type="hidden" name="return_to" value={`/projects/${projectRefForUrls}`} />
-                      <button
-                        type="submit"
-                        className="action-btn"
-                        style={{ background: "#7c3aed", borderColor: "#7c3aed", color: "white" }}
-                      >
+                      <input type="hidden" name="project_id" value={project.id}/>
+                      <input type="hidden" name="return_to"  value={`/projects/${projectRefForUrls}`}/>
+                      <button type="submit" className="action-btn" style={{ background: "#7c3aed", borderColor: "#7c3aed", color: "white" }}>
                         Convert to confirmed
                       </button>
                     </form>
@@ -981,45 +995,18 @@ export default async function ProjectPage({
               )}
             </div>
 
-            <div
-              style={{
-                display: "flex",
-                gap: 22,
-                padding: "0 28px",
-                borderTop: "1px solid var(--border)",
-                overflowX: "auto",
-              }}
-            >
+            {/* ── Tabs ── */}
+            <div style={{ display: "flex", gap: 22, padding: "0 28px", borderTop: "1px solid var(--border)", overflowX: "auto" }}>
               {tabs.map((t) => (
                 <Link key={t.id} href={t.href} className={`tab-link${t.id === "overview" ? " active" : ""}`}>
                   {t.label}
                   {t.id === "raid" && openRisks > 0 && (
-                    <span
-                      style={{
-                        marginLeft: 5,
-                        background: "var(--red)",
-                        color: "white",
-                        borderRadius: 20,
-                        fontSize: 10,
-                        fontWeight: 800,
-                        padding: "1px 5px",
-                      }}
-                    >
+                    <span style={{ marginLeft: 5, background: "var(--red)", color: "white", borderRadius: 20, fontSize: 10, fontWeight: 800, padding: "1px 5px" }}>
                       {openRisks}
                     </span>
                   )}
                   {t.id === "changes" && pendingApprovals.length > 0 && (
-                    <span
-                      style={{
-                        marginLeft: 5,
-                        background: "var(--amber)",
-                        color: "white",
-                        borderRadius: 20,
-                        fontSize: 10,
-                        fontWeight: 800,
-                        padding: "1px 5px",
-                      }}
-                    >
+                    <span style={{ marginLeft: 5, background: "var(--amber)", color: "white", borderRadius: 20, fontSize: 10, fontWeight: 800, padding: "1px 5px" }}>
                       {pendingApprovals.length}
                     </span>
                   )}
@@ -1028,47 +1015,40 @@ export default async function ProjectPage({
             </div>
           </div>
 
-          <div
-            className="stat-grid"
-            style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 16 }}
-          >
+          {/* ── Stat cards ── */}
+          <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 16 }}>
             <div className="stat-card">
-              <div className="stat-icon" style={{ background: "#dcfce7" }}></div>
+              <div className="stat-icon" style={{ background: "#dcfce7" }}>📊</div>
               <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>Health Score</div>
               <div style={{ fontSize: 28, fontWeight: 700, color: "var(--text-1)", lineHeight: 1 }}>
                 {healthScore != null ? `${healthScore}%` : "—"}
               </div>
-              <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>On track</div>
+              <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>Overall RAG</div>
             </div>
 
             <div className="stat-card">
-              <div className="stat-icon" style={{ background: "#ede9fe" }}></div>
+              <div className="stat-icon" style={{ background: "#ede9fe" }}>👤</div>
               <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>Project Manager</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", lineHeight: 1.2 }}>{pmName}</div>
-              <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>
-                {pmJobTitle || "Assigned"}
-              </div>
+              <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>{pmJobTitle || "Assigned"}</div>
             </div>
 
             <div className="stat-card">
-              <div className="stat-icon" style={{ background: "#dbeafe" }}></div>
+              <div className="stat-icon" style={{ background: "#dbeafe" }}>📅</div>
               <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>Start Date</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", lineHeight: 1.2 }}>
-                {formatDateShort(project?.start_date)}
-              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", lineHeight: 1.2 }}>{formatDateShort(project?.start_date)}</div>
               <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>Kickoff</div>
             </div>
 
             <div className="stat-card">
-              <div className="stat-icon" style={{ background: "#f3f4f6" }}></div>
+              <div className="stat-icon" style={{ background: "#f3f4f6" }}>🏁</div>
               <div style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 500, marginBottom: 4 }}>End Date</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", lineHeight: 1.2 }}>
-                {formatDateShort(project?.finish_date)}
-              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", lineHeight: 1.2 }}>{formatDateShort(project?.finish_date)}</div>
               <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>Deadline</div>
             </div>
           </div>
 
+          {/* ── Description + Health ── */}
           <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14, marginBottom: 16 }}>
             <div className="card" style={{ padding: "24px" }}>
               <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 12 }}>Project Description</h3>
@@ -1081,24 +1061,14 @@ export default async function ProjectPage({
               <div style={{ display: "flex", gap: 8, marginTop: 20, flexWrap: "wrap" }}>
                 {[
                   { href: `/projects/${projectRefForUrls}/artifacts`, label: "Artifacts" },
-                  { href: `/projects/${projectRefForUrls}/members`, label: `Members (${totalMembers})` },
+                  { href: `/projects/${projectRefForUrls}/members`,   label: `Members (${totalMembers})` },
                   { href: `/projects/${projectRefForUrls}/approvals`, label: "Approvals", badge: pendingApprovals.length },
-                  { href: `/projects/${projectRefForUrls}/raid`, label: "RAID" },
+                  { href: `/projects/${projectRefForUrls}/raid`,      label: "RAID" },
                 ].map((l) => (
                   <Link key={l.href} href={l.href} className="action-btn">
                     {l.label}
                     {(l.badge ?? 0) > 0 && (
-                      <span
-                        style={{
-                          background: "var(--red)",
-                          color: "white",
-                          borderRadius: 20,
-                          fontSize: 10,
-                          fontWeight: 800,
-                          padding: "1px 5px",
-                          marginLeft: 2,
-                        }}
-                      >
+                      <span style={{ background: "var(--red)", color: "white", borderRadius: 20, fontSize: 10, fontWeight: 800, padding: "1px 5px", marginLeft: 2 }}>
                         {l.badge}
                       </span>
                     )}
@@ -1107,6 +1077,7 @@ export default async function ProjectPage({
               </div>
             </div>
 
+            {/* Health score card */}
             <div className="card" style={{ padding: "24px" }}>
               <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 4 }}>Health Score</h3>
               <p style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 20 }}>
@@ -1116,143 +1087,67 @@ export default async function ProjectPage({
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                 {([
                   {
-                    label: "Schedule",
-                    value: scheduleHealth,
-                    weight: 35,
-                    tooltip:
-                      scheduleHealth != null
-                        ? `Based on ${scheduleDetail.total} milestone${scheduleDetail.total !== 1 ? "s" : ""}. ${scheduleDetail.overdue} overdue${scheduleDetail.critical > 0 ? ` (${scheduleDetail.critical} on critical path)` : ""}. Avg baseline slip: ${scheduleDetail.avgSlipDays}d.`
-                        : "No schedule milestones found for this project.",
+                    label: "Schedule", value: scheduleHealth, weight: 35,
+                    tooltip: scheduleHealth != null
+                      ? `Based on ${scheduleDetail.total} milestone${scheduleDetail.total !== 1 ? "s" : ""}. ${scheduleDetail.overdue} overdue${scheduleDetail.critical > 0 ? ` (${scheduleDetail.critical} on critical path)` : ""}. Avg baseline slip: ${scheduleDetail.avgSlipDays}d.`
+                      : "No schedule milestones found for this project.",
                     empty: "No milestones — add schedule milestones to track this.",
                   },
                   {
-                    label: "RAID Risk",
-                    value: raidHealth,
-                    weight: 30,
-                    tooltip:
-                      raidHealth != null
-                        ? `${raidDetail.total} open item${raidDetail.total !== 1 ? "s" : ""}. ${raidDetail.highRisk} high-risk. ${raidDetail.overdue} past due date.`
-                        : "No open RAID items found for this project.",
+                    label: "RAID Risk", value: raidHealth, weight: 30,
+                    tooltip: raidHealth != null
+                      ? `${raidDetail.total} open item${raidDetail.total !== 1 ? "s" : ""}. ${raidDetail.highRisk} high-risk. ${raidDetail.overdue} past due date.`
+                      : "No open RAID items found for this project.",
                     empty: "No open RAID items — log risks and issues to track this.",
                   },
                   {
-                    label: "Budget",
-                    value: budgetHealth,
-                    weight: 20,
-                    tooltip:
-                      budgetDetail.utilisationPct != null
-                        ? `${budgetDetail.allocatedDays}d allocated of ${budgetDetail.budgetDays ?? "?"}d budget (${budgetDetail.utilisationPct}% utilisation). ${budgetDetail.utilisationPct <= 90 ? "On track." : budgetDetail.utilisationPct <= 100 ? "Approaching budget limit." : "Over budget."}`
-                        : "No budget days set on this project.",
+                    label: "Budget", value: budgetHealth, weight: 20,
+                    tooltip: budgetDetail.utilisationPct != null
+                      ? `${budgetDetail.allocatedDays}d allocated of ${budgetDetail.budgetDays ?? "?"}d budget (${budgetDetail.utilisationPct}% utilisation). ${budgetDetail.utilisationPct <= 90 ? "On track." : budgetDetail.utilisationPct <= 100 ? "Approaching budget limit." : "Over budget."}`
+                      : "No budget days set on this project.",
                     empty: "Set budget days on the project to track this.",
                   },
                   {
-                    label: "Governance",
-                    value: governanceHealth,
-                    weight: 15,
+                    label: "Governance", value: governanceHealth, weight: 15,
                     tooltip: `${govDetail.pendingApprovalCount} pending approval${govDetail.pendingApprovalCount !== 1 ? "s" : ""}. ${govDetail.openChangeRequests} open change request${govDetail.openChangeRequests !== 1 ? "s" : ""}. High backlogs reduce this score.`,
                     empty: "",
                   },
                 ] as { label: string; value: number | null; weight: number; tooltip: string; empty: string }[]).map(
                   ({ label, value, weight, tooltip, empty }) => {
-                    const barColor =
-                      value == null ? "var(--border)" : value >= 85 ? "var(--green)" : value >= 70 ? "var(--amber)" : "var(--red)";
+                    const barColor = value == null ? "var(--border)" : value >= 85 ? "var(--green)" : value >= 70 ? "var(--amber)" : "var(--red)";
                     const ragLabel = value == null ? null : value >= 85 ? "Green" : value >= 70 ? "Amber" : "Red";
 
                     return (
                       <div key={label} style={{ position: "relative" }} className="health-row">
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            marginBottom: 6,
-                          }}
-                        >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             <span style={{ fontSize: 13, color: "var(--text-2)", fontWeight: 600 }}>{label}</span>
-                            <span
-                              style={{
-                                fontSize: 10,
-                                color: "var(--text-3)",
-                                background: "var(--surface-2)",
-                                border: "1px solid var(--border)",
-                                borderRadius: 4,
-                                padding: "1px 5px",
-                                fontWeight: 500,
-                              }}
-                            >
+                            <span style={{ fontSize: 10, color: "var(--text-3)", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 5px", fontWeight: 500 }}>
                               {weight}%
                             </span>
-                            <span
-                              className="hs-tip-trigger"
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                width: 14,
-                                height: 14,
-                                borderRadius: "50%",
-                                background: "var(--surface-2)",
-                                border: "1px solid var(--border)",
-                                fontSize: 9,
-                                color: "var(--text-3)",
-                                cursor: "default",
-                                fontWeight: 700,
-                                flexShrink: 0,
-                              }}
-                            >
+                            <span className="hs-tip-trigger" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: "50%", background: "var(--surface-2)", border: "1px solid var(--border)", fontSize: 9, color: "var(--text-3)", cursor: "default", fontWeight: 700, flexShrink: 0 }}>
                               ?
                               <span className="hs-tip-box">{tooltip}</span>
                             </span>
                           </div>
-
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             {ragLabel && (
-                              <span
-                                style={{
-                                  fontSize: 9,
-                                  fontWeight: 700,
-                                  padding: "2px 6px",
-                                  borderRadius: 20,
-                                  background:
-                                    ragLabel === "Green"
-                                      ? "rgba(22,163,74,0.1)"
-                                      : ragLabel === "Amber"
-                                        ? "rgba(217,119,6,0.1)"
-                                        : "rgba(220,38,38,0.1)",
-                                  color:
-                                    ragLabel === "Green"
-                                      ? "var(--green)"
-                                      : ragLabel === "Amber"
-                                        ? "var(--amber)"
-                                        : "var(--red)",
-                                }}
-                              >
+                              <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 20,
+                                background: ragLabel === "Green" ? "rgba(22,163,74,0.1)" : ragLabel === "Amber" ? "rgba(217,119,6,0.1)" : "rgba(220,38,38,0.1)",
+                                color: ragLabel === "Green" ? "var(--green)" : ragLabel === "Amber" ? "var(--amber)" : "var(--red)" }}>
                                 {ragLabel}
                               </span>
                             )}
-                            <span
-                              style={{
-                                fontSize: 13,
-                                fontWeight: 700,
-                                color: "var(--text-1)",
-                                minWidth: 32,
-                                textAlign: "right",
-                              }}
-                            >
+                            <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)", minWidth: 32, textAlign: "right" }}>
                               {value != null ? `${value}%` : ""}
                             </span>
                           </div>
                         </div>
-
                         <div className="hbar-track">
-                          <div className="hbar-fill" style={{ width: `${value ?? 0}%`, background: barColor }} />
+                          <div className="hbar-fill" style={{ width: `${value ?? 0}%`, background: barColor }}/>
                         </div>
-
                         {value == null && empty && (
-                          <p style={{ fontSize: 10, color: "var(--text-3)", margin: "4px 0 0", fontStyle: "italic" }}>
-                            {empty}
-                          </p>
+                          <p style={{ fontSize: 10, color: "var(--text-3)", margin: "4px 0 0", fontStyle: "italic" }}>{empty}</p>
                         )}
                       </div>
                     );
@@ -1261,258 +1156,98 @@ export default async function ProjectPage({
               </div>
 
               {healthScore != null && (
-                <div
-                  style={{
-                    marginTop: 18,
-                    paddingTop: 14,
-                    borderTop: "1px solid var(--border)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
+                <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <span style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 600 }}>Overall RAG</span>
                   <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    {[{ t: "Red", min: 0, max: 69 }, { t: "Amber", min: 70, max: 84 }, { t: "Green", min: 85, max: 100 }].map(
-                      ({ t, min, max }) => {
-                        const active = healthScore >= min && healthScore <= max;
-                        return (
-                          <span
-                            key={t}
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 700,
-                              padding: "3px 10px",
-                              borderRadius: 20,
-                              background: active
-                                ? t === "Green"
-                                  ? "rgba(22,163,74,0.12)"
-                                  : t === "Amber"
-                                    ? "rgba(217,119,6,0.12)"
-                                    : "rgba(220,38,38,0.12)"
-                                : "var(--surface-2)",
-                              color: active
-                                ? t === "Green"
-                                  ? "var(--green)"
-                                  : t === "Amber"
-                                    ? "var(--amber)"
-                                    : "var(--red)"
-                                : "var(--text-3)",
-                              border: active
-                                ? `1px solid ${
-                                    t === "Green"
-                                      ? "rgba(22,163,74,0.25)"
-                                      : t === "Amber"
-                                        ? "rgba(217,119,6,0.25)"
-                                        : "rgba(220,38,38,0.25)"
-                                  }`
-                                : "1px solid var(--border)",
-                            }}
-                          >
-                            {t}
-                          </span>
-                        );
-                      },
-                    )}
+                    {[{ t: "Red", min: 0, max: 69 }, { t: "Amber", min: 70, max: 84 }, { t: "Green", min: 85, max: 100 }].map(({ t, min, max }) => {
+                      const active = healthScore >= min && healthScore <= max;
+                      return (
+                        <span key={t} style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20,
+                          background: active ? (t === "Green" ? "rgba(22,163,74,0.12)" : t === "Amber" ? "rgba(217,119,6,0.12)" : "rgba(220,38,38,0.12)") : "var(--surface-2)",
+                          color: active ? (t === "Green" ? "var(--green)" : t === "Amber" ? "var(--amber)" : "var(--red)") : "var(--text-3)",
+                          border: active ? `1px solid ${t === "Green" ? "rgba(22,163,74,0.25)" : t === "Amber" ? "rgba(217,119,6,0.25)" : "rgba(220,38,38,0.25)"}` : "1px solid var(--border)" }}>
+                          {t}
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
               )}
             </div>
           </div>
 
+          {/* ── Resource panel ── */}
           {resource && (
             <div className="card" style={{ padding: "24px", marginBottom: 16 }}>
-              <div
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  color: "var(--text-3)",
-                  marginBottom: 16,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                }}
-              >
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-3)", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
                 Resource planning
-                <span style={{ flex: 1, height: 1, background: "var(--border)", display: "block" }} />
+                <span style={{ flex: 1, height: 1, background: "var(--border)", display: "block" }}/>
               </div>
-              <ProjectResourcePanel data={resource} periods={periods} />
+              <ProjectResourcePanel data={resource} periods={periods}/>
             </div>
           )}
 
+          {/* ── RAID + Activity ── */}
           <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 14 }}>
             <div className="card" style={{ padding: "24px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    letterSpacing: "0.08em",
-                    textTransform: "uppercase",
-                    color: "var(--text-3)",
-                  }}
-                >
-                  RAID log
-                </span>
-                <Link
-                  href={`/projects/${projectRefForUrls}/raid`}
-                  style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}
-                >
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-3)" }}>RAID log</span>
+                <Link href={`/projects/${projectRefForUrls}/raid`} style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}>
                   View full RAID →
                 </Link>
               </div>
 
               <div className="raid-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
                 {[
-                  {
-                    label: "Risks",
-                    items: risks,
-                    color: risks.length > 0 ? "var(--red)" : "var(--text-3)",
-                    border: risks.length > 0 ? "rgba(239,68,68,0.2)" : "var(--border)",
-                  },
-                  { label: "Assumptions", items: assumptions, color: "var(--blue)", border: "var(--border)" },
-                  {
-                    label: "Issues",
-                    items: issues,
-                    color: issues.length > 0 ? "var(--amber)" : "var(--text-3)",
-                    border: issues.length > 0 ? "rgba(245,158,11,0.2)" : "var(--border)",
-                  },
-                  { label: "Dependencies", items: dependencies, color: "#8b5cf6", border: "var(--border)" },
+                  { label: "Risks",        items: risks,        color: risks.length > 0 ? "var(--red)"  : "var(--text-3)", border: risks.length > 0  ? "rgba(239,68,68,0.2)"  : "var(--border)" },
+                  { label: "Assumptions",  items: assumptions,  color: "var(--blue)",                                       border: "var(--border)" },
+                  { label: "Issues",       items: issues,       color: issues.length > 0 ? "var(--amber)": "var(--text-3)", border: issues.length > 0 ? "rgba(245,158,11,0.2)" : "var(--border)" },
+                  { label: "Dependencies", items: dependencies, color: "#8b5cf6",                                           border: "var(--border)" },
                 ].map(({ label, items, color, border }) => (
                   <div key={label} className="raid-quad" style={{ borderColor: border }}>
-                    <div
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 700,
-                        letterSpacing: "0.06em",
-                        textTransform: "uppercase",
-                        color,
-                        marginBottom: 8,
-                      }}
-                    >
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color, marginBottom: 8 }}>
                       {label} <span style={{ fontWeight: 400, opacity: 0.6 }}>({items.length})</span>
                     </div>
-
-                    {items.length === 0 ? (
-                      <p style={{ fontSize: 12, color: "#d0d7de", margin: 0 }}>None open</p>
-                    ) : (
-                      (items as any[]).slice(0, 3).map((item) => (
-                        <div key={item.id} className="raid-item">
-                          {item.title}
-                        </div>
-                      ))
-                    )}
+                    {items.length === 0
+                      ? <p style={{ fontSize: 12, color: "#d0d7de", margin: 0 }}>None open</p>
+                      : (items as any[]).slice(0, 3).map((item) => (
+                          <div key={item.id} className="raid-item">{item.title}</div>
+                        ))
+                    }
                   </div>
                 ))}
               </div>
             </div>
 
             <div className="card" style={{ padding: "24px" }}>
-              <div
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  color: "var(--text-3)",
-                  marginBottom: 14,
-                }}
-              >
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-3)", marginBottom: 14 }}>
                 Recent activity
               </div>
 
               <div>
                 {changes.length === 0 && pendingApprovals.length === 0 ? (
-                  <div style={{ padding: "20px 0", textAlign: "center", color: "var(--text-3)", fontSize: 13 }}>
-                    No recent activity
-                  </div>
+                  <div style={{ padding: "20px 0", textAlign: "center", color: "var(--text-3)", fontSize: 13 }}>No recent activity</div>
                 ) : (
                   <>
                     {pendingApprovals.slice(0, 2).map((a: any) => (
                       <div key={a.id} className="act-item">
-                        <div
-                          style={{
-                            width: 28,
-                            height: 28,
-                            borderRadius: 8,
-                            background: "rgba(245,158,11,0.1)",
-                            border: "1px solid rgba(245,158,11,0.2)",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: 13,
-                            flexShrink: 0,
-                          }}
-                        ></div>
+                        <div style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>⏳</div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <p
-                            style={{
-                              fontSize: 12,
-                              fontWeight: 600,
-                              color: "var(--text-1)",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                              margin: 0,
-                            }}
-                          >
-                            {a.title}
-                          </p>
-                          <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2, margin: 0 }}>
-                            Approval pending
-                          </p>
+                          <p style={{ fontSize: 12, fontWeight: 600, color: "var(--text-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>{a.title}</p>
+                          <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2, margin: 0 }}>Approval pending</p>
                         </div>
                       </div>
                     ))}
 
                     {changes.slice(0, 4).map((c: any) => {
                       const col = ({ approved: "#22c55e", rejected: "#ef4444", pending: "#f59e0b", draft: "#94a3b8" } as any)[c.status] ?? "#64748b";
-
                       return (
                         <div key={c.id} className="act-item">
-                          <div
-                            style={{
-                              width: 28,
-                              height: 28,
-                              borderRadius: 8,
-                              background: `${col}18`,
-                              border: `1px solid ${col}30`,
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              fontSize: 12,
-                              flexShrink: 0,
-                            }}
-                          ></div>
+                          <div style={{ width: 28, height: 28, borderRadius: 8, background: `${col}18`, border: `1px solid ${col}30`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0 }}>📋</div>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <p
-                              style={{
-                                fontSize: 12,
-                                fontWeight: 600,
-                                color: "var(--text-1)",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                                margin: 0,
-                              }}
-                            >
-                              {c.title}
-                            </p>
+                            <p style={{ fontSize: 12, fontWeight: 600, color: "var(--text-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>{c.title}</p>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
-                              <span
-                                style={{
-                                  fontSize: 10,
-                                  fontWeight: 700,
-                                  padding: "1px 6px",
-                                  borderRadius: 20,
-                                  background: `${col}18`,
-                                  color: col,
-                                }}
-                              >
-                                {c.status}
-                              </span>
+                              <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 20, background: `${col}18`, color: col }}>{c.status}</span>
                               <span style={{ fontSize: 11, color: "var(--text-3)" }}>
                                 {new Date(c.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
                               </span>
@@ -1526,15 +1261,13 @@ export default async function ProjectPage({
               </div>
 
               <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginTop: 4 }}>
-                <Link
-                  href={`/projects/${projectRefForUrls}/change`}
-                  style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}
-                >
+                <Link href={`/projects/${projectRefForUrls}/change`} style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}>
                   View change board →
                 </Link>
               </div>
             </div>
           </div>
+
         </div>
       </main>
     </>
