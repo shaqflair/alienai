@@ -142,8 +142,9 @@ function stableStringify(value: unknown): string {
 /* -----------------------------------------------------------------------
    FinancialPlanEditorHost
    - always supplies valid content
-   - debounced autosave
-   - cancels pending autosave when user tries to navigate away
+   - debounced autosave via fetch (NOT a server action — server actions
+     block Next.js navigation while in-flight; fetch does not)
+   - cancels pending autosave when user navigates away
    - avoids duplicate saves for unchanged payloads
    ----------------------------------------------------------------------- */
 function FinancialPlanEditorHost({
@@ -152,13 +153,13 @@ function FinancialPlanEditorHost({
   organisationId,
   initialJson,
   readOnly,
-  updateArtifactJsonAction,
 }: {
   projectId: string;
   artifactId: string;
   organisationId?: string;
   initialJson: any;
   readOnly: boolean;
+  // prop kept for API compatibility but save now goes through fetch
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
 }) {
   const [content, setContent] = useState<FinancialPlanContent>(() => {
@@ -188,23 +189,25 @@ function FinancialPlanEditorHost({
 
   const runSave = useCallback(
     async (updated: FinancialPlanContent) => {
-      if (!updateArtifactJsonAction || readOnly || savingRef.current) return;
+      if (readOnly || savingRef.current) return;
 
       const json = stableStringify(updated);
       if (!json || json === lastSavedJsonRef.current) return;
 
       savingRef.current = true;
       try {
-        const res = await updateArtifactJsonAction({
-          artifactId,
-          projectId,
-          contentJson: updated,
+        // fetch instead of server action — server actions block navigation while
+        // in-flight; a plain fetch request does not.
+        const res = await fetch("/api/artifacts/save-json", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ artifactId, contentJson: updated }),
         });
-
-        if (res?.ok) {
+        const data = await res.json().catch(() => ({ ok: false }));
+        if (data?.ok) {
           lastSavedJsonRef.current = json;
         } else {
-          console.error("[FinancialPlanEditorHost] save failed:", res?.error ?? "Unknown error");
+          console.error("[FinancialPlanEditorHost] save failed:", data?.error ?? "Unknown error");
         }
       } catch (e) {
         console.error("[FinancialPlanEditorHost] save error:", e);
@@ -212,12 +215,12 @@ function FinancialPlanEditorHost({
         savingRef.current = false;
       }
     },
-    [artifactId, projectId, readOnly, updateArtifactJsonAction]
+    [artifactId, readOnly]
   );
 
   const queueSave = useCallback(
     (updated: FinancialPlanContent) => {
-      if (!updateArtifactJsonAction || readOnly) return;
+      if (readOnly) return;
 
       const json = stableStringify(updated);
       if (!json) return;
@@ -231,7 +234,7 @@ function FinancialPlanEditorHost({
         void runSave(updated);
       }, 800);
     },
-    [clearPendingSave, readOnly, runSave, updateArtifactJsonAction]
+    [clearPendingSave, readOnly, runSave]
   );
 
   const handleChange = useCallback(
