@@ -159,7 +159,6 @@ export async function createArtifact(formData: FormData) {
   const { supabase, user } = await requireUser();
   await requireRole(supabase, projectId, ["owner", "editor"]);
 
-  // Is there already a current artifact for this project + type?
   const { data: existing, error: exErr } = await supabase
     .from("artifacts")
     .select("id,content,version,root_artifact_id,approval_status,content_json")
@@ -171,7 +170,6 @@ export async function createArtifact(formData: FormData) {
 
   if (exErr) throwDb(exErr, "artifacts.create.checkExistingCurrent");
 
-  // If exists -> create v+1 under same root
   if (existing?.id) {
     const rootId = String(existing.root_artifact_id ?? existing.id);
     const nextV = await nextVersionForRoot(supabase, rootId, Number(existing.version ?? 1));
@@ -219,7 +217,6 @@ export async function createArtifact(formData: FormData) {
     return inserted.id as string;
   }
 
-  // Brand new root v1
   await demoteCurrentForProjectType(supabase, projectId, rawType);
 
   const { data: inserted, error } = await supabase
@@ -244,7 +241,6 @@ export async function createArtifact(formData: FormData) {
 
   if (error) throwDb(error, "artifacts.create.insert");
 
-  // backfill root
   const { error: upErr } = await supabase.from("artifacts").update({ root_artifact_id: inserted.id }).eq("id", inserted.id);
   if (upErr) throwDb(upErr, "artifacts.create.backfill_root");
 
@@ -310,8 +306,7 @@ export async function updateArtifact(formData: FormData) {
 }
 
 /* =========================
-   ✅ UPDATE JSON (Project Charter editor)
-   - Your ProjectCharterEditorForm calls this
+   UPDATE JSON (Project Charter editor)
 ========================= */
 
 export async function updateArtifactJson(formData: FormData) {
@@ -366,7 +361,7 @@ export async function updateArtifactJson(formData: FormData) {
 }
 
 /* =========================
-   DIFF DATA (used by pages)
+   DIFF DATA
 ========================= */
 
 export async function getArtifactDiff(artifactId: string) {
@@ -644,7 +639,6 @@ export async function approveArtifact(artifactId: string) {
 
   const rootId = String(a.root_artifact_id ?? a.id);
 
-  // unset any existing baseline
   const { error: unsetErr } = await supabase
     .from("artifacts")
     .update({ is_baseline: false })
@@ -727,4 +721,211 @@ export async function rejectArtifact(artifactId: string, reason: string) {
   });
 
   revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+}
+
+/* =========================
+   SET CURRENT
+========================= */
+
+export async function setArtifactCurrent(formData: FormData) {
+  const projectId = normStr(formData.get("project_id"));
+  const artifactId = normStr(formData.get("artifact_id"));
+
+  if (!projectId) throw new Error("Missing project_id");
+  if (!artifactId) throw new Error("Missing artifact_id");
+
+  const { supabase, user } = await requireUser();
+  await requireRole(supabase, projectId, ["owner", "editor"]);
+
+  const a = await loadArtifact(supabase, artifactId);
+  if (String(a.project_id ?? "") !== projectId) throw new Error("Project mismatch");
+
+  await demoteCurrentForProjectType(supabase, projectId, String(a.type ?? ""));
+
+  const { error } = await supabase
+    .from("artifacts")
+    .update({ is_current: true, updated_at: new Date().toISOString() })
+    .eq("id", artifactId);
+
+  if (error) throwDb(error, "artifacts.setArtifactCurrent");
+
+  await auditBestEffort(supabase, {
+    project_id: projectId,
+    artifact_id: artifactId,
+    actor_user_id: user.id,
+    actor_email: user.email,
+    action: "set_current",
+    from_is_current: Boolean(a.is_current),
+    to_is_current: true,
+  });
+
+  revalidatePath(`/projects/${projectId}/artifacts`);
+  revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+}
+
+/* =========================
+   CREATE REVISION (wrapper)
+========================= */
+
+export async function createArtifactRevision(args: {
+  artifactId: string;
+  revisionReason?: string;
+  revisionType?: string;
+}): Promise<{ newArtifactId: string }> {
+  const fd = new FormData();
+  fd.set("artifact_id", normStr(args?.artifactId));
+  fd.set("revision_reason", normStr(args?.revisionReason) || "Revision created");
+  fd.set("revision_type", normStr(args?.revisionType) || "material");
+
+  const newArtifactId = await reviseArtifact(fd);
+  return { newArtifactId };
+}
+
+/* =========================
+   UPDATE JSON ARGS (wrapper — revalidates page)
+========================= */
+
+export async function updateArtifactJsonArgs(args: {
+  projectId: string;
+  artifactId: string;
+  contentJson: any;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const fd = new FormData();
+    fd.set("project_id", normStr(args?.projectId));
+    fd.set("artifact_id", normStr(args?.artifactId));
+    fd.set("content_json", JSON.stringify(args?.contentJson ?? {}));
+
+    await updateArtifactJson(fd);
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Save failed" };
+  }
+}
+
+/* =========================
+   UPDATE JSON SILENT (financial plan auto-save)
+   Skips revalidatePath — prevents Next.js router refresh from
+   swallowing click events during the 800ms debounce window.
+========================= */
+
+export async function updateArtifactJsonSilent(args: {
+  projectId: string;
+  artifactId: string;
+  contentJson: any;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const supabase = await createClient();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) return { ok: false, error: "Unauthorized" };
+
+    const { error } = await supabase
+      .from("artifacts")
+      .update({
+        content_json: args.contentJson ?? {},
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", normStr(args?.artifactId));
+
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Save failed" };
+  }
+}
+
+/* =========================
+   CLONE ARTIFACT
+========================= */
+
+export async function cloneArtifact(
+  formData: FormData
+): Promise<{ ok: boolean; newArtifactId?: string; error?: string }> {
+  try {
+    const projectRef = normStr(formData.get("projectId"));
+    const artifactId = normStr(formData.get("artifactId"));
+    if (!projectRef) throw new Error("Missing projectId");
+    if (!artifactId) throw new Error("Missing artifactId");
+
+    const { supabase, user } = await requireUser();
+
+    // requireOrgRoleForProject equivalent — use requireRole for simplicity
+    await requireRole(supabase, projectRef, ["owner", "editor"]);
+
+    const src = await loadArtifact(supabase, artifactId);
+
+    const rootId = String(src.root_artifact_id ?? src.id);
+    const nextV = await nextVersionForRoot(supabase, rootId, Number(src.version ?? 1));
+
+    await demoteCurrentForProjectType(supabase, projectRef, String(src.type ?? ""));
+
+    const { data: inserted, error: insErr } = await supabase
+      .from("artifacts")
+      .insert({
+        project_id: projectRef,
+        user_id: user.id,
+        type: src.type,
+        content: src.content ?? "",
+        content_json: src.content_json ?? null,
+        approval_status: "draft",
+        is_locked: false,
+        version: nextV,
+        is_current: true,
+        is_baseline: false,
+        root_artifact_id: rootId,
+        parent_artifact_id: src.id,
+        revision_type: "clone",
+        revision_reason: "Cloned",
+        updated_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+
+    if (insErr) throw insErr;
+
+    revalidatePath(`/projects/${projectRef}/artifacts`);
+    return { ok: true, newArtifactId: inserted.id };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Clone failed" };
+  }
+}
+
+/* =========================
+   RENAME ARTIFACT TITLE
+========================= */
+
+export async function renameArtifactTitle(args: {
+  artifactId: string;
+  projectId: string;
+  title: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const { supabase, user } = await requireUser();
+    await requireRole(supabase, normStr(args?.projectId), ["owner", "editor"]);
+
+    const { error } = await supabase
+      .from("artifacts")
+      .update({ title: normStr(args?.title), updated_at: new Date().toISOString() })
+      .eq("id", normStr(args?.artifactId));
+
+    if (error) return { ok: false, error: error.message };
+
+    revalidatePath(`/projects/${args.projectId}/artifacts`);
+    revalidatePath(`/projects/${args.projectId}/artifacts/${args.artifactId}`);
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Rename failed" };
+  }
+}
+
+/* =========================
+   UPDATE JSON ARGS (alias used by some pages)
+========================= */
+
+export async function updateArtifactJsonArgsAlias(args: {
+  projectId: string;
+  artifactId: string;
+  contentJson: any;
+}): Promise<{ ok: boolean; error?: string }> {
+  return updateArtifactJsonArgs(args);
 }
