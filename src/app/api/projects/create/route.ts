@@ -38,24 +38,13 @@ export async function POST(req: NextRequest) {
     const title = ss(body.title).trim();
     if (!title) return jsonErr("Project name is required", 400);
 
-    // Generate unique project code if not provided
-    let project_code = ss(body.project_code).trim() || null;
-    if (!project_code) {
-      const slug = title.replace(/[^a-zA-Z0-9\s]/g, "").trim()
-        .split(/\s+/).map((w: string) => w.slice(0, 3).toUpperCase()).join("-");
-      // Check uniqueness
-      const { data: existing } = await supabase
-        .from("projects").select("id").eq("project_code", slug).maybeSingle();
-      project_code = existing ? `${slug}-${Date.now().toString(36).toUpperCase()}` : slug;
-    }
-
+    // project_code is intentionally omitted — DB trigger generates PRJ-001, PRJ-002 etc.
     const { data: project, error } = await supabase
       .from("projects")
       .insert({
         organisation_id: String(orgId),
         user_id:         auth.user.id,
         title,
-        project_code,
         department:      ss(body.department) || null,
         colour:          ss(body.colour)     || "#06b6d4",
         pm_user_id:      body.pm_user_id      || null,
@@ -83,15 +72,15 @@ export async function POST(req: NextRequest) {
     // Auto-provision default artifacts (core types, empty drafts)
     const now = new Date().toISOString();
     await supabase.from("artifacts").insert([
-      { project_id: project.id, user_id: auth.user.id, type: "FINANCIAL_PLAN",        title: "Financial Plan",           approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
-      { project_id: project.id, user_id: auth.user.id, type: "SCHEDULE",              title: "Schedule",                 approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
-      { project_id: project.id, user_id: auth.user.id, type: "WBS",                   title: "Work Breakdown Structure", approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
-      { project_id: project.id, user_id: auth.user.id, type: "WEEKLY_REPORT",         title: "Weekly Report",            approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
-      { project_id: project.id, user_id: auth.user.id, type: "LESSONS_LEARNED",       title: "Lessons Learned",          approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
-      { project_id: project.id, user_id: auth.user.id, type: "PROJECT_CHARTER",       title: "Project Charter",          approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
-      { project_id: project.id, user_id: auth.user.id, type: "RAID",                  title: "RAID Log",                 approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
-      { project_id: project.id, user_id: auth.user.id, type: "STAKEHOLDER_REGISTER",  title: "Stakeholder Register",     approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
-      { project_id: project.id, user_id: auth.user.id, type: "PROJECT_CLOSURE_REPORT",title: "Project Closure Report",   approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
+      { project_id: project.id, user_id: auth.user.id, type: "FINANCIAL_PLAN",         title: "Financial Plan",           approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
+      { project_id: project.id, user_id: auth.user.id, type: "SCHEDULE",               title: "Schedule",                 approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
+      { project_id: project.id, user_id: auth.user.id, type: "WBS",                    title: "Work Breakdown Structure", approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
+      { project_id: project.id, user_id: auth.user.id, type: "WEEKLY_REPORT",          title: "Weekly Report",            approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
+      { project_id: project.id, user_id: auth.user.id, type: "LESSONS_LEARNED",        title: "Lessons Learned",          approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
+      { project_id: project.id, user_id: auth.user.id, type: "PROJECT_CHARTER",        title: "Project Charter",          approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
+      { project_id: project.id, user_id: auth.user.id, type: "RAID",                   title: "RAID Log",                 approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
+      { project_id: project.id, user_id: auth.user.id, type: "STAKEHOLDER_REGISTER",   title: "Stakeholder Register",     approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
+      { project_id: project.id, user_id: auth.user.id, type: "PROJECT_CLOSURE_REPORT", title: "Project Closure Report",   approval_status: "draft", is_current: false, is_baseline: false, is_locked: false, created_at: now, updated_at: now },
     ]);
     // Note: insert errors are intentionally ignored — duplicates or missing cols won't block project creation
 
