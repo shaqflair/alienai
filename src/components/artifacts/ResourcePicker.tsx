@@ -3,9 +3,6 @@
 
 import { useState, useMemo } from "react";
 import { User, ChevronDown, X, Zap, AlertCircle } from "lucide-react";
-import { getOrgMembersForPicker } from "@/app/actions/resource-rates";
-import { getRateForUser } from "@/app/actions/resource-rate-lookup";
-import type { OrgMemberForPicker } from "@/app/actions/resource-rates";
 import type { RateCardMatch } from "@/app/actions/resource-rate-lookup";
 import type {
   Resource,
@@ -28,6 +25,17 @@ export type PickedPerson = {
   resource_type: ResourceType | null;
   role_label: string | null;
   rate_source: "personal" | "role" | null;
+};
+
+type OrgMember = {
+  user_id: string;
+  full_name: string | null;
+  name: string;
+  email: string | null;
+  avatar_url: string | null;
+  job_title: string | null;
+  department: string | null;
+  role: string;
 };
 
 // ── Avatar ───────────────────────────────────────────────────────────────────
@@ -70,11 +78,7 @@ function Avatar({
 // ── Rate badge ───────────────────────────────────────────────────────────────
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
-  GBP: "£",
-  USD: "$",
-  EUR: "€",
-  AUD: "A$",
-  CAD: "C$",
+  GBP: "£", USD: "$", EUR: "€", AUD: "A$", CAD: "C$",
 };
 
 function RateBadge({
@@ -84,7 +88,7 @@ function RateBadge({
   match: RateCardMatch;
   source: "personal" | "role";
 }) {
-  const sym = CURRENCY_SYMBOLS[match.currency] ?? match.currency;
+  const sym   = CURRENCY_SYMBOLS[match.currency] ?? match.currency;
   const label = match.rate_type === "day_rate" ? "/day" : "/mo";
 
   return (
@@ -96,13 +100,15 @@ function RateBadge({
       }`}
     >
       <Zap className="w-2.5 h-2.5" />
-      {sym}
-      {Number(match.rate).toLocaleString()}
-      {label}
+      {sym}{Number(match.rate).toLocaleString()}{label}
       {source === "role" && <span className="opacity-70">(role)</span>}
     </span>
   );
 }
+
+// ── Cache ────────────────────────────────────────────────────────────────────
+
+const memberCache: Record<string, OrgMember[]> = {};
 
 // ── Main component ───────────────────────────────────────────────────────────
 
@@ -114,9 +120,6 @@ type Props = {
   onPick: (person: PickedPerson) => void;
 };
 
-// Cache members per org to avoid redundant fetches within the same session
-const memberCache: Record<string, OrgMemberForPicker[]> = {};
-
 export default function ResourcePicker({
   organisationId,
   value,
@@ -124,37 +127,41 @@ export default function ResourcePicker({
   disabled = false,
   onPick,
 }: Props) {
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState("");
-  const [members, setMembers] = useState<OrgMemberForPicker[]>(
-    memberCache[organisationId] ?? []
-  );
-  const [loading, setLoading] = useState(false);
+  const [open,        setOpen]        = useState(false);
+  const [q,           setQ]           = useState("");
+  const [members,     setMembers]     = useState<OrgMember[]>(memberCache[organisationId] ?? []);
+  const [loading,     setLoading]     = useState(false);
   const [rateLoading, setRateLoading] = useState(false);
-  const [rateError, setRateError] = useState<string | null>(null);
+  const [rateError,   setRateError]   = useState<string | null>(null);
 
   const selected = members.find((m) => m.user_id === value);
 
- async function handleOpen() {
-  if (disabled) return;
-  setOpen((o) => !o);
-  if (members.length > 0 || loading) return;
+  // ── Use fetch (NOT server actions) so navigation is never blocked ──────────
 
-  setLoading(true);
-  try {
-    const res = await fetch(`/api/org/members?orgId=${encodeURIComponent(organisationId)}`, { cache: "no-store" });
-    const d = await res.json();
-    if (Array.isArray(d.members)) {
-      memberCache[organisationId] = d.members;
-      setMembers(d.members);
+  async function handleOpen() {
+    if (disabled) return;
+    setOpen((o) => !o);
+    if (members.length > 0 || loading) return;
+
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/org/members?orgId=${encodeURIComponent(organisationId)}`,
+        { cache: "no-store" }
+      );
+      const d = await res.json();
+      if (Array.isArray(d.members)) {
+        memberCache[organisationId] = d.members;
+        setMembers(d.members);
+      }
+    } catch {
+      // silent — empty list shown
+    } finally {
+      setLoading(false);
     }
-  } catch {
-    // silent
-  } finally {
-    setLoading(false);
   }
-}
-  async function handleSelect(member: OrgMemberForPicker) {
+
+  async function handleSelect(member: OrgMember) {
     setOpen(false);
     setQ("");
     setRateError(null);
@@ -164,8 +171,13 @@ export default function ResourcePicker({
     let rateSource: "personal" | "role" | null = null;
 
     try {
-      rateMatch = await getRateForUser(organisationId, member.user_id);
-      if (rateMatch) {
+      const res = await fetch(
+        `/api/org/rate-card?orgId=${encodeURIComponent(organisationId)}&userId=${encodeURIComponent(member.user_id)}`,
+        { cache: "no-store" }
+      );
+      const d = await res.json();
+      if (d.ok && d.match) {
+        rateMatch  = d.match as RateCardMatch;
         rateSource = "personal";
       }
     } catch {
@@ -175,38 +187,28 @@ export default function ResourcePicker({
     }
 
     onPick({
-      user_id: member.user_id,
-      full_name: member.full_name,
-      email: member.email,
-      avatar_url: member.avatar_url,
-      job_title: member.job_title,
-      department: member.department,
-      rate_type: rateMatch?.rate_type ?? null,
-      rate: rateMatch?.rate ?? null,
-      currency: rateMatch?.currency ?? null,
+      user_id:       member.user_id,
+      full_name:     member.full_name,
+      email:         member.email,
+      avatar_url:    member.avatar_url,
+      job_title:     member.job_title,
+      department:    member.department,
+      rate_type:     rateMatch?.rate_type     ?? null,
+      rate:          rateMatch?.rate          ?? null,
+      currency:      rateMatch?.currency      ?? null,
       resource_type: rateMatch?.resource_type ?? null,
-      role_label: rateMatch?.role_label ?? null,
-      rate_source: rateSource,
+      role_label:    rateMatch?.role_label    ?? null,
+      rate_source:   rateSource,
     });
   }
 
   function handleClear(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-
     onPick({
-      user_id: "",
-      full_name: null,
-      email: null,
-      avatar_url: null,
-      job_title: null,
-      department: null,
-      rate_type: null,
-      rate: null,
-      currency: null,
-      resource_type: null,
-      role_label: null,
-      rate_source: null,
+      user_id: "", full_name: null, email: null, avatar_url: null,
+      job_title: null, department: null, rate_type: null, rate: null,
+      currency: null, resource_type: null, role_label: null, rate_source: null,
     });
   }
 
@@ -214,9 +216,9 @@ export default function ResourcePicker({
     const lq = q.toLowerCase();
     return members.filter(
       (m) =>
-        (m.full_name ?? "").toLowerCase().includes(lq) ||
-        (m.email ?? "").toLowerCase().includes(lq) ||
-        (m.job_title ?? "").toLowerCase().includes(lq) ||
+        (m.full_name  ?? "").toLowerCase().includes(lq) ||
+        (m.email      ?? "").toLowerCase().includes(lq) ||
+        (m.job_title  ?? "").toLowerCase().includes(lq) ||
         (m.department ?? "").toLowerCase().includes(lq)
     );
   }, [members, q]);
@@ -236,41 +238,28 @@ export default function ResourcePicker({
       >
         {selected ? (
           <>
-            <Avatar
-              name={selected.full_name}
-              avatarUrl={selected.avatar_url}
-              size={6}
-            />
-
+            <Avatar name={selected.full_name} avatarUrl={selected.avatar_url} size={6} />
             <div className="flex-1 min-w-0 text-left">
               <div className="text-xs font-medium text-gray-800 truncate">
                 {selected.full_name ?? selected.email}
               </div>
               {selected.job_title && (
-                <div className="text-[10px] text-gray-400 truncate">
-                  {selected.job_title}
-                </div>
+                <div className="text-[10px] text-gray-400 truncate">{selected.job_title}</div>
               )}
             </div>
-
             {currentResource.rate_type &&
               (currentResource.day_rate || currentResource.monthly_cost) && (
                 <RateBadge
                   match={{
-                    rate_type: currentResource.rate_type,
-                    rate: Number(
-                      currentResource.rate_type === "day_rate"
-                        ? currentResource.day_rate
-                        : currentResource.monthly_cost
-                    ),
-                    currency: "GBP",
+                    rate_type:     currentResource.rate_type,
+                    rate:          Number(currentResource.rate_type === "day_rate" ? currentResource.day_rate : currentResource.monthly_cost),
+                    currency:      "GBP",
                     resource_type: currentResource.type,
-                    role_label: currentResource.name,
+                    role_label:    currentResource.name,
                   }}
                   source="personal"
                 />
               )}
-
             {!disabled && (
               <span
                 role="button"
@@ -280,20 +269,7 @@ export default function ResourcePicker({
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
                     e.stopPropagation();
-                    onPick({
-                      user_id: "",
-                      full_name: null,
-                      email: null,
-                      avatar_url: null,
-                      job_title: null,
-                      department: null,
-                      rate_type: null,
-                      rate: null,
-                      currency: null,
-                      resource_type: null,
-                      role_label: null,
-                      rate_source: null,
-                    });
+                    onPick({ user_id: "", full_name: null, email: null, avatar_url: null, job_title: null, department: null, rate_type: null, rate: null, currency: null, resource_type: null, role_label: null, rate_source: null });
                   }
                 }}
                 className="ml-1 text-gray-300 hover:text-gray-500 flex-shrink-0 inline-flex items-center justify-center"
@@ -307,16 +283,12 @@ export default function ResourcePicker({
         ) : rateLoading ? (
           <>
             <div className="w-6 h-6 rounded-full bg-gray-100 animate-pulse flex-shrink-0" />
-            <span className="text-xs text-gray-400 flex-1 text-left">
-              Loading rate…
-            </span>
+            <span className="text-xs text-gray-400 flex-1 text-left">Loading rate…</span>
           </>
         ) : (
           <>
             <User className="w-4 h-4 text-gray-300 flex-shrink-0" />
-            <span className="text-xs text-gray-400 flex-1 text-left">
-              Pick a person…
-            </span>
+            <span className="text-xs text-gray-400 flex-1 text-left">Pick a person…</span>
             <ChevronDown className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />
           </>
         )}
@@ -343,17 +315,11 @@ export default function ResourcePicker({
 
           <ul className="max-h-60 overflow-y-auto py-1">
             {loading && (
-              <li className="px-3 py-4 text-xs text-gray-400 text-center">
-                Loading members…
-              </li>
+              <li className="px-3 py-4 text-xs text-gray-400 text-center">Loading members…</li>
             )}
-
             {!loading && filtered.length === 0 && (
-              <li className="px-3 py-4 text-xs text-gray-400 text-center">
-                No members found
-              </li>
+              <li className="px-3 py-4 text-xs text-gray-400 text-center">No members found</li>
             )}
-
             {!loading &&
               filtered.map((m) => (
                 <li key={m.user_id}>
@@ -362,29 +328,19 @@ export default function ResourcePicker({
                     onClick={() => handleSelect(m)}
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-blue-50 transition-colors"
                   >
-                    <Avatar
-                      name={m.full_name}
-                      avatarUrl={m.avatar_url}
-                      size={7}
-                    />
+                    <Avatar name={m.full_name} avatarUrl={m.avatar_url} size={7} />
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-medium text-gray-800 truncate">
                         {m.full_name ?? m.email}
                       </div>
                       {m.job_title && (
-                        <div className="text-[10px] text-indigo-500 truncate">
-                          {m.job_title}
-                        </div>
+                        <div className="text-[10px] text-indigo-500 truncate">{m.job_title}</div>
                       )}
                       {m.department && (
-                        <div className="text-[10px] text-gray-400 truncate">
-                          {m.department}
-                        </div>
+                        <div className="text-[10px] text-gray-400 truncate">{m.department}</div>
                       )}
                     </div>
-                    <span className="text-[10px] text-gray-300 flex-shrink-0">
-                      {m.role}
-                    </span>
+                    <span className="text-[10px] text-gray-300 flex-shrink-0">{m.role}</span>
                   </button>
                 </li>
               ))}
