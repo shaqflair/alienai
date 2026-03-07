@@ -85,7 +85,7 @@ const Field = memo(function Field({
   );
 });
 
-export default function CreateProjectModal({ activeOrgId }: Props) {
+export default function CreateProjectModal({ activeOrgId, userId }: Props) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
 
@@ -219,6 +219,7 @@ export default function CreateProjectModal({ activeOrgId }: Props) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            user_id: userId,
             title: name.trim(),
             project_code: code || null,
             department: dept || null,
@@ -551,20 +552,10 @@ export default function CreateProjectModal({ activeOrgId }: Props) {
                                   (e.currentTarget.style.background = "white")
                                 }
                               >
-                                <span
-                                  style={{
-                                    fontWeight: 600,
-                                    color: "#0f172a",
-                                  }}
-                                >
+                                <span style={{ fontWeight: 600, color: "#0f172a" }}>
                                   {m.name || "—"}
                                 </span>
-                                <span
-                                  style={{
-                                    fontSize: 11,
-                                    color: "#94a3b8",
-                                  }}
-                                >
+                                <span style={{ fontSize: 11, color: "#94a3b8" }}>
                                   {m.email}
                                 </span>
                               </div>
@@ -642,20 +633,10 @@ export default function CreateProjectModal({ activeOrgId }: Props) {
                                   (e.currentTarget.style.background = "white")
                                 }
                               >
-                                <span
-                                  style={{
-                                    fontWeight: 600,
-                                    color: "#0f172a",
-                                  }}
-                                >
+                                <span style={{ fontWeight: 600, color: "#0f172a" }}>
                                   {m.name || "—"}
                                 </span>
-                                <span
-                                  style={{
-                                    fontSize: 11,
-                                    color: "#94a3b8",
-                                  }}
-                                >
+                                <span style={{ fontSize: 11, color: "#94a3b8" }}>
                                   {m.email}
                                 </span>
                               </div>
@@ -770,18 +751,15 @@ export default function CreateProjectModal({ activeOrgId }: Props) {
                     </span>
                   </div>
 
-                
-
-                    <Field label="Department">
-                      <input
-                        style={inputStyle}
-                        placeholder="e.g. Engineering"
-                        value={dept}
-                        onChange={(e) => setDept(e.target.value)}
-                      />
-                      <p style={hintStyle}>Used in heatmap filter bar.</p>
-                    </Field>
-               
+                  <Field label="Department">
+                    <input
+                      style={inputStyle}
+                      placeholder="e.g. Engineering"
+                      value={dept}
+                      onChange={(e) => setDept(e.target.value)}
+                    />
+                    <p style={hintStyle}>Used in heatmap filter bar.</p>
+                  </Field>
 
                   <Field label="Resource status">
                     <div
