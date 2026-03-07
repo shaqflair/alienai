@@ -19,6 +19,31 @@ import {
   type ActualsByLine,
 } from "./computeActuals";
 
+// ── Palantir design tokens ────────────────────────────────────────────────────
+const P = {
+  bg:       "#F7F7F5",
+  surface:  "#FFFFFF",
+  border:   "#E3E3DF",
+  borderMd: "#C8C8C4",
+  text:     "#0D0D0B",
+  textMd:   "#4A4A46",
+  textSm:   "#8A8A84",
+  navy:     "#1B3652",
+  navyLt:   "#EBF0F5",
+  red:      "#B83A2E",
+  redLt:    "#FDF2F1",
+  green:    "#2A6E47",
+  greenLt:  "#F0F7F3",
+  amber:    "#8A5B1A",
+  amberLt:  "#FDF6EC",
+  violet:   "#4A3A7A",
+  violetLt: "#F4F2FB",
+  blue:     "#1B3652",
+  blueLt:   "#EBF0F5",
+  mono:     "'DM Mono', 'Courier New', monospace",
+  sans:     "'DM Sans', system-ui, sans-serif",
+} as const;
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export const CURRENCIES = ["GBP", "USD", "EUR", "AUD", "CAD"] as const;
@@ -146,31 +171,19 @@ export function emptyFinancialPlan(currency: Currency = "GBP"): FinancialPlanCon
 }
 
 function emptyCostLine(): CostLine {
-  return {
-    id: uid(), category: "people", description: "",
-    budgeted: "", actual: "", forecast: "", notes: "", override: false,
-  };
+  return { id: uid(), category: "people", description: "", budgeted: "", actual: "", forecast: "", notes: "", override: false };
 }
 
 function emptyChangeExposure(): ChangeExposure {
-  return {
-    id: uid(), change_ref: "", title: "",
-    cost_impact: "", status: "pending", notes: "",
-  };
+  return { id: uid(), change_ref: "", title: "", cost_impact: "", status: "pending", notes: "" };
 }
 
 function emptyResource(): Resource {
-  return {
-    id: uid(), user_id: undefined, name: "", role: "developer", type: "internal",
-    rate_type: "day_rate", day_rate: "", planned_days: "",
-    monthly_cost: "", planned_months: "", cost_line_id: null, notes: "",
-  };
+  return { id: uid(), user_id: undefined, name: "", role: "developer", type: "internal", rate_type: "day_rate", day_rate: "", planned_days: "", monthly_cost: "", planned_months: "", cost_line_id: null, notes: "" };
 }
 
 function resourceTotal(r: Resource): number {
-  if (r.rate_type === "day_rate") {
-    return (Number(r.day_rate) || 0) * (Number(r.planned_days) || 0);
-  }
+  if (r.rate_type === "day_rate") return (Number(r.day_rate) || 0) * (Number(r.planned_days) || 0);
   return (Number(r.monthly_cost) || 0) * (Number(r.planned_months) || 0);
 }
 
@@ -189,14 +202,8 @@ function rollupResourcesToLines(lines: CostLine[], resources: Resource[]): CostL
   });
 }
 
-function applyActualsToCostLines(
-  lines: CostLine[],
-  actualTotals: Record<string, number>,
-): CostLine[] {
-  return lines.map(line => ({
-    ...line,
-    actual: actualTotals[line.id] ?? (line.actual === "" ? "" : line.actual),
-  }));
+function applyActualsToCostLines(lines: CostLine[], actualTotals: Record<string, number>): CostLine[] {
+  return lines.map(line => ({ ...line, actual: actualTotals[line.id] ?? (line.actual === "" ? "" : line.actual) }));
 }
 
 function fmt(n: number | "" | null | undefined, sym: string): string {
@@ -217,85 +224,85 @@ function sumField(lines: CostLine[], field: keyof CostLine): number {
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function VarianceBadge({ budget, forecast }: { budget: number | ""; forecast: number | "" }) {
-  if (!budget || forecast === "") return <span className="text-gray-300 text-xs">—</span>;
+  if (!budget || forecast === "") return <span style={{ color: P.border, fontSize: 11 }}>—</span>;
   const pct = ((Number(forecast) - Number(budget)) / Number(budget)) * 100;
   const over = pct > 0;
   return (
-    <span className={`inline-flex items-center gap-0.5 text-xs font-semibold ${over ? "text-red-600" : "text-green-600"}`}>
-      {over ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 600, fontFamily: P.mono, color: over ? P.red : P.green }}>
+      {over ? <TrendingUp style={{ width: 11, height: 11 }} /> : <TrendingDown style={{ width: 11, height: 11 }} />}
       {over ? "+" : ""}{pct.toFixed(1)}%
     </span>
   );
 }
 
-function MoneyCell({
-  value, onChange, symbol, readOnly = false,
-}: {
+function MoneyCell({ value, onChange, symbol, readOnly = false }: {
   value: number | ""; onChange: (v: number | "") => void; symbol: string; readOnly?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-1 px-1">
-      <span className="text-xs text-gray-400">{symbol}</span>
+    <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 4px" }}>
+      <span style={{ fontSize: 11, color: P.textSm, fontFamily: P.mono }}>{symbol}</span>
       <input
         type="number" min={0} step={100} value={value}
         onChange={e => onChange(e.target.value === "" ? "" : Number(e.target.value))}
         readOnly={readOnly}
-        className={`w-24 border-0 bg-transparent py-1.5 text-sm text-right font-medium text-gray-800 focus:outline-none focus:ring-1 focus:ring-blue-400 rounded ${readOnly ? "opacity-60 cursor-default" : ""}`}
+        style={{
+          width: 96, border: "none", background: "transparent", padding: "6px 0",
+          fontSize: 12, textAlign: "right", fontWeight: 500, color: P.text,
+          fontFamily: P.mono, outline: "none", opacity: readOnly ? 0.6 : 1,
+          cursor: readOnly ? "default" : "text",
+        }}
+        onFocus={e => { if (!readOnly) e.currentTarget.style.outline = `1px solid ${P.navy}`; }}
+        onBlur={e => { e.currentTarget.style.outline = "none"; }}
         placeholder="0"
       />
     </div>
   );
 }
 
-function ActualCell({
-  value, symbol, approvedDays, hasTimesheetData,
-}: {
+function ActualCell({ value, symbol, approvedDays, hasTimesheetData }: {
   value: number | ""; symbol: string; approvedDays: number; hasTimesheetData: boolean;
 }) {
   const hasValue = value !== "" && value !== 0;
   return (
-    <div className={`flex flex-col gap-0.5 px-2 py-1.5 rounded-md mx-1 ${
-      hasValue ? "bg-violet-50 border border-violet-100" : "bg-gray-50 border border-gray-100"
-    }`}>
-      <div className="flex items-center gap-1.5">
-        {hasValue ? (
-          <Lock className="w-2.5 h-2.5 text-violet-400 flex-shrink-0" />
-        ) : (
-          <Clock className="w-2.5 h-2.5 text-gray-300 flex-shrink-0" />
-        )}
-        <span className={`text-sm font-semibold tabular-nums text-right ${hasValue ? "text-violet-800" : "text-gray-300"}`}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "6px 8px", margin: "0 4px", background: hasValue ? P.violetLt : "#F4F4F2", border: `1px solid ${hasValue ? "#C0B0E0" : P.border}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        {hasValue
+          ? <Lock style={{ width: 10, height: 10, color: P.violet, flexShrink: 0 }} />
+          : <Clock style={{ width: 10, height: 10, color: P.textSm, flexShrink: 0, opacity: 0.4 }} />
+        }
+        <span style={{ fontSize: 12, fontWeight: 600, fontFamily: P.mono, color: hasValue ? P.violet : P.textSm, fontVariantNumeric: "tabular-nums" }}>
           {hasValue ? fmt(value, symbol) : "—"}
         </span>
       </div>
       {hasTimesheetData && approvedDays > 0 && (
-        <div className="text-[9px] text-violet-400 font-medium pl-4">
+        <div style={{ fontSize: 9, color: P.violet, fontFamily: P.mono, paddingLeft: 16, opacity: 0.7 }}>
           {approvedDays.toLocaleString()} day{approvedDays !== 1 ? "s" : ""} approved
         </div>
       )}
       {!hasTimesheetData && (
-        <div className="text-[9px] text-gray-300 pl-4">awaiting timesheets</div>
+        <div style={{ fontSize: 9, color: P.textSm, fontFamily: P.mono, paddingLeft: 16 }}>awaiting timesheets</div>
       )}
     </div>
   );
 }
 
-function OverrideToggle({
-  line, hasLinkedResources, resTotal, sym, onToggle,
-}: {
+function OverrideToggle({ line, hasLinkedResources, resTotal, sym, onToggle }: {
   line: CostLine; hasLinkedResources: boolean; resTotal: number; sym: string; onToggle: () => void;
 }) {
   if (!hasLinkedResources) return null;
   return (
     <button
       onClick={onToggle}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px",
+        fontFamily: P.mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", cursor: "pointer",
+        background: line.override ? P.amberLt : P.greenLt,
+        border: `1px solid ${line.override ? "#E0C080" : "#A0D0B8"}`,
+        color: line.override ? P.amber : P.green,
+      }}
       title={line.override ? "Re-enable auto-update from resources" : "Override — stop auto-update"}
-      className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border transition-all ${
-        line.override
-          ? "bg-amber-100 border-amber-300 text-amber-700 hover:bg-amber-200"
-          : "bg-emerald-100 border-emerald-300 text-emerald-700 hover:bg-emerald-200"
-      }`}
     >
-      {line.override ? <Link2Off className="w-2.5 h-2.5" /> : <Link2 className="w-2.5 h-2.5" />}
+      {line.override ? <Link2Off style={{ width: 9, height: 9 }} /> : <Link2 style={{ width: 9, height: 9 }} />}
       {line.override ? "Override" : `Auto ${fmt(resTotal, sym)}`}
     </button>
   );
@@ -303,36 +310,25 @@ function OverrideToggle({
 
 // ── ResourceSyncBar ───────────────────────────────────────────────────────────
 
-function ResourceSyncBar({
-  resources, costLines, monthlyData, fyConfig, currency, timesheetEntries, onSync,
-}: {
-  resources:        Resource[];
-  costLines:        CostLine[];
-  monthlyData:      MonthlyData;
-  fyConfig:         FYConfig;
-  currency:         string;
-  timesheetEntries: TimesheetEntry[];
-  onSync:           (d: MonthlyData) => void;
+function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency, timesheetEntries, onSync }: {
+  resources: Resource[]; costLines: CostLine[]; monthlyData: MonthlyData;
+  fyConfig: FYConfig; currency: string; timesheetEntries: TimesheetEntry[];
+  onSync: (d: MonthlyData) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [synced,   setSynced]   = useState(false);
+  const [synced, setSynced]     = useState(false);
   const sym = CURRENCY_SYMBOLS[currency as Currency] ?? "£";
   const preview = previewSync(resources, costLines, monthlyData, fyConfig);
 
   const readyResources = resources.filter(r =>
     r.cost_line_id &&
-    (
-      (r.rate_type === "day_rate"     && Number(r.day_rate)     > 0 && Number(r.planned_days)   > 0) ||
-      (r.rate_type === "monthly_cost" && Number(r.monthly_cost) > 0 && Number(r.planned_months) > 0)
-    )
+    ((r.rate_type === "day_rate" && Number(r.day_rate) > 0 && Number(r.planned_days) > 0) ||
+     (r.rate_type === "monthly_cost" && Number(r.monthly_cost) > 0 && Number(r.planned_months) > 0))
   );
-
   const unreadyResources = resources.filter(r =>
     r.cost_line_id &&
-    !(
-      (r.rate_type === "day_rate"     && Number(r.day_rate)     > 0 && Number(r.planned_days)   > 0) ||
-      (r.rate_type === "monthly_cost" && Number(r.monthly_cost) > 0 && Number(r.planned_months) > 0)
-    )
+    !((r.rate_type === "day_rate" && Number(r.day_rate) > 0 && Number(r.planned_days) > 0) ||
+      (r.rate_type === "monthly_cost" && Number(r.monthly_cost) > 0 && Number(r.planned_months) > 0))
   );
 
   if (resources.length === 0) return null;
@@ -348,83 +344,66 @@ function ResourceSyncBar({
     setExpanded(false);
   }
 
+  const barBg = synced ? P.greenLt : hasChanges ? P.navyLt : P.bg;
+  const barBorder = synced ? "#A0D0B8" : hasChanges ? "#A0BAD0" : P.border;
+
   return (
-    <div className={`rounded-xl border overflow-hidden ${
-      synced       ? "border-emerald-200 bg-emerald-50"
-      : hasChanges ? "border-blue-200 bg-blue-50"
-      :              "border-gray-200 bg-gray-50"
-    }`}>
-      <div className="flex items-center justify-between px-4 py-3 gap-3">
-        <div className="flex items-center gap-3">
-          <Zap className={`w-4 h-4 flex-shrink-0 ${
-            synced ? "text-emerald-500" : hasChanges ? "text-blue-500" : "text-gray-400"
-          }`} />
+    <div style={{ border: `1px solid ${barBorder}`, background: barBg, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Zap style={{ width: 14, height: 14, flexShrink: 0, color: synced ? P.green : hasChanges ? P.navy : P.textSm }} />
           <div>
-            <div className={`text-xs font-bold ${
-              synced ? "text-emerald-700" : hasChanges ? "text-blue-700" : "text-gray-600"
-            }`}>
-              {synced
-                ? "Monthly phasing synced — actuals from approved timesheets"
-                : hasChanges
-                ? `${readyResources.length} resource${readyResources.length !== 1 ? "s" : ""} ready to sync to monthly phasing`
-                : "Monthly phasing is up to date with resources"
-              }
+            <div style={{ fontFamily: P.mono, fontSize: 10, fontWeight: 700, color: synced ? P.green : hasChanges ? P.navy : P.textMd, letterSpacing: "0.04em" }}>
+              {synced ? "Monthly phasing synced — actuals from approved timesheets"
+                : hasChanges ? `${readyResources.length} resource${readyResources.length !== 1 ? "s" : ""} ready to sync to monthly phasing`
+                : "Monthly phasing is up to date with resources"}
             </div>
-            <div className="text-[10px] text-gray-400 mt-0.5">
+            <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, marginTop: 2 }}>
               {readyResources.length} ready · {unreadyResources.length} missing rate or qty · {resources.filter(r => !r.cost_line_id).length} unlinked
               {timesheetEntries.length > 0 && (
-                <span className="ml-2 text-violet-500 font-semibold">
+                <span style={{ marginLeft: 8, color: P.violet, fontWeight: 600 }}>
                   · {timesheetEntries.length} approved timesheet entr{timesheetEntries.length !== 1 ? "ies" : "y"}
                 </span>
               )}
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           {hasChanges && !synced && (
             <>
-              <button
-                onClick={() => setExpanded(v => !v)}
-                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
-              >
+              <button onClick={() => setExpanded(v => !v)} style={{ display: "flex", alignItems: "center", gap: 4, fontFamily: P.mono, fontSize: 10, color: P.navy, cursor: "pointer", background: "none", border: "none", fontWeight: 500 }}>
                 Preview
-                <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expanded ? "rotate-90" : ""}`} />
+                <ChevronRight style={{ width: 12, height: 12, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
               </button>
-              <button
-                onClick={handleSync}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-sm"
-              >
-                <Zap className="w-3 h-3" />
-                Sync to monthly
+              <button onClick={handleSync} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", background: P.navy, color: "#FFF", fontFamily: P.mono, fontSize: 10, fontWeight: 700, border: "none", cursor: "pointer", letterSpacing: "0.04em" }}>
+                <Zap style={{ width: 11, height: 11 }} /> SYNC TO MONTHLY
               </button>
             </>
           )}
           {synced && (
-            <span className="flex items-center gap-1.5 text-xs text-emerald-600 font-semibold">
-              <Check className="w-3.5 h-3.5" /> Synced
+            <span style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: P.mono, fontSize: 10, color: P.green, fontWeight: 600 }}>
+              <Check style={{ width: 12, height: 12 }} /> Synced
             </span>
           )}
         </div>
       </div>
 
       {expanded && hasChanges && (
-        <div className="border-t border-blue-100 bg-white divide-y divide-gray-100">
+        <div style={{ borderTop: `1px solid ${P.border}`, background: P.surface }}>
           {preview.map(row => {
             const delta = row.totalAfter - row.totalBefore;
             return (
-              <div key={row.lineId} className="px-4 py-2.5 flex items-center gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold text-gray-800 truncate">{row.lineLabel}</div>
-                  <div className="text-[10px] text-gray-400 mt-0.5">{row.monthsAffected} month{row.monthsAffected !== 1 ? "s" : ""} will change</div>
+              <div key={row.lineId} style={{ display: "flex", alignItems: "center", gap: 16, padding: "8px 16px", borderBottom: `1px solid ${P.border}` }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: P.sans, fontSize: 11, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.lineLabel}</div>
+                  <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, marginTop: 2 }}>{row.monthsAffected} month{row.monthsAffected !== 1 ? "s" : ""} will change</div>
                 </div>
-                <div className="flex items-center gap-2 text-xs tabular-nums flex-shrink-0">
-                  <span className="text-gray-400">{fmtShort(row.totalBefore, sym)}</span>
-                  <span className="text-gray-300">→</span>
-                  <span className="font-bold text-gray-800">{fmtShort(row.totalAfter, sym)}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: P.mono, fontSize: 11, flexShrink: 0 }}>
+                  <span style={{ color: P.textSm }}>{fmtShort(row.totalBefore, sym)}</span>
+                  <span style={{ color: P.border }}>→</span>
+                  <span style={{ fontWeight: 700, color: P.text }}>{fmtShort(row.totalAfter, sym)}</span>
                   {delta !== 0 && (
-                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-                      delta > 0 ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
-                    }`}>
+                    <span style={{ padding: "2px 6px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, background: delta > 0 ? P.amberLt : P.greenLt, color: delta > 0 ? P.amber : P.green, border: `1px solid ${delta > 0 ? "#E0C080" : "#A0D0B8"}` }}>
                       {delta > 0 ? "+" : ""}{fmtShort(delta, sym)}
                     </span>
                   )}
@@ -433,20 +412,20 @@ function ResourceSyncBar({
             );
           })}
           {unreadyResources.length > 0 && (
-            <div className="px-4 py-2.5 flex items-start gap-2 bg-amber-50">
-              <AlertCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
-              <div className="text-[10px] text-amber-700">
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 16px", background: P.amberLt, borderTop: `1px solid #E0C080` }}>
+              <AlertCircle style={{ width: 13, height: 13, color: P.amber, flexShrink: 0, marginTop: 1 }} />
+              <div style={{ fontFamily: P.mono, fontSize: 9, color: P.amber }}>
                 <strong>{unreadyResources.length} resource{unreadyResources.length !== 1 ? "s" : ""}</strong> linked but missing rate or qty:
-                <ul className="mt-1 list-disc list-inside">
+                <ul style={{ marginTop: 4, paddingLeft: 16, listStyle: "disc" }}>
                   {unreadyResources.map(r => <li key={r.id}>{r.name || "Unnamed"}</li>)}
                 </ul>
               </div>
             </div>
           )}
           {timesheetEntries.length > 0 && (
-            <div className="px-4 py-2.5 flex items-start gap-2 bg-violet-50">
-              <Lock className="w-3.5 h-3.5 text-violet-400 flex-shrink-0 mt-0.5" />
-              <div className="text-[10px] text-violet-700">
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 16px", background: P.violetLt, borderTop: `1px solid #C0B0E0` }}>
+              <Lock style={{ width: 13, height: 13, color: P.violet, flexShrink: 0, marginTop: 1 }} />
+              <div style={{ fontFamily: P.mono, fontSize: 9, color: P.violet }}>
                 <strong>Actuals</strong> will be auto-computed from{" "}
                 <strong>{timesheetEntries.length} approved timesheet entr{timesheetEntries.length !== 1 ? "ies" : "y"}</strong>{" "}
                 (approved days × rate card rate). The Actual column is locked.
@@ -465,18 +444,10 @@ function ResourcesTab({
   resources, costLines, sym, currency, readOnly, onChange, organisationId,
   monthlyData, fyConfig, timesheetEntries, actualsByLine, onSyncMonthly,
 }: {
-  resources:        Resource[];
-  costLines:        CostLine[];
-  sym:              string;
-  currency:         Currency;
-  readOnly:         boolean;
-  onChange:         (r: Resource[]) => void;
-  organisationId:   string;
-  monthlyData:      MonthlyData;
-  fyConfig:         FYConfig;
-  timesheetEntries: TimesheetEntry[];
-  actualsByLine:    ActualsByLine;
-  onSyncMonthly:    (d: MonthlyData) => void;
+  resources: Resource[]; costLines: CostLine[]; sym: string; currency: Currency;
+  readOnly: boolean; onChange: (r: Resource[]) => void; organisationId: string;
+  monthlyData: MonthlyData; fyConfig: FYConfig; timesheetEntries: TimesheetEntry[];
+  actualsByLine: ActualsByLine; onSyncMonthly: (d: MonthlyData) => void;
 }) {
   const update = (id: string, patch: Partial<Resource>) =>
     onChange(resources.map(r => r.id === id ? { ...r, ...patch } : r));
@@ -487,9 +458,7 @@ function ResourcesTab({
 
   const approvedDaysByResource = useMemo(() => {
     const map: Record<string, number> = {};
-    for (const e of timesheetEntries) {
-      map[e.resource_id] = (map[e.resource_id] ?? 0) + e.approved_days;
-    }
+    for (const e of timesheetEntries) map[e.resource_id] = (map[e.resource_id] ?? 0) + e.approved_days;
     return map;
   }, [timesheetEntries]);
 
@@ -506,37 +475,46 @@ function ResourcesTab({
     return Object.values(map);
   }, [resources, costLines]);
 
+  const statCards = [
+    { label: "Total Resources",      value: String(resources.length), sub: "across all roles",                                                          color: P.text     },
+    { label: "Total Resource Cost",  value: fmt(totalCost, sym),      sub: "calculated from rates",                                                     color: P.navy     },
+    { label: "Linked to Cost Lines", value: fmt(linkedCost, sym),     sub: `${byLine.length} line${byLine.length !== 1 ? "s" : ""} receiving rollup`,   color: P.green    },
+    { label: "Unlinked Cost",        value: fmt(unlinkedCost, sym),   sub: unlinkedCost > 0 ? "not rolling up" : "all linked",                          color: unlinkedCost > 0 ? P.amber : P.textSm },
+  ];
+
+  const typeBadgeStyle = (type: ResourceType): React.CSSProperties => ({
+    fontSize: 10, fontWeight: 600, fontFamily: P.mono, padding: "3px 8px",
+    background: type === "internal" ? P.navyLt : type === "contractor" ? P.amberLt : type === "vendor" ? P.violetLt : "#F4F4F2",
+    color:      type === "internal" ? P.navy   : type === "contractor" ? P.amber   : type === "vendor" ? P.violet   : P.textMd,
+    border: "none", cursor: readOnly ? "default" : "pointer", outline: "none",
+  });
+
   return (
-    <div className="flex flex-col gap-5">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          { label: "Total Resources",      value: String(resources.length), sub: "across all roles",                                                          color: "text-gray-700"   },
-          { label: "Total Resource Cost",  value: fmt(totalCost, sym),      sub: "calculated from rates",                                                     color: "text-blue-600"   },
-          { label: "Linked to Cost Lines", value: fmt(linkedCost, sym),     sub: `${byLine.length} line${byLine.length !== 1 ? "s" : ""} receiving rollup`,   color: "text-emerald-600" },
-          { label: "Unlinked Cost",        value: fmt(unlinkedCost, sym),   sub: unlinkedCost > 0 ? "not rolling up" : "all linked",                          color: unlinkedCost > 0 ? "text-amber-600" : "text-gray-400" },
-        ].map(s => (
-          <div key={s.label} className="bg-white rounded-xl border border-gray-100 px-4 py-3 shadow-sm">
-            <div className="text-xs text-gray-500 mb-1">{s.label}</div>
-            <div className={`text-lg font-bold ${s.color}`}>{s.value}</div>
-            <div className="text-xs text-gray-400 mt-0.5">{s.sub}</div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 20, fontFamily: P.sans }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+        {statCards.map(s => (
+          <div key={s.label} style={{ background: P.surface, border: `1px solid ${P.border}`, padding: "12px 16px" }}>
+            <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>{s.label}</div>
+            <div style={{ fontFamily: P.mono, fontSize: 16, fontWeight: 700, color: s.color }}>{s.value}</div>
+            <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, marginTop: 2 }}>{s.sub}</div>
           </div>
         ))}
       </div>
 
       {byLine.length > 0 && (
-        <div className="rounded-xl border border-blue-100 bg-blue-50/50 px-4 py-3">
-          <div className="flex items-center gap-2 mb-2.5">
-            <Link2 className="w-3.5 h-3.5 text-blue-500" />
-            <span className="text-xs font-bold text-blue-700 uppercase tracking-wide">Cost Line Rollup</span>
+        <div style={{ border: `1px solid ${P.border}`, background: P.navyLt, padding: "10px 14px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+            <Link2 style={{ width: 12, height: 12, color: P.navy }} />
+            <span style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.navy, letterSpacing: "0.1em", textTransform: "uppercase" }}>Cost Line Rollup</span>
           </div>
-          <div className="flex flex-wrap gap-3">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {byLine.map(({ line, resources: lr, total }) => (
-              <div key={line.id} className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs ${line.override ? "bg-amber-50 border-amber-200" : "bg-white border-blue-200"}`}>
-                <span className="font-semibold text-gray-700 max-w-[120px] truncate">{line.description || line.category}</span>
-                <span className="text-gray-400">←</span>
-                <span className="text-slate-500">{lr.length} resource{lr.length !== 1 ? "s" : ""}</span>
-                <span className="font-bold text-blue-600">{fmt(total, sym)}</span>
-                {line.override && <span className="text-[10px] font-semibold text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded">Override</span>}
+              <div key={line.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", background: line.override ? P.amberLt : P.surface, border: `1px solid ${line.override ? "#E0C080" : P.border}`, fontSize: 11 }}>
+                <span style={{ fontWeight: 600, color: P.text, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{line.description || line.category}</span>
+                <span style={{ color: P.textSm }}>←</span>
+                <span style={{ fontFamily: P.mono, fontSize: 9, color: P.textMd }}>{lr.length} resource{lr.length !== 1 ? "s" : ""}</span>
+                <span style={{ fontFamily: P.mono, fontWeight: 700, color: P.navy }}>{fmt(total, sym)}</span>
+                {line.override && <span style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.amber, background: P.amberLt, border: `1px solid #E0C080`, padding: "1px 5px" }}>Override</span>}
               </div>
             ))}
           </div>
@@ -544,251 +522,181 @@ function ResourcesTab({
       )}
 
       {!readOnly && (
-        <ResourceSyncBar
-          resources={resources}
-          costLines={costLines}
-          monthlyData={monthlyData}
-          fyConfig={fyConfig}
-          currency={currency}
-          timesheetEntries={timesheetEntries}
-          onSync={onSyncMonthly}
-        />
+        <ResourceSyncBar resources={resources} costLines={costLines} monthlyData={monthlyData} fyConfig={fyConfig} currency={currency} timesheetEntries={timesheetEntries} onSync={onSyncMonthly} />
       )}
 
-      <div className="flex items-start gap-2 rounded-lg border border-violet-100 bg-violet-50 px-3 py-2 text-xs text-violet-700">
-        <Lock className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-violet-400" />
-        <span>
-          <strong>Actuals are locked</strong> — computed automatically from approved timesheet days × rate card rate.
-          Timesheets are submitted by resources and approved by PMs.
-          The Actual column cannot be edited manually.
-        </span>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, border: `1px solid #C0B0E0`, background: P.violetLt, padding: "8px 12px", fontSize: 11, color: P.violet }}>
+        <Lock style={{ width: 12, height: 12, flexShrink: 0, marginTop: 1 }} />
+        <span><strong>Actuals are locked</strong> — computed automatically from approved timesheet days × rate card rate. Timesheets are submitted by resources and approved by PMs.</span>
       </div>
 
-      <div className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
-        <Users className="w-3.5 h-3.5 flex-shrink-0" />
-        <span>
-          Pick a person from your organisation — their rate auto-fills from the{" "}
-          <strong>Rate Card</strong>. Org admins manage rates in{" "}
-          <strong>Organisation Settings → Rate Cards</strong>.
-          Then hit <strong>Sync to monthly</strong> to phase costs across the timeline.
-        </span>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, border: `1px solid ${P.border}`, background: P.navyLt, padding: "8px 12px", fontSize: 11, color: P.navy }}>
+        <Users style={{ width: 12, height: 12, flexShrink: 0 }} />
+        <span>Pick a person from your organisation — their rate auto-fills from the <strong>Rate Card</strong>. Then hit <strong>Sync to monthly</strong> to phase costs across the timeline.</span>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-gray-200">
-        <table className="w-full text-sm border-collapse">
+      <div style={{ border: `1px solid ${P.borderMd}`, overflow: "hidden" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
-            <tr className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            <tr style={{ background: "#F4F4F2", borderBottom: `1px solid ${P.borderMd}` }}>
               {["Person / Role", "Type", "Rate Method", "Rate", "Planned Qty", "Total", "Approved Days", "Actual Cost", "Start Month", "Links to", "Notes", ""].map((h, i) => (
-                <th key={i} className={`px-3 py-2.5 text-left border-b border-gray-200 whitespace-nowrap ${
-                  h === "Approved Days" || h === "Actual Cost" ? "bg-violet-50 text-violet-600" : ""
-                }`}>{h}</th>
+                <th key={i} style={{ padding: "8px 10px", textAlign: "left", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color: h === "Approved Days" || h === "Actual Cost" ? P.violet : P.textSm, letterSpacing: "0.08em", textTransform: "uppercase", whiteSpace: "nowrap", borderBottom: `1px solid ${P.borderMd}`, background: h === "Approved Days" || h === "Actual Cost" ? P.violetLt : "#F4F4F2" }}>
+                  {h}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {resources.length === 0 && (
               <tr>
-                <td colSpan={12} className="px-4 py-10 text-center text-sm text-gray-400">
+                <td colSpan={12} style={{ padding: "40px 16px", textAlign: "center", fontFamily: P.sans, fontSize: 13, color: P.textSm }}>
                   No resources yet. Click <strong>Add resource</strong> below.
                 </td>
               </tr>
             )}
             {resources.map((r, idx) => {
-              const total           = resourceTotal(r);
-              const linkedLine      = costLines.find(l => l.id === r.cost_line_id);
-              const hasRate         = r.rate_type === "day_rate" ? Number(r.day_rate) > 0 : Number(r.monthly_cost) > 0;
-              const approvedDays    = approvedDaysByResource[r.id] ?? 0;
-              const effectiveDayRate = r.rate_type === "day_rate"
-                ? Number(r.day_rate) || 0
-                : (Number(r.monthly_cost) || 0) / 20;
-              const actualCost      = Math.round(approvedDays * effectiveDayRate * 100) / 100;
-              const hasTimesheet    = approvedDays > 0;
+              const total            = resourceTotal(r);
+              const linkedLine       = costLines.find(l => l.id === r.cost_line_id);
+              const hasRate          = r.rate_type === "day_rate" ? Number(r.day_rate) > 0 : Number(r.monthly_cost) > 0;
+              const approvedDays     = approvedDaysByResource[r.id] ?? 0;
+              const effectiveDayRate = r.rate_type === "day_rate" ? Number(r.day_rate) || 0 : (Number(r.monthly_cost) || 0) / 20;
+              const actualCost       = Math.round(approvedDays * effectiveDayRate * 100) / 100;
+              const hasTimesheet     = approvedDays > 0;
+              const rowBg            = idx % 2 === 0 ? P.surface : "#FAFAF8";
+
+              const cellStyle: React.CSSProperties = { borderBottom: `1px solid ${P.border}`, background: rowBg };
 
               return (
-                <tr key={r.id} className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50/50"} hover:bg-blue-50/20 group transition-colors`}>
-                  <td className="border-b border-gray-100 min-w-[220px] px-2 py-1.5">
+                <tr key={r.id} style={cellStyle}>
+                  <td style={{ ...cellStyle, minWidth: 220, padding: "4px 8px" }}>
                     <ResourcePicker
-                      organisationId={organisationId}
-                      value={r.user_id ?? null}
-                      currentResource={r}
-                      disabled={readOnly}
+                      organisationId={organisationId} value={r.user_id ?? null}
+                      currentResource={r} disabled={readOnly}
                       onPick={(person: PickedPerson) => {
                         update(r.id, {
                           user_id: person.user_id || undefined,
-                          name:    person.full_name ?? person.email ?? r.name,
+                          name: person.full_name ?? person.email ?? r.name,
                           ...(person.rate_type != null ? {
-                            rate_type:    person.rate_type,
-                            day_rate:     person.rate_type === "day_rate"     ? (person.rate ?? "") : r.day_rate,
+                            rate_type: person.rate_type,
+                            day_rate: person.rate_type === "day_rate" ? (person.rate ?? "") : r.day_rate,
                             monthly_cost: person.rate_type === "monthly_cost" ? (person.rate ?? "") : r.monthly_cost,
-                            type:         (person.resource_type ?? r.type) as ResourceType,
+                            type: (person.resource_type ?? r.type) as ResourceType,
                           } : {}),
                         });
                       }}
                     />
-                    <input
-                      type="text"
-                      value={r.name}
-                      onChange={e => update(r.id, { name: e.target.value })}
-                      readOnly={readOnly}
+                    <input type="text" value={r.name} onChange={e => update(r.id, { name: e.target.value })} readOnly={readOnly}
                       placeholder="Role label override…"
-                      className="w-full border-0 bg-transparent px-2 py-0.5 text-[11px] text-gray-500 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-400 rounded mt-0.5"
+                      style={{ width: "100%", border: "none", background: "transparent", padding: "2px 6px", fontSize: 10, color: P.textMd, fontFamily: P.sans, outline: "none" }}
                     />
                   </td>
-                  <td className="border-b border-gray-100 min-w-[110px] px-2 py-1">
-                    <select
-                      value={r.type}
-                      onChange={e => update(r.id, { type: e.target.value as ResourceType })}
-                      disabled={readOnly}
-                      className={`text-xs font-semibold px-2 py-1.5 rounded-full border-0 cursor-pointer focus:outline-none w-full ${
-                        r.type === "internal"     ? "bg-blue-100 text-blue-700"
-                        : r.type === "contractor" ? "bg-amber-100 text-amber-700"
-                        : r.type === "vendor"     ? "bg-purple-100 text-purple-700"
-                        : "bg-gray-100 text-gray-600"
-                      }`}
-                    >
+                  <td style={{ ...cellStyle, minWidth: 110, padding: "4px 6px" }}>
+                    <select value={r.type} onChange={e => update(r.id, { type: e.target.value as ResourceType })} disabled={readOnly} style={typeBadgeStyle(r.type)}>
                       {(Object.keys(RESOURCE_TYPE_LABELS) as ResourceType[]).map(t => (
                         <option key={t} value={t}>{RESOURCE_TYPE_LABELS[t]}</option>
                       ))}
                     </select>
                   </td>
-                  <td className="border-b border-gray-100 px-2 py-1">
-                    <div className="flex bg-gray-100 rounded-lg p-0.5 gap-0.5 w-fit">
+                  <td style={{ ...cellStyle, padding: "4px 6px" }}>
+                    <div style={{ display: "flex", background: "#EDEDEB", padding: 2, gap: 2 }}>
                       {(["day_rate", "monthly_cost"] as ResourceRateType[]).map(rt => (
-                        <button
-                          key={rt}
-                          onClick={() => !readOnly && update(r.id, { rate_type: rt })}
-                          className={`px-2 py-1 rounded-md text-[10px] font-bold transition-all whitespace-nowrap ${
-                            r.rate_type === rt ? "bg-white shadow text-gray-800" : "text-gray-400 hover:text-gray-600"
-                          }`}
-                        >
+                        <button key={rt} onClick={() => !readOnly && update(r.id, { rate_type: rt })} style={{ padding: "4px 8px", fontSize: 9, fontFamily: P.mono, fontWeight: 700, cursor: readOnly ? "default" : "pointer", background: r.rate_type === rt ? P.surface : "transparent", color: r.rate_type === rt ? P.text : P.textSm, border: r.rate_type === rt ? `1px solid ${P.border}` : "1px solid transparent", whiteSpace: "nowrap" }}>
                           {rt === "day_rate" ? "Day Rate" : "Monthly"}
                         </button>
                       ))}
                     </div>
                   </td>
-                  <td className="border-b border-gray-100 min-w-[110px]">
-                    <div className="relative">
-                      {r.rate_type === "day_rate" ? (
-                        <MoneyCell value={r.day_rate} onChange={v => update(r.id, { day_rate: v })} symbol={sym} readOnly={readOnly} />
-                      ) : (
-                        <MoneyCell value={r.monthly_cost} onChange={v => update(r.id, { monthly_cost: v })} symbol={sym} readOnly={readOnly} />
-                      )}
-                    </div>
-                    <div className="px-3 text-[10px] text-gray-400">
+                  <td style={{ ...cellStyle, minWidth: 110 }}>
+                    {r.rate_type === "day_rate"
+                      ? <MoneyCell value={r.day_rate} onChange={v => update(r.id, { day_rate: v })} symbol={sym} readOnly={readOnly} />
+                      : <MoneyCell value={r.monthly_cost} onChange={v => update(r.id, { monthly_cost: v })} symbol={sym} readOnly={readOnly} />
+                    }
+                    <div style={{ padding: "0 8px 2px", fontFamily: P.mono, fontSize: 9, color: P.textSm }}>
                       {r.rate_type === "day_rate" ? "per day" : "per month"}
                     </div>
                     {hasRate && r.user_id && (
-                      <div className="px-2 mt-0.5">
-                        <span className="inline-flex items-center gap-1 text-[9px] text-emerald-600 font-semibold">
-                          <Zap className="w-2 h-2" /> from rate card
-                        </span>
+                      <div style={{ padding: "0 6px 4px", display: "flex", alignItems: "center", gap: 4, fontFamily: P.mono, fontSize: 9, color: P.green }}>
+                        <Zap style={{ width: 9, height: 9 }} /> from rate card
                       </div>
                     )}
                   </td>
-                  <td className="border-b border-gray-100 min-w-[80px] px-2 py-1">
-                    <input
-                      type="number" min={0} step={r.rate_type === "day_rate" ? 1 : 0.5}
+                  <td style={{ ...cellStyle, minWidth: 80, padding: "4px 6px" }}>
+                    <input type="number" min={0} step={r.rate_type === "day_rate" ? 1 : 0.5}
                       value={r.rate_type === "day_rate" ? r.planned_days : r.planned_months}
-                      onChange={e => {
-                        const v = e.target.value === "" ? "" : Number(e.target.value);
-                        update(r.id, r.rate_type === "day_rate" ? { planned_days: v } : { planned_months: v });
-                      }}
-                      readOnly={readOnly}
-                      placeholder="0"
-                      className="w-full border-0 bg-transparent px-2 py-1.5 text-sm text-right font-medium text-gray-800 focus:outline-none focus:ring-1 focus:ring-blue-400 rounded"
+                      onChange={e => { const v = e.target.value === "" ? "" : Number(e.target.value); update(r.id, r.rate_type === "day_rate" ? { planned_days: v } : { planned_months: v }); }}
+                      readOnly={readOnly} placeholder="0"
+                      style={{ width: "100%", border: "none", background: "transparent", padding: "6px 4px", fontSize: 12, textAlign: "right", fontFamily: P.mono, fontWeight: 500, color: P.text, outline: "none" }}
                     />
-                    <div className="px-2 text-[10px] text-gray-400 text-right">
+                    <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, textAlign: "right", padding: "0 4px 2px" }}>
                       {r.rate_type === "day_rate" ? "days planned" : "months planned"}
                     </div>
                   </td>
-                  <td className="border-b border-gray-100 px-3 py-1">
-                    <div className={`text-sm font-bold tabular-nums ${total > 0 ? "text-gray-800" : "text-gray-300"}`}>
-                      {total > 0 ? fmt(total, sym) : "—"}
-                    </div>
-                    {total > 0 && <div className="text-[10px] text-gray-400">planned total</div>}
+                  <td style={{ ...cellStyle, padding: "4px 10px" }}>
+                    <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: total > 0 ? P.text : P.textSm, fontVariantNumeric: "tabular-nums" }}>{total > 0 ? fmt(total, sym) : "—"}</div>
+                    {total > 0 && <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>planned total</div>}
                   </td>
-                  <td className="border-b border-gray-100 bg-violet-50/30 px-3 py-1 min-w-[100px]">
-                    <div className="flex items-center gap-1.5">
-                      <Lock className="w-2.5 h-2.5 text-violet-300 flex-shrink-0" />
-                      <span className={`text-sm font-semibold tabular-nums ${hasTimesheet ? "text-violet-700" : "text-gray-300"}`}>
+                  <td style={{ ...cellStyle, background: idx % 2 === 0 ? P.violetLt : "#F0EEFA", padding: "4px 10px", minWidth: 100 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Lock style={{ width: 9, height: 9, color: P.violet, flexShrink: 0, opacity: 0.5 }} />
+                      <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: hasTimesheet ? P.violet : P.textSm, fontVariantNumeric: "tabular-nums" }}>
                         {hasTimesheet ? approvedDays.toLocaleString() : "—"}
                       </span>
                     </div>
-                    <div className="text-[9px] text-violet-400 mt-0.5">
-                      {hasTimesheet ? "approved days" : "no timesheets"}
-                    </div>
+                    <div style={{ fontFamily: P.mono, fontSize: 9, color: P.violet, marginTop: 2, opacity: 0.7 }}>{hasTimesheet ? "approved days" : "no timesheets"}</div>
                     {hasTimesheet && r.rate_type === "day_rate" && Number(r.planned_days) > 0 && (
-                      <div className={`text-[9px] mt-0.5 font-semibold ${
-                        approvedDays > Number(r.planned_days) ? "text-red-500" : "text-emerald-600"
-                      }`}>
-                        {approvedDays > Number(r.planned_days) ? "▲" : "▼"}{" "}
-                        {Math.abs(approvedDays - Number(r.planned_days))} vs plan
+                      <div style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 600, marginTop: 2, color: approvedDays > Number(r.planned_days) ? P.red : P.green }}>
+                        {approvedDays > Number(r.planned_days) ? "▲" : "▼"} {Math.abs(approvedDays - Number(r.planned_days))} vs plan
                       </div>
                     )}
                   </td>
-                  <td className="border-b border-gray-100 bg-violet-50/30 px-2 py-1 min-w-[110px]">
-                    <div className="flex items-center gap-1.5">
-                      <Lock className="w-2.5 h-2.5 text-violet-300 flex-shrink-0" />
-                      <span className={`text-sm font-semibold tabular-nums ${actualCost > 0 ? "text-violet-700" : "text-gray-300"}`}>
+                  <td style={{ ...cellStyle, background: idx % 2 === 0 ? P.violetLt : "#F0EEFA", padding: "4px 10px", minWidth: 110 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Lock style={{ width: 9, height: 9, color: P.violet, flexShrink: 0, opacity: 0.5 }} />
+                      <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: actualCost > 0 ? P.violet : P.textSm, fontVariantNumeric: "tabular-nums" }}>
                         {actualCost > 0 ? fmt(actualCost, sym) : "—"}
                       </span>
                     </div>
-                    <div className="text-[9px] text-violet-400 mt-0.5">
-                      {hasTimesheet ? "actual spend" : "awaiting timesheets"}
-                    </div>
+                    <div style={{ fontFamily: P.mono, fontSize: 9, color: P.violet, marginTop: 2, opacity: 0.7 }}>{hasTimesheet ? "actual spend" : "awaiting timesheets"}</div>
                     {actualCost > 0 && total > 0 && (
-                      <div className={`text-[9px] mt-0.5 font-semibold ${actualCost > total ? "text-red-500" : "text-emerald-600"}`}>
+                      <div style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 600, marginTop: 2, color: actualCost > total ? P.red : P.green }}>
                         {Math.round((actualCost / total) * 100)}% of planned spend
                       </div>
                     )}
                   </td>
-                  <td className="border-b border-gray-100 min-w-[110px] px-2 py-1">
-                    <input
-                      type="month"
-                      value={r.start_month ?? ""}
-                      onChange={e => update(r.id, { start_month: e.target.value || undefined })}
-                      readOnly={readOnly}
-                      className="w-full border border-gray-200 bg-white text-xs rounded-lg px-2 py-1.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  <td style={{ ...cellStyle, minWidth: 110, padding: "4px 6px" }}>
+                    <input type="month" value={r.start_month ?? ""} onChange={e => update(r.id, { start_month: e.target.value || undefined })} readOnly={readOnly}
+                      style={{ width: "100%", border: `1px solid ${P.border}`, background: P.surface, fontSize: 11, fontFamily: P.mono, padding: "5px 6px", color: P.text, outline: "none" }}
                     />
-                    <div className="text-[9px] text-gray-400 px-1 mt-0.5">optional</div>
+                    <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, marginTop: 2 }}>optional</div>
                   </td>
-                  <td className="border-b border-gray-100 min-w-[160px] px-2 py-1">
-                    <select
-                      value={r.cost_line_id ?? ""}
-                      onChange={e => update(r.id, { cost_line_id: e.target.value || null })}
-                      disabled={readOnly}
-                      className="w-full border border-gray-200 bg-white text-xs rounded-lg px-2 py-1.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400 cursor-pointer"
-                    >
+                  <td style={{ ...cellStyle, minWidth: 160, padding: "4px 6px" }}>
+                    <select value={r.cost_line_id ?? ""} onChange={e => update(r.id, { cost_line_id: e.target.value || null })} disabled={readOnly}
+                      style={{ width: "100%", border: `1px solid ${P.border}`, background: P.surface, fontSize: 11, fontFamily: P.sans, padding: "5px 6px", color: P.text, outline: "none", cursor: readOnly ? "default" : "pointer" }}>
                       <option value="">— not linked —</option>
-                      {costLines.map(l => (
-                        <option key={l.id} value={l.id}>{l.description || l.category}</option>
-                      ))}
+                      {costLines.map(l => <option key={l.id} value={l.id}>{l.description || l.category}</option>)}
                     </select>
                     {linkedLine && (
-                      <div className="flex items-center gap-1 mt-1 px-1">
-                        <Link2 className="w-2.5 h-2.5 text-emerald-500 flex-shrink-0" />
-                        <span className="text-[10px] text-emerald-600 font-medium truncate max-w-[120px]">
+                      <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 4, padding: "0 2px" }}>
+                        <Link2 style={{ width: 10, height: 10, color: P.green, flexShrink: 0 }} />
+                        <span style={{ fontFamily: P.mono, fontSize: 9, color: P.green, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {linkedLine.override ? "Override active" : "Auto-updating"}
                         </span>
                       </div>
                     )}
                   </td>
-                  <td className="border-b border-gray-100 min-w-[140px]">
-                    <input
-                      type="text" value={r.notes}
-                      onChange={e => update(r.id, { notes: e.target.value })}
-                      readOnly={readOnly}
+                  <td style={{ ...cellStyle, minWidth: 140 }}>
+                    <input type="text" value={r.notes} onChange={e => update(r.id, { notes: e.target.value })} readOnly={readOnly}
                       placeholder="Notes…"
-                      className="w-full border-0 bg-transparent px-2 py-1.5 text-sm text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-400 rounded"
+                      style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.text, fontFamily: P.sans, outline: "none" }}
                     />
                   </td>
-                  <td className="border-b border-gray-100 px-2">
+                  <td style={{ ...cellStyle, padding: "4px 6px" }}>
                     {!readOnly && (
-                      <button
-                        onClick={() => onChange(resources.filter(x => x.id !== r.id))}
-                        className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-red-500 transition-all"
+                      <button onClick={() => onChange(resources.filter(x => x.id !== r.id))} style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0, transition: "opacity 0.1s" }}
+                        onMouseEnter={e => (e.currentTarget.style.color = P.red, e.currentTarget.style.opacity = "1")}
+                        onMouseLeave={e => (e.currentTarget.style.color = P.textSm, e.currentTarget.style.opacity = "0")}
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 style={{ width: 13, height: 13 }} />
                       </button>
                     )}
                   </td>
@@ -798,23 +706,14 @@ function ResourcesTab({
           </tbody>
           {resources.length > 0 && (
             <tfoot>
-              <tr className="bg-gray-100 font-semibold text-xs text-gray-700">
-                <td colSpan={5} className="px-3 py-2">Total</td>
-                <td className="px-3 py-2 font-bold text-gray-800">{fmt(totalCost, sym)}</td>
-                <td className="px-3 py-2 bg-violet-50 font-bold text-violet-700">
+              <tr style={{ background: "#F0F0ED", borderTop: `1px solid ${P.borderMd}` }}>
+                <td colSpan={5} style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.textMd, letterSpacing: "0.06em", textTransform: "uppercase" }}>Total</td>
+                <td style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.text }}>{fmt(totalCost, sym)}</td>
+                <td style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.violet, background: P.violetLt }}>
                   {Object.values(approvedDaysByResource).reduce((s, d) => s + d, 0).toLocaleString()} days
                 </td>
-                <td className="px-3 py-2 bg-violet-50 font-bold text-violet-700">
-                  {fmt(
-                    resources.reduce((s, r) => {
-                      const days = approvedDaysByResource[r.id] ?? 0;
-                      const rate = r.rate_type === "day_rate"
-                        ? Number(r.day_rate) || 0
-                        : (Number(r.monthly_cost) || 0) / 20;
-                      return s + days * rate;
-                    }, 0),
-                    sym
-                  )}
+                <td style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.violet, background: P.violetLt }}>
+                  {fmt(resources.reduce((s, r) => { const days = approvedDaysByResource[r.id] ?? 0; const rate = r.rate_type === "day_rate" ? Number(r.day_rate) || 0 : (Number(r.monthly_cost) || 0) / 20; return s + days * rate; }, 0), sym)}
                 </td>
                 <td colSpan={4} />
               </tr>
@@ -822,12 +721,9 @@ function ResourcesTab({
           )}
         </table>
         {!readOnly && (
-          <div className="px-4 py-2 bg-gray-50 border-t border-gray-200">
-            <button
-              onClick={() => onChange([...resources, emptyResource()])}
-              className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors"
-            >
-              <Plus className="w-4 h-4" /> Add resource
+          <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}` }}>
+            <button onClick={() => onChange([...resources, emptyResource()])} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.navy, cursor: "pointer", fontWeight: 500 }}>
+              <Plus style={{ width: 14, height: 14 }} /> Add resource
             </button>
           </div>
         )}
@@ -839,19 +735,18 @@ function ResourcesTab({
 // ── Main component ────────────────────────────────────────────────────────────
 
 type Props = {
-  content:          FinancialPlanContent;
-  onChange:         (c: FinancialPlanContent) => void;
-  readOnly?:        boolean;
-  organisationId:   string;
+  content: FinancialPlanContent;
+  onChange: (c: FinancialPlanContent) => void;
+  readOnly?: boolean;
+  organisationId: string;
   timesheetEntries?: TimesheetEntry[];
-  raidItems?:       Array<{ type: string; title: string; severity: string; status: string }>;
-  approvalDelays?:  Array<{ title: string; daysPending: number; cost_impact?: number }>;
+  raidItems?: Array<{ type: string; title: string; severity: string; status: string }>;
+  approvalDelays?: Array<{ title: string; daysPending: number; cost_impact?: number }>;
 };
 
 export default function FinancialPlanEditor({
   content, onChange, readOnly = false, organisationId,
-  timesheetEntries = [],
-  raidItems, approvalDelays,
+  timesheetEntries = [], raidItems, approvalDelays,
 }: Props) {
   const [activeTab, setActiveTab] = useState<"budget" | "resources" | "monthly" | "changes" | "narrative">("budget");
   const [signals, setSignals]     = useState<Signal[]>([]);
@@ -861,20 +756,9 @@ export default function FinancialPlanEditor({
   const lines     = content.cost_lines ?? [];
   const resources = content.resources  ?? [];
 
-  const actualsByLine = useMemo(
-    () => computeActuals(resources, timesheetEntries),
-    [resources, timesheetEntries],
-  );
-
-  const actualTotalsPerLine = useMemo(
-    () => computeActualTotalsPerLine(resources, timesheetEntries),
-    [resources, timesheetEntries],
-  );
-
-  const linesWithActuals = useMemo(
-    () => applyActualsToCostLines(lines, actualTotalsPerLine),
-    [lines, actualTotalsPerLine],
-  );
+  const actualsByLine = useMemo(() => computeActuals(resources, timesheetEntries), [resources, timesheetEntries]);
+  const actualTotalsPerLine = useMemo(() => computeActualTotalsPerLine(resources, timesheetEntries), [resources, timesheetEntries]);
+  const linesWithActuals = useMemo(() => applyActualsToCostLines(lines, actualTotalsPerLine), [lines, actualTotalsPerLine]);
 
   const totalApprovedDays = useMemo(() => {
     const map: Record<string, number> = {};
@@ -894,15 +778,11 @@ export default function FinancialPlanEditor({
 
   const handleChange = useCallback((patch: FinancialPlanContent) => {
     clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      onChange({ ...patch, last_updated_at: new Date().toISOString() });
-    }, 500);
+    saveTimer.current = setTimeout(() => { onChange({ ...patch, last_updated_at: new Date().toISOString() }); }, 500);
     onChange(patch);
   }, [onChange]);
 
-  const updateField = useCallback(<K extends keyof FinancialPlanContent>(
-    key: K, val: FinancialPlanContent[K]
-  ) => {
+  const updateField = useCallback(<K extends keyof FinancialPlanContent>(key: K, val: FinancialPlanContent[K]) => {
     handleChange({ ...content, [key]: val });
   }, [content, handleChange]);
 
@@ -912,10 +792,7 @@ export default function FinancialPlanEditor({
   }, [content, lines, handleChange]);
 
   const updateLine = useCallback((id: string, patch: Partial<Omit<CostLine, "actual">>) => {
-    handleChange({
-      ...content,
-      cost_lines: content.cost_lines.map(l => l.id === id ? { ...l, ...patch } : l),
-    });
+    handleChange({ ...content, cost_lines: content.cost_lines.map(l => l.id === id ? { ...l, ...patch } : l) });
   }, [content, handleChange]);
 
   const toggleLineOverride = useCallback((id: string) => {
@@ -933,18 +810,11 @@ export default function FinancialPlanEditor({
 
   const removeLine = useCallback((id: string) => {
     const newResources = resources.map(r => r.cost_line_id === id ? { ...r, cost_line_id: null } : r);
-    handleChange({
-      ...content,
-      cost_lines: content.cost_lines.filter(l => l.id !== id),
-      resources:  newResources,
-    });
+    handleChange({ ...content, cost_lines: content.cost_lines.filter(l => l.id !== id), resources: newResources });
   }, [content, resources, handleChange]);
 
   const updateCE = useCallback((id: string, patch: Partial<ChangeExposure>) => {
-    handleChange({
-      ...content,
-      change_exposure: content.change_exposure.map(c => c.id === id ? { ...c, ...patch } : c),
-    });
+    handleChange({ ...content, change_exposure: content.change_exposure.map(c => c.id === id ? { ...c, ...patch } : c) });
   }, [content, handleChange]);
 
   const addCE = useCallback(() => {
@@ -969,15 +839,10 @@ export default function FinancialPlanEditor({
   const fyConfig:    FYConfig    = content.fy_config    ?? { fy_start_month: 4, fy_start_year: new Date().getFullYear(), num_months: 12 };
   const monthlyData: MonthlyData = content.monthly_data ?? {};
 
-  const monthlyDataWithActuals = useMemo(
-    () => applyActualsToMonthlyData(monthlyData, actualsByLine),
-    [monthlyData, actualsByLine],
-  );
+  const monthlyDataWithActuals = useMemo(() => applyActualsToMonthlyData(monthlyData, actualsByLine), [monthlyData, actualsByLine]);
 
   useEffect(() => {
-    const sigs = analyseFinancialPlan(content, monthlyDataWithActuals, fyConfig, {
-      lastUpdatedAt: content.last_updated_at,
-    });
+    const sigs = analyseFinancialPlan(content, monthlyDataWithActuals, fyConfig, { lastUpdatedAt: content.last_updated_at });
     setSignals(sigs);
   }, [content, monthlyDataWithActuals, fyConfig]);
 
@@ -990,147 +855,129 @@ export default function FinancialPlanEditor({
     {
       id: "monthly" as const,
       label: "Monthly Phasing",
-      badge: criticalCount > 0
-        ? { count: criticalCount, color: "bg-red-500" }
-        : warningCount > 0
-        ? { count: warningCount, color: "bg-amber-500" }
-        : null,
+      badge: criticalCount > 0 ? { count: criticalCount, color: P.red } : warningCount > 0 ? { count: warningCount, color: P.amber } : null,
     },
     { id: "changes"   as const, label: `Change Exposure${content.change_exposure.length > 0 ? ` (${content.change_exposure.length})` : ""}` },
     { id: "narrative" as const, label: "Narrative & Assumptions" },
   ];
 
-  return (
-    <div className="flex flex-col gap-4">
+  const inputBase: React.CSSProperties = { border: `1px solid ${P.border}`, background: P.surface, fontFamily: P.sans, fontSize: 13, color: P.text, padding: "6px 10px", outline: "none" };
+  const labelStyle: React.CSSProperties = { display: "block", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color: P.textSm, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 5 };
 
-      <div className="flex flex-wrap gap-4 items-end">
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, fontFamily: P.sans }}>
+
+      {/* ── Currency + budget header ── */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-end" }}>
         <div>
-          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Currency</label>
-          <select
-            value={content.currency}
-            onChange={e => updateField("currency", e.target.value as Currency)}
-            disabled={readOnly}
-            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-semibold text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
+          <label style={labelStyle}>Currency</label>
+          <select value={content.currency} onChange={e => updateField("currency", e.target.value as Currency)} disabled={readOnly} style={{ ...inputBase, fontFamily: P.mono, fontWeight: 600 }}>
             {CURRENCIES.map(c => <option key={c} value={c}>{c} ({CURRENCY_SYMBOLS[c]})</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Total Approved Budget</label>
-          <div className="flex items-center gap-1 border border-gray-200 rounded-lg px-3 py-1.5 bg-white">
-            <span className="text-sm font-bold text-gray-500">{sym}</span>
-            <input
-              type="number" min={0} step={1000}
-              value={content.total_approved_budget}
+          <label style={labelStyle}>Total Approved Budget</label>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, border: `1px solid ${P.border}`, background: P.surface, padding: "0 10px" }}>
+            <span style={{ fontFamily: P.mono, fontSize: 13, fontWeight: 700, color: P.textSm }}>{sym}</span>
+            <input type="number" min={0} step={1000} value={content.total_approved_budget}
               onChange={e => updateField("total_approved_budget", e.target.value === "" ? "" : Number(e.target.value))}
-              readOnly={readOnly}
-              placeholder="0"
-              className="w-36 border-0 bg-transparent text-sm font-semibold text-gray-800 focus:outline-none"
+              readOnly={readOnly} placeholder="0"
+              style={{ width: 144, border: "none", background: "transparent", fontSize: 13, fontWeight: 600, fontFamily: P.mono, color: P.text, outline: "none", padding: "6px 0" }}
             />
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      {/* ── Stat cards ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
         {[
-          { label: "Budgeted",          value: fmt(totalBudgeted, sym),   sub: "across all cost lines",                                                                          color: "text-gray-700"    },
-          { label: "Actual Spent",      value: fmt(totalActual, sym),     sub: totalApprovedDays > 0 ? `${totalApprovedDays.toLocaleString()} approved days` : "awaiting approved timesheets", color: "text-violet-600", locked: true },
-          { label: "Total Forecast",    value: fmt(totalForecast, sym),   sub: utilPct !== null ? `${utilPct}% of approved` : "",                                                color: overBudget ? "text-red-600" : "text-emerald-600" },
-          { label: "Pending Exposure",  value: fmt(pendingExposure, sym), sub: "from change requests",                                                                           color: pendingExposure > 0 ? "text-amber-600" : "text-gray-400" },
+          { label: "Budgeted",         value: fmt(totalBudgeted, sym),   sub: "across all cost lines",                                                                             color: P.text,   locked: false },
+          { label: "Actual Spent",     value: fmt(totalActual, sym),     sub: totalApprovedDays > 0 ? `${totalApprovedDays.toLocaleString()} approved days` : "awaiting approved timesheets", color: P.violet, locked: true },
+          { label: "Total Forecast",   value: fmt(totalForecast, sym),   sub: utilPct !== null ? `${utilPct}% of approved` : "",                                                   color: overBudget ? P.red : P.green, locked: false },
+          { label: "Pending Exposure", value: fmt(pendingExposure, sym), sub: "from change requests",                                                                              color: pendingExposure > 0 ? P.amber : P.textSm, locked: false },
         ].map(s => (
-          <div key={s.label} className={`rounded-xl border px-4 py-3 shadow-sm ${
-            (s as any).locked ? "bg-violet-50 border-violet-100" : "bg-white border-gray-100"
-          }`}>
-            <div className="flex items-center gap-1.5 mb-1">
-              {(s as any).locked && <Lock className="w-3 h-3 text-violet-400" />}
-              <div className="text-xs text-gray-500">{s.label}</div>
+          <div key={s.label} style={{ background: s.locked ? P.violetLt : P.surface, border: `1px solid ${s.locked ? "#C0B0E0" : P.border}`, padding: "12px 16px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+              {s.locked && <Lock style={{ width: 10, height: 10, color: P.violet }} />}
+              <span style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, letterSpacing: "0.06em", textTransform: "uppercase" }}>{s.label}</span>
             </div>
-            <div className={`text-lg font-bold ${s.color}`}>{s.value}</div>
-            {s.sub && <div className={`text-xs mt-0.5 ${(s as any).locked ? "text-violet-400" : "text-gray-400"}`}>{s.sub}</div>}
+            <div style={{ fontFamily: P.mono, fontSize: 18, fontWeight: 700, color: s.color, fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
+            {s.sub && <div style={{ fontFamily: P.mono, fontSize: 9, color: s.locked ? P.violet : P.textSm, marginTop: 3, opacity: s.locked ? 0.7 : 1 }}>{s.sub}</div>}
           </div>
         ))}
       </div>
 
       {totalResourceCost > 0 && approvedBudget > 0 && (
-        <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm border ${
-          totalResourceCost > approvedBudget
-            ? "bg-red-50 border-red-200 text-red-700"
-            : "bg-blue-50 border-blue-200 text-blue-700"
-        }`}>
-          <Users className="w-4 h-4 flex-shrink-0" />
-          <span>
-            Resource costs total <strong>{fmt(totalResourceCost, sym)}</strong>
-            {" "}({Math.round((totalResourceCost / approvedBudget) * 100)}% of approved budget).
-            {totalResourceCost > approvedBudget && " ⚠ Exceeds approved budget."}
-          </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", fontSize: 12, border: `1px solid ${totalResourceCost > approvedBudget ? "#F0B0AA" : P.border}`, background: totalResourceCost > approvedBudget ? P.redLt : P.navyLt, color: totalResourceCost > approvedBudget ? P.red : P.navy }}>
+          <Users style={{ width: 13, height: 13, flexShrink: 0 }} />
+          <span>Resource costs total <strong>{fmt(totalResourceCost, sym)}</strong> ({Math.round((totalResourceCost / approvedBudget) * 100)}% of approved budget).{totalResourceCost > approvedBudget && " ⚠ Exceeds approved budget."}</span>
         </div>
       )}
 
       {overBudget && forecastVariance !== null && (
-        <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", fontSize: 12, border: `1px solid #F0B0AA`, background: P.redLt, color: P.red }}>
+          <AlertTriangle style={{ width: 13, height: 13, flexShrink: 0 }} />
           <span>Forecast exceeds approved budget by <strong>{fmt(forecastVariance, sym)}</strong>.</span>
         </div>
       )}
 
+      {/* ── Summary ── */}
       <div>
-        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Plan Summary</label>
-        <textarea
-          value={content.summary}
-          onChange={e => updateField("summary", e.target.value)}
-          readOnly={readOnly}
-          rows={2}
+        <label style={labelStyle}>Plan Summary</label>
+        <textarea value={content.summary} onChange={e => updateField("summary", e.target.value)} readOnly={readOnly} rows={2}
           placeholder="Brief overview of financial position and key spend areas..."
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+          style={{ ...inputBase, width: "100%", resize: "none", lineHeight: 1.5 }}
         />
       </div>
 
-      <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-              activeTab === tab.id
-                ? "border-blue-500 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
-          >
-            {tab.id === "monthly"   && <Calendar className="w-3.5 h-3.5" />}
-            {tab.id === "resources" && <Users className="w-3.5 h-3.5" />}
-            {tab.label}
-            {tab.id === "monthly" && (tab as any).badge && (
-              <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-xs font-bold ${(tab as any).badge.color}`}>
-                {(tab as any).badge.count}
-              </span>
-            )}
-          </button>
-        ))}
+      {/* ── Tabs ── */}
+      <div style={{ display: "flex", gap: 0, borderBottom: `2px solid ${P.border}`, overflowX: "auto" }}>
+        {tabs.map(tab => {
+          const active = activeTab === tab.id;
+          return (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              style={{
+                display: "flex", alignItems: "center", gap: 6, padding: "8px 16px",
+                fontFamily: P.sans, fontSize: 12, fontWeight: active ? 600 : 400, cursor: "pointer",
+                background: "none", border: "none", borderBottom: `2px solid ${active ? P.navy : "transparent"}`,
+                color: active ? P.navy : P.textMd, marginBottom: -2, whiteSpace: "nowrap",
+                transition: "all 0.1s",
+              }}
+            >
+              {tab.id === "monthly"   && <Calendar style={{ width: 12, height: 12 }} />}
+              {tab.id === "resources" && <Users style={{ width: 12, height: 12 }} />}
+              {tab.label}
+              {tab.id === "monthly" && (tab as any).badge && (
+                <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, height: 16, background: (tab as any).badge.color, color: "#FFF", fontFamily: P.mono, fontSize: 9, fontWeight: 700 }}>
+                  {(tab as any).badge.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
+      {/* ── Cost Breakdown tab ── */}
       {activeTab === "budget" && (
-        <div className="overflow-x-auto rounded-xl border border-gray-200">
-          <div className="px-4 py-2 border-b border-gray-100 bg-violet-50/60 flex items-center gap-2 text-[11px] text-violet-600 font-medium">
-            <Lock className="w-3 h-3" />
+        <div style={{ border: `1px solid ${P.borderMd}`, overflow: "hidden" }}>
+          <div style={{ padding: "6px 12px", background: P.violetLt, borderBottom: `1px solid #C0B0E0`, display: "flex", alignItems: "center", gap: 6, fontFamily: P.mono, fontSize: 9, color: P.violet, fontWeight: 500 }}>
+            <Lock style={{ width: 11, height: 11 }} />
             Actual column is locked — auto-computed from approved timesheet days × rate card rate
           </div>
-          <table className="w-full text-sm border-collapse">
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
-              <tr className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                {[
-                  "Category", "Description", `Budgeted (${sym})`, `Actual (${sym}) ⓘ`,
-                  `Forecast (${sym})`, "Variance", "Resources", "Notes", "",
-                ].map((h, i) => (
-                  <th key={i} className={`px-3 py-2.5 text-left border-b border-gray-200 whitespace-nowrap ${
-                    h.startsWith("Actual") ? "bg-violet-50 text-violet-600" : ""
-                  }`}>{h}</th>
+              <tr style={{ background: "#F4F4F2", borderBottom: `1px solid ${P.borderMd}` }}>
+                {["Category", "Description", `Budgeted (${sym})`, `Actual (${sym}) ⓘ`, `Forecast (${sym})`, "Variance", "Resources", "Notes", ""].map((h, i) => (
+                  <th key={i} style={{ padding: "8px 10px", textAlign: "left", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color: h.startsWith("Actual") ? P.violet : P.textSm, letterSpacing: "0.08em", textTransform: "uppercase", borderBottom: `1px solid ${P.borderMd}`, background: h.startsWith("Actual") ? P.violetLt : "#F4F4F2", whiteSpace: "nowrap" }}>
+                    {h}
+                  </th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {lines.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-sm text-gray-400">
+                  <td colSpan={9} style={{ padding: "32px 16px", textAlign: "center", fontFamily: P.sans, fontSize: 13, color: P.textSm }}>
                     No cost lines yet. Click <strong>Add line</strong> below.
                   </td>
                 </tr>
@@ -1138,65 +985,54 @@ export default function FinancialPlanEditor({
               {linesWithActuals.map((l, idx) => {
                 const resTotal     = resourceTotalsByLine[l.id] ?? 0;
                 const hasResources = resTotal > 0;
-                const lineApprovedDays = timesheetEntries
-                  .filter(e => { const r = resources.find(r => r.id === e.resource_id); return r?.cost_line_id === l.id; })
-                  .reduce((s, e) => s + e.approved_days, 0);
+                const lineApprovedDays = timesheetEntries.filter(e => { const r = resources.find(r => r.id === e.resource_id); return r?.cost_line_id === l.id; }).reduce((s, e) => s + e.approved_days, 0);
                 const hasTimesheetData = lineApprovedDays > 0;
+                const rowBg = idx % 2 === 0 ? P.surface : "#FAFAF8";
+                const cellBase: React.CSSProperties = { borderBottom: `1px solid ${P.border}`, background: rowBg };
 
                 return (
-                  <tr key={l.id} className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50/50"} hover:bg-blue-50/20 group transition-colors`}>
-                    <td className="border-b border-gray-100 min-w-[140px] px-2 py-1">
-                      <select
-                        value={l.category}
-                        onChange={e => updateLine(l.id, { category: e.target.value as CostCategory })}
-                        disabled={readOnly}
-                        className="w-full border-0 bg-transparent text-xs font-medium focus:outline-none focus:ring-1 focus:ring-blue-400 rounded cursor-pointer"
-                      >
-                        {(Object.keys(CATEGORY_LABELS) as CostCategory[]).map(c => (
-                          <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>
-                        ))}
+                  <tr key={l.id} style={{ background: rowBg }}>
+                    <td style={{ ...cellBase, minWidth: 140, padding: "4px 6px" }}>
+                      <select value={l.category} onChange={e => updateLine(l.id, { category: e.target.value as CostCategory })} disabled={readOnly}
+                        style={{ width: "100%", border: "none", background: "transparent", fontSize: 11, fontFamily: P.sans, fontWeight: 500, color: P.text, outline: "none", cursor: readOnly ? "default" : "pointer" }}>
+                        {(Object.keys(CATEGORY_LABELS) as CostCategory[]).map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
                       </select>
                     </td>
-                    <td className="border-b border-gray-100 min-w-[160px]">
-                      <input
-                        type="text" value={l.description}
-                        onChange={e => updateLine(l.id, { description: e.target.value })}
-                        readOnly={readOnly}
+                    <td style={{ ...cellBase, minWidth: 160 }}>
+                      <input type="text" value={l.description} onChange={e => updateLine(l.id, { description: e.target.value })} readOnly={readOnly}
                         placeholder="Description..."
-                        className="w-full border-0 bg-transparent px-2 py-1.5 text-sm text-gray-800 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-400 rounded"
+                        style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.text, fontFamily: P.sans, outline: "none" }}
                       />
                     </td>
-                    <td className={`border-b border-gray-100 ${hasResources && !l.override ? "bg-blue-50/40" : ""}`}>
+                    <td style={{ ...cellBase, background: hasResources && !l.override ? "#F2F8FF" : rowBg }}>
                       <MoneyCell value={l.budgeted} onChange={v => updateLine(l.id, { budgeted: v })} symbol={sym} readOnly={readOnly || (hasResources && !l.override)} />
                     </td>
-                    <td className="border-b border-gray-100 bg-violet-50/40">
+                    <td style={{ ...cellBase, background: P.violetLt }}>
                       <ActualCell value={l.actual} symbol={sym} approvedDays={lineApprovedDays} hasTimesheetData={hasTimesheetData} />
                     </td>
-                    <td className={`border-b border-gray-100 ${hasResources && !l.override ? "bg-blue-50/40" : ""}`}>
+                    <td style={{ ...cellBase, background: hasResources && !l.override ? "#F2F8FF" : rowBg }}>
                       <MoneyCell value={l.forecast} onChange={v => updateLine(l.id, { forecast: v })} symbol={sym} readOnly={readOnly || (hasResources && !l.override)} />
                     </td>
-                    <td className="border-b border-gray-100 px-3">
+                    <td style={{ ...cellBase, padding: "4px 10px" }}>
                       <VarianceBadge budget={l.budgeted} forecast={l.forecast} />
                     </td>
-                    <td className="border-b border-gray-100 px-2 min-w-[130px]">
-                      {!readOnly && (
-                        <OverrideToggle line={l} hasLinkedResources={hasResources} resTotal={resTotal} sym={sym} onToggle={() => toggleLineOverride(l.id)} />
-                      )}
-                      {!hasResources && <span className="text-[10px] text-gray-300 px-1">no resources</span>}
+                    <td style={{ ...cellBase, padding: "4px 8px", minWidth: 130 }}>
+                      {!readOnly && <OverrideToggle line={l} hasLinkedResources={hasResources} resTotal={resTotal} sym={sym} onToggle={() => toggleLineOverride(l.id)} />}
+                      {!hasResources && <span style={{ fontFamily: P.mono, fontSize: 9, color: P.border }}>no resources</span>}
                     </td>
-                    <td className="border-b border-gray-100 min-w-[160px]">
-                      <input
-                        type="text" value={l.notes}
-                        onChange={e => updateLine(l.id, { notes: e.target.value })}
-                        readOnly={readOnly}
+                    <td style={{ ...cellBase, minWidth: 160 }}>
+                      <input type="text" value={l.notes} onChange={e => updateLine(l.id, { notes: e.target.value })} readOnly={readOnly}
                         placeholder="Notes..."
-                        className="w-full border-0 bg-transparent px-2 py-1.5 text-sm text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-400 rounded"
+                        style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.textMd, fontFamily: P.sans, outline: "none" }}
                       />
                     </td>
-                    <td className="border-b border-gray-100 px-2">
+                    <td style={{ ...cellBase, padding: "4px 6px" }}>
                       {!readOnly && (
-                        <button onClick={() => removeLine(l.id)} className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-red-500 transition-all">
-                          <Trash2 className="w-3.5 h-3.5" />
+                        <button onClick={() => removeLine(l.id)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0 }}
+                          onMouseEnter={e => (e.currentTarget.style.color = P.red, e.currentTarget.style.opacity = "1")}
+                          onMouseLeave={e => (e.currentTarget.style.color = P.textSm, e.currentTarget.style.opacity = "0")}
+                        >
+                          <Trash2 style={{ width: 13, height: 13 }} />
                         </button>
                       )}
                     </td>
@@ -1206,32 +1042,32 @@ export default function FinancialPlanEditor({
             </tbody>
             {lines.length > 0 && (
               <tfoot>
-                <tr className="bg-gray-100 font-semibold text-xs text-gray-700">
-                  <td colSpan={2} className="px-3 py-2">Total</td>
-                  <td className="px-3 py-2">{fmt(totalBudgeted, sym)}</td>
-                  <td className="px-3 py-2 bg-violet-100">
-                    <span className="flex items-center gap-1 text-violet-700">
-                      <Lock className="w-2.5 h-2.5" />
-                      {fmt(totalActual, sym)}
+                <tr style={{ background: "#F0F0ED", borderTop: `2px solid ${P.borderMd}` }}>
+                  <td colSpan={2} style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, color: P.textMd, letterSpacing: "0.06em", textTransform: "uppercase" }}>Total</td>
+                  <td style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.text }}>{fmt(totalBudgeted, sym)}</td>
+                  <td style={{ padding: "8px 10px", background: P.violetLt }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.violet }}>
+                      <Lock style={{ width: 10, height: 10 }} /> {fmt(totalActual, sym)}
                     </span>
                   </td>
-                  <td className="px-3 py-2">{fmt(totalForecast, sym)}</td>
-                  <td className="px-3 py-2"><VarianceBadge budget={totalBudgeted} forecast={totalForecast} /></td>
+                  <td style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.text }}>{fmt(totalForecast, sym)}</td>
+                  <td style={{ padding: "8px 10px" }}><VarianceBadge budget={totalBudgeted} forecast={totalForecast} /></td>
                   <td colSpan={3} />
                 </tr>
               </tfoot>
             )}
           </table>
           {!readOnly && (
-            <div className="px-4 py-2 bg-gray-50 border-t border-gray-200">
-              <button onClick={addLine} className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors">
-                <Plus className="w-4 h-4" /> Add line
+            <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}` }}>
+              <button onClick={addLine} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.navy, cursor: "pointer", fontWeight: 500 }}>
+                <Plus style={{ width: 14, height: 14 }} /> Add line
               </button>
             </div>
           )}
         </div>
       )}
 
+      {/* ── Resources tab ── */}
       {activeTab === "resources" && (
         <ResourcesTab
           resources={resources} costLines={lines} sym={sym} currency={content.currency}
@@ -1241,14 +1077,11 @@ export default function FinancialPlanEditor({
         />
       )}
 
+      {/* ── Monthly tab ── */}
       {activeTab === "monthly" && (
-        <div className="flex flex-col gap-4">
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {!readOnly && resources.length > 0 && (
-            <ResourceSyncBar
-              resources={resources} costLines={lines} monthlyData={monthlyData}
-              fyConfig={fyConfig} currency={content.currency} timesheetEntries={timesheetEntries}
-              onSync={d => updateField("monthly_data", d)}
-            />
+            <ResourceSyncBar resources={resources} costLines={lines} monthlyData={monthlyData} fyConfig={fyConfig} currency={content.currency} timesheetEntries={timesheetEntries} onSync={d => updateField("monthly_data", d)} />
           )}
           <FinancialIntelligencePanel
             content={content} monthlyData={monthlyDataWithActuals} fyConfig={fyConfig}
@@ -1264,77 +1097,81 @@ export default function FinancialPlanEditor({
         </div>
       )}
 
+      {/* ── Changes tab ── */}
       {activeTab === "changes" && (
-        <div className="flex flex-col gap-3">
-          <div className="grid grid-cols-3 gap-3 text-sm">
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
             {[
-              { label: "Approved Exposure", value: fmt(approvedExposure, sym),                  color: "text-blue-600"   },
-              { label: "Pending Exposure",  value: fmt(pendingExposure, sym),                   color: pendingExposure > 0 ? "text-amber-600" : "text-gray-400" },
-              { label: "Total Exposure",    value: fmt(approvedExposure + pendingExposure, sym), color: "text-gray-700"   },
+              { label: "Approved Exposure", value: fmt(approvedExposure, sym),                  color: P.navy  },
+              { label: "Pending Exposure",  value: fmt(pendingExposure, sym),                   color: pendingExposure > 0 ? P.amber : P.textSm },
+              { label: "Total Exposure",    value: fmt(approvedExposure + pendingExposure, sym), color: P.text  },
             ].map(s => (
-              <div key={s.label} className="bg-white rounded-xl border border-gray-100 px-4 py-3 shadow-sm">
-                <div className="text-xs text-gray-500">{s.label}</div>
-                <div className={`text-base font-bold ${s.color}`}>{s.value}</div>
+              <div key={s.label} style={{ background: P.surface, border: `1px solid ${P.border}`, padding: "12px 16px" }}>
+                <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>{s.label}</div>
+                <div style={{ fontFamily: P.mono, fontSize: 16, fontWeight: 700, color: s.color, fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
               </div>
             ))}
           </div>
-          <div className="overflow-x-auto rounded-xl border border-gray-200">
-            <table className="w-full text-sm border-collapse">
+          <div style={{ border: `1px solid ${P.borderMd}`, overflow: "hidden" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
-                <tr className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                <tr style={{ background: "#F4F4F2", borderBottom: `1px solid ${P.borderMd}` }}>
                   {["Change Ref", "Title", `Cost Impact (${sym})`, "Status", "Notes", ""].map((h, i) => (
-                    <th key={i} className="px-3 py-2.5 text-left border-b border-gray-200">{h}</th>
+                    <th key={i} style={{ padding: "8px 10px", textAlign: "left", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color: P.textSm, letterSpacing: "0.08em", textTransform: "uppercase", borderBottom: `1px solid ${P.borderMd}` }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {content.change_exposure.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">No change exposure logged yet.</td></tr>
+                  <tr><td colSpan={6} style={{ padding: "32px 16px", textAlign: "center", fontFamily: P.sans, fontSize: 13, color: P.textSm }}>No change exposure logged yet.</td></tr>
                 )}
-                {content.change_exposure.map((c, idx) => (
-                  <tr key={c.id} className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50/50"} group hover:bg-amber-50/20 transition-colors`}>
-                    <td className="border-b border-gray-100">
-                      <input type="text" value={c.change_ref} onChange={e => updateCE(c.id, { change_ref: e.target.value })} readOnly={readOnly}
-                        placeholder="CR-001" className="w-full border-0 bg-transparent px-2 py-1.5 text-sm font-mono text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400 rounded" />
-                    </td>
-                    <td className="border-b border-gray-100 min-w-[180px]">
-                      <input type="text" value={c.title} onChange={e => updateCE(c.id, { title: e.target.value })} readOnly={readOnly}
-                        placeholder="Change title..." className="w-full border-0 bg-transparent px-2 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-1 focus:ring-blue-400 rounded" />
-                    </td>
-                    <td className="border-b border-gray-100">
-                      <MoneyCell value={c.cost_impact} onChange={v => updateCE(c.id, { cost_impact: v })} symbol={sym} readOnly={readOnly} />
-                    </td>
-                    <td className="border-b border-gray-100 px-2">
-                      <select value={c.status} onChange={e => updateCE(c.id, { status: e.target.value as ChangeExposure["status"] })} disabled={readOnly}
-                        className={`text-xs font-semibold px-2 py-1 rounded-full border-0 cursor-pointer focus:outline-none ${
-                          c.status === "approved" ? "bg-green-100 text-green-700"
-                          : c.status === "pending" ? "bg-amber-100 text-amber-700"
-                          : "bg-gray-100 text-gray-500"
-                        }`}>
-                        <option value="approved">Approved</option>
-                        <option value="pending">Pending</option>
-                        <option value="rejected">Rejected</option>
-                      </select>
-                    </td>
-                    <td className="border-b border-gray-100 min-w-[160px]">
-                      <input type="text" value={c.notes} onChange={e => updateCE(c.id, { notes: e.target.value })} readOnly={readOnly}
-                        placeholder="Notes..." className="w-full border-0 bg-transparent px-2 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400 rounded" />
-                    </td>
-                    <td className="border-b border-gray-100 px-2">
-                      {!readOnly && (
-                        <button onClick={() => removeCE(c.id)} className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-red-500 transition-all">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {content.change_exposure.map((c, idx) => {
+                  const rowBg = idx % 2 === 0 ? P.surface : "#FAFAF8";
+                  const cellBase: React.CSSProperties = { borderBottom: `1px solid ${P.border}`, background: rowBg };
+                  return (
+                    <tr key={c.id} style={{ background: rowBg }}>
+                      <td style={cellBase}>
+                        <input type="text" value={c.change_ref} onChange={e => updateCE(c.id, { change_ref: e.target.value })} readOnly={readOnly}
+                          placeholder="CR-001" style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 11, fontFamily: P.mono, color: P.textMd, outline: "none" }} />
+                      </td>
+                      <td style={{ ...cellBase, minWidth: 180 }}>
+                        <input type="text" value={c.title} onChange={e => updateCE(c.id, { title: e.target.value })} readOnly={readOnly}
+                          placeholder="Change title..." style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.text, fontFamily: P.sans, outline: "none" }} />
+                      </td>
+                      <td style={cellBase}>
+                        <MoneyCell value={c.cost_impact} onChange={v => updateCE(c.id, { cost_impact: v })} symbol={sym} readOnly={readOnly} />
+                      </td>
+                      <td style={{ ...cellBase, padding: "4px 8px" }}>
+                        <select value={c.status} onChange={e => updateCE(c.id, { status: e.target.value as ChangeExposure["status"] })} disabled={readOnly}
+                          style={{ fontSize: 10, fontFamily: P.mono, fontWeight: 700, padding: "3px 8px", border: "none", cursor: readOnly ? "default" : "pointer", outline: "none", background: c.status === "approved" ? P.greenLt : c.status === "pending" ? P.amberLt : "#F4F4F2", color: c.status === "approved" ? P.green : c.status === "pending" ? P.amber : P.textSm }}>
+                          <option value="approved">Approved</option>
+                          <option value="pending">Pending</option>
+                          <option value="rejected">Rejected</option>
+                        </select>
+                      </td>
+                      <td style={{ ...cellBase, minWidth: 160 }}>
+                        <input type="text" value={c.notes} onChange={e => updateCE(c.id, { notes: e.target.value })} readOnly={readOnly}
+                          placeholder="Notes..." style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.textMd, fontFamily: P.sans, outline: "none" }} />
+                      </td>
+                      <td style={{ ...cellBase, padding: "4px 6px" }}>
+                        {!readOnly && (
+                          <button onClick={() => removeCE(c.id)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0 }}
+                            onMouseEnter={e => (e.currentTarget.style.color = P.red, e.currentTarget.style.opacity = "1")}
+                            onMouseLeave={e => (e.currentTarget.style.color = P.textSm, e.currentTarget.style.opacity = "0")}
+                          >
+                            <Trash2 style={{ width: 13, height: 13 }} />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             {!readOnly && (
-              <div className="px-4 py-2 bg-gray-50 border-t border-gray-200">
-                <button onClick={addCE} className="flex items-center gap-1.5 text-sm text-amber-600 hover:text-amber-700 font-medium transition-colors">
-                  <Plus className="w-4 h-4" /> Add change exposure
+              <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}` }}>
+                <button onClick={addCE} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.amber, cursor: "pointer", fontWeight: 500 }}>
+                  <Plus style={{ width: 14, height: 14 }} /> Add change exposure
                 </button>
               </div>
             )}
@@ -1342,21 +1179,18 @@ export default function FinancialPlanEditor({
         </div>
       )}
 
+      {/* ── Narrative tab ── */}
       {activeTab === "narrative" && (
-        <div className="flex flex-col gap-4">
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {[
             { key: "variance_narrative" as const, label: "Variance Narrative",        placeholder: "Explain material variances between budget and forecast..." },
             { key: "assumptions"        as const, label: "Assumptions & Constraints", placeholder: "Key assumptions: rates, headcount, duration, exchange rate basis..." },
           ].map(({ key, label, placeholder }) => (
             <div key={key}>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</label>
-              <textarea
-                value={content[key]}
-                onChange={e => updateField(key, e.target.value)}
-                readOnly={readOnly}
-                rows={4}
+              <label style={labelStyle}>{label}</label>
+              <textarea value={content[key]} onChange={e => updateField(key, e.target.value)} readOnly={readOnly} rows={4}
                 placeholder={placeholder}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                style={{ ...inputBase, width: "100%", resize: "vertical", lineHeight: 1.6 }}
               />
             </div>
           ))}
