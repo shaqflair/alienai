@@ -582,18 +582,41 @@ export default async function ProjectPage({
   let resolvedPmJobTitle = "";
 
   if (pmUserId) {
-    const { data: pmProfile } = await supabase
+    // Try id first (Supabase uid = profiles.id), then user_id column
+    const { data: pmById } = await supabase
       .from("profiles")
-      .select("full_name, display_name, name, email, user_id, id")
-      .or(`user_id.eq.${pmUserId},id.eq.${pmUserId}`)
+      .select("full_name, display_name, name, email")
+      .eq("id", pmUserId)
       .maybeSingle();
 
+    let pmProfile: any = pmById;
+
+    if (!safeStr(pmProfile?.full_name).trim() && !safeStr(pmProfile?.email).trim()) {
+      const { data: pmByUserId } = await supabase
+        .from("profiles")
+        .select("full_name, display_name, name, email")
+        .eq("user_id", pmUserId)
+        .maybeSingle();
+      if (pmByUserId) pmProfile = pmByUserId;
+    }
+
     resolvedPmName =
-      safeStr((pmProfile as any)?.full_name).trim()    ||
-      safeStr((pmProfile as any)?.display_name).trim() ||
-      safeStr((pmProfile as any)?.name).trim()         ||
-      safeStr((pmProfile as any)?.email).trim()        ||
+      safeStr(pmProfile?.full_name).trim()    ||
+      safeStr(pmProfile?.display_name).trim() ||
+      safeStr(pmProfile?.name).trim()         ||
+      safeStr(pmProfile?.email).trim()        ||
       "";
+
+    // Last resort: look in already-fetched org members list
+    if (!resolvedPmName) {
+      const fromOrg = (orgMembers as any[]).find((m) => safeStr(m.user_id) === pmUserId);
+      const p = fromOrg?.profiles as any;
+      resolvedPmName =
+        safeStr(p?.full_name).trim()    ||
+        safeStr(p?.display_name).trim() ||
+        safeStr(p?.email).trim()        ||
+        "";
+    }
 
     const { data: orgPm } = await supabase
       .from("organisation_members")

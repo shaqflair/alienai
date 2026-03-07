@@ -10,6 +10,7 @@ import FinancialPlanMonthlyView, { type MonthlyData, type FYConfig } from "./Fin
 import FinancialIntelligencePanel from "./FinancialIntelligencePanel";
 import { analyseFinancialPlan, type Signal } from "@/lib/financial-intelligence";
 import ResourcePicker, { type PickedPerson } from "./ResourcePicker";
+import { getRateForUser } from "@/app/actions/resource-rate-lookup";
 import { syncResourcesToMonthlyData, previewSync } from "./syncResourcesToMonthlyData";
 import {
   computeActuals,
@@ -527,7 +528,7 @@ function ResourcesTab({
 
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8, border: `1px solid #C0B0E0`, background: P.violetLt, padding: "8px 12px", fontSize: 11, color: P.violet }}>
         <Lock style={{ width: 12, height: 12, flexShrink: 0, marginTop: 1 }} />
-        <span><strong>Actuals are locked</strong> — computed automatically from approved timesheet days × rate card rate. Timesheets are submitted by resources and approved by PMs.</span>
+        <span><strong>People actuals are locked</strong> — computed from approved timesheet days × rate card rate. Hardware, infrastructure and vendor lines can be edited manually in the Cost Breakdown tab.</span>
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, border: `1px solid ${P.border}`, background: P.navyLt, padding: "8px 12px", fontSize: 11, color: P.navy }}>
@@ -572,17 +573,36 @@ function ResourcesTab({
                     <ResourcePicker
                       organisationId={organisationId} value={r.user_id ?? null}
                       currentResource={r} disabled={readOnly}
-                      onPick={(person: PickedPerson) => {
-                        update(r.id, {
+                      onPick={async (person: PickedPerson) => {
+                        // Apply name + any rate already on the person object
+                        const basePatch: Partial<Resource> = {
                           user_id: person.user_id || undefined,
-                          name: person.full_name ?? person.email ?? r.name,
+                          name: person.full_name ?? person.name ?? person.email ?? r.name,
                           ...(person.rate_type != null ? {
                             rate_type: person.rate_type,
                             day_rate: person.rate_type === "day_rate" ? (person.rate ?? "") : r.day_rate,
                             monthly_cost: person.rate_type === "monthly_cost" ? (person.rate ?? "") : r.monthly_cost,
                             type: (person.resource_type ?? r.type) as ResourceType,
                           } : {}),
-                        });
+                        };
+                        update(r.id, basePatch);
+
+                        // Rate card lookup — person-specific first, then role fallback via server action
+                        const uid = person.user_id;
+                        if (uid && organisationId) {
+                          try {
+                            const match = await getRateForUser(organisationId, uid);
+                            if (match) {
+                              update(r.id, {
+                                ...basePatch,
+                                rate_type:    match.rate_type,
+                                day_rate:     match.rate_type === "day_rate"     ? match.rate : r.day_rate,
+                                monthly_cost: match.rate_type === "monthly_cost" ? match.rate : r.monthly_cost,
+                                type:         match.resource_type as ResourceType,
+                              });
+                            }
+                          } catch { /* rate card optional — silently skip */ }
+                        }
                       }}
                     />
                     <input type="text" value={r.name} onChange={e => update(r.id, { name: e.target.value })} readOnly={readOnly}
@@ -777,9 +797,8 @@ export default function FinancialPlanEditor({
   }, [resources]);
 
   const handleChange = useCallback((patch: FinancialPlanContent) => {
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => { onChange({ ...patch, last_updated_at: new Date().toISOString() }); }, 500);
-    onChange(patch);
+    // Single immediate call with timestamp — avoids double-render + stale overwrite
+    onChange({ ...patch, last_updated_at: new Date().toISOString() });
   }, [onChange]);
 
   const updateField = useCallback(<K extends keyof FinancialPlanContent>(key: K, val: FinancialPlanContent[K]) => {
@@ -791,7 +810,7 @@ export default function FinancialPlanEditor({
     handleChange({ ...content, resources: newResources, cost_lines: newLines });
   }, [content, lines, handleChange]);
 
-  const updateLine = useCallback((id: string, patch: Partial<Omit<CostLine, "actual">>) => {
+  const updateLine = useCallback((id: string, patch: Partial<CostLine>) => {
     handleChange({ ...content, cost_lines: content.cost_lines.map(l => l.id === id ? { ...l, ...patch } : l) });
   }, [content, handleChange]);
 
@@ -962,7 +981,7 @@ export default function FinancialPlanEditor({
         <div style={{ border: `1px solid ${P.borderMd}`, overflow: "hidden" }}>
           <div style={{ padding: "6px 12px", background: P.violetLt, borderBottom: `1px solid #C0B0E0`, display: "flex", alignItems: "center", gap: 6, fontFamily: P.mono, fontSize: 9, color: P.violet, fontWeight: 500 }}>
             <Lock style={{ width: 11, height: 11 }} />
-            Actual column is locked — auto-computed from approved timesheet days × rate card rate
+            People actuals are locked — auto-computed from approved timesheets × rate card. All other categories (hardware, infrastructure, vendors etc.) can be edited manually.
           </div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
@@ -1007,8 +1026,12 @@ export default function FinancialPlanEditor({
                     <td style={{ ...cellBase, background: hasResources && !l.override ? "#F2F8FF" : rowBg }}>
                       <MoneyCell value={l.budgeted} onChange={v => updateLine(l.id, { budgeted: v })} symbol={sym} readOnly={readOnly || (hasResources && !l.override)} />
                     </td>
-                    <td style={{ ...cellBase, background: P.violetLt }}>
-                      <ActualCell value={l.actual} symbol={sym} approvedDays={lineApprovedDays} hasTimesheetData={hasTimesheetData} />
+                    <td style={{ ...cellBase, background: l.category === "people" ? P.violetLt : rowBg }}>
+                      {l.category === "people" ? (
+                        <ActualCell value={l.actual} symbol={sym} approvedDays={lineApprovedDays} hasTimesheetData={hasTimesheetData} />
+                      ) : (
+                        <MoneyCell value={l.actual} onChange={v => updateLine(l.id, { actual: v })} symbol={sym} readOnly={readOnly} />
+                      )}
                     </td>
                     <td style={{ ...cellBase, background: hasResources && !l.override ? "#F2F8FF" : rowBg }}>
                       <MoneyCell value={l.forecast} onChange={v => updateLine(l.id, { forecast: v })} symbol={sym} readOnly={readOnly || (hasResources && !l.override)} />

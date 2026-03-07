@@ -28,12 +28,10 @@ export async function GET(req: NextRequest) {
     const { data: auth } = await supabase.auth.getUser();
     if (!auth?.user) return jsonErr("Unauthorized", 401);
 
-    // Accept orgId from query param, fall back to active org
     const qOrgId = req.nextUrl.searchParams.get("orgId")?.trim() ?? "";
     const activeOrgId = qOrgId || (await getActiveOrgId().catch(() => null));
     if (!activeOrgId) return jsonErr("No active organisation", 400);
 
-    // Confirm caller is a member of this org
     const { data: callerMem } = await supabase
       .from("organisation_members")
       .select("role")
@@ -44,7 +42,6 @@ export async function GET(req: NextRequest) {
 
     if (!callerMem?.role) return jsonErr("Not a member of this organisation", 403);
 
-    // Fetch active members with their profile
     const { data: rows, error } = await supabase
       .from("organisation_members")
       .select(`
@@ -65,18 +62,19 @@ export async function GET(req: NextRequest) {
 
     const members = (rows ?? []).map((r: any) => {
       const p = r.profiles as any;
-      const name =
-        ss(p?.full_name).trim()    ||
-        ss(p?.display_name).trim() ||
-        ss(p?.email).trim()        ||
-        ss(r.user_id).slice(0, 8);
-      const email = ss(p?.email).trim();
+      const full_name = ss(p?.full_name).trim() || ss(p?.display_name).trim() || "";
+      const email     = ss(p?.email).trim();
+      const job_title = ss(r.job_title).trim();
+
+      // `name` = best display string (used as fallback in pickers that don't know full_name)
+      const name = full_name || email || ss(r.user_id).slice(0, 8);
 
       return {
         user_id:   ss(r.user_id),
-        name,
+        full_name, // ← explicit field so ResourcePicker.onPick gets it
+        name,      // ← display fallback
         email,
-        job_title: ss(r.job_title).trim(),
+        job_title, // ← used for rate card lookup
       };
     }).filter((m: any) => m.user_id);
 

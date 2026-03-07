@@ -1,4 +1,3 @@
-//AssignPmButton
 "use client";
 
 import { useState, useRef, useEffect } from "react";
@@ -21,20 +20,21 @@ export default function AssignPmButton({
 }: Props) {
   const router = useRouter();
 
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
+  const [open,    setOpen]    = useState(false);
+  const [search,  setSearch]  = useState("");
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [saving,  setSaving]  = useState(false);
 
-  const [pmName, setPmName] = useState(currentPmName || "Unassigned");
+  // Guarantee never blank — fall back to "Unassigned"
+  const [pmName,   setPmName]   = useState(currentPmName?.trim() || "Unassigned");
   const [pmUserId, setPmUserId] = useState<string | null>(currentPmUserId ?? null);
 
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  // Keep local state in sync when server props change
+  // Keep in sync when server props change (e.g. after router.refresh)
   useEffect(() => {
-    setPmName(currentPmName || "Unassigned");
+    setPmName(currentPmName?.trim() || "Unassigned");
   }, [currentPmName]);
 
   useEffect(() => {
@@ -62,9 +62,7 @@ export default function AssignPmButton({
         if (!cancelled) setLoading(false);
       });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [open, orgId, members.length]);
 
   // Close on outside click
@@ -72,17 +70,18 @@ export default function AssignPmButton({
     function handler(e: MouseEvent) {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
         setOpen(false);
+        setSearch("");
       }
     }
-
     if (open) document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
   const filtered = members.filter((m) => {
     const q = search.toLowerCase().trim();
+    if (!q) return true;
     return (
-      (m.name || "").toLowerCase().includes(q) ||
+      (m.name  || "").toLowerCase().includes(q) ||
       (m.email || "").toLowerCase().includes(q)
     );
   });
@@ -99,7 +98,7 @@ export default function AssignPmButton({
         body: JSON.stringify({
           project_id: projectId,
           pm_user_id: member.user_id,
-          pm_name: nextName,
+          pm_name:    nextName,
         }),
       });
 
@@ -109,9 +108,9 @@ export default function AssignPmButton({
       setPmUserId(member.user_id);
       setOpen(false);
       setSearch("");
-
-      // Pull fresh server state so page header/project overview reflects saved PM
       router.refresh();
+    } catch {
+      // silent — user can retry
     } finally {
       setSaving(false);
     }
@@ -127,7 +126,7 @@ export default function AssignPmButton({
         body: JSON.stringify({
           project_id: projectId,
           pm_user_id: null,
-          pm_name: null,
+          pm_name:    null,
         }),
       });
 
@@ -137,37 +136,41 @@ export default function AssignPmButton({
       setPmUserId(null);
       setOpen(false);
       setSearch("");
-
       router.refresh();
+    } catch {
+      // silent
     } finally {
       setSaving(false);
     }
   }
+
+  const displayName = pmName?.trim() || "Unassigned";
 
   return (
     <div ref={wrapRef} style={{ position: "relative", display: "inline-block" }}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        disabled={saving}
         style={{
           background: "none",
           border: "none",
           padding: 0,
           cursor: saving ? "wait" : "pointer",
-          color: "#2563eb",
+          color: displayName === "Unassigned" ? "#94a3b8" : "#2563eb",
           fontWeight: 500,
           fontSize: 13,
           fontFamily: "inherit",
-          textDecoration: pmName === "Unassigned" ? "underline dotted" : "none",
+          textDecoration: displayName === "Unassigned" ? "underline dotted" : "none",
           display: "inline-flex",
           alignItems: "center",
           gap: 4,
           opacity: saving ? 0.7 : 1,
+          minWidth: 80,    // prevent total collapse when name is short
         }}
-        disabled={saving}
       >
-        {saving ? "Saving…" : pmName}
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.5 }}>
+        {saving ? "Saving…" : displayName}
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.45, flexShrink: 0 }}>
           <path
             d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"
             stroke="currentColor"
@@ -193,69 +196,36 @@ export default function AssignPmButton({
             overflow: "hidden",
           }}
         >
-          <div
-            style={{
-              padding: "10px 12px",
-              borderBottom: "1px solid #f1f5f9",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
+          {/* Search */}
+          <div style={{ padding: "10px 12px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 8 }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-              <circle cx="11" cy="11" r="8" stroke="#94a3b8" strokeWidth="2" />
-              <path
-                d="m21 21-4.35-4.35"
-                stroke="#94a3b8"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
+              <circle cx="11" cy="11" r="8" stroke="#94a3b8" strokeWidth="2"/>
+              <path d="m21 21-4.35-4.35" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round"/>
             </svg>
-
             <input
               autoFocus
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search members..."
-              style={{
-                flex: 1,
-                border: "none",
-                outline: "none",
-                fontSize: 13,
-                color: "#0f172a",
-                fontFamily: "inherit",
-                background: "transparent",
-              }}
+              placeholder="Search members…"
+              style={{ flex: 1, border: "none", outline: "none", fontSize: 13, color: "#0f172a", fontFamily: "inherit", background: "transparent" }}
             />
+            {search && (
+              <button type="button" onClick={() => setSearch("")} style={{ border: "none", background: "none", cursor: "pointer", color: "#94a3b8", fontSize: 16, padding: 0, lineHeight: 1 }}>×</button>
+            )}
           </div>
 
+          {/* List */}
           <div style={{ maxHeight: 220, overflowY: "auto" }}>
             {loading ? (
-              <div
-                style={{
-                  padding: "14px 16px",
-                  fontSize: 13,
-                  color: "#94a3b8",
-                  textAlign: "center",
-                }}
-              >
-                Loading…
-              </div>
+              <div style={{ padding: "14px 16px", fontSize: 13, color: "#94a3b8", textAlign: "center" }}>Loading…</div>
             ) : filtered.length === 0 ? (
-              <div
-                style={{
-                  padding: "14px 16px",
-                  fontSize: 13,
-                  color: "#94a3b8",
-                  textAlign: "center",
-                }}
-              >
-                No members found
+              <div style={{ padding: "14px 16px", fontSize: 13, color: "#94a3b8", textAlign: "center" }}>
+                {members.length === 0 ? "No members found" : "No matches"}
               </div>
             ) : (
               filtered.map((m) => {
                 const selected = m.user_id === pmUserId;
-
+                const label    = m.name?.trim() || m.email || m.user_id.slice(0, 8);
                 return (
                   <button
                     key={m.user_id}
@@ -274,40 +244,29 @@ export default function AssignPmButton({
                       borderBottom: "1px solid #f8fafc",
                       gap: 1,
                     }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "#f8fafc";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = selected ? "#f0f6ff" : "white";
-                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "#f8fafc"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = selected ? "#f0f6ff" : "white"; }}
                   >
-                    <span style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }}>
-                      {m.name || "—"}
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", display: "flex", alignItems: "center", gap: 6 }}>
+                      {label}
+                      {selected && <span style={{ fontSize: 9, fontWeight: 700, background: "#dbeafe", color: "#2563eb", padding: "1px 5px", borderRadius: 4 }}>Current</span>}
                     </span>
-                    <span style={{ fontSize: 11, color: "#94a3b8" }}>{m.email}</span>
+                    {m.email && m.email !== label && (
+                      <span style={{ fontSize: 11, color: "#94a3b8" }}>{m.email}</span>
+                    )}
                   </button>
                 );
               })
             )}
           </div>
 
-          {pmName !== "Unassigned" && (
+          {/* Unassign */}
+          {pmUserId && (
             <div style={{ borderTop: "1px solid #f1f5f9", padding: "8px 12px" }}>
               <button
                 type="button"
                 onClick={unassign}
-                style={{
-                  width: "100%",
-                  padding: "7px",
-                  border: "1px solid #fee2e2",
-                  borderRadius: 8,
-                  background: "#fef2f2",
-                  color: "#dc2626",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                }}
+                style={{ width: "100%", padding: "7px", border: "1px solid #fee2e2", borderRadius: 8, background: "#fef2f2", color: "#dc2626", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
               >
                 Remove PM assignment
               </button>
