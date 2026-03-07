@@ -91,7 +91,7 @@ function flashText(msg: string | undefined, conflicts: string | undefined) {
   if (msg === "allocation_removed") return "Allocation removed.";
   if (msg === "week_removed") return "Week removed.";
   if (msg === "week_updated") return "Week updated.";
-  if (msg === "converted_to_confirmed") return " Project converted to Confirmed  now live on the capacity heatmap.";
+  if (msg === "converted_to_confirmed") return " Project converted to Confirmed — now live on the capacity heatmap.";
   return null;
 }
 
@@ -232,6 +232,7 @@ export default async function ProjectPage({
     myProjectMembershipsResult,
     scheduleMilestonesResult,
     changeRequestsResult,
+    keyArtifactsResult,
   ] = await Promise.allSettled([
     fetchProjectResourceData(projectUuid),
     supabase.from("changes").select("id, title, status, created_at, change_type")
@@ -251,6 +252,12 @@ export default async function ProjectPage({
       .eq("project_id", projectUuid).limit(500),
     supabase.from("change_requests")
       .select("id, status").eq("project_id", projectUuid).limit(100),
+    supabase.from("artifacts")
+      .select("id, type")
+      .eq("project_id", projectUuid)
+      .in("type", ["SCHEDULE", "WBS", "FINANCIAL_PLAN", "WEEKLY_REPORT"])
+      .eq("is_current", true)
+      .limit(20),
   ]);
 
   const resource         = resourceData.status === "fulfilled" ? resourceData.value : null;
@@ -261,6 +268,7 @@ export default async function ProjectPage({
   const raidItems        = raidResult.status === "fulfilled" ? raidResult.value.data ?? [] : [];
   const milestones       = scheduleMilestonesResult.status === "fulfilled" ? scheduleMilestonesResult.value.data ?? [] : [];
   const changeReqs       = changeRequestsResult.status === "fulfilled" ? changeRequestsResult.value.data ?? [] : [];
+  const keyArtifacts     = keyArtifactsResult.status === "fulfilled" ? keyArtifactsResult.value.data ?? [] : [];
 
   function clamp(n: number) { return Math.max(0, Math.min(100, Math.round(n))); }
   const today = new Date().toISOString().slice(0, 10);
@@ -395,17 +403,25 @@ export default async function ProjectPage({
 
   const pmName = safeStr((project as any)?.project_manager ?? (project as any)?.pm_name ?? "").trim() || "Unassigned";
 
+  // Helper: resolve artifact href — goes directly to the artifact if found, else artifacts list
+  const artifactHref = (type: string) => {
+    const a = (keyArtifacts as any[]).find((x) => x.type === type);
+    return a?.id
+      ? `/projects/${projectRefForUrls}/artifacts/${a.id}`
+      : `/projects/${projectRefForUrls}/artifacts`;
+  };
+
   const tabs = [
     { id: "overview",  label: "Overview",       href: `/projects/${projectRefForUrls}` },
     { id: "artifacts", label: "Artifacts",      href: `/projects/${projectRefForUrls}/artifacts` },
-    { id: "schedule",  label: "Schedule",       href: `/projects/${projectRefForUrls}/schedule` },
-    { id: "wbs",       label: "WBS",            href: `/projects/${projectRefForUrls}/wbs` },
-    { id: "financial", label: "Financial Plan", href: `/projects/${projectRefForUrls}/artifacts` },
+    { id: "schedule",  label: "Schedule",       href: artifactHref("SCHEDULE") },
+    { id: "wbs",       label: "WBS",            href: artifactHref("WBS") },
+    { id: "financial", label: "Financial Plan", href: artifactHref("FINANCIAL_PLAN") },
     { id: "members",   label: "Members",        href: `/projects/${projectRefForUrls}/members` },
     { id: "changes",   label: "Change Board",   href: `/projects/${projectRefForUrls}/change` },
     { id: "raid",      label: "Risks",          href: `/projects/${projectRefForUrls}/raid` },
     { id: "lessons",   label: "Lessons",        href: `/projects/${projectRefForUrls}/lessons` },
-    { id: "weekly",    label: "Weekly Report",  href: `/projects/${projectRefForUrls}/artifacts` },
+    { id: "weekly",    label: "Weekly Report",  href: artifactHref("WEEKLY_REPORT") },
   ];
 
   return (
