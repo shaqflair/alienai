@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   const orgId = req.nextUrl.searchParams.get("orgId");
   if (!orgId) return NextResponse.json({ error: "orgId required" }, { status: 400 });
 
-  // Step 1: get user_ids for this org
+  // Get org member user_ids
   const { data: orgMembers, error: e1 } = await supabase
     .from("organisation_members")
     .select("user_id")
@@ -24,31 +24,18 @@ export async function GET(req: NextRequest) {
 
   const userIds = orgMembers.map((m: any) => m.user_id);
 
-  // Step 2: get profiles - try both id and user_id column names
+  // profiles.user_id matches organisation_members.user_id (both reference auth.users.id)
   const { data: profiles, error: e2 } = await supabase
     .from("profiles")
-    .select("*")
-    .in("id", userIds);
+    .select("user_id, full_name, email")
+    .in("user_id", userIds);
 
-  if (e2) {
-    // Maybe the PK is user_id not id
-    const { data: profiles2 } = await supabase
-      .from("profiles")
-      .select("*")
-      .in("user_id", userIds);
-    
-    const members = (profiles2 ?? []).map((p: any) => ({
-      user_id: p.user_id ?? p.id,
-      name: p.full_name ?? p.name ?? p.display_name ?? "",
-      email: p.email ?? "",
-    }));
-    return NextResponse.json({ members });
-  }
+  if (e2) return NextResponse.json({ error: e2.message }, { status: 500 });
 
   const members = (profiles ?? []).map((p: any) => ({
-    user_id: p.id ?? p.user_id,
-    name: p.full_name ?? p.name ?? p.display_name ?? "",
-    email: p.email ?? "",
+    user_id: p.user_id,
+    name:  p.full_name ?? "",
+    email: p.email    ?? "",
   }));
 
   return NextResponse.json({ members });
