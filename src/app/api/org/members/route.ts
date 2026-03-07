@@ -60,10 +60,10 @@ export async function GET(req: NextRequest) {
     // Step 2: profiles.id = auth uid — do NOT join on user_id column (may not exist)
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("id, full_name, display_name, email, avatar_url, department, job_title")
-      .in("id", userIds);
+      .select("user_id, full_name, display_name, email, avatar_url, department, job_title")
+      .in("user_id", userIds);
 
-    const profileMap = new Map((profiles ?? []).map((p: any) => [p.id, p]));
+    const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
 
     const result = members.map((m: any) => {
       const p: any = profileMap.get(m.user_id) ?? {};
