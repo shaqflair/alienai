@@ -1,4 +1,5 @@
-{
+﻿{
+  "regions": ["lhr1"],
   "crons": [
     { "path": "/api/cron/exec-intel/generate",      "schedule": "0 6 * * *" },
     { "path": "/api/cron/raid-intel/generate",      "schedule": "0 6 * * *" },
