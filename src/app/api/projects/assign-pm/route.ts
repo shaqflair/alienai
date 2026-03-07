@@ -20,6 +20,31 @@ function ss(x: any): string {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
+async function resolvePmName(supabase: any, pmUserId: string) {
+  const userId = ss(pmUserId).trim();
+  if (!userId) return null;
+
+  const { data: pmByUserId } = await supabase
+    .from("profiles")
+    .select("full_name, email")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  let pmProfile: any = pmByUserId;
+
+  if (!ss(pmProfile?.full_name).trim() && !ss(pmProfile?.email).trim()) {
+    const { data: pmById } = await supabase
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (pmById) pmProfile = pmById;
+  }
+
+  return ss(pmProfile?.full_name).trim() || ss(pmProfile?.email).trim() || null;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();
@@ -45,6 +70,7 @@ export async function POST(req: NextRequest) {
       .eq("id", projectId)
       .eq("organisation_id", orgId)
       .maybeSingle();
+
     if (!proj?.id) return jsonErr("Project not found", 404);
 
     const { data: mem } = await supabase
@@ -54,6 +80,7 @@ export async function POST(req: NextRequest) {
       .eq("user_id", auth.user.id)
       .is("removed_at", null)
       .maybeSingle();
+
     const role = ss(mem?.role).toLowerCase();
     if (!["admin", "owner", "manager", "editor"].includes(role)) {
       return jsonErr("Insufficient permissions", 403);
@@ -73,25 +100,38 @@ export async function POST(req: NextRequest) {
         .eq("user_id", pmUserId)
         .is("removed_at", null)
         .maybeSingle();
+
       if (!targetMember?.user_id) {
         return jsonErr("Selected PM is not an active organisation member", 400);
       }
     }
 
-    // Only update columns that actually exist on the projects table
+    const pmName = pmUserId ? await resolvePmName(supabase, pmUserId) : null;
+
+    const updatePayload: Record<string, any> = {
+      pm_user_id: pmUserId,
+      project_manager_id: pmUserId,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Persist pm_name if the column exists in your projects table.
+    // If it does not exist yet, add it:
+    // alter table public.projects add column if not exists pm_name text null;
+    updatePayload.pm_name = pmName;
+
     const { error } = await supabase
       .from("projects")
-      .update({
-        pm_user_id: pmUserId,
-        project_manager_id: pmUserId,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq("id", projectId)
       .eq("organisation_id", orgId);
 
     if (error) return jsonErr(error.message, 400);
 
-    return jsonOk({ project_id: projectId, pm_user_id: pmUserId });
+    return jsonOk({
+      project_id: projectId,
+      pm_user_id: pmUserId,
+      pm_name: pmName,
+    });
   } catch (e: any) {
     console.error("[POST /api/projects/assign-pm]", e);
     return jsonErr(ss(e?.message) || "Server error", 500);
