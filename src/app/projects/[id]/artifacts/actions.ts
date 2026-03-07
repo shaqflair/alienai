@@ -7,11 +7,29 @@ import { createClient } from "@/utils/supabase/server";
 import { ARTIFACT_TYPES, type ArtifactType } from "@/lib/artifact-types";
 
 /* =========================
+   Constants
+========================= */
+
+/**
+ * Only these artifact types can be created, cloned, or deleted via the board.
+ * All others are managed by dedicated editors or external processes.
+ */
+const BOARD_MANAGEABLE_TYPES = new Set([
+  "PROJECT_CHARTER",
+  "PROJECT_CLOSURE_REPORT",
+  "SCHEDULE",
+]);
+
+/* =========================
    Helpers
 ========================= */
 
 function isArtifactType(x: string): x is ArtifactType {
   return (ARTIFACT_TYPES as readonly string[]).includes(x);
+}
+
+function isBoardManageableType(type: string): boolean {
+  return BOARD_MANAGEABLE_TYPES.has(String(type ?? "").trim().toUpperCase());
 }
 
 function normStr(x: any) {
@@ -69,9 +87,6 @@ async function loadArtifact(supabase: any, artifactId: string) {
   return data as any;
 }
 
-/**
- * Best-effort audit (won't break app if table/policies differ).
- */
 async function auditBestEffort(
   supabase: any,
   input: {
@@ -106,9 +121,6 @@ async function auditBestEffort(
   }
 }
 
-/**
- * DB constraint: one_current_per_project_type
- */
 async function demoteCurrentForProjectType(supabase: any, projectId: string, type: string) {
   const { error } = await supabase
     .from("artifacts")
@@ -145,6 +157,7 @@ function canEditArtifactRow(a: any) {
 
 /* =========================
    CREATE
+   Only allowed for: PROJECT_CHARTER, PROJECT_CLOSURE_REPORT, SCHEDULE
 ========================= */
 
 export async function createArtifact(formData: FormData) {
@@ -155,6 +168,11 @@ export async function createArtifact(formData: FormData) {
   if (!projectId) throw new Error("Missing project_id");
   if (!rawType) throw new Error("Missing type");
   if (!isArtifactType(rawType)) throw new Error("Invalid artifact type");
+  if (!isBoardManageableType(rawType)) {
+    throw new Error(
+      `Artifact type "${rawType}" cannot be created from the board. Only Project Charter, Project Closure Report, and Schedule can be created here.`
+    );
+  }
 
   const { supabase, user } = await requireUser();
   await requireRole(supabase, projectId, ["owner", "editor"]);
@@ -241,7 +259,10 @@ export async function createArtifact(formData: FormData) {
 
   if (error) throwDb(error, "artifacts.create.insert");
 
-  const { error: upErr } = await supabase.from("artifacts").update({ root_artifact_id: inserted.id }).eq("id", inserted.id);
+  const { error: upErr } = await supabase
+    .from("artifacts")
+    .update({ root_artifact_id: inserted.id })
+    .eq("id", inserted.id);
   if (upErr) throwDb(upErr, "artifacts.create.backfill_root");
 
   await auditBestEffort(supabase, {
@@ -306,7 +327,7 @@ export async function updateArtifact(formData: FormData) {
 }
 
 /* =========================
-   UPDATE JSON (Project Charter editor)
+   UPDATE JSON
 ========================= */
 
 export async function updateArtifactJson(formData: FormData) {
@@ -336,10 +357,7 @@ export async function updateArtifactJson(formData: FormData) {
 
   const { error } = await supabase
     .from("artifacts")
-    .update({
-      content_json: parsed,
-      updated_at: new Date().toISOString(),
-    })
+    .update({ content_json: parsed, updated_at: new Date().toISOString() })
     .eq("id", artifactId);
 
   if (error) throwDb(error, "artifacts.updateArtifactJson");
@@ -394,8 +412,12 @@ export async function getArtifactDiff(artifactId: string) {
 
   return {
     artifact: { id: a.id, content: a.content ?? "", version: a.version ?? null },
-    baseline: baseline ? { id: baseline.id, content: baseline.content ?? "", version: baseline.version ?? null } : null,
-    parent: parent ? { id: parent.id, content: parent.content ?? "", version: parent.version ?? null } : null,
+    baseline: baseline
+      ? { id: baseline.id, content: baseline.content ?? "", version: baseline.version ?? null }
+      : null,
+    parent: parent
+      ? { id: parent.id, content: parent.content ?? "", version: parent.version ?? null }
+      : null,
   };
 }
 
@@ -727,9 +749,9 @@ export async function rejectArtifact(artifactId: string, reason: string) {
    SET CURRENT
 ========================= */
 
-export async function setArtifactCurrent(formData: FormData) {
-  const projectId = normStr(formData.get("project_id"));
-  const artifactId = normStr(formData.get("artifact_id"));
+export async function setArtifactCurrent(args: { projectId: string; artifactId: string }) {
+  const projectId = normStr(args?.projectId);
+  const artifactId = normStr(args?.artifactId);
 
   if (!projectId) throw new Error("Missing project_id");
   if (!artifactId) throw new Error("Missing artifact_id");
@@ -769,6 +791,7 @@ export async function setArtifactCurrent(formData: FormData) {
 
 export async function createArtifactRevision(args: {
   artifactId: string;
+  projectId?: string;
   revisionReason?: string;
   revisionType?: string;
 }): Promise<{ newArtifactId: string }> {
@@ -836,6 +859,7 @@ export async function updateArtifactJsonSilent(args: {
 
 /* =========================
    CLONE ARTIFACT
+   Only allowed for: PROJECT_CHARTER, PROJECT_CLOSURE_REPORT, SCHEDULE
 ========================= */
 
 export async function cloneArtifact(
@@ -848,11 +872,16 @@ export async function cloneArtifact(
     if (!artifactId) throw new Error("Missing artifactId");
 
     const { supabase, user } = await requireUser();
-
-    // requireOrgRoleForProject equivalent — use requireRole for simplicity
     await requireRole(supabase, projectRef, ["owner", "editor"]);
 
     const src = await loadArtifact(supabase, artifactId);
+
+    if (!isBoardManageableType(String(src.type ?? ""))) {
+      return {
+        ok: false,
+        error: `Artifact type "${src.type}" cannot be cloned. Only Project Charter, Project Closure Report, and Schedule can be cloned.`,
+      };
+    }
 
     const rootId = String(src.root_artifact_id ?? src.id);
     const nextV = await nextVersionForRoot(supabase, rootId, Number(src.version ?? 1));
@@ -891,41 +920,109 @@ export async function cloneArtifact(
 }
 
 /* =========================
-   RENAME ARTIFACT TITLE
+   DELETE DRAFT ARTIFACT
+   Only allowed for: PROJECT_CHARTER, PROJECT_CLOSURE_REPORT, SCHEDULE
 ========================= */
 
-export async function renameArtifactTitle(args: {
+export async function deleteDraftArtifact(args: {
   artifactId: string;
   projectId: string;
-  title: string;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const { supabase, user } = await requireUser();
     await requireRole(supabase, normStr(args?.projectId), ["owner", "editor"]);
 
+    const a = await loadArtifact(supabase, normStr(args?.artifactId));
+    if (String(a.project_id ?? "") !== normStr(args?.projectId)) {
+      return { ok: false, error: "Project mismatch" };
+    }
+
+    if (!isBoardManageableType(String(a.type ?? ""))) {
+      return {
+        ok: false,
+        error: `Artifact type "${a.type}" cannot be deleted. Only Project Charter, Project Closure Report, and Schedule drafts can be deleted.`,
+      };
+    }
+
+    const st = String(a.approval_status ?? "draft").toLowerCase();
+    const isDraft = st === "" || st === "draft" || st === "new";
+    if (!isDraft || Boolean(a.is_locked) || Boolean(a.is_baseline)) {
+      return { ok: false, error: "Only unlocked draft artifacts can be deleted." };
+    }
+
     const { error } = await supabase
       .from("artifacts")
-      .update({ title: normStr(args?.title), updated_at: new Date().toISOString() })
+      .update({ deleted_at: new Date().toISOString() })
       .eq("id", normStr(args?.artifactId));
 
     if (error) return { ok: false, error: error.message };
 
+    await auditBestEffort(supabase, {
+      project_id: normStr(args?.projectId),
+      artifact_id: normStr(args?.artifactId),
+      actor_user_id: user.id,
+      actor_email: user.email,
+      action: "delete_draft",
+      from_status: st,
+      to_status: "deleted",
+      from_is_current: Boolean(a.is_current),
+      to_is_current: false,
+    });
+
     revalidatePath(`/projects/${args.projectId}/artifacts`);
-    revalidatePath(`/projects/${args.projectId}/artifacts/${args.artifactId}`);
     return { ok: true };
   } catch (e: any) {
-    return { ok: false, error: e?.message ?? "Rename failed" };
+    return { ok: false, error: e?.message ?? "Delete failed" };
   }
 }
 
 /* =========================
-   UPDATE JSON ARGS (alias used by some pages)
+   RENAME ARTIFACT TITLE
 ========================= */
 
-export async function updateArtifactJsonArgsAlias(args: {
-  projectId: string;
+export async function renameArtifactTitle(formData: FormData): Promise<void>;
+export async function renameArtifactTitle(args: {
   artifactId: string;
-  contentJson: any;
-}): Promise<{ ok: boolean; error?: string }> {
-  return updateArtifactJsonArgs(args);
+  projectId: string;
+  title: string;
+}): Promise<{ ok: boolean; error?: string }>;
+export async function renameArtifactTitle(
+  input: FormData | { artifactId: string; projectId: string; title: string }
+): Promise<void | { ok: boolean; error?: string }> {
+  try {
+    let artifactId: string;
+    let projectId: string;
+    let title: string;
+
+    if (input instanceof FormData) {
+      artifactId = normStr(input.get("artifact_id"));
+      projectId = normStr(input.get("project_id"));
+      title = normStr(input.get("title"));
+    } else {
+      artifactId = normStr(input.artifactId);
+      projectId = normStr(input.projectId);
+      title = normStr(input.title);
+    }
+
+    const { supabase } = await requireUser();
+    await requireRole(supabase, projectId, ["owner", "editor"]);
+
+    const { error } = await supabase
+      .from("artifacts")
+      .update({ title, updated_at: new Date().toISOString() })
+      .eq("id", artifactId);
+
+    if (error) {
+      if (input instanceof FormData) throw new Error(error.message);
+      return { ok: false, error: error.message };
+    }
+
+    revalidatePath(`/projects/${projectId}/artifacts`);
+    revalidatePath(`/projects/${projectId}/artifacts/${artifactId}`);
+
+    if (!(input instanceof FormData)) return { ok: true };
+  } catch (e: any) {
+    if (!(input instanceof FormData)) return { ok: false, error: e?.message ?? "Rename failed" };
+    throw e;
+  }
 }
