@@ -2,6 +2,7 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { getActiveOrgId } from "@/utils/org/active-org";
 
 export const runtime = "nodejs";
@@ -19,6 +20,16 @@ function jsonErr(e: string, s = 400) {
 }
 function ss(x: any): string {
   return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+// Service-role client bypasses RLS so we can read all profiles
+function getAdminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  if (!url || !key) return null;
+  return createAdminClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
 }
 
 export async function GET(req: NextRequest) {
@@ -43,7 +54,7 @@ export async function GET(req: NextRequest) {
 
     if (!callerMem?.role) return jsonErr("Not a member of this organisation", 403);
 
-    // Step 1: fetch members
+    // Step 1: fetch org members
     const { data: members, error: membErr } = await supabase
       .from("organisation_members")
       .select("user_id, job_title, role")
@@ -57,8 +68,10 @@ export async function GET(req: NextRequest) {
 
     const userIds = members.map((m: any) => m.user_id).filter(Boolean);
 
-    // Step 2: profiles.id = auth uid — do NOT join on user_id column (may not exist)
-    const { data: profiles } = await supabase
+    // Step 2: fetch profiles — use service-role client to bypass RLS
+    // Falls back to regular client if service role key not configured
+    const profileClient = getAdminClient() ?? supabase;
+    const { data: profiles } = await profileClient
       .from("profiles")
       .select("user_id, full_name, display_name, email, avatar_url, department, job_title")
       .in("user_id", userIds);
