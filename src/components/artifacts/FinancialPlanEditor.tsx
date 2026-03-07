@@ -10,7 +10,7 @@ import FinancialPlanMonthlyView, { type MonthlyData, type FYConfig } from "./Fin
 import FinancialIntelligencePanel from "./FinancialIntelligencePanel";
 import { analyseFinancialPlan, type Signal } from "@/lib/financial-intelligence";
 import ResourcePicker, { type PickedPerson } from "./ResourcePicker";
-import { getRateForUser } from "@/app/actions/resource-rate-lookup";
+// getRateForUser removed — rate card lookup uses fetch (/api/org/rate-card) to avoid blocking navigation
 import { syncResourcesToMonthlyData, previewSync } from "./syncResourcesToMonthlyData";
 import {
   computeActuals,
@@ -574,7 +574,6 @@ function ResourcesTab({
                       organisationId={organisationId} value={r.user_id ?? null}
                       currentResource={r} disabled={readOnly}
                       onPick={async (person: PickedPerson) => {
-                        // Apply name + any rate already on the person object
                         const basePatch: Partial<Resource> = {
                           user_id: person.user_id || undefined,
                           name: person.full_name ?? person.name ?? person.email ?? r.name,
@@ -587,11 +586,17 @@ function ResourcesTab({
                         };
                         update(r.id, basePatch);
 
-                        // Rate card lookup — person-specific first, then role fallback via server action
-                        const uid = person.user_id;
-                        if (uid && organisationId) {
+                        // ── Rate card lookup via fetch (NOT server action) ──────────────────
+                        // Server actions block Next.js navigation while in-flight; fetch does not.
+                        const personUid = person.user_id;
+                        if (personUid && organisationId) {
                           try {
-                            const match = await getRateForUser(organisationId, uid);
+                            const res = await fetch(
+                              `/api/org/rate-card?orgId=${encodeURIComponent(organisationId)}&userId=${encodeURIComponent(personUid)}`,
+                              { cache: "no-store" }
+                            );
+                            const d = await res.json().catch(() => ({ ok: false, match: null }));
+                            const match = d.ok && d.match ? d.match : null;
                             if (match) {
                               update(r.id, {
                                 ...basePatch,
@@ -797,7 +802,6 @@ export default function FinancialPlanEditor({
   }, [resources]);
 
   const handleChange = useCallback((patch: FinancialPlanContent) => {
-    // Single immediate call with timestamp — avoids double-render + stale overwrite
     onChange({ ...patch, last_updated_at: new Date().toISOString() });
   }, [onChange]);
 
