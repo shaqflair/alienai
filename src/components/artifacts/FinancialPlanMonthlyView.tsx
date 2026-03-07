@@ -151,10 +151,7 @@ function QuarterRow({ label, months, monthlyData, lines, sym, collapsed, onToggl
     : "bg-slate-800/90 border-slate-700/50";
 
   return (
-    <tr
-      className={`cursor-pointer select-none transition-all group ${bgColor}`}
-      onClick={onToggle}
-    >
+    <tr className={`cursor-pointer select-none transition-all group ${bgColor}`} onClick={onToggle}>
       <td className={`px-4 py-3 sticky left-0 z-10 min-w-[200px] border-r border-slate-700/30 ${bgColor}`}>
         <div className="flex items-center gap-2.5">
           <span className={`flex-shrink-0 transition-transform duration-200 ${collapsed ? "" : "rotate-90"}`}>

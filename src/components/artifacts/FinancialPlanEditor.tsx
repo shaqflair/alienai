@@ -189,10 +189,6 @@ function rollupResourcesToLines(lines: CostLine[], resources: Resource[]): CostL
   });
 }
 
-/**
- * Apply derived actuals (from timesheets) onto cost lines.
- * The `actual` field is always overwritten — it is never manually editable.
- */
 function applyActualsToCostLines(
   lines: CostLine[],
   actualTotals: Record<string, number>,
@@ -251,23 +247,15 @@ function MoneyCell({
   );
 }
 
-/**
- * ActualCell — locked display for timesheet-derived actuals.
- * Shows the value with a lock icon and amber tint when data exists.
- * Shows a muted "—" with a clock icon when no timesheet data has been recorded yet.
- */
 function ActualCell({
   value, symbol, approvedDays, hasTimesheetData,
 }: {
   value: number | ""; symbol: string; approvedDays: number; hasTimesheetData: boolean;
 }) {
   const hasValue = value !== "" && value !== 0;
-
   return (
     <div className={`flex flex-col gap-0.5 px-2 py-1.5 rounded-md mx-1 ${
-      hasValue
-        ? "bg-violet-50 border border-violet-100"
-        : "bg-gray-50 border border-gray-100"
+      hasValue ? "bg-violet-50 border border-violet-100" : "bg-gray-50 border border-gray-100"
     }`}>
       <div className="flex items-center gap-1.5">
         {hasValue ? (
@@ -275,9 +263,7 @@ function ActualCell({
         ) : (
           <Clock className="w-2.5 h-2.5 text-gray-300 flex-shrink-0" />
         )}
-        <span className={`text-sm font-semibold tabular-nums text-right ${
-          hasValue ? "text-violet-800" : "text-gray-300"
-        }`}>
+        <span className={`text-sm font-semibold tabular-nums text-right ${hasValue ? "text-violet-800" : "text-gray-300"}`}>
           {hasValue ? fmt(value, symbol) : "—"}
         </span>
       </div>
@@ -330,9 +316,7 @@ function ResourceSyncBar({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [synced,   setSynced]   = useState(false);
-
   const sym = CURRENCY_SYMBOLS[currency as Currency] ?? "£";
-
   const preview = previewSync(resources, costLines, monthlyData, fyConfig);
 
   const readyResources = resources.filter(r =>
@@ -352,13 +336,10 @@ function ResourceSyncBar({
   );
 
   if (resources.length === 0) return null;
-
   const hasChanges = preview.length > 0;
 
   function handleSync() {
-    // Sync forecast/budget from resource plan
     let newData = syncResourcesToMonthlyData(resources, costLines, monthlyData, fyConfig);
-    // Then overlay actuals from approved timesheets
     const actualsByLine = computeActuals(resources, timesheetEntries);
     newData = applyActualsToMonthlyData(newData, actualsByLine);
     onSync(newData);
@@ -399,7 +380,6 @@ function ResourceSyncBar({
             </div>
           </div>
         </div>
-
         <div className="flex items-center gap-2 flex-shrink-0">
           {hasChanges && !synced && (
             <>
@@ -452,7 +432,6 @@ function ResourceSyncBar({
               </div>
             );
           })}
-
           {unreadyResources.length > 0 && (
             <div className="px-4 py-2.5 flex items-start gap-2 bg-amber-50">
               <AlertCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
@@ -464,8 +443,6 @@ function ResourceSyncBar({
               </div>
             </div>
           )}
-
-          {/* Actuals preview */}
           {timesheetEntries.length > 0 && (
             <div className="px-4 py-2.5 flex items-start gap-2 bg-violet-50">
               <Lock className="w-3.5 h-3.5 text-violet-400 flex-shrink-0 mt-0.5" />
@@ -508,7 +485,6 @@ function ResourcesTab({
   const linkedCost   = resources.filter(r => r.cost_line_id).reduce((s, r) => s + resourceTotal(r), 0);
   const unlinkedCost = totalCost - linkedCost;
 
-  // Total approved days per resource (across all months)
   const approvedDaysByResource = useMemo(() => {
     const map: Record<string, number> = {};
     for (const e of timesheetEntries) {
@@ -532,8 +508,6 @@ function ResourcesTab({
 
   return (
     <div className="flex flex-col gap-5">
-
-      {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: "Total Resources",      value: String(resources.length), sub: "across all roles",                                                          color: "text-gray-700"   },
@@ -549,7 +523,6 @@ function ResourcesTab({
         ))}
       </div>
 
-      {/* Rollup summary */}
       {byLine.length > 0 && (
         <div className="rounded-xl border border-blue-100 bg-blue-50/50 px-4 py-3">
           <div className="flex items-center gap-2 mb-2.5">
@@ -570,7 +543,6 @@ function ResourcesTab({
         </div>
       )}
 
-      {/* Sync bar */}
       {!readOnly && (
         <ResourceSyncBar
           resources={resources}
@@ -583,7 +555,6 @@ function ResourcesTab({
         />
       )}
 
-      {/* Actuals source callout */}
       <div className="flex items-start gap-2 rounded-lg border border-violet-100 bg-violet-50 px-3 py-2 text-xs text-violet-700">
         <Lock className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-violet-400" />
         <span>
@@ -593,7 +564,6 @@ function ResourcesTab({
         </span>
       </div>
 
-      {/* Rate card hint */}
       <div className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
         <Users className="w-3.5 h-3.5 flex-shrink-0" />
         <span>
@@ -604,7 +574,6 @@ function ResourcesTab({
         </span>
       </div>
 
-      {/* Resource table */}
       <div className="overflow-x-auto rounded-xl border border-gray-200">
         <table className="w-full text-sm border-collapse">
           <thead>
@@ -629,7 +598,6 @@ function ResourcesTab({
               const linkedLine      = costLines.find(l => l.id === r.cost_line_id);
               const hasRate         = r.rate_type === "day_rate" ? Number(r.day_rate) > 0 : Number(r.monthly_cost) > 0;
               const approvedDays    = approvedDaysByResource[r.id] ?? 0;
-              // Compute actual cost for this resource across all months
               const effectiveDayRate = r.rate_type === "day_rate"
                 ? Number(r.day_rate) || 0
                 : (Number(r.monthly_cost) || 0) / 20;
@@ -638,8 +606,6 @@ function ResourcesTab({
 
               return (
                 <tr key={r.id} className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50/50"} hover:bg-blue-50/20 group transition-colors`}>
-
-                  {/* Person */}
                   <td className="border-b border-gray-100 min-w-[220px] px-2 py-1.5">
                     <ResourcePicker
                       organisationId={organisationId}
@@ -668,8 +634,6 @@ function ResourcesTab({
                       className="w-full border-0 bg-transparent px-2 py-0.5 text-[11px] text-gray-500 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-400 rounded mt-0.5"
                     />
                   </td>
-
-                  {/* Type */}
                   <td className="border-b border-gray-100 min-w-[110px] px-2 py-1">
                     <select
                       value={r.type}
@@ -687,8 +651,6 @@ function ResourcesTab({
                       ))}
                     </select>
                   </td>
-
-                  {/* Rate method toggle */}
                   <td className="border-b border-gray-100 px-2 py-1">
                     <div className="flex bg-gray-100 rounded-lg p-0.5 gap-0.5 w-fit">
                       {(["day_rate", "monthly_cost"] as ResourceRateType[]).map(rt => (
@@ -704,8 +666,6 @@ function ResourcesTab({
                       ))}
                     </div>
                   </td>
-
-                  {/* Rate */}
                   <td className="border-b border-gray-100 min-w-[110px]">
                     <div className="relative">
                       {r.rate_type === "day_rate" ? (
@@ -725,8 +685,6 @@ function ResourcesTab({
                       </div>
                     )}
                   </td>
-
-                  {/* Qty (planned) */}
                   <td className="border-b border-gray-100 min-w-[80px] px-2 py-1">
                     <input
                       type="number" min={0} step={r.rate_type === "day_rate" ? 1 : 0.5}
@@ -743,29 +701,22 @@ function ResourcesTab({
                       {r.rate_type === "day_rate" ? "days planned" : "months planned"}
                     </div>
                   </td>
-
-                  {/* Calculated total (planned) */}
                   <td className="border-b border-gray-100 px-3 py-1">
                     <div className={`text-sm font-bold tabular-nums ${total > 0 ? "text-gray-800" : "text-gray-300"}`}>
                       {total > 0 ? fmt(total, sym) : "—"}
                     </div>
                     {total > 0 && <div className="text-[10px] text-gray-400">planned total</div>}
                   </td>
-
-                  {/* Approved days (from timesheets) — locked */}
                   <td className="border-b border-gray-100 bg-violet-50/30 px-3 py-1 min-w-[100px]">
                     <div className="flex items-center gap-1.5">
                       <Lock className="w-2.5 h-2.5 text-violet-300 flex-shrink-0" />
-                      <span className={`text-sm font-semibold tabular-nums ${
-                        hasTimesheet ? "text-violet-700" : "text-gray-300"
-                      }`}>
+                      <span className={`text-sm font-semibold tabular-nums ${hasTimesheet ? "text-violet-700" : "text-gray-300"}`}>
                         {hasTimesheet ? approvedDays.toLocaleString() : "—"}
                       </span>
                     </div>
                     <div className="text-[9px] text-violet-400 mt-0.5">
                       {hasTimesheet ? "approved days" : "no timesheets"}
                     </div>
-                    {/* Show vs planned */}
                     {hasTimesheet && r.rate_type === "day_rate" && Number(r.planned_days) > 0 && (
                       <div className={`text-[9px] mt-0.5 font-semibold ${
                         approvedDays > Number(r.planned_days) ? "text-red-500" : "text-emerald-600"
@@ -775,31 +726,22 @@ function ResourcesTab({
                       </div>
                     )}
                   </td>
-
-                  {/* Actual cost (derived) — locked */}
                   <td className="border-b border-gray-100 bg-violet-50/30 px-2 py-1 min-w-[110px]">
                     <div className="flex items-center gap-1.5">
                       <Lock className="w-2.5 h-2.5 text-violet-300 flex-shrink-0" />
-                      <span className={`text-sm font-semibold tabular-nums ${
-                        actualCost > 0 ? "text-violet-700" : "text-gray-300"
-                      }`}>
+                      <span className={`text-sm font-semibold tabular-nums ${actualCost > 0 ? "text-violet-700" : "text-gray-300"}`}>
                         {actualCost > 0 ? fmt(actualCost, sym) : "—"}
                       </span>
                     </div>
                     <div className="text-[9px] text-violet-400 mt-0.5">
                       {hasTimesheet ? "actual spend" : "awaiting timesheets"}
                     </div>
-                    {/* Burn rate vs plan */}
                     {actualCost > 0 && total > 0 && (
-                      <div className={`text-[9px] mt-0.5 font-semibold ${
-                        actualCost > total ? "text-red-500" : "text-emerald-600"
-                      }`}>
+                      <div className={`text-[9px] mt-0.5 font-semibold ${actualCost > total ? "text-red-500" : "text-emerald-600"}`}>
                         {Math.round((actualCost / total) * 100)}% of planned spend
                       </div>
                     )}
                   </td>
-
-                  {/* Start month */}
                   <td className="border-b border-gray-100 min-w-[110px] px-2 py-1">
                     <input
                       type="month"
@@ -810,8 +752,6 @@ function ResourcesTab({
                     />
                     <div className="text-[9px] text-gray-400 px-1 mt-0.5">optional</div>
                   </td>
-
-                  {/* Links to cost line */}
                   <td className="border-b border-gray-100 min-w-[160px] px-2 py-1">
                     <select
                       value={r.cost_line_id ?? ""}
@@ -833,8 +773,6 @@ function ResourcesTab({
                       </div>
                     )}
                   </td>
-
-                  {/* Notes */}
                   <td className="border-b border-gray-100 min-w-[140px]">
                     <input
                       type="text" value={r.notes}
@@ -844,8 +782,6 @@ function ResourcesTab({
                       className="w-full border-0 bg-transparent px-2 py-1.5 text-sm text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-400 rounded"
                     />
                   </td>
-
-                  {/* Delete */}
                   <td className="border-b border-gray-100 px-2">
                     {!readOnly && (
                       <button
@@ -865,11 +801,9 @@ function ResourcesTab({
               <tr className="bg-gray-100 font-semibold text-xs text-gray-700">
                 <td colSpan={5} className="px-3 py-2">Total</td>
                 <td className="px-3 py-2 font-bold text-gray-800">{fmt(totalCost, sym)}</td>
-                {/* Approved days total */}
                 <td className="px-3 py-2 bg-violet-50 font-bold text-violet-700">
                   {Object.values(approvedDaysByResource).reduce((s, d) => s + d, 0).toLocaleString()} days
                 </td>
-                {/* Actual cost total */}
                 <td className="px-3 py-2 bg-violet-50 font-bold text-violet-700">
                   {fmt(
                     resources.reduce((s, r) => {
@@ -887,7 +821,6 @@ function ResourcesTab({
             </tfoot>
           )}
         </table>
-
         {!readOnly && (
           <div className="px-4 py-2 bg-gray-50 border-t border-gray-200">
             <button
@@ -910,8 +843,6 @@ type Props = {
   onChange:         (c: FinancialPlanContent) => void;
   readOnly?:        boolean;
   organisationId:   string;
-  /** Approved timesheet entries — fetched by the parent from the DB.
-   *  Only status="approved" rows should be passed here. */
   timesheetEntries?: TimesheetEntry[];
   raidItems?:       Array<{ type: string; title: string; severity: string; status: string }>;
   approvalDelays?:  Array<{ title: string; daysPending: number; cost_impact?: number }>;
@@ -930,8 +861,6 @@ export default function FinancialPlanEditor({
   const lines     = content.cost_lines ?? [];
   const resources = content.resources  ?? [];
 
-  // ── Derived actuals from timesheets ───────────────────────────────────────
-  // Recomputed whenever resources or timesheet entries change.
   const actualsByLine = useMemo(
     () => computeActuals(resources, timesheetEntries),
     [resources, timesheetEntries],
@@ -942,14 +871,11 @@ export default function FinancialPlanEditor({
     [resources, timesheetEntries],
   );
 
-  // Cost lines with actuals injected — used for rendering and totals.
-  // The `actual` field on CostLine is always derived; it is never stored manually.
   const linesWithActuals = useMemo(
     () => applyActualsToCostLines(lines, actualTotalsPerLine),
     [lines, actualTotalsPerLine],
   );
 
-  // Total approved days across all resources (for the summary card)
   const totalApprovedDays = useMemo(() => {
     const map: Record<string, number> = {};
     for (const e of timesheetEntries) map[e.resource_id] = (map[e.resource_id] ?? 0) + e.approved_days;
@@ -985,7 +911,6 @@ export default function FinancialPlanEditor({
     handleChange({ ...content, resources: newResources, cost_lines: newLines });
   }, [content, lines, handleChange]);
 
-  // updateLine deliberately does NOT allow setting `actual` — it's derived only.
   const updateLine = useCallback((id: string, patch: Partial<Omit<CostLine, "actual">>) => {
     handleChange({
       ...content,
@@ -1030,9 +955,8 @@ export default function FinancialPlanEditor({
     handleChange({ ...content, change_exposure: content.change_exposure.filter(c => c.id !== id) });
   }, [content, handleChange]);
 
-  // Totals — use linesWithActuals so actual is always timesheet-derived
   const totalBudgeted    = sumField(linesWithActuals, "budgeted");
-  const totalActual      = sumField(linesWithActuals, "actual");   // ← always from timesheets
+  const totalActual      = sumField(linesWithActuals, "actual");
   const totalForecast    = sumField(linesWithActuals, "forecast");
   const approvedBudget   = Number(content.total_approved_budget) || 0;
   const forecastVariance = approvedBudget ? totalForecast - approvedBudget : null;
@@ -1045,7 +969,6 @@ export default function FinancialPlanEditor({
   const fyConfig:    FYConfig    = content.fy_config    ?? { fy_start_month: 4, fy_start_year: new Date().getFullYear(), num_months: 12 };
   const monthlyData: MonthlyData = content.monthly_data ?? {};
 
-  // Overlay actuals onto monthly data for signals + monthly view
   const monthlyDataWithActuals = useMemo(
     () => applyActualsToMonthlyData(monthlyData, actualsByLine),
     [monthlyData, actualsByLine],
@@ -1080,7 +1003,6 @@ export default function FinancialPlanEditor({
   return (
     <div className="flex flex-col gap-4">
 
-      {/* ── Header controls ── */}
       <div className="flex flex-wrap gap-4 items-end">
         <div>
           <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Currency</label>
@@ -1109,36 +1031,12 @@ export default function FinancialPlanEditor({
         </div>
       </div>
 
-      {/* ── Summary cards ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          {
-            label: "Budgeted",
-            value: fmt(totalBudgeted, sym),
-            sub: "across all cost lines",
-            color: "text-gray-700",
-          },
-          {
-            label: "Actual Spent",
-            value: fmt(totalActual, sym),
-            sub: totalApprovedDays > 0
-              ? `${totalApprovedDays.toLocaleString()} approved days`
-              : "awaiting approved timesheets",
-            color: "text-violet-600",
-            locked: true,
-          },
-          {
-            label: "Total Forecast",
-            value: fmt(totalForecast, sym),
-            sub: utilPct !== null ? `${utilPct}% of approved` : "",
-            color: overBudget ? "text-red-600" : "text-emerald-600",
-          },
-          {
-            label: "Pending Exposure",
-            value: fmt(pendingExposure, sym),
-            sub: "from change requests",
-            color: pendingExposure > 0 ? "text-amber-600" : "text-gray-400",
-          },
+          { label: "Budgeted",          value: fmt(totalBudgeted, sym),   sub: "across all cost lines",                                                                          color: "text-gray-700"    },
+          { label: "Actual Spent",      value: fmt(totalActual, sym),     sub: totalApprovedDays > 0 ? `${totalApprovedDays.toLocaleString()} approved days` : "awaiting approved timesheets", color: "text-violet-600", locked: true },
+          { label: "Total Forecast",    value: fmt(totalForecast, sym),   sub: utilPct !== null ? `${utilPct}% of approved` : "",                                                color: overBudget ? "text-red-600" : "text-emerald-600" },
+          { label: "Pending Exposure",  value: fmt(pendingExposure, sym), sub: "from change requests",                                                                           color: pendingExposure > 0 ? "text-amber-600" : "text-gray-400" },
         ].map(s => (
           <div key={s.label} className={`rounded-xl border px-4 py-3 shadow-sm ${
             (s as any).locked ? "bg-violet-50 border-violet-100" : "bg-white border-gray-100"
@@ -1153,7 +1051,6 @@ export default function FinancialPlanEditor({
         ))}
       </div>
 
-      {/* Resource cost callout */}
       {totalResourceCost > 0 && approvedBudget > 0 && (
         <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm border ${
           totalResourceCost > approvedBudget
@@ -1176,7 +1073,6 @@ export default function FinancialPlanEditor({
         </div>
       )}
 
-      {/* ── Plan Summary ── */}
       <div>
         <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Plan Summary</label>
         <textarea
@@ -1189,7 +1085,6 @@ export default function FinancialPlanEditor({
         />
       </div>
 
-      {/* ── Tabs ── */}
       <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
         {tabs.map(tab => (
           <button
@@ -1213,10 +1108,8 @@ export default function FinancialPlanEditor({
         ))}
       </div>
 
-      {/* ── Cost Breakdown ── */}
       {activeTab === "budget" && (
         <div className="overflow-x-auto rounded-xl border border-gray-200">
-          {/* Actuals legend */}
           <div className="px-4 py-2 border-b border-gray-100 bg-violet-50/60 flex items-center gap-2 text-[11px] text-violet-600 font-medium">
             <Lock className="w-3 h-3" />
             Actual column is locked — auto-computed from approved timesheet days × rate card rate
@@ -1225,15 +1118,8 @@ export default function FinancialPlanEditor({
             <thead>
               <tr className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                 {[
-                  "Category",
-                  "Description",
-                  `Budgeted (${sym})`,
-                  `Actual (${sym}) ⓘ`,
-                  `Forecast (${sym})`,
-                  "Variance",
-                  "Resources",
-                  "Notes",
-                  "",
+                  "Category", "Description", `Budgeted (${sym})`, `Actual (${sym}) ⓘ`,
+                  `Forecast (${sym})`, "Variance", "Resources", "Notes", "",
                 ].map((h, i) => (
                   <th key={i} className={`px-3 py-2.5 text-left border-b border-gray-200 whitespace-nowrap ${
                     h.startsWith("Actual") ? "bg-violet-50 text-violet-600" : ""
@@ -1252,12 +1138,8 @@ export default function FinancialPlanEditor({
               {linesWithActuals.map((l, idx) => {
                 const resTotal     = resourceTotalsByLine[l.id] ?? 0;
                 const hasResources = resTotal > 0;
-                // How many approved days feed into this line
                 const lineApprovedDays = timesheetEntries
-                  .filter(e => {
-                    const r = resources.find(r => r.id === e.resource_id);
-                    return r?.cost_line_id === l.id;
-                  })
+                  .filter(e => { const r = resources.find(r => r.id === e.resource_id); return r?.cost_line_id === l.id; })
                   .reduce((s, e) => s + e.approved_days, 0);
                 const hasTimesheetData = lineApprovedDays > 0;
 
@@ -1287,14 +1169,8 @@ export default function FinancialPlanEditor({
                     <td className={`border-b border-gray-100 ${hasResources && !l.override ? "bg-blue-50/40" : ""}`}>
                       <MoneyCell value={l.budgeted} onChange={v => updateLine(l.id, { budgeted: v })} symbol={sym} readOnly={readOnly || (hasResources && !l.override)} />
                     </td>
-                    {/* Actual — locked, derived from timesheets */}
                     <td className="border-b border-gray-100 bg-violet-50/40">
-                      <ActualCell
-                        value={l.actual}
-                        symbol={sym}
-                        approvedDays={lineApprovedDays}
-                        hasTimesheetData={hasTimesheetData}
-                      />
+                      <ActualCell value={l.actual} symbol={sym} approvedDays={lineApprovedDays} hasTimesheetData={hasTimesheetData} />
                     </td>
                     <td className={`border-b border-gray-100 ${hasResources && !l.override ? "bg-blue-50/40" : ""}`}>
                       <MoneyCell value={l.forecast} onChange={v => updateLine(l.id, { forecast: v })} symbol={sym} readOnly={readOnly || (hasResources && !l.override)} />
@@ -1304,13 +1180,7 @@ export default function FinancialPlanEditor({
                     </td>
                     <td className="border-b border-gray-100 px-2 min-w-[130px]">
                       {!readOnly && (
-                        <OverrideToggle
-                          line={l}
-                          hasLinkedResources={hasResources}
-                          resTotal={resTotal}
-                          sym={sym}
-                          onToggle={() => toggleLineOverride(l.id)}
-                        />
+                        <OverrideToggle line={l} hasLinkedResources={hasResources} resTotal={resTotal} sym={sym} onToggle={() => toggleLineOverride(l.id)} />
                       )}
                       {!hasResources && <span className="text-[10px] text-gray-300 px-1">no resources</span>}
                     </td>
@@ -1362,60 +1232,38 @@ export default function FinancialPlanEditor({
         </div>
       )}
 
-      {/* ── Resources ── */}
       {activeTab === "resources" && (
         <ResourcesTab
-          resources={resources}
-          costLines={lines}
-          sym={sym}
-          currency={content.currency}
-          readOnly={readOnly}
-          onChange={handleResourcesChange}
-          organisationId={organisationId}
-          monthlyData={monthlyData}
-          fyConfig={fyConfig}
-          timesheetEntries={timesheetEntries}
-          actualsByLine={actualsByLine}
-          onSyncMonthly={d => updateField("monthly_data", d)}
+          resources={resources} costLines={lines} sym={sym} currency={content.currency}
+          readOnly={readOnly} onChange={handleResourcesChange} organisationId={organisationId}
+          monthlyData={monthlyData} fyConfig={fyConfig} timesheetEntries={timesheetEntries}
+          actualsByLine={actualsByLine} onSyncMonthly={d => updateField("monthly_data", d)}
         />
       )}
 
-      {/* ── Monthly Phasing ── */}
       {activeTab === "monthly" && (
         <div className="flex flex-col gap-4">
           {!readOnly && resources.length > 0 && (
             <ResourceSyncBar
-              resources={resources}
-              costLines={lines}
-              monthlyData={monthlyData}
-              fyConfig={fyConfig}
-              currency={content.currency}
-              timesheetEntries={timesheetEntries}
+              resources={resources} costLines={lines} monthlyData={monthlyData}
+              fyConfig={fyConfig} currency={content.currency} timesheetEntries={timesheetEntries}
               onSync={d => updateField("monthly_data", d)}
             />
           )}
           <FinancialIntelligencePanel
-            content={content}
-            monthlyData={monthlyDataWithActuals}
-            fyConfig={fyConfig}
-            lastUpdatedAt={content.last_updated_at}
-            raidItems={raidItems}
-            approvalDelays={approvalDelays}
-            onSignalsChange={setSignals}
+            content={content} monthlyData={monthlyDataWithActuals} fyConfig={fyConfig}
+            lastUpdatedAt={content.last_updated_at} raidItems={raidItems}
+            approvalDelays={approvalDelays} onSignalsChange={setSignals}
           />
           <FinancialPlanMonthlyView
-            content={content}
-            monthlyData={monthlyDataWithActuals}
+            content={content} monthlyData={monthlyDataWithActuals}
             onMonthlyDataChange={d => updateField("monthly_data", d)}
-            fyConfig={fyConfig}
-            onFyConfigChange={c => updateField("fy_config", c)}
-            signals={signals}
-            readOnly={readOnly}
+            fyConfig={fyConfig} onFyConfigChange={c => updateField("fy_config", c)}
+            signals={signals} readOnly={readOnly}
           />
         </div>
       )}
 
-      {/* ── Change Exposure ── */}
       {activeTab === "changes" && (
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-3 gap-3 text-sm">
@@ -1441,9 +1289,7 @@ export default function FinancialPlanEditor({
               </thead>
               <tbody>
                 {content.change_exposure.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">No change exposure logged yet.</td>
-                  </tr>
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">No change exposure logged yet.</td></tr>
                 )}
                 {content.change_exposure.map((c, idx) => (
                   <tr key={c.id} className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50/50"} group hover:bg-amber-50/20 transition-colors`}>
@@ -1496,7 +1342,6 @@ export default function FinancialPlanEditor({
         </div>
       )}
 
-      {/* ── Narrative ── */}
       {activeTab === "narrative" && (
         <div className="flex flex-col gap-4">
           {[
