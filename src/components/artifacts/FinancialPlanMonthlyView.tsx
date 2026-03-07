@@ -1,737 +1,721 @@
-﻿"use client";
+﻿import { useState, useMemo, useCallback } from "react";
 
-import { useState, useCallback, useMemo } from "react";
-import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Lock, Settings2 } from "lucide-react";
-import { CURRENCY_SYMBOLS, type Currency, type CostLine, type FinancialPlanContent } from "./FinancialPlanEditor";
-import { InlineQuarterFlags, InlineMonthFlag } from "./FinancialIntelligencePanel";
-import type { Signal } from "@/lib/financial-intelligence";
+/* ─── Fonts ──────────────────────────────────────────────────────────────── */
+const FONT_LINK = document.createElement("link");
+FONT_LINK.rel = "stylesheet";
+FONT_LINK.href = "https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;600;700&display=swap";
+document.head.appendChild(FONT_LINK);
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-export type MonthKey = string; // "YYYY-MM"
-
-export type MonthlyEntry = {
-  budget: number | "";
-  actual: number | "";
-  forecast: number | "";
-  locked: boolean;
+/* ─── Tokens ─────────────────────────────────────────────────────────────── */
+const T = {
+  bg:       "#F7F7F5",
+  surface:  "#FFFFFF",
+  border:   "#E3E3DF",
+  borderMd: "#C8C8C4",
+  text:     "#0D0D0B",
+  textMd:   "#4A4A46",
+  textSm:   "#8A8A84",
+  navy:     "#1B3652",
+  navyLt:   "#EBF0F5",
+  red:      "#B83A2E",
+  redLt:    "#FDF2F1",
+  green:    "#2A6E47",
+  greenLt:  "#F0F7F3",
+  amber:    "#8A5B1A",
+  amberLt:  "#FDF6EC",
+  violet:   "#4A3A7A",
+  violetLt: "#F4F2FB",
+  mono:     "'DM Mono', monospace",
+  sans:     "'DM Sans', sans-serif",
 };
 
-export type MonthlyData = Record<string, Record<MonthKey, MonthlyEntry>>;
+/* ─── Demo data ──────────────────────────────────────────────────────────── */
+const LINES = [
+  { id:"l1", description:"Engineering Team",     category:"people" },
+  { id:"l2", description:"Design & UX",          category:"people" },
+  { id:"l3", description:"AWS Infrastructure",   category:"infrastructure" },
+  { id:"l4", description:"SaaS Licences",        category:"tools_licences" },
+  { id:"l5", description:"External Consultancy", category:"external_vendors" },
+];
 
-export type FYConfig = {
-  fy_start_month: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
-  fy_start_year: number;
-  num_months: number;
+const MONTHS = [
+  "2025-04","2025-05","2025-06",
+  "2025-07","2025-08","2025-09",
+  "2025-10","2025-11","2025-12",
+  "2026-01","2026-02","2026-03",
+];
+
+const QUARTERS = [
+  { label:"Q1 FY25/26", months:["2025-04","2025-05","2025-06"] },
+  { label:"Q2 FY25/26", months:["2025-07","2025-08","2025-09"] },
+  { label:"Q3 FY25/26", months:["2025-10","2025-11","2025-12"] },
+  { label:"Q4 FY25/26", months:["2026-01","2026-02","2026-03"] },
+];
+
+const SEED = {
+  l1:{"2025-04":[28000,26800,29000],"2025-05":[28000,29500,28500],"2025-06":[28000,0,28000],"2025-07":[30000,0,31000],"2025-08":[30000,0,30000],"2025-09":[30000,0,32500],"2025-10":[30000,0,30000],"2025-11":[30000,0,30000],"2025-12":[30000,0,28000],"2026-01":[32000,0,32000],"2026-02":[32000,0,32000],"2026-03":[32000,0,32000]},
+  l2:{"2025-04":[12000,11500,12000],"2025-05":[12000,11800,12000],"2025-06":[12000,0,12000],"2025-07":[12000,0,13000],"2025-08":[12000,0,12000],"2025-09":[12000,0,12000],"2025-10":[14000,0,14000],"2025-11":[14000,0,14000],"2025-12":[14000,0,14000],"2026-01":[14000,0,14000],"2026-02":[14000,0,14000],"2026-03":[14000,0,14000]},
+  l3:{"2025-04":[4200,4100,4200],"2025-05":[4200,4800,5000],"2025-06":[4200,0,4200],"2025-07":[4500,0,4500],"2025-08":[4500,0,4800],"2025-09":[4500,0,6200],"2025-10":[5000,0,5000],"2025-11":[5000,0,5000],"2025-12":[5000,0,5200],"2026-01":[5500,0,5500],"2026-02":[5500,0,5500],"2026-03":[5500,0,5500]},
+  l4:{"2025-04":[1800,1800,1800],"2025-05":[1800,1800,1800],"2025-06":[1800,0,1800],"2025-07":[1800,0,1800],"2025-08":[1800,0,1800],"2025-09":[1800,0,2200],"2025-10":[2000,0,2000],"2025-11":[2000,0,2000],"2025-12":[2000,0,2000],"2026-01":[2000,0,2000],"2026-02":[2000,0,2000],"2026-03":[2000,0,2000]},
+  l5:{"2025-04":[0,0,0],"2025-05":[0,0,0],"2025-06":[0,0,0],"2025-07":[0,0,0],"2025-08":[0,0,0],"2025-09":[0,0,0],"2025-10":[14000,0,14000],"2025-11":[14000,0,14000],"2025-12":[14000,0,14000],"2026-01":[0,0,0],"2026-02":[0,0,0],"2026-03":[0,0,0]},
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+const SIGNALS = [
+  { scope:"quarter", scopeKey:"Q2 FY25/26", severity:"warning",  message:"Forecast tracking 6% over budget" },
+  { scope:"month",   scopeKey:"2025-05",    severity:"critical", message:"Infrastructure overspend" },
+  { scope:"month",   scopeKey:"2025-09",    severity:"warning",  message:"AWS cost spike" },
+];
 
-export function buildMonthKeys(cfg: FYConfig): MonthKey[] {
-  const keys: MonthKey[] = [];
-  let month = cfg.fy_start_month, year = cfg.fy_start_year;
-  for (let i = 0; i < cfg.num_months; i++) {
-    keys.push(`${year}-${String(month).padStart(2, "0")}`);
-    if (++month > 12) { month = 1; year++; }
-  }
-  return keys;
-}
+const MS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const CAT_LABELS = { people:"People",infrastructure:"Infra",tools_licences:"Tools",external_vendors:"Vendors",travel:"Travel",contingency:"Contingency",other:"Other" };
 
-export function buildQuarters(keys: MonthKey[], fyStart: number) {
-  const qs: { label: string; months: MonthKey[] }[] = [];
-  for (let i = 0; i < keys.length; i += 3) {
-    const slice = keys.slice(i, i + 3);
-    if (!slice.length) break;
-    const [y, m] = slice[0].split("-").map(Number);
-    const fyYear = m >= fyStart ? y : y - 1;
-    qs.push({ label: `Q${Math.floor(i / 3) + 1} FY${fyYear}/${String(fyYear + 1).slice(2)}`, months: slice });
-  }
-  return qs;
-}
+/* ─── Helpers ─────────────────────────────────────────────────────────────── */
+const CUR_MK = (() => { const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`; })();
+const isPast = mk => mk < CUR_MK;
+const isCur  = mk => mk === CUR_MK;
 
-const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-
-function fmt(n: number | "" | null | undefined, sym: string): string {
-  if (n === "" || n == null || isNaN(Number(n))) return "—";
+function fmtK(n) {
+  if (n==null||n===""||isNaN(Number(n))||Number(n)===0) return "—";
   const v = Number(n);
-  if (Math.abs(v) >= 1_000_000) return `${sym}${(v / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(v) >= 1000) return `${sym}${Math.abs(v).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
-  return `${sym}${Math.abs(v)}`;
+  if (Math.abs(v)>=1_000_000) return `£${(Math.abs(v)/1_000_000).toFixed(2)}M`;
+  if (Math.abs(v)>=1000)      return `£${(Math.abs(v)/1000).toFixed(1)}k`;
+  return `£${Math.abs(v)}`;
+}
+function fmtFull(n) {
+  if (!n) return "—";
+  return `£${Math.abs(Number(n)).toLocaleString("en-GB")}`;
+}
+function pctStr(a,b) {
+  if (!b) return null;
+  return ((a-b)/b*100).toFixed(1);
 }
 
-function fmtK(n: number | "" | null | undefined, sym: string): string {
-  if (n === "" || n == null || isNaN(Number(n))) return "—";
-  const v = Number(n);
-  if (v === 0) return "—";
-  if (Math.abs(v) >= 1_000_000) return `${sym}${(Math.abs(v) / 1_000_000).toFixed(1)}M`;
-  return `${sym}${(Math.abs(v) / 1000).toFixed(1)}k`;
-}
-
-function emptyEntry(): MonthlyEntry {
-  return { budget: "", actual: "", forecast: "", locked: false };
-}
-
-function currentMonthKey(): MonthKey {
-  const n = new Date();
-  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function isCurrentMonth(mk: MonthKey) { return mk === currentMonthKey(); }
-function isPastMonth(mk: MonthKey) { return mk < currentMonthKey(); }
-
-function sumMonths(lines: CostLine[], md: MonthlyData, months: MonthKey[], field: "budget" | "actual" | "forecast"): number {
-  return lines.reduce((s, l) => s + months.reduce((ms, mk) => ms + (Number(md[l.id]?.[mk]?.[field]) || 0), 0), 0);
-}
-
-// ── MoneyInput ────────────────────────────────────────────────────────────────
-
-function MoneyInput({ value, onChange, sym, locked, highlight }: {
-  value: number | ""; onChange: (v: number | "") => void;
-  sym: string; locked: boolean; highlight?: "blue" | "green" | "red" | "gray";
-}) {
-  const colorMap = {
-    blue:  "text-blue-300 font-semibold",
-    green: "text-emerald-300 font-semibold",
-    red:   "text-red-400 font-semibold",
-    gray:  "text-slate-400",
-  };
-  const cls = colorMap[highlight ?? "gray"];
-
-  if (locked) {
-    return (
-      <div className={`flex items-center justify-end gap-1 px-2 py-2 text-xs ${cls}`}>
-        <Lock className="w-2.5 h-2.5 opacity-30" />
-        <span className="tabular-nums">{value !== "" ? fmtK(value, sym) : "—"}</span>
-      </div>
-    );
+function buildMT() {
+  const r={};
+  for (const mk of MONTHS) {
+    let b=0,a=0,f=0;
+    for (const lid of Object.keys(SEED)) {
+      const d=SEED[lid]?.[mk]||[0,0,0];
+      b+=d[0]; a+=d[1]; f+=d[2];
+    }
+    r[mk]={b,a,f};
   }
+  return r;
+}
+const MT = buildMT();
+
+/* ─── Design primitives ───────────────────────────────────────────────────── */
+function Label({children}) {
   return (
-    <input
-      type="number"
-      value={value}
-      onChange={e => onChange(e.target.value === "" ? "" : Number(e.target.value))}
-      className={`w-full text-right text-xs px-2 py-2 bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-blue-500/40 focus:bg-white/5 rounded-md transition-all tabular-nums ${cls} placeholder-slate-600`}
-      placeholder="—"
-      step={100}
-    />
+    <span style={{fontFamily:T.mono,fontSize:8,letterSpacing:"0.12em",color:T.textSm,textTransform:"uppercase",fontWeight:500}}>
+      {children}
+    </span>
   );
 }
 
-// ── Quarter header row ────────────────────────────────────────────────────────
+function StatusDot({severity}) {
+  const c = severity==="critical" ? T.red : severity==="warning" ? T.amber : T.green;
+  return <span style={{display:"inline-block",width:6,height:6,borderRadius:"50%",background:c,flexShrink:0}}/>;
+}
 
-function QuarterRow({ label, months, monthlyData, lines, sym, collapsed, onToggle, signals }: {
-  label: string; months: MonthKey[]; monthlyData: MonthlyData;
-  lines: CostLine[]; sym: string; collapsed: boolean;
-  onToggle: () => void; signals: Signal[];
-}) {
-  const totals = useMemo(() => {
-    let budget = 0, actual = 0, forecast = 0;
-    for (const lineId of lines.map(l => l.id)) {
-      for (const mk of months) {
-        const e = monthlyData[lineId]?.[mk];
-        budget += Number(e?.budget ?? 0) || 0;
-        actual += Number(e?.actual ?? 0) || 0;
-        forecast += Number(e?.forecast ?? 0) || 0;
-      }
-    }
-    return { budget, actual, forecast };
-  }, [months, monthlyData, lines]);
+function Pill({color, children}) {
+  const p = {
+    red:   {bg:T.redLt,   text:T.red,   border:"#F0B0AA"},
+    amber: {bg:T.amberLt, text:T.amber, border:"#E0C080"},
+    green: {bg:T.greenLt, text:T.green, border:"#A0D0B8"},
+    gray:  {bg:"#F4F4F2", text:T.textMd,border:T.border},
+  }[color]||{bg:"#F4F4F2",text:T.textMd,border:T.border};
+  return (
+    <span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",
+      background:p.bg,color:p.text,border:`1px solid ${p.border}`,
+      fontFamily:T.mono,fontSize:9,fontWeight:500,letterSpacing:"0.04em",whiteSpace:"nowrap"}}>
+      {children}
+    </span>
+  );
+}
 
-  const variance = totals.budget ? totals.forecast - totals.budget : null;
-  const over = variance !== null && variance > 0;
-  const util = totals.budget ? Math.round((totals.forecast / totals.budget) * 100) : null;
-  const qSigs = signals.filter(s => s.scopeKey === label);
-  const hasCritical = qSigs.some(s => s.severity === "critical");
-  const hasWarning = qSigs.some(s => s.severity === "warning");
+function ModeBtn({label, active, onClick}) {
+  const [h,setH] = useState(false);
+  return (
+    <button onClick={onClick}
+      onMouseEnter={()=>setH(true)} onMouseLeave={()=>setH(false)}
+      style={{padding:"4px 12px",fontFamily:T.mono,fontSize:9,letterSpacing:"0.08em",
+        textTransform:"uppercase",background:active?T.navy:h?"#E8EDF2":T.bg,
+        color:active?"#FFF":h?T.navy:T.textMd,border:`1px solid ${active?T.navy:T.border}`,
+        cursor:"pointer",transition:"all 0.1s"}}>
+      {label}
+    </button>
+  );
+}
 
-  const bgColor = hasCritical
-    ? "bg-red-950/80 border-red-800/60"
-    : hasWarning
-    ? "bg-amber-950/70 border-amber-800/50"
-    : "bg-slate-800/90 border-slate-700/50";
+function ConfigBtn({active, onClick}) {
+  const [h,setH] = useState(false);
+  return (
+    <button onClick={onClick}
+      onMouseEnter={()=>setH(true)} onMouseLeave={()=>setH(false)}
+      style={{padding:"4px 12px",fontFamily:T.mono,fontSize:9,letterSpacing:"0.08em",
+        textTransform:"uppercase",display:"flex",alignItems:"center",gap:5,
+        background:active?"#E8EDF2":h?"#E8EDF2":T.bg,
+        color:active?T.navy:T.textMd,
+        border:`1px solid ${active?T.borderMd:T.border}`,
+        cursor:"pointer",transition:"all 0.1s"}}>
+      ⚙ Configure
+    </button>
+  );
+}
+
+/* ─── Quarter header row ──────────────────────────────────────────────────── */
+function QuarterHeaderRow({ q, collapsed, onToggle }) {
+  const totB = q.months.reduce((s,mk)=>s+(MT[mk]?.b||0),0);
+  const totA = q.months.reduce((s,mk)=>s+(MT[mk]?.a||0),0);
+  const totF = q.months.reduce((s,mk)=>s+(MT[mk]?.f||0),0);
+  const over = totB && totF > totB;
+  const util = totB ? Math.round((totF/totB)*100) : null;
+  const variance = totB ? totF - totB : null;
+  const sig = SIGNALS.find(s => s.scopeKey === q.label);
+  const bg = sig?.severity==="critical" ? T.redLt : sig?.severity==="warning" ? T.amberLt : "#EEEEEB";
+  const [h, setH] = useState(false);
 
   return (
-    <tr className={`cursor-pointer select-none transition-all group ${bgColor}`} onClick={onToggle}>
-      <td className={`px-4 py-3 sticky left-0 z-10 min-w-[200px] border-r border-slate-700/30 ${bgColor}`}>
-        <div className="flex items-center gap-2.5">
-          <span className={`flex-shrink-0 transition-transform duration-200 ${collapsed ? "" : "rotate-90"}`}>
-            <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+    <tr onClick={onToggle}
+      onMouseEnter={()=>setH(true)} onMouseLeave={()=>setH(false)}
+      style={{cursor:"pointer",background:h?"#E8E8E4":bg,borderBottom:`1px solid ${T.borderMd}`,transition:"background 0.1s"}}>
+      <td style={{position:"sticky",left:0,zIndex:10,padding:"8px 10px",minWidth:200,
+        borderRight:`1px solid ${T.borderMd}`,background:h?"#E8E8E4":bg}}>
+        <div style={{display:"flex",alignItems:"center",gap:7}}>
+          <span style={{fontFamily:T.mono,fontSize:11,display:"inline-block",
+            transform:collapsed?"rotate(0deg)":"rotate(90deg)",transition:"transform 0.15s",color:T.textMd}}>
+            ▶
           </span>
-          <span className="text-xs font-bold tracking-widest uppercase text-slate-200 letter-spacing-wider">{label}</span>
-          <InlineQuarterFlags quarterLabel={label} signals={signals} />
+          <span style={{fontFamily:T.mono,fontSize:10,fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase",color:T.text}}>
+            {q.label}
+          </span>
+          {sig && <StatusDot severity={sig.severity}/>}
         </div>
       </td>
-      <td colSpan={months.length * 3} className="px-4 py-3">
-        <div className="flex items-center gap-6 text-xs">
-          <div className="flex items-center gap-1.5">
-            <span className="text-slate-500 font-medium">Budget</span>
-            <span className="font-bold text-blue-400 tabular-nums">{fmt(totals.budget, sym)}</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-slate-500 font-medium">Actual</span>
-            <span className="font-bold text-slate-200 tabular-nums">{fmt(totals.actual, sym)}</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-slate-500 font-medium">Forecast</span>
-            <span className={`font-bold tabular-nums ${over ? "text-red-400" : "text-emerald-400"}`}>{fmt(totals.forecast, sym)}</span>
-          </div>
-          {variance !== null && (
-            <div className={`flex items-center gap-1 ${over ? "text-red-400" : "text-emerald-400"}`}>
-              {over ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-              <span className="font-bold tabular-nums">{over ? "+" : ""}{fmt(variance, sym)}</span>
-              {totals.budget > 0 && (
-                <span className="text-slate-500">({over ? "+" : ""}{(((totals.forecast - totals.budget) / totals.budget) * 100).toFixed(1)}%)</span>
-              )}
-            </div>
+      <td colSpan={q.months.length*3} style={{padding:"8px 14px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:18,flexWrap:"wrap"}}>
+          <span style={{fontFamily:T.mono,fontSize:10,color:T.textSm}}>
+            Budget <span style={{color:T.navy,fontWeight:600}}>{fmtK(totB)}</span>
+          </span>
+          <span style={{fontFamily:T.mono,fontSize:10,color:T.textSm}}>
+            Actual <span style={{color:T.violet}}>{fmtK(totA)||"—"}</span>
+          </span>
+          <span style={{fontFamily:T.mono,fontSize:10,color:T.textSm}}>
+            Forecast <span style={{color:over?T.red:T.green,fontWeight:600}}>{fmtK(totF)}</span>
+          </span>
+          {variance!==null && (
+            <span style={{fontFamily:T.mono,fontSize:10,fontWeight:600,color:over?T.red:T.green}}>
+              {over?"▲":"▼"} {fmtK(Math.abs(variance))}
+              {totB>0&&<span style={{fontWeight:400,color:T.textSm}}> ({over?"+":""}{pctStr(totF,totB)}%)</span>}
+            </span>
           )}
-          {util !== null && (
-            <div className="flex items-center gap-1.5 ml-auto">
-              <span className="text-slate-500 font-medium">Util</span>
-              <span className={`font-bold tabular-nums ${util > 100 ? "text-red-400" : util > 85 ? "text-amber-400" : "text-slate-300"}`}>{util}%</span>
-            </div>
+          {util!==null && (
+            <span style={{marginLeft:"auto",fontFamily:T.mono,fontSize:10,
+              color:util>100?T.red:util>85?T.amber:T.textSm}}>
+              Util: <span style={{fontWeight:600,color:util>100?T.red:util>85?T.amber:T.textMd}}>{util}%</span>
+            </span>
           )}
         </div>
       </td>
-      <td className={`px-3 py-3 sticky right-0 z-10 ${bgColor}`} />
+      <td style={{position:"sticky",right:0,zIndex:10,background:h?"#E8E8E4":bg,
+        borderLeft:`1px solid ${T.borderMd}`,minWidth:80}}/>
     </tr>
   );
 }
 
-// ── Props ─────────────────────────────────────────────────────────────────────
-
-type Props = {
-  content: FinancialPlanContent;
-  monthlyData: MonthlyData;
-  onMonthlyDataChange: (d: MonthlyData) => void;
-  fyConfig: FYConfig;
-  onFyConfigChange: (c: FYConfig) => void;
-  signals?: Signal[];
-  readOnly?: boolean;
-};
-
-const FY_START_OPTIONS = [
-  { value: 1,  label: "Jan — Calendar year" },
-  { value: 4,  label: "Apr — UK / NHS" },
-  { value: 7,  label: "Jul" },
-  { value: 10, label: "Oct" },
-];
-
-const DURATION_OPTIONS = [
-  { value: 12, label: "12 months" },
-  { value: 18, label: "18 months" },
-  { value: 24, label: "24 months" },
-  { value: 36, label: "36 months" },
-];
-
-// ── Main ──────────────────────────────────────────────────────────────────────
-
-export default function FinancialPlanMonthlyView({
-  content, monthlyData, onMonthlyDataChange, fyConfig, onFyConfigChange, signals = [], readOnly = false,
-}: Props) {
-  const [collapsedQuarters, setCollapsedQuarters] = useState<Set<string>>(new Set());
-  const [viewMode, setViewMode] = useState<"monthly" | "quarterly">("monthly");
+/* ─── Main ────────────────────────────────────────────────────────────────── */
+export default function FinancialPlanMonthlyViewPalantir() {
+  const [collapsed, setCollapsed] = useState(new Set(["Q3 FY25/26","Q4 FY25/26"]));
+  const [viewMode, setViewMode]   = useState("monthly");
   const [showConfig, setShowConfig] = useState(false);
+  const [fyYear, setFyYear]       = useState(2025);
 
-  const sym = CURRENCY_SYMBOLS[content.currency as Currency] ?? "£";
-  const lines = content.cost_lines ?? [];
-
-  const monthKeys = useMemo(() => buildMonthKeys(fyConfig), [fyConfig]);
-  const quarters  = useMemo(() => buildQuarters(monthKeys, fyConfig.fy_start_month), [monthKeys, fyConfig.fy_start_month]);
-
-  const toggleQuarter = useCallback((label: string) => {
-    setCollapsedQuarters(prev => {
-      const next = new Set(prev);
-      next.has(label) ? next.delete(label) : next.add(label);
-      return next;
-    });
+  const toggleQ = useCallback(label => {
+    setCollapsed(prev => { const n=new Set(prev); n.has(label)?n.delete(label):n.add(label); return n; });
   }, []);
 
-  const updateEntry = useCallback((lineId: string, mk: MonthKey, patch: Partial<MonthlyEntry>) => {
-    onMonthlyDataChange({
-      ...monthlyData,
-      [lineId]: {
-        ...(monthlyData[lineId] ?? {}),
-        [mk]: { ...emptyEntry(), ...(monthlyData[lineId]?.[mk] ?? {}), ...patch },
-      },
-    });
-  }, [monthlyData, onMonthlyDataChange]);
-
-  const monthTotals = useMemo(() => {
-    const result: Record<MonthKey, { budget: number; actual: number; forecast: number }> = {};
-    for (const mk of monthKeys) {
-      result[mk] = {
-        budget:   sumMonths(lines, monthlyData, [mk], "budget"),
-        actual:   sumMonths(lines, monthlyData, [mk], "actual"),
-        forecast: sumMonths(lines, monthlyData, [mk], "forecast"),
-      };
+  const fcastMv = useMemo(() => {
+    const r={};
+    for (let i=0; i<MONTHS.length; i++) {
+      if(i===0){r[MONTHS[i]]=null;continue;}
+      r[MONTHS[i]]=(MT[MONTHS[i]]?.f||0)-(MT[MONTHS[i-1]]?.f||0);
     }
-    return result;
-  }, [monthKeys, monthlyData, lines]);
+    return r;
+  }, []);
 
-  const forecastMovement = useMemo(() => {
-    const result: Record<MonthKey, number | null> = {};
-    for (let i = 0; i < monthKeys.length; i++) {
-      if (i === 0) { result[monthKeys[i]] = null; continue; }
-      result[monthKeys[i]] = (monthTotals[monthKeys[i]]?.forecast ?? 0) - (monthTotals[monthKeys[i - 1]]?.forecast ?? 0);
-    }
-    return result;
-  }, [monthKeys, monthTotals]);
-
-  const grandTotalForecast = monthKeys.reduce((s, mk) => s + (monthTotals[mk]?.forecast ?? 0), 0);
-
-  const criticalCount = signals.filter(s => s.severity === "critical").length;
-  const warningCount  = signals.filter(s => s.severity === "warning").length;
-
-  if (lines.length === 0) {
-    return (
-      <div className="rounded-2xl border border-dashed border-amber-300/40 bg-amber-950/10 px-6 py-12 text-center">
-        <p className="text-sm text-amber-500/80 font-medium">Add cost lines in <strong className="text-amber-400">Cost Breakdown</strong> first, then return here to enter monthly phasing.</p>
-      </div>
-    );
-  }
+  const grandTotal = MONTHS.reduce((s,mk)=>s+(MT[mk]?.f||0),0);
+  const critCount = SIGNALS.filter(s=>s.severity==="critical").length;
+  const warnCount = SIGNALS.filter(s=>s.severity==="warning").length;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div style={{minHeight:"100vh",background:T.bg,fontFamily:T.sans,padding:0}}>
 
-      {/* ── Toolbar ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-
-        {/* Signal badges */}
-        <div className="flex items-center gap-2">
-          {criticalCount > 0 && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-950 border border-red-700/50 text-red-400 text-xs font-bold">
-              <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
-              {criticalCount} critical
-            </span>
-          )}
-          {warningCount > 0 && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-950 border border-amber-700/50 text-amber-400 text-xs font-bold">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-              {warningCount} warning{warningCount > 1 ? "s" : ""}
-            </span>
-          )}
-          {criticalCount === 0 && warningCount === 0 && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950 border border-emerald-700/50 text-emerald-400 text-xs font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-              On track
-            </span>
-          )}
+      {/* Top bar */}
+      <div style={{background:T.navy,padding:"10px 24px",display:"flex",alignItems:"center",gap:16,borderBottom:`2px solid #0D2540`}}>
+        <div>
+          <div style={{fontFamily:T.mono,fontSize:8,color:"#7A9EC0",letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:2}}>
+            AlienAI · Financial Plan
+          </div>
+          <div style={{fontFamily:T.mono,fontSize:13,fontWeight:500,color:"#FFFFFF",letterSpacing:"0.02em"}}>
+            Monthly Phasing — FY {fyYear}/{String(fyYear+1).slice(2)}
+          </div>
         </div>
-
-        <div className="flex items-center gap-2">
-          {/* Config toggle */}
-          <button
-            onClick={() => setShowConfig(v => !v)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${showConfig ? "bg-slate-800 border-slate-600 text-white" : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"}`}
-          >
-            <Settings2 className="w-3.5 h-3.5" />
-            Configure
-          </button>
-
-          {/* View toggle */}
-          <div className="flex bg-slate-100 rounded-lg p-0.5 gap-0.5">
-            {(["monthly", "quarterly"] as const).map(m => (
-              <button
-                key={m}
-                onClick={() => setViewMode(m)}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all capitalize ${
-                  viewMode === m
-                    ? "bg-slate-900 text-white shadow-sm"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                {m}
-              </button>
-            ))}
+        <div style={{marginLeft:"auto",display:"flex",gap:10,alignItems:"center"}}>
+          <div style={{padding:"3px 12px",border:`1px solid #3A6080`,background:"rgba(255,255,255,0.06)",
+            fontFamily:T.mono,fontSize:9,color:"#90B8CC",letterSpacing:"0.06em"}}>
+            GBP · 12 months · {LINES.length} cost lines
+          </div>
+          <div style={{fontFamily:T.mono,fontSize:9,color:"#607080"}}>
+            Grand Forecast: <span style={{color:"#8EC9A8",fontWeight:600}}>{fmtFull(grandTotal)}</span>
           </div>
         </div>
       </div>
 
-      {/* ── Config panel ── */}
-      {showConfig && (
-        <div className="flex flex-wrap gap-4 items-end p-4 rounded-xl border border-gray-200 bg-gray-50">
-          {[
-            {
-              label: "FY Start Month",
-              control: (
-                <select
-                  value={fyConfig.fy_start_month}
-                  onChange={e => onFyConfigChange({ ...fyConfig, fy_start_month: Number(e.target.value) as FYConfig["fy_start_month"] })}
-                  disabled={readOnly}
-                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {FY_START_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              ),
-            },
-            {
-              label: "FY Start Year",
-              control: (
-                <input
-                  type="number" value={fyConfig.fy_start_year}
-                  onChange={e => onFyConfigChange({ ...fyConfig, fy_start_year: Number(e.target.value) })}
-                  disabled={readOnly} min={2020} max={2040}
-                  className="w-24 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              ),
-            },
-            {
-              label: "Duration",
-              control: (
-                <select
-                  value={fyConfig.num_months}
-                  onChange={e => onFyConfigChange({ ...fyConfig, num_months: Number(e.target.value) })}
-                  disabled={readOnly}
-                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {DURATION_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              ),
-            },
-          ].map(({ label, control }) => (
-            <div key={label}>
-              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">{label}</label>
-              {control}
+      <div style={{padding:"20px 24px",maxWidth:1600,margin:"0 auto",display:"flex",flexDirection:"column",gap:16}}>
+
+        {/* ── Toolbar ── */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+          {/* Signal badges */}
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            {critCount>0 && (
+              <div style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",
+                background:T.redLt,border:`1px solid #F0B0AA`,
+                fontFamily:T.mono,fontSize:9,color:T.red,letterSpacing:"0.06em"}}>
+                <StatusDot severity="critical"/> {critCount} CRITICAL
+              </div>
+            )}
+            {warnCount>0 && (
+              <div style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",
+                background:T.amberLt,border:`1px solid #E0C080`,
+                fontFamily:T.mono,fontSize:9,color:T.amber,letterSpacing:"0.06em"}}>
+                <StatusDot severity="warning"/> {warnCount} WARNING
+              </div>
+            )}
+            {critCount===0&&warnCount===0&&(
+              <div style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",
+                background:T.greenLt,border:`1px solid #A0D0B8`,
+                fontFamily:T.mono,fontSize:9,color:T.green,letterSpacing:"0.06em"}}>
+                <StatusDot severity="ok"/> ON TRACK
+              </div>
+            )}
+          </div>
+
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <ConfigBtn active={showConfig} onClick={()=>setShowConfig(v=>!v)}/>
+            <div style={{display:"flex",gap:0}}>
+              <ModeBtn label="Monthly"   active={viewMode==="monthly"}   onClick={()=>setViewMode("monthly")}/>
+              <ModeBtn label="Quarterly" active={viewMode==="quarterly"} onClick={()=>setViewMode("quarterly")}/>
             </div>
-          ))}
+          </div>
         </div>
-      )}
 
-      {/* ── Legend ── */}
-      <div className="flex flex-wrap gap-5 text-xs text-slate-500 px-1">
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded bg-blue-900/60 border border-blue-600/40" />
-          Budget
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded bg-slate-700/60 border border-slate-600/40" />
-          <Lock className="w-2.5 h-2.5" /> Actual (locked past months)
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded bg-emerald-900/60 border border-emerald-600/40" />
-          Forecast
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded bg-red-900/60 border border-red-600/40" />
-          Over budget
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-blue-400 ring-2 ring-blue-400/30" />
-          Current month
-        </span>
-      </div>
+        {/* ── Config panel ── */}
+        {showConfig && (
+          <div style={{border:`1px solid ${T.border}`,background:T.surface,padding:"14px 18px",
+            display:"flex",flexWrap:"wrap",gap:20,alignItems:"flex-end"}}>
+            {[
+              { label:"FY Start Month", ctrl:
+                <select value={4} onChange={()=>{}}
+                  style={{border:`1px solid ${T.border}`,background:T.bg,fontFamily:T.mono,fontSize:10,
+                    color:T.text,padding:"5px 8px",borderRadius:0,outline:"none"}}>
+                  {[{v:1,l:"Jan — Calendar"},{v:4,l:"Apr — UK/NHS"},{v:7,l:"Jul"},{v:10,l:"Oct"}]
+                    .map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+                </select>
+              },
+              { label:"FY Start Year", ctrl:
+                <input type="number" value={fyYear} onChange={e=>setFyYear(Number(e.target.value))} min={2020} max={2040}
+                  style={{border:`1px solid ${T.border}`,background:T.bg,fontFamily:T.mono,fontSize:10,
+                    color:T.text,padding:"5px 8px",width:80,borderRadius:0,outline:"none"}}/>
+              },
+              { label:"Duration", ctrl:
+                <select value={12} onChange={()=>{}}
+                  style={{border:`1px solid ${T.border}`,background:T.bg,fontFamily:T.mono,fontSize:10,
+                    color:T.text,padding:"5px 8px",borderRadius:0,outline:"none"}}>
+                  {[{v:12,l:"12 months"},{v:18,l:"18 months"},{v:24,l:"24 months"}]
+                    .map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+                </select>
+              },
+            ].map(({label,ctrl})=>(
+              <div key={label}>
+                <div style={{marginBottom:5}}><Label>{label}</Label></div>
+                {ctrl}
+              </div>
+            ))}
+          </div>
+        )}
 
-      {/* ── Table ── */}
-      <div
-        className="rounded-2xl overflow-hidden border border-slate-700/50 shadow-2xl shadow-slate-900/30"
-        style={{ maxHeight: "70vh", overflowY: "auto", overflowX: "auto" }}
-      >
-        <table
-          className="text-xs border-collapse bg-slate-900"
-          style={{ minWidth: `${200 + monthKeys.length * 100 + 120}px` }}
-        >
-          {/* ── THEAD ── */}
-          <thead className="sticky top-0 z-20">
+        {/* ── Legend ── */}
+        <div style={{display:"flex",flexWrap:"wrap",gap:14,alignItems:"center"}}>
+          {[
+            {bg:"#EEF4F9",bc:"#A0BAD0",l:"Budget"},
+            {bg:T.violetLt,bc:"#C0B0E0",l:"Actual (locked)"},
+            {bg:"#EBF5F0",bc:"#A0D0B8",l:"Forecast"},
+            {bg:T.redLt,bc:"#F0B0AA",l:"Over budget"},
+          ].map(({bg,bc,l})=>(
+            <span key={l} style={{display:"flex",alignItems:"center",gap:5,
+              fontFamily:T.mono,fontSize:9,color:T.textSm,letterSpacing:"0.06em"}}>
+              <span style={{width:10,height:10,background:bg,border:`1px solid ${bc}`}}/>
+              {l.toUpperCase()}
+            </span>
+          ))}
+          <span style={{display:"flex",alignItems:"center",gap:5,fontFamily:T.mono,fontSize:9,color:T.textSm,letterSpacing:"0.06em"}}>
+            <span style={{width:6,height:6,borderRadius:"50%",background:T.navy,boxShadow:`0 0 0 2px ${T.navyLt}`}}/>
+            CURRENT MONTH
+          </span>
+        </div>
 
-            {/* Quarter header */}
-            <tr className="bg-slate-950">
-              <th className="sticky left-0 bg-slate-950 z-30 min-w-[200px] px-4 py-3 text-left font-semibold text-slate-400 border-r border-slate-700/50 text-xs tracking-widest uppercase">
-                Cost Line
-              </th>
-              {viewMode === "monthly"
-                ? quarters.map(q => (
-                    <th
-                      key={q.label}
-                      colSpan={q.months.length * 3}
-                      className="px-3 py-3 text-center font-bold border-r border-slate-700/50 text-slate-200 text-xs tracking-wide"
-                      style={{ background: "linear-gradient(180deg, #0f172a 0%, #1e293b 100%)" }}
-                    >
-                      {q.label}
-                    </th>
-                  ))
-                : quarters.map(q => (
-                    <th key={q.label} colSpan={5} className="px-3 py-3 text-center font-bold border-r border-slate-700/50 text-slate-200 text-xs tracking-wide bg-slate-950">
-                      {q.label}
-                    </th>
-                  ))
-              }
-              <th className="sticky right-0 bg-slate-950 z-30 min-w-[90px] px-3 py-3 text-center font-semibold text-slate-400 text-xs tracking-widest uppercase">
-                Total
-              </th>
-            </tr>
+        {/* ── Table ── */}
+        <div style={{border:`1px solid ${T.borderMd}`,overflow:"hidden",maxHeight:"65vh",overflowY:"auto",overflowX:"auto"}}>
+          <table style={{borderCollapse:"collapse",
+            minWidth: viewMode==="monthly" ? `${200+MONTHS.length*162+90}px` : "700px",
+            background:T.surface}}>
 
-            {/* Month sub-headers */}
-            {viewMode === "monthly" && (
-              <tr className="bg-slate-900">
-                <th className="sticky left-0 bg-slate-900 z-30 px-4 py-2 border-r border-slate-700/50" />
-                {quarters.flatMap(q =>
-                  q.months.map(mk => {
-                    const month = Number(mk.split("-")[1]);
-                    const year  = Number(mk.split("-")[0]);
-                    const isCurrent = isCurrentMonth(mk);
-                    const isPast    = isPastMonth(mk);
-                    const mSigs     = signals.filter(s => s.scope === "month" && s.scopeKey === mk);
-                    const hasCrit   = mSigs.some(s => s.severity === "critical");
+            {/* THEAD */}
+            <thead style={{position:"sticky",top:0,zIndex:20}}>
 
+              {/* Quarter row */}
+              <tr style={{background:"#EFEFEC"}}>
+                <th style={{position:"sticky",left:0,zIndex:30,background:"#EFEFEC",
+                  minWidth:200,padding:"7px 10px",textAlign:"left",
+                  borderRight:`1px solid ${T.borderMd}`,borderBottom:`1px solid ${T.borderMd}`,
+                  fontFamily:T.mono,fontSize:8,color:T.textSm,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:500}}>
+                  Cost Line
+                </th>
+                {viewMode==="monthly"
+                  ? QUARTERS.map(q=>(
+                      <th key={q.label} colSpan={q.months.length*3}
+                        style={{padding:"7px 10px",textAlign:"center",fontFamily:T.mono,fontSize:9,fontWeight:500,
+                          color:T.text,letterSpacing:"0.08em",textTransform:"uppercase",
+                          borderRight:`1px solid ${T.borderMd}`,borderBottom:`1px solid ${T.border}`,background:"#F2F2EF"}}>
+                        {q.label}
+                      </th>
+                    ))
+                  : QUARTERS.map(q=>(
+                      <th key={q.label} colSpan={5}
+                        style={{padding:"7px 10px",textAlign:"center",fontFamily:T.mono,fontSize:9,fontWeight:500,
+                          color:T.text,letterSpacing:"0.08em",textTransform:"uppercase",
+                          borderRight:`1px solid ${T.borderMd}`,borderBottom:`1px solid ${T.border}`,background:"#F2F2EF"}}>
+                        {q.label}
+                      </th>
+                    ))
+                }
+                <th style={{position:"sticky",right:0,zIndex:30,background:"#EFEFEC",
+                  minWidth:80,padding:"7px 10px",textAlign:"right",
+                  borderLeft:`1px solid ${T.borderMd}`,borderBottom:`1px solid ${T.borderMd}`,
+                  fontFamily:T.mono,fontSize:8,color:T.textSm,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:500}}>
+                  Total
+                </th>
+              </tr>
+
+              {/* Month sub-headers */}
+              {viewMode==="monthly" && (
+                <tr style={{background:"#F7F7F5"}}>
+                  <th style={{position:"sticky",left:0,zIndex:30,background:"#F7F7F5",
+                    padding:"4px 10px",borderRight:`1px solid ${T.borderMd}`,borderBottom:`1px solid ${T.border}`}}/>
+                  {MONTHS.map(mk=>{
+                    const m=Number(mk.split("-")[1]); const y=Number(mk.split("-")[0]);
+                    const cur=isCur(mk); const past=isPast(mk);
+                    const sig=SIGNALS.find(s=>s.scope==="month"&&s.scopeKey===mk);
                     return (
-                      <th
-                        key={mk}
-                        colSpan={3}
-                        className={`px-2 py-2 text-center border-r border-slate-700/30 whitespace-nowrap transition-colors ${
-                          isCurrent
-                            ? "bg-blue-900/40 border-blue-700/40"
-                            : hasCrit
-                            ? "bg-red-900/30"
-                            : isPast
-                            ? "opacity-60"
-                            : ""
-                        }`}
-                      >
-                        <div className="flex items-center justify-center gap-1.5">
-                          {isCurrent && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 ring-2 ring-blue-400/30 flex-shrink-0" />}
-                          <span className="font-bold text-slate-200">{MONTH_SHORT[month - 1]}</span>
-                          <span className="text-slate-600 text-[10px]">{String(year).slice(2)}</span>
-                          <InlineMonthFlag monthKey={mk} signals={signals} />
+                      <th key={mk} colSpan={3}
+                        style={{padding:"5px 4px",textAlign:"center",
+                          borderRight:`1px solid ${T.border}`,borderBottom:`1px solid ${T.border}`,
+                          background:cur?"#E8F0F8":sig?.severity==="critical"?T.redLt:sig?.severity==="warning"?T.amberLt:past?"#F9F9F7":"#F7F7F5",
+                          opacity:past&&!cur?0.75:1}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+                          {cur&&<span style={{width:5,height:5,borderRadius:"50%",background:T.navy,boxShadow:`0 0 0 2px ${T.navyLt}`}}/>}
+                          <span style={{fontFamily:T.mono,fontSize:10,fontWeight:cur?600:400,color:cur?T.navy:T.text}}>
+                            {MS[m-1]}
+                          </span>
+                          <span style={{fontFamily:T.mono,fontSize:9,color:T.textSm}}>{String(y).slice(2)}</span>
+                          {sig&&<StatusDot severity={sig.severity}/>}
                         </div>
                       </th>
                     );
-                  })
-                )}
-                <th className="sticky right-0 bg-slate-900 z-30 px-3 py-2" />
+                  })}
+                  <th style={{position:"sticky",right:0,zIndex:30,background:"#F7F7F5",
+                    padding:"4px 10px",borderLeft:`1px solid ${T.borderMd}`,borderBottom:`1px solid ${T.border}`}}/>
+                </tr>
+              )}
+
+              {/* Bud / Act / Fct sub-labels */}
+              <tr style={{background:"#F2F2EF"}}>
+                <th style={{position:"sticky",left:0,zIndex:30,background:"#F2F2EF",
+                  padding:"3px 10px",borderRight:`1px solid ${T.borderMd}`,borderBottom:`1px solid ${T.borderMd}`}}/>
+                {viewMode==="monthly"
+                  ? MONTHS.flatMap(mk=>[
+                      <th key={`${mk}-b`} style={{padding:"3px 3px",textAlign:"right",fontFamily:T.mono,fontSize:8,color:T.navy,letterSpacing:"0.08em",textTransform:"uppercase",borderBottom:`1px solid ${T.borderMd}`,background:"#EEF4F9",minWidth:52,fontWeight:500}}>BUD</th>,
+                      <th key={`${mk}-a`} style={{padding:"3px 3px",textAlign:"right",fontFamily:T.mono,fontSize:8,color:T.violet,letterSpacing:"0.08em",textTransform:"uppercase",borderBottom:`1px solid ${T.borderMd}`,background:T.violetLt,minWidth:52,fontWeight:500}}>ACT</th>,
+                      <th key={`${mk}-f`} style={{padding:"3px 3px",textAlign:"right",fontFamily:T.mono,fontSize:8,color:T.green,letterSpacing:"0.08em",textTransform:"uppercase",borderBottom:`1px solid ${T.borderMd}`,borderRight:`1px solid ${T.border}`,background:"#F0F7F3",minWidth:52,fontWeight:500}}>FCT</th>,
+                    ])
+                  : QUARTERS.flatMap(q=>[
+                      <th key={`${q.label}-b`} style={{padding:"3px 6px",textAlign:"right",fontFamily:T.mono,fontSize:8,color:T.navy,letterSpacing:"0.06em",textTransform:"uppercase",borderBottom:`1px solid ${T.borderMd}`,background:"#EEF4F9",fontWeight:500}}>Budget</th>,
+                      <th key={`${q.label}-a`} style={{padding:"3px 6px",textAlign:"right",fontFamily:T.mono,fontSize:8,color:T.violet,letterSpacing:"0.06em",textTransform:"uppercase",borderBottom:`1px solid ${T.borderMd}`,background:T.violetLt,fontWeight:500}}>Actual</th>,
+                      <th key={`${q.label}-f`} style={{padding:"3px 6px",textAlign:"right",fontFamily:T.mono,fontSize:8,color:T.green,letterSpacing:"0.06em",textTransform:"uppercase",borderBottom:`1px solid ${T.borderMd}`,background:"#F0F7F3",fontWeight:500}}>Forecast</th>,
+                      <th key={`${q.label}-v`} style={{padding:"3px 6px",textAlign:"right",fontFamily:T.mono,fontSize:8,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase",borderBottom:`1px solid ${T.borderMd}`,fontWeight:500}}>Var</th>,
+                      <th key={`${q.label}-u`} style={{padding:"3px 6px",textAlign:"right",fontFamily:T.mono,fontSize:8,color:T.textSm,letterSpacing:"0.06em",textTransform:"uppercase",borderBottom:`1px solid ${T.borderMd}`,borderRight:`1px solid ${T.border}`,fontWeight:500}}>Util%</th>,
+                    ])
+                }
+                <th style={{position:"sticky",right:0,zIndex:30,background:"#F0F7F3",
+                  padding:"3px 10px",textAlign:"right",fontFamily:T.mono,fontSize:8,color:T.green,
+                  letterSpacing:"0.08em",textTransform:"uppercase",fontWeight:500,
+                  borderLeft:`1px solid ${T.borderMd}`,borderBottom:`1px solid ${T.borderMd}`}}>FCT</th>
               </tr>
-            )}
+            </thead>
 
-            {/* Bud / Act / Fct labels */}
-            <tr className="bg-slate-800/80">
-              <th className="sticky left-0 bg-slate-800/80 z-30 px-4 py-1.5 text-slate-500 text-left border-r border-slate-700/50 text-[10px] uppercase tracking-widest" />
-              {viewMode === "monthly"
-                ? quarters.flatMap(q => q.months.flatMap(mk => [
-                    <th key={`${mk}-b`} className="px-1 py-1.5 text-center text-blue-400/80 font-semibold text-[10px] uppercase tracking-wider w-8">Bud</th>,
-                    <th key={`${mk}-a`} className="px-1 py-1.5 text-center text-slate-400/80 font-semibold text-[10px] uppercase tracking-wider w-8">Act</th>,
-                    <th key={`${mk}-f`} className="px-1 py-1.5 text-center text-emerald-400/80 font-semibold text-[10px] uppercase tracking-wider w-8 border-r border-slate-700/30">Fct</th>,
-                  ]))
-                : quarters.flatMap(q => [
-                    <th key={`${q.label}-b`} className="px-2 py-1.5 text-center text-blue-400/80 font-semibold text-[10px] uppercase">Budget</th>,
-                    <th key={`${q.label}-a`} className="px-2 py-1.5 text-center text-slate-400/80 font-semibold text-[10px] uppercase">Actual</th>,
-                    <th key={`${q.label}-f`} className="px-2 py-1.5 text-center text-emerald-400/80 font-semibold text-[10px] uppercase">Forecast</th>,
-                    <th key={`${q.label}-v`} className="px-2 py-1.5 text-center text-amber-400/80 font-semibold text-[10px] uppercase">Var</th>,
-                    <th key={`${q.label}-u`} className="px-2 py-1.5 text-center text-slate-400/80 font-semibold text-[10px] uppercase border-r border-slate-700/30">Util</th>,
-                  ])
-              }
-              <th className="sticky right-0 bg-slate-800/80 z-30 px-2 py-1.5 text-center text-emerald-400/80 text-[10px] uppercase tracking-wider">Fct</th>
-            </tr>
-          </thead>
-
-          {/* ── TBODY ── */}
-          <tbody>
-            {viewMode === "monthly"
-              ? quarters.map(q => {
-                  const isCollapsed = collapsedQuarters.has(q.label);
-                  return [
-                    <QuarterRow
-                      key={`q-${q.label}`}
-                      label={q.label} months={q.months}
-                      monthlyData={monthlyData} lines={lines} sym={sym}
-                      collapsed={isCollapsed} onToggle={() => toggleQuarter(q.label)}
-                      signals={signals}
-                    />,
-
-                    ...(isCollapsed ? [] : [
-                      // Cost lines
-                      ...lines.map((line, li) => {
-                        const lineFctTotal = q.months.reduce((s, mk) => s + (Number(monthlyData[line.id]?.[mk]?.forecast) || 0), 0);
-                        const lineBudTotal = q.months.reduce((s, mk) => s + (Number(monthlyData[line.id]?.[mk]?.budget) || 0), 0);
-                        const isOver = lineBudTotal > 0 && lineFctTotal > lineBudTotal;
-                        const rowBg = li % 2 === 0 ? "bg-slate-900" : "bg-slate-800/40";
-
-                        return (
-                          <tr key={`${q.label}-${line.id}`} className={`${rowBg} hover:bg-slate-800/70 transition-colors group`}>
-                            <td className={`sticky left-0 z-10 px-4 py-0.5 border-b border-slate-700/20 border-r border-slate-700/30 ${rowBg}`}>
-                              <span className="font-medium text-slate-300 truncate max-w-[160px] block text-xs" title={line.description || line.category}>
-                                {line.description || <span className="text-slate-500 italic">{line.category}</span>}
-                              </span>
-                            </td>
-                            {q.months.map(mk => {
-                              const e = monthlyData[line.id]?.[mk] ?? emptyEntry();
-                              const locked = isPastMonth(mk);
-                              const fOver = e.budget && Number(e.forecast) > Number(e.budget);
-                              return [
-                                <td key={`${mk}-b`} className="border-b border-slate-700/20 bg-blue-950/20 min-w-[56px]">
-                                  <MoneyInput value={e.budget} onChange={v => updateEntry(line.id, mk, { budget: v })} sym={sym} locked={readOnly} highlight="blue" />
-                                </td>,
-                                <td key={`${mk}-a`} className="border-b border-slate-700/20 min-w-[56px]">
-                                  <MoneyInput value={e.actual} onChange={v => updateEntry(line.id, mk, { actual: v })} sym={sym} locked={locked || readOnly} highlight="gray" />
-                                </td>,
-                                <td key={`${mk}-f`} className={`border-b border-slate-700/20 border-r border-slate-700/30 min-w-[56px] ${fOver ? "bg-red-950/30" : "bg-emerald-950/20"}`}>
-                                  <MoneyInput value={e.forecast} onChange={v => updateEntry(line.id, mk, { forecast: v })} sym={sym} locked={locked || readOnly} highlight={fOver ? "red" : "green"} />
-                                </td>,
-                              ];
-                            })}
-                            <td className={`sticky right-0 z-10 px-3 py-1.5 border-b border-slate-700/20 text-right font-bold text-xs tabular-nums ${rowBg} ${isOver ? "text-red-400" : lineFctTotal > 0 ? "text-emerald-400" : "text-slate-600"}`}>
-                              {lineFctTotal ? fmtK(lineFctTotal, sym) : "—"}
-                            </td>
-                          </tr>
-                        );
-                      }),
-
-                      // Q totals row
-                      <tr key={`${q.label}-totals`} className="bg-slate-700/30">
-                        <td className="sticky left-0 bg-slate-700/50 z-10 px-4 py-2 border-b border-slate-600/30 border-r border-slate-600/30 text-slate-400 text-[10px] font-bold uppercase tracking-widest">
-                          Q Total
-                        </td>
-                        {q.months.flatMap(mk => {
-                          const t = monthTotals[mk];
-                          const fOver = t.budget && t.forecast > t.budget;
-                          return [
-                            <td key={`${mk}-tb`} className="border-b border-slate-600/30 bg-blue-900/20 px-2 py-2 text-right text-blue-300 font-bold text-xs tabular-nums">{t.budget ? fmtK(t.budget, sym) : "—"}</td>,
-                            <td key={`${mk}-ta`} className="border-b border-slate-600/30 px-2 py-2 text-right text-slate-400 text-xs tabular-nums">{t.actual ? fmtK(t.actual, sym) : "—"}</td>,
-                            <td key={`${mk}-tf`} className={`border-b border-slate-600/30 border-r border-slate-600/30 px-2 py-2 text-right font-bold text-xs tabular-nums ${fOver ? "text-red-400" : "text-emerald-400"}`}>
-                              {t.forecast ? fmtK(t.forecast, sym) : "—"}
-                            </td>,
-                          ];
-                        })}
-                        <td className="sticky right-0 bg-slate-700/50 z-10 px-3 py-2 border-b border-slate-600/30 text-right text-xs font-bold text-slate-200 tabular-nums">
-                          {fmtK(q.months.reduce((s, mk) => s + (monthTotals[mk]?.forecast ?? 0), 0), sym)}
-                        </td>
-                      </tr>,
-
-                      // Forecast movement row
-                      <tr key={`${q.label}-movement`} className="bg-amber-950/10">
-                        <td className="sticky left-0 bg-amber-950/20 z-10 px-4 py-1.5 border-b border-amber-900/20 border-r border-amber-900/20 text-amber-600/80 text-[10px] font-semibold uppercase tracking-widest">
-                          Δ Movement
-                        </td>
-                        {q.months.flatMap(mk => {
-                          const mv = forecastMovement[mk];
-                          const hasMove = mv !== null && mv !== 0;
-                          return [
-                            <td key={`${mk}-mv1`} className="border-b border-amber-900/10 bg-amber-950/5" />,
-                            <td key={`${mk}-mv2`} className="border-b border-amber-900/10 bg-amber-950/5" />,
-                            <td key={`${mk}-mv3`} className="border-b border-amber-900/10 border-r border-amber-900/20 px-2 py-1.5 text-right bg-amber-950/5">
-                              {hasMove ? (
-                                <span className={`inline-flex items-center justify-end gap-0.5 text-[10px] font-bold tabular-nums ${(mv ?? 0) > 0 ? "text-red-400" : "text-emerald-400"}`}>
-                                  {(mv ?? 0) > 0 ? "▲" : "▼"} {fmtK(Math.abs(mv!), sym)}
-                                </span>
-                              ) : <span className="text-slate-700">—</span>}
-                            </td>,
-                          ];
-                        })}
-                        <td className="sticky right-0 bg-amber-950/20 z-10 px-3 py-1.5 border-b border-amber-900/20" />
-                      </tr>,
-                    ]),
-                  ];
-                })
-
-              // ── Quarterly view ──
-              : quarters.map(q => {
-                  const qBudget   = sumMonths(lines, monthlyData, q.months, "budget");
-                  const qActual   = sumMonths(lines, monthlyData, q.months.filter(isPastMonth), "actual");
-                  const qForecast = sumMonths(lines, monthlyData, q.months, "forecast");
-                  const qVariance = qBudget ? qForecast - qBudget : 0;
-                  const qUtil     = qBudget ? Math.round((qForecast / qBudget) * 100) : null;
-                  const over      = qBudget > 0 && qForecast > qBudget;
-                  const qSigs     = signals.filter(s => s.scopeKey === q.label);
-                  const qCrit     = qSigs.some(s => s.severity === "critical");
-
-                  return (
-                    <tr key={q.label} className={`border-b border-slate-700/30 hover:bg-slate-800/50 transition-colors ${qCrit ? "bg-red-950/20" : "bg-slate-900"}`}>
-                      <td className="sticky left-0 bg-slate-900 z-10 px-4 py-3 border-r border-slate-700/50">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-200 tracking-wide">{q.label}</span>
-                          <InlineQuarterFlags quarterLabel={q.label} signals={signals} />
-                        </div>
-                      </td>
-                      <td className="px-3 py-3 text-right text-blue-300 font-semibold tabular-nums">{fmt(qBudget, sym)}</td>
-                      <td className="px-3 py-3 text-right text-slate-400 tabular-nums">{fmt(qActual, sym)}</td>
-                      <td className={`px-3 py-3 text-right font-bold tabular-nums ${over ? "text-red-400" : "text-emerald-400"}`}>{fmt(qForecast, sym)}</td>
-                      <td className={`px-3 py-3 text-right font-semibold tabular-nums ${over ? "text-red-400" : "text-emerald-400"}`}>
-                        {qBudget ? `${over ? "+" : ""}${fmt(qVariance, sym)}` : "—"}
-                      </td>
-                      <td className={`px-3 py-3 text-right border-r border-slate-700/30 font-semibold tabular-nums ${(qUtil ?? 0) > 100 ? "text-red-400" : (qUtil ?? 0) > 85 ? "text-amber-400" : "text-slate-300"}`}>
-                        {qUtil !== null ? `${qUtil}%` : "—"}
-                      </td>
-                      <td className="sticky right-0 bg-slate-900 z-10 px-3 py-3 text-right font-bold text-slate-200 tabular-nums">{fmt(qForecast, sym)}</td>
-                    </tr>
-                  );
-                })
-            }
-          </tbody>
-
-          {/* ── TFOOT ── */}
-          <tfoot className="sticky bottom-0 z-20">
-            <tr style={{ background: "linear-gradient(180deg, #020617 0%, #0f172a 100%)" }}>
-              <td className="sticky left-0 z-30 px-4 py-3 text-slate-300 text-[10px] font-black uppercase tracking-widest border-r border-slate-700/50"
-                style={{ background: "linear-gradient(180deg, #020617 0%, #0f172a 100%)" }}
-              >
-                Grand Total
-              </td>
-              {viewMode === "monthly"
-                ? monthKeys.flatMap(mk => {
-                    const t = monthTotals[mk];
-                    const fOver = t.budget && t.forecast > t.budget;
+            {/* TBODY */}
+            <tbody>
+              {viewMode==="monthly"
+                ? QUARTERS.map(q=>{
+                    const isCol = collapsed.has(q.label);
                     return [
-                      <td key={`ft-${mk}-b`} className="px-2 py-3 text-right text-blue-400/80 bg-blue-950/30 text-xs font-bold tabular-nums">{t.budget ? fmtK(t.budget, sym) : "—"}</td>,
-                      <td key={`ft-${mk}-a`} className="px-2 py-3 text-right text-slate-500 text-xs tabular-nums">{t.actual ? fmtK(t.actual, sym) : "—"}</td>,
-                      <td key={`ft-${mk}-f`} className={`px-2 py-3 text-right font-black text-xs border-r border-slate-700/50 tabular-nums ${fOver ? "text-red-400" : "text-emerald-400"}`}>{t.forecast ? fmtK(t.forecast, sym) : "—"}</td>,
+                      <QuarterHeaderRow key={`qh-${q.label}`} q={q} collapsed={isCol} onToggle={()=>toggleQ(q.label)}/>,
+                      ...(isCol ? [] : [
+
+                        // Cost line rows
+                        ...LINES.map((line,li)=>{
+                          const lineFct = q.months.reduce((s,mk)=>s+(SEED[line.id]?.[mk]?.[2]||0),0);
+                          const lineBud = q.months.reduce((s,mk)=>s+(SEED[line.id]?.[mk]?.[0]||0),0);
+                          const isOver  = lineBud>0 && lineFct>lineBud;
+                          const rowBg   = li%2===0 ? T.surface : "#FAFAF8";
+                          return (
+                            <tr key={`${q.label}-${line.id}`}
+                              style={{background:rowBg,borderBottom:`1px solid ${T.border}`}}>
+                              <td style={{position:"sticky",left:0,zIndex:10,padding:"5px 10px 5px 22px",
+                                borderRight:`1px solid ${T.border}`,background:rowBg,minWidth:200,verticalAlign:"middle"}}>
+                                <div style={{fontFamily:T.sans,fontSize:11,fontWeight:500,color:T.text}}>{line.description}</div>
+                                <div style={{fontFamily:T.mono,fontSize:8,color:T.textSm,marginTop:1,letterSpacing:"0.04em"}}>{CAT_LABELS[line.category]||line.category}</div>
+                              </td>
+                              {q.months.map(mk=>{
+                                const d    = SEED[line.id]?.[mk]||[0,0,0];
+                                const locked = isPast(mk);
+                                const fOver  = d[0]&&d[2]>d[0];
+                                return [
+                                  <td key={`${mk}-b`} style={{padding:"4px 6px",textAlign:"right",fontFamily:T.mono,
+                                    fontSize:10,color:T.navy,background:"#F2F8FF",
+                                    borderBottom:`1px solid ${T.border}`,minWidth:52,verticalAlign:"middle"}}>
+                                    {d[0]?fmtK(d[0]):<span style={{color:T.border}}>—</span>}
+                                  </td>,
+                                  <td key={`${mk}-a`} style={{padding:"4px 6px",textAlign:"right",fontFamily:T.mono,
+                                    fontSize:10,color:T.violet,background:"#F9F7FF",
+                                    borderBottom:`1px solid ${T.border}`,minWidth:52,verticalAlign:"middle"}}>
+                                    {locked&&d[1]?fmtK(d[1]):<span style={{color:T.border}}>—</span>}
+                                  </td>,
+                                  <td key={`${mk}-f`} style={{padding:"4px 6px",textAlign:"right",fontFamily:T.mono,
+                                    fontSize:10,fontWeight:fOver?600:400,
+                                    color:fOver?T.red:T.green,
+                                    background:fOver?"#FDF5F4":"#F3FAF6",
+                                    borderRight:`1px solid ${T.border}`,
+                                    borderBottom:`1px solid ${T.border}`,minWidth:52,verticalAlign:"middle"}}>
+                                    {d[2]?fmtK(d[2]):<span style={{color:T.border}}>—</span>}
+                                  </td>,
+                                ];
+                              })}
+                              <td style={{position:"sticky",right:0,zIndex:10,padding:"4px 10px",textAlign:"right",
+                                fontFamily:T.mono,fontSize:10,fontWeight:600,
+                                color:isOver?T.red:lineFct>0?T.green:T.textSm,
+                                background:rowBg,borderLeft:`1px solid ${T.border}`,borderBottom:`1px solid ${T.border}`,verticalAlign:"middle"}}>
+                                {lineFct?fmtK(lineFct):"—"}
+                              </td>
+                            </tr>
+                          );
+                        }),
+
+                        // Q Totals row
+                        <tr key={`${q.label}-tot`} style={{background:"#F0F0ED",borderBottom:`2px solid ${T.borderMd}`}}>
+                          <td style={{position:"sticky",left:0,zIndex:10,padding:"5px 10px 5px 22px",
+                            borderRight:`1px solid ${T.borderMd}`,background:"#F0F0ED",
+                            fontFamily:T.mono,fontSize:8,fontWeight:600,color:T.textSm,letterSpacing:"0.1em",textTransform:"uppercase"}}>
+                            Q Total
+                          </td>
+                          {q.months.flatMap(mk=>{
+                            const t=MT[mk]; const over=t.b&&t.f>t.b;
+                            return [
+                              <td key={`${mk}-tb`} style={{padding:"5px 6px",textAlign:"right",fontFamily:T.mono,fontSize:10,fontWeight:600,color:T.navy,background:"#E8F0F8"}}>{t.b?fmtK(t.b):"—"}</td>,
+                              <td key={`${mk}-ta`} style={{padding:"5px 6px",textAlign:"right",fontFamily:T.mono,fontSize:10,color:T.violet,background:"#F0EEFF"}}>{isPast(mk)&&t.a?fmtK(t.a):"—"}</td>,
+                              <td key={`${mk}-tf`} style={{padding:"5px 6px",textAlign:"right",fontFamily:T.mono,fontSize:10,fontWeight:600,color:over?T.red:T.green,background:over?"#FBF0EE":"#EAF5EE",borderRight:`1px solid ${T.border}`}}>{t.f?fmtK(t.f):"—"}</td>,
+                            ];
+                          })}
+                          <td style={{position:"sticky",right:0,zIndex:10,padding:"5px 10px",textAlign:"right",
+                            fontFamily:T.mono,fontSize:11,fontWeight:700,color:T.text,
+                            background:"#F0F0ED",borderLeft:`1px solid ${T.borderMd}`}}>
+                            {fmtK(q.months.reduce((s,mk)=>s+(MT[mk]?.f||0),0))}
+                          </td>
+                        </tr>,
+
+                        // Δ Movement row
+                        <tr key={`${q.label}-mv`} style={{background:"#FDFAF2",borderBottom:`1px solid #E8E0C0`}}>
+                          <td style={{position:"sticky",left:0,zIndex:10,padding:"4px 10px 4px 22px",
+                            borderRight:`1px solid #E8E0C0`,background:"#FDFAF2",
+                            fontFamily:T.mono,fontSize:8,fontWeight:600,color:T.amber,letterSpacing:"0.1em",textTransform:"uppercase"}}>
+                            Δ Movement
+                          </td>
+                          {q.months.flatMap(mk=>{
+                            const mv=fcastMv[mk];
+                            return [
+                              <td key={`${mk}-m1`} style={{background:"#FDFAF2",borderBottom:`1px solid #F0E8C0`}}/>,
+                              <td key={`${mk}-m2`} style={{background:"#FDFAF2",borderBottom:`1px solid #F0E8C0`}}/>,
+                              <td key={`${mk}-m3`} style={{padding:"4px 6px",textAlign:"right",
+                                background:"#FDFAF2",borderRight:`1px solid #E8E0C0`,borderBottom:`1px solid #F0E8C0`}}>
+                                {mv&&mv!==0?(
+                                  <span style={{fontFamily:T.mono,fontSize:9,fontWeight:600,color:mv>0?T.red:T.green}}>
+                                    {mv>0?"▲":"▼"} {fmtK(Math.abs(mv))}
+                                  </span>
+                                ):<span style={{fontFamily:T.mono,fontSize:9,color:T.border}}>—</span>}
+                              </td>,
+                            ];
+                          })}
+                          <td style={{position:"sticky",right:0,zIndex:10,background:"#FDFAF2",borderLeft:`1px solid #E8E0C0`}}/>
+                        </tr>,
+                      ]),
                     ];
                   })
-                : quarters.flatMap(q => {
-                    const qB = sumMonths(lines, monthlyData, q.months, "budget");
-                    const qA = sumMonths(lines, monthlyData, q.months, "actual");
-                    const qF = sumMonths(lines, monthlyData, q.months, "forecast");
-                    const qV = qB ? qF - qB : 0;
-                    const qU = qB ? Math.round((qF / qB) * 100) : null;
-                    return [
-                      <td key={`${q.label}-b`} className="px-2 py-3 text-right text-blue-400/80 text-xs font-bold tabular-nums">{fmt(qB, sym)}</td>,
-                      <td key={`${q.label}-a`} className="px-2 py-3 text-right text-slate-500 text-xs tabular-nums">{fmt(qA, sym)}</td>,
-                      <td key={`${q.label}-f`} className={`px-2 py-3 text-right font-black text-xs tabular-nums ${qF > qB ? "text-red-400" : "text-emerald-400"}`}>{fmt(qF, sym)}</td>,
-                      <td key={`${q.label}-v`} className="px-2 py-3 text-right text-amber-400/80 text-xs tabular-nums">{qB ? fmt(qV, sym) : "—"}</td>,
-                      <td key={`${q.label}-u`} className="px-2 py-3 text-right text-slate-400 text-xs border-r border-slate-700/50 tabular-nums">{qU !== null ? `${qU}%` : "—"}</td>,
-                    ];
+
+                // ── Quarterly view ──
+                : QUARTERS.map((q,qi)=>{
+                    const qB=q.months.reduce((s,mk)=>s+(MT[mk]?.b||0),0);
+                    const qA=q.months.filter(isPast).reduce((s,mk)=>s+(MT[mk]?.a||0),0);
+                    const qF=q.months.reduce((s,mk)=>s+(MT[mk]?.f||0),0);
+                    const qV=qB?qF-qB:0;
+                    const qU=qB?Math.round((qF/qB)*100):null;
+                    const over=qB>0&&qF>qB;
+                    const sig=SIGNALS.find(s=>s.scopeKey===q.label);
+                    const rowBg=sig?.severity==="critical"?T.redLt:sig?.severity==="warning"?T.amberLt:qi%2===0?T.surface:"#FAFAF8";
+                    return (
+                      <tr key={q.label} style={{background:rowBg,borderBottom:`1px solid ${T.border}`}}>
+                        <td style={{position:"sticky",left:0,zIndex:10,padding:"10px",
+                          background:rowBg,minWidth:200,borderRight:`1px solid ${T.border}`,verticalAlign:"middle"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <span style={{fontFamily:T.mono,fontSize:10,fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase",color:T.text}}>{q.label}</span>
+                            {sig&&<StatusDot severity={sig.severity}/>}
+                          </div>
+                          {sig&&<div style={{fontFamily:T.sans,fontSize:10,color:sig.severity==="critical"?T.red:T.amber,marginTop:3}}>{sig.message}</div>}
+                        </td>
+                        <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.mono,fontSize:11,fontWeight:500,color:T.navy,background:"#F2F8FF"}}>{fmtK(qB)}</td>
+                        <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.mono,fontSize:11,color:T.violet,background:"#F9F7FF"}}>{qA?fmtK(qA):"—"}</td>
+                        <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.mono,fontSize:11,fontWeight:600,color:over?T.red:T.green,background:over?T.redLt:T.greenLt}}>{fmtK(qF)}</td>
+                        <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.mono,fontSize:11,fontWeight:500,color:over?T.red:T.green}}>{qB?`${over?"+":""}${fmtK(qV)}`:"—"}</td>
+                        <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.mono,fontSize:11,
+                          color:(qU||0)>100?T.red:(qU||0)>85?T.amber:T.textMd,
+                          borderRight:`1px solid ${T.border}`}}>
+                          {qU!==null?`${qU}%`:"—"}
+                        </td>
+                        <td style={{position:"sticky",right:0,zIndex:10,padding:"10px",textAlign:"right",
+                          fontFamily:T.mono,fontSize:12,fontWeight:700,color:T.text,
+                          background:rowBg,borderLeft:`1px solid ${T.border}`,verticalAlign:"middle"}}>
+                          {fmtK(qF)}
+                        </td>
+                      </tr>
+                    );
                   })
               }
-              <td
-                className="sticky right-0 z-30 px-4 py-3 text-right text-emerald-400 text-sm font-black tabular-nums"
-                style={{ background: "linear-gradient(180deg, #020617 0%, #0f172a 100%)" }}
-              >
-                {grandTotalForecast ? fmtK(grandTotalForecast, sym) : "—"}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+            </tbody>
 
-      {/* ── Forecast movement strip ── */}
-      {viewMode === "monthly" && (
-        <div className="rounded-xl border border-amber-900/30 bg-amber-950/10 px-4 py-3">
-          <div className="text-[10px] font-black text-amber-600/80 uppercase tracking-widest mb-2.5">
-            Forecast Movement (month-on-month)
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {monthKeys.map(mk => {
-              const mv = forecastMovement[mk];
-              if (!mv || mv === 0) return null;
-              const [y, m] = mk.split("-");
-              const up = mv > 0;
-              return (
-                <div
-                  key={mk}
-                  className={`px-2.5 py-1.5 rounded-lg border text-[11px] flex items-center gap-1.5 font-semibold ${
-                    up
-                      ? "bg-red-950/60 border-red-800/40 text-red-300"
-                      : "bg-emerald-950/60 border-emerald-800/40 text-emerald-300"
-                  }`}
-                >
-                  <span className="opacity-50 font-normal">{MONTH_SHORT[Number(m)-1]} {y.slice(2)}</span>
-                  <span>{up ? "▲" : "▼"} {fmtK(Math.abs(mv), sym)}</span>
-                </div>
-              );
-            })}
-            {monthKeys.every(mk => !forecastMovement[mk]) && (
-              <span className="text-xs text-amber-700/60 italic">No forecast movement yet</span>
-            )}
-          </div>
+            {/* TFOOT */}
+            <tfoot style={{position:"sticky",bottom:0,zIndex:20}}>
+              <tr style={{background:"#EAEAE7",borderTop:`2px solid ${T.borderMd}`}}>
+                <td style={{position:"sticky",left:0,zIndex:30,padding:"8px 10px",
+                  background:"#EAEAE7",borderRight:`1px solid ${T.borderMd}`,
+                  fontFamily:T.mono,fontSize:8,fontWeight:600,letterSpacing:"0.12em",
+                  textTransform:"uppercase",color:T.textMd}}>
+                  Grand Total
+                </td>
+                {viewMode==="monthly"
+                  ? MONTHS.flatMap(mk=>{
+                      const t=MT[mk]; const over=t.b&&t.f>t.b;
+                      return [
+                        <td key={`ft-${mk}-b`} style={{padding:"7px 6px",textAlign:"right",fontFamily:T.mono,fontSize:10,fontWeight:600,color:T.navy,background:"#E8F0F8"}}>{t.b?fmtK(t.b):"—"}</td>,
+                        <td key={`ft-${mk}-a`} style={{padding:"7px 6px",textAlign:"right",fontFamily:T.mono,fontSize:10,color:T.violet,background:"#F0EEFF"}}>{isPast(mk)&&t.a?fmtK(t.a):"—"}</td>,
+                        <td key={`ft-${mk}-f`} style={{padding:"7px 6px",textAlign:"right",fontFamily:T.mono,fontSize:10,fontWeight:700,color:over?T.red:T.green,background:over?"#FAF0EE":"#E8F5EE",borderRight:`1px solid ${T.border}`}}>{t.f?fmtK(t.f):"—"}</td>,
+                      ];
+                    })
+                  : QUARTERS.flatMap(q=>{
+                      const qB=q.months.reduce((s,mk)=>s+(MT[mk]?.b||0),0);
+                      const qA=q.months.reduce((s,mk)=>s+(MT[mk]?.a||0),0);
+                      const qF=q.months.reduce((s,mk)=>s+(MT[mk]?.f||0),0);
+                      const qV=qB?qF-qB:0;
+                      const qU=qB?Math.round((qF/qB)*100):null;
+                      return [
+                        <td key={`${q.label}-b`} style={{padding:"7px 8px",textAlign:"right",fontFamily:T.mono,fontSize:10,fontWeight:600,color:T.navy,background:"#E8F0F8"}}>{fmtK(qB)}</td>,
+                        <td key={`${q.label}-a`} style={{padding:"7px 8px",textAlign:"right",fontFamily:T.mono,fontSize:10,color:T.violet,background:"#F0EEFF"}}>{fmtK(qA)}</td>,
+                        <td key={`${q.label}-f`} style={{padding:"7px 8px",textAlign:"right",fontFamily:T.mono,fontSize:10,fontWeight:700,color:qF>qB?T.red:T.green,background:qF>qB?"#FAF0EE":"#E8F5EE"}}>{fmtK(qF)}</td>,
+                        <td key={`${q.label}-v`} style={{padding:"7px 8px",textAlign:"right",fontFamily:T.mono,fontSize:10,color:T.amber}}>{qB?fmtK(qV):"—"}</td>,
+                        <td key={`${q.label}-u`} style={{padding:"7px 8px",textAlign:"right",fontFamily:T.mono,fontSize:10,color:T.textMd,borderRight:`1px solid ${T.border}`}}>{qU!==null?`${qU}%`:"—"}</td>,
+                      ];
+                    })
+                }
+                <td style={{position:"sticky",right:0,zIndex:30,padding:"8px 12px",textAlign:"right",
+                  fontFamily:T.mono,fontSize:13,fontWeight:700,color:T.green,
+                  background:"#EAEAE7",borderLeft:`1px solid ${T.borderMd}`}}>
+                  {fmtK(grandTotal)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
-      )}
+
+        {/* ── Forecast movement strip ── */}
+        {viewMode==="monthly" && (
+          <div style={{border:`1px solid #E0D8B0`,background:"#FDFAF2",padding:"12px 16px"}}>
+            <div style={{fontFamily:T.mono,fontSize:8,fontWeight:600,letterSpacing:"0.12em",
+              textTransform:"uppercase",color:T.amber,marginBottom:8}}>
+              Δ Forecast Movement — month on month
+            </div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {MONTHS.map((mk,i)=>{
+                if(i===0)return null;
+                const mv=fcastMv[mk];
+                if(!mv||mv===0)return null;
+                const [y,m]=mk.split("-");
+                const up=mv>0;
+                return (
+                  <div key={mk} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 10px",
+                    background:up?T.redLt:T.greenLt,
+                    border:`1px solid ${up?"#F0B0AA":"#A0D0B8"}`,
+                    fontFamily:T.mono,fontSize:10}}>
+                    <span style={{color:T.textSm,fontWeight:400}}>{MS[Number(m)-1]} {y.slice(2)}</span>
+                    <span style={{fontWeight:600,color:up?T.red:T.green}}>{up?"▲":"▼"} {fmtK(Math.abs(mv))}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── Signals ── */}
+        <div style={{border:`1px solid ${T.border}`,overflow:"hidden"}}>
+          <div style={{background:"#F5F5F2",borderBottom:`1px solid ${T.borderMd}`,padding:"6px 10px",
+            display:"flex",alignItems:"center",gap:8}}>
+            <Label>Intelligence Signals</Label>
+            <span style={{marginLeft:"auto",fontFamily:T.mono,fontSize:9,color:T.textSm}}>{SIGNALS.length} active</span>
+          </div>
+          {SIGNALS.map((s,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"8px 14px",
+              borderBottom:i<SIGNALS.length-1?`1px solid ${T.border}`:"none",
+              background:s.severity==="critical"?T.redLt:s.severity==="warning"?T.amberLt:T.greenLt}}>
+              <StatusDot severity={s.severity}/>
+              <div>
+                <div style={{fontFamily:T.mono,fontSize:9,fontWeight:600,color:T.textMd,
+                  letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:2}}>
+                  {s.scopeKey}
+                </div>
+                <div style={{fontFamily:T.sans,fontSize:11,color:T.text}}>{s.message}</div>
+              </div>
+              <div style={{marginLeft:"auto"}}>
+                <span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",
+                  background:s.severity==="critical"?T.redLt:s.severity==="warning"?T.amberLt:T.greenLt,
+                  color:s.severity==="critical"?T.red:s.severity==="warning"?T.amber:T.green,
+                  border:`1px solid ${s.severity==="critical"?"#F0B0AA":s.severity==="warning"?"#E0C080":"#A0D0B8"}`,
+                  fontFamily:T.mono,fontSize:9,fontWeight:500,letterSpacing:"0.04em"}}>
+                  {s.severity.toUpperCase()}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+      </div>
     </div>
   );
 }
