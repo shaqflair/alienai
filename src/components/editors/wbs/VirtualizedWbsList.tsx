@@ -1,13 +1,14 @@
 "use client";
 
 import React from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+
+// NOTE: The @tanstack/react-virtual approach requires a fixed-height scroll
+// container which collapses to 0px in this layout. Since WBS lists are
+// typically <500 rows, a plain map is simpler and more reliable.
 
 type WbsItem = {
   id: string;
-  title: string;
-  owner?: string;
-  effort?: number;
+  [key: string]: any; // WBSEditor passes full WbsRow objects
 };
 
 export default function VirtualizedWbsList({
@@ -17,48 +18,15 @@ export default function VirtualizedWbsList({
   items: WbsItem[];
   renderRow: (item: WbsItem) => React.ReactNode;
 }) {
-  const parentRef = React.useRef<HTMLDivElement>(null);
-
-  const rowVirtualizer = useVirtualizer({
-    count: items.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 44,
-    overscan: 8,
-  });
+  if (!items || items.length === 0) return null;
 
   return (
-    <div
-      ref={parentRef}
-      style={{
-        height: "100%",
-        overflow: "auto",
-      }}
-    >
-      <div
-        style={{
-          height: `${rowVirtualizer.getTotalSize()}px`,
-          position: "relative",
-        }}
-      >
-        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-          const item = items[virtualRow.index];
-
-          return (
-            <div
-              key={item.id}
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                transform: `translateY(${virtualRow.start}px)`,
-              }}
-            >
-              {renderRow(item)}
-            </div>
-          );
-        })}
-      </div>
+    <div className="space-y-2">
+      {items.map((item) => (
+        <React.Fragment key={item.id}>
+          {renderRow(item)}
+        </React.Fragment>
+      ))}
     </div>
   );
 }
