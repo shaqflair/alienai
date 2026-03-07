@@ -781,7 +781,7 @@ export default function CreateProjectModal({ activeOrgId }: Props) {
                       />
                       <p style={hintStyle}>Used in heatmap filter bar.</p>
                     </Field>
-                  </div>
+               
 
                   <Field label="Resource status">
                     <div
