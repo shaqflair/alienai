@@ -13,13 +13,25 @@ function jsonOk(d: any, status = 200) {
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;
 }
+
 function jsonErr(e: string, s = 400) {
   const res = NextResponse.json({ ok: false, error: e }, { status: s });
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;
 }
+
 function ss(x: any): string {
   return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function uniqueStrings(values: any[]) {
+  return Array.from(
+    new Set(
+      (values ?? [])
+        .map((v) => ss(v).trim())
+        .filter(Boolean),
+    ),
+  );
 }
 
 // Service-role client bypasses RLS so we can read all profiles
@@ -27,9 +39,40 @@ function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
   if (!url || !key) return null;
+
   return createAdminClient(url, key, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
+}
+
+async function fetchProfiles(profileClient: any, userIds: string[]) {
+  const ids = uniqueStrings(userIds);
+  if (!ids.length) return [];
+
+  const baseSelect =
+    "id, user_id, full_name, display_name, name, email, avatar_url, department, job_title";
+
+  // Try lookup by profiles.user_id first
+  const { data: byUserId, error: byUserIdErr } = await profileClient
+    .from("profiles")
+    .select(baseSelect)
+    .in("user_id", ids);
+
+  if (byUserIdErr) {
+    console.warn("[GET /api/org/members] profiles by user_id lookup failed:", byUserIdErr.message);
+  }
+
+  // Then also lookup by profiles.id for schemas where profile PK == auth user id
+  const { data: byId, error: byIdErr } = await profileClient
+    .from("profiles")
+    .select(baseSelect)
+    .in("id", ids);
+
+  if (byIdErr) {
+    console.warn("[GET /api/org/members] profiles by id lookup failed:", byIdErr.message);
+  }
+
+  return [...(byUserId ?? []), ...(byId ?? [])];
 }
 
 export async function GET(req: NextRequest) {
@@ -66,36 +109,58 @@ export async function GET(req: NextRequest) {
     if (membErr) return jsonErr(membErr.message, 500);
     if (!members?.length) return jsonOk({ members: [] });
 
-    const userIds = members.map((m: any) => m.user_id).filter(Boolean);
+    const userIds = uniqueStrings(members.map((m: any) => m.user_id));
 
     // Step 2: fetch profiles — use service-role client to bypass RLS
-    // Falls back to regular client if service role key not configured
+    // and support both profiles.user_id and profiles.id schemas
     const profileClient = getAdminClient() ?? supabase;
-    const { data: profiles } = await profileClient
-      .from("profiles")
-      .select("user_id, full_name, display_name, email, avatar_url, department, job_title")
-      .in("user_id", userIds);
+    const profiles = await fetchProfiles(profileClient, userIds);
 
-    const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
+    const profileMap = new Map<string, any>();
 
-    const result = members.map((m: any) => {
-      const p: any = profileMap.get(m.user_id) ?? {};
-      const full_name = ss(p.full_name).trim() || ss(p.display_name).trim() || "";
-      const email     = ss(p.email).trim();
-      const job_title = ss(m.job_title).trim() || ss(p.job_title).trim();
-      const name      = full_name || email || ss(m.user_id).slice(0, 8);
+    for (const p of profiles ?? []) {
+      const byUserId = ss(p?.user_id).trim();
+      const byId = ss(p?.id).trim();
 
-      return {
-        user_id:    ss(m.user_id),
-        full_name,
-        name,
-        email,
-        avatar_url: ss(p.avatar_url).trim() || null,
-        department: ss(p.department).trim() || null,
-        job_title:  job_title || null,
-        role:       ss(m.role),
-      };
-    }).filter((m: any) => m.user_id);
+      if (byUserId && !profileMap.has(byUserId)) profileMap.set(byUserId, p);
+      if (byId && !profileMap.has(byId)) profileMap.set(byId, p);
+    }
+
+    const result = members
+      .map((m: any) => {
+        const userId = ss(m.user_id).trim();
+        const p: any = profileMap.get(userId) ?? {};
+
+        const full_name =
+          ss(p.full_name).trim() ||
+          ss(p.display_name).trim() ||
+          ss(p.name).trim() ||
+          "";
+
+        const email = ss(p.email).trim();
+        const job_title = ss(m.job_title).trim() || ss(p.job_title).trim();
+
+        const name = full_name || email || userId.slice(0, 8);
+
+        return {
+          user_id: userId,
+          full_name,
+          name,
+          email,
+          avatar_url: ss(p.avatar_url).trim() || null,
+          department: ss(p.department).trim() || null,
+          job_title: job_title || null,
+          role: ss(m.role).trim(),
+        };
+      })
+      .filter((m: any) => m.user_id);
+
+    // Optional: nicer ordering in the picker
+    result.sort((a: any, b: any) => {
+      const an = ss(a.name).toLowerCase();
+      const bn = ss(b.name).toLowerCase();
+      return an.localeCompare(bn);
+    });
 
     return jsonOk({ members: result });
   } catch (e: any) {
