@@ -549,8 +549,8 @@ export default async function ProjectPage({
           transition: border-color 0.15s, background 0.15s; white-space: nowrap; cursor: pointer;
         }
         .action-btn:hover { border-color: var(--border-2); background: var(--surface-2); }
-        .action-btn.primary { background:"#000000"; border-color:"#000000"; color: white; }
-        .action-btn.primary:hover { opacity: 0.9; }
+       .action-btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+               .action-btn.primary:hover { opacity: 0.9; }
 
         /*  Flash  */
         .flash-ok  { padding: 10px 16px; border-radius: 9px; background: rgba(34,197,94,0.07); border: 1px solid rgba(34,197,94,0.22); font-size: 13px; color: #15803d; font-weight: 500; }
