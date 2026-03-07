@@ -8,7 +8,7 @@ import { getActiveOrgId } from "@/utils/org/active-org";
 import { fetchProjectResourceData, projectWeekPeriods } from "./_lib/resource-data";
 import ProjectResourcePanel from "./_components/ProjectResourcePanel";
 import AssignPmButton from "./_components/AssignPmButton";
-import { generatePID, insertRoleRequirements } from "./action";
+import { generatePID, insertRoleRequirements } from "./actions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
