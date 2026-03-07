@@ -1,4 +1,4 @@
-﻿// src/app/projects/[id]/artifacts/[artifactId]/page.tsx
+// src/app/projects/[id]/artifacts/[artifactId]/page.tsx
 
 import "server-only";
 
@@ -29,11 +29,11 @@ import {
 
   updateArtifact,
 
-  createArtifactRevision, // ✅ wrapper provided in ../actions
+  createArtifactRevision, // ? wrapper provided in ../actions
 
-  setArtifactCurrent, // ✅ provided in ../actions
+  setArtifactCurrent, // ? provided in ../actions
 
-  updateArtifactJsonArgs, // ✅ canonical JSON save wrapper (Weekly Report + others)
+  updateArtifactJsonArgs, // ? canonical JSON save wrapper (Weekly Report + others)
 
 } from "../actions";
 
@@ -61,7 +61,7 @@ import { loadArtifactDetail } from "./_lib/loadArtifactDetail";
 
 
 
-// ✅ Ensure Node runtime + no caching (auth/cookies + server-only loaders)
+// ? Ensure Node runtime + no caching (auth/cookies + server-only loaders)
 
 export const runtime = "nodejs";
 
@@ -93,7 +93,7 @@ function safeStr(x: any) {
 
 /**
 
- * ✅ Best-effort: determine a "Project Manager" display name for seeding Charter meta.
+ * ? Best-effort: determine a "Project Manager" display name for seeding Charter meta.
 
  * We try common role values first, then fall back to owner/editor if needed.
 
@@ -364,7 +364,7 @@ export default async function ArtifactDetailPage({
 
     closureMode,
 
-    financialPlanMode,   // ✅ NEW
+    financialPlanMode,   // ? NEW
 
 
 
@@ -372,7 +372,7 @@ export default async function ArtifactDetailPage({
 
 
 
-    // ✅ NEW from loader (Weekly Report)
+    // ? NEW from loader (Weekly Report)
 
     weeklyMode,
 
@@ -386,13 +386,13 @@ export default async function ArtifactDetailPage({
 
   const isWeeklyReport = mode === "weekly_report" || !!weeklyMode;
 
-  const isFinancialPlan = mode === "financial_plan" || !!financialPlanMode; // ✅ NEW
+  const isFinancialPlan = mode === "financial_plan" || !!financialPlanMode; // ? NEW
 
 
 
   // ---------------------------------------------------------------------------
 
-  // ✅ FIX: Charter/Closure editability + submit eligibility should NOT depend on
+  // ? FIX: Charter/Closure editability + submit eligibility should NOT depend on
 
   // artifact.is_locked, because some flows leave it true even when status looks draft.
 
@@ -414,7 +414,7 @@ export default async function ArtifactDetailPage({
 
 
 
-  // ✅ Treat NULL as current (only explicit false blocks)
+  // ? Treat NULL as current (only explicit false blocks)
 
   const isCurrent = (artifact as any)?.is_current !== false;
 
@@ -456,9 +456,9 @@ export default async function ArtifactDetailPage({
 
   // ---------------------------------------------------------------------------
 
-  // ✅ NEW: get projectManagerName for charter seeding (server-side best effort)
+  // ? NEW: get projectManagerName for charter seeding (server-side best effort)
 
-  // ✅ ALSO: robustly derive a projectTitle fallback (so Charter meta can seed).
+  // ? ALSO: robustly derive a projectTitle fallback (so Charter meta can seed).
 
   // ---------------------------------------------------------------------------
 
@@ -508,7 +508,7 @@ export default async function ArtifactDetailPage({
 
   // ---------------------------------------------------------------------------
 
-  // ✅ Server actions
+  // ? Server actions
 
   // ---------------------------------------------------------------------------
 
@@ -660,7 +660,7 @@ export default async function ArtifactDetailPage({
 
 
 
-  // ✅ Make this artifact "current" (owner/editor)
+  // ? Make this artifact "current" (owner/editor)
 
   async function makeCurrentAction() {
 
@@ -704,7 +704,7 @@ export default async function ArtifactDetailPage({
 
         <Link className="underline" href={`/projects/${projectRefForPaths}/artifacts`}>
 
-          ← Back to Artifacts
+          ? Back to Artifacts
 
         </Link>
 
@@ -790,7 +790,7 @@ export default async function ArtifactDetailPage({
 
               className="w-full md:w-[520px] text-2xl font-semibold border rounded-xl px-3 py-2"
 
-              placeholder="Artifact title…"
+              placeholder="Artifact title�"
 
             />
 
@@ -818,7 +818,7 @@ export default async function ArtifactDetailPage({
 
           </span>
 
-          <span className="opacity-40">•</span>
+          <span className="opacity-40">�</span>
 
           <span className="text-xs">
 
@@ -832,13 +832,13 @@ export default async function ArtifactDetailPage({
 
             <>
 
-              <span className="opacity-40">•</span>
+              <span className="opacity-40">�</span>
 
               <span className="text-xs">
 
-                Project dates: <span className="font-mono">{projectStartDate || "—"}</span> →{" "}
+                Project dates: <span className="font-mono">{projectStartDate || "�"}</span> ?{" "}
 
-                <span className="font-mono">{projectFinishDate || "—"}</span>
+                <span className="font-mono">{projectFinishDate || "�"}</span>
 
               </span>
 
@@ -902,7 +902,7 @@ export default async function ArtifactDetailPage({
 
           <div className="flex flex-wrap items-center gap-2">
 
-            {/* ✅ FIX: route Change Control to the Kanban board (NOT /changes) */}
+            {/* ? FIX: route Change Control to the Kanban board (NOT /changes) */}
 
             <Link
 
@@ -975,18 +975,7 @@ export default async function ArtifactDetailPage({
             ) : null}
 
 
-
-            {!changeRequestsMode ? (
-
-              <Link
-
-                href={`/projects/${projectRefForPaths}/artifacts/${artifactId}/compare`}
-
-                className="px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm"
-
-              >
-
-   <Link
+            <Link
               href={`/projects/${projectRefForPaths}/governance`}
               className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm"
               title="Open Delivery Governance (project scope)"
@@ -1001,6 +990,8 @@ export default async function ArtifactDetailPage({
             >
               Governance KB
             </Link>
+
+
 
             {!changeRequestsMode ? (
               <Link
@@ -1098,7 +1089,7 @@ export default async function ArtifactDetailPage({
 
 
 
-      {/* ✅ heavy client stuff isolated */}
+      {/* ? heavy client stuff isolated */}
 
       <ArtifactDetailClientHost
 
@@ -1121,9 +1112,9 @@ export default async function ArtifactDetailPage({
 
         rawContentText={String((artifact as any).content ?? "")}
 
-        projectTitle={projectTitleForSeed || safeStr(projectTitle).trim()} // ✅ robust seed value
+        projectTitle={projectTitleForSeed || safeStr(projectTitle).trim()} // ? robust seed value
 
-        projectManagerName={projectManagerName} // ✅ NEW (for Charter meta seeding)
+        projectManagerName={projectManagerName} // ? NEW (for Charter meta seeding)
 
         projectStartDate={projectStartDate}
 
@@ -1159,11 +1150,11 @@ export default async function ArtifactDetailPage({
 
 
 
-      {/* fallback editor — NOT for weekly report, financial plan, or any typed mode */}
+      {/* fallback editor � NOT for weekly report, financial plan, or any typed mode */}
 
       {!isWeeklyReport &&
 
-      !isFinancialPlan &&        // ✅ NEW
+      !isFinancialPlan &&        // ? NEW
 
       !changeRequestsMode &&
 
