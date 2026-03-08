@@ -784,7 +784,7 @@ export default function FinancialPlanEditor({
   const [signals, setSignals]     = useState<Signal[]>([]);
   const saveTimer                 = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // Cleanup timer on unmount
+  // CRITICAL FIX: Cleanup timer on unmount to prevent memory leaks
   useEffect(() => {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
