@@ -171,7 +171,10 @@ function QuarterRow({ label, months, monthlyData, lines, sym, collapsed, onToggl
   const variance = totals.budget ? totals.forecast - totals.budget : null;
   const over = variance !== null && variance > 0;
   const util = totals.budget ? Math.round((totals.forecast / totals.budget) * 100) : null;
-  const qSigs = signals.filter(s => s.scopeKey === label);
+  // Safe filtering with type guard for scopeKey property
+  const qSigs = signals.filter((s): s is Signal & { scopeKey: string } => 
+    s && typeof s === 'object' && 'scopeKey' in s && s.scopeKey === label
+  );
   const hasCritical = qSigs.some(s => s.severity === "critical");
   const hasWarning = qSigs.some(s => s.severity === "warning");
 
@@ -491,7 +494,10 @@ export default function FinancialPlanMonthlyView({
                     const year  = Number(mk.split("-")[0]);
                     const isCurrent = isCurrentMonth(mk);
                     const isPast    = isPastMonth(mk);
-                    const mSigs     = signals.filter(s => s.scope === "month" && s.scopeKey === mk);
+                    // Safe filtering with type guard
+                    const mSigs     = signals.filter((s): s is Signal & { scope: string; scopeKey: string } => 
+                      s && typeof s === 'object' && 'scope' in s && 'scopeKey' in s && s.scope === "month" && s.scopeKey === mk
+                    );
                     const hasCrit   = mSigs.some(s => s.severity === "critical");
                     return (
                       <th key={mk} colSpan={3} style={{ padding: "5px 4px", textAlign: "center", borderRight: `1px solid ${P.border}`, borderBottom: `1px solid ${P.border}`, background: isCurrent ? "#E8F0F8" : hasCrit ? P.redLt : isPast ? "#F9F9F7" : "#F7F7F5", opacity: isPast && !isCurrent ? 0.75 : 1 }}>
@@ -535,98 +541,101 @@ export default function FinancialPlanMonthlyView({
           {/* ── TBODY ── */}
           <tbody>
             {viewMode === "monthly"
-              ? quarters.map(q => {
+              ? quarters.flatMap(q => {
                   const isCollapsed = collapsedQuarters.has(q.label);
-                  return [
+                  const quarterRow = (
                     <QuarterRow
                       key={`q-${q.label}`}
                       label={q.label} months={q.months}
                       monthlyData={monthlyData} lines={lines} sym={sym}
                       collapsed={isCollapsed} onToggle={() => toggleQuarter(q.label)}
                       signals={signals}
-                    />,
+                    />
+                  );
 
-                    ...(isCollapsed ? [] : [
-                      // Cost lines
-                      ...lines.map((line, li) => {
-                        const lineFctTotal = q.months.reduce((s, mk) => s + (Number(monthlyData[line.id]?.[mk]?.forecast) || 0), 0);
-                        const lineBudTotal = q.months.reduce((s, mk) => s + (Number(monthlyData[line.id]?.[mk]?.budget) || 0), 0);
-                        const isOver = lineBudTotal > 0 && lineFctTotal > lineBudTotal;
-                        const rowBg = li % 2 === 0 ? P.surface : "#FAFAF8";
+                  if (isCollapsed) return [quarterRow];
 
-                        return (
-                          <tr key={`${q.label}-${line.id}`} style={{ background: rowBg, borderBottom: `1px solid ${P.border}` }}>
-                            <td style={{ position: "sticky", left: 0, zIndex: 10, padding: "5px 10px 5px 22px", borderRight: `1px solid ${P.border}`, background: rowBg, minWidth: 200 }}>
-                              <span style={{ fontFamily: P.sans, fontSize: 11, fontWeight: 500, color: P.text, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 160 }}>
-                                {line.description || <span style={{ fontStyle: "italic", color: P.textSm }}>{line.category}</span>}
-                              </span>
-                            </td>
-                            {q.months.map(mk => {
-                              const e = monthlyData[line.id]?.[mk] ?? emptyEntry();
-                              const locked = isPastMonth(mk);
-                              const fOver = e.budget && Number(e.forecast) > Number(e.budget);
-                              return [
-                                <td key={`${mk}-b`} style={{ borderBottom: `1px solid ${P.border}`, background: "#F2F8FF", minWidth: 56 }}>
-                                  <MoneyInput value={e.budget} onChange={v => updateEntry(line.id, mk, { budget: v })} sym={sym} locked={readOnly} highlight="blue" />
-                                </td>,
-                                <td key={`${mk}-a`} style={{ borderBottom: `1px solid ${P.border}`, background: "#F9F7FF", minWidth: 56 }}>
-                                  <MoneyInput value={e.actual} onChange={v => updateEntry(line.id, mk, { actual: v })} sym={sym} locked={locked || readOnly} highlight="gray" />
-                                </td>,
-                                <td key={`${mk}-f`} style={{ borderBottom: `1px solid ${P.border}`, borderRight: `1px solid ${P.border}`, minWidth: 56, background: fOver ? "#FDF5F4" : "#F3FAF6" }}>
-                                  <MoneyInput value={e.forecast} onChange={v => updateEntry(line.id, mk, { forecast: v })} sym={sym} locked={locked || readOnly} highlight={fOver ? "red" : "green"} />
-                                </td>,
-                              ];
-                            })}
-                            <td style={{ position: "sticky", right: 0, zIndex: 10, padding: "4px 10px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 600, color: isOver ? P.red : lineFctTotal > 0 ? P.green : P.textSm, background: rowBg, borderLeft: `1px solid ${P.border}`, borderBottom: `1px solid ${P.border}`, fontVariantNumeric: "tabular-nums" }}>
-                              {lineFctTotal ? fmtK(lineFctTotal, sym) : "—"}
-                            </td>
-                          </tr>
-                        );
-                      }),
+                  const costLineRows = lines.map((line, li) => {
+                    const lineFctTotal = q.months.reduce((s, mk) => s + (Number(monthlyData[line.id]?.[mk]?.forecast) || 0), 0);
+                    const lineBudTotal = q.months.reduce((s, mk) => s + (Number(monthlyData[line.id]?.[mk]?.budget) || 0), 0);
+                    const isOver = lineBudTotal > 0 && lineFctTotal > lineBudTotal;
+                    const rowBg = li % 2 === 0 ? P.surface : "#FAFAF8";
 
-                      // Q totals row
-                      <tr key={`${q.label}-totals`} style={{ background: "#F0F0ED", borderBottom: `2px solid ${P.borderMd}` }}>
-                        <td style={{ position: "sticky", left: 0, zIndex: 10, padding: "5px 10px 5px 22px", borderRight: `1px solid ${P.borderMd}`, background: "#F0F0ED", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color: P.textSm, letterSpacing: "0.1em", textTransform: "uppercase" }}>
-                          Q Total
+                    return (
+                      <tr key={`${q.label}-${line.id}`} style={{ background: rowBg, borderBottom: `1px solid ${P.border}` }}>
+                        <td style={{ position: "sticky", left: 0, zIndex: 10, padding: "5px 10px 5px 22px", borderRight: `1px solid ${P.border}`, background: rowBg, minWidth: 200 }}>
+                          <span style={{ fontFamily: P.sans, fontSize: 11, fontWeight: 500, color: P.text, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 160 }}>
+                            {line.description || <span style={{ fontStyle: "italic", color: P.textSm }}>{line.category}</span>}
+                          </span>
                         </td>
                         {q.months.flatMap(mk => {
-                          const t = monthTotals[mk];
-                          const fOver = t.budget && t.forecast > t.budget;
+                          const e = monthlyData[line.id]?.[mk] ?? emptyEntry();
+                          const locked = isPastMonth(mk);
+                          const fOver = e.budget && Number(e.forecast) > Number(e.budget);
                           return [
-                            <td key={`${mk}-tb`} style={{ padding: "5px 6px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 600, color: P.navy, background: "#E8F0F8", fontVariantNumeric: "tabular-nums" }}>{t.budget ? fmtK(t.budget, sym) : "—"}</td>,
-                            <td key={`${mk}-ta`} style={{ padding: "5px 6px", textAlign: "right", fontFamily: P.mono, fontSize: 10, color: P.violet, background: "#F0EEFF", fontVariantNumeric: "tabular-nums" }}>{t.actual ? fmtK(t.actual, sym) : "—"}</td>,
-                            <td key={`${mk}-tf`} style={{ padding: "5px 6px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 600, color: fOver ? P.red : P.green, background: fOver ? "#FBF0EE" : "#EAF5EE", borderRight: `1px solid ${P.border}`, fontVariantNumeric: "tabular-nums" }}>{t.forecast ? fmtK(t.forecast, sym) : "—"}</td>,
-                          ];
-                        })}
-                        <td style={{ position: "sticky", right: 0, zIndex: 10, padding: "5px 10px", textAlign: "right", fontFamily: P.mono, fontSize: 11, fontWeight: 700, color: P.text, background: "#F0F0ED", borderLeft: `1px solid ${P.borderMd}`, fontVariantNumeric: "tabular-nums" }}>
-                          {fmtK(q.months.reduce((s, mk) => s + (monthTotals[mk]?.forecast ?? 0), 0), sym)}
-                        </td>
-                      </tr>,
-
-                      // Forecast movement row
-                      <tr key={`${q.label}-movement`} style={{ background: "#FDFAF2", borderBottom: `1px solid #E8E0C0` }}>
-                        <td style={{ position: "sticky", left: 0, zIndex: 10, padding: "4px 10px 4px 22px", borderRight: `1px solid #E8E0C0`, background: "#FDFAF2", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color: P.amber, letterSpacing: "0.1em", textTransform: "uppercase" }}>
-                          Δ Movement
-                        </td>
-                        {q.months.flatMap(mk => {
-                          const mv = forecastMovement[mk];
-                          const hasMove = mv !== null && mv !== 0;
-                          return [
-                            <td key={`${mk}-mv1`} style={{ background: "#FDFAF2", borderBottom: `1px solid #F0E8C0` }} />,
-                            <td key={`${mk}-mv2`} style={{ background: "#FDFAF2", borderBottom: `1px solid #F0E8C0` }} />,
-                            <td key={`${mk}-mv3`} style={{ padding: "4px 6px", textAlign: "right", background: "#FDFAF2", borderRight: `1px solid #E8E0C0`, borderBottom: `1px solid #F0E8C0` }}>
-                              {hasMove ? (
-                                <span style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 600, color: (mv ?? 0) > 0 ? P.red : P.green, fontVariantNumeric: "tabular-nums" }}>
-                                  {(mv ?? 0) > 0 ? "▲" : "▼"} {fmtK(Math.abs(mv!), sym)}
-                                </span>
-                              ) : <span style={{ fontFamily: P.mono, fontSize: 9, color: P.border }}>—</span>}
+                            <td key={`${mk}-b`} style={{ borderBottom: `1px solid ${P.border}`, background: "#F2F8FF", minWidth: 56 }}>
+                              <MoneyInput value={e.budget} onChange={v => updateEntry(line.id, mk, { budget: v })} sym={sym} locked={readOnly} highlight="blue" />
+                            </td>,
+                            <td key={`${mk}-a`} style={{ borderBottom: `1px solid ${P.border}`, background: "#F9F7FF", minWidth: 56 }}>
+                              <MoneyInput value={e.actual} onChange={v => updateEntry(line.id, mk, { actual: v })} sym={sym} locked={locked || readOnly} highlight="gray" />
+                            </td>,
+                            <td key={`${mk}-f`} style={{ borderBottom: `1px solid ${P.border}`, borderRight: `1px solid ${P.border}`, minWidth: 56, background: fOver ? "#FDF5F4" : "#F3FAF6" }}>
+                              <MoneyInput value={e.forecast} onChange={v => updateEntry(line.id, mk, { forecast: v })} sym={sym} locked={locked || readOnly} highlight={fOver ? "red" : "green"} />
                             </td>,
                           ];
                         })}
-                        <td style={{ position: "sticky", right: 0, zIndex: 10, background: "#FDFAF2", borderLeft: `1px solid #E8E0C0` }} />
-                      </tr>,
-                    ]),
-                  ];
+                        <td style={{ position: "sticky", right: 0, zIndex: 10, padding: "4px 10px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 600, color: isOver ? P.red : lineFctTotal > 0 ? P.green : P.textSm, background: rowBg, borderLeft: `1px solid ${P.border}`, borderBottom: `1px solid ${P.border}`, fontVariantNumeric: "tabular-nums" }}>
+                          {lineFctTotal ? fmtK(lineFctTotal, sym) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  });
+
+                  const totalsRow = (
+                    <tr key={`${q.label}-totals`} style={{ background: "#F0F0ED", borderBottom: `2px solid ${P.borderMd}` }}>
+                      <td style={{ position: "sticky", left: 0, zIndex: 10, padding: "5px 10px 5px 22px", borderRight: `1px solid ${P.borderMd}`, background: "#F0F0ED", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color: P.textSm, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                        Q Total
+                      </td>
+                      {q.months.flatMap(mk => {
+                        const t = monthTotals[mk];
+                        const fOver = t.budget && t.forecast > t.budget;
+                        return [
+                          <td key={`${mk}-tb`} style={{ padding: "5px 6px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 600, color: P.navy, background: "#E8F0F8", fontVariantNumeric: "tabular-nums" }}>{t.budget ? fmtK(t.budget, sym) : "—"}</td>,
+                          <td key={`${mk}-ta`} style={{ padding: "5px 6px", textAlign: "right", fontFamily: P.mono, fontSize: 10, color: P.violet, background: "#F0EEFF", fontVariantNumeric: "tabular-nums" }}>{t.actual ? fmtK(t.actual, sym) : "—"}</td>,
+                          <td key={`${mk}-tf`} style={{ padding: "5px 6px", textAlign: "right", fontFamily: P.mono, fontSize: 10, fontWeight: 600, color: fOver ? P.red : P.green, background: fOver ? "#FBF0EE" : "#EAF5EE", borderRight: `1px solid ${P.border}`, fontVariantNumeric: "tabular-nums" }}>{t.forecast ? fmtK(t.forecast, sym) : "—"}</td>,
+                        ];
+                      })}
+                      <td style={{ position: "sticky", right: 0, zIndex: 10, padding: "5px 10px", textAlign: "right", fontFamily: P.mono, fontSize: 11, fontWeight: 700, color: P.text, background: "#F0F0ED", borderLeft: `1px solid ${P.borderMd}`, fontVariantNumeric: "tabular-nums" }}>
+                        {fmtK(q.months.reduce((s, mk) => s + (monthTotals[mk]?.forecast ?? 0), 0), sym)}
+                      </td>
+                    </tr>
+                  );
+
+                  const movementRow = (
+                    <tr key={`${q.label}-movement`} style={{ background: "#FDFAF2", borderBottom: `1px solid #E8E0C0` }}>
+                      <td style={{ position: "sticky", left: 0, zIndex: 10, padding: "4px 10px 4px 22px", borderRight: `1px solid #E8E0C0`, background: "#FDFAF2", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color: P.amber, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                        Δ Movement
+                      </td>
+                      {q.months.flatMap(mk => {
+                        const mv = forecastMovement[mk];
+                        const hasMove = mv !== null && mv !== 0;
+                        return [
+                          <td key={`${mk}-mv1`} style={{ background: "#FDFAF2", borderBottom: `1px solid #F0E8C0` }} />,
+                          <td key={`${mk}-mv2`} style={{ background: "#FDFAF2", borderBottom: `1px solid #F0E8C0` }} />,
+                          <td key={`${mk}-mv3`} style={{ padding: "4px 6px", textAlign: "right", background: "#FDFAF2", borderRight: `1px solid #E8E0C0`, borderBottom: `1px solid #F0E8C0` }}>
+                            {hasMove ? (
+                              <span style={{ fontFamily: P.mono, fontSize: 9, fontWeight: 600, color: (mv ?? 0) > 0 ? P.red : P.green, fontVariantNumeric: "tabular-nums" }}>
+                                {(mv ?? 0) > 0 ? "▲" : "▼"} {fmtK(Math.abs(mv!), sym)}
+                              </span>
+                            ) : <span style={{ fontFamily: P.mono, fontSize: 9, color: P.border }}>—</span>}
+                          </td>,
+                        ];
+                      })}
+                      <td style={{ position: "sticky", right: 0, zIndex: 10, background: "#FDFAF2", borderLeft: `1px solid #E8E0C0` }} />
+                    </tr>
+                  );
+
+                  return [quarterRow, ...costLineRows, totalsRow, movementRow];
                 })
 
               // ── Quarterly view ──
@@ -637,7 +646,10 @@ export default function FinancialPlanMonthlyView({
                   const qVariance = qBudget ? qForecast - qBudget : 0;
                   const qUtil     = qBudget ? Math.round((qForecast / qBudget) * 100) : null;
                   const over      = qBudget > 0 && qForecast > qBudget;
-                  const qSigs     = signals.filter(s => s.scopeKey === q.label);
+                  // Safe filtering with type guard
+                  const qSigs     = signals.filter((s): s is Signal & { scopeKey: string } => 
+                    s && typeof s === 'object' && 'scopeKey' in s && s.scopeKey === q.label
+                  );
                   const qCrit     = qSigs.some(s => s.severity === "critical");
                   const rowBg     = qCrit ? P.redLt : qi % 2 === 0 ? P.surface : "#FAFAF8";
 

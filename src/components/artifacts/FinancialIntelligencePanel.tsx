@@ -155,6 +155,7 @@ export default function FinancialIntelligencePanel({
   }, [content, monthlyData, fyConfig, lastUpdatedAt, onSignalsChange]);
 
   // FIX: clear the timeout on unmount to prevent parentNode crash
+  // Also include triggerAI in dependencies since it's used inside
   useEffect(() => {
     if (!autoOpen) return;
     const timer = setTimeout(() => {
@@ -163,7 +164,7 @@ export default function FinancialIntelligencePanel({
     triggerAI();
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoOpen]);
+  }, [autoOpen, triggerAI]);
 
   const triggerAI = useCallback(async () => {
     // Abort any previous in-flight request
@@ -171,7 +172,13 @@ export default function FinancialIntelligencePanel({
     const controller = new AbortController();
     abortRef.current = controller;
 
-    if (mountedRef.current) { setAiLoading(true); setAiError(null); setActiveTab("ai"); }
+    // Set loading state immediately if mounted
+    if (mountedRef.current) { 
+      setAiLoading(true); 
+      setAiError(null); 
+      setActiveTab("ai"); 
+    }
+
     try {
       const res = await fetch("/api/ai/financial-intelligence", {
         method: "POST",
@@ -179,15 +186,25 @@ export default function FinancialIntelligencePanel({
         body: JSON.stringify({ content, monthlyData, fyConfig, lastUpdatedAt, raidItems, approvalDelays }),
         signal: controller.signal,
       });
+      
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      
       const data = await res.json();
+      
       // Only update state if still mounted
-      if (mountedRef.current) setAiAnalysis(data.analysis);
+      if (mountedRef.current) {
+        setAiAnalysis(data.analysis);
+      }
     } catch (e: any) {
       if (e?.name === "AbortError") return; // navigated away — silently drop
-      if (mountedRef.current) setAiError(e?.message ?? "AI analysis failed.");
+      
+      if (mountedRef.current) {
+        setAiError(e?.message ?? "AI analysis failed.");
+      }
     } finally {
-      if (mountedRef.current) setAiLoading(false);
+      if (mountedRef.current) {
+        setAiLoading(false);
+      }
     }
   }, [content, monthlyData, fyConfig, lastUpdatedAt, raidItems, approvalDelays]);
 
@@ -241,9 +258,9 @@ export default function FinancialIntelligencePanel({
             {signals.length === 0 && (
               <p className="text-center text-gray-400 py-8 text-sm">No signals detected — budget looks healthy.</p>
             )}
-            {criticals.map(s => <SignalCard key={s.code + s.scopeKey} signal={s} />)}
-            {warnings.map(s  => <SignalCard key={s.code + s.scopeKey} signal={s} />)}
-            {infos.map(s     => <SignalCard key={s.code + s.scopeKey} signal={s} />)}
+            {criticals.map(s => <SignalCard key={s.code + (s.scopeKey ?? '')} signal={s} />)}
+            {warnings.map(s  => <SignalCard key={s.code + (s.scopeKey ?? '')} signal={s} />)}
+            {infos.map(s     => <SignalCard key={s.code + (s.scopeKey ?? '')} signal={s} />)}
           </div>
         ) : (
           <div>
@@ -266,7 +283,7 @@ export default function FinancialIntelligencePanel({
                   <p className="text-xs text-gray-600 mt-1 leading-relaxed">{aiAnalysis.narrative}</p>
                 </div>
                 {aiAnalysis.drivers.map((d, i) => <DriverCard key={i} d={d} />)}
-                {aiAnalysis.pm_actions?.length > 0 && (
+                {aiAnalysis.pm_actions && aiAnalysis.pm_actions.length > 0 && (
                   <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
                     <p className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-2">Recommended Actions</p>
                     <ul className="flex flex-col gap-1.5">
@@ -292,15 +309,23 @@ export default function FinancialIntelligencePanel({
 
 export function InlineQuarterFlags({
   signals,
-  quarterLabel: _ql,
+  quarterLabel,
 }: {
   signals: Signal[];
   quarterLabel?: string;
 }) {
-  const has = (sev: string) => signals.some(s => s.severity === sev);
-  if (!signals?.length) return null;
+  // Filter signals for this specific quarter if label provided
+  const relevantSignals = quarterLabel 
+    ? signals.filter((s): s is Signal & { scopeKey: string } => 
+        s && typeof s === 'object' && 'scopeKey' in s && s.scopeKey === quarterLabel
+      )
+    : signals;
+    
+  if (!relevantSignals?.length) return null;
+  
+  const has = (sev: string) => relevantSignals.some(s => s.severity === sev);
   const color = has("critical") ? "#f43f5e" : has("warning") ? "#f59e0b" : "#10b981";
-  if (!signals.length) return null;
+  
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 2, marginLeft: 4 }}>
       <span style={{ width: 6, height: 6, borderRadius: "50%", background: color, display: "inline-block" }} />
@@ -310,15 +335,25 @@ export function InlineQuarterFlags({
 
 export function InlineMonthFlag({
   signals,
-  monthKey: _mk,
+  monthKey,
 }: {
   signals: Signal[];
   monthKey?: string;
 }) {
-  if (!signals?.length) return null;
-  const has = (sev: string) => signals.some(s => s.severity === sev);
+  // Filter signals for this specific month if key provided
+  const relevantSignals = monthKey
+    ? signals.filter((s): s is Signal & { scope: string; scopeKey: string } => 
+        s && typeof s === 'object' && 'scope' in s && 'scopeKey' in s && s.scope === "month" && s.scopeKey === monthKey
+      )
+    : signals;
+    
+  if (!relevantSignals?.length) return null;
+  
+  const has = (sev: string) => relevantSignals.some(s => s.severity === sev);
   const color = has("critical") ? "#f43f5e" : has("warning") ? "#f59e0b" : null;
+  
   if (!color) return null;
+  
   return (
     <span style={{ width: 5, height: 5, borderRadius: "50%", background: color, display: "inline-block", marginLeft: 2, flexShrink: 0 }} />
   );

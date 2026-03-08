@@ -24,12 +24,20 @@ import { Calendar } from "@/components/ui/calendar";
 import { format, isValid } from "date-fns";
 
 /* =========================================================
-   Types (matches ProjectCharterEditorFormLazy contract)
+   Types
 ========================================================= */
 
 type RowObj = { type: "header" | "data"; cells: string[] };
 export type CharterMeta = { title?: string; date?: string; version?: string; author?: string; [key: string]: any };
-export type CharterSection = { key: string; title: string; type?: string; content?: string; bullets?: string[]; table?: { columns: number; rows: RowObj[] }; [key: string]: any };
+export type CharterSection = {
+  key: string;
+  title: string;
+  type?: string;
+  content?: string;
+  bullets?: string[];
+  table?: { columns: number; rows: RowObj[] };
+  [key: string]: any;
+};
 export type ApplySectionPatch = (key: string, patch: any) => void;
 
 export type V2Section = {
@@ -215,8 +223,8 @@ function currentLinePrefix(text: string, cursorPos: number) {
   const line = before.slice(lastNl + 1);
   const trimmed = line.trimStart();
   const indent = line.match(/^\s*/)?.[0] ?? "";
-  const markerMatch = trimmed.match(/^([•\-\*])\s*/);
-  const marker = markerMatch?.[1] ?? "•";
+  const markerMatch = trimmed.match(/^([-*])\s*/);
+  const marker = markerMatch?.[1] ?? "-";
   return { indent, marker };
 }
 
@@ -227,7 +235,7 @@ function normalizeBulletsToList(text: string) {
     .map((l) => l.trim())
     .filter(Boolean);
   const cleaned = lines.map((l) =>
-    l.replace(/^\s*(?:[•\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/g, "")
+    l.replace(/^\s*(?:[-*\u2022\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/g, "")
   );
   return cleaned;
 }
@@ -253,10 +261,8 @@ function CompletenessRing({ score, size = 32 }: { score: number; size?: number }
   const r = (size - 4) / 2;
   const circ = 2 * Math.PI * r;
   const offset = circ - (score / 100) * circ;
-  const color =
-    score >= 80 ? "#059669" : score >= 40 ? "#d97706" : "#e11d48";
-  const bg =
-    score >= 80 ? "#d1fae5" : score >= 40 ? "#fef3c7" : "#ffe4e6";
+  const color = score >= 80 ? "#059669" : score >= 40 ? "#d97706" : "#e11d48";
+  const bg = score >= 80 ? "#d1fae5" : score >= 40 ? "#fef3c7" : "#ffe4e6";
 
   return (
     <div className="relative" style={{ width: size, height: size }} title={`${score}% complete`}>
@@ -303,7 +309,6 @@ export default function ProjectCharterSectionEditor({
 }: Props) {
   const safeSections = useMemo(() => (Array.isArray(sections) ? sections : []), [sections]);
 
-  // ✅ local draft meta state so typing never gets clobbered by doc re-hydration
   const didInitMetaRef = useRef(false);
   const lastMetaEditAtRef = useRef<number>(0);
 
@@ -314,7 +319,6 @@ export default function ProjectCharterSectionEditor({
     dates: "",
   }));
 
-  // init once (or when meta becomes available the first time)
   useEffect(() => {
     if (didInitMetaRef.current) return;
 
@@ -329,8 +333,6 @@ export default function ProjectCharterSectionEditor({
     didInitMetaRef.current = true;
   }, [meta]);
 
-  // If parent meta changes later, we allow sync ONLY if user hasn't typed recently.
-  // Additionally, we seed empty local fields from incoming values.
   useEffect(() => {
     if (!didInitMetaRef.current) return;
 
@@ -356,7 +358,6 @@ export default function ProjectCharterSectionEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meta]);
 
-  // Debounced push up to parent
   useEffect(() => {
     if (!didInitMetaRef.current) return;
     if (readOnly) return;
@@ -450,7 +451,10 @@ export default function ProjectCharterSectionEditor({
   const [expandedSections, setExpandedSections] = useState<Record<number, boolean>>({});
 
   const toggleSection = (idx: number) => {
-    setExpandedSections((prev) => ({ ...prev, [idx]: prev[idx] === false ? true : prev[idx] === undefined ? false : !prev[idx] }));
+    setExpandedSections((prev) => ({
+      ...prev,
+      [idx]: prev[idx] === false ? true : prev[idx] === undefined ? false : !prev[idx],
+    }));
   };
 
   const isSectionExpanded = (idx: number) => expandedSections[idx] !== false;
@@ -543,7 +547,7 @@ export default function ProjectCharterSectionEditor({
       `}</style>
 
       <div className="charter-editor p-5 md:p-8 space-y-6 max-w-[1400px] mx-auto">
-        {/* ── Meta Card ── */}
+        {/* Meta Card */}
         <div
           className="rounded-2xl border border-white/60 bg-white/80 backdrop-blur-xl overflow-hidden"
           style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 8px 32px rgba(0,0,0,0.03)" }}
@@ -564,9 +568,7 @@ export default function ProjectCharterSectionEditor({
                 <div className="font-display text-[15px] font-medium text-slate-900 tracking-[-0.01em]">
                   Charter Details
                 </div>
-                <div className="text-xs text-slate-500 mt-0.5">
-                  Project metadata for exports and reports
-                </div>
+                <div className="text-xs text-slate-500 mt-0.5">Project metadata for exports and reports</div>
               </div>
             </div>
 
@@ -578,7 +580,10 @@ export default function ProjectCharterSectionEditor({
               )}
               <div
                 className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center transition-transform"
-                style={{ transform: metaOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s ease" }}
+                style={{
+                  transform: metaOpen ? "rotate(180deg)" : "rotate(0deg)",
+                  transition: "transform 0.2s ease",
+                }}
               >
                 <ChevronDown className="h-4 w-4 text-slate-500" />
               </div>
@@ -624,7 +629,7 @@ export default function ProjectCharterSectionEditor({
                     lastMetaEditAtRef.current = Date.now();
                     setMetaDraft((s) => ({ ...(s || {}), dates: v }));
                   }}
-                  placeholder="e.g., Start 01/03/2026 · End 30/06/2026"
+                  placeholder="e.g., Start 01/03/2026 - End 30/06/2026"
                 />
               </div>
 
@@ -636,7 +641,7 @@ export default function ProjectCharterSectionEditor({
           )}
         </div>
 
-        {/* ── Sections ── */}
+        {/* Sections */}
         <div className="space-y-4">
           {safeSections.map((sec, idx) => {
             const key = safeStr(sec?.key).trim();
@@ -671,7 +676,10 @@ export default function ProjectCharterSectionEditor({
                   >
                     <ChevronDown
                       className="h-4 w-4 text-slate-400 transition-transform"
-                      style={{ transform: expanded ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.2s ease" }}
+                      style={{
+                        transform: expanded ? "rotate(0deg)" : "rotate(-90deg)",
+                        transition: "transform 0.2s ease",
+                      }}
                     />
                   </button>
 
@@ -700,7 +708,7 @@ export default function ProjectCharterSectionEditor({
                     {isLoading && (
                       <span className="inline-flex items-center gap-1.5 text-[11px] text-indigo-600 font-medium bg-indigo-50 rounded-full px-2.5 py-1 border border-indigo-100">
                         <Zap className="h-3 w-3 animate-pulse" />
-                        AI working…
+                        AI working...
                       </span>
                     )}
                   </div>
@@ -742,10 +750,8 @@ export default function ProjectCharterSectionEditor({
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                         title="Regenerate this section with AI"
                       >
-                        <RefreshCw
-                          className={`h-3.5 w-3.5 ${isLoading ? "animate-spin text-indigo-500" : ""}`}
-                        />
-                        <span className="hidden sm:inline">{isLoading ? "Working…" : "Regen"}</span>
+                        <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin text-indigo-500" : ""}`} />
+                        <span className="hidden sm:inline">{isLoading ? "Working..." : "Regen"}</span>
                       </button>
                     ) : null}
                   </div>
@@ -764,8 +770,8 @@ export default function ProjectCharterSectionEditor({
                                 it.severity === "error"
                                   ? "bg-rose-100 text-rose-700"
                                   : it.severity === "warn"
-                                  ? "bg-amber-100 text-amber-700"
-                                  : "bg-blue-100 text-blue-700"
+                                    ? "bg-amber-100 text-amber-700"
+                                    : "bg-blue-100 text-blue-700"
                               }`}
                             >
                               {it.severity}
@@ -902,7 +908,7 @@ function BulletsEditor({
     <div className="space-y-3">
       <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-400 tracking-wide uppercase">
         <List className="h-3 w-3" />
-        Bullet points — one per line
+        Bullet points -- one per line
       </div>
 
       <textarea
@@ -910,7 +916,7 @@ function BulletsEditor({
         value={value}
         disabled={readOnly}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="• Add bullet points here..."
+        placeholder="- Add bullet points here..."
         onKeyDown={(e) => {
           if (readOnly) return;
 
@@ -1003,7 +1009,13 @@ function DatePickerCell({
           </button>
         </PopoverTrigger>
         <PopoverContent className="w-auto p-0" align="end">
-          <Calendar mode="single" selected={date || undefined} onSelect={handleSelect} initialFocus className="rounded-xl border-0" />
+          <Calendar
+            mode="single"
+            selected={date || undefined}
+            onSelect={handleSelect}
+            initialFocus
+            className="rounded-xl border-0"
+          />
         </PopoverContent>
       </Popover>
     </div>
@@ -1065,13 +1077,19 @@ function TableEditor({
 
   return (
     <div className="space-y-4">
-      <div className="overflow-hidden rounded-xl border border-slate-200/70" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.02)" }}>
+      <div
+        className="overflow-hidden rounded-xl border border-slate-200/70"
+        style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.02)" }}
+      >
         <div className="overflow-x-auto">
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr style={{ background: "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)" }}>
                 {header.map((h, i) => (
-                  <th key={i} className="px-4 py-3.5 text-left align-middle border-b border-slate-200/70 border-r border-r-slate-100 last:border-r-0">
+                  <th
+                    key={i}
+                    className="px-4 py-3.5 text-left align-middle border-b border-slate-200/70 border-r border-r-slate-100 last:border-r-0"
+                  >
                     <div className="flex items-center gap-2">
                       <input
                         className="w-full bg-transparent outline-none text-[11px] font-bold text-slate-600 tracking-wide uppercase placeholder:text-slate-300"
@@ -1095,7 +1113,12 @@ function TableEditor({
                     </div>
                   </th>
                 ))}
-                {!readOnly ? <th className="w-12 px-2 py-3.5 border-b border-slate-200/70" style={{ background: "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)" }} /> : null}
+                {!readOnly ? (
+                  <th
+                    className="w-12 px-2 py-3.5 border-b border-slate-200/70"
+                    style={{ background: "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)" }}
+                  />
+                ) : null}
               </tr>
             </thead>
 
@@ -1109,7 +1132,11 @@ function TableEditor({
                     return (
                       <td key={ci} className="px-4 py-3 align-top border-r border-slate-100/60 last:border-r-0">
                         {isDate ? (
-                          <DatePickerCell value={raw} onChange={(v) => setCell(ri, ci, v)} disabled={readOnly} />
+                          <DatePickerCell
+                            value={raw}
+                            onChange={(v) => setCell(ri, ci, v)}
+                            disabled={readOnly}
+                          />
                         ) : (
                           <input
                             className="charter-input w-full outline-none bg-transparent text-slate-700 placeholder:text-slate-300 text-[13px]"
@@ -1160,7 +1187,7 @@ function TableEditor({
           </button>
 
           <span className="ml-auto font-mono text-[11px] text-slate-300 tracking-wide">
-            {dataRows.length}r × {header.length}c
+            {dataRows.length}r x {header.length}c
           </span>
         </div>
       ) : null}

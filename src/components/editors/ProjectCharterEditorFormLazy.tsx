@@ -40,20 +40,20 @@ const DEV = process.env.NODE_ENV === "development";
 
 const ProjectCharterEditor = dynamic(() => import("./ProjectCharterEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-500">Loading editor…</div>,
+  loading: () => <div className="text-sm text-slate-500">Loading editor...</div>,
 });
 
 const ProjectCharterClassicView = dynamic(() => import("./ProjectCharterClassicView"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-500">Loading classic view…</div>,
+  loading: () => <div className="text-sm text-slate-500">Loading classic view...</div>,
 });
 
 const ProjectCharterSectionEditor = dynamic(() => import("./ProjectCharterSectionEditor"), {
   ssr: false,
-  loading: () => <div className="text-sm text-slate-500">Loading sections…</div>,
+  loading: () => <div className="text-sm text-slate-500">Loading sections...</div>,
 });
 
-// ✅ Prod-safe: do not even define a dynamic import in production
+// Prod-safe: do not even define a dynamic import in production
 const CharterV2DebugPanel = DEV
   ? dynamic(() => import("@/components/editors/CharterV2DebugPanel"), { ssr: false, loading: () => null })
   : ((() => null) as any);
@@ -64,7 +64,7 @@ const CharterV2DebugPanel = DEV
 
 function formatDateTimeUK(isoLike: string | null | undefined) {
   const s = String(isoLike ?? "").trim();
-  if (!s) return "—";
+  if (!s) return "-";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return formatDateTimeAuto(s);
   try {
@@ -87,7 +87,7 @@ function fmtWhenLocal(x: string | null) {
 
 function normalizeBulletLine(line: string) {
   let s = String(line ?? "");
-  const re = /^\s*(?:[•\u2022\-\*\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/;
+  const re = /^\s*(?:[-\*\u2022\u00B7\u2023\u25AA\u25CF\u2013]+)\s*/;
   for (let i = 0; i < 6; i++) {
     const next = s.replace(re, "");
     if (next === s) break;
@@ -458,7 +458,6 @@ function applyAiResultToDoc(prevDoc: any, sectionKey: string, data: any) {
 
 /* ---------------------------------------------
    Robustly read capabilities response
-   - supports both {full,...} and {capabilities:{full,...}}
 ---------------------------------------------- */
 function coerceWireCaps(payload: any): WireCaps | null {
   if (!payload || typeof payload !== "object") return null;
@@ -470,8 +469,12 @@ function coerceWireCaps(payload: any): WireCaps | null {
   const suggest = (root as any).suggest;
   const validate = (root as any).validate;
 
-  // only accept if at least one key exists
-  if (typeof full !== "boolean" && typeof section !== "boolean" && typeof suggest !== "boolean" && typeof validate !== "boolean") {
+  if (
+    typeof full !== "boolean" &&
+    typeof section !== "boolean" &&
+    typeof suggest !== "boolean" &&
+    typeof validate !== "boolean"
+  ) {
     return null;
   }
 
@@ -541,7 +544,6 @@ export default function ProjectCharterEditorFormLazy({
   const [pmBrief, setPmBrief] = useState<string>(() => getPmBrief((ensureCanonicalCharter(initialJson) as any)?.meta));
   const [aiFullBusy, setAiFullBusy] = useState(false);
 
-  // Default to "true" to avoid dead UX. Server errors will give real reasons.
   const [wireCaps, setWireCaps] = useState<WireCaps>({
     full: true,
     section: true,
@@ -829,11 +831,11 @@ export default function ProjectCharterEditorFormLazy({
     }
   }
 
-  /* ── Status indicator ── */
+  /* Status indicator */
   const StatusDot = ({ state }: { state: typeof autosaveState }) => {
     const configs = {
       idle: { color: "#059669", bg: "#d1fae5", label: "Saved", pulse: false },
-      saving: { color: "#6366f1", bg: "#e0e7ff", label: "Saving…", pulse: true },
+      saving: { color: "#6366f1", bg: "#e0e7ff", label: "Saving...", pulse: true },
       queued: { color: "#d97706", bg: "#fef3c7", label: "Pending", pulse: true },
     };
     const c = (configs as any)[state];
@@ -856,7 +858,9 @@ export default function ProjectCharterEditorFormLazy({
   const submitWired = !!submitForApprovalAction;
 
   const submitLabel =
-    String(approvalStatus || "").toLowerCase() === "changes_requested" ? "Resubmit for approval" : "Submit for approval";
+    String(approvalStatus || "").toLowerCase() === "changes_requested"
+      ? "Resubmit for approval"
+      : "Submit for approval";
 
   const submitDisabled = !submitWired || !canSubmitOrResubmit || readOnly || lockLayout || isPending;
 
@@ -869,15 +873,14 @@ export default function ProjectCharterEditorFormLazy({
         : lockLayout
           ? "Layout is locked."
           : isPending
-            ? "Please wait…"
+            ? "Please wait..."
             : "";
 
   async function generateFullCharter() {
     if (!canEdit) return;
 
-    // Soft warning only — do NOT block.
     if (wireCaps.full === false) {
-      setAiError("AI generation appears disabled (capability off). Trying anyway…");
+      setAiError("AI generation appears disabled (capability off). Trying anyway...");
     } else {
       setAiError("");
     }
@@ -950,9 +953,8 @@ export default function ProjectCharterEditorFormLazy({
     const key = String(sectionKey || "").trim();
     if (!key) return;
 
-    // Soft warning only — do NOT block.
     if (wireCaps.section === false) {
-      setAiError("Section regeneration appears disabled (capability off). Trying anyway…");
+      setAiError("Section regeneration appears disabled (capability off). Trying anyway...");
     } else {
       setAiError("");
     }
@@ -1003,9 +1005,8 @@ export default function ProjectCharterEditorFormLazy({
   async function improveSection(payload: ImproveSectionPayload) {
     if (!canEdit) return;
 
-    // Soft warning only — do NOT block.
     if (wireCaps.suggest === false && wireCaps.section === false) {
-      setAiError("Improve appears disabled (capability off). Trying anyway…");
+      setAiError("Improve appears disabled (capability off). Trying anyway...");
     } else {
       setAiError("");
     }
@@ -1063,7 +1064,10 @@ export default function ProjectCharterEditorFormLazy({
   const pmBriefEmpty = !isNonEmptyString(pmBrief);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-4 py-6" style={{ fontFamily: "'DM Sans', system-ui, -apple-system, sans-serif" }}>
+    <div
+      className="space-y-6 max-w-7xl mx-auto px-4 py-6"
+      style={{ fontFamily: "'DM Sans', system-ui, -apple-system, sans-serif" }}
+    >
       {/* Inject fonts */}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&display=swap');
@@ -1132,7 +1136,7 @@ export default function ProjectCharterEditorFormLazy({
       `}</style>
 
       <div className="charter-form">
-        {/* ── Header Card ── */}
+        {/* Header Card */}
         <div className="glass-card rounded-2xl p-6 space-y-5">
           {/* Top bar */}
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
@@ -1158,7 +1162,11 @@ export default function ProjectCharterEditorFormLazy({
               </div>
 
               <p className="text-sm text-slate-500 leading-relaxed">
-                {readOnly ? "View-only mode" : lockLayout ? "Layout locked after submission" : "Edit and manage your project charter"}
+                {readOnly
+                  ? "View-only mode"
+                  : lockLayout
+                    ? "Layout locked after submission"
+                    : "Edit and manage your project charter"}
               </p>
 
               <LegacyLinks legacy={legacyExports ?? null} />
@@ -1240,8 +1248,12 @@ export default function ProjectCharterEditorFormLazy({
                       className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border border-slate-200/80 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 transition-all"
                       disabled={!!exportBusy}
                     >
-                      {exportBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4 text-slate-500" />}
-                      {exportBusy ? "Exporting…" : "Export"}
+                      {exportBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Download className="h-4 w-4 text-slate-500" />
+                      )}
+                      {exportBusy ? "Exporting..." : "Export"}
                       <ChevronDown className="h-3 w-3 opacity-40" />
                     </button>
                   </DropdownMenuTrigger>
@@ -1273,7 +1285,10 @@ export default function ProjectCharterEditorFormLazy({
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : (
-                <button className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border border-slate-200/80 bg-white text-slate-500" disabled>
+                <button
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border border-slate-200/80 bg-white text-slate-500"
+                  disabled
+                >
                   <Download className="h-4 w-4" />
                   Export
                   <ChevronDown className="h-3 w-3 opacity-40" />
@@ -1315,7 +1330,7 @@ export default function ProjectCharterEditorFormLazy({
                     <span className="text-sm font-semibold text-slate-900">PM Brief</span>
                   </div>
                   <p className="text-xs text-slate-500 leading-relaxed">
-                    Provide context for AI generation — be specific about scope, constraints, and goals.
+                    Provide context for AI generation -- be specific about scope, constraints, and goals.
                   </p>
                 </div>
 
@@ -1339,7 +1354,7 @@ export default function ProjectCharterEditorFormLazy({
                     onClick={() => generateFullCharter()}
                     title={
                       wireCaps.full === false
-                        ? "AI capability appears off — click to try anyway (env/permissions may be missing)."
+                        ? "AI capability appears off -- click to try anyway (env/permissions may be missing)."
                         : pmBriefEmpty
                           ? "Add a brief first (recommended)"
                           : "Generate the full charter from your brief"
@@ -1376,7 +1391,7 @@ export default function ProjectCharterEditorFormLazy({
           {/* Footer info */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="font-mono text-[11px] text-slate-400 tracking-wide">
-              {lastSavedIso ? <>Last saved {fmtWhenLocal(lastSavedIso)}</> : "—"}
+              {lastSavedIso ? <>Last saved {fmtWhenLocal(lastSavedIso)}</> : "-"}
             </div>
 
             {aiState === "error" && aiError ? (
@@ -1395,7 +1410,7 @@ export default function ProjectCharterEditorFormLazy({
           )}
         </div>
 
-        {/* ── Editor Body ── */}
+        {/* Editor Body */}
         <div
           className="mt-6 glass-card rounded-2xl min-h-[600px] overflow-hidden"
           style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.03), 0 12px 48px rgba(0,0,0,0.04)" }}
@@ -1416,7 +1431,10 @@ export default function ProjectCharterEditorFormLazy({
               onChange={(sections: any) => {
                 markDirty();
                 setDoc((prev: any) =>
-                  applyProjectMetaDefaults(ensureCanonicalCharter({ ...prev, sections }), { projectTitle, projectManagerName })
+                  applyProjectMetaDefaults(
+                    ensureCanonicalCharter({ ...prev, sections }),
+                    { projectTitle, projectManagerName }
+                  )
                 );
               }}
               readOnly={sectionReadOnly}
@@ -1438,7 +1456,7 @@ export default function ProjectCharterEditorFormLazy({
           )}
         </div>
 
-        {/* ✅ Dev-only panel */}
+        {/* Dev-only panel */}
         {DEV ? <CharterV2DebugPanel value={v2ForSave} /> : null}
       </div>
     </div>
