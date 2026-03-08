@@ -1,65 +1,51 @@
 ﻿// src/components/artifacts/ArtifactDetailClientHost.tsx
 "use client";
-
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-
 import ProjectCharterEditorFormLazy from "@/components/editors/ProjectCharterEditorFormLazy";
 import {
   emptyFinancialPlan,
   type FinancialPlanContent,
 } from "@/components/artifacts/FinancialPlanEditor";
-
 /* ---------------- dynamic client components ---------------- */
-
 const StakeholderRegisterEditor = dynamic(() => import("@/components/editors/StakeholderRegisterEditor"), {
   ssr: false,
   loading: () => <div className="text-sm text-gray-500">Loading Stakeholder editor…</div>,
 });
-
 const WBSEditor = dynamic(() => import("@/components/editors/WBSEditor"), {
   ssr: false,
   loading: () => <div className="text-sm text-gray-500">Loading WBS editor…</div>,
 });
-
 const ScheduleGanttEditor = dynamic(() => import("@/components/editors/ScheduleGanttEditor"), {
   ssr: false,
   loading: () => <div className="text-sm text-gray-500">Loading Schedule editor…</div>,
 });
-
 const ProjectClosureReportEditor = dynamic(() => import("@/components/editors/ProjectClosureReportEditor"), {
   ssr: false,
   loading: () => <div className="text-sm text-gray-500">Loading Closure Report editor…</div>,
 });
-
 const ChangeManagementBoard = dynamic(() => import("@/components/change/ChangeManagementBoard"), {
   ssr: false,
   loading: () => <div className="text-sm text-gray-500">Loading Change Board…</div>,
 });
-
 const WeeklyReportEditor = dynamic(() => import("@/components/editors/WeeklyReportEditor"), {
   ssr: false,
   loading: () => <div className="text-sm text-gray-500">Loading Weekly Report editor…</div>,
 });
-
 const FinancialPlanEditor = dynamic(() => import("@/components/artifacts/FinancialPlanEditor"), {
   ssr: false,
   loading: () => <div className="text-sm text-gray-500">Loading Financial Plan editor…</div>,
 });
-
 const AiSuggestionsPanel = dynamic(() => import("@/components/ai/AiSuggestionsPanel"), {
   ssr: false,
   loading: () => <div className="text-sm text-gray-500">Loading AI suggestions…</div>,
 });
-
 const ArtifactTimeline = dynamic(() => import("@/components/artifacts/ArtifactTimeline"), {
   ssr: false,
   loading: () => <div className="text-sm text-gray-500">Loading timeline…</div>,
 });
-
 /* ---------------- types ---------------- */
-
 export type ArtifactDetailClientMode =
   | "charter"
   | "stakeholder"
@@ -70,67 +56,49 @@ export type ArtifactDetailClientMode =
   | "weekly_report"
   | "financial_plan"
   | "fallback";
-
 type LegacyExports = { pdf?: string; docx?: string; xlsx?: string };
-
 type UpdateArtifactJsonArgs = {
   artifactId: string;
   projectId: string;
   contentJson: any;
 };
-
 type UpdateArtifactJsonResult = { ok: boolean; error?: string };
-
 export type ArtifactDetailClientHostProps = {
   projectId: string;
   artifactId: string;
   organisationId?: string;
-
   mode: ArtifactDetailClientMode;
-
   isEditable: boolean;
   lockLayout: boolean;
-
   charterInitial?: any;
   typedInitialJson?: any;
   rawContentJson?: any;
   rawContentText?: string;
-
   projectTitle?: string;
   projectManagerName?: string | null;
   projectStartDate?: string | null;
   projectFinishDate?: string | null;
-
   latestWbsJson?: any;
   wbsArtifactId?: string | null;
-
   aiTargetType?: string;
   aiTitle?: string;
-
   showTimeline?: boolean;
   showAI?: boolean;
-
   hideContentExportsRow?: boolean;
   legacyExports?: LegacyExports;
-
   approvalEnabled?: boolean;
   canSubmitOrResubmit?: boolean;
   approvalStatus?: string | null;
-
   submitForApprovalAction?: any | null;
-
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
 };
-
 function cx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
-
 function getArtifactVersion(typedInitialJson: any) {
   const v = Number((typedInitialJson as any)?.version ?? (typedInitialJson as any)?.content?.version ?? 1);
   return Number.isFinite(v) && v > 0 ? v : 1;
 }
-
 function stableStringify(value: unknown): string {
   try {
     return JSON.stringify(value) ?? "";
@@ -138,13 +106,12 @@ function stableStringify(value: unknown): string {
     return "";
   }
 }
-
 /* -----------------------------------------------------------------------
    FinancialPlanEditorHost
    - always supplies valid content
    - debounced autosave via fetch (NOT a server action — server actions
      block Next.js navigation while in-flight; fetch does not)
-   - cancels pending autosave when user navigates away
+   - cancels pending autosave when user navigates away (via unmount cleanup)
    - avoids duplicate saves for unchanged payloads
    ----------------------------------------------------------------------- */
 function FinancialPlanEditorHost({
@@ -172,28 +139,22 @@ function FinancialPlanEditorHost({
     }
     return emptyFinancialPlan();
   });
-
-  const hostRef = useRef<HTMLDivElement | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
   const savingRef = useRef(false);
   const lastQueuedJsonRef = useRef<string>(stableStringify(content));
   const lastSavedJsonRef = useRef<string>(stableStringify(content));
-
   const clearPendingSave = useCallback(() => {
     if (saveTimer.current) {
       clearTimeout(saveTimer.current);
       saveTimer.current = null;
     }
   }, []);
-
   const runSave = useCallback(
     async (updated: FinancialPlanContent) => {
       if (readOnly || savingRef.current) return;
-
       const json = stableStringify(updated);
       if (!json || json === lastSavedJsonRef.current) return;
-
       savingRef.current = true;
       try {
         // fetch instead of server action — server actions block navigation while
@@ -201,7 +162,6 @@ function FinancialPlanEditorHost({
         const res = await fetch("/api/artifacts/save-json", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          // FIX: projectId was missing — API route returned 400 on every save
           body: JSON.stringify({ projectId, artifactId, contentJson: updated }),
         });
         const data = await res.json().catch(() => ({ ok: false }));
@@ -218,18 +178,14 @@ function FinancialPlanEditorHost({
     },
     [projectId, artifactId, readOnly]
   );
-
   const queueSave = useCallback(
     (updated: FinancialPlanContent) => {
       if (readOnly) return;
-
       const json = stableStringify(updated);
       if (!json) return;
       if (json === lastQueuedJsonRef.current && json === lastSavedJsonRef.current) return;
-
       lastQueuedJsonRef.current = json;
       clearPendingSave();
-
       saveTimer.current = setTimeout(() => {
         saveTimer.current = null;
         void runSave(updated);
@@ -237,7 +193,6 @@ function FinancialPlanEditorHost({
     },
     [clearPendingSave, readOnly, runSave]
   );
-
   const handleChange = useCallback(
     (updated: FinancialPlanContent) => {
       setContent(updated);
@@ -245,7 +200,8 @@ function FinancialPlanEditorHost({
     },
     [queueSave]
   );
-
+  // Cancel any pending save when the component unmounts (i.e. user navigates away).
+  // This is sufficient — no document-level pointer listeners needed.
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -253,40 +209,8 @@ function FinancialPlanEditorHost({
       clearPendingSave();
     };
   }, [clearPendingSave]);
-
-  useEffect(() => {
-    const handlePointerDownCapture = (event: PointerEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (!target) return;
-
-      const hostEl = hostRef.current;
-      const clickedInsideEditor = !!hostEl && hostEl.contains(target);
-
-      if (clickedInsideEditor) return;
-
-      const interactive = target.closest("a, button, [role='button']");
-      if (interactive) {
-        clearPendingSave();
-      }
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        clearPendingSave();
-      }
-    };
-
-    document.addEventListener("pointerdown", handlePointerDownCapture, true);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDownCapture, true);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [clearPendingSave]);
-
   return (
-    <div ref={hostRef} className="relative z-0">
+    <div className="relative z-0">
       <FinancialPlanEditor
         content={content}
         onChange={handleChange}
@@ -296,9 +220,7 @@ function FinancialPlanEditorHost({
     </div>
   );
 }
-
 /* ---------------- main component ---------------- */
-
 export default function ArtifactDetailClientHost(props: ArtifactDetailClientHostProps) {
   const {
     projectId, artifactId, organisationId, mode, isEditable, lockLayout,
@@ -313,10 +235,8 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     submitForApprovalAction,
     updateArtifactJsonAction,
   } = props;
-
   const [openAI, setOpenAI] = useState(false);
   const [openTimeline, setOpenTimeline] = useState(false);
-
   const [devHost, setDevHost] = useState(false);
   useEffect(() => {
     try {
@@ -326,27 +246,21 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
       setDevHost(false);
     }
   }, []);
-
   const artifactVersion = useMemo(() => getArtifactVersion(typedInitialJson), [typedInitialJson]);
   const isCharterV2 = mode === "charter" && artifactVersion >= 2;
-
   const hideContentExportsRow =
     mode === "charter" || mode === "closure" || mode === "weekly_report" || mode === "financial_plan"
       ? true
       : !!hideContentExportsRowProp;
-
   const effectiveLegacyExports =
     mode === "charter" ? (isCharterV2 ? undefined : legacyExports) : legacyExports;
-
   const contentHeader = hideContentExportsRow ? null : (
     <div className="flex items-center justify-between">
       <div className="font-medium">Content</div>
       {!isEditable ? <div className="text-xs text-gray-500">Read-only</div> : null}
     </div>
   );
-
   const shouldHidePanels = mode === "charter" || mode === "financial_plan";
-
   return (
     <div className="space-y-6">
       {mode === "change_requests" ? (
@@ -414,7 +328,6 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
         <>
           <section className={cx("border rounded-2xl bg-white p-6", hideContentExportsRow ? "space-y-0" : "space-y-4")}>
             {contentHeader}
-
             {mode === "charter" ? (
               <ProjectCharterEditorFormLazy
                 projectId={projectId}
@@ -494,7 +407,6 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
               </div>
             )}
           </section>
-
           {!shouldHidePanels && (showAI || showTimeline) ? (
             <section className="border rounded-2xl bg-white p-5 space-y-3">
               <div className="flex items-center justify-between gap-3">
@@ -552,4 +464,3 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     </div>
   );
 }
-
