@@ -1,10 +1,11 @@
-﻿// src/app/api/portfolio/raid-list/route.ts — REBUILT v2 (ORG-WIDE + filter-ready + ACTIVE FILTER + no-store)
+﻿// src/app/api/portfolio/raid-list/route.ts — REBUILT v3
 // ✅ Org-scoped: all org members see portfolio-wide RAID items.
 // ✅ Filters supported (GET + POST): name/code/pm/dept
 // ✅ Active-only project filter (exclude closed/terminal) with FAIL-OPEN safeguard
 // ✅ clampDays supports "all" → 60
 // ✅ No-store cache on all responses.
 // ✅ Project links prefer project_code (human id)
+// ✅ Includes RAID public_id for display in dashboards / registers
 
 import "server-only";
 
@@ -144,14 +145,12 @@ async function normalizeActiveIds(supabase: any, rawIds: string[]) {
   try {
     const r: any = await filterActiveProjectIds(supabase, rawIds);
 
-    // string[]
     if (Array.isArray(r)) {
       const ids = r.filter(Boolean);
       if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
       return { ids, ok: true, error: null as string | null };
     }
 
-    // { projectIds }
     const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
     if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
     return { ids, ok: !r?.error, error: r?.error ? safeStr(r.error?.message || r.error) : null };
@@ -297,11 +296,9 @@ async function handle(req: Request, opts: { scope: string; windowDays: 7 | 14 | 
   const scoped = await resolveOrgActiveProjectScope(supabase, userId);
   const scopedRaw: string[] = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
 
-  // ✅ Active-only filter (normalized + fail-open)
   const active = await normalizeActiveIds(supabase, scopedRaw);
   const scopedActive = active.ids;
 
-  // ✅ Apply dashboard filters within active scope
   const filtered = await applyProjectFilters(supabase, scopedActive, opts.filters);
   const projectIds = filtered.projectIds;
 
@@ -329,7 +326,7 @@ async function handle(req: Request, opts: { scope: string; windowDays: 7 | 14 | 
     .from("raid_items")
     .select(
       `
-      id, project_id, type, title, description, status, priority,
+      id, project_id, public_id, type, title, description, status, priority,
       probability, severity, due_date, owner_label,
       ai_rollup, ai_status, created_at, updated_at,
       projects:projects ( id, title, project_code )
@@ -416,9 +413,12 @@ async function handle(req: Request, opts: { scope: string; windowDays: 7 | 14 | 
     const due = r?.due_date ? String(r.due_date).slice(0, 10) : null;
 
     const codeLabel = projectCodeLabel(r?.projects?.project_code) || null;
+    const publicId = safeStr(r?.public_id).trim() || null;
 
     return {
       id: r.id,
+      public_id: publicId,
+
       project_id: r.project_id,
       project_title: r?.projects?.title || "Project",
       project_code: r?.projects?.project_code ?? null,
@@ -457,7 +457,6 @@ async function handle(req: Request, opts: { scope: string; windowDays: 7 | 14 | 
       created_at: r.created_at,
       updated_at: r.updated_at,
 
-      // ✅ prefer project_code route
       href: raidHref(r?.projects, r?.project_id),
     };
   });

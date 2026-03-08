@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/raid-exec-summary/route.ts — REBUILT v8 (ORG-WIDE + filter-ready + active-only FAIL-OPEN)
+﻿// src/app/api/portfolio/raid-exec-summary/route.ts — REBUILT v9
 // Fixes / Adds:
 //   ✅ RES-F1: ORG-WIDE project scope via resolveOrgActiveProjectScope(supabase, userId) (dashboard aligned)
 //   ✅ RES-F2: clampDays supports "all" → 60 (HomePage sends days=all)
@@ -7,6 +7,7 @@
 //   ✅ RES-F5: Project links prefer project_code (human id) over UUID (fallback to UUID if missing)
 //   ✅ RES-F6: Active-only filter uses filterActiveProjectIds but FAIL-OPEN if helper returns 0 / errors
 //   ✅ RES-F7: resolveOrgName tries active org first (if profiles.active_organisation_id exists), otherwise membership fallback
+//   ✅ RES-F8: Includes RAID public_id in executive items / exports
 // Keeps:
 //   ✅ resolveClientNameFromProjects fixed select("id, client_name")
 //   ✅ Puppeteer/Chromium pdf generation + PPTX generation
@@ -56,7 +57,6 @@ function clampInt(n: any, min: number, max: number, fallback: number) {
   return Math.max(min, Math.min(max, Math.floor(v)));
 }
 
-// ✅ RES-F2: supports "all" → 60
 function clampDays(x: any) {
   const s = safeStr(x).trim().toLowerCase();
   if (s === "all") return 60;
@@ -199,7 +199,6 @@ function looksMissingColumn(err: any) {
   return msg.includes("column") && msg.includes("does not exist");
 }
 
-// Filter projects within candidate scope (best-effort if optional cols don't exist)
 async function applyProjectFilters(supabase: any, scopedProjectIds: string[], filters: PortfolioFilters) {
   const meta: any = { applied: false, filters, notes: [] as string[] };
   if (!scopedProjectIds.length) return { projectIds: [], meta: { ...meta, applied: true } };
@@ -223,7 +222,6 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
       break;
     }
     lastErr = error;
-    // tolerate optional schema differences
     if (!(looksMissingRelation(error) || looksMissingColumn(error))) break;
   }
 
@@ -271,6 +269,7 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
 
 type ExecItem = {
   id: string;
+  public_id?: string | null;
   project_id?: string | null;
   project_title?: string | null;
   project_code_label?: string | null;
@@ -316,7 +315,6 @@ type ExecSummary = {
 /* ---------------- data helpers ---------------- */
 
 async function resolveOrgName(supabase: any, userId: string) {
-  // Prefer profile.active_organisation_id if present, else fallback to any membership join.
   try {
     const { data: prof, error: pErr } = await supabase
       .from("profiles")
@@ -379,14 +377,12 @@ async function normalizeActiveIdsFailOpen(supabase: any, baseIds: string[]) {
   try {
     const r: any = await filterActiveProjectIds(supabase, baseIds);
 
-    // string[] return
     if (Array.isArray(r)) {
       const ids = r.filter(Boolean);
       if (!ids.length && baseIds.length) return failOpen("active filter returned 0 ids; failing open");
       return { ids, ok: true, error: null as string | null };
     }
 
-    // { projectIds } return
     const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
     const ok = r?.ok !== false;
     const errMsg = r?.error ? safeStr(r.error?.message || r.error) : null;
@@ -410,7 +406,6 @@ async function buildExecSummary(args: {
 
   const meta: any = { scope_source: null, filters: null };
 
-  // ✅ RES-F1: ORG-wide scope helper (dashboard aligned)
   const orgScoped: any = await resolveOrgActiveProjectScope(supabase, userId);
   const baseProjectIds = uniqStrings(orgScoped?.projectIds || []);
   meta.scope_source = { kind: "resolveOrgActiveProjectScope", ok: Boolean(baseProjectIds.length), meta: orgScoped?.meta ?? null };
@@ -418,7 +413,6 @@ async function buildExecSummary(args: {
 
   if (!baseProjectIds.length) return { ok: false, error: "No accessible projects found.", meta };
 
-  // ✅ Active-only filter — FAIL-OPEN
   const active = await normalizeActiveIdsFailOpen(supabase, baseProjectIds);
   const activeProjectIds = uniqStrings(active.ids || []);
   meta.active_filter = {
@@ -430,13 +424,11 @@ async function buildExecSummary(args: {
 
   if (!activeProjectIds.length) return { ok: false, error: "No active projects found.", meta };
 
-  // ✅ Apply dashboard filters (best-effort)
   const filtered = await applyProjectFilters(supabase, activeProjectIds, filters);
   meta.filters = filtered.meta;
 
   const projectIds = filtered.projectIds;
 
-  // If filters remove everything, return an OK empty summary (so UI can render)
   if (!projectIds.length) {
     return {
       ok: true,
@@ -474,7 +466,6 @@ async function buildExecSummary(args: {
   const org_name = dbOrg || safeStr(process.env.ORG_NAME || process.env.NEXT_PUBLIC_ORG_NAME).trim() || null;
   const client_name = (dbClient || null) as string | null;
 
-  // Window dates
   const today = new Date();
   const todayStr = isoDateUTC(today);
   const to = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + days));
@@ -485,6 +476,7 @@ async function buildExecSummary(args: {
     .select(
       `
       id,
+      public_id,
       project_id,
       type,
       title,
@@ -515,7 +507,6 @@ async function buildExecSummary(args: {
   const rows = raidRows || [];
   const raidItemIds = rows.map((r: any) => r.id).filter(Boolean);
 
-  // Latest AI scores
   const scoreByItem = new Map<string, any>();
   if (raidItemIds.length) {
     const { data: scores } = await supabase
@@ -531,7 +522,6 @@ async function buildExecSummary(args: {
     }
   }
 
-  // Latest SLA predictions
   const predByItem = new Map<string, any>();
   if (raidItemIds.length) {
     const { data: preds } = await supabase
@@ -547,7 +537,6 @@ async function buildExecSummary(args: {
     }
   }
 
-  // Financials
   const finByItem = new Map<string, any>();
   if (raidItemIds.length) {
     const { data: fins } = await supabase
@@ -585,9 +574,11 @@ async function buildExecSummary(args: {
 
     const codeLabel = projectCodeLabel(r?.projects?.project_code) || null;
     const ref = codeLabel || safeStr(r.project_id).trim();
+    const publicId = safeStr(r?.public_id).trim() || null;
 
     return {
       id: String(r.id),
+      public_id: publicId,
       project_id: r.project_id,
       project_title: r?.projects?.title || "Project",
       project_code_label: codeLabel,
@@ -603,7 +594,6 @@ async function buildExecSummary(args: {
       exposure_total_fmt,
       overdue,
       note: r.ai_rollup ? String(r.ai_rollup).slice(0, 240) : null,
-      // ✅ RES-F5: prefer project_code for routes (fallback to UUID)
       href: ref ? `/projects/${encodeURIComponent(ref)}/raid` : null,
     };
   });
@@ -734,19 +724,24 @@ function renderPdfHtml(summary: ExecSummary) {
                 const bp = x.sla_breach_probability == null ? null : Number(x.sla_breach_probability);
                 const hot = (bp != null && bp >= 70) || (sc != null && sc >= 70) || overdue;
                 const pills: string[] = [];
+                if (x.public_id) pills.push(`<span class="pill pill-neutral">ID: ${esc(x.public_id)}</span>`);
                 pills.push(`<span class="pill ${overdue ? "pill-danger" : "pill-neutral"}">Due: ${esc(due)}</span>`);
-                if (sc != null)
+                if (sc != null) {
                   pills.push(
                     `<span class="pill ${hot && sc >= 70 ? "pill-warn" : "pill-neutral"}">Score: ${esc(sc)}</span>`,
                   );
-                if (bp != null)
+                }
+                if (bp != null) {
                   pills.push(`<span class="pill ${bp >= 70 ? "pill-warn" : "pill-neutral"}">SLA: ${esc(bp)}%</span>`);
+                }
                 if (x.exposure_total_fmt) pills.push(`<span class="pill pill-neutral">Exposure: ${esc(x.exposure_total_fmt)}</span>`);
                 if (x.owner_label) pills.push(`<span class="pill pill-neutral">Owner: ${esc(x.owner_label)}</span>`);
                 const note = x.note || x.prompt ? `<div class="note">${esc(x.note || x.prompt)}</div>` : "";
                 return `<div class="item"><div class="item-meta">${esc(x.project_title || "Project")} • ${esc(
                   x.type || "RAID",
-                )}</div><div class="item-title">${esc(x.title || "Untitled")}</div><div class="pills">${pills.join("")}</div>${note}</div>`;
+                )}</div><div class="item-title">${x.public_id ? `<span class="item-id">${esc(x.public_id)}</span> ` : ""}${esc(
+                  x.title || "Untitled",
+                )}</div><div class="pills">${pills.join("")}</div>${note}</div>`;
               })
               .join("");
       return `<div class="card"><div class="card-title-row"><div class="card-title">${esc(sec.title)}</div><div class="muted">${
@@ -782,6 +777,7 @@ function renderPdfHtml(summary: ExecSummary) {
   .item{border:1px solid var(--line);border-radius:14px;padding:12px;background:#fff}
   .item-meta{font-size:12px;color:var(--muted)}
   .item-title{margin-top:6px;font-size:14px;font-weight:900;color:#0b1220}
+  .item-id{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:#475569}
   .pills{margin-top:10px;display:flex;flex-wrap:wrap;gap:8px}
   .pill{border:1px solid #cbd5e1;background:#fff;color:#0f172a;border-radius:999px;padding:6px 10px;font-size:12px;font-weight:700}
   .pill-warn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10)}
@@ -884,7 +880,6 @@ async function renderPptxFromSummary(summary: ExecSummary) {
   const subtitle = `${summary.client_name || "—"} • ${summary.org_name || "—"} • next ${summary.days} days • scope: ${summary.scope}`;
   const generated = `Generated: ${fmtUkDateTime(summary.summary.generated_at)}`;
 
-  // Slide 1: Cover
   {
     const s = pptx.addSlide();
     s.addText(title, { x: 0.6, y: 0.5, w: 12.2, h: 0.6, fontSize: 34, bold: true });
@@ -901,7 +896,6 @@ async function renderPptxFromSummary(summary: ExecSummary) {
     s.addText(kpiText, { x: 0.6, y: 3.5, w: 12.8, h: 0.4, fontSize: 12, bold: true });
   }
 
-  // Slides per section
   for (const sec of summary.sections || []) {
     const items = Array.isArray(sec.items) ? sec.items : [];
     const pageSize = 6;
@@ -921,7 +915,7 @@ async function renderPptxFromSummary(summary: ExecSummary) {
       let y = 1.45;
       for (const it of chunk) {
         const pr = priorityFromScore(it.score);
-        const header = `${pr.label}${it.overdue ? " • OVERDUE" : ""}`;
+        const header = `${pr.label}${it.overdue ? " • OVERDUE" : ""}${it.public_id ? ` • ${it.public_id}` : ""}`;
         const metaLine = `${it.project_code_label || it.project_title || "Project"} • ${it.type || "RAID"} • Due ${
           it.due_date ? fmtUKShortDate(it.due_date) : "—"
         } • Score ${it.score == null ? "—" : it.score}`;
@@ -981,7 +975,7 @@ export async function GET(req: NextRequest) {
         lines.push(`## ${sec.title}`);
         for (const it of sec.items) {
           lines.push(
-            `- ${it.project_title || "Project"} • ${it.type || "RAID"} • ${it.title || "Untitled"} • Due ${
+            `- ${it.public_id ? `${it.public_id} • ` : ""}${it.project_title || "Project"} • ${it.type || "RAID"} • ${it.title || "Untitled"} • Due ${
               it.due_date ? fmtUkDate(it.due_date) : "—"
             }`,
           );

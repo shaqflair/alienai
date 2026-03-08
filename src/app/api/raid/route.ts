@@ -72,6 +72,7 @@ function canWrite(projectRole: string, orgRole: string) {
 const RAID_TYPES = new Set(["Risk", "Assumption", "Issue", "Dependency"]);
 const RAID_STATUSES = new Set(["Open", "In Progress", "Mitigated", "Closed", "Invalid"]);
 const RAID_PRIORITIES = new Set(["Low", "Medium", "High", "Critical"]);
+const RAID_IMPACTS = new Set(["low", "medium", "high", "critical"]);
 
 function normalizeRaidType(raw: any): string {
   const s = safeStr(raw).trim();
@@ -107,11 +108,74 @@ function normalizeRaidPriority(raw: any): string | null {
   return titleCaseLikeDbEnum(s);
 }
 
+function normalizeRaidImpact(raw: any): string | null {
+  const s = safeStr(raw).trim();
+  if (!s) return null;
+  const lc = s.toLowerCase();
+  if (lc === "low") return "low";
+  if (lc === "medium" || lc === "med") return "medium";
+  if (lc === "high") return "high";
+  if (lc === "critical" || lc === "crit") return "critical";
+  return lc;
+}
+
 function normalizeRelatedRefs(raw: any): any[] {
   if (Array.isArray(raw)) return raw;
   if (raw == null) return [];
   if (typeof raw === "object") return [raw];
   return [];
+}
+
+/* ---------------- AI enrichment ---------------- */
+
+type RaidAiClassification = {
+  type?: string | null;
+  priority?: string | null;
+  impact?: string | null;
+  probability?: number | null;
+  severity?: number | null;
+  ai_rollup?: string | null;
+};
+
+async function classifyRaidItemBestEffort(input: {
+  projectId: string;
+  title?: string | null;
+  description?: string | null;
+  response_plan?: string | null;
+  next_steps?: string | null;
+  notes?: string | null;
+}): Promise<RaidAiClassification | null> {
+  try {
+    const mod: any = await import("@/lib/ai/raid-classify");
+    const fn =
+      mod?.classifyRaidItem ||
+      mod?.default?.classifyRaidItem ||
+      mod?.default;
+
+    if (typeof fn !== "function") return null;
+
+    const out = await fn({
+      projectId: input.projectId,
+      title: input.title ?? "",
+      description: input.description ?? "",
+      response_plan: input.response_plan ?? "",
+      next_steps: input.next_steps ?? "",
+      notes: input.notes ?? "",
+    });
+
+    if (!out || typeof out !== "object") return null;
+
+    return {
+      type: safeStr(out.type).trim() || null,
+      priority: safeStr(out.priority).trim() || null,
+      impact: safeStr(out.impact).trim() || null,
+      probability: clampInt0to100(out.probability),
+      severity: clampInt0to100(out.severity),
+      ai_rollup: safeStr(out.ai_rollup).trim() || null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /* ---------------- access guard ---------------- */
@@ -202,7 +266,7 @@ export async function GET(req: NextRequest) {
     let q = supabase
       .from("raid_items")
       .select(
-        "id,project_id,item_no,public_id,type,title,description,owner_label,priority,probability,severity,impact,ai_rollup,owner_id,status,response_plan,next_steps,notes,related_refs,created_at,updated_at,due_date"
+        "id,project_id,item_no,public_id,type,title,description,owner_label,priority,probability,severity,impact,ai_rollup,owner_id,status,response_plan,next_steps,notes,related_refs,created_at,updated_at,due_date,ai_status,ai_dirty"
       )
       .eq("project_id", projectId);
 
@@ -252,27 +316,57 @@ export async function POST(req: NextRequest) {
     if (!access.ok) return jsonErr(access.error, access.status);
     if (!access.canWrite) return jsonErr("Forbidden", 403);
 
-    const type = normalizeRaidType(body.type);
+    const title = safeStr(body.title).trim() || null;
     const description = safeStr(body.description).trim();
     const owner_label = safeStr(body.owner_label).trim();
+    const response_plan = safeStr(body.response_plan).trim() || null;
+    const next_steps = safeStr(body.next_steps).trim() || null;
+    const notes = safeStr(body.notes).trim() || null;
 
+    if (!description) return jsonErr("description required", 400);
+    if (!owner_label) return jsonErr("owner_label required (Owner)", 400);
+
+    const shouldClassify =
+      !safeStr(body.type).trim() ||
+      !safeStr(body.priority).trim() ||
+      !safeStr(body.impact).trim() ||
+      body.probability == null ||
+      body.severity == null ||
+      !safeStr(body.ai_rollup).trim();
+
+    const ai = shouldClassify
+      ? await classifyRaidItemBestEffort({
+          projectId: project_id,
+          title,
+          description,
+          response_plan,
+          next_steps,
+          notes,
+        })
+      : null;
+
+    const type = normalizeRaidType(body.type || ai?.type);
     if (!type) return jsonErr("type required", 400);
     if (!RAID_TYPES.has(type)) {
       return jsonErr(`Invalid type: ${type}`, 400, { allowed: Array.from(RAID_TYPES) });
     }
-
-    if (!description) return jsonErr("description required", 400);
-    if (!owner_label) return jsonErr("owner_label required (Owner)", 400);
 
     const status = normalizeRaidStatus(body.status);
     if (!RAID_STATUSES.has(status)) {
       return jsonErr(`Invalid status: ${status}`, 400, { allowed: Array.from(RAID_STATUSES) });
     }
 
-    const priority = normalizeRaidPriority(body.priority);
+    const priority = normalizeRaidPriority(body.priority || ai?.priority);
     if (priority && !RAID_PRIORITIES.has(priority)) {
       return jsonErr(`Invalid priority: ${priority}`, 400, {
         allowed: Array.from(RAID_PRIORITIES),
+      });
+    }
+
+    const impact = normalizeRaidImpact(body.impact || ai?.impact);
+    if (impact && !RAID_IMPACTS.has(impact)) {
+      return jsonErr(`Invalid impact: ${impact}`, 400, {
+        allowed: Array.from(RAID_IMPACTS),
       });
     }
 
@@ -280,40 +374,61 @@ export async function POST(req: NextRequest) {
     const due_date = dueRaw ? (isIsoDateOnly(dueRaw) ? dueRaw : null) : null;
     if (dueRaw && !due_date) return jsonErr("due_date must be YYYY-MM-DD", 400);
 
-    const probability = clampInt0to100(body.probability);
-    const severity = clampInt0to100(body.severity);
+    const probability =
+      body.probability != null
+        ? clampInt0to100(body.probability)
+        : clampInt0to100(ai?.probability);
+
+    const severity =
+      body.severity != null
+        ? clampInt0to100(body.severity)
+        : clampInt0to100(ai?.severity);
+
+    const ai_rollup =
+      safeStr(body.ai_rollup).trim() ||
+      safeStr(ai?.ai_rollup).trim() ||
+      null;
 
     const row = {
       project_id,
       type,
-      title: safeStr(body.title).trim() || null,
+      title,
       description,
       owner_label,
       priority: priority || null,
       probability,
       severity,
-      impact: safeStr(body.impact).trim() || null,
+      impact: impact || null,
       owner_id: looksLikeUuid(safeStr(body.owner_id).trim())
         ? safeStr(body.owner_id).trim()
         : null,
       status,
-      response_plan: safeStr(body.response_plan).trim() || null,
-      next_steps: safeStr(body.next_steps).trim() || null,
-      notes: safeStr(body.notes).trim() || null,
-      ai_rollup: safeStr(body.ai_rollup).trim() || null,
+      response_plan,
+      next_steps,
+      notes,
+      ai_rollup,
       related_refs: normalizeRelatedRefs(body.related_refs),
       due_date,
+      ai_dirty: true,
     };
 
     const { data, error } = await supabase
       .from("raid_items")
       .insert(row)
-      .select("*")
+      .select(
+        "id,project_id,item_no,public_id,type,title,description,owner_label,priority,probability,severity,impact,ai_rollup,owner_id,status,response_plan,next_steps,notes,related_refs,created_at,updated_at,due_date,ai_status,ai_dirty"
+      )
       .single();
 
     if (error) return jsonErr(error.message, 400);
 
-    return jsonOk({ item: data }, 201);
+    return jsonOk(
+      {
+        item: data,
+        ai_enriched: Boolean(ai),
+      },
+      201
+    );
   } catch (e: any) {
     return jsonErr("Failed to create RAID item", 500, { message: safeStr(e?.message) });
   }

@@ -1,6 +1,6 @@
 "use client";
 
-// src/app/insights/InsightsClient.tsx — Executive Intelligence Dossier v2
+// src/app/insights/InsightsClient.tsx — Executive Intelligence Dossier v3
 // Data sources:
 //   /api/portfolio/raid-exec-summary  — RAID portfolio executive brief
 //   /api/portfolio/raid-list          — full RAID item list + financials
@@ -44,6 +44,7 @@ type ExecSummary = {
 
 type ExecItem = {
   id: string;
+  public_id?: string | null;
   project_id?: string | null;
   project_title?: string | null;
   project_code_label?: string | null;
@@ -81,6 +82,7 @@ type BriefingInsight = {
 
 type FinanceItem = {
   id: string;
+  public_id: string | null;
   project_id: string;
   project_title: string;
   project_code: string | null;
@@ -684,9 +686,7 @@ export function RaiseItemModal({
                 </span>
               )}
 
-              {aiDraftErr && (
-                <span style={{ fontFamily: T.mono, fontSize: 10, color: "#f87171" }}>{aiDraftErr}</span>
-              )}
+              {aiDraftErr && <span style={{ fontFamily: T.mono, fontSize: 10, color: "#f87171" }}>{aiDraftErr}</span>}
             </div>
           </div>
 
@@ -1132,7 +1132,12 @@ function RaidItemRow({
 
         <td style={{ padding: "12px 16px", verticalAlign: "middle" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              {item.public_id && (
+                <Mono size={9} color={T.ink3} weight={700} upper>
+                  {item.public_id}
+                </Mono>
+              )}
               <Mono size={9} color={T.ink4} weight={600} upper>
                 {item.type || "RAID"}
               </Mono>
@@ -1276,6 +1281,7 @@ function RaidItemRow({
                   <SectionRule label="Details" />
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {[
+                      ["RAID ID", item.public_id || null],
                       ["Score", item.score != null ? String(item.score) : null],
                       ["SLA Breach", item.sla_breach_probability != null ? `${item.sla_breach_probability}%` : null],
                       ["Days to Breach", item.sla_days_to_breach != null ? `~${item.sla_days_to_breach}d` : null],
@@ -1642,6 +1648,7 @@ export default function InsightsClient() {
             .map(
               (it: any): FinanceItem => ({
                 id: it.id,
+                public_id: it.public_id ?? null,
                 project_id: it.project_id,
                 project_title: it.project_title || "Project",
                 project_code: it.project_code ?? null,
@@ -1992,14 +1999,19 @@ export default function InsightsClient() {
                               <div
                                 style={{
                                   width: 3,
-                                  height: 36,
+                                  height: 42,
                                   background: rag === "N" ? T.ink5 : rc.fg,
                                   flexShrink: 0,
                                   opacity: rag === "G" ? 0.4 : 1,
                                 }}
                               />
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
+                                  {item.public_id && (
+                                    <Mono size={9} color={T.ink3} weight={700} upper>
+                                      {item.public_id}
+                                    </Mono>
+                                  )}
                                   <Mono size={9} color={T.ink4} weight={600} upper>
                                     {item.type}
                                   </Mono>
@@ -2393,11 +2405,11 @@ export default function InsightsClient() {
                       </div>
 
                       <div style={{ overflowX: "auto" }}>
-                        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 920 }}>
                           <thead>
                             <tr>
                               <th style={{ ...TH, width: 3, padding: 0 }} />
-                              <th style={{ ...TH, minWidth: 260 }}>RAID Item</th>
+                              <th style={{ ...TH, minWidth: 280 }}>RAID Item</th>
                               <th style={{ ...TH, width: 90 }}>Type</th>
                               <th style={{ ...TH, width: 80 }}>Due</th>
                               {sortBtn("cost", "Cost Impact")}
@@ -2422,13 +2434,20 @@ export default function InsightsClient() {
                                     <div
                                       style={{
                                         width: 3,
-                                        minHeight: 48,
+                                        minHeight: 56,
                                         background: rag === "N" ? "transparent" : rc.fg,
                                         opacity: rag === "N" ? 0 : 0.8,
                                       }}
                                     />
                                   </td>
-                                  <td style={{ ...TD, minWidth: 260 }}>
+                                  <td style={{ ...TD, minWidth: 280 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
+                                      {it.public_id && (
+                                        <Mono size={9} color={T.ink3} weight={700} upper>
+                                          {it.public_id}
+                                        </Mono>
+                                      )}
+                                    </div>
                                     <div
                                       style={{
                                         fontFamily: T.body,
