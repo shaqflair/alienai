@@ -1142,7 +1142,7 @@ export default function ProjectCharterEditorFormLazy({
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
             <div className="space-y-2">
               <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="font-display text-[28px] font-medium text-slate-900 tracking-[-0.02em] leading-tight">
+                <h1 className="text-[28px] font-semibold text-slate-900 tracking-[-0.02em] leading-tight">
                   Project Charter
                 </h1>
 
