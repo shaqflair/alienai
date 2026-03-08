@@ -788,6 +788,7 @@ const WbsRowCard = React.memo(function WbsRowCard(props: {
     isCollapsed,
     detailsOpen,
     readOnly,
+    autoRollup,
 
     statusShown,
     progressShown,
@@ -2923,3 +2924,4 @@ export default function WBSEditor({
     </div>
   );
 }
+
