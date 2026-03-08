@@ -3,17 +3,24 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
+import { getActiveOrgId } from "@/utils/org/active-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /* ---------------- response helpers ---------------- */
 
-function jsonOk(data: any, status = 200, headers?: HeadersInit) {
-  return NextResponse.json({ ok: true, ...data }, { status, headers });
+function withNoStore(res: NextResponse) {
+  res.headers.set("Cache-Control", "no-store, max-age=0");
+  return res;
 }
+
+function jsonOk(data: any, status = 200, headers?: HeadersInit) {
+  return withNoStore(NextResponse.json({ ok: true, ...data }, { status, headers }));
+}
+
 function jsonErr(error: string, status = 400, meta?: any) {
-  return NextResponse.json({ ok: false, error, meta }, { status });
+  return withNoStore(NextResponse.json({ ok: false, error, meta }, { status }));
 }
 
 /* ---------------- utils ---------------- */
@@ -40,6 +47,30 @@ function clampInt0to100(v: any): number | null {
 
 function titleCaseLikeDbEnum(s: string) {
   return s.trim();
+}
+
+function bestProjectRole(rows: Array<{ role?: string | null }> | null | undefined) {
+  const roles = (rows ?? [])
+    .map((r) => String(r?.role ?? "").toLowerCase().trim())
+    .filter(Boolean);
+
+  if (!roles.length) return "";
+  if (roles.includes("owner")) return "owner";
+  if (roles.includes("editor")) return "editor";
+  if (roles.includes("viewer")) return "viewer";
+  return roles[0] || "";
+}
+
+function canWrite(projectRole: string, orgRole: string) {
+  const pr = safeStr(projectRole).toLowerCase();
+  const or = safeStr(orgRole).toLowerCase();
+  return or === "admin" || or === "owner" || pr === "owner" || pr === "editor";
+}
+
+function expectedUpdatedAtFrom(req: NextRequest, body: any) {
+  const hdr = safeStr(req.headers.get("if-match-updated-at")).trim();
+  const b = safeStr(body?.expected_updated_at).trim();
+  return hdr || b || "";
 }
 
 /* ---------------- domain enums (match DB constraints) ---------------- */
@@ -89,35 +120,78 @@ function normalizeRelatedRefs(raw: any): any[] {
   return [];
 }
 
-function expectedUpdatedAtFrom(req: NextRequest, body: any) {
-  const hdr = safeStr(req.headers.get("if-match-updated-at")).trim();
-  const b = safeStr(body?.expected_updated_at).trim();
-  return hdr || b || "";
-}
-
 /* ---------------- access guard ---------------- */
 
-async function requireProjectMember(supabase: any, projectId: string) {
+async function getAccessForRaidItem(supabase: any, raidId: string) {
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr) throw new Error(authErr.message);
   if (!auth?.user) return { ok: false as const, status: 401, error: "Unauthorized" };
 
-  const { data: mem, error: memErr } = await supabase
-    .from("project_members")
-    .select("role,is_active")
-    .eq("project_id", projectId)
-    .eq("user_id", auth.user.id)
+  const activeOrgId = await getActiveOrgId();
+  if (!activeOrgId) {
+    return { ok: false as const, status: 403, error: "No active organisation" };
+  }
+
+  const { data: current, error: curErr } = await supabase
+    .from("raid_items")
+    .select("id, project_id, updated_at")
+    .eq("id", raidId)
     .maybeSingle();
 
-  if (memErr) return { ok: false as const, status: 400, error: memErr.message };
-  if (!mem?.is_active) return { ok: false as const, status: 403, error: "Forbidden" };
+  if (curErr) return { ok: false as const, status: 400, error: curErr.message };
+  if (!current) return { ok: false as const, status: 404, error: "Not found" };
 
-  return { ok: true as const, userId: auth.user.id, role: safeStr(mem.role) };
-}
+  const { data: project, error: projErr } = await supabase
+    .from("projects")
+    .select("id, organisation_id")
+    .eq("id", current.project_id)
+    .maybeSingle();
 
-function canWrite(role: string) {
-  const r = safeStr(role).toLowerCase();
-  return r === "owner" || r === "editor";
+  if (projErr) return { ok: false as const, status: 400, error: projErr.message };
+  if (!project?.id) return { ok: false as const, status: 404, error: "Project not found" };
+  if (String(project.organisation_id) !== activeOrgId) {
+    return { ok: false as const, status: 403, error: "Forbidden" };
+  }
+
+  const [{ data: orgMem, error: orgErr }, { data: projMemRows, error: pmErr }] = await Promise.all([
+    supabase
+      .from("organisation_members")
+      .select("role")
+      .eq("organisation_id", activeOrgId)
+      .eq("user_id", auth.user.id)
+      .is("removed_at", null)
+      .maybeSingle(),
+    supabase
+      .from("project_members")
+      .select("role, is_active, removed_at")
+      .eq("project_id", current.project_id)
+      .eq("user_id", auth.user.id)
+      .is("removed_at", null),
+  ]);
+
+  if (orgErr) return { ok: false as const, status: 400, error: orgErr.message };
+  if (pmErr) return { ok: false as const, status: 400, error: pmErr.message };
+
+  const orgRole = safeStr(orgMem?.role).toLowerCase().trim();
+  const activeProjRows = (projMemRows ?? []).filter((r: any) => r?.is_active !== false);
+  const projectRole = bestProjectRole(activeProjRows as any);
+
+  const isOrgMember = Boolean(orgRole);
+  const isProjectMember = Boolean(projectRole);
+
+  if (!isOrgMember && !isProjectMember) {
+    return { ok: false as const, status: 403, error: "Forbidden" };
+  }
+
+  return {
+    ok: true as const,
+    item: current,
+    userId: auth.user.id,
+    activeOrgId,
+    orgRole,
+    projectRole,
+    canWrite: canWrite(projectRole, orgRole),
+  };
 }
 
 /* ---------------- shared select ---------------- */
@@ -126,7 +200,7 @@ const RAID_SELECT =
   "id,project_id,item_no,public_id,type,title,description,owner_label,priority,probability,severity,impact,ai_rollup,owner_id,status,response_plan,next_steps,notes,related_refs,created_at,updated_at,due_date,ai_dirty";
 
 /* ========================================================================== */
-/* GET /api/raid/[id]                                                         */
+/* GET /api/raid/[id] */
 /* ========================================================================== */
 
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -138,6 +212,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
     const supabase = await createClient();
 
+    const access = await getAccessForRaidItem(supabase, raidId);
+    if (!access.ok) return jsonErr(access.error, access.status);
+
     const { data: item, error } = await supabase
       .from("raid_items")
       .select(RAID_SELECT)
@@ -147,9 +224,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     if (error) return jsonErr(error.message, 400);
     if (!item) return jsonErr("Not found", 404);
 
-    const access = await requireProjectMember(supabase, safeStr(item.project_id));
-    if (!access.ok) return jsonErr(access.error, access.status);
-
     return jsonOk({ item });
   } catch (e: any) {
     return jsonErr("Failed to load RAID item", 500, { message: safeStr(e?.message) });
@@ -157,7 +231,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 }
 
 /* ========================================================================== */
-/* PATCH /api/raid/[id]   body: { ...fields..., expected_updated_at? }         */
+/* PATCH /api/raid/[id] */
 /* ========================================================================== */
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -172,23 +246,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const body = await req.json().catch(() => null);
     if (!body) return jsonErr("Invalid JSON", 400);
 
-    // Load current row (for membership + stale check)
-    const { data: current, error: curErr } = await supabase
-      .from("raid_items")
-      .select(RAID_SELECT)
-      .eq("id", raidId)
-      .maybeSingle();
-
-    if (curErr) return jsonErr(curErr.message, 400);
-    if (!current) return jsonErr("Not found", 404);
-
-    const access = await requireProjectMember(supabase, safeStr(current.project_id));
+    const access = await getAccessForRaidItem(supabase, raidId);
     if (!access.ok) return jsonErr(access.error, access.status);
-    if (!canWrite(access.role)) return jsonErr("Forbidden", 403);
+    if (!access.canWrite) return jsonErr("Forbidden", 403);
 
-    // Concurrency
+    const currentUpdatedAt = safeStr((access.item as any).updated_at).trim();
     const expected = expectedUpdatedAtFrom(req, body);
-    const currentUpdatedAt = safeStr((current as any).updated_at).trim();
+
     if (expected && currentUpdatedAt && expected !== currentUpdatedAt) {
       return jsonErr("Conflict", 409, {
         stale: true,
@@ -197,13 +261,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       });
     }
 
-    // Build a strict patch (only allowed fields)
     const patch: any = {};
 
     if ("type" in body) {
       const t = normalizeRaidType(body.type);
       if (!t) return jsonErr("type required", 400);
-      if (!RAID_TYPES.has(t)) return jsonErr(`Invalid type: ${t}`, 400, { allowed: Array.from(RAID_TYPES) });
+      if (!RAID_TYPES.has(t)) {
+        return jsonErr(`Invalid type: ${t}`, 400, { allowed: Array.from(RAID_TYPES) });
+      }
       patch.type = t;
     }
 
@@ -223,21 +288,24 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
     if ("status" in body) {
       const st = normalizeRaidStatus(body.status);
-      if (!RAID_STATUSES.has(st))
+      if (!RAID_STATUSES.has(st)) {
         return jsonErr(`Invalid status: ${st}`, 400, { allowed: Array.from(RAID_STATUSES) });
+      }
       patch.status = st;
     }
 
     if ("priority" in body) {
       const pr = normalizeRaidPriority(body.priority);
-      if (pr && !RAID_PRIORITIES.has(pr))
-        return jsonErr(`Invalid priority: ${pr}`, 400, { allowed: Array.from(RAID_PRIORITIES) });
+      if (pr && !RAID_PRIORITIES.has(pr)) {
+        return jsonErr(`Invalid priority: ${pr}`, 400, {
+          allowed: Array.from(RAID_PRIORITIES),
+        });
+      }
       patch.priority = pr || null;
     }
 
     if ("probability" in body) patch.probability = clampInt0to100(body.probability);
     if ("severity" in body) patch.severity = clampInt0to100(body.severity);
-
     if ("impact" in body) patch.impact = safeStr(body.impact).trim() || null;
 
     if ("owner_id" in body) {
@@ -259,8 +327,16 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       patch.due_date = due_date;
     }
 
-    // Nothing to update
-    if (!Object.keys(patch).length) return jsonOk({ item: current });
+    if (!Object.keys(patch).length) {
+      const { data: current, error: curErr } = await supabase
+        .from("raid_items")
+        .select(RAID_SELECT)
+        .eq("id", raidId)
+        .single();
+
+      if (curErr) return jsonErr(curErr.message, 400);
+      return jsonOk({ item: current });
+    }
 
     const { data: updated, error: upErr } = await supabase
       .from("raid_items")
@@ -278,7 +354,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 }
 
 /* ========================================================================== */
-/* DELETE /api/raid/[id]   (uses header/body expected_updated_at)              */
+/* DELETE /api/raid/[id] */
 /* ========================================================================== */
 
 export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -289,30 +365,20 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     if (!looksLikeUuid(raidId)) return jsonErr("Invalid or missing id", 400);
 
     const supabase = await createClient();
-
-    // Some clients send JSON body on DELETE, some don’t.
     const body = await req.json().catch(() => ({}));
-    const expected = expectedUpdatedAtFrom(req, body);
 
-    const { data: current, error: curErr } = await supabase
-      .from("raid_items")
-      .select("id,project_id,updated_at")
-      .eq("id", raidId)
-      .maybeSingle();
-
-    if (curErr) return jsonErr(curErr.message, 400);
-
-    // If it doesn't exist, treat as already deleted.
-    if (!current) {
-      // ✅ 204 MUST be empty body
-      return new NextResponse(null, { status: 204 });
+    const access = await getAccessForRaidItem(supabase, raidId);
+    if (!access.ok) {
+      if (access.status === 404) {
+        return withNoStore(new NextResponse(null, { status: 204 }));
+      }
+      return jsonErr(access.error, access.status);
     }
+    if (!access.canWrite) return jsonErr("Forbidden", 403);
 
-    const access = await requireProjectMember(supabase, safeStr((current as any).project_id));
-    if (!access.ok) return jsonErr(access.error, access.status);
-    if (!canWrite(access.role)) return jsonErr("Forbidden", 403);
+    const expected = expectedUpdatedAtFrom(req, body);
+    const currentUpdatedAt = safeStr((access.item as any).updated_at).trim();
 
-    const currentUpdatedAt = safeStr((current as any).updated_at).trim();
     if (expected && currentUpdatedAt && expected !== currentUpdatedAt) {
       return jsonErr("Conflict", 409, {
         stale: true,
@@ -324,7 +390,6 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     const { error: delErr } = await supabase.from("raid_items").delete().eq("id", raidId);
     if (delErr) return jsonErr(delErr.message, 400);
 
-    // ✅ return 200 JSON (easy for client). Alternatively you could do 204 empty.
     return jsonOk({ deleted: true, id: raidId }, 200);
   } catch (e: any) {
     return jsonErr("Failed to delete RAID item", 500, { message: safeStr(e?.message) });

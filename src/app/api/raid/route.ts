@@ -3,17 +3,24 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
+import { getActiveOrgId } from "@/utils/org/active-org";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /* ---------------- response helpers ---------------- */
 
-function jsonOk(data: any, status = 200, headers?: HeadersInit) {
-  return NextResponse.json({ ok: true, ...data }, { status, headers });
+function withNoStore(res: NextResponse) {
+  res.headers.set("Cache-Control", "no-store, max-age=0");
+  return res;
 }
+
+function jsonOk(data: any, status = 200, headers?: HeadersInit) {
+  return withNoStore(NextResponse.json({ ok: true, ...data }, { status, headers }));
+}
+
 function jsonErr(error: string, status = 400, meta?: any) {
-  return NextResponse.json({ ok: false, error, meta }, { status });
+  return withNoStore(NextResponse.json({ ok: false, error, meta }, { status }));
 }
 
 /* ---------------- utils ---------------- */
@@ -39,8 +46,25 @@ function clampInt0to100(v: any): number | null {
 }
 
 function titleCaseLikeDbEnum(s: string) {
-  // keep DB enum casing stable; we validate against exact allowed list anyway
   return s.trim();
+}
+
+function bestProjectRole(rows: Array<{ role?: string | null }> | null | undefined) {
+  const roles = (rows ?? [])
+    .map((r) => String(r?.role ?? "").toLowerCase().trim())
+    .filter(Boolean);
+
+  if (!roles.length) return "";
+  if (roles.includes("owner")) return "owner";
+  if (roles.includes("editor")) return "editor";
+  if (roles.includes("viewer")) return "viewer";
+  return roles[0] || "";
+}
+
+function canWrite(projectRole: string, orgRole: string) {
+  const pr = safeStr(projectRole).toLowerCase();
+  const or = safeStr(orgRole).toLowerCase();
+  return or === "admin" || or === "owner" || pr === "owner" || pr === "editor";
 }
 
 /* ---------------- domain enums (match DB constraints) ---------------- */
@@ -52,7 +76,6 @@ const RAID_PRIORITIES = new Set(["Low", "Medium", "High", "Critical"]);
 function normalizeRaidType(raw: any): string {
   const s = safeStr(raw).trim();
   if (!s) return "";
-  // allow loose inputs
   const lc = s.toLowerCase();
   if (lc === "risk") return "Risk";
   if (lc === "assumption") return "Assumption";
@@ -85,32 +108,74 @@ function normalizeRaidPriority(raw: any): string | null {
 }
 
 function normalizeRelatedRefs(raw: any): any[] {
-  // your DDL: related_refs jsonb NOT NULL default '[]'
   if (Array.isArray(raw)) return raw;
   if (raw == null) return [];
-  // tolerate object from older UI
   if (typeof raw === "object") return [raw];
   return [];
 }
 
-/* ---------------- access guard (charter-style) ---------------- */
+/* ---------------- access guard ---------------- */
 
-async function requireProjectMember(supabase: any, projectId: string) {
+async function getProjectAccess(supabase: any, projectId: string) {
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr) throw new Error(authErr.message);
   if (!auth?.user) return { ok: false as const, status: 401, error: "Unauthorized" };
 
-  const { data: mem, error: memErr } = await supabase
-    .from("project_members")
-    .select("role,is_active")
-    .eq("project_id", projectId)
-    .eq("user_id", auth.user.id)
+  const activeOrgId = await getActiveOrgId();
+  if (!activeOrgId) {
+    return { ok: false as const, status: 403, error: "No active organisation" };
+  }
+
+  const { data: project, error: projectErr } = await supabase
+    .from("projects")
+    .select("id, organisation_id")
+    .eq("id", projectId)
     .maybeSingle();
 
-  if (memErr) return { ok: false as const, status: 400, error: memErr.message };
-  if (!mem?.is_active) return { ok: false as const, status: 403, error: "Forbidden" };
+  if (projectErr) return { ok: false as const, status: 400, error: projectErr.message };
+  if (!project?.id) return { ok: false as const, status: 404, error: "Project not found" };
+  if (String(project.organisation_id) !== activeOrgId) {
+    return { ok: false as const, status: 403, error: "Forbidden" };
+  }
 
-  return { ok: true as const, userId: auth.user.id, role: safeStr(mem.role) };
+  const [{ data: orgMem, error: orgErr }, { data: projMemRows, error: projErr }] = await Promise.all([
+    supabase
+      .from("organisation_members")
+      .select("role")
+      .eq("organisation_id", activeOrgId)
+      .eq("user_id", auth.user.id)
+      .is("removed_at", null)
+      .maybeSingle(),
+    supabase
+      .from("project_members")
+      .select("role, is_active, removed_at")
+      .eq("project_id", projectId)
+      .eq("user_id", auth.user.id)
+      .is("removed_at", null),
+  ]);
+
+  if (orgErr) return { ok: false as const, status: 400, error: orgErr.message };
+  if (projErr) return { ok: false as const, status: 400, error: projErr.message };
+
+  const orgRole = safeStr(orgMem?.role).toLowerCase().trim();
+  const activeProjRows = (projMemRows ?? []).filter((r: any) => r?.is_active !== false);
+  const projectRole = bestProjectRole(activeProjRows as any);
+
+  const isOrgMember = Boolean(orgRole);
+  const isProjectMember = Boolean(projectRole);
+
+  if (!isOrgMember && !isProjectMember) {
+    return { ok: false as const, status: 403, error: "Forbidden" };
+  }
+
+  return {
+    ok: true as const,
+    userId: auth.user.id,
+    activeOrgId,
+    orgRole,
+    projectRole,
+    canWrite: canWrite(projectRole, orgRole),
+  };
 }
 
 /* ========================================================================== */
@@ -126,15 +191,13 @@ export async function GET(req: NextRequest) {
 
     const supabase = await createClient();
 
-    const access = await requireProjectMember(supabase, projectId);
+    const access = await getProjectAccess(supabase, projectId);
     if (!access.ok) return jsonErr(access.error, access.status);
 
-    // Optional filters
     const typeFilter = normalizeRaidType(url.searchParams.get("type"));
     const statusFilter = normalizeRaidStatus(url.searchParams.get("status"));
-    const includeClosed = safeStr(url.searchParams.get("includeClosed"))
-      .trim()
-      .toLowerCase() === "true";
+    const includeClosed =
+      safeStr(url.searchParams.get("includeClosed")).trim().toLowerCase() === "true";
 
     let q = supabase
       .from("raid_items")
@@ -144,16 +207,20 @@ export async function GET(req: NextRequest) {
       .eq("project_id", projectId);
 
     if (typeFilter) {
-      if (!RAID_TYPES.has(typeFilter)) return jsonErr(`Invalid type: ${typeFilter}`, 400, { allowed: Array.from(RAID_TYPES) });
+      if (!RAID_TYPES.has(typeFilter)) {
+        return jsonErr(`Invalid type: ${typeFilter}`, 400, { allowed: Array.from(RAID_TYPES) });
+      }
       q = q.eq("type", typeFilter);
     }
 
     if (url.searchParams.has("status")) {
-      // only apply status filter if user asked for it
-      if (!RAID_STATUSES.has(statusFilter)) return jsonErr(`Invalid status: ${statusFilter}`, 400, { allowed: Array.from(RAID_STATUSES) });
+      if (!RAID_STATUSES.has(statusFilter)) {
+        return jsonErr(`Invalid status: ${statusFilter}`, 400, {
+          allowed: Array.from(RAID_STATUSES),
+        });
+      }
       q = q.eq("status", statusFilter);
     } else if (!includeClosed) {
-      // default: hide Closed + Invalid unless asked
       q = q.not("status", "in", '("Closed","Invalid")');
     }
 
@@ -168,7 +235,7 @@ export async function GET(req: NextRequest) {
 }
 
 /* ========================================================================== */
-/* POST /api/raid  body: { project_id, type, description, owner_label, ... }   */
+/* POST /api/raid */
 /* ========================================================================== */
 
 export async function POST(req: NextRequest) {
@@ -181,25 +248,33 @@ export async function POST(req: NextRequest) {
     const project_id = safeStr(body.project_id).trim();
     if (!looksLikeUuid(project_id)) return jsonErr("Invalid or missing project_id", 400);
 
-    const access = await requireProjectMember(supabase, project_id);
+    const access = await getProjectAccess(supabase, project_id);
     if (!access.ok) return jsonErr(access.error, access.status);
+    if (!access.canWrite) return jsonErr("Forbidden", 403);
 
     const type = normalizeRaidType(body.type);
     const description = safeStr(body.description).trim();
-    const owner_label = safeStr(body.owner_label).trim(); // required by DB constraint
+    const owner_label = safeStr(body.owner_label).trim();
 
     if (!type) return jsonErr("type required", 400);
-    if (!RAID_TYPES.has(type)) return jsonErr(`Invalid type: ${type}`, 400, { allowed: Array.from(RAID_TYPES) });
+    if (!RAID_TYPES.has(type)) {
+      return jsonErr(`Invalid type: ${type}`, 400, { allowed: Array.from(RAID_TYPES) });
+    }
 
     if (!description) return jsonErr("description required", 400);
     if (!owner_label) return jsonErr("owner_label required (Owner)", 400);
 
     const status = normalizeRaidStatus(body.status);
-    if (!RAID_STATUSES.has(status)) return jsonErr(`Invalid status: ${status}`, 400, { allowed: Array.from(RAID_STATUSES) });
+    if (!RAID_STATUSES.has(status)) {
+      return jsonErr(`Invalid status: ${status}`, 400, { allowed: Array.from(RAID_STATUSES) });
+    }
 
     const priority = normalizeRaidPriority(body.priority);
-    if (priority && !RAID_PRIORITIES.has(priority))
-      return jsonErr(`Invalid priority: ${priority}`, 400, { allowed: Array.from(RAID_PRIORITIES) });
+    if (priority && !RAID_PRIORITIES.has(priority)) {
+      return jsonErr(`Invalid priority: ${priority}`, 400, {
+        allowed: Array.from(RAID_PRIORITIES),
+      });
+    }
 
     const dueRaw = safeStr(body.due_date).trim();
     const due_date = dueRaw ? (isIsoDateOnly(dueRaw) ? dueRaw : null) : null;
@@ -218,7 +293,9 @@ export async function POST(req: NextRequest) {
       probability,
       severity,
       impact: safeStr(body.impact).trim() || null,
-      owner_id: looksLikeUuid(safeStr(body.owner_id).trim()) ? safeStr(body.owner_id).trim() : null,
+      owner_id: looksLikeUuid(safeStr(body.owner_id).trim())
+        ? safeStr(body.owner_id).trim()
+        : null,
       status,
       response_plan: safeStr(body.response_plan).trim() || null,
       next_steps: safeStr(body.next_steps).trim() || null,
@@ -228,7 +305,12 @@ export async function POST(req: NextRequest) {
       due_date,
     };
 
-    const { data, error } = await supabase.from("raid_items").insert(row).select("*").single();
+    const { data, error } = await supabase
+      .from("raid_items")
+      .insert(row)
+      .select("*")
+      .single();
+
     if (error) return jsonErr(error.message, 400);
 
     return jsonOk({ item: data }, 201);

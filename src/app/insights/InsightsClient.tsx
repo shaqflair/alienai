@@ -7,7 +7,7 @@
 //   /api/portfolio/health             — portfolio health score + drivers
 //   /api/ai/briefing                  — AI insights feed (changes, finance, resources)
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 /* ─── Google Fonts ──────────────────────────────────────────────────────────── */
@@ -95,6 +95,12 @@ type FinanceItem = {
   score: number | null;
   due_date: string | null;
   due_date_uk: string | null;
+};
+
+export type RaiseItemProjectOption = {
+  id: string;
+  title: string;
+  code: string | null;
 };
 
 /* ─── Design Tokens ─────────────────────────────────────────────────────────── */
@@ -334,6 +340,594 @@ function SectionRule({ label }: { label?: string }) {
     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
       {label && <Cap>{label}</Cap>}
       <div style={{ flex: 1, height: "1px", background: T.hr }} />
+    </div>
+  );
+}
+
+/* ─── Reusable Raise RAID Item Modal ────────────────────────────────────────── */
+
+const ITEM_TYPES = ["Risk", "Issue", "Assumption", "Dependency"] as const;
+const PRIORITIES = ["Critical", "High", "Medium", "Low"] as const;
+const IMPACTS = ["low", "medium", "high", "critical"] as const;
+
+export function RaiseItemModal({
+  projects,
+  onClose,
+  onSuccess,
+  lockedProjectId,
+  lockedProjectTitle,
+  lockedProjectCode,
+}: {
+  projects: RaiseItemProjectOption[];
+  onClose: () => void;
+  onSuccess: () => void;
+  lockedProjectId?: string | null;
+  lockedProjectTitle?: string | null;
+  lockedProjectCode?: string | null;
+}) {
+  const effectiveProjects = useMemo<RaiseItemProjectOption[]>(() => {
+    if (lockedProjectId) {
+      return [
+        {
+          id: lockedProjectId,
+          title: lockedProjectTitle || "Project",
+          code: lockedProjectCode || null,
+        },
+      ];
+    }
+    return projects;
+  }, [projects, lockedProjectId, lockedProjectTitle, lockedProjectCode]);
+
+  const [projectId, setProjectId] = useState(lockedProjectId || effectiveProjects[0]?.id || "");
+  const [type, setType] = useState<(typeof ITEM_TYPES)[number]>("Risk");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState<(typeof PRIORITIES)[number]>("Medium");
+  const [dueDate, setDueDate] = useState("");
+  const [probability, setProbability] = useState(50);
+  const [severity, setSeverity] = useState(50);
+  const [responsePlan, setResponsePlan] = useState("");
+  const [impact, setImpact] = useState<(typeof IMPACTS)[number]>("medium");
+  const [nextSteps, setNextSteps] = useState("");
+  const [notes, setNotes] = useState("");
+  const [owner, setOwner] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiDrafting, setAiDrafting] = useState(false);
+  const [aiDraftErr, setAiDraftErr] = useState<string | null>(null);
+  const [aiDraftDone, setAiDraftDone] = useState(false);
+
+  useEffect(() => {
+    if (lockedProjectId) {
+      setProjectId(lockedProjectId);
+      return;
+    }
+    if (!projectId && effectiveProjects[0]?.id) {
+      setProjectId(effectiveProjects[0].id);
+    }
+  }, [lockedProjectId, effectiveProjects, projectId]);
+
+  async function handleAiDraft() {
+    if (!aiPrompt.trim()) return;
+
+    setAiDrafting(true);
+    setAiDraftErr(null);
+    setAiDraftDone(false);
+
+    try {
+      const res = await fetch("/api/raid/ai-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: aiPrompt, projectId }),
+      });
+
+      const j = await res.json();
+      if (!j.ok) throw new Error(j.error || "AI draft failed");
+
+      const d = j.draft ?? {};
+      if (d.type && ITEM_TYPES.includes(d.type)) setType(d.type);
+      if (d.priority && PRIORITIES.includes(d.priority)) setPriority(d.priority);
+      if (d.impact && IMPACTS.includes(d.impact)) setImpact(d.impact);
+      if (d.title) setTitle(d.title);
+      if (d.description) setDescription(d.description);
+      if (d.probability != null) setProbability(Math.max(0, Math.min(100, Number(d.probability) || 0)));
+      if (d.severity != null) setSeverity(Math.max(0, Math.min(100, Number(d.severity) || 0)));
+      if (d.response_plan) setResponsePlan(d.response_plan);
+      if (d.next_steps) setNextSteps(d.next_steps);
+      if (d.notes) setNotes(d.notes);
+
+      setAiDraftDone(true);
+    } catch (e: any) {
+      setAiDraftErr(e?.message ?? "AI draft failed");
+    } finally {
+      setAiDrafting(false);
+    }
+  }
+
+  async function handleSubmit() {
+    if (!title.trim()) {
+      setError("Title is required.");
+      return;
+    }
+    if (!description.trim()) {
+      setError("Description is required.");
+      return;
+    }
+    if (!owner.trim()) {
+      setError("Owner is required.");
+      return;
+    }
+    if (!projectId) {
+      setError("Select a project.");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/raid", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: projectId,
+          type,
+          priority,
+          status: "Open",
+          title: title.trim(),
+          description: description.trim(),
+          due_date: dueDate || null,
+          owner_label: owner.trim(),
+          probability,
+          severity,
+          impact,
+          response_plan: responsePlan.trim() || null,
+          next_steps: nextSteps.trim() || null,
+          notes: notes.trim() || null,
+        }),
+      });
+
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.error ?? `HTTP ${res.status}`);
+      }
+
+      onSuccess();
+      onClose();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const INP: React.CSSProperties = {
+    width: "100%",
+    boxSizing: "border-box",
+    padding: "8px 10px",
+    fontFamily: T.mono,
+    fontSize: 12,
+    color: T.ink,
+    background: "#fff",
+    border: "1px solid " + T.hr,
+    borderRadius: 2,
+    outline: "none",
+  };
+
+  const LBL: React.CSSProperties = {
+    display: "block",
+    marginBottom: 5,
+    fontFamily: T.mono,
+    fontSize: 9,
+    fontWeight: 600,
+    letterSpacing: "0.1em",
+    textTransform: "uppercase",
+    color: T.ink4,
+  };
+
+  const projectLocked = Boolean(lockedProjectId);
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1000,
+        background: "rgba(0,0,0,0.45)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        style={{
+          background: T.surface,
+          borderRadius: 4,
+          border: "1px solid " + T.hr,
+          boxShadow: "0 24px 80px rgba(0,0,0,0.2)",
+          width: "100%",
+          maxWidth: 560,
+          animation: "fadeUp 0.2s ease both",
+          overflow: "hidden",
+          maxHeight: "92vh",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <div
+          style={{
+            padding: "20px 24px 16px",
+            borderBottom: "1px solid " + T.hr,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <div>
+            <div style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 700, color: T.ink }}>Raise New Item</div>
+            <Cap>Risk · Issue · Assumption · Dependency</Cap>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              fontFamily: T.mono,
+              fontSize: 18,
+              color: T.ink4,
+              padding: "4px 8px",
+              lineHeight: 1,
+            }}
+          >
+            x
+          </button>
+        </div>
+
+        <div
+          style={{
+            padding: "20px 24px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
+            overflowY: "auto",
+            flex: 1,
+          }}
+        >
+          <div
+            style={{
+              background: "linear-gradient(135deg,#0f172a 0%,#1e293b 100%)",
+              borderRadius: 4,
+              padding: "14px 16px",
+              border: "1px solid #334155",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 16 }}>✨</span>
+              <span
+                style={{
+                  fontFamily: T.mono,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.1em",
+                  color: "#e2e8f0",
+                  textTransform: "uppercase",
+                }}
+              >
+                AI Draft Assistant
+              </span>
+              <span
+                style={{
+                  fontFamily: T.mono,
+                  fontSize: 9,
+                  color: "#64748b",
+                  marginLeft: "auto",
+                }}
+              >
+                Describe the situation, AI fills the form
+              </span>
+            </div>
+
+            <textarea
+              value={aiPrompt}
+              onChange={(e) => {
+                setAiPrompt(e.target.value);
+                setAiDraftDone(false);
+              }}
+              placeholder="e.g. Our key supplier may not deliver the integration module by go-live due to their financial difficulties..."
+              rows={3}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                padding: "10px 12px",
+                fontFamily: T.body,
+                fontSize: 13,
+                color: "#f1f5f9",
+                background: "rgba(255,255,255,0.07)",
+                border: "1px solid #334155",
+                borderRadius: 2,
+                resize: "vertical",
+                outline: "none",
+              }}
+            />
+
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+              <button
+                onClick={handleAiDraft}
+                disabled={aiDrafting || !aiPrompt.trim()}
+                style={{
+                  padding: "8px 18px",
+                  fontFamily: T.mono,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.07em",
+                  textTransform: "uppercase",
+                  background: aiDrafting ? "#334155" : "#6366f1",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 2,
+                  cursor: aiDrafting || !aiPrompt.trim() ? "default" : "pointer",
+                  opacity: !aiPrompt.trim() ? 0.5 : 1,
+                }}
+              >
+                {aiDrafting ? "Drafting…" : "✨ AI Draft"}
+              </button>
+
+              {aiDraftDone && (
+                <span style={{ fontFamily: T.mono, fontSize: 10, color: "#4ade80" }}>
+                  ✓ Form filled — review and adjust below
+                </span>
+              )}
+
+              {aiDraftErr && (
+                <span style={{ fontFamily: T.mono, fontSize: 10, color: "#f87171" }}>{aiDraftErr}</span>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label style={LBL}>Project *</label>
+            {projectLocked ? (
+              <div
+                style={{
+                  ...INP,
+                  background: "#f5f3f0",
+                  color: T.ink2,
+                }}
+              >
+                {lockedProjectCode ? `${lockedProjectCode} — ` : ""}
+                {lockedProjectTitle || "Project"}
+              </div>
+            ) : (
+              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={INP}>
+                {effectiveProjects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.code ? `${p.code} — ` : ""}
+                    {p.title}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            <div>
+              <label style={LBL}>Type *</label>
+              <select value={type} onChange={(e) => setType(e.target.value as (typeof ITEM_TYPES)[number])} style={INP}>
+                {ITEM_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={LBL}>Priority</label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as (typeof PRIORITIES)[number])}
+                style={INP}
+              >
+                {PRIORITIES.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={LBL}>Impact</label>
+              <select value={impact} onChange={(e) => setImpact(e.target.value as (typeof IMPACTS)[number])} style={INP}>
+                {IMPACTS.map((v) => (
+                  <option key={v} value={v}>
+                    {v.charAt(0).toUpperCase() + v.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label style={LBL}>Title *</label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Concise title for this item"
+              style={INP}
+            />
+          </div>
+
+          <div>
+            <label style={LBL}>Description *</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Describe the risk/issue, its impact and context..."
+              rows={3}
+              style={{ ...INP, resize: "vertical", fontFamily: T.body, fontSize: 13 }}
+            />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div>
+              <label style={LBL}>Probability: {probability}%</label>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={probability}
+                onChange={(e) => setProbability(Number(e.target.value))}
+                style={{ width: "100%", accentColor: T.ink }}
+              />
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ fontFamily: T.mono, fontSize: 9, color: T.ink5 }}>0%</span>
+                <span style={{ fontFamily: T.mono, fontSize: 9, color: T.ink5 }}>100%</span>
+              </div>
+            </div>
+
+            <div>
+              <label style={LBL}>Severity: {severity}%</label>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={severity}
+                onChange={(e) => setSeverity(Number(e.target.value))}
+                style={{ width: "100%", accentColor: T.ink }}
+              />
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ fontFamily: T.mono, fontSize: 9, color: T.ink5 }}>0%</span>
+                <span style={{ fontFamily: T.mono, fontSize: 9, color: T.ink5 }}>100%</span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ background: "#f5f3f0", padding: "8px 12px", borderRadius: 2 }}>
+            <span style={{ fontFamily: T.mono, fontSize: 10, color: T.ink3 }}>
+              Risk Score: <strong style={{ color: T.ink }}>{Math.round((probability * severity) / 100)}</strong>
+              <span style={{ color: T.ink4 }}> = {probability}% × {severity}% ÷ 100</span>
+            </span>
+          </div>
+
+          <div>
+            <label style={LBL}>Response Plan / Mitigation</label>
+            <textarea
+              value={responsePlan}
+              onChange={(e) => setResponsePlan(e.target.value)}
+              placeholder="How will this be mitigated or managed..."
+              rows={2}
+              style={{ ...INP, resize: "vertical", fontFamily: T.body, fontSize: 13 }}
+            />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <label style={LBL}>Next Steps</label>
+              <textarea
+                value={nextSteps}
+                onChange={(e) => setNextSteps(e.target.value)}
+                placeholder="Immediate actions to take..."
+                rows={2}
+                style={{ ...INP, resize: "vertical", fontFamily: T.body, fontSize: 13 }}
+              />
+            </div>
+            <div>
+              <label style={LBL}>Notes</label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Additional context or comments..."
+                rows={2}
+                style={{ ...INP, resize: "vertical", fontFamily: T.body, fontSize: 13 }}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <label style={LBL}>Owner *</label>
+              <input value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="Name or team" style={INP} />
+            </div>
+            <div>
+              <label style={LBL}>Due Date</label>
+              <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} style={INP} />
+            </div>
+          </div>
+
+          {error && (
+            <div
+              style={{
+                padding: "10px 14px",
+                borderRadius: 2,
+                background: RAG.R.bg,
+                border: "1px solid " + RAG.R.border,
+                fontFamily: T.mono,
+                fontSize: 11,
+                color: RAG.R.fg,
+              }}
+            >
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div
+          style={{
+            padding: "14px 24px 20px",
+            borderTop: "1px solid " + T.hr,
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 10,
+            flexShrink: 0,
+          }}
+        >
+          <button
+            onClick={onClose}
+            style={{
+              padding: "9px 20px",
+              fontFamily: T.mono,
+              fontSize: 10,
+              fontWeight: 600,
+              letterSpacing: "0.07em",
+              textTransform: "uppercase",
+              background: "transparent",
+              color: T.ink3,
+              border: "1px solid " + T.hr,
+              borderRadius: 2,
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+
+          <button
+            onClick={handleSubmit}
+            disabled={saving}
+            style={{
+              padding: "9px 20px",
+              fontFamily: T.mono,
+              fontSize: 10,
+              fontWeight: 600,
+              letterSpacing: "0.07em",
+              textTransform: "uppercase",
+              background: saving ? T.ink3 : T.ink,
+              color: "#fff",
+              border: "none",
+              borderRadius: 2,
+              cursor: saving ? "default" : "pointer",
+            }}
+          >
+            {saving ? "Saving..." : "Raise Item"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -608,9 +1202,7 @@ function RaidItemRow({
         <td style={{ padding: "12px 16px", verticalAlign: "middle", width: 110 }}>
           <Mono
             size={11}
-            color={
-              num(item.exposure_total) > 500_000 ? RAG.A.fg : num(item.exposure_total) > 0 ? T.ink3 : T.ink5
-            }
+            color={num(item.exposure_total) > 500_000 ? RAG.A.fg : num(item.exposure_total) > 0 ? T.ink3 : T.ink5}
             weight={num(item.exposure_total) > 0 ? 600 : 400}
           >
             {item.exposure_total_fmt || "—"}
@@ -1865,11 +2457,7 @@ export default function InsightsClient() {
                                     </Mono>
                                   </td>
                                   <td style={TD}>
-                                    <Mono
-                                      size={12}
-                                      color={it.est_cost_impact ? T.ink2 : T.ink5}
-                                      weight={it.est_cost_impact ? 600 : 400}
-                                    >
+                                    <Mono size={12} color={it.est_cost_impact ? T.ink2 : T.ink5} weight={it.est_cost_impact ? 600 : 400}>
                                       {fmt(it.est_cost_impact)}
                                     </Mono>
                                   </td>
@@ -1883,11 +2471,7 @@ export default function InsightsClient() {
                                     </Mono>
                                   </td>
                                   <td style={TD}>
-                                    <Mono
-                                      size={12}
-                                      color={it.est_penalties ? RAG.R.fg : T.ink5}
-                                      weight={it.est_penalties ? 600 : 400}
-                                    >
+                                    <Mono size={12} color={it.est_penalties ? RAG.R.fg : T.ink5} weight={it.est_penalties ? 600 : 400}>
                                       {fmt(it.est_penalties)}
                                     </Mono>
                                   </td>

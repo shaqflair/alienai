@@ -9,6 +9,7 @@ import { fetchProjectResourceData, projectWeekPeriods } from "./_lib/resource-da
 import ProjectResourcePanel from "./_components/ProjectResourcePanel";
 import AssignPmButton from "./_components/AssignPmButton";
 import { insertRoleRequirements } from "./actions";
+import ProjectRaidRaiseButton from "./_components/ProjectRaidRaiseButton";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -1030,20 +1031,25 @@ export default async function ProjectPage({
                 )}
               </div>
 
-              {canEdit && (
-                <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-                  <a href={`/allocations/new?project_id=${projectUuid}&return_to=/projects/${projectRefForUrls}`} className="action-btn primary">
-                    + Allocate resource
-                  </a>
+             {canEdit && (
+  <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+    <a href={`/allocations/new?project_id=${projectUuid}&return_to=/projects/${projectRefForUrls}`} className="action-btn primary">
+      + Allocate resource
+    </a>
 
-                  <Link href={`/projects/${projectRefForUrls}/artifacts`} className="action-btn">
-                    + New artifact
-                  </Link>
+    <ProjectRaidRaiseButton
+      projectId={projectUuid}
+      projectTitle={projectTitle}
+      projectCode={projectCode || null}
+    />
 
-                  <Link href={`/projects/${projectRefForUrls}/artifacts`} className="action-btn">
-                    Project Charter
-                  </Link>
+    <Link href={`/projects/${projectRefForUrls}/artifacts`} className="action-btn">
+      + New artifact
+    </Link>
 
+    <Link href={`/projects/${projectRefForUrls}/artifacts`} className="action-btn">
+      Project Charter
+    </Link>
                   {project?.resource_status === "pipeline" && (
                     <form action={convertPipelineToConfirmed} style={{ display: "contents" }}>
                       <input type="hidden" name="project_id" value={project.id}/>
