@@ -201,7 +201,8 @@ function FinancialPlanEditorHost({
         const res = await fetch("/api/artifacts/save-json", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ artifactId, contentJson: updated }),
+          // FIX: projectId was missing — API route returned 400 on every save
+          body: JSON.stringify({ projectId, artifactId, contentJson: updated }),
         });
         const data = await res.json().catch(() => ({ ok: false }));
         if (data?.ok) {
@@ -215,7 +216,7 @@ function FinancialPlanEditorHost({
         savingRef.current = false;
       }
     },
-    [artifactId, readOnly]
+    [projectId, artifactId, readOnly]
   );
 
   const queueSave = useCallback(
@@ -551,3 +552,4 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
     </div>
   );
 }
+
