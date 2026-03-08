@@ -1,5 +1,4 @@
 "use client";
-
 import { useEffect, useRef } from "react";
 
 export default function CosmosBackdrop() {
@@ -40,7 +39,6 @@ export default function CosmosBackdrop() {
     function draw() {
       t += 0.016;
       ctx.clearRect(0, 0, w, h);
-
       const bg = ctx.createRadialGradient(w * 0.45, h * 0.4, 0, w * 0.5, h * 0.5, w * 0.9);
       bg.addColorStop(0, "rgba(0,12,35,1)");
       bg.addColorStop(0.5, "rgba(0,6,18,1)");
@@ -48,15 +46,12 @@ export default function CosmosBackdrop() {
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, w, h);
 
-      // stars
       stars.forEach((s) => {
         const alpha = (Math.sin(t * s.speed + s.phase) * 0.35 + 0.65) * s.a;
-
         ctx.beginPath();
         ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
         ctx.fillStyle = s.blue ? `rgba(0,180,220,${alpha})` : `rgba(200,225,255,${alpha * 0.9})`;
         ctx.fill();
-
         if (s.r > 1.2) {
           ctx.beginPath();
           ctx.arc(s.x, s.y, s.r * 3.5, 0, Math.PI * 2);
@@ -67,7 +62,6 @@ export default function CosmosBackdrop() {
         }
       });
 
-      // shooting stars
       if (Math.random() > 0.985) {
         shooters.push({
           x: Math.random() * w * 0.7,
@@ -84,14 +78,12 @@ export default function CosmosBackdrop() {
         const g = ctx.createLinearGradient(s.x, s.y, s.x - s.len, s.y - s.len * 0.38);
         g.addColorStop(0, `rgba(0,220,255,${s.life * 0.85})`);
         g.addColorStop(1, "rgba(0,80,180,0)");
-
         ctx.beginPath();
         ctx.moveTo(s.x, s.y);
         ctx.lineTo(s.x - s.len, s.y - s.len * 0.38);
         ctx.strokeStyle = g;
         ctx.lineWidth = 1.5 * s.life;
         ctx.stroke();
-
         s.x += s.vx;
         s.y += s.vy;
         s.life -= 0.022;

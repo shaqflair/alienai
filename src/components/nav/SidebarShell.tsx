@@ -1,6 +1,5 @@
 ﻿"use client";
 // FILE: src/components/nav/SidebarShell.tsx
-
 import React from "react";
 import { usePathname } from "next/navigation";
 import Sidebar from "./Sidebar";
@@ -40,18 +39,24 @@ export default function SidebarShell({
 }) {
   const pathname = usePathname();
   const showSidebar = shouldShowSidebar(pathname);
+  const mainRef = React.useRef<HTMLElement>(null);
 
   const [isOffline, setIsOffline] = React.useState(false);
   const [syncing, setSyncing] = React.useState(false);
   const [queuedCount, setQueuedCount] = React.useState<number | null>(null);
 
+  // Reset scroll position on every navigation
+  React.useEffect(() => {
+    if (mainRef.current) {
+      mainRef.current.scrollTop = 0;
+    }
+  }, [pathname]);
+
   // Keep offline state in sync with browser connectivity
   React.useEffect(() => {
     if (!showSidebar) return;
-
     const setFromNavigator = () => setIsOffline(typeof navigator !== "undefined" ? !navigator.onLine : false);
     setFromNavigator();
-
     const onOnline = async () => {
       setIsOffline(false);
       setSyncing(true);
@@ -61,9 +66,7 @@ export default function SidebarShell({
         setSyncing(false);
       }
     };
-
     const onOffline = () => setIsOffline(true);
-
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
     return () => {
@@ -86,10 +89,8 @@ export default function SidebarShell({
   // If present, only update state when the value actually changes.
   React.useEffect(() => {
     if (!showSidebar) return;
-
     let alive = true;
     let moduleConfirmedAbsent = false;
-
     async function loadQueued() {
       if (moduleConfirmedAbsent) return;
       try {
@@ -109,10 +110,8 @@ export default function SidebarShell({
         moduleConfirmedAbsent = true;
       }
     }
-
     loadQueued();
     const id = window.setInterval(loadQueued, 5000);
-
     return () => {
       alive = false;
       window.clearInterval(id);
@@ -126,8 +125,8 @@ export default function SidebarShell({
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
       <Sidebar userName={userName} orgName={orgName} projectCount={projectCount} />
-
       <main
+        ref={mainRef}
         style={{
           flex: 1,
           overflowY: "auto",
@@ -177,7 +176,6 @@ export default function SidebarShell({
                   </div>
                 </div>
               </div>
-
               {!isOffline && (
                 <button
                   type="button"
@@ -207,7 +205,6 @@ export default function SidebarShell({
             </div>
           </div>
         )}
-
         {children}
       </main>
     </div>
