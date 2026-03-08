@@ -771,6 +771,10 @@ type Props = {
   onChange: (c: FinancialPlanContent) => void;
   readOnly?: boolean;
   organisationId: string;
+  // When provided, auto-save goes directly to the API route — no server action,
+  // no RSC router refresh, no sidebar re-fetches on every keystroke.
+  projectId?: string;
+  artifactId?: string;
   timesheetEntries?: TimesheetEntry[];
   raidItems?: Array<{ type: string; title: string; severity: string; status: string }>;
   approvalDelays?: Array<{ title: string; daysPending: number; cost_impact?: number }>;
@@ -778,6 +782,7 @@ type Props = {
 
 export default function FinancialPlanEditor({
   content, onChange, readOnly = false, organisationId,
+  projectId, artifactId,
   timesheetEntries = [], raidItems, approvalDelays,
 }: Props) {
   const [activeTab, setActiveTab] = useState<"budget" | "resources" | "monthly" | "changes" | "narrative">("budget");
@@ -852,17 +857,30 @@ export default function FinancialPlanEditor({
     localContent.last_updated_at,
   ]);
 
-  // ── THE FIX: instant local update + debounced server save ─────────────────
+  // ── THE FIX: instant local update + debounced API-route save ──────────────
+  // Using fetch() to /api/artifacts/save-json instead of a server action:
+  // Next.js triggers an RSC router refresh after every server action — even
+  // updateArtifactJsonSilent — which re-fetches the entire layout tree and
+  // swallows click events during the debounce window. A plain fetch() is
+  // completely invisible to the router.
   const handleChange = useCallback((patch: FinancialPlanContent) => {
-    // Update local state immediately so the UI stays responsive
     setLocalContent(patch);
-    // Debounce the actual server save — this is the only place onChange fires
     clearTimeout(saveTimer.current);
     const now = new Date().toISOString();
+    const patched = { ...patch, last_updated_at: now };
     saveTimer.current = setTimeout(() => {
-      onChange({ ...patch, last_updated_at: now });
+      if (projectId && artifactId) {
+        fetch("/api/artifacts/save-json", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId, artifactId, contentJson: patched }),
+        }).catch(() => { /* silent — auto-save errors don't surface to the user */ });
+      } else {
+        // Fallback for callers that don't pass projectId/artifactId
+        onChange(patched);
+      }
     }, 500);
-  }, [onChange]);
+  }, [onChange, projectId, artifactId]);
 
   const updateField = useCallback(<K extends keyof FinancialPlanContent>(key: K, val: FinancialPlanContent[K]) => {
     handleChange({ ...localContent, [key]: val });
