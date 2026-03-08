@@ -859,9 +859,14 @@ export default function FinancialPlanEditor({
   const overBudget       = forecastVariance !== null && forecastVariance > 0;
   const totalResourceCost = resources.reduce((s, r) => s + resourceTotal(r), 0);
 
-  const fyConfig:    FYConfig    = content.fy_config    ?? { fy_start_month: 4, fy_start_year: new Date().getFullYear(), num_months: 12 };
-  const monthlyData: MonthlyData = content.monthly_data ?? {};
-
+  const fyConfig = useMemo<FYConfig>(
+  () => content.fy_config ?? { fy_start_month: 4, fy_start_year: new Date().getFullYear(), num_months: 12 },
+  [content.fy_config]
+);
+const monthlyData = useMemo<MonthlyData>(
+  () => content.monthly_data ?? {},
+  [content.monthly_data]
+);
   const monthlyDataWithActuals = useMemo(() => applyActualsToMonthlyData(monthlyData, actualsByLine), [monthlyData, actualsByLine]);
 
   useEffect(() => {
