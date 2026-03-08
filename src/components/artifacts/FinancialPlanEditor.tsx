@@ -784,16 +784,30 @@ export default function FinancialPlanEditor({
   const [signals, setSignals]     = useState<Signal[]>([]);
   const saveTimer                 = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // CRITICAL FIX: Cleanup timer on unmount to prevent memory leaks
+  // ── LOCAL STATE: UI reads from localContent, server save is debounced ──────
+  // This prevents the parent's server action from blocking Next.js navigation
+  // on every keystroke. localContent updates instantly; onChange fires after 500ms.
+  const [localContent, setLocalContent] = useState<FinancialPlanContent>(content);
+
+  // Sync local state when the parent loads a different artifact (identity change)
+  const lastContentRef = useRef(content);
+  useEffect(() => {
+    if (content !== lastContentRef.current) {
+      lastContentRef.current = content;
+      setLocalContent(content);
+    }
+  }, [content]);
+
+  // Cleanup timer on unmount
   useEffect(() => {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
   }, []);
 
-  const sym       = CURRENCY_SYMBOLS[content.currency] ?? "£";
-  const lines     = content.cost_lines ?? [];
-  const resources = content.resources  ?? [];
+  const sym       = CURRENCY_SYMBOLS[localContent.currency] ?? "£";
+  const lines     = localContent.cost_lines ?? [];
+  const resources = localContent.resources  ?? [];
 
   const actualsByLine = useMemo(() => computeActuals(resources, timesheetEntries), [resources, timesheetEntries]);
   const actualTotalsPerLine = useMemo(() => computeActualTotalsPerLine(resources, timesheetEntries), [resources, timesheetEntries]);
@@ -815,53 +829,53 @@ export default function FinancialPlanEditor({
     return map;
   }, [resources]);
 
-  // CRITICAL FIX: Stable content reference for useEffect to prevent infinite loop
+  // Stable deps for the signals analyser useEffect
   const contentDeps = useMemo(() => ({
-    currency: content.currency,
-    total_approved_budget: content.total_approved_budget,
-    summary: content.summary,
-    cost_lines: content.cost_lines,
-    change_exposure: content.change_exposure,
-    resources: content.resources,
-    variance_narrative: content.variance_narrative,
-    assumptions: content.assumptions,
-    last_updated_at: content.last_updated_at,
+    currency: localContent.currency,
+    total_approved_budget: localContent.total_approved_budget,
+    summary: localContent.summary,
+    cost_lines: localContent.cost_lines,
+    change_exposure: localContent.change_exposure,
+    resources: localContent.resources,
+    variance_narrative: localContent.variance_narrative,
+    assumptions: localContent.assumptions,
+    last_updated_at: localContent.last_updated_at,
   }), [
-    content.currency,
-    content.total_approved_budget,
-    content.summary,
-    content.cost_lines,
-    content.change_exposure,
-    content.resources,
-    content.variance_narrative,
-    content.assumptions,
-    content.last_updated_at,
+    localContent.currency,
+    localContent.total_approved_budget,
+    localContent.summary,
+    localContent.cost_lines,
+    localContent.change_exposure,
+    localContent.resources,
+    localContent.variance_narrative,
+    localContent.assumptions,
+    localContent.last_updated_at,
   ]);
 
+  // ── THE FIX: instant local update + debounced server save ─────────────────
   const handleChange = useCallback((patch: FinancialPlanContent) => {
+    // Update local state immediately so the UI stays responsive
+    setLocalContent(patch);
+    // Debounce the actual server save — this is the only place onChange fires
     clearTimeout(saveTimer.current);
     const now = new Date().toISOString();
-    
-    // Use ref to avoid stale closure in timeout
     saveTimer.current = setTimeout(() => {
       onChange({ ...patch, last_updated_at: now });
     }, 500);
-    
-    onChange(patch);
   }, [onChange]);
 
   const updateField = useCallback(<K extends keyof FinancialPlanContent>(key: K, val: FinancialPlanContent[K]) => {
-    handleChange({ ...content, [key]: val });
-  }, [content, handleChange]);
+    handleChange({ ...localContent, [key]: val });
+  }, [localContent, handleChange]);
 
   const handleResourcesChange = useCallback((newResources: Resource[]) => {
     const newLines = rollupResourcesToLines(lines, newResources);
-    handleChange({ ...content, resources: newResources, cost_lines: newLines });
-  }, [content, lines, handleChange]);
+    handleChange({ ...localContent, resources: newResources, cost_lines: newLines });
+  }, [localContent, lines, handleChange]);
 
   const updateLine = useCallback((id: string, patch: Partial<CostLine>) => {
-    handleChange({ ...content, cost_lines: content.cost_lines.map(l => l.id === id ? { ...l, ...patch } : l) });
-  }, [content, handleChange]);
+    handleChange({ ...localContent, cost_lines: localContent.cost_lines.map(l => l.id === id ? { ...l, ...patch } : l) });
+  }, [localContent, handleChange]);
 
   const toggleLineOverride = useCallback((id: string) => {
     const line = lines.find(l => l.id === id);
@@ -869,54 +883,53 @@ export default function FinancialPlanEditor({
     const newOverride = !line.override;
     let newLines = lines.map(l => l.id === id ? { ...l, override: newOverride } : l);
     if (!newOverride) newLines = rollupResourcesToLines(newLines, resources);
-    handleChange({ ...content, cost_lines: newLines });
-  }, [content, lines, resources, handleChange]);
+    handleChange({ ...localContent, cost_lines: newLines });
+  }, [localContent, lines, resources, handleChange]);
 
   const addLine = useCallback(() => {
-    handleChange({ ...content, cost_lines: [...content.cost_lines, emptyCostLine()] });
-  }, [content, handleChange]);
+    handleChange({ ...localContent, cost_lines: [...localContent.cost_lines, emptyCostLine()] });
+  }, [localContent, handleChange]);
 
   const removeLine = useCallback((id: string) => {
     const newResources = resources.map(r => r.cost_line_id === id ? { ...r, cost_line_id: null } : r);
-    handleChange({ ...content, cost_lines: content.cost_lines.filter(l => l.id !== id), resources: newResources });
-  }, [content, resources, handleChange]);
+    handleChange({ ...localContent, cost_lines: localContent.cost_lines.filter(l => l.id !== id), resources: newResources });
+  }, [localContent, resources, handleChange]);
 
   const updateCE = useCallback((id: string, patch: Partial<ChangeExposure>) => {
-    handleChange({ ...content, change_exposure: content.change_exposure.map(c => c.id === id ? { ...c, ...patch } : c) });
-  }, [content, handleChange]);
+    handleChange({ ...localContent, change_exposure: localContent.change_exposure.map(c => c.id === id ? { ...c, ...patch } : c) });
+  }, [localContent, handleChange]);
 
   const addCE = useCallback(() => {
-    handleChange({ ...content, change_exposure: [...content.change_exposure, emptyChangeExposure()] });
-  }, [content, handleChange]);
+    handleChange({ ...localContent, change_exposure: [...localContent.change_exposure, emptyChangeExposure()] });
+  }, [localContent, handleChange]);
 
   const removeCE = useCallback((id: string) => {
-    handleChange({ ...content, change_exposure: content.change_exposure.filter(c => c.id !== id) });
-  }, [content, handleChange]);
+    handleChange({ ...localContent, change_exposure: localContent.change_exposure.filter(c => c.id !== id) });
+  }, [localContent, handleChange]);
 
   const totalBudgeted    = sumField(linesWithActuals, "budgeted");
   const totalActual      = sumField(linesWithActuals, "actual");
   const totalForecast    = sumField(linesWithActuals, "forecast");
-  const approvedBudget   = Number(content.total_approved_budget) || 0;
+  const approvedBudget   = Number(localContent.total_approved_budget) || 0;
   const forecastVariance = approvedBudget ? totalForecast - approvedBudget : null;
-  const pendingExposure  = content.change_exposure.filter(c => c.status === "pending").reduce((s, c) => s + (Number(c.cost_impact) || 0), 0);
-  const approvedExposure = content.change_exposure.filter(c => c.status === "approved").reduce((s, c) => s + (Number(c.cost_impact) || 0), 0);
+  const pendingExposure  = localContent.change_exposure.filter(c => c.status === "pending").reduce((s, c) => s + (Number(c.cost_impact) || 0), 0);
+  const approvedExposure = localContent.change_exposure.filter(c => c.status === "approved").reduce((s, c) => s + (Number(c.cost_impact) || 0), 0);
   const utilPct          = approvedBudget ? Math.round((totalForecast / approvedBudget) * 100) : null;
   const overBudget       = forecastVariance !== null && forecastVariance > 0;
   const totalResourceCost = resources.reduce((s, r) => s + resourceTotal(r), 0);
 
   const fyConfig = useMemo<FYConfig>(
-    () => content.fy_config ?? { fy_start_month: 4, fy_start_year: new Date().getFullYear(), num_months: 12 },
-    [content.fy_config]
+    () => localContent.fy_config ?? { fy_start_month: 4, fy_start_year: new Date().getFullYear(), num_months: 12 },
+    [localContent.fy_config]
   );
-  
+
   const monthlyData = useMemo<MonthlyData>(
-    () => content.monthly_data ?? {},
-    [content.monthly_data]
+    () => localContent.monthly_data ?? {},
+    [localContent.monthly_data]
   );
-  
+
   const monthlyDataWithActuals = useMemo(() => applyActualsToMonthlyData(monthlyData, actualsByLine), [monthlyData, actualsByLine]);
 
-  // CRITICAL FIX: Use stable contentDeps instead of content to prevent infinite loop
   useEffect(() => {
     const sigs = analyseFinancialPlan(contentDeps, monthlyDataWithActuals, fyConfig, { lastUpdatedAt: contentDeps.last_updated_at });
     setSignals(sigs);
@@ -933,9 +946,9 @@ export default function FinancialPlanEditor({
       label: "Monthly Phasing",
       badge: criticalCount > 0 ? { count: criticalCount, color: P.red } : warningCount > 0 ? { count: warningCount, color: P.amber } : undefined,
     },
-    { id: "changes"   as const, label: `Change Exposure${content.change_exposure.length > 0 ? ` (${content.change_exposure.length})` : ""}` },
+    { id: "changes"   as const, label: `Change Exposure${localContent.change_exposure.length > 0 ? ` (${localContent.change_exposure.length})` : ""}` },
     { id: "narrative" as const, label: "Narrative & Assumptions" },
-  ], [resources.length, content.change_exposure.length, criticalCount, warningCount]);
+  ], [resources.length, localContent.change_exposure.length, criticalCount, warningCount]);
 
   const inputBase: React.CSSProperties = { border: `1px solid ${P.border}`, background: P.surface, fontFamily: P.sans, fontSize: 13, color: P.text, padding: "6px 10px", outline: "none" };
   const labelStyle: React.CSSProperties = { display: "block", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color: P.textSm, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 5 };
@@ -947,7 +960,7 @@ export default function FinancialPlanEditor({
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-end" }}>
         <div>
           <label style={labelStyle}>Currency</label>
-          <select value={content.currency} onChange={e => updateField("currency", e.target.value as Currency)} disabled={readOnly} style={{ ...inputBase, fontFamily: P.mono, fontWeight: 600 }}>
+          <select value={localContent.currency} onChange={e => updateField("currency", e.target.value as Currency)} disabled={readOnly} style={{ ...inputBase, fontFamily: P.mono, fontWeight: 600 }}>
             {CURRENCIES.map(c => <option key={c} value={c}>{c} ({CURRENCY_SYMBOLS[c]})</option>)}
           </select>
         </div>
@@ -955,7 +968,7 @@ export default function FinancialPlanEditor({
           <label style={labelStyle}>Total Approved Budget</label>
           <div style={{ display: "flex", alignItems: "center", gap: 4, border: `1px solid ${P.border}`, background: P.surface, padding: "0 10px" }}>
             <span style={{ fontFamily: P.mono, fontSize: 13, fontWeight: 700, color: P.textSm }}>{sym}</span>
-            <input type="number" min={0} step={1000} value={content.total_approved_budget}
+            <input type="number" min={0} step={1000} value={localContent.total_approved_budget}
               onChange={e => updateField("total_approved_budget", e.target.value === "" ? "" : Number(e.target.value))}
               readOnly={readOnly} placeholder="0"
               style={{ width: 144, border: "none", background: "transparent", fontSize: 13, fontWeight: 600, fontFamily: P.mono, color: P.text, outline: "none", padding: "6px 0" }}
@@ -1000,7 +1013,7 @@ export default function FinancialPlanEditor({
       {/* ── Summary ── */}
       <div>
         <label style={labelStyle}>Plan Summary</label>
-        <textarea value={content.summary} onChange={e => updateField("summary", e.target.value)} readOnly={readOnly} rows={2}
+        <textarea value={localContent.summary} onChange={e => updateField("summary", e.target.value)} readOnly={readOnly} rows={2}
           placeholder="Brief overview of financial position and key spend areas..."
           style={{ ...inputBase, width: "100%", resize: "none", lineHeight: 1.5 }}
         />
@@ -1151,7 +1164,7 @@ export default function FinancialPlanEditor({
       {/* ── Resources tab ── */}
       {activeTab === "resources" && (
         <ResourcesTab
-          resources={resources} costLines={lines} sym={sym} currency={content.currency}
+          resources={resources} costLines={lines} sym={sym} currency={localContent.currency}
           readOnly={readOnly} onChange={handleResourcesChange} organisationId={organisationId}
           monthlyData={monthlyData} fyConfig={fyConfig} timesheetEntries={timesheetEntries}
           actualsByLine={actualsByLine} onSyncMonthly={d => updateField("monthly_data", d)}
@@ -1162,15 +1175,15 @@ export default function FinancialPlanEditor({
       {activeTab === "monthly" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {!readOnly && resources.length > 0 && (
-            <ResourceSyncBar resources={resources} costLines={lines} monthlyData={monthlyData} fyConfig={fyConfig} currency={content.currency} timesheetEntries={timesheetEntries} onSync={d => updateField("monthly_data", d)} />
+            <ResourceSyncBar resources={resources} costLines={lines} monthlyData={monthlyData} fyConfig={fyConfig} currency={localContent.currency} timesheetEntries={timesheetEntries} onSync={d => updateField("monthly_data", d)} />
           )}
           <FinancialIntelligencePanel
-            content={content} monthlyData={monthlyDataWithActuals} fyConfig={fyConfig}
-            lastUpdatedAt={content.last_updated_at} raidItems={raidItems}
+            content={localContent} monthlyData={monthlyDataWithActuals} fyConfig={fyConfig}
+            lastUpdatedAt={localContent.last_updated_at} raidItems={raidItems}
             approvalDelays={approvalDelays} onSignalsChange={setSignals}
           />
           <FinancialPlanMonthlyView
-            content={content} monthlyData={monthlyDataWithActuals}
+            content={localContent} monthlyData={monthlyDataWithActuals}
             onMonthlyDataChange={d => updateField("monthly_data", d)}
             fyConfig={fyConfig} onFyConfigChange={c => updateField("fy_config", c)}
             signals={signals} readOnly={readOnly}
@@ -1203,10 +1216,10 @@ export default function FinancialPlanEditor({
                 </tr>
               </thead>
               <tbody>
-                {content.change_exposure.length === 0 && (
+                {localContent.change_exposure.length === 0 && (
                   <tr><td colSpan={6} style={{ padding: "32px 16px", textAlign: "center", fontFamily: P.sans, fontSize: 13, color: P.textSm }}>No change exposure logged yet.</td></tr>
                 )}
-                {content.change_exposure.map((c, idx) => {
+                {localContent.change_exposure.map((c, idx) => {
                   const rowBg = idx % 2 === 0 ? P.surface : "#FAFAF8";
                   const cellBase: React.CSSProperties = { borderBottom: `1px solid ${P.border}`, background: rowBg };
                   return (
@@ -1270,7 +1283,7 @@ export default function FinancialPlanEditor({
           ].map(({ key, label, placeholder }) => (
             <div key={key}>
               <label style={labelStyle}>{label}</label>
-              <textarea value={content[key]} onChange={e => updateField(key, e.target.value)} readOnly={readOnly} rows={4}
+              <textarea value={localContent[key]} onChange={e => updateField(key, e.target.value)} readOnly={readOnly} rows={4}
                 placeholder={placeholder}
                 style={{ ...inputBase, width: "100%", resize: "vertical", lineHeight: 1.6 }}
               />
