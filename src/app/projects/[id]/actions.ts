@@ -16,6 +16,7 @@ import { ARTIFACT_TYPES, type ArtifactType } from "@/lib/artifact-types";
  */
 const BOARD_MANAGEABLE_TYPES = new Set([
   "PROJECT_CHARTER",
+  "PID",                    // legacy type name — treated as Project Charter
   "PROJECT_CLOSURE_REPORT",
   "SCHEDULE",
 ]);
@@ -157,7 +158,7 @@ function canEditArtifactRow(a: any) {
 
 /* =========================
    CREATE
-   Only allowed for: PROJECT_CHARTER, PROJECT_CLOSURE_REPORT, SCHEDULE
+   Only allowed for: PROJECT_CHARTER, PID, PROJECT_CLOSURE_REPORT, SCHEDULE
 ========================= */
 
 export async function createArtifact(formData: FormData) {
@@ -443,7 +444,7 @@ export async function generateArtifactAI(formData: FormData) {
   if (!edit.ok) throw new Error(edit.reason);
 
   const stamp = new Date().toISOString();
-  const header = `\n\n---\n🤖 AI Draft (${stamp})\n`;
+  const header = `\n\n---\nAI Draft (${stamp})\n`;
   const ptxt = prompt ? `Prompt: ${prompt}\n\n` : "Prompt: (none)\n\n";
   const body = `[AI output placeholder]\n- Add your model call in generateArtifactAI()\n`;
 
@@ -859,7 +860,7 @@ export async function updateArtifactJsonSilent(args: {
 
 /* =========================
    CLONE ARTIFACT
-   Only allowed for: PROJECT_CHARTER, PROJECT_CLOSURE_REPORT, SCHEDULE
+   Only allowed for: PROJECT_CHARTER, PID, PROJECT_CLOSURE_REPORT, SCHEDULE
 ========================= */
 
 export async function cloneArtifact(
@@ -921,7 +922,7 @@ export async function cloneArtifact(
 
 /* =========================
    DELETE DRAFT ARTIFACT
-   Only allowed for: PROJECT_CHARTER, PROJECT_CLOSURE_REPORT, SCHEDULE
+   Only allowed for: PROJECT_CHARTER, PID, PROJECT_CLOSURE_REPORT, SCHEDULE
 ========================= */
 
 export async function deleteDraftArtifact(args: {
