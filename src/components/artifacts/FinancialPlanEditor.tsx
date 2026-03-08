@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import {
   Plus, Trash2, TrendingUp, TrendingDown, AlertTriangle,
   Calendar, Users, Link2, Link2Off, Zap, ChevronRight,
@@ -10,7 +10,6 @@ import FinancialPlanMonthlyView, { type MonthlyData, type FYConfig } from "./Fin
 import FinancialIntelligencePanel from "./FinancialIntelligencePanel";
 import { analyseFinancialPlan, type Signal } from "@/lib/financial-intelligence";
 import ResourcePicker, { type PickedPerson } from "./ResourcePicker";
-// getRateForUser removed — rate card lookup uses fetch (/api/org/rate-card) to avoid blocking navigation
 import { syncResourcesToMonthlyData, previewSync } from "./syncResourcesToMonthlyData";
 import {
   computeActuals,
@@ -20,7 +19,6 @@ import {
   type ActualsByLine,
 } from "./computeActuals";
 
-// ── Palantir design tokens ────────────────────────────────────────────────────
 const P = {
   bg:       "#F7F7F5",
   surface:  "#FFFFFF",
@@ -44,8 +42,6 @@ const P = {
   mono:     "'DM Mono', 'Courier New', monospace",
   sans:     "'DM Sans', system-ui, sans-serif",
 } as const;
-
-// ── Types ─────────────────────────────────────────────────────────────────────
 
 export const CURRENCIES = ["GBP", "USD", "EUR", "AUD", "CAD"] as const;
 export type Currency = typeof CURRENCIES[number];
@@ -146,8 +142,6 @@ export type FinancialPlanContent = {
   last_updated_at?: string;
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
 export function emptyFinancialPlan(currency: Currency = "GBP"): FinancialPlanContent {
@@ -162,11 +156,7 @@ export function emptyFinancialPlan(currency: Currency = "GBP"): FinancialPlanCon
     variance_narrative: "",
     assumptions: "",
     monthly_data: {},
-    fy_config: {
-      fy_start_month: 4,
-      fy_start_year: now.getFullYear(),
-      num_months: 12,
-    },
+    fy_config: { fy_start_month: 4, fy_start_year: now.getFullYear(), num_months: 12 },
     last_updated_at: now.toISOString(),
   };
 }
@@ -222,8 +212,6 @@ function sumField(lines: CostLine[], field: keyof CostLine): number {
   return lines.reduce((s, l) => s + (Number(l[field]) || 0), 0);
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
-
 function VarianceBadge({ budget, forecast }: { budget: number | ""; forecast: number | "" }) {
   if (!budget || forecast === "") return <span style={{ color: P.border, fontSize: 11 }}>—</span>;
   const pct = ((Number(forecast) - Number(budget)) / Number(budget)) * 100;
@@ -246,12 +234,7 @@ function MoneyCell({ value, onChange, symbol, readOnly = false }: {
         type="number" min={0} step={100} value={value}
         onChange={e => onChange(e.target.value === "" ? "" : Number(e.target.value))}
         readOnly={readOnly}
-        style={{
-          width: 96, border: "none", background: "transparent", padding: "6px 0",
-          fontSize: 12, textAlign: "right", fontWeight: 500, color: P.text,
-          fontFamily: P.mono, outline: "none", opacity: readOnly ? 0.6 : 1,
-          cursor: readOnly ? "default" : "text",
-        }}
+        style={{ width: 96, border: "none", background: "transparent", padding: "6px 0", fontSize: 12, textAlign: "right", fontWeight: 500, color: P.text, fontFamily: P.mono, outline: "none", opacity: readOnly ? 0.6 : 1, cursor: readOnly ? "default" : "text" }}
         onFocus={e => { if (!readOnly) e.currentTarget.style.outline = `1px solid ${P.navy}`; }}
         onBlur={e => { e.currentTarget.style.outline = "none"; }}
         placeholder="0"
@@ -294,13 +277,7 @@ function OverrideToggle({ line, hasLinkedResources, resTotal, sym, onToggle }: {
   return (
     <button
       onClick={onToggle}
-      style={{
-        display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px",
-        fontFamily: P.mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", cursor: "pointer",
-        background: line.override ? P.amberLt : P.greenLt,
-        border: `1px solid ${line.override ? "#E0C080" : "#A0D0B8"}`,
-        color: line.override ? P.amber : P.green,
-      }}
+      style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", cursor: "pointer", background: line.override ? P.amberLt : P.greenLt, border: `1px solid ${line.override ? "#E0C080" : "#A0D0B8"}`, color: line.override ? P.amber : P.green }}
       title={line.override ? "Re-enable auto-update from resources" : "Override — stop auto-update"}
     >
       {line.override ? <Link2Off style={{ width: 9, height: 9 }} /> : <Link2 style={{ width: 9, height: 9 }} />}
@@ -308,8 +285,6 @@ function OverrideToggle({ line, hasLinkedResources, resTotal, sym, onToggle }: {
     </button>
   );
 }
-
-// ── ResourceSyncBar ───────────────────────────────────────────────────────────
 
 function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency, timesheetEntries, onSync }: {
   resources: Resource[]; costLines: CostLine[]; monthlyData: MonthlyData;
@@ -345,7 +320,7 @@ function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency
     setExpanded(false);
   }
 
-  const barBg = synced ? P.greenLt : hasChanges ? P.navyLt : P.bg;
+  const barBg     = synced ? P.greenLt : hasChanges ? P.navyLt : P.bg;
   const barBorder = synced ? "#A0D0B8" : hasChanges ? "#A0BAD0" : P.border;
 
   return (
@@ -439,8 +414,6 @@ function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency
   );
 }
 
-// ── Resources tab ─────────────────────────────────────────────────────────────
-
 function ResourcesTab({
   resources, costLines, sym, currency, readOnly, onChange, organisationId,
   monthlyData, fyConfig, timesheetEntries, actualsByLine, onSyncMonthly,
@@ -478,10 +451,10 @@ function ResourcesTab({
   }, [resources, costLines]);
 
   const statCards = [
-    { label: "Total Resources",      value: String(resources.length), sub: "across all roles",                                                          color: P.text     },
-    { label: "Total Resource Cost",  value: fmt(totalCost, sym),      sub: "calculated from rates",                                                     color: P.navy     },
-    { label: "Linked to Cost Lines", value: fmt(linkedCost, sym),     sub: `${byLine.length} line${byLine.length !== 1 ? "s" : ""} receiving rollup`,   color: P.green    },
-    { label: "Unlinked Cost",        value: fmt(unlinkedCost, sym),   sub: unlinkedCost > 0 ? "not rolling up" : "all linked",                          color: unlinkedCost > 0 ? P.amber : P.textSm },
+    { label: "Total Resources",      value: String(resources.length), sub: "across all roles",                                                        color: P.text  },
+    { label: "Total Resource Cost",  value: fmt(totalCost, sym),      sub: "calculated from rates",                                                   color: P.navy  },
+    { label: "Linked to Cost Lines", value: fmt(linkedCost, sym),     sub: `${byLine.length} line${byLine.length !== 1 ? "s" : ""} receiving rollup`, color: P.green },
+    { label: "Unlinked Cost",        value: fmt(unlinkedCost, sym),   sub: unlinkedCost > 0 ? "not rolling up" : "all linked",                        color: unlinkedCost > 0 ? P.amber : P.textSm },
   ];
 
   const typeBadgeStyle = (type: ResourceType): React.CSSProperties => ({
@@ -565,17 +538,16 @@ function ResourcesTab({
               const actualCost       = Math.round(approvedDays * effectiveDayRate * 100) / 100;
               const hasTimesheet     = approvedDays > 0;
               const rowBg            = idx % 2 === 0 ? P.surface : "#FAFAF8";
-
               const cellStyle: React.CSSProperties = { borderBottom: `1px solid ${P.border}`, background: rowBg };
 
               return (
                 <tr key={r.id} style={cellStyle}>
                   <td style={{ ...cellStyle, minWidth: 220, padding: "4px 8px" }}>
+                    {/* ✅ FIX: plain async function — useCallback cannot be called inside .map() */}
                     <ResourcePicker
                       organisationId={organisationId} value={r.user_id ?? null}
                       currentResource={r} disabled={readOnly}
-                      onPick={useCallback(async (person: PickedPerson) => {
-                        // Build patch but DON'T apply yet - wait for fetch
+                      onPick={async (person: PickedPerson) => {
                         let finalPatch: Partial<Resource> = {
                           user_id: person.user_id || undefined,
                           name: person.full_name ?? person.name ?? person.email ?? r.name,
@@ -586,9 +558,6 @@ function ResourcesTab({
                             type: (person.resource_type ?? r.type) as ResourceType,
                           } : {}),
                         };
-
-                        // ── Rate card lookup via fetch (NOT server action) ──────────────────
-                        // Server actions block Next.js navigation while in-flight; fetch does not.
                         const personUid = person.user_id;
                         if (personUid && organisationId) {
                           try {
@@ -611,10 +580,8 @@ function ResourcesTab({
                             console.warn("Rate card lookup failed:", e);
                           }
                         }
-
-                        // Apply single update after all async work completes
                         update(r.id, finalPatch);
-                      }, [r.id, r.name, r.day_rate, r.monthly_cost, r.type, organisationId, update])}
+                      }}
                     />
                     <input type="text" value={r.name} onChange={e => update(r.id, { name: e.target.value })} readOnly={readOnly}
                       placeholder="Role label override…"
@@ -764,8 +731,6 @@ function ResourcesTab({
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
-
 type Props = {
   content: FinancialPlanContent;
   onChange: (c: FinancialPlanContent) => void;
@@ -787,9 +752,9 @@ export default function FinancialPlanEditor({
   const lines     = content.cost_lines ?? [];
   const resources = content.resources  ?? [];
 
-  const actualsByLine = useMemo(() => computeActuals(resources, timesheetEntries), [resources, timesheetEntries]);
+  const actualsByLine       = useMemo(() => computeActuals(resources, timesheetEntries), [resources, timesheetEntries]);
   const actualTotalsPerLine = useMemo(() => computeActualTotalsPerLine(resources, timesheetEntries), [resources, timesheetEntries]);
-  const linesWithActuals = useMemo(() => applyActualsToCostLines(lines, actualTotalsPerLine), [lines, actualTotalsPerLine]);
+  const linesWithActuals    = useMemo(() => applyActualsToCostLines(lines, actualTotalsPerLine), [lines, actualTotalsPerLine]);
 
   const totalApprovedDays = useMemo(() => {
     const map: Record<string, number> = {};
@@ -807,32 +772,23 @@ export default function FinancialPlanEditor({
     return map;
   }, [resources]);
 
-  // Stable deps for the signals analyser useEffect
   const contentDeps = useMemo(() => ({
-    currency: content.currency,
+    currency:              content.currency,
     total_approved_budget: content.total_approved_budget,
-    summary: content.summary,
-    cost_lines: content.cost_lines,
-    change_exposure: content.change_exposure,
-    resources: content.resources,
-    variance_narrative: content.variance_narrative,
-    assumptions: content.assumptions,
-    last_updated_at: content.last_updated_at,
+    summary:               content.summary,
+    cost_lines:            content.cost_lines,
+    change_exposure:       content.change_exposure,
+    resources:             content.resources,
+    variance_narrative:    content.variance_narrative,
+    assumptions:           content.assumptions,
+    last_updated_at:       content.last_updated_at,
   }), [
-    content.currency,
-    content.total_approved_budget,
-    content.summary,
-    content.cost_lines,
-    content.change_exposure,
-    content.resources,
-    content.variance_narrative,
-    content.assumptions,
-    content.last_updated_at,
+    content.currency, content.total_approved_budget, content.summary,
+    content.cost_lines, content.change_exposure, content.resources,
+    content.variance_narrative, content.assumptions, content.last_updated_at,
   ]);
 
-  const handleChange = useCallback((patch: FinancialPlanContent) => {
-    onChange(patch);
-  }, [onChange]);
+  const handleChange = useCallback((patch: FinancialPlanContent) => onChange(patch), [onChange]);
 
   const updateField = useCallback(<K extends keyof FinancialPlanContent>(key: K, val: FinancialPlanContent[K]) => {
     handleChange({ ...content, [key]: val });
@@ -856,10 +812,7 @@ export default function FinancialPlanEditor({
     handleChange({ ...content, cost_lines: newLines });
   }, [content, lines, resources, handleChange]);
 
-  const addLine = useCallback(() => {
-    handleChange({ ...content, cost_lines: [...content.cost_lines, emptyCostLine()] });
-  }, [content, handleChange]);
-
+  const addLine    = useCallback(() => handleChange({ ...content, cost_lines: [...content.cost_lines, emptyCostLine()] }), [content, handleChange]);
   const removeLine = useCallback((id: string) => {
     const newResources = resources.map(r => r.cost_line_id === id ? { ...r, cost_line_id: null } : r);
     handleChange({ ...content, cost_lines: content.cost_lines.filter(l => l.id !== id), resources: newResources });
@@ -868,14 +821,8 @@ export default function FinancialPlanEditor({
   const updateCE = useCallback((id: string, patch: Partial<ChangeExposure>) => {
     handleChange({ ...content, change_exposure: content.change_exposure.map(c => c.id === id ? { ...c, ...patch } : c) });
   }, [content, handleChange]);
-
-  const addCE = useCallback(() => {
-    handleChange({ ...content, change_exposure: [...content.change_exposure, emptyChangeExposure()] });
-  }, [content, handleChange]);
-
-  const removeCE = useCallback((id: string) => {
-    handleChange({ ...content, change_exposure: content.change_exposure.filter(c => c.id !== id) });
-  }, [content, handleChange]);
+  const addCE    = useCallback(() => handleChange({ ...content, change_exposure: [...content.change_exposure, emptyChangeExposure()] }), [content, handleChange]);
+  const removeCE = useCallback((id: string) => handleChange({ ...content, change_exposure: content.change_exposure.filter(c => c.id !== id) }), [content, handleChange]);
 
   const totalBudgeted    = sumField(linesWithActuals, "budgeted");
   const totalActual      = sumField(linesWithActuals, "actual");
@@ -888,16 +835,8 @@ export default function FinancialPlanEditor({
   const overBudget       = forecastVariance !== null && forecastVariance > 0;
   const totalResourceCost = resources.reduce((s, r) => s + resourceTotal(r), 0);
 
-  const fyConfig = useMemo<FYConfig>(
-    () => content.fy_config ?? { fy_start_month: 4, fy_start_year: new Date().getFullYear(), num_months: 12 },
-    [content.fy_config]
-  );
-
-  const monthlyData = useMemo<MonthlyData>(
-    () => content.monthly_data ?? {},
-    [content.monthly_data]
-  );
-
+  const fyConfig  = useMemo<FYConfig>(() => content.fy_config ?? { fy_start_month: 4, fy_start_year: new Date().getFullYear(), num_months: 12 }, [content.fy_config]);
+  const monthlyData = useMemo<MonthlyData>(() => content.monthly_data ?? {}, [content.monthly_data]);
   const monthlyDataWithActuals = useMemo(() => applyActualsToMonthlyData(monthlyData, actualsByLine), [monthlyData, actualsByLine]);
 
   useEffect(() => {
@@ -911,22 +850,17 @@ export default function FinancialPlanEditor({
   const tabs = useMemo(() => [
     { id: "budget"    as const, label: "Cost Breakdown" },
     { id: "resources" as const, label: `Resources${resources.length > 0 ? ` (${resources.length})` : ""}` },
-    {
-      id: "monthly" as const,
-      label: "Monthly Phasing",
-      badge: criticalCount > 0 ? { count: criticalCount, color: P.red } : warningCount > 0 ? { count: warningCount, color: P.amber } : undefined,
-    },
+    { id: "monthly"   as const, label: "Monthly Phasing", badge: criticalCount > 0 ? { count: criticalCount, color: P.red } : warningCount > 0 ? { count: warningCount, color: P.amber } : undefined },
     { id: "changes"   as const, label: `Change Exposure${content.change_exposure.length > 0 ? ` (${content.change_exposure.length})` : ""}` },
     { id: "narrative" as const, label: "Narrative & Assumptions" },
   ], [resources.length, content.change_exposure.length, criticalCount, warningCount]);
 
-  const inputBase: React.CSSProperties = { border: `1px solid ${P.border}`, background: P.surface, fontFamily: P.sans, fontSize: 13, color: P.text, padding: "6px 10px", outline: "none" };
+  const inputBase: React.CSSProperties  = { border: `1px solid ${P.border}`, background: P.surface, fontFamily: P.sans, fontSize: 13, color: P.text, padding: "6px 10px", outline: "none" };
   const labelStyle: React.CSSProperties = { display: "block", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color: P.textSm, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 5 };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, fontFamily: P.sans }}>
 
-      {/* ── Currency + budget header ── */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-end" }}>
         <div>
           <label style={labelStyle}>Currency</label>
@@ -947,13 +881,12 @@ export default function FinancialPlanEditor({
         </div>
       </div>
 
-      {/* ── Stat cards ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
         {[
-          { label: "Budgeted",         value: fmt(totalBudgeted, sym),   sub: "across all cost lines",                                                                             color: P.text,   locked: false },
-          { label: "Actual Spent",     value: fmt(totalActual, sym),     sub: totalApprovedDays > 0 ? `${totalApprovedDays.toLocaleString()} approved days` : "awaiting approved timesheets", color: P.violet, locked: true },
-          { label: "Total Forecast",   value: fmt(totalForecast, sym),   sub: utilPct !== null ? `${utilPct}% of approved` : "",                                                   color: overBudget ? P.red : P.green, locked: false },
-          { label: "Pending Exposure", value: fmt(pendingExposure, sym), sub: "from change requests",                                                                              color: pendingExposure > 0 ? P.amber : P.textSm, locked: false },
+          { label: "Budgeted",         value: fmt(totalBudgeted, sym),   sub: "across all cost lines",                                                                                            color: P.text,   locked: false },
+          { label: "Actual Spent",     value: fmt(totalActual, sym),     sub: totalApprovedDays > 0 ? `${totalApprovedDays.toLocaleString()} approved days` : "awaiting approved timesheets",    color: P.violet, locked: true  },
+          { label: "Total Forecast",   value: fmt(totalForecast, sym),   sub: utilPct !== null ? `${utilPct}% of approved` : "",                                                                  color: overBudget ? P.red : P.green, locked: false },
+          { label: "Pending Exposure", value: fmt(pendingExposure, sym), sub: "from change requests",                                                                                             color: pendingExposure > 0 ? P.amber : P.textSm, locked: false },
         ].map(s => (
           <div key={s.label} style={{ background: s.locked ? P.violetLt : P.surface, border: `1px solid ${s.locked ? "#C0B0E0" : P.border}`, padding: "12px 16px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
@@ -980,7 +913,6 @@ export default function FinancialPlanEditor({
         </div>
       )}
 
-      {/* ── Summary ── */}
       <div>
         <label style={labelStyle}>Plan Summary</label>
         <textarea value={content.summary} onChange={e => updateField("summary", e.target.value)} readOnly={readOnly} rows={2}
@@ -989,19 +921,12 @@ export default function FinancialPlanEditor({
         />
       </div>
 
-      {/* ── Tabs ── */}
       <div style={{ display: "flex", gap: 0, borderBottom: `2px solid ${P.border}`, overflowX: "auto" }}>
         {tabs.map(tab => {
           const active = activeTab === tab.id;
           return (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              style={{
-                display: "flex", alignItems: "center", gap: 6, padding: "8px 16px",
-                fontFamily: P.sans, fontSize: 12, fontWeight: active ? 600 : 400, cursor: "pointer",
-                background: "none", border: "none", borderBottom: `2px solid ${active ? P.navy : "transparent"}`,
-                color: active ? P.navy : P.textMd, marginBottom: -2, whiteSpace: "nowrap",
-                transition: "all 0.1s",
-              }}
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", fontFamily: P.sans, fontSize: 12, fontWeight: active ? 600 : 400, cursor: "pointer", background: "none", border: "none", borderBottom: `2px solid ${active ? P.navy : "transparent"}`, color: active ? P.navy : P.textMd, marginBottom: -2, whiteSpace: "nowrap", transition: "all 0.1s" }}
             >
               {tab.id === "monthly"   && <Calendar style={{ width: 12, height: 12 }} />}
               {tab.id === "resources" && <Users style={{ width: 12, height: 12 }} />}
@@ -1016,7 +941,6 @@ export default function FinancialPlanEditor({
         })}
       </div>
 
-      {/* ── Cost Breakdown tab ── */}
       {activeTab === "budget" && (
         <div style={{ border: `1px solid ${P.borderMd}`, overflow: "hidden" }}>
           <div style={{ padding: "6px 12px", background: P.violetLt, borderBottom: `1px solid #C0B0E0`, display: "flex", alignItems: "center", gap: 6, fontFamily: P.mono, fontSize: 9, color: P.violet, fontWeight: 500 }}>
@@ -1035,18 +959,14 @@ export default function FinancialPlanEditor({
             </thead>
             <tbody>
               {lines.length === 0 && (
-                <tr>
-                  <td colSpan={9} style={{ padding: "32px 16px", textAlign: "center", fontFamily: P.sans, fontSize: 13, color: P.textSm }}>
-                    No cost lines yet. Click <strong>Add line</strong> below.
-                  </td>
-                </tr>
+                <tr><td colSpan={9} style={{ padding: "32px 16px", textAlign: "center", fontFamily: P.sans, fontSize: 13, color: P.textSm }}>No cost lines yet. Click <strong>Add line</strong> below.</td></tr>
               )}
               {linesWithActuals.map((l, idx) => {
-                const resTotal     = resourceTotalsByLine[l.id] ?? 0;
-                const hasResources = resTotal > 0;
+                const resTotal         = resourceTotalsByLine[l.id] ?? 0;
+                const hasResources     = resTotal > 0;
                 const lineApprovedDays = timesheetEntries.filter(e => { const r = resources.find(r => r.id === e.resource_id); return r?.cost_line_id === l.id; }).reduce((s, e) => s + e.approved_days, 0);
                 const hasTimesheetData = lineApprovedDays > 0;
-                const rowBg = idx % 2 === 0 ? P.surface : "#FAFAF8";
+                const rowBg            = idx % 2 === 0 ? P.surface : "#FAFAF8";
                 const cellBase: React.CSSProperties = { borderBottom: `1px solid ${P.border}`, background: rowBg };
 
                 return (
@@ -1067,11 +987,10 @@ export default function FinancialPlanEditor({
                       <MoneyCell value={l.budgeted} onChange={v => updateLine(l.id, { budgeted: v })} symbol={sym} readOnly={readOnly || (hasResources && !l.override)} />
                     </td>
                     <td style={{ ...cellBase, background: l.category === "people" ? P.violetLt : rowBg }}>
-                      {l.category === "people" ? (
-                        <ActualCell value={l.actual} symbol={sym} approvedDays={lineApprovedDays} hasTimesheetData={hasTimesheetData} />
-                      ) : (
-                        <MoneyCell value={l.actual} onChange={v => updateLine(l.id, { actual: v })} symbol={sym} readOnly={readOnly} />
-                      )}
+                      {l.category === "people"
+                        ? <ActualCell value={l.actual} symbol={sym} approvedDays={lineApprovedDays} hasTimesheetData={hasTimesheetData} />
+                        : <MoneyCell value={l.actual} onChange={v => updateLine(l.id, { actual: v })} symbol={sym} readOnly={readOnly} />
+                      }
                     </td>
                     <td style={{ ...cellBase, background: hasResources && !l.override ? "#F2F8FF" : rowBg }}>
                       <MoneyCell value={l.forecast} onChange={v => updateLine(l.id, { forecast: v })} symbol={sym} readOnly={readOnly || (hasResources && !l.override)} />
@@ -1131,7 +1050,6 @@ export default function FinancialPlanEditor({
         </div>
       )}
 
-      {/* ── Resources tab ── */}
       {activeTab === "resources" && (
         <ResourcesTab
           resources={resources} costLines={lines} sym={sym} currency={content.currency}
@@ -1141,7 +1059,6 @@ export default function FinancialPlanEditor({
         />
       )}
 
-      {/* ── Monthly tab ── */}
       {activeTab === "monthly" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {!readOnly && resources.length > 0 && (
@@ -1161,14 +1078,13 @@ export default function FinancialPlanEditor({
         </div>
       )}
 
-      {/* ── Changes tab ── */}
       {activeTab === "changes" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
             {[
-              { label: "Approved Exposure", value: fmt(approvedExposure, sym),                  color: P.navy  },
+              { label: "Approved Exposure", value: fmt(approvedExposure, sym),                  color: P.navy },
               { label: "Pending Exposure",  value: fmt(pendingExposure, sym),                   color: pendingExposure > 0 ? P.amber : P.textSm },
-              { label: "Total Exposure",    value: fmt(approvedExposure + pendingExposure, sym), color: P.text  },
+              { label: "Total Exposure",    value: fmt(approvedExposure + pendingExposure, sym), color: P.text },
             ].map(s => (
               <div key={s.label} style={{ background: P.surface, border: `1px solid ${P.border}`, padding: "12px 16px" }}>
                 <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>{s.label}</div>
@@ -1244,7 +1160,6 @@ export default function FinancialPlanEditor({
         </div>
       )}
 
-      {/* ── Narrative tab ── */}
       {activeTab === "narrative" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {[
@@ -1261,6 +1176,7 @@ export default function FinancialPlanEditor({
           ))}
         </div>
       )}
+
     </div>
   );
 }
