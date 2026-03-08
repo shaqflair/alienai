@@ -1,21 +1,10 @@
 ﻿"use client";
 // FILE: src/components/nav/SidebarShell.tsx
-//
-// Client wrapper that reads the current pathname and decides whether
-// to show the sidebar. This keeps layout.tsx a server component.
-//
-// ΛLIΞNΛ Offline Upgrade (MVP):
-//   ✅ Shows an "Offline mode" banner when disconnected
-//   ✅ Auto-syncs queued changes when back online via /api/offline/sync
-//   ✅ Safe: does nothing on auth routes (no sidebar shown)
 
 import React from "react";
 import { usePathname } from "next/navigation";
 import Sidebar from "./Sidebar";
 
-// Optional (safe) offline helpers — add these files as previously listed:
-//   src/lib/offline/sync.ts (exports syncNow)
-// If you haven't added them yet, the try/catch + dynamic import below prevents crashes.
 async function safeSyncNow() {
   try {
     const mod = await import("@/lib/offline/sync");
@@ -52,10 +41,6 @@ export default function SidebarShell({
   const pathname = usePathname();
   const showSidebar = shouldShowSidebar(pathname);
 
-  // Only greet on authenticated app pages (i.e., when sidebar is shown)
-  // This avoids voice on login/signup/invite routes.
- 
-
   const [isOffline, setIsOffline] = React.useState(false);
   const [syncing, setSyncing] = React.useState(false);
   const [queuedCount, setQueuedCount] = React.useState<number | null>(null);
@@ -69,8 +54,6 @@ export default function SidebarShell({
 
     const onOnline = async () => {
       setIsOffline(false);
-
-      // Kick off sync when we come back online
       setSyncing(true);
       try {
         await safeSyncNow();
@@ -79,39 +62,54 @@ export default function SidebarShell({
       }
     };
 
-    const onOffline = () => {
-      setIsOffline(true);
-    };
+    const onOffline = () => setIsOffline(true);
 
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
-
     return () => {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
     };
   }, [showSidebar]);
 
-  // Best-effort: read queued count (if offline queue exists)
+  // Best-effort: read queued count (if offline queue exists).
+  //
+  // FIX: Previously this ran setInterval every 5s and always called
+  // setQueuedCount(null) in the catch block (because @/lib/offline/queue
+  // doesn't exist). Every setQueuedCount call re-rendered SidebarShell →
+  // re-rendered Sidebar → re-rendered all <Link> components → Next.js
+  // App Router re-triggered RSC prefetch for every visible nav link
+  // (projects, heatmap, governance, people, etc.) every 5 seconds.
+  // This is what caused the ?_rsc= waterfall in the network tab.
+  //
+  // Fix: try once; if the module is absent, never poll again.
+  // If present, only update state when the value actually changes.
   React.useEffect(() => {
     if (!showSidebar) return;
 
     let alive = true;
+    let moduleConfirmedAbsent = false;
 
     async function loadQueued() {
+      if (moduleConfirmedAbsent) return;
       try {
         const qmod = await import("@/lib/offline/queue");
-        if (typeof qmod.getQueue !== "function") return;
+        if (typeof qmod.getQueue !== "function") {
+          moduleConfirmedAbsent = true;
+          return;
+        }
         const q = await qmod.getQueue();
         if (!alive) return;
-        setQueuedCount(Array.isArray(q) ? q.length : null);
+        const next = Array.isArray(q) ? q.length : null;
+        // Only call setState if value changed — avoids triggering a re-render
+        // (and downstream Link prefetch cascade) when nothing has changed
+        setQueuedCount((prev) => (prev === next ? prev : next));
       } catch {
-        // offline layer not present yet
-        if (alive) setQueuedCount(null);
+        // Module not present — mark absent so interval becomes a no-op
+        moduleConfirmedAbsent = true;
       }
     }
 
-    // load once, then poll lightly while sidebar is visible
     loadQueued();
     const id = window.setInterval(loadQueued, 5000);
 
@@ -127,7 +125,6 @@ export default function SidebarShell({
 
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
-      
       <Sidebar userName={userName} orgName={orgName} projectCount={projectCount} />
 
       <main
@@ -140,7 +137,6 @@ export default function SidebarShell({
           position: "relative",
         }}
       >
-        {/* Offline / Sync banner */}
         {(isOffline || syncing) && (
           <div
             style={{
