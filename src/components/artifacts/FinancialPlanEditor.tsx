@@ -802,10 +802,12 @@ export default function FinancialPlanEditor({
   }, [resources]);
 
   const handleChange = useCallback((patch: FinancialPlanContent) => {
-    onChange({ ...patch, last_updated_at: new Date().toISOString() });
-  }, [onChange]);
-
-  const updateField = useCallback(<K extends keyof FinancialPlanContent>(key: K, val: FinancialPlanContent[K]) => {
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      onChange({ ...patch, last_updated_at: new Date().toISOString() });
+    }, 500);
+    onChange(patch);
+  }, [onChange]);  const updateField = useCallback(<K extends keyof FinancialPlanContent>(key: K, val: FinancialPlanContent[K]) => {
     handleChange({ ...content, [key]: val });
   }, [content, handleChange]);
 
