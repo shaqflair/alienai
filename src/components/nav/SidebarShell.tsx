@@ -3,7 +3,6 @@
 import React from "react";
 import { usePathname } from "next/navigation";
 import Sidebar from "./Sidebar";
-
 async function safeSyncNow() {
   try {
     const mod = await import("@/lib/offline/sync");
@@ -12,7 +11,6 @@ async function safeSyncNow() {
     // ignore if offline layer not present yet
   }
 }
-
 const NO_SIDEBAR_PREFIXES = [
   "/login",
   "/signup",
@@ -21,11 +19,9 @@ const NO_SIDEBAR_PREFIXES = [
   "/reset-password",
   "/verify",
 ];
-
 function shouldShowSidebar(pathname: string): boolean {
   return !NO_SIDEBAR_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
-
 export default function SidebarShell({
   children,
   userName,
@@ -40,18 +36,15 @@ export default function SidebarShell({
   const pathname = usePathname();
   const showSidebar = shouldShowSidebar(pathname);
   const mainRef = React.useRef<HTMLElement>(null);
-
   const [isOffline, setIsOffline] = React.useState(false);
   const [syncing, setSyncing] = React.useState(false);
   const [queuedCount, setQueuedCount] = React.useState<number | null>(null);
-
   // Reset scroll position on every navigation
   React.useEffect(() => {
     if (mainRef.current) {
       mainRef.current.scrollTop = 0;
     }
   }, [pathname]);
-
   // Keep offline state in sync with browser connectivity
   React.useEffect(() => {
     if (!showSidebar) return;
@@ -74,7 +67,6 @@ export default function SidebarShell({
       window.removeEventListener("offline", onOffline);
     };
   }, [showSidebar]);
-
   // Best-effort: read queued count (if offline queue exists).
   //
   // FIX: Previously this ran setInterval every 5s and always called
@@ -117,11 +109,9 @@ export default function SidebarShell({
       window.clearInterval(id);
     };
   }, [showSidebar, isOffline, syncing]);
-
   if (!showSidebar) {
     return <>{children}</>;
   }
-
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
       <Sidebar userName={userName} orgName={orgName} projectCount={projectCount} />
@@ -133,7 +123,6 @@ export default function SidebarShell({
           overflowX: "hidden",
           background: "#f8fafc",
           minWidth: 0,
-          position: "relative",
         }}
       >
         {(isOffline || syncing) && (

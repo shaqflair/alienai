@@ -210,14 +210,12 @@ function FinancialPlanEditorHost({
     };
   }, [clearPendingSave]);
   return (
-    <div className="relative z-0">
-      <FinancialPlanEditor
-        content={content}
-        onChange={handleChange}
-        organisationId={organisationId ?? projectId}
-        readOnly={readOnly}
-      />
-    </div>
+    <FinancialPlanEditor
+      content={content}
+      onChange={handleChange}
+      organisationId={organisationId ?? projectId}
+      readOnly={readOnly}
+    />
   );
 }
 /* ---------------- main component ---------------- */
