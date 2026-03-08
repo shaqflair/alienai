@@ -138,33 +138,38 @@ export default function FinancialIntelligencePanel({
   const [aiError, setAiError]       = useState<string | null>(null);
   const [activeTab, setActiveTab]   = useState<"signals" | "ai">("signals");
 
+  // ── FIX: Stable ref for onSignalsChange to break the dependency cycle ──────
+  // If the parent passes an inline function, putting onSignalsChange directly in
+  // useEffect deps would cause the signals effect to re-run on every render,
+  // potentially creating an infinite loop. A ref lets us always call the latest
+  // version without making it a reactive dependency.
+  const onSignalsChangeRef = useRef(onSignalsChange);
+  useEffect(() => { onSignalsChangeRef.current = onSignalsChange; }, [onSignalsChange]);
+
   // Track mounted state so async callbacks never setState after unmount
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      // Abort any in-flight AI fetch when component unmounts
       abortRef.current?.abort();
     };
   }, []);
 
+  // ── Signals analysis — stable dep list, no onSignalsChange in array ────────
   useEffect(() => {
     const sigs = analyseFinancialPlan(content, monthlyData, fyConfig, { lastUpdatedAt });
     setSignals(sigs);
-    onSignalsChange?.(sigs);
-  }, [content, monthlyData, fyConfig, lastUpdatedAt, onSignalsChange]);
+    onSignalsChangeRef.current?.(sigs);  // call via ref — not a reactive dep
+  }, [content, monthlyData, fyConfig, lastUpdatedAt]);
 
-  // FIX: clear the timeout on unmount to prevent parentNode crash
-  // Also include triggerAI in dependencies since it's used inside
+  // ── triggerAI: keep props in a ref so the function identity stays stable ───
+  // Previously triggerAI was in useCallback with [content, monthlyData, ...] deps,
+  // making its identity change on every keystroke. When autoOpen=true that caused
+  // the autoOpen useEffect to fire a new AI request on every single content change.
+  const aiPropsRef = useRef({ content, monthlyData, fyConfig, lastUpdatedAt, raidItems, approvalDelays });
   useEffect(() => {
-    if (!autoOpen) return;
-    const timer = setTimeout(() => {
-      panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 300);
-    triggerAI();
-    return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoOpen, triggerAI]);
+    aiPropsRef.current = { content, monthlyData, fyConfig, lastUpdatedAt, raidItems, approvalDelays };
+  }, [content, monthlyData, fyConfig, lastUpdatedAt, raidItems, approvalDelays]);
 
   const triggerAI = useCallback(async () => {
     // Abort any previous in-flight request
@@ -172,32 +177,32 @@ export default function FinancialIntelligencePanel({
     const controller = new AbortController();
     abortRef.current = controller;
 
-    // Set loading state immediately if mounted
-    if (mountedRef.current) { 
-      setAiLoading(true); 
-      setAiError(null); 
-      setActiveTab("ai"); 
+    if (mountedRef.current) {
+      setAiLoading(true);
+      setAiError(null);
+      setActiveTab("ai");
     }
 
     try {
+      // Read latest props from ref — function identity never changes, no loop
+      const { content, monthlyData, fyConfig, lastUpdatedAt, raidItems, approvalDelays } = aiPropsRef.current;
       const res = await fetch("/api/ai/financial-intelligence", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content, monthlyData, fyConfig, lastUpdatedAt, raidItems, approvalDelays }),
         signal: controller.signal,
       });
-      
+
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
-      
+
       const data = await res.json();
-      
-      // Only update state if still mounted
+
       if (mountedRef.current) {
         setAiAnalysis(data.analysis);
       }
     } catch (e: any) {
       if (e?.name === "AbortError") return; // navigated away — silently drop
-      
+
       if (mountedRef.current) {
         setAiError(e?.message ?? "AI analysis failed.");
       }
@@ -206,7 +211,21 @@ export default function FinancialIntelligencePanel({
         setAiLoading(false);
       }
     }
-  }, [content, monthlyData, fyConfig, lastUpdatedAt, raidItems, approvalDelays]);
+  }, []); // ← stable empty deps: reads props via ref, no identity changes
+
+  // ── autoOpen: scroll + trigger once on mount, never re-fire ───────────────
+  // Previously this had [autoOpen, triggerAI] deps. triggerAI changed on every
+  // content update → this effect re-ran (and fired a new AI call) on every keystroke.
+  const autoOpenFiredRef = useRef(false);
+  useEffect(() => {
+    if (!autoOpen || autoOpenFiredRef.current) return;
+    autoOpenFiredRef.current = true;
+    const timer = setTimeout(() => {
+      panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 300);
+    triggerAI();
+    return () => clearTimeout(timer);
+  }, [autoOpen, triggerAI]); // triggerAI is now stable so this only runs once
 
   const criticals = signals.filter(s => s.severity === "critical");
   const warnings  = signals.filter(s => s.severity === "warning");
@@ -314,18 +333,17 @@ export function InlineQuarterFlags({
   signals: Signal[];
   quarterLabel?: string;
 }) {
-  // Filter signals for this specific quarter if label provided
-  const relevantSignals = quarterLabel 
-    ? signals.filter((s): s is Signal & { scopeKey: string } => 
+  const relevantSignals = quarterLabel
+    ? signals.filter((s): s is Signal & { scopeKey: string } =>
         s && typeof s === 'object' && 'scopeKey' in s && s.scopeKey === quarterLabel
       )
     : signals;
-    
+
   if (!relevantSignals?.length) return null;
-  
+
   const has = (sev: string) => relevantSignals.some(s => s.severity === sev);
   const color = has("critical") ? "#f43f5e" : has("warning") ? "#f59e0b" : "#10b981";
-  
+
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 2, marginLeft: 4 }}>
       <span style={{ width: 6, height: 6, borderRadius: "50%", background: color, display: "inline-block" }} />
@@ -340,20 +358,19 @@ export function InlineMonthFlag({
   signals: Signal[];
   monthKey?: string;
 }) {
-  // Filter signals for this specific month if key provided
   const relevantSignals = monthKey
-    ? signals.filter((s): s is Signal & { scope: string; scopeKey: string } => 
+    ? signals.filter((s): s is Signal & { scope: string; scopeKey: string } =>
         s && typeof s === 'object' && 'scope' in s && 'scopeKey' in s && s.scope === "month" && s.scopeKey === monthKey
       )
     : signals;
-    
+
   if (!relevantSignals?.length) return null;
-  
+
   const has = (sev: string) => relevantSignals.some(s => s.severity === sev);
   const color = has("critical") ? "#f43f5e" : has("warning") ? "#f59e0b" : null;
-  
+
   if (!color) return null;
-  
+
   return (
     <span style={{ width: 5, height: 5, borderRadius: "50%", background: color, display: "inline-block", marginLeft: 2, flexShrink: 0 }} />
   );
