@@ -157,8 +157,6 @@ function FinancialPlanEditorHost({
       if (!json || json === lastSavedJsonRef.current) return;
       savingRef.current = true;
       try {
-        // fetch instead of server action — server actions block navigation while
-        // in-flight; a plain fetch request does not.
         const res = await fetch("/api/artifacts/save-json", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -200,8 +198,6 @@ function FinancialPlanEditorHost({
     },
     [queueSave]
   );
-  // Cancel any pending save when the component unmounts (i.e. user navigates away).
-  // This is sufficient — no document-level pointer listeners needed.
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -246,8 +242,9 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
   }, []);
   const artifactVersion = useMemo(() => getArtifactVersion(typedInitialJson), [typedInitialJson]);
   const isCharterV2 = mode === "charter" && artifactVersion >= 2;
+  const isFinancialPlan = mode === "financial_plan";
   const hideContentExportsRow =
-    mode === "charter" || mode === "closure" || mode === "weekly_report" || mode === "financial_plan"
+    mode === "charter" || mode === "closure" || mode === "weekly_report" || isFinancialPlan
       ? true
       : !!hideContentExportsRowProp;
   const effectiveLegacyExports =
@@ -258,7 +255,13 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
       {!isEditable ? <div className="text-xs text-gray-500">Read-only</div> : null}
     </div>
   );
-  const shouldHidePanels = mode === "charter" || mode === "financial_plan";
+  const shouldHidePanels = mode === "charter" || isFinancialPlan;
+
+  // Financial plan needs no padding + overflow-x scroll so wide tables aren't clipped
+  const sectionClassName = isFinancialPlan
+    ? cx("border rounded-2xl bg-white overflow-x-auto", hideContentExportsRow ? "space-y-0" : "space-y-4")
+    : cx("border rounded-2xl bg-white p-6", hideContentExportsRow ? "space-y-0" : "space-y-4");
+
   return (
     <div className="space-y-6">
       {mode === "change_requests" ? (
@@ -324,8 +327,9 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
         </section>
       ) : (
         <>
-          <section className={cx("border rounded-2xl bg-white p-6", hideContentExportsRow ? "space-y-0" : "space-y-4")}>
-            {contentHeader}
+          {/* FIX: financial_plan mode gets no padding + overflow-x-auto so wide tables aren't clipped */}
+          <section className={sectionClassName}>
+            {isFinancialPlan ? null : contentHeader}
             {mode === "charter" ? (
               <ProjectCharterEditorFormLazy
                 projectId={projectId}
@@ -382,7 +386,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
                 readOnly={!isEditable}
                 updateArtifactJsonAction={updateArtifactJsonAction}
               />
-            ) : mode === "financial_plan" ? (
+            ) : isFinancialPlan ? (
               <FinancialPlanEditorHost
                 projectId={projectId}
                 artifactId={artifactId}

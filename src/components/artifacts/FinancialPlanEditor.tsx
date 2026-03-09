@@ -513,8 +513,8 @@ function ResourcesTab({
         <span>Pick a person from your organisation — their rate auto-fills from the <strong>Rate Card</strong>. Then hit <strong>Sync to monthly</strong> to phase costs across the timeline.</span>
       </div>
 
-      <div style={{ border: `1px solid ${P.borderMd}`, overflow: "hidden" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+      <div style={{ border: `1px solid ${P.borderMd}`, overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 1200 }}>
           <thead>
             <tr style={{ background: "#F4F4F2", borderBottom: `1px solid ${P.borderMd}` }}>
               {["Person / Role", "Type", "Rate Method", "Rate", "Planned Qty", "Total", "Approved Days", "Actual Cost", "Start Month", "Links to", "Notes", ""].map((h, i) => (
