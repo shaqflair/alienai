@@ -1,28 +1,28 @@
-// src/components/home/HomePage.tsx â€” POLISHED v9.1
+// src/components/home/HomePage.tsx — POLISHED v9.1
 
 //
 
 // Fixes vs v9:
 
-//   âœ… HP-F1: projectId[] filter is now translated to code/name params before API calls.
+//   ✅ HP-F1: projectId[] filter is now translated to code/name params before API calls.
 
 //            Backend routes (health, raid, milestones-due, resource-activity, recent-wins,
 
-//            financial-plan-summary) only accept name/code/pm/dept â€” selectedprojectId[] UUIDs
+//            financial-plan-summary) only accept name/code/pm/dept — selectedprojectId[] UUIDs
 
 //            are now mapped to projectCode[] + projectName[] via deriveApiFilters().
 
-//   âœ… HP-F2: Search icon focuses the search <input> inside the already-open drawer rather
+//   ✅ HP-F2: Search icon focuses the search <input> inside the already-open drawer rather
 
 //            than blindly calling setDrawerOpen(true) again (removes silent UX dead-end when
 
 //            drawer is already open).
 
-//   âœ… HP-F3: raidDueTotal no longer uses `||` fallback â€” zero typed counts correctly stays 0.
+//   ✅ HP-F3: raidDueTotal no longer uses `||` fallback — zero typed counts correctly stays 0.
 
 //            Was: `(r+i+d+a) || due_total` which silently used RPC total when items truly = 0.
 
-//   âœ… HP-F4: appendFiltersToApi now calls deriveApiFilters so all 6 API widgets respect
+//   ✅ HP-F4: appendFiltersToApi now calls deriveApiFilters so all 6 API widgets respect
 
 //            project-selection filters end-to-end.
 
@@ -30,9 +30,9 @@
 
 // UI polish:
 
-//   âœ… HP-UI1: Search / Filter / Notification bell no longer look â€œgreyed outâ€
+//   ✅ HP-UI1: Search / Filter / Notification bell no longer look "greyed out"
 
-//             â€” active styling when drawer open, filters active, or unread present.
+//             — active styling when drawer open, filters active, or unread present.
 
 
 
@@ -96,9 +96,11 @@ import {
 
 import ResourceActivityChart, { type ResourceWeek } from "@/components/home/ResourceActivityChart";
 
+import { portfolioGlobalCss } from "@/lib/ui/portfolioTheme";
 
 
-/* â”€â”€â”€ Filter model â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+/* ─── Filter model ──────────────────────────────────────────────────────────── */
 
 
 
@@ -106,7 +108,7 @@ type PortfolioFilters = {
 
   q?: string;
 
-  projectId?: string[]; // UI pill selection â€” UUID[]
+  projectId?: string[]; // UI pill selection — UUID[]
 
   projectName?: string[]; // legacy / derived
 
@@ -120,7 +122,7 @@ type PortfolioFilters = {
 
 
 
-/* â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Types ─────────────────────────────────────────────────────────────────────────── */
 
 
 
@@ -424,7 +426,7 @@ type ProjectOption = { id: string; name: string; code: string | null };
 
 
 
-/* â”€â”€â”€ Utils â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Utils ─────────────────────────────────────────────────────────────────────────── */
 
 
 
@@ -574,17 +576,13 @@ function filtersToSearchParams(f: PortfolioFilters): URLSearchParams {
 
 
 
-// âœ… HP-F1: Translate projectId[] → code[] + name[] that backend routes understand.
-
-// Backend routes (health, raid-panel, milestones-due, etc.) only read name/code/pm/dept.
-
-// When the user picks projects by ID pill, we look up their codes/names and forward those.
+// ✅ HP-F1: Translate projectId[] → code[] + name[] that backend routes understand.
 
 function deriveApiFilters(f: PortfolioFilters, projectOptions: ProjectOption[]): PortfolioFilters {
 
   const selectedIds = new Set(f.projectId ?? []);
 
-  if (!selectedIds.size) return f; // nothing to translate
+  if (!selectedIds.size) return f;
 
 
 
@@ -876,7 +874,7 @@ function dueDateLabel(iso: string | null | undefined) {
 
   const s = safeStr(iso).trim();
 
-  if (!s) return "â€”";
+  if (!s) return "—";
 
   const d = new Date(s);
 
@@ -1048,7 +1046,7 @@ function useDebounced<T>(value: T, delay: number): T {
 
 
 
-/* â”€â”€â”€ Rejection Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Rejection Modal ───────────────────────────────────────────────────────── */
 
 
 
@@ -1144,7 +1142,7 @@ function RejectionModal({
 
               onChange={(e) => setReason(e.target.value)}
 
-              placeholder="Provide contextâ€¦"
+              placeholder="Provide context…"
 
               rows={3}
 
@@ -1200,7 +1198,7 @@ function RejectionModal({
 
 
 
-/* â”€â”€â”€ Notification Bell â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Notification Bell ───────────────────────────────────────────────────────────── */
 
 
 
@@ -1662,7 +1660,7 @@ function NotificationBell() {
 
 
 
-/* â”€â”€â”€ KPI Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── KPI Card ──────────────────────────────────────────────────────────────────────── */
 
 
 
@@ -1880,7 +1878,7 @@ function KpiCard({
 
 
 
-/* â”€â”€â”€ Insight Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Insight Card ──────────────────────────────────────────────────────────────────── */
 
 
 
@@ -1988,7 +1986,7 @@ function InsightCard({
 
 
 
-/* â”€â”€â”€ Project Row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Project Row ──────────────────────────────────────────────────────────────────── */
 
 
 
@@ -2000,7 +1998,7 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
 
   const pid = String(p?.id || "").trim();
 
-  const routeRef = pid; // âœ… UUID-only routing (consistent with backend fixes)
+  const routeRef = pid;
 
   const ragData = ragMap.get(pid);
 
@@ -2018,15 +2016,15 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
 
     rag === "G"
 
-      ? `Health â‰¥ 85% (${health}%). Delivery signals are strong across schedule, RAID, workflow approvals and activity.`
+      ? `Health ≥ 85% (${health}%). Delivery signals are strong across schedule, RAID, workflow approvals and activity.`
 
       : rag === "A"
 
-        ? `Health 70-84% (${health}%). Some signals need attention â€” review slippage, open risks/issues, or approval queues.`
+        ? `Health 70-84% (${health}%). Some signals need attention — review slippage, open risks/issues, or approval queues.`
 
         : rag === "R"
 
-          ? `Health < 70% (${health}%). Significant delivery risk â€” prioritise an immediate review and corrective actions.`
+          ? `Health < 70% (${health}%). Significant delivery risk — prioritise an immediate review and corrective actions.`
 
           : "No health score calculated yet for this project.";
 
@@ -2078,7 +2076,7 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
 
               {ragLabel}
 
-              {health != null ? ` â€” ${health}%` : ""}
+              {health != null ? ` — ${health}%` : ""}
 
             </span>
 
@@ -2118,7 +2116,7 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
 
         </div>
 
-        <span className="text-xs font-bold text-gray-600 w-8 text-right">{health != null ? `${health}%` : "â€”"}</span>
+        <span className="text-xs font-bold text-gray-600 w-8 text-right">{health != null ? `${health}%` : "—"}</span>
 
       </div>
 
@@ -2132,7 +2130,7 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
 
 
 
-/* â”€â”€â”€ Milestone Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Milestone Card ──────────────────────────────────────────────────────────────── */
 
 
 
@@ -2248,7 +2246,7 @@ function MilestoneCard({ item, onClick }: { item: DueDigestItem; onClick: () => 
 
 
 
-/* â”€â”€â”€ Recent Win Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Recent Win Card ──────────────────────────────────────────────────────────────── */
 
 
 
@@ -2324,7 +2322,7 @@ function RecentWinCard({ win, onClick }: { win: RecentWin; onClick: () => void }
 
 
 
-/* â”€â”€â”€ Last Updated â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Last Updated ──────────────────────────────────────────────────────────────────── */
 
 
 
@@ -2366,7 +2364,7 @@ function LastUpdated({ iso }: { iso: string }) {
 
 
 
-/* â”€â”€â”€ Filter Drawer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Filter Drawer ──────────────────────────────────────────────────────────────────── */
 
 
 
@@ -2407,8 +2405,6 @@ function FilterDrawer({
   pmOptions: { id: string; name: string }[];
 
   deptOptions: { value: string; label: string }[];
-
-  // âœ… HP-F2: Forwarded ref so the Search icon button can focus this input
 
   searchInputRef: React.RefObject<HTMLInputElement>;
 
@@ -2512,7 +2508,7 @@ function FilterDrawer({
 
                     onChange={(e) => setLocal((p) => ({ ...p, q: e.target.value }))}
 
-                    placeholder="Project name, code, PM, departmentâ€¦"
+                    placeholder="Project name, code, PM, department…"
 
                     className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
 
@@ -2556,7 +2552,7 @@ function FilterDrawer({
 
                         className={["px-3 py-1.5 rounded-full text-xs border", pill(on)].join(" ")}
 
-                        title={p.code ? `${p.name} â€¢ ${p.code}` : p.name}
+                        title={p.code ? `${p.name} • ${p.code}` : p.name}
 
                       >
 
@@ -2676,7 +2672,7 @@ function FilterDrawer({
 
 
 
-/* â”€â”€â”€ Main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Main ──────────────────────────────────────────────────────────────────────────── */
 
 
 
@@ -2712,8 +2708,6 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // âœ… HP-F2: Ref for search input inside the drawer â€” Search icon focuses it
-
   const searchInputRef = useRef<HTMLInputElement>(null);
 
 
@@ -2721,8 +2715,6 @@ export default function HomePage({ data }: { data: HomeData }) {
   const openDrawerFocusSearch = useCallback(() => {
 
     setDrawerOpen(true);
-
-    // Focus after the drawer open animation (~180ms)
 
     setTimeout(() => {
 
@@ -2810,7 +2802,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
 
 
-  // â”€â”€â”€ Filter option derivation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Filter option derivation ────────────────────────────────────────────────
 
 
 
@@ -2882,7 +2874,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
 
 
-  // â”€â”€â”€ Client-side filtered projects â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Client-side filtered projects ──────────────────────────────────────────
 
 
 
@@ -3026,7 +3018,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
 
 
-  // â”€â”€â”€ Data fetching (all API calls pass derived filters) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Data fetching ──────────────────────────────────────────────────────────
 
 
 
@@ -3510,7 +3502,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
 
 
-  // â”€â”€â”€ Derived values â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Derived values ─────────────────────────────────────────────────────────
 
 
 
@@ -3540,13 +3532,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
 
 
-  // âœ… HP-F3: Explicit sum with no || fallback.
-
-  // If all typed counts are 0, the display correctly shows 0 (nothing due).
-
-  // due_total from RPC is kept separately as a fallback only when typed counts
-
-  // were not returned (all four fields undefined/NaN).
+  // ✅ HP-F3: Explicit sum — no || fallback.
 
   const raidDueTotal = useMemo(() => {
 
@@ -3592,7 +3578,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
     if (!p) return "";
 
-    return safeStr(p?.id); // âœ… UUID-only
+    return safeStr(p?.id);
 
   }, [fpSummary, sortedProjects]);
 
@@ -3729,10 +3715,16 @@ export default function HomePage({ data }: { data: HomeData }) {
   return (
 
     <>
+      {/* ✅ Inter font + shared portfolio CSS tokens */}
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        ${portfolioGlobalCss()}
+        *, *::before, *::after { box-sizing: border-box; }
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important; -webkit-font-smoothing: antialiased; }
+      `}</style>
+      <LazyMotion features={domAnimation}><RejectionModal open={!!rejectModal} title={rejectModal?.title || ""} onConfirm={(reason) => { if (rejectModal) { decide(rejectModal.taskId, "reject", reason); setRejectModal(null); } }} onCancel={() => setRejectModal(null)} /><FilterDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} filters={urlFilters} onApply={(next) => { applyFilters(next); setDrawerOpen(false); }} onClear={() => { clearFilters(); setDrawerOpen(false); }} projectOptions={projectOptions} pmOptions={pmOptions} deptOptions={deptOptions} searchInputRef={searchInputRef} /><div className="min-h-screen" style={{ background: "#f8fafc" }}>
 
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'); *, *::before, *::after { box-sizing: border-box; } body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important; -webkit-font-smoothing: antialiased; }`}</style><LazyMotion features={domAnimation}><RejectionModal open={!!rejectModal} title={rejectModal?.title || ""} onConfirm={(reason) => { if (rejectModal) { decide(rejectModal.taskId, "reject", reason); setRejectModal(null); } }} onCancel={() => setRejectModal(null)} /><FilterDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} filters={urlFilters} onApply={(next) => { applyFilters(next); setDrawerOpen(false); }} onClear={() => { clearFilters(); setDrawerOpen(false); }} projectOptions={projectOptions} pmOptions={pmOptions} deptOptions={deptOptions} searchInputRef={searchInputRef} /><div className="min-h-screen" style={{ background: "#f8fafc" }}>
-
-          {/* â”€â”€ Top Nav â”€â”€ */}
+          {/* ── Top Nav ── */}
 
           <header className="sticky top-0 z-30 bg-white border-b border-gray-100" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
 
@@ -3752,7 +3744,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
                   <span className="hidden md:block text-xs text-gray-400">
 
-                    Enterprise project portfolio overview{filtersActive ? ` â€¢ filtered (${activeProjects.length})` : ""}
+                    Enterprise project portfolio overview{filtersActive ? ` • filtered (${activeProjects.length})` : ""}
 
                   </span>
 
@@ -3806,7 +3798,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
 
 
-                {/* âœ… Search icon focuses search input inside the drawer */}
+                {/* ✅ HP-F2: Search icon focuses search input inside the drawer */}
 
                 <button
 
@@ -3833,8 +3825,6 @@ export default function HomePage({ data }: { data: HomeData }) {
                 </button>
 
 
-
-                {/* Filter icon toggles the drawer (shows active state when filters applied OR drawer open) */}
 
                 <button
 
@@ -3934,13 +3924,13 @@ export default function HomePage({ data }: { data: HomeData }) {
 
                     {urlFilters.q ? `q="${urlFilters.q}" ` : ""}
 
-                    {urlFilters.projectId?.length ?? 0 ? `â€¢ Projects ${urlFilters.projectId!.length} ` : ""}
+                    {urlFilters.projectId?.length ?? 0 ? `• Projects ${urlFilters.projectId!.length} ` : ""}
 
-                    {urlFilters.projectCode?.length ?? 0 ? `â€¢ Codes ${urlFilters.projectCode!.length} ` : ""}
+                    {urlFilters.projectCode?.length ?? 0 ? `• Codes ${urlFilters.projectCode!.length} ` : ""}
 
-                    {urlFilters.projectManagerId?.length ?? 0 ? `â€¢ PM ${urlFilters.projectManagerId!.length} ` : ""}
+                    {urlFilters.projectManagerId?.length ?? 0 ? `• PM ${urlFilters.projectManagerId!.length} ` : ""}
 
-                    {urlFilters.department?.length ?? 0 ? `â€¢ Dept ${urlFilters.department!.length} ` : ""}
+                    {urlFilters.department?.length ?? 0 ? `• Dept ${urlFilters.department!.length} ` : ""}
 
                   </span>
 
@@ -3964,7 +3954,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
 
 
-            {/* â”€â”€ KPI Cards â”€â”€ */}
+            {/* ── KPI Cards ── */}
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
@@ -4046,7 +4036,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
 
 
-            {/* â”€â”€ Resource Activity + AI Insights â”€â”€ */}
+            {/* ── Resource Activity + AI Insights ── */}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
@@ -4164,13 +4154,13 @@ export default function HomePage({ data }: { data: HomeData }) {
 
 
 
-            {/* â”€â”€ Governance Intelligence â”€â”€ */}
+            {/* ── Governance Intelligence ── */}
 
             <GovernanceIntelligence days={numericWindowDays} />
 
 
 
-            {/* â”€â”€ Projects + Sidebar â”€â”€ */}
+            {/* ── Projects + Sidebar ── */}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
@@ -4490,8 +4480,6 @@ export default function HomePage({ data }: { data: HomeData }) {
 
                               const href = safeStr(it?.link).trim();
 
-                              // Only follow if it's a milestone/schedule/artifact link â€” never /raid or /risks
-
                               if (href && !href.includes("/raid") && !href.includes("/risks")) {
 
                                 router.push(href);
@@ -4619,12 +4607,8 @@ export default function HomePage({ data }: { data: HomeData }) {
         </div>
 
       </LazyMotion>
-
     </>
 
   );
 
 }
-
-
-

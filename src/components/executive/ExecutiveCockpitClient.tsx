@@ -29,6 +29,10 @@
 // Aliena $100M polish:
 //   ✅ UI-POLISH1: Add Executive AI assistant avatar button in header (Ask ΛLIΞNΛ)
 //                 Opens governance drawer with curated actions + deep links
+//
+// Token refactor:
+//   ✅ TOKEN-1: portfolioGlobalCss() injected — CSS vars (--white, --ink, --mono, etc.) available
+//   ✅ TOKEN-2: All var(--font-mono, …) references replaced with var(--mono)
 
 "use client";
 
@@ -56,6 +60,7 @@ import {
 import { LazyMotion, domAnimation, m, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import AIAssistantAvatar from "@/components/executive/AIAssistantAvatar";
+import { portfolioGlobalCss } from "@/lib/ui/portfolioTheme";
 
 // --- TYPES --------------------------------------------------------------------
 
@@ -499,7 +504,6 @@ function Drawer({
   tone: ToneKey;
   items: any[];
   fallbackHref: string;
-  /** UUIDs of projects the current user is a member of */
   memberProjectIds: string[];
   isAdmin: boolean;
 }) {
@@ -518,7 +522,6 @@ function Drawer({
   function canAccess(item: any): boolean {
     if (isAdmin) return true;
     const pid = extractProjectId(item);
-    // If no project ID on item (e.g. non-project bottleneck) allow through
     if (!pid || !looksLikeUuid(pid)) return true;
     return memberProjectIds.includes(pid);
   }
@@ -592,7 +595,7 @@ function Drawer({
                       {age && (
                         <div
                           className="shrink-0 text-[10px] text-slate-400 font-semibold"
-                          style={{ fontFamily: "var(--font-mono, monospace)" }}
+                          style={{ fontFamily: "var(--mono)" }}
                         >
                           {age}
                         </div>
@@ -671,7 +674,6 @@ function CockpitTile({
   onClick?: () => void;
 }) {
   const acc = TONES[tone];
-  const hasData = count !== null && !error;
 
   return (
     <m.button
@@ -723,7 +725,7 @@ function CockpitTile({
               <div className="flex items-end gap-3">
                 <p
                   className="text-[38px] font-bold text-slate-950 leading-none tracking-tight"
-                  style={{ fontFamily: "var(--font-mono, 'DM Mono', monospace)", letterSpacing: "-0.025em" }}
+                  style={{ fontFamily: "var(--mono)", letterSpacing: "-0.025em" }}
                 >
                   {count === null ? (
                     <span className="inline-flex gap-1 items-center pb-2">
@@ -806,7 +808,7 @@ function MicroList({
               {sub && <div className="text-[10px] text-slate-400 truncate">{sub}</div>}
             </div>
             {age && (
-              <div className="shrink-0 text-[10px] text-slate-400 font-medium" style={{ fontFamily: "var(--font-mono, monospace)" }}>
+              <div className="shrink-0 text-[10px] text-slate-400 font-medium" style={{ fontFamily: "var(--mono)" }}>
                 {age}
               </div>
             )}
@@ -921,7 +923,7 @@ function WhoBlockingBody({ items }: { items: any[] }) {
               <div className="flex items-center gap-2 shrink-0">
                 <span
                   className="text-[10px] font-bold text-amber-700 bg-amber-50/80 border border-amber-200/60 rounded-lg px-2 py-0.5"
-                  style={{ fontFamily: "var(--font-mono, monospace)" }}
+                  style={{ fontFamily: "var(--mono)" }}
                 >
                   {count}
                 </span>
@@ -974,7 +976,7 @@ function PortfolioApprovalsBody({ items }: { items: any[] }) {
           </div>
           <span
             className="shrink-0 text-[10px] font-bold text-indigo-700 bg-indigo-50/80 border border-indigo-200/60 rounded-lg px-2 py-0.5"
-            style={{ fontFamily: "var(--font-mono, monospace)" }}
+            style={{ fontFamily: "var(--mono)" }}
           >
             {p.count}
           </span>
@@ -1012,7 +1014,7 @@ function BottlenecksBody({ items }: { items: any[] }) {
                 <Layers className="h-3 w-3 text-slate-400 shrink-0" />
                 <span className="text-xs font-semibold text-slate-800 truncate">{label}</span>
               </div>
-              <span className="shrink-0 text-[10px] font-bold text-slate-600" style={{ fontFamily: "var(--font-mono, monospace)" }}>
+              <span className="shrink-0 text-[10px] font-bold text-slate-600" style={{ fontFamily: "var(--mono)" }}>
                 {count}
               </span>
             </div>
@@ -1084,7 +1086,6 @@ function CockpitHeader({
       </div>
 
       <div className="flex items-center gap-3">
-        {/* ✅ Aliena assistant avatar */}
         <AIAssistantAvatar label="Ask ΛLIΞNΛ — executive actions" onClick={onAskAliena} />
 
         {label && (
@@ -1111,9 +1112,7 @@ function CockpitHeader({
 
 export default function ExecutiveCockpitClient({
   orgId: _orgId,
-  /** UUIDs of projects the current user is a member of. Pass from your server component. */
   memberProjectIds = [],
-  /** True if the current user is an org admin (bypasses all project-level access checks). */
   isAdmin = false,
 }: {
   orgId?: string;
@@ -1134,7 +1133,6 @@ export default function ExecutiveCockpitClient({
   const [bottlenecks, setBottlenecks] = React.useState<Payload | null>(null);
   const [fatalError, setFatalError] = React.useState<string | null>(null);
 
-  // Drawer state
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [drawerTitle, setDrawerTitle] = React.useState("");
   const [drawerSubtitle, setDrawerSubtitle] = React.useState<string | undefined>(undefined);
@@ -1154,7 +1152,6 @@ export default function ExecutiveCockpitClient({
     []
   );
 
-  // ✅ UI-POLISH1: Curated “Ask ΛLIΞNΛ” drawer
   const openAskAliena = React.useCallback(() => {
     const curated = [
       {
@@ -1220,7 +1217,7 @@ export default function ExecutiveCockpitClient({
         fetchJson<Payload>("/api/executive/approvals/pending?limit=200", signal),
         fetchJson<Payload>("/api/executive/approvals/who-blocking", signal),
         fetchJson<Payload>("/api/executive/approvals/sla-radar", signal),
-        fetchJson<Payload>("/api/executive/risk-signals", signal), // ✅ FIX-ECC15
+        fetchJson<Payload>("/api/executive/risk-signals", signal),
         fetchJson<Payload>("/api/executive/approvals/portfolio", signal),
         fetchJson<Payload>("/api/executive/approvals/bottlenecks", signal),
       ]);
@@ -1344,7 +1341,6 @@ export default function ExecutiveCockpitClient({
     return saw ? sum : null;
   })();
 
-  // ✅ FIX-ECC16: prefer primary if it has data; otherwise fall back to Brain
   function pickCount(primary: Payload | null, fallback: number | null): number | null {
     const c = getCount(primary);
     if (c == null) return fallback;
@@ -1446,6 +1442,9 @@ export default function ExecutiveCockpitClient({
 
   return (
     <LazyMotion features={domAnimation}>
+      {/* ✅ TOKEN-1: shared CSS vars injected — --mono, --font, --ink, etc. available */}
+      <style>{portfolioGlobalCss()}</style>
+
       <div className="w-full">
         <CockpitHeader loading={loading} onRefresh={() => load()} lastRefreshed={lastRefreshed} onAskAliena={openAskAliena} />
 
