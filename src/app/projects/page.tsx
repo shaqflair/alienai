@@ -263,19 +263,18 @@ export default async function ProjectsPage({
         }
 
         .topbar {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 0 60px;
-          height: 56px;
-          border-bottom: 1px solid var(--rule);
-          background: rgba(255,255,255,0.9);
-          backdrop-filter: blur(8px);
-          position: sticky;
-          top: 0;
-          z-index: 60;
-        }
-
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 60px;
+  height: 52px;
+  border-bottom: 1px solid var(--rule);
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 60;
+}
         .topbar-left {
           display: flex;
           align-items: center;
@@ -318,27 +317,26 @@ export default async function ProjectsPage({
           transform: translateY(-1px);
         }
 
-        .masthead {
-          padding: 28px 60px 0;
-          border-bottom: 1px solid var(--rule-heavy);
-          background: var(--white);
-        }
+       .masthead {
+  padding: 18px 60px 0;
+  border-bottom: 1px solid var(--rule-heavy);
+  background: var(--white);
+}
 
-        .mast-grid {
-          display: grid;
-          grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.95fr);
-          gap: 32px;
-          padding-bottom: 28px;
-          align-items: start;
-        }
-
-        .mast-left {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          min-width: 0;
-        }
-
+.mast-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.85fr);
+  gap: 24px;
+  padding-bottom: 20px;
+  align-items: start;
+}
+        ..mast-left {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding-top: 4px;
+}
         .eyebrow {
           font-family: var(--mono);
           font-size: 10px;
@@ -348,14 +346,13 @@ export default async function ProjectsPage({
           color: var(--ink-4);
         }
 
-        .page-title {
-          font-size: clamp(42px, 6vw, 64px);
-          font-weight: 700;
-          color: var(--ink);
-          letter-spacing: -0.04em;
-          line-height: 0.94;
-        }
-
+       .page-title {
+  font-size: clamp(38px, 5vw, 54px);
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.045em;
+  line-height: 0.96;
+}
         .page-subtitle {
           font-size: 14px;
           color: var(--ink-3);
@@ -363,39 +360,36 @@ export default async function ProjectsPage({
           max-width: 760px;
         }
 
-        .mast-right {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-          align-self: start;
-        }
-
+       .mast-right {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-self: start;
+}
         .summary-card {
           border: 1px solid var(--rule);
           background: linear-gradient(180deg, #ffffff 0%, #fcfcfc 100%);
           box-shadow: var(--shadow-soft);
         }
 
-        .summary-copy {
-          padding: 18px 20px 16px;
-          border-bottom: 1px solid var(--rule);
-          font-size: 14px;
-          font-weight: 400;
-          color: var(--ink-3);
-          line-height: 1.6;
-        }
-
+.summary-copy {
+  padding: 15px 18px 14px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink-3);
+  line-height: 1.55;
+}
         .kpi-strip {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
         }
 
         .kpi-cell {
-          padding: 16px 20px;
-          border-right: 1px solid var(--rule);
-          min-width: 0;
-        }
-
+  padding: 14px 18px;
+  border-right: 1px solid var(--rule);
+  min-width: 0;
+}
         .kpi-cell:last-child {
           border-right: none;
         }
@@ -986,7 +980,7 @@ export default async function ProjectsPage({
       <div className="page">
         <div className="topbar">
           <div className="topbar-left">
-            <span className="topbar-title">Portfolio Projects</span>
+           <span className="topbar-title">Portfolio</span>
           </div>
 
           <div className="topbar-right">
