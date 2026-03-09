@@ -260,10 +260,11 @@ async function handle(req: Request, filters: PortfolioFilters) {
   }
 
   // 4) fetch latest financial_plan artifact per project
-  //    ✅ FPS-F7: select content_json (the field that FinancialPlanEditor saves to)
+  //    ✅ FPS-F7: select both content_json AND legacy content column
+  //    Artifacts saved before the content_json migration only have data in `content`.
   const { data: artifacts, error: artErr } = await supabase
     .from("artifacts")
-    .select("id, project_id, content_json, updated_at")
+    .select("id, project_id, content_json, content, updated_at")
     .in("project_id", projectIds)
     .eq("type", "financial_plan")
     .order("updated_at", { ascending: false })
@@ -303,8 +304,8 @@ async function handle(req: Request, filters: PortfolioFilters) {
   const summaries = (projects ?? []).map((project: any) => {
     const pid      = String(project?.id || "").trim();
     const artifact = planByProject.get(pid);
-    // ✅ read from content_json (not content)
-    const content  = safeJson(artifact?.content_json);
+    // ✅ prefer content_json (new), fall back to content (legacy pre-migration artifacts)
+    const content  = safeJson(artifact?.content_json) ?? safeJson(artifact?.content);
 
     let totalApprovedBudget = 0;
     let totalBudgeted       = 0; // sum of cost_lines.budgeted
@@ -316,23 +317,34 @@ async function handle(req: Request, filters: PortfolioFilters) {
     if (content && typeof content === "object") {
       hasFinancialPlan = true;
 
-      // Headline approved budget (the top-level field users type in)
-      totalApprovedBudget = num(content.total_approved_budget, 0);
+      // ── Headline approved budget ──
+      // Handle both snake_case (new content_json) and camelCase (legacy content column)
+      totalApprovedBudget = num(
+        content.total_approved_budget ?? content.totalApprovedBudget, 0
+      );
 
-      // Currency
+      // Currency (both formats)
       if (content.currency) currency = safeStr(content.currency);
 
-      // ✅ cost_lines (snake_case), field: budgeted (not budget)
-      const costLines = Array.isArray(content.cost_lines) ? content.cost_lines : [];
+      // ── Cost lines: handle snake_case (new) and camelCase (legacy) ──
+      // New:    cost_lines[].budgeted / .forecast / .actual
+      // Legacy: costLines[].budget   / .forecast / .actual
+      const costLines = Array.isArray(content.cost_lines)
+        ? content.cost_lines
+        : Array.isArray(content.costLines)
+          ? content.costLines
+          : [];
+
       for (const line of costLines) {
-        totalBudgeted += num((line as any)?.budgeted,  0);
-        totalForecast += num((line as any)?.forecast,  0);
-        totalActual   += num((line as any)?.actual,    0);
+        // budgeted (new) or budget (legacy)
+        totalBudgeted += num((line as any)?.budgeted ?? (line as any)?.budget, 0);
+        totalForecast += num((line as any)?.forecast, 0);
+        totalActual   += num((line as any)?.actual,   0);
       }
 
-      // Also accumulate from monthly_data if cost lines are empty
+      // Also accumulate from monthly_data / monthlyData if cost lines are empty
       if (costLines.length === 0) {
-        const monthlyData = content.monthly_data ?? {};
+        const monthlyData = content.monthly_data ?? content.monthlyData ?? {};
         try {
           for (const [, months] of Object.entries(monthlyData) as any) {
             for (const [, vals] of Object.entries(months as any)) {
