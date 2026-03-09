@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useTransition, useRef } from "react";
 import {
   Plus, Trash2, TrendingUp, TrendingDown, AlertTriangle,
   Calendar, Users, Link2, Link2Off, Zap, ChevronRight,
@@ -517,7 +517,7 @@ function ResourcesTab({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 1200 }}>
           <thead>
             <tr style={{ background: "#F4F4F2", borderBottom: `1px solid ${P.borderMd}` }}>
-              {["Person / Role", "Type", "Rate Method", "Rate", "Planned Qty", "Total", "Approved Days", "Actual Cost", "Start Month", "Links to", "Notes", ""].map((h, i) => (
+              {["Person / Role", "Type", "Rate Method", "Rate", "Planned Qty", "Total", "Approved Days", "Actual Cost", "Start Month", "Links to", ""].map((h, i) => (
                 <th key={i} style={{ padding: "8px 10px", textAlign: "left", fontFamily: P.mono, fontSize: 8, fontWeight: 600, color: h === "Approved Days" || h === "Actual Cost" ? P.violet : P.textSm, letterSpacing: "0.08em", textTransform: "uppercase", whiteSpace: "nowrap", borderBottom: `1px solid ${P.borderMd}`, background: h === "Approved Days" || h === "Actual Cost" ? P.violetLt : "#F4F4F2" }}>
                   {h}
                 </th>
@@ -527,7 +527,7 @@ function ResourcesTab({
           <tbody>
             {resources.length === 0 && (
               <tr>
-                <td colSpan={12} style={{ padding: "40px 16px", textAlign: "center", fontFamily: P.sans, fontSize: 13, color: P.textSm }}>
+                <td colSpan={11} style={{ padding: "40px 16px", textAlign: "center", fontFamily: P.sans, fontSize: 13, color: P.textSm }}>
                   No resources yet. Click <strong>Add resource</strong> below.
                 </td>
               </tr>
@@ -684,13 +684,6 @@ function ResourcesTab({
                       </div>
                     )}
                   </td>
-                  <td style={{ ...cellStyle, minWidth: 140 }}>
-                    <input type="text" value={r.notes} onChange={e => update(r.id, { notes: e.target.value })} readOnly={readOnly}
-                      placeholder="Notes…"
-                      style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.text, fontFamily: P.sans, outline: "none" }}
-                    />
-                  </td>
-
                   {/* FIX: locked icon when timesheet exists, trash icon only when no timesheet */}
                   <td style={{ ...cellStyle, padding: "4px 6px", textAlign: "center", width: 32 }}>
                     {!readOnly && (
@@ -705,9 +698,9 @@ function ResourcesTab({
                         <button
                           type="button"
                           onClick={() => onChange(resources.filter(x => x.id !== r.id))}
-                          style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0, transition: "opacity 0.1s" }}
+                          style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0.35, transition: "opacity 0.15s, color 0.15s" }}
                           onMouseEnter={e => { e.currentTarget.style.color = P.red; e.currentTarget.style.opacity = "1"; }}
-                          onMouseLeave={e => { e.currentTarget.style.color = P.textSm; e.currentTarget.style.opacity = "0"; }}
+                          onMouseLeave={e => { e.currentTarget.style.color = P.textSm; e.currentTarget.style.opacity = "0.35"; }}
                           aria-label="Remove resource"
                         >
                           <Trash2 style={{ width: 13, height: 13 }} />
@@ -730,7 +723,7 @@ function ResourcesTab({
                 <td style={{ padding: "8px 10px", fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: P.violet, background: P.violetLt }}>
                   {fmt(resources.reduce((s, r) => { const days = approvedDaysByResource[r.id] ?? 0; const rate = r.rate_type === "day_rate" ? Number(r.day_rate) || 0 : (Number(r.monthly_cost) || 0) / 20; return s + days * rate; }, 0), sym)}
                 </td>
-                <td colSpan={4} />
+                <td colSpan={3} />
               </tr>
             </tfoot>
           )}
@@ -764,6 +757,11 @@ export default function FinancialPlanEditor({
 }: Props) {
   const [activeTab, setActiveTab] = useState<"budget" | "resources" | "monthly" | "changes" | "narrative">("budget");
   const [signals, setSignals]     = useState<Signal[]>([]);
+  const [, startTransition]       = useTransition();
+  // Stable key ref — prevents setSignals firing when analyseFinancialPlan
+  // returns a new array reference with identical contents, which causes
+  // an infinite re-render loop that starves the Next.js router.
+  const lastSignalsKeyRef         = useRef<string>("");
 
   const sym       = CURRENCY_SYMBOLS[content.currency] ?? "£";
   const lines     = content.cost_lines ?? [];
@@ -858,8 +856,14 @@ export default function FinancialPlanEditor({
 
   useEffect(() => {
     const sigs = analyseFinancialPlan(contentDeps, monthlyDataWithActuals, fyConfig, { lastUpdatedAt: contentDeps.last_updated_at });
-    setSignals(sigs);
-  }, [contentDeps, monthlyDataWithActuals, fyConfig]);
+    // Stringify the result as a stable key — only update state when
+    // the signals actually changed, breaking the reference-equality loop.
+    const key = JSON.stringify(sigs);
+    if (key === lastSignalsKeyRef.current) return;
+    lastSignalsKeyRef.current = key;
+    // Mark as a low-priority transition so navigation can always interrupt it.
+    startTransition(() => setSignals(sigs));
+  }, [contentDeps, monthlyDataWithActuals, fyConfig, startTransition]);
 
   const criticalCount = signals.filter(s => s.severity === "critical").length;
   const warningCount  = signals.filter(s => s.severity === "warning").length;
@@ -1031,7 +1035,7 @@ export default function FinancialPlanEditor({
                         // FIX: type="button" to prevent form submission
                         <button type="button" onClick={() => removeLine(l.id)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0 }}
                           onMouseEnter={e => { e.currentTarget.style.color = P.red; e.currentTarget.style.opacity = "1"; }}
-                          onMouseLeave={e => { e.currentTarget.style.color = P.textSm; e.currentTarget.style.opacity = "0"; }}
+                          onMouseLeave={e => { e.currentTarget.style.color = P.textSm; e.currentTarget.style.opacity = "0.35"; }}
                           aria-label="Delete cost line"
                         >
                           <Trash2 style={{ width: 13, height: 13 }} />
