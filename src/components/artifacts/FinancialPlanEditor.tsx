@@ -35,8 +35,8 @@ const P = {
   greenLt:  "#F0F7F3",
   amber:    "#8A5B1A",
   amberLt:  "#FDF6EC",
-  violet:   "#4A3A7A",
-  violetLt: "#F4F2FB",
+  violet:   "#0e7490",
+  violetLt: "#ecfeff",
   blue:     "#1B3652",
   blueLt:   "#EBF0F5",
   mono:     "'DM Mono', 'Courier New', monospace",
@@ -248,7 +248,7 @@ function ActualCell({ value, symbol, approvedDays, hasTimesheetData }: {
 }) {
   const hasValue = value !== "" && value !== 0;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "6px 8px", margin: "0 4px", background: hasValue ? P.violetLt : "#F4F4F2", border: `1px solid ${hasValue ? "#C0B0E0" : P.border}` }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "6px 8px", margin: "0 4px", background: hasValue ? P.violetLt : "#F4F4F2", border: `1px solid ${hasValue ? "#a5f3fc" : P.border}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         {hasValue
           ? <Lock style={{ width: 10, height: 10, color: P.violet, flexShrink: 0 }} />
@@ -402,7 +402,7 @@ function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency
             </div>
           )}
           {timesheetEntries.length > 0 && (
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 16px", background: P.violetLt, borderTop: `1px solid #C0B0E0` }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 16px", background: P.violetLt, borderTop: `1px solid #a5f3fc` }}>
               <Lock style={{ width: 13, height: 13, color: P.violet, flexShrink: 0, marginTop: 1 }} />
               <div style={{ fontFamily: P.mono, fontSize: 9, color: P.violet }}>
                 <strong>Actuals</strong> will be auto-computed from{" "}
@@ -503,7 +503,7 @@ function ResourcesTab({
         <ResourceSyncBar resources={resources} costLines={costLines} monthlyData={monthlyData} fyConfig={fyConfig} currency={currency} timesheetEntries={timesheetEntries} onSync={onSyncMonthly} />
       )}
 
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, border: `1px solid #C0B0E0`, background: P.violetLt, padding: "8px 12px", fontSize: 11, color: P.violet }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, border: `1px solid #a5f3fc`, background: P.violetLt, padding: "8px 12px", fontSize: 11, color: P.violet }}>
         <Lock style={{ width: 12, height: 12, flexShrink: 0, marginTop: 1 }} />
         <span><strong>People actuals are locked</strong> — computed from approved timesheet days × rate card rate. Hardware, infrastructure and vendor lines can be edited manually in the Cost Breakdown tab.</span>
       </div>
@@ -635,7 +635,7 @@ function ResourcesTab({
                     <div style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 700, color: total > 0 ? P.text : P.textSm, fontVariantNumeric: "tabular-nums" }}>{total > 0 ? fmt(total, sym) : "—"}</div>
                     {total > 0 && <div style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm }}>planned total</div>}
                   </td>
-                  <td style={{ ...cellStyle, background: idx % 2 === 0 ? P.violetLt : "#F0EEFA", padding: "4px 10px", minWidth: 100 }}>
+                  <td style={{ ...cellStyle, background: idx % 2 === 0 ? P.violetLt : "#e0f7fa", padding: "4px 10px", minWidth: 100 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <Lock style={{ width: 9, height: 9, color: P.violet, flexShrink: 0, opacity: 0.5 }} />
                       <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: hasTimesheet ? P.violet : P.textSm, fontVariantNumeric: "tabular-nums" }}>
@@ -649,7 +649,7 @@ function ResourcesTab({
                       </div>
                     )}
                   </td>
-                  <td style={{ ...cellStyle, background: idx % 2 === 0 ? P.violetLt : "#F0EEFA", padding: "4px 10px", minWidth: 110 }}>
+                  <td style={{ ...cellStyle, background: idx % 2 === 0 ? P.violetLt : "#e0f7fa", padding: "4px 10px", minWidth: 110 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <Lock style={{ width: 9, height: 9, color: P.violet, flexShrink: 0, opacity: 0.5 }} />
                       <span style={{ fontFamily: P.mono, fontSize: 12, fontWeight: 600, color: actualCost > 0 ? P.violet : P.textSm, fontVariantNumeric: "tabular-nums" }}>
@@ -909,7 +909,7 @@ export default function FinancialPlanEditor({
           { label: "Total Forecast",   value: fmt(totalForecast, sym),   sub: utilPct !== null ? `${utilPct}% of approved` : "",                                                                  color: overBudget ? P.red : P.green, locked: false },
           { label: "Pending Exposure", value: fmt(pendingExposure, sym), sub: "from change requests",                                                                                             color: pendingExposure > 0 ? P.amber : P.textSm, locked: false },
         ].map(s => (
-          <div key={s.label} style={{ background: s.locked ? P.violetLt : P.surface, border: `1px solid ${s.locked ? "#C0B0E0" : P.border}`, padding: "12px 16px" }}>
+          <div key={s.label} style={{ background: s.locked ? P.violetLt : P.surface, border: `1px solid ${s.locked ? "#a5f3fc" : P.border}`, padding: "12px 16px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
               {s.locked && <Lock style={{ width: 10, height: 10, color: P.violet }} />}
               <span style={{ fontFamily: P.mono, fontSize: 9, color: P.textSm, letterSpacing: "0.06em", textTransform: "uppercase" }}>{s.label}</span>
@@ -965,7 +965,7 @@ export default function FinancialPlanEditor({
 
       {activeTab === "budget" && (
         <div style={{ border: `1px solid ${P.borderMd}`, overflow: "hidden" }}>
-          <div style={{ padding: "6px 12px", background: P.violetLt, borderBottom: `1px solid #C0B0E0`, display: "flex", alignItems: "center", gap: 6, fontFamily: P.mono, fontSize: 9, color: P.violet, fontWeight: 500 }}>
+          <div style={{ padding: "6px 12px", background: P.violetLt, borderBottom: `1px solid #a5f3fc`, display: "flex", alignItems: "center", gap: 6, fontFamily: P.mono, fontSize: 9, color: P.violet, fontWeight: 500 }}>
             <Lock style={{ width: 11, height: 11 }} />
             People actuals are locked — auto-computed from approved timesheets × rate card. All other categories (hardware, infrastructure, vendors etc.) can be edited manually.
           </div>
