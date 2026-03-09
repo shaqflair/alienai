@@ -151,6 +151,52 @@ export async function fetchProjectResourceData(
 
   if (projErr || !proj) throw projErr ?? new Error("Project not found");
 
+  // ── Financial plan artifact fallback ──────────────────────────────────────
+  // Read budget totals directly from the financial plan's content_json so that
+  // Budget Days / Budget Amount are populated even before the user has made an
+  // edit that triggers the autosave→projects sync.  Best-effort: never blocks.
+  let fpBudgetDays:   number | null = null;
+  let fpBudgetAmount: number | null = null;
+
+  try {
+    const { data: fpArtifact } = await supabase
+      .from("artifacts")
+      .select("content_json, content")
+      .eq("project_id", projectId)
+      .eq("type", "financial_plan")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // prefer content_json (new), fall back to content (legacy pre-migration artifacts)
+    const fpContent = fpArtifact
+      ? ((fpArtifact.content_json ?? (
+          typeof fpArtifact.content === "string"
+            ? (() => { try { return JSON.parse(fpArtifact.content); } catch { return null; } })()
+            : fpArtifact.content
+        )) ?? null)
+      : null;
+
+    if (fpContent) {
+      const plan = fpContent as any;
+
+      // Sum resources[].planned_days → budget days
+      const resources = Array.isArray(plan?.resources) ? plan.resources : [];
+      const totalPlannedDays = resources.reduce((sum: number, r: any) => {
+        const d = Number(r?.planned_days);
+        return sum + (Number.isFinite(d) && d > 0 ? d : 0);
+      }, 0);
+      if (totalPlannedDays > 0) fpBudgetDays = Math.round(totalPlannedDays);
+
+      // total_approved_budget → budget amount
+      const approvedBudget = Number(plan?.total_approved_budget);
+      if (Number.isFinite(approvedBudget) && approvedBudget > 0)
+        fpBudgetAmount = approvedBudget;
+    }
+  } catch {
+    // best-effort — never block the resource panel for this
+  }
+
   const { data: allocRows, error: allocErr } = await supabase
     .from("allocations")
     .select(`
@@ -287,9 +333,12 @@ export async function fetchProjectResourceData(
     };
   });
 
-  const allocatedDays   = teamMembers.reduce((s, m) => s + m.totalDaysAllocated, 0);
-  const budgetDays      = proj.budget_days   ? parseFloat(String(proj.budget_days))   : null;
-  const budgetAmount    = proj.budget_amount ? parseFloat(String(proj.budget_amount)) : null;
+  const allocatedDays = teamMembers.reduce((s, m) => s + m.totalDaysAllocated, 0);
+
+  // Prefer projects row values; fall back to financial plan artifact when null
+  const budgetDays   = proj.budget_days   ? parseFloat(String(proj.budget_days))   : fpBudgetDays;
+  const budgetAmount = proj.budget_amount ? parseFloat(String(proj.budget_amount)) : fpBudgetAmount;
+
   const remainingDays   = budgetDays != null ? budgetDays - allocatedDays : null;
   const utilisationPct  = budgetDays != null && budgetDays > 0
     ? Math.round((allocatedDays / budgetDays) * 100)
