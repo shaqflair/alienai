@@ -21,9 +21,16 @@ type Project = {
   start_date: string | null;
   finish_date: string | null;
   created_at: string;
+  project_manager_id?: string | null;
+  pm_user_id?: string | null;
+  pm_name?: string | null;
   health?: number | null;
   rag?: "G" | "A" | "R" | null;
 };
+
+function safeStr(x: unknown) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
 
 function fmtShort(d: string | null | undefined) {
   if (!d) return null;
@@ -58,6 +65,21 @@ function daysUntil(d: string | null | undefined): number | null {
   } catch {
     return null;
   }
+}
+
+function normaliseRag(v: unknown): "G" | "A" | "R" | null {
+  const s = String(v ?? "").trim().toUpperCase();
+  if (s === "G" || s === "GREEN") return "G";
+  if (s === "A" || s === "AMBER" || s === "Y") return "A";
+  if (s === "R" || s === "RED") return "R";
+  return null;
+}
+
+function ragLabel(rag: "G" | "A" | "R" | null | undefined) {
+  if (rag === "G") return "Green";
+  if (rag === "A") return "Amber";
+  if (rag === "R") return "Red";
+  return "";
 }
 
 async function setProjectStatus(formData: FormData) {
@@ -128,7 +150,7 @@ export default async function ProjectsPage({
     const { data: pData, error: pErr } = await supabase
       .from("projects")
       .select(
-        "id, title, project_code, colour, status, resource_status, start_date, finish_date, created_at, organisation_id, deleted_at",
+        "id, title, project_code, colour, status, resource_status, start_date, finish_date, created_at, organisation_id, deleted_at, project_manager_id, pm_user_id, pm_name",
       )
       .in("id", memberProjectIds)
       .eq("organisation_id", activeOrgId)
@@ -138,41 +160,119 @@ export default async function ProjectsPage({
 
     if (pErr) throw pErr;
 
-    const projectIds = (pData ?? []).map((p: any) => p.id);
-    const ragMap = new Map<string, { health: number; rag: string }>();
+    const projectIds = (pData ?? []).map((p: any) => String(p.id));
+
+    const pmUserIds = Array.from(
+      new Set(
+        (pData ?? [])
+          .map((p: any) => safeStr(p?.pm_user_id).trim())
+          .filter(Boolean),
+      ),
+    );
+
+    const pmProfileIds = Array.from(
+      new Set(
+        (pData ?? [])
+          .map((p: any) => safeStr(p?.project_manager_id).trim())
+          .filter(Boolean),
+      ),
+    );
+
+    const ragMap = new Map<string, { health: number | null; rag: "G" | "A" | "R" | null }>();
+    const pmByUserIdMap = new Map<string, { full_name?: string | null; email?: string | null }>();
+    const pmByIdMap = new Map<string, { full_name?: string | null; email?: string | null }>();
 
     if (projectIds.length > 0) {
       const { data: ragData } = await supabase
         .from("project_rag_scores")
-        .select("project_id, health, rag")
+        .select("project_id, health, rag, created_at")
         .in("project_id", projectIds)
         .order("created_at", { ascending: false });
 
       if (ragData) {
-        for (const r of ragData) {
-          if (!ragMap.has(r.project_id)) {
-            ragMap.set(r.project_id, {
-              health: Number(r.health),
-              rag: r.rag,
-            });
-          }
+        for (const r of ragData as any[]) {
+          const pid = String(r?.project_id ?? "");
+          if (!pid || ragMap.has(pid)) continue;
+
+          ragMap.set(pid, {
+            health:
+              r?.health == null || Number.isNaN(Number(r.health))
+                ? null
+                : Number(r.health),
+            rag: normaliseRag(r?.rag),
+          });
         }
       }
     }
 
-    projects = (pData ?? []).map((p: any) => ({
-      id: String(p.id),
-      title: String(p.title ?? "Untitled"),
-      project_code: p.project_code ?? null,
-      colour: p.colour ?? null,
-      status: p.status ?? null,
-      resource_status: p.resource_status ?? null,
-      start_date: p.start_date ?? null,
-      finish_date: p.finish_date ?? null,
-      created_at: String(p.created_at),
-      health: ragMap.get(p.id)?.health ?? null,
-      rag: (ragMap.get(p.id)?.rag as any) ?? null,
-    }));
+    if (pmUserIds.length > 0) {
+      const { data: profilesByUserId } = await supabase
+        .from("profiles")
+        .select("id, user_id, full_name, email")
+        .in("user_id", pmUserIds);
+
+      for (const row of (profilesByUserId ?? []) as any[]) {
+        const userId = safeStr(row?.user_id).trim();
+        if (userId) {
+          pmByUserIdMap.set(userId, {
+            full_name: row?.full_name ?? null,
+            email: row?.email ?? null,
+          });
+        }
+      }
+    }
+
+    if (pmProfileIds.length > 0) {
+      const { data: profilesById } = await supabase
+        .from("profiles")
+        .select("id, user_id, full_name, email")
+        .in("id", pmProfileIds);
+
+      for (const row of (profilesById ?? []) as any[]) {
+        const id = safeStr(row?.id).trim();
+        if (id) {
+          pmByIdMap.set(id, {
+            full_name: row?.full_name ?? null,
+            email: row?.email ?? null,
+          });
+        }
+      }
+    }
+
+    projects = (pData ?? []).map((p: any) => {
+      const projectId = String(p.id);
+      const pmUserId = safeStr(p?.pm_user_id).trim() || null;
+      const projectManagerId = safeStr(p?.project_manager_id).trim() || null;
+      const storedPmName = safeStr(p?.pm_name).trim() || null;
+
+      const pmByUserId = pmUserId ? pmByUserIdMap.get(pmUserId) : null;
+      const pmById = projectManagerId ? pmByIdMap.get(projectManagerId) : null;
+
+      const resolvedPmName =
+        storedPmName ||
+        safeStr(pmByUserId?.full_name).trim() ||
+        safeStr(pmByUserId?.email).trim() ||
+        safeStr(pmById?.full_name).trim() ||
+        safeStr(pmById?.email).trim() ||
+        null;
+
+      return {
+        id: projectId,
+        title: String(p.title ?? "Untitled"),
+        project_code: p.project_code ?? null,
+        colour: p.colour ?? null,
+        status: p.status ?? null,
+        resource_status: p.resource_status ?? null,
+        start_date: p.start_date ?? null,
+        finish_date: p.finish_date ?? null,
+        created_at: String(p.created_at),
+        pm_user_id: pmUserId,
+        project_manager_id: projectManagerId,
+        pm_name: resolvedPmName,
+        health: ragMap.get(projectId)?.health ?? null,
+        rag: ragMap.get(projectId)?.rag ?? null,
+      };
+    });
   }
 
   const sp = (await searchParams) ?? {};
@@ -191,7 +291,8 @@ export default async function ProjectsPage({
       (p) =>
         !query ||
         p.title.toLowerCase().includes(query) ||
-        (p.project_code ?? "").toLowerCase().includes(query),
+        (p.project_code ?? "").toLowerCase().includes(query) ||
+        (p.pm_name ?? "").toLowerCase().includes(query),
     )
     .sort((a, b) => {
       if (sortMode === "A-Z") return a.title.localeCompare(b.title);
@@ -207,8 +308,7 @@ export default async function ProjectsPage({
   ).length;
 
   const atRiskCt = projects.filter(
-    (p) =>
-      (p.status ?? "active").toLowerCase() !== "closed" && p.rag === "R",
+    (p) => (p.status ?? "active").toLowerCase() !== "closed" && p.rag === "R",
   ).length;
 
   const healthAvg = (() => {
@@ -263,18 +363,19 @@ export default async function ProjectsPage({
         }
 
         .topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 60px;
-  height: 52px;
-  border-bottom: 1px solid var(--rule);
-  background: rgba(255,255,255,0.92);
-  backdrop-filter: blur(8px);
-  position: sticky;
-  top: 0;
-  z-index: 60;
-}
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0 60px;
+          height: 52px;
+          border-bottom: 1px solid var(--rule);
+          background: rgba(255,255,255,0.92);
+          backdrop-filter: blur(8px);
+          position: sticky;
+          top: 0;
+          z-index: 60;
+        }
+
         .topbar-left {
           display: flex;
           align-items: center;
@@ -317,26 +418,28 @@ export default async function ProjectsPage({
           transform: translateY(-1px);
         }
 
-       .masthead {
-  padding: 18px 60px 0;
-  border-bottom: 1px solid var(--rule-heavy);
-  background: var(--white);
-}
+        .masthead {
+          padding: 18px 60px 0;
+          border-bottom: 1px solid var(--rule-heavy);
+          background: var(--white);
+        }
 
-.mast-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.85fr);
-  gap: 24px;
-  padding-bottom: 20px;
-  align-items: start;
-}
-        ..mast-left {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-  padding-top: 4px;
-}
+        .mast-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.85fr);
+          gap: 24px;
+          padding-bottom: 20px;
+          align-items: start;
+        }
+
+        .mast-left {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          min-width: 0;
+          padding-top: 4px;
+        }
+
         .eyebrow {
           font-family: var(--mono);
           font-size: 10px;
@@ -346,13 +449,14 @@ export default async function ProjectsPage({
           color: var(--ink-4);
         }
 
-       .page-title {
-  font-size: clamp(38px, 5vw, 54px);
-  font-weight: 700;
-  color: var(--ink);
-  letter-spacing: -0.045em;
-  line-height: 0.96;
-}
+        .page-title {
+          font-size: clamp(38px, 5vw, 54px);
+          font-weight: 700;
+          color: var(--ink);
+          letter-spacing: -0.045em;
+          line-height: 0.96;
+        }
+
         .page-subtitle {
           font-size: 14px;
           color: var(--ink-3);
@@ -360,36 +464,39 @@ export default async function ProjectsPage({
           max-width: 760px;
         }
 
-       .mast-right {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  align-self: start;
-}
+        .mast-right {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          align-self: start;
+        }
+
         .summary-card {
           border: 1px solid var(--rule);
           background: linear-gradient(180deg, #ffffff 0%, #fcfcfc 100%);
           box-shadow: var(--shadow-soft);
         }
 
-.summary-copy {
-  padding: 15px 18px 14px;
-  border-bottom: 1px solid var(--rule);
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--ink-3);
-  line-height: 1.55;
-}
+        .summary-copy {
+          padding: 15px 18px 14px;
+          border-bottom: 1px solid var(--rule);
+          font-size: 13px;
+          font-weight: 400;
+          color: var(--ink-3);
+          line-height: 1.55;
+        }
+
         .kpi-strip {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
         }
 
         .kpi-cell {
-  padding: 14px 18px;
-  border-right: 1px solid var(--rule);
-  min-width: 0;
-}
+          padding: 14px 18px;
+          border-right: 1px solid var(--rule);
+          min-width: 0;
+        }
+
         .kpi-cell:last-child {
           border-right: none;
         }
@@ -533,7 +640,7 @@ export default async function ProjectsPage({
 
         .col-header {
           display: grid;
-          grid-template-columns: 1fr 150px 100px 110px 36px;
+          grid-template-columns: 1fr 150px 130px 110px 36px;
           padding: 0 60px;
           height: 40px;
           align-items: center;
@@ -556,7 +663,7 @@ export default async function ProjectsPage({
 
         .p-row {
           display: grid;
-          grid-template-columns: 1fr 150px 100px 110px 36px;
+          grid-template-columns: 1fr 150px 130px 110px 36px;
           padding: 0 60px;
           border-bottom: 1px solid var(--rule);
           background: var(--white);
@@ -711,8 +818,11 @@ export default async function ProjectsPage({
           font-family: var(--mono);
           font-size: 9px;
           font-weight: 500;
-          padding: 2px 6px;
+          padding: 4px 8px;
           letter-spacing: 0.08em;
+          border-radius: 999px;
+          text-transform: uppercase;
+          line-height: 1;
         }
 
         .rp-g { background: var(--green-bg); color: var(--green); }
@@ -733,15 +843,16 @@ export default async function ProjectsPage({
           font-weight: 500;
           letter-spacing: 0.1em;
           text-transform: uppercase;
-          padding: 4px 9px;
+          padding: 6px 10px;
           white-space: nowrap;
+          border-radius: 999px;
         }
 
         .st-active {
-          background: transparent;
-          color: #111;
-          border: 1px solid #111;
-          font-size: 10px;
+          background: var(--green-bg);
+          color: var(--green);
+          border: none;
+          box-shadow: none;
         }
 
         .st-closed {
@@ -751,10 +862,9 @@ export default async function ProjectsPage({
         }
 
         .st-pipeline {
-          background: transparent;
-          color: #555;
-          border: 1px solid #999;
-          font-size: 10px;
+          background: #f8fafc;
+          color: #475569;
+          border: 1px solid #e2e8f0;
         }
 
         .c-arrow {
@@ -980,7 +1090,7 @@ export default async function ProjectsPage({
       <div className="page">
         <div className="topbar">
           <div className="topbar-left">
-           <span className="topbar-title">Portfolio</span>
+            <span className="topbar-title">Portfolio</span>
           </div>
 
           <div className="topbar-right">
@@ -1046,7 +1156,17 @@ export default async function ProjectsPage({
                   )}
 
                   {healthAvg != null && (
-                    <div className="kpi-cell">
+                    <div
+                      className="kpi-cell"
+                      style={{
+                        background:
+                          healthAvg >= 90
+                            ? "var(--green-bg)"
+                            : healthAvg >= 70
+                              ? "var(--amber-bg)"
+                              : "var(--red-bg)",
+                      }}
+                    >
                       <div
                         className="kpi-num"
                         style={{
@@ -1131,7 +1251,7 @@ export default async function ProjectsPage({
           const colour = p.colour || "#111111";
           const isActive = (p.status ?? "active").toLowerCase() !== "closed";
           const health = p.health;
-          const rag = p.rag;
+          const rag = normaliseRag(p.rag);
           const daysLeft = daysUntil(p.finish_date);
 
           let tlPct = 0;
@@ -1175,12 +1295,24 @@ export default async function ProjectsPage({
 
           const hCls =
             health == null
-              ? "h-n"
-              : rag === "G" || health >= 85
+              ? rag === "G"
                 ? "h-g"
-                : rag === "A" || health >= 70
+                : rag === "A"
                   ? "h-a"
-                  : "h-r";
+                  : rag === "R"
+                    ? "h-r"
+                    : "h-n"
+              : rag === "G"
+                ? "h-g"
+                : rag === "A"
+                  ? "h-a"
+                  : rag === "R"
+                    ? "h-r"
+                    : health >= 85
+                      ? "h-g"
+                      : health >= 70
+                        ? "h-a"
+                        : "h-r";
 
           const rpCls =
             rag === "G" ? "rp-g" : rag === "A" ? "rp-a" : rag === "R" ? "rp-r" : "";
@@ -1201,7 +1333,7 @@ export default async function ProjectsPage({
             <div
               key={p.id}
               className="p-row"
-              data-s={`${p.title} ${p.project_code ?? ""}`.toLowerCase()}
+              data-s={`${p.title} ${p.project_code ?? ""} ${p.pm_name ?? ""}`.toLowerCase()}
               style={
                 {
                   "--accent": colour,
@@ -1218,7 +1350,7 @@ export default async function ProjectsPage({
                 </div>
 
                 <div className="row-meta">
-                  <span>{(p as any).pm_name ?? "Unassigned"}</span>
+                  <span>{p.pm_name?.trim() || "Unassigned"}</span>
                   <span className="rm-sep">|</span>
                   <span>{fmtLong(p.created_at)}</span>
                   {roleMap[p.id] && (
@@ -1249,9 +1381,11 @@ export default async function ProjectsPage({
               <div className="c-health">
                 {health != null ? (
                   <>
-                    {rag && <span className={`rag-pill ${rpCls}`}>{rag}</span>}
+                    {rag && <span className={`rag-pill ${rpCls}`}>{ragLabel(rag)}</span>}
                     <span className={`h-num ${hCls}`}>{health}%</span>
                   </>
+                ) : rag ? (
+                  <span className={`rag-pill ${rpCls}`}>{ragLabel(rag)}</span>
                 ) : (
                   <span className="h-num h-n"></span>
                 )}
