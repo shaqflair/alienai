@@ -116,6 +116,28 @@ function weeksInRange(start: string, end: string): number {
   return Math.max(1, Math.ceil(ms / (7 * 86400000)));
 }
 
+/** Parse financial plan content from either content_json (new) or content (legacy camelCase) */
+function parsePlanContent(artifact: any): any | null {
+  if (!artifact) return null;
+  // Prefer content_json (new snake_case schema)
+  if (artifact.content_json && typeof artifact.content_json === "object") return artifact.content_json;
+  // Fall back to content column — may be object or JSON string
+  const raw = artifact.content;
+  if (!raw) return null;
+  if (typeof raw === "object") return raw;
+  try { return JSON.parse(String(raw)); } catch { return null; }
+}
+
+/** Sum resources[].planned_days from a plan content object.
+ *  Handles both snake_case (new) and camelCase (legacy) resource field names. */
+function sumPlannedDays(plan: any): number {
+  const resources = Array.isArray(plan?.resources) ? plan.resources : [];
+  return resources.reduce((sum: number, r: any) => {
+    const d = Number(r?.planned_days ?? r?.plannedDays);
+    return sum + (Number.isFinite(d) && d > 0 ? d : 0);
+  }, 0);
+}
+
 /* =============================================================================
    MAIN FETCH
 ============================================================================= */
@@ -137,6 +159,7 @@ export async function fetchDashboardData(organisationId: string): Promise<Dashbo
     projectRes,
     roleRes,
     recentAllocRes,
+    artRes,           // ← financial plan artifacts for budget_days fallback
   ] = await Promise.all([
 
     // 1. All active org members + profiles
@@ -211,7 +234,29 @@ export async function fetchDashboardData(organisationId: string): Promise<Dashbo
       `)
       .order("created_at", { ascending: false })
       .limit(20),
+
+    // 7. Latest financial plan artifact per project (budget_days fallback)
+    //    Reads both content_json (new) and content (legacy) to handle pre-migration data.
+    supabase
+      .from("artifacts")
+      .select("project_id, content_json, content")
+      .eq("organisation_id", organisationId)
+      .eq("type", "financial_plan")
+      .order("updated_at", { ascending: false })
+      .limit(500),
   ]);
+
+  // -- Build financial plan budget_days fallback map -------------------------
+  // Keep only the FIRST (most recent) artifact per project.
+  const fpBudgetDaysByProject = new Map<string, number>();
+  for (const art of artRes.data ?? []) {
+    const pid = String((art as any)?.project_id || "").trim();
+    if (!pid || fpBudgetDaysByProject.has(pid)) continue;
+    const plan = parsePlanContent(art);
+    if (!plan) continue;
+    const days = sumPlannedDays(plan);
+    if (days > 0) fpBudgetDaysByProject.set(pid, days);
+  }
 
   // -- Build people map ------------------------------------------------------
   type PersonMeta = {
@@ -243,7 +288,6 @@ export async function fetchDashboardData(organisationId: string): Promise<Dashbo
     a.week_start_date >= fourWksAgo && a.week_start_date < thisWeek
   );
 
-  // personId -> { totalAlloc, totalCap }
   const utilByPerson = new Map<string, { alloc: number; cap: number }>();
   for (const a of recentAllocs) {
     const pid  = String(a.person_id);
@@ -298,7 +342,6 @@ export async function fetchDashboardData(organisationId: string): Promise<Dashbo
     unfilledByProject.get(pid)!.days  += parseFloat(String(role.required_days_per_week)) * wks;
   }
 
-  // Total roles per project (including filled)
   const { data: allRoles } = await supabase
     .from("role_requirements")
     .select("project_id")
@@ -354,11 +397,17 @@ export async function fetchDashboardData(organisationId: string): Promise<Dashbo
 
   const budgetBurn = confirmedProjects
     .map((p: any) => {
-      const allocated = allocByProject.get(String(p.id)) ?? 0;
-      const budget    = p.budget_days ? parseFloat(String(p.budget_days)) : null;
-      const wks       = weeksInRange(safeStr(p.start_date), safeStr(p.finish_date)) || 1;
+      const pid       = String(p.id);
+      const allocated = allocByProject.get(pid) ?? 0;
+
+      // Prefer projects.budget_days; fall back to financial plan artifact
+      const budget = p.budget_days
+        ? parseFloat(String(p.budget_days))
+        : fpBudgetDaysByProject.get(pid) ?? null;
+
+      const wks = weeksInRange(safeStr(p.start_date), safeStr(p.finish_date)) || 1;
       return {
-        projectId:     String(p.id),
+        projectId:     pid,
         title:         safeStr(p.title),
         projectCode:   p.project_code ? safeStr(p.project_code) : null,
         colour:        safeStr(p.colour || "#00b8db"),
