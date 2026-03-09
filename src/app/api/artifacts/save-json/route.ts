@@ -115,7 +115,7 @@ export async function POST(req: NextRequest) {
 
         const patch: Record<string, number> = {};
         if (rawDays > 0) patch.budget_days = Math.round(rawDays);
-        if (Number.isFinite(rawBudget) && rawBudget > 0) patch.budget = rawBudget;
+        if (Number.isFinite(rawBudget) && rawBudget > 0) patch.budget_amount = rawBudget;
 
         if (Object.keys(patch).length > 0) {
           // Fire-and-forget — ignore errors; stale data is better than a failed save

@@ -35,7 +35,6 @@ import {
 
 /* =========================================================
    Board-manageable types (mirrors server actions constraint)
-   Only these types show Clone / Delete buttons
 ========================================================= */
 const BOARD_MANAGEABLE_TYPES = new Set([
   "PROJECT_CHARTER",
@@ -75,8 +74,6 @@ export type ArtifactBoardRow = {
   typeKey?: string;
   currentLabel?: string;
   __idx?: number;
-
-  /** ✅ Optional support for module / virtual rows */
   href?: string;
   isVirtual?: boolean;
 };
@@ -427,14 +424,17 @@ const STATUS_STYLES: Record<UiStatus, { color: string; bg: string; dot: string }
 };
 
 /* =========================================================
-   Notion-style Spreadsheet Components
+   Spreadsheet Components
 ========================================================= */
 
 function ProgressBar({ value, color }: { value: number; color: string }) {
   const v = clampPct(value);
   return (
     <div className="flex items-center gap-2.5 w-full">
-      <div className="flex-1 h-[5px] rounded-full overflow-hidden" style={{ background: "#F1F5F9" }}>
+      <div
+        className="flex-1 h-[4px] rounded-full overflow-hidden"
+        style={{ background: "var(--rule)" }}
+      >
         <div
           className="h-full rounded-full"
           style={{
@@ -445,8 +445,8 @@ function ProgressBar({ value, color }: { value: number; color: string }) {
         />
       </div>
       <span
-        className="text-[12px] tabular-nums font-medium"
-        style={{ color: "#94A3B8", minWidth: 30, textAlign: "right" }}
+        className="artifact-mono text-[11px] font-medium"
+        style={{ color: "var(--ink-4)", minWidth: 30, textAlign: "right" }}
       >
         {v}%
       </span>
@@ -458,7 +458,7 @@ function StatusBadge({ status }: { status: UiStatus }) {
   const s = STATUS_STYLES[status];
   return (
     <span
-      className="inline-flex items-center gap-1.5 px-2 py-[3px] rounded-md text-[12px] font-medium"
+      className="artifact-mono inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full text-[9px] font-medium uppercase tracking-[0.08em]"
       style={{ color: s.color, background: s.bg }}
     >
       <span className="w-[6px] h-[6px] rounded-full" style={{ background: s.dot }} />
@@ -472,7 +472,7 @@ function PhaseBadge({ phase }: { phase: Phase }) {
   const Icon = cfg.icon;
   return (
     <span
-      className="inline-flex items-center gap-1.5 px-2 py-[3px] rounded-md text-[12px] font-medium"
+      className="artifact-mono inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full text-[9px] font-medium uppercase tracking-[0.08em]"
       style={{ color: cfg.color, background: cfg.bg }}
     >
       <Icon className="h-3 w-3" />
@@ -488,12 +488,14 @@ function AvatarChip({ email, name }: { email: string; name?: string }) {
   return (
     <div className="flex items-center gap-2 min-w-0">
       <div
-        className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-semibold shrink-0"
+        className="h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-semibold shrink-0"
         style={{ background: `hsl(${hue}, 55%, 92%)`, color: `hsl(${hue}, 60%, 35%)` }}
       >
         {initials}
       </div>
-      <span className="text-[13px] text-[#374151] truncate">{displayName}</span>
+      <span className="text-[13px] truncate" style={{ color: "var(--ink-2)" }}>
+        {displayName}
+      </span>
     </div>
   );
 }
@@ -501,7 +503,7 @@ function AvatarChip({ email, name }: { email: string; name?: string }) {
 function TagPill({ children, color, bg }: { children: React.ReactNode; color: string; bg: string }) {
   return (
     <span
-      className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded text-[10px] font-semibold uppercase tracking-wide"
+      className="artifact-mono inline-flex items-center gap-1 px-1.5 py-[2px] rounded-full text-[9px] font-medium uppercase tracking-[0.08em]"
       style={{ color, background: bg }}
     >
       {children}
@@ -513,7 +515,7 @@ function TagPill({ children, color, bg }: { children: React.ReactNode; color: st
    Table Row
 ========================================================= */
 
-const COL_TEMPLATE = "minmax(260px, 2fr) 180px 140px 130px 120px 100px";
+const COL_TEMPLATE = "minmax(320px, 2fr) 220px 170px 150px 150px 110px";
 
 function ArtifactTableRow({
   row,
@@ -566,49 +568,91 @@ function ArtifactTableRow({
   return (
     <div
       onClick={() => onOpen(row)}
-      className="notion-row group relative grid items-center cursor-pointer"
-      style={{ gridTemplateColumns: COL_TEMPLATE, borderBottom: "1px solid #F1F5F9", minHeight: 44 }}
+      className="artifact-row group relative grid items-center cursor-pointer"
+      style={{
+        gridTemplateColumns: COL_TEMPLATE,
+        borderBottom: "1px solid var(--rule)",
+        minHeight: 68,
+        background: "var(--white)",
+      }}
     >
-      <div className="flex items-center gap-2 px-3 py-2.5 min-w-0 h-full" style={{ borderRight: "1px solid #F8FAFC" }}>
+      <div className="flex items-center gap-2 px-4 py-3 min-w-0 h-full">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="text-[13px] font-medium text-[#111827] truncate">{row.title || row.artifactType}</span>
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+            <span
+              className="truncate"
+              style={{
+                fontSize: 15,
+                fontWeight: 650,
+                color: "var(--ink)",
+                letterSpacing: "-0.01em",
+              }}
+            >
+              {row.title || row.artifactType}
+            </span>
 
             {isCurrent && (
-              <TagPill color="#059669" bg="#ECFDF5">
+              <TagPill color="var(--green)" bg="var(--green-bg)">
                 <CheckCircle2 className="h-2.5 w-2.5" /> live
               </TagPill>
             )}
 
             {row.isBaseline && (
-              <TagPill color="#6B7280" bg="#F3F4F6">
+              <TagPill color="var(--ink-3)" bg="var(--off)">
                 <Shield className="h-2.5 w-2.5" /> baseline
               </TagPill>
             )}
 
-            {virtual && <TagPill color="#6B7280" bg="#F3F4F6">module</TagPill>}
+            {virtual && <TagPill color="var(--ink-3)" bg="var(--off)">module</TagPill>}
           </div>
-          <span className="text-[11px] text-[#9CA3AF] truncate block">{row.artifactType}</span>
+
+          <span
+            className="artifact-mono truncate block"
+            style={{
+              fontSize: 10,
+              fontWeight: 400,
+              color: "var(--ink-4)",
+              letterSpacing: "0.04em",
+              marginTop: 4,
+            }}
+          >
+            {row.artifactType}
+          </span>
         </div>
       </div>
 
-      <div className="px-3 py-2.5 h-full flex items-center" style={{ borderRight: "1px solid #F8FAFC" }}>
+      <div
+        className="px-4 py-3 h-full flex items-center"
+        style={{ borderLeft: "1px solid var(--rule)" }}
+      >
         <AvatarChip email={row.ownerEmail} name={row.ownerName} />
       </div>
 
-      <div className="px-3 py-2.5 h-full flex items-center" style={{ borderRight: "1px solid #F8FAFC" }}>
+      <div
+        className="px-4 py-3 h-full flex items-center"
+        style={{ borderLeft: "1px solid var(--rule)" }}
+      >
         <PhaseBadge phase={row.phase} />
       </div>
 
-      <div className="px-3 py-2.5 h-full flex items-center" style={{ borderRight: "1px solid #F8FAFC" }}>
+      <div
+        className="px-4 py-3 h-full flex items-center"
+        style={{ borderLeft: "1px solid var(--rule)" }}
+      >
         <StatusBadge status={row.status} />
       </div>
 
-      <div className="px-3 py-2.5 h-full flex items-center" style={{ borderRight: "1px solid #F8FAFC" }}>
+      <div
+        className="px-4 py-3 h-full flex items-center"
+        style={{ borderLeft: "1px solid var(--rule)" }}
+      >
         <ProgressBar value={row.progress} color={phaseCfg.color} />
       </div>
 
-      <div className="px-2 py-2.5 h-full flex items-center justify-end gap-0.5">
+      <div
+        className="px-3 py-3 h-full flex items-center justify-end gap-1"
+        style={{ borderLeft: "1px solid var(--rule)" }}
+      >
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
           {!isCurrent && (
             <button
@@ -618,9 +662,9 @@ function ArtifactTableRow({
                 onMakeCurrent(row.id);
               }}
               disabled={isMaking || !canMakeCurrent || !projectUuid || !looksLikeUuid(projectUuid)}
-              className="p-1 rounded hover:bg-emerald-50 transition-colors disabled:opacity-30"
-              style={{ color: "#059669" }}
-              title={canMakeCurrent ? "Set as current" : "Not available for modules"}
+              className="p-1.5 rounded transition-colors disabled:opacity-30"
+              style={{ color: "var(--green)" }}
+              title={canMakeCurrent ? "Set as current" : "Not available for modules" }
             >
               {isMaking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
             </button>
@@ -633,7 +677,7 @@ function ArtifactTableRow({
                 onClone(row.id);
               }}
               disabled={isCloning || !projectUuid || !looksLikeUuid(projectUuid)}
-              className="p-1 rounded hover:bg-blue-50 transition-colors disabled:opacity-30"
+              className="p-1.5 rounded transition-colors disabled:opacity-30"
               style={{ color: "#2563EB" }}
               title="Clone"
             >
@@ -648,8 +692,8 @@ function ArtifactTableRow({
                 onDelete(row.id);
               }}
               disabled={isDeleting || !projectUuid || !looksLikeUuid(projectUuid)}
-              className="p-1 rounded hover:bg-red-50 transition-colors disabled:opacity-30"
-              style={{ color: "#DC2626" }}
+              className="p-1.5 rounded transition-colors disabled:opacity-30"
+              style={{ color: "var(--red)" }}
               title="Delete draft"
             >
               {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
@@ -659,8 +703,8 @@ function ArtifactTableRow({
           <Link
             href={openHref}
             onClick={(e) => e.stopPropagation()}
-            className="p-1 rounded hover:bg-gray-100 transition-colors"
-            style={{ color: "#6B7280" }}
+            className="p-1.5 rounded transition-colors"
+            style={{ color: "var(--ink-3)" }}
             title="Open"
           >
             <ArrowUpRight className="h-3.5 w-3.5" />
@@ -709,10 +753,10 @@ function InlineFilterBar({
   }, []);
 
   return (
-    <div className="mb-1">
-      <div className="flex items-center gap-2 px-1 py-2">
-        <div className="flex items-center gap-2 flex-1 px-3 py-[7px] rounded-lg border transition-colors" style={{ borderColor: "#E5E7EB", background: "#FAFAFA" }}>
-          <Search className="h-4 w-4 text-[#9CA3AF] shrink-0" />
+    <div className="toolbar-artifacts">
+      <div className="toolbar-search-wrap">
+        <div className="toolbar-search">
+          <Search className="h-4 w-4 shrink-0" style={{ color: "var(--ink-4)" }} />
           <input
             ref={inputRef}
             type="text"
@@ -725,42 +769,36 @@ function InlineFilterBar({
               }
             }}
             placeholder="Filter artifacts..."
-            className="flex-1 bg-transparent text-[13px] outline-none text-[#111827] placeholder:text-[#9CA3AF]"
+            className="toolbar-search-input"
           />
           {search && (
-            <button onClick={() => setSearch("")} className="p-0.5 rounded hover:bg-gray-200 transition-colors">
-              <X className="h-3 w-3 text-[#6B7280]" />
+            <button onClick={() => setSearch("")} className="icon-mini-btn">
+              <X className="h-3 w-3" />
             </button>
           )}
-          <kbd className="hidden sm:inline text-[10px] text-[#9CA3AF] border border-[#E5E7EB] rounded px-1.5 py-0.5 bg-white font-mono">
-            ⌘K
-          </kbd>
+          <kbd className="artifact-mono shortcut-kbd">⌘K</kbd>
         </div>
 
         <button
           onClick={() => setShowFilters((v) => !v)}
-          className="flex items-center gap-1.5 px-3 py-[7px] rounded-lg border text-[13px] font-medium transition-colors"
+          className="toolbar-filter-btn"
           style={{
-            borderColor: activeCount > 0 ? "#BFDBFE" : "#E5E7EB",
-            background: activeCount > 0 ? "#EFF6FF" : "#FAFAFA",
-            color: activeCount > 0 ? "#2563EB" : "#6B7280",
+            borderColor: activeCount > 0 ? "#d7e6ff" : "var(--rule)",
+            background: activeCount > 0 ? "#f4f8ff" : "var(--white)",
+            color: activeCount > 0 ? "#2563EB" : "var(--ink-3)",
           }}
         >
           <Filter className="h-3.5 w-3.5" />
           Filter
-          {activeCount > 0 && (
-            <span className="text-[11px] font-semibold bg-blue-600 text-white rounded-full w-4 h-4 flex items-center justify-center">
-              {activeCount}
-            </span>
-          )}
+          {activeCount > 0 && <span className="toolbar-filter-count">{activeCount}</span>}
           <ChevronDown className={`h-3 w-3 transition-transform ${showFilters ? "rotate-180" : ""}`} />
         </button>
       </div>
 
       {showFilters && (
-        <div className="px-1 pb-3 flex flex-wrap items-center gap-4 animate-[notionFadeIn_0.15s_ease-out]">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[11px] font-medium text-[#9CA3AF] uppercase tracking-wider">Status</span>
+        <div className="toolbar-filter-panel">
+          <div className="toolbar-chip-group">
+            <span className="artifact-mono toolbar-chip-label">Status</span>
             {(["Draft", "In review", "Approved", "Blocked"] as UiStatus[]).map((status) => {
               const active = statusSet.has(status);
               const s = STATUS_STYLES[status];
@@ -768,11 +806,11 @@ function InlineFilterBar({
                 <button
                   key={status}
                   onClick={() => toggleStatus(status)}
-                  className="px-2 py-1 rounded-md text-[12px] font-medium transition-all"
+                  className="toolbar-chip-btn artifact-mono"
                   style={{
                     background: active ? s.bg : "transparent",
-                    color: active ? s.color : "#9CA3AF",
-                    border: `1px solid ${active ? s.bg : "#E5E7EB"}`,
+                    color: active ? s.color : "var(--ink-4)",
+                    borderColor: active ? s.bg : "var(--rule)",
                   }}
                 >
                   {status}
@@ -781,10 +819,10 @@ function InlineFilterBar({
             })}
           </div>
 
-          <div className="w-px h-5 bg-[#E5E7EB]" />
+          <div className="toolbar-divider" />
 
-          <div className="flex items-center gap-1.5">
-            <span className="text-[11px] font-medium text-[#9CA3AF] uppercase tracking-wider">Phase</span>
+          <div className="toolbar-chip-group">
+            <span className="artifact-mono toolbar-chip-label">Phase</span>
             {(["Initiating", "Planning", "Executing", "Monitoring & Controlling", "Closing"] as Phase[]).map((phase) => {
               const active = phaseSet.has(phase);
               const cfg = PHASE_CONFIG[phase];
@@ -792,11 +830,11 @@ function InlineFilterBar({
                 <button
                   key={phase}
                   onClick={() => togglePhase(phase)}
-                  className="px-2 py-1 rounded-md text-[12px] font-medium transition-all"
+                  className="toolbar-chip-btn artifact-mono"
                   style={{
                     background: active ? cfg.bg : "transparent",
-                    color: active ? cfg.color : "#9CA3AF",
-                    border: `1px solid ${active ? cfg.bg : "#E5E7EB"}`,
+                    color: active ? cfg.color : "var(--ink-4)",
+                    borderColor: active ? cfg.bg : "var(--rule)",
                   }}
                 >
                   {cfg.label}
@@ -807,8 +845,8 @@ function InlineFilterBar({
 
           {activeCount > 0 && (
             <>
-              <div className="w-px h-5 bg-[#E5E7EB]" />
-              <button onClick={clearAll} className="text-[12px] font-medium text-[#9CA3AF] hover:text-[#6B7280] transition-colors">
+              <div className="toolbar-divider" />
+              <button onClick={clearAll} className="toolbar-clear-btn artifact-mono">
                 Clear all
               </button>
             </>
@@ -834,23 +872,23 @@ function StatsRow({ rows }: { rows: ArtifactBoardRow[] }) {
   }, [rows]);
 
   return (
-    <div className="flex items-center gap-5 text-[12px] text-[#9CA3AF]">
+    <div className="artifact-stats-row artifact-mono">
       <span>
-        <b className="text-[#374151] font-semibold">{stats.total}</b> total
+        <b style={{ color: "var(--ink)", fontWeight: 500 }}>{stats.total}</b> total
       </span>
       <span>
-        <b className="text-emerald-600 font-semibold">{stats.approved}</b> approved
+        <b style={{ color: "var(--green)", fontWeight: 500 }}>{stats.approved}</b> approved
       </span>
       <span>
-        <b className="text-blue-600 font-semibold">{stats.inReview}</b> in review
+        <b style={{ color: "#2563EB", fontWeight: 500 }}>{stats.inReview}</b> in review
       </span>
       {stats.blocked > 0 && (
         <span>
-          <b className="text-red-600 font-semibold">{stats.blocked}</b> blocked
+          <b style={{ color: "var(--red)", fontWeight: 500 }}>{stats.blocked}</b> blocked
         </span>
       )}
       <span>
-        <b className="text-violet-600 font-semibold">{stats.avgProgress}%</b> avg progress
+        <b style={{ color: "#7C3AED", fontWeight: 500 }}>{stats.avgProgress}%</b> avg progress
       </span>
     </div>
   );
@@ -899,8 +937,7 @@ function AiPanel({
       setError("");
       setScope(canProject ? "project" : "org");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, canProject]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -1000,26 +1037,29 @@ function AiPanel({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh]">
-      <div className="absolute inset-0 bg-black/20 backdrop-blur-sm animate-[notionFadeIn_0.12s_ease-out]" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={onClose} />
       <div
-        className="relative w-full max-w-md max-h-[70vh] rounded-xl overflow-hidden flex flex-col bg-white animate-[notionSlideUp_0.2s_ease-out]"
-        style={{ border: "1px solid #E5E7EB", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.15)" }}
+        className="relative w-full max-w-md max-h-[70vh] rounded-xl overflow-hidden flex flex-col bg-white"
+        style={{ border: "1px solid var(--rule)", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.15)" }}
       >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#F1F5F9]">
+        <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "var(--rule)" }}>
           <div className="flex items-center gap-2">
-            <div className="h-6 w-6 rounded-md bg-violet-100 flex items-center justify-center">
+            <div className="h-6 w-6 rounded-md flex items-center justify-center" style={{ background: "#f3e8ff" }}>
               <Sparkles className="h-3.5 w-3.5 text-violet-600" />
             </div>
             <div>
-              <span className="text-[13px] font-semibold text-[#111827]">AI Assistant</span>
-              <span className="text-[11px] text-[#9CA3AF] ml-2">
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>AI Assistant</span>
+              <span className="artifact-mono" style={{ fontSize: 10, color: "var(--ink-4)", marginLeft: 8 }}>
                 {scope === "org" ? "Portfolio" : projectCode || projectHumanId || "—"}
               </span>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="inline-flex items-center rounded-lg border border-[#E5E7EB] overflow-hidden bg-[#FAFAFA]" style={{ height: 28 }}>
+            <div
+              className="inline-flex items-center rounded-lg border overflow-hidden"
+              style={{ borderColor: "var(--rule)", background: "var(--off-2)", height: 28 }}
+            >
               <button
                 onClick={() => {
                   if (!canProject) return;
@@ -1027,10 +1067,10 @@ function AiPanel({
                   setResult(null);
                   setError("");
                 }}
-                className="px-2.5 text-[11px] font-semibold"
+                className="artifact-mono px-2.5 text-[10px] font-medium uppercase tracking-[0.08em]"
                 style={{
                   background: scope === "project" ? "#EEF2FF" : "transparent",
-                  color: scope === "project" ? "#4F46E5" : "#6B7280",
+                  color: scope === "project" ? "#4F46E5" : "var(--ink-3)",
                   opacity: canProject ? 1 : 0.4,
                   cursor: canProject ? "pointer" : "not-allowed",
                 }}
@@ -1044,10 +1084,10 @@ function AiPanel({
                   setResult(null);
                   setError("");
                 }}
-                className="px-2.5 text-[11px] font-semibold"
+                className="artifact-mono px-2.5 text-[10px] font-medium uppercase tracking-[0.08em]"
                 style={{
                   background: scope === "org" ? "#EEF2FF" : "transparent",
-                  color: scope === "org" ? "#4F46E5" : "#6B7280",
+                  color: scope === "org" ? "#4F46E5" : "var(--ink-3)",
                 }}
                 title="Due items across all my projects"
               >
@@ -1055,19 +1095,22 @@ function AiPanel({
               </button>
             </div>
 
-            <button onClick={onClose} className="p-1 rounded-md hover:bg-gray-100" aria-label="Close">
-              <X className="h-4 w-4 text-[#6B7280]" />
+            <button onClick={onClose} className="icon-mini-btn" aria-label="Close">
+              <X className="h-4 w-4" />
             </button>
           </div>
         </div>
 
         <div className="flex-1 overflow-auto p-4">
           {scope === "org" && counts && (
-            <div className="mb-3 p-3 rounded-lg border border-[#EEF2FF]" style={{ background: "#FAFBFF" }}>
+            <div className="mb-3 p-3 rounded-lg border" style={{ background: "#FAFBFF", borderColor: "#EEF2FF" }}>
               <div className="flex items-center justify-between">
-                <div className="text-[12px] font-semibold text-[#111827]">{scopeLabel}</div>
-                <div className="text-[11px] text-[#6B7280]">
-                  Due soon: <span className="font-semibold text-[#111827]">{safeNum(counts?.dueSoon ?? counts?.due_soon ?? items.length)}</span>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink)" }}>{scopeLabel}</div>
+                <div className="artifact-mono" style={{ fontSize: 10, color: "var(--ink-3)" }}>
+                  Due soon:{" "}
+                  <span style={{ fontWeight: 500, color: "var(--ink)" }}>
+                    {safeNum(counts?.dueSoon ?? counts?.due_soon ?? items.length)}
+                  </span>
                 </div>
               </div>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -1082,7 +1125,16 @@ function AiPanel({
                   return (
                     <span
                       key={String(label)}
-                      className="text-[11px] font-semibold text-[#374151] bg-white border border-[#E5E7EB] rounded-md px-2 py-1"
+                      className="artifact-mono"
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 500,
+                        color: "var(--ink-2)",
+                        background: "var(--white)",
+                        border: "1px solid var(--rule)",
+                        borderRadius: 999,
+                        padding: "4px 8px",
+                      }}
                     >
                       {label}: {n}
                     </span>
@@ -1093,11 +1145,11 @@ function AiPanel({
           )}
 
           {error ? (
-            <div className="p-3 rounded-lg bg-red-50 text-[13px] text-red-700 flex items-start gap-2">
+            <div className="p-3 rounded-lg text-[13px] flex items-start gap-2" style={{ background: "var(--red-bg)", color: "var(--red)" }}>
               <AlertCircle className="h-4 w-4 mt-[1px] shrink-0" />
               <div>
-                <div className="font-medium">Scan failed</div>
-                <div className="text-[12px] opacity-80">{error}</div>
+                <div style={{ fontWeight: 600 }}>Scan failed</div>
+                <div style={{ fontSize: 12, opacity: 0.8 }}>{error}</div>
                 <button
                   onClick={runCheck}
                   disabled={loading}
@@ -1110,8 +1162,10 @@ function AiPanel({
           ) : !result ? (
             <div className="text-center py-10">
               <Clock className="h-8 w-8 mx-auto mb-3 text-violet-400" />
-              <p className="text-[13px] text-[#6B7280] mb-1">Check what&apos;s due in the next 14 days</p>
-              <p className="text-[11px] text-[#9CA3AF] mb-4">{scopeLabel}</p>
+              <p style={{ fontSize: 13, color: "var(--ink-3)", marginBottom: 4 }}>Check what&apos;s due in the next 14 days</p>
+              <p className="artifact-mono" style={{ fontSize: 10, color: "var(--ink-4)", marginBottom: 16 }}>
+                {scopeLabel}
+              </p>
               <button
                 onClick={runCheck}
                 disabled={loading}
@@ -1129,16 +1183,23 @@ function AiPanel({
           ) : items.length === 0 ? (
             <div className="text-center py-10">
               <FileCheck className="h-8 w-8 mx-auto mb-3 text-emerald-400" />
-              <p className="text-[13px] text-[#6B7280]">Nothing due in the next 14 days</p>
-              <p className="text-[11px] text-[#9CA3AF] mt-1">{scopeLabel}</p>
+              <p style={{ fontSize: 13, color: "var(--ink-3)" }}>Nothing due in the next 14 days</p>
+              <p className="artifact-mono" style={{ fontSize: 10, color: "var(--ink-4)", marginTop: 4 }}>
+                {scopeLabel}
+              </p>
             </div>
           ) : scope === "org" && grouped ? (
             <div className="space-y-3">
               {grouped.map((g) => (
-                <div key={g.key} className="rounded-lg border border-[#F1F5F9] overflow-hidden">
-                  <div className="px-3 py-2 bg-[#FAFAFA] border-b border-[#F1F5F9] flex items-center justify-between">
-                    <div className="text-[12px] font-semibold text-[#111827]">{g.label}</div>
-                    <div className="text-[11px] text-[#9CA3AF]">{g.items.length} due</div>
+                <div key={g.key} className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--rule)" }}>
+                  <div
+                    className="px-3 py-2 border-b flex items-center justify-between"
+                    style={{ background: "var(--off-2)", borderColor: "var(--rule)" }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink)" }}>{g.label}</div>
+                    <div className="artifact-mono" style={{ fontSize: 10, color: "var(--ink-4)" }}>
+                      {g.items.length} due
+                    </div>
                   </div>
                   <div className="p-3 space-y-2">
                     {g.items.slice(0, 25).map((item: any, idx: number) => {
@@ -1150,26 +1211,43 @@ function AiPanel({
                       return (
                         <div
                           key={`${g.key}:${idx}`}
-                          className="p-3 rounded-lg border border-[#F1F5F9] hover:border-[#E5E7EB] transition-colors"
+                          className="p-3 rounded-lg border transition-colors"
+                          style={{ borderColor: "var(--rule)" }}
                         >
                           <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] bg-[#F9FAFB] px-1.5 py-0.5 rounded">
+                            <span
+                              className="artifact-mono"
+                              style={{
+                                fontSize: 9,
+                                fontWeight: 500,
+                                letterSpacing: "0.08em",
+                                textTransform: "uppercase",
+                                color: "var(--ink-4)",
+                                background: "var(--off-2)",
+                                padding: "4px 6px",
+                                borderRadius: 999,
+                              }}
+                            >
                               {label}
                             </span>
                             {days !== null && (
-                              <span className="text-[11px] font-semibold tabular-nums" style={{ color: isOverdue ? "#DC2626" : "#D97706" }}>
+                              <span
+                                className="artifact-mono"
+                                style={{ fontSize: 10, fontWeight: 500, color: isOverdue ? "var(--red)" : "var(--amber)" }}
+                              >
                                 {isOverdue ? `${Math.abs(days)}d overdue` : `${days}d`}
                               </span>
                             )}
                           </div>
-                          <h4 className="text-[13px] font-medium text-[#111827] mb-1">{item?.title}</h4>
-                          <div className="flex items-center gap-1.5 text-[11px] text-[#9CA3AF] mb-2.5">
+                          <h4 style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", marginBottom: 4 }}>{item?.title}</h4>
+                          <div className="flex items-center gap-1.5 artifact-mono" style={{ fontSize: 10, color: "var(--ink-4)", marginBottom: 10 }}>
                             <Calendar className="h-3 w-3" /> {dueRaw ? fmtUkDateOnly(dueRaw) : "No due date"}
                           </div>
                           <div className="flex gap-2">
                             <Link
                               href={href}
-                              className="flex-1 px-3 py-1.5 rounded-md text-center text-[11px] font-medium bg-[#F9FAFB] border border-[#E5E7EB] text-[#374151] hover:bg-[#F3F4F6] transition-colors"
+                              className="flex-1 px-3 py-1.5 rounded-md text-center text-[11px] font-medium border transition-colors"
+                              style={{ background: "var(--off-2)", borderColor: "var(--rule)", color: "var(--ink-2)" }}
                             >
                               Open
                             </Link>
@@ -1200,25 +1278,41 @@ function AiPanel({
                 const label = safeStr(item?.itemType || item?.type || "item").replace(/_/g, " ");
                 const dueRaw = safeStr(item?.dueDate || item?.due_date).trim();
                 return (
-                  <div key={idx} className="p-3 rounded-lg border border-[#F1F5F9] hover:border-[#E5E7EB] transition-colors">
+                  <div key={idx} className="p-3 rounded-lg border" style={{ borderColor: "var(--rule)" }}>
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] bg-[#F9FAFB] px-1.5 py-0.5 rounded">
+                      <span
+                        className="artifact-mono"
+                        style={{
+                          fontSize: 9,
+                          fontWeight: 500,
+                          letterSpacing: "0.08em",
+                          textTransform: "uppercase",
+                          color: "var(--ink-4)",
+                          background: "var(--off-2)",
+                          padding: "4px 6px",
+                          borderRadius: 999,
+                        }}
+                      >
                         {label}
                       </span>
                       {days !== null && (
-                        <span className="text-[11px] font-semibold tabular-nums" style={{ color: isOverdue ? "#DC2626" : "#D97706" }}>
+                        <span
+                          className="artifact-mono"
+                          style={{ fontSize: 10, fontWeight: 500, color: isOverdue ? "var(--red)" : "var(--amber)" }}
+                        >
                           {isOverdue ? `${Math.abs(days)}d overdue` : `${days}d`}
                         </span>
                       )}
                     </div>
-                    <h4 className="text-[13px] font-medium text-[#111827] mb-1">{item?.title}</h4>
-                    <div className="flex items-center gap-1.5 text-[11px] text-[#9CA3AF] mb-2.5">
+                    <h4 style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", marginBottom: 4 }}>{item?.title}</h4>
+                    <div className="flex items-center gap-1.5 artifact-mono" style={{ fontSize: 10, color: "var(--ink-4)", marginBottom: 10 }}>
                       <Calendar className="h-3 w-3" /> {dueRaw ? fmtUkDateOnly(dueRaw) : "No due date"}
                     </div>
                     <div className="flex gap-2">
                       <Link
                         href={href}
-                        className="flex-1 px-3 py-1.5 rounded-md text-center text-[11px] font-medium bg-[#F9FAFB] border border-[#E5E7EB] text-[#374151] hover:bg-[#F3F4F6] transition-colors"
+                        className="flex-1 px-3 py-1.5 rounded-md text-center text-[11px] font-medium border transition-colors"
+                        style={{ background: "var(--off-2)", borderColor: "var(--rule)", color: "var(--ink-2)" }}
                       >
                         Open
                       </Link>
@@ -1240,11 +1334,12 @@ function AiPanel({
           )}
         </div>
 
-        <div className="px-4 py-2.5 border-t border-[#F1F5F9]">
+        <div className="px-4 py-2.5 border-t" style={{ borderColor: "var(--rule)" }}>
           <button
             onClick={runCheck}
             disabled={loading}
-            className="w-full py-1.5 rounded-lg text-[12px] font-medium text-[#6B7280] bg-[#F9FAFB] border border-[#E5E7EB] hover:bg-[#F3F4F6] transition-colors disabled:opacity-50"
+            className="w-full py-1.5 rounded-lg text-[12px] font-medium border transition-colors disabled:opacity-50"
+            style={{ color: "var(--ink-3)", background: "var(--off-2)", borderColor: "var(--rule)" }}
           >
             {loading ? "Scanning..." : "Rescan"}
           </button>
@@ -1442,61 +1537,281 @@ export default function ArtifactBoardClient(props: {
   return (
     <>
       <style jsx global>{`
-        @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
-        @keyframes notionFadeIn {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
+        @import url("https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600;700&family=DM+Mono:wght@300;400;500&display=swap");
+
+        :root {
+          --white: #ffffff;
+          --off: #f7f7f7;
+          --off-2: #fafafa;
+          --rule: #e9e9e9;
+          --rule-heavy: #1f1f1f;
+          --ink: #0a0a0a;
+          --ink-2: #333333;
+          --ink-3: #666666;
+          --ink-4: #999999;
+          --amber: #b45309;
+          --amber-bg: #fffbeb;
+          --red: #b91c1c;
+          --red-bg: #fef2f2;
+          --green: #166534;
+          --green-bg: #f0fdf4;
+          --font: "Familjen Grotesk", "Helvetica Neue", sans-serif;
+          --mono: "DM Mono", "Courier New", monospace;
+          --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.04);
         }
-        @keyframes notionSlideUp {
-          from {
-            opacity: 0;
-            transform: translateY(8px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
+
+        .notion-board,
         .notion-board * {
-          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          font-family: var(--font);
         }
-        .notion-row:hover {
-          background: #fafafa !important;
+
+        .artifact-mono {
+          font-family: var(--mono) !important;
         }
+
+        .notion-board {
+          background: linear-gradient(to bottom, #ffffff 0%, #ffffff 280px, #fcfcfc 100%);
+          color: var(--ink);
+          -webkit-font-smoothing: antialiased;
+        }
+
+        .artifact-row:hover {
+          background: #fcfcfc !important;
+        }
+
+        .toolbar-artifacts {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          padding: 14px 0 16px;
+          border-bottom: 1px solid var(--rule);
+          margin-bottom: 14px;
+        }
+
+        .toolbar-search-wrap {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .toolbar-search {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          flex: 1;
+          min-width: 0;
+          border: 1px solid var(--rule);
+          background: var(--white);
+          border-radius: 12px;
+          padding: 0 14px;
+          min-height: 44px;
+        }
+
+        .toolbar-search-input {
+          border: none;
+          outline: none;
+          background: transparent;
+          font-family: var(--font);
+          font-size: 13px;
+          font-weight: 400;
+          color: var(--ink);
+          width: 100%;
+          padding: 12px 0;
+        }
+
+        .toolbar-search-input::placeholder {
+          color: var(--ink-4);
+        }
+
+        .shortcut-kbd {
+          border: 1px solid var(--rule);
+          border-radius: 8px;
+          padding: 3px 7px;
+          background: var(--white);
+          color: var(--ink-4);
+          font-size: 10px;
+          letter-spacing: 0.04em;
+        }
+
+        .icon-mini-btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 24px;
+          height: 24px;
+          border-radius: 6px;
+          color: var(--ink-3);
+          transition: background 0.12s, color 0.12s;
+        }
+
+        .icon-mini-btn:hover {
+          background: var(--off);
+          color: var(--ink);
+        }
+
+        .toolbar-filter-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          padding: 0 14px;
+          min-height: 44px;
+          border-radius: 12px;
+          border: 1px solid var(--rule);
+          font-size: 12px;
+          font-weight: 600;
+          background: var(--white);
+          transition: border-color 0.12s, background 0.12s, color 0.12s;
+        }
+
+        .toolbar-filter-count {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 18px;
+          height: 18px;
+          padding: 0 5px;
+          border-radius: 999px;
+          background: #2563eb;
+          color: #fff;
+          font-size: 10px;
+          font-weight: 600;
+        }
+
+        .toolbar-filter-panel {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 12px;
+          padding-top: 2px;
+        }
+
+        .toolbar-chip-group {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .toolbar-chip-label {
+          font-size: 9px;
+          font-weight: 500;
+          color: var(--ink-4);
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+        }
+
+        .toolbar-chip-btn {
+          padding: 6px 10px;
+          border-radius: 999px;
+          font-size: 9px;
+          font-weight: 500;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          border: 1px solid var(--rule);
+          background: transparent;
+          transition: all 0.12s;
+        }
+
+        .toolbar-divider {
+          width: 1px;
+          height: 18px;
+          background: var(--rule);
+        }
+
+        .toolbar-clear-btn {
+          font-size: 9px;
+          font-weight: 500;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--ink-4);
+        }
+
+        .toolbar-clear-btn:hover {
+          color: var(--ink-2);
+        }
+
+        .artifact-stats-row {
+          display: flex;
+          align-items: center;
+          gap: 18px;
+          font-size: 10px;
+          font-weight: 400;
+          color: var(--ink-4);
+          letter-spacing: 0.03em;
+          text-transform: lowercase;
+          white-space: nowrap;
+        }
+
         .notion-board ::-webkit-scrollbar {
           width: 6px;
           height: 6px;
         }
+
         .notion-board ::-webkit-scrollbar-track {
           background: transparent;
         }
+
         .notion-board ::-webkit-scrollbar-thumb {
-          background: #e5e7eb;
+          background: #dedede;
           border-radius: 3px;
         }
+
         .notion-board ::-webkit-scrollbar-thumb:hover {
-          background: #d1d5db;
+          background: #cccccc;
+        }
+
+        @media (max-width: 1100px) {
+          .artifact-stats-row {
+            display: none;
+          }
+        }
+
+        @media (max-width: 900px) {
+          .toolbar-search-wrap {
+            flex-direction: column;
+            align-items: stretch;
+          }
         }
       `}</style>
 
-      <div className="notion-board min-h-screen bg-white" style={{ WebkitFontSmoothing: "antialiased" }}>
-        <header className="sticky top-0 z-40 bg-white border-b border-[#F1F5F9]">
+      <div className="notion-board min-h-screen" style={{ WebkitFontSmoothing: "antialiased" }}>
+        <header
+          className="sticky top-0 z-40"
+          style={{
+            background: "rgba(255,255,255,0.92)",
+            backdropFilter: "blur(8px)",
+            borderBottom: "1px solid var(--rule)",
+          }}
+        >
           <div className="max-w-[1320px] mx-auto px-6">
-            <div className="flex items-center justify-between py-4">
-              <div className="flex items-center gap-3">
-                <div className="h-8 w-8 rounded-lg bg-[#F3F4F6] flex items-center justify-center">
-                  <Layers className="h-4 w-4 text-[#6B7280]" />
+            <div className="flex items-center justify-between py-5 gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div
+                  className="h-10 w-10 rounded-xl flex items-center justify-center shrink-0"
+                  style={{ background: "var(--off)" }}
+                >
+                  <Layers className="h-4 w-4" style={{ color: "var(--ink-3)" }} />
                 </div>
-                <div>
-                  <h1 className="text-[15px] font-semibold text-[#111827]">Artifacts</h1>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[12px] text-[#9CA3AF]">{projectName || "Project"}</span>
+
+                <div className="min-w-0">
+                  <div style={{ fontSize: 28, fontWeight: 700, color: "var(--ink)", letterSpacing: "-0.035em", lineHeight: 1 }}>
+                    Artifacts
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap mt-1">
+                    <span style={{ fontSize: 13, color: "var(--ink-3)" }}>{projectName || "Project"}</span>
                     {projectCode && (
-                      <span className="text-[11px] font-mono text-[#9CA3AF] bg-[#F9FAFB] border border-[#F1F5F9] px-1.5 py-0.5 rounded">
+                      <span
+                        className="artifact-mono"
+                        style={{
+                          fontSize: 10,
+                          color: "var(--ink-4)",
+                          background: "var(--off-2)",
+                          border: "1px solid var(--rule)",
+                          padding: "4px 8px",
+                          borderRadius: 999,
+                          letterSpacing: "0.04em",
+                        }}
+                      >
                         {projectCode}
                       </span>
                     )}
@@ -1504,12 +1819,16 @@ export default function ArtifactBoardClient(props: {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <StatsRow rows={filteredRows} />
-                <div className="w-px h-5 bg-[#E5E7EB] mx-1 hidden md:block" />
                 <button
                   onClick={() => setAiOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-[7px] rounded-lg text-[12px] font-medium bg-violet-50 text-violet-600 border border-violet-100 hover:bg-violet-100 transition-colors"
+                  className="inline-flex items-center gap-1.5 px-4 py-[10px] rounded-xl text-[12px] font-semibold transition-colors"
+                  style={{
+                    background: "#f5f3ff",
+                    color: "#7c3aed",
+                    border: "1px solid #ede9fe",
+                  }}
                   title={looksLikeUuid(projectUuid) ? "AI due scan (project or portfolio)" : "AI due scan (portfolio available)"}
                 >
                   <Sparkles className="h-3.5 w-3.5" />
@@ -1521,11 +1840,19 @@ export default function ArtifactBoardClient(props: {
         </header>
 
         {actionError && (
-          <div className="max-w-[1320px] mx-auto px-6 pt-3 relative z-10">
-            <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-[13px] bg-red-50 text-red-700 border border-red-100 animate-[notionSlideUp_0.15s_ease-out]">
+          <div className="max-w-[1320px] mx-auto px-6 pt-4 relative z-10">
+            <div
+              className="flex items-center gap-2 px-4 py-3 rounded-xl"
+              style={{
+                fontSize: 13,
+                background: "var(--red-bg)",
+                color: "var(--red)",
+                border: "1px solid #fecaca",
+              }}
+            >
               <AlertCircle className="h-4 w-4 shrink-0" />
               {actionError}
-              <button onClick={() => setActionError("")} className="ml-auto p-0.5 rounded hover:bg-red-100">
+              <button onClick={() => setActionError("")} className="ml-auto icon-mini-btn">
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -1545,25 +1872,73 @@ export default function ArtifactBoardClient(props: {
           />
 
           {sortedRows.length === 0 ? (
-            <div className="text-center py-20 animate-[notionFadeIn_0.3s_ease-out]">
-              <Layers className="h-8 w-8 mx-auto mb-3 text-[#D1D5DB]" />
-              <p className="text-[14px] text-[#6B7280] mb-1">No artifacts found</p>
-              <p className="text-[12px] text-[#9CA3AF]">
-                {activeFiltersCount > 0 ? "Try adjusting your filters" : "Create your first artifact to get started"}
+            <div
+              className="text-center"
+              style={{
+                padding: "88px 24px",
+                border: "1px solid var(--rule)",
+                background: "var(--white)",
+                borderRadius: 16,
+              }}
+            >
+              <div
+                style={{
+                  width: 32,
+                  height: 2,
+                  background: "var(--ink-4)",
+                  margin: "0 auto 20px",
+                }}
+              />
+              <div
+                style={{
+                  fontSize: 28,
+                  fontWeight: 600,
+                  color: "var(--ink)",
+                  letterSpacing: "-0.02em",
+                  marginBottom: 10,
+                }}
+              >
+                No artifacts found.
+              </div>
+              <p style={{ fontSize: 13, color: "var(--ink-3)", fontWeight: 400 }}>
+                {activeFiltersCount > 0 ? "Try adjusting your filters." : "Create your first artifact to get started."}
               </p>
             </div>
           ) : (
-            <div className="rounded-lg border border-[#E5E7EB] overflow-hidden overflow-x-auto" style={{ background: "#FFFFFF" }}>
+            <div
+              className="overflow-hidden overflow-x-auto"
+              style={{
+                background: "var(--white)",
+                border: "1px solid var(--rule)",
+                borderRadius: 16,
+                boxShadow: "var(--shadow-soft)",
+              }}
+            >
               <div
-                className="grid items-center sticky top-0 bg-[#F9FAFB] border-b border-[#E5E7EB] z-10"
-                style={{ gridTemplateColumns: COL_TEMPLATE, minHeight: 36 }}
+                className="grid items-center sticky top-0 z-10"
+                style={{
+                  gridTemplateColumns: COL_TEMPLATE,
+                  minHeight: 42,
+                  background: "var(--off)",
+                  borderBottom: "1px solid var(--rule)",
+                }}
               >
-                <span className="px-3 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Name</span>
-                <span className="px-3 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Owner</span>
-                <span className="px-3 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Phase</span>
-                <span className="px-3 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Status</span>
-                <span className="px-3 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider">Progress</span>
-                <span className="px-3 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider"></span>
+                <span className="artifact-mono px-4 text-[9px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--ink-4)" }}>
+                  Name
+                </span>
+                <span className="artifact-mono px-4 text-[9px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--ink-4)" }}>
+                  Owner
+                </span>
+                <span className="artifact-mono px-4 text-[9px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--ink-4)" }}>
+                  Phase
+                </span>
+                <span className="artifact-mono px-4 text-[9px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--ink-4)" }}>
+                  Status
+                </span>
+                <span className="artifact-mono px-4 text-[9px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--ink-4)" }}>
+                  Progress
+                </span>
+                <span className="artifact-mono px-4 text-[9px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--ink-4)" }} />
               </div>
 
               {sortedRows.map((row) => (
@@ -1582,8 +1957,11 @@ export default function ArtifactBoardClient(props: {
                 />
               ))}
 
-              <div className="px-3 py-2 bg-[#F9FAFB] border-t border-[#E5E7EB]">
-                <span className="text-[11px] text-[#9CA3AF]">
+              <div
+                className="px-4 py-3"
+                style={{ background: "var(--white)", borderTop: "1px solid var(--rule)" }}
+              >
+                <span className="artifact-mono" style={{ fontSize: 10, color: "var(--ink-4)", letterSpacing: "0.08em" }}>
                   {sortedRows.length} artifact{sortedRows.length !== 1 ? "s" : ""}
                   {activeFiltersCount > 0 && ` (filtered from ${baseRows.length})`}
                 </span>
