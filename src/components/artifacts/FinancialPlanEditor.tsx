@@ -276,6 +276,7 @@ function OverrideToggle({ line, hasLinkedResources, resTotal, sym, onToggle }: {
   if (!hasLinkedResources) return null;
   return (
     <button
+      type="button"
       onClick={onToggle}
       style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", fontFamily: P.mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", cursor: "pointer", background: line.override ? P.amberLt : P.greenLt, border: `1px solid ${line.override ? "#E0C080" : "#A0D0B8"}`, color: line.override ? P.amber : P.green }}
       title={line.override ? "Re-enable auto-update from resources" : "Override — stop auto-update"}
@@ -347,11 +348,13 @@ function ResourceSyncBar({ resources, costLines, monthlyData, fyConfig, currency
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           {hasChanges && !synced && (
             <>
-              <button onClick={() => setExpanded(v => !v)} style={{ display: "flex", alignItems: "center", gap: 4, fontFamily: P.mono, fontSize: 10, color: P.navy, cursor: "pointer", background: "none", border: "none", fontWeight: 500 }}>
+              {/* FIX: type="button" to prevent form submission */}
+              <button type="button" onClick={() => setExpanded(v => !v)} style={{ display: "flex", alignItems: "center", gap: 4, fontFamily: P.mono, fontSize: 10, color: P.navy, cursor: "pointer", background: "none", border: "none", fontWeight: 500 }}>
                 Preview
                 <ChevronRight style={{ width: 12, height: 12, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
               </button>
-              <button onClick={handleSync} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", background: P.navy, color: "#FFF", fontFamily: P.mono, fontSize: 10, fontWeight: 700, border: "none", cursor: "pointer", letterSpacing: "0.04em" }}>
+              {/* FIX: type="button" to prevent form submission */}
+              <button type="button" onClick={handleSync} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", background: P.navy, color: "#FFF", fontFamily: P.mono, fontSize: 10, fontWeight: 700, border: "none", cursor: "pointer", letterSpacing: "0.04em" }}>
                 <Zap style={{ width: 11, height: 11 }} /> SYNC TO MONTHLY
               </button>
             </>
@@ -543,7 +546,6 @@ function ResourcesTab({
               return (
                 <tr key={r.id} style={cellStyle}>
                   <td style={{ ...cellStyle, minWidth: 220, padding: "4px 8px" }}>
-                    {/* ✅ FIX: plain async function — useCallback cannot be called inside .map() */}
                     <ResourcePicker
                       organisationId={organisationId} value={r.user_id ?? null}
                       currentResource={r} disabled={readOnly}
@@ -598,7 +600,7 @@ function ResourcesTab({
                   <td style={{ ...cellStyle, padding: "4px 6px" }}>
                     <div style={{ display: "flex", background: "#EDEDEB", padding: 2, gap: 2 }}>
                       {(["day_rate", "monthly_cost"] as ResourceRateType[]).map(rt => (
-                        <button key={rt} onClick={() => !readOnly && update(r.id, { rate_type: rt })} style={{ padding: "4px 8px", fontSize: 9, fontFamily: P.mono, fontWeight: 700, cursor: readOnly ? "default" : "pointer", background: r.rate_type === rt ? P.surface : "transparent", color: r.rate_type === rt ? P.text : P.textSm, border: r.rate_type === rt ? `1px solid ${P.border}` : "1px solid transparent", whiteSpace: "nowrap" }}>
+                        <button type="button" key={rt} onClick={() => !readOnly && update(r.id, { rate_type: rt })} style={{ padding: "4px 8px", fontSize: 9, fontFamily: P.mono, fontWeight: 700, cursor: readOnly ? "default" : "pointer", background: r.rate_type === rt ? P.surface : "transparent", color: r.rate_type === rt ? P.text : P.textSm, border: r.rate_type === rt ? `1px solid ${P.border}` : "1px solid transparent", whiteSpace: "nowrap" }}>
                           {rt === "day_rate" ? "Day Rate" : "Monthly"}
                         </button>
                       ))}
@@ -688,15 +690,29 @@ function ResourcesTab({
                       style={{ width: "100%", border: "none", background: "transparent", padding: "6px 8px", fontSize: 12, color: P.text, fontFamily: P.sans, outline: "none" }}
                     />
                   </td>
-                  <td style={{ ...cellStyle, padding: "4px 6px" }}>
+
+                  {/* FIX: locked icon when timesheet exists, trash icon only when no timesheet */}
+                  <td style={{ ...cellStyle, padding: "4px 6px", textAlign: "center", width: 32 }}>
                     {!readOnly && (
-                      <button onClick={() => onChange(resources.filter(x => x.id !== r.id))} style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0, transition: "opacity 0.1s" }}
-                        onMouseEnter={e => (e.currentTarget.style.color = P.red, e.currentTarget.style.opacity = "1")}
-                        onMouseLeave={e => (e.currentTarget.style.color = P.textSm, e.currentTarget.style.opacity = "0")}
-                        aria-label="Delete resource"
-                      >
-                        <Trash2 style={{ width: 13, height: 13 }} />
-                      </button>
+                      hasTimesheet ? (
+                        <div
+                          title="Cannot remove — resource has approved timesheet hours"
+                          style={{ padding: 4, display: "inline-flex", alignItems: "center", justifyContent: "center", color: P.border, cursor: "not-allowed" }}
+                        >
+                          <Lock style={{ width: 13, height: 13 }} />
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => onChange(resources.filter(x => x.id !== r.id))}
+                          style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0, transition: "opacity 0.1s" }}
+                          onMouseEnter={e => { e.currentTarget.style.color = P.red; e.currentTarget.style.opacity = "1"; }}
+                          onMouseLeave={e => { e.currentTarget.style.color = P.textSm; e.currentTarget.style.opacity = "0"; }}
+                          aria-label="Remove resource"
+                        >
+                          <Trash2 style={{ width: 13, height: 13 }} />
+                        </button>
+                      )
                     )}
                   </td>
                 </tr>
@@ -721,7 +737,8 @@ function ResourcesTab({
         </table>
         {!readOnly && (
           <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}` }}>
-            <button onClick={() => onChange([...resources, emptyResource()])} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.navy, cursor: "pointer", fontWeight: 500 }}>
+            {/* FIX: type="button" to prevent form submission */}
+            <button type="button" onClick={() => onChange([...resources, emptyResource()])} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.navy, cursor: "pointer", fontWeight: 500 }}>
               <Plus style={{ width: 14, height: 14 }} /> Add resource
             </button>
           </div>
@@ -835,7 +852,7 @@ export default function FinancialPlanEditor({
   const overBudget       = forecastVariance !== null && forecastVariance > 0;
   const totalResourceCost = resources.reduce((s, r) => s + resourceTotal(r), 0);
 
-  const fyConfig  = useMemo<FYConfig>(() => content.fy_config ?? { fy_start_month: 4, fy_start_year: new Date().getFullYear(), num_months: 12 }, [content.fy_config]);
+  const fyConfig    = useMemo<FYConfig>(() => content.fy_config ?? { fy_start_month: 4, fy_start_year: new Date().getFullYear(), num_months: 12 }, [content.fy_config]);
   const monthlyData = useMemo<MonthlyData>(() => content.monthly_data ?? {}, [content.monthly_data]);
   const monthlyDataWithActuals = useMemo(() => applyActualsToMonthlyData(monthlyData, actualsByLine), [monthlyData, actualsByLine]);
 
@@ -921,11 +938,12 @@ export default function FinancialPlanEditor({
         />
       </div>
 
+      {/* FIX: type="button" on all tab buttons prevents form submission / navigation */}
       <div style={{ display: "flex", gap: 0, borderBottom: `2px solid ${P.border}`, overflowX: "auto" }}>
         {tabs.map(tab => {
           const active = activeTab === tab.id;
           return (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+            <button type="button" key={tab.id} onClick={() => setActiveTab(tab.id)}
               style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", fontFamily: P.sans, fontSize: 12, fontWeight: active ? 600 : 400, cursor: "pointer", background: "none", border: "none", borderBottom: `2px solid ${active ? P.navy : "transparent"}`, color: active ? P.navy : P.textMd, marginBottom: -2, whiteSpace: "nowrap", transition: "all 0.1s" }}
             >
               {tab.id === "monthly"   && <Calendar style={{ width: 12, height: 12 }} />}
@@ -1010,9 +1028,10 @@ export default function FinancialPlanEditor({
                     </td>
                     <td style={{ ...cellBase, padding: "4px 6px" }}>
                       {!readOnly && (
-                        <button onClick={() => removeLine(l.id)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0 }}
-                          onMouseEnter={e => (e.currentTarget.style.color = P.red, e.currentTarget.style.opacity = "1")}
-                          onMouseLeave={e => (e.currentTarget.style.color = P.textSm, e.currentTarget.style.opacity = "0")}
+                        // FIX: type="button" to prevent form submission
+                        <button type="button" onClick={() => removeLine(l.id)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0 }}
+                          onMouseEnter={e => { e.currentTarget.style.color = P.red; e.currentTarget.style.opacity = "1"; }}
+                          onMouseLeave={e => { e.currentTarget.style.color = P.textSm; e.currentTarget.style.opacity = "0"; }}
                           aria-label="Delete cost line"
                         >
                           <Trash2 style={{ width: 13, height: 13 }} />
@@ -1042,7 +1061,8 @@ export default function FinancialPlanEditor({
           </table>
           {!readOnly && (
             <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}` }}>
-              <button onClick={addLine} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.navy, cursor: "pointer", fontWeight: 500 }}>
+              {/* FIX: type="button" to prevent form submission */}
+              <button type="button" onClick={addLine} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.navy, cursor: "pointer", fontWeight: 500 }}>
                 <Plus style={{ width: 14, height: 14 }} /> Add line
               </button>
             </div>
@@ -1135,9 +1155,10 @@ export default function FinancialPlanEditor({
                       </td>
                       <td style={{ ...cellBase, padding: "4px 6px" }}>
                         {!readOnly && (
-                          <button onClick={() => removeCE(c.id)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0 }}
-                            onMouseEnter={e => (e.currentTarget.style.color = P.red, e.currentTarget.style.opacity = "1")}
-                            onMouseLeave={e => (e.currentTarget.style.color = P.textSm, e.currentTarget.style.opacity = "0")}
+                          // FIX: type="button" to prevent form submission
+                          <button type="button" onClick={() => removeCE(c.id)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer", color: P.textSm, opacity: 0 }}
+                            onMouseEnter={e => { e.currentTarget.style.color = P.red; e.currentTarget.style.opacity = "1"; }}
+                            onMouseLeave={e => { e.currentTarget.style.color = P.textSm; e.currentTarget.style.opacity = "0"; }}
                             aria-label="Delete change exposure"
                           >
                             <Trash2 style={{ width: 13, height: 13 }} />
@@ -1151,7 +1172,8 @@ export default function FinancialPlanEditor({
             </table>
             {!readOnly && (
               <div style={{ padding: "8px 16px", background: P.bg, borderTop: `1px solid ${P.border}` }}>
-                <button onClick={addCE} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.amber, cursor: "pointer", fontWeight: 500 }}>
+                {/* FIX: type="button" to prevent form submission */}
+                <button type="button" onClick={addCE} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: P.sans, fontSize: 12, color: P.amber, cursor: "pointer", fontWeight: 500 }}>
                   <Plus style={{ width: 14, height: 14 }} /> Add change exposure
                 </button>
               </div>
