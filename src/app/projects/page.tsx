@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
 import CreateProjectModal from "./_components/CreateProjectModal";
+import { portfolioGlobalCss } from "@/lib/ui/portfolioTheme";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -325,30 +326,8 @@ export default async function ProjectsPage({
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600;700&family=DM+Mono:wght@300;400;500&display=swap');
-
+        ${portfolioGlobalCss()}
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-        :root {
-          --white: #ffffff;
-          --off: #f7f7f7;
-          --off-2: #fafafa;
-          --rule: #e9e9e9;
-          --rule-heavy: #1f1f1f;
-          --ink: #0a0a0a;
-          --ink-2: #333333;
-          --ink-3: #666666;
-          --ink-4: #999999;
-          --amber: #b45309;
-          --amber-bg: #fffbeb;
-          --red: #b91c1c;
-          --red-bg: #fef2f2;
-          --green: #166534;
-          --green-bg: #f0fdf4;
-          --font: 'Familjen Grotesk', 'Helvetica Neue', sans-serif;
-          --mono: 'DM Mono', 'Courier New', monospace;
-          --shadow-soft: 0 10px 30px rgba(0,0,0,0.04);
-        }
 
         html, body {
           background: var(--white);
