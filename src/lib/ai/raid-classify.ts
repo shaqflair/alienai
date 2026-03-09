@@ -65,29 +65,27 @@ export async function classifyRaidItem(input: {
     "gpt-4o-mini";
 
   const prompt = `
-You are classifying a RAID item for an enterprise PMO governance platform.
+Classify this RAID item for a PMO governance platform.
 
-Return STRICT JSON only with this exact shape:
+Return strict JSON only:
 {
   "type": "Risk|Issue|Assumption|Dependency",
   "priority": "Low|Medium|High|Critical",
   "impact": "low|medium|high|critical",
-  "probability": 0,
-  "severity": 0,
+  "probability": 0-100,
+  "severity": 0-100,
   "ai_rollup": "short executive summary"
 }
 
-Classification rules:
-- Risk = uncertain future event that may affect delivery
-- Issue = current problem already happening now
+Rules:
+- Risk = uncertain future event
+- Issue = current problem happening now
 - Assumption = believed condition that may need validation
-- Dependency = reliance on external team, supplier, deliverable, approval, or event
+- Dependency = reliance on external team/item/event
+- probability and severity must be integers 0-100
+- ai_rollup max 35 words
 
-Scoring rules:
-- probability and severity must be integers between 0 and 100
-- ai_rollup should be max 30 words, concise, executive tone
-
-Context:
+Item:
 Project ID: ${safeStr(input.projectId)}
 Title: ${safeStr(input.title)}
 Description: ${safeStr(input.description)}
@@ -107,25 +105,16 @@ Notes: ${safeStr(input.notes)}
         model,
         temperature: 0.2,
         response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
+        messages: [{ role: "user", content: prompt }],
       }),
       cache: "no-store",
     });
 
-    if (!res.ok) {
-      return null;
-    }
+    if (!res.ok) return null;
 
     const json = await res.json();
-    const content = json?.choices?.[0]?.message?.content;
-    if (!content || typeof content !== "string") return null;
-
-    const parsed = JSON.parse(content);
+    const text = json?.choices?.[0]?.message?.content ?? "{}";
+    const parsed = JSON.parse(text);
 
     return {
       type: normalizeType(parsed?.type),
@@ -133,7 +122,7 @@ Notes: ${safeStr(input.notes)}
       impact: normalizeImpact(parsed?.impact),
       probability: clampInt0to100(parsed?.probability),
       severity: clampInt0to100(parsed?.severity),
-      ai_rollup: safeStr(parsed?.ai_rollup).trim() || null,
+      ai_rollup: typeof parsed?.ai_rollup === "string" ? parsed.ai_rollup.trim() : null,
     };
   } catch {
     return null;
