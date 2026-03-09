@@ -257,10 +257,23 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
   );
   const shouldHidePanels = mode === "charter" || isFinancialPlan;
 
-  // Financial plan needs no padding + overflow-x scroll so wide tables aren't clipped
-  const sectionClassName = isFinancialPlan
-    ? cx("border rounded-2xl bg-white overflow-x-auto", hideContentExportsRow ? "space-y-0" : "space-y-4")
-    : cx("border rounded-2xl bg-white p-6", hideContentExportsRow ? "space-y-0" : "space-y-4");
+  const sectionClassName = cx("border rounded-2xl bg-white p-6", hideContentExportsRow ? "space-y-0" : "space-y-4");
+
+  // Financial plan renders directly on the page — no section border, no padding box
+  if (isFinancialPlan) {
+    return (
+      <div className="w-full overflow-x-auto">
+        <FinancialPlanEditorHost
+          projectId={projectId}
+          artifactId={artifactId}
+          organisationId={organisationId}
+          initialJson={typedInitialJson ?? rawContentJson ?? null}
+          readOnly={!isEditable}
+          updateArtifactJsonAction={updateArtifactJsonAction}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -329,7 +342,7 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
         <>
           {/* FIX: financial_plan mode gets no padding + overflow-x-auto so wide tables aren't clipped */}
           <section className={sectionClassName}>
-            {isFinancialPlan ? null : contentHeader}
+            {contentHeader}
             {mode === "charter" ? (
               <ProjectCharterEditorFormLazy
                 projectId={projectId}
@@ -382,15 +395,6 @@ export default function ArtifactDetailClientHost(props: ArtifactDetailClientHost
               <WeeklyReportEditor
                 projectId={projectId}
                 artifactId={artifactId}
-                initialJson={typedInitialJson ?? rawContentJson ?? null}
-                readOnly={!isEditable}
-                updateArtifactJsonAction={updateArtifactJsonAction}
-              />
-            ) : isFinancialPlan ? (
-              <FinancialPlanEditorHost
-                projectId={projectId}
-                artifactId={artifactId}
-                organisationId={organisationId}
                 initialJson={typedInitialJson ?? rawContentJson ?? null}
                 readOnly={!isEditable}
                 updateArtifactJsonAction={updateArtifactJsonAction}
