@@ -41,9 +41,6 @@ const nextConfig: NextConfig = {
     ? {
         output: "standalone",
         serverExternalPackages: SERVER_ONLY_PACKAGES,
-        outputFileTracingIncludes: {
-          "/api/**": ["./node_modules/@sparticuz/chromium/**"],
-        },
       }
     : {}),
 
