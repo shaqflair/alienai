@@ -35,8 +35,10 @@ function safeStr(x: unknown) {
 
 function fmtShort(d: string | null | undefined) {
   if (!d) return null;
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return null;
   try {
-    return new Date(d).toLocaleDateString("en-GB", {
+    return dt.toLocaleDateString("en-GB", {
       day: "numeric",
       month: "short",
       year: "2-digit",
@@ -48,8 +50,10 @@ function fmtShort(d: string | null | undefined) {
 
 function fmtLong(d: string | null | undefined) {
   if (!d) return null;
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return null;
   try {
-    return new Date(d).toLocaleDateString("en-GB", {
+    return dt.toLocaleDateString("en-GB", {
       day: "numeric",
       month: "short",
       year: "numeric",
@@ -61,11 +65,9 @@ function fmtLong(d: string | null | undefined) {
 
 function daysUntil(d: string | null | undefined): number | null {
   if (!d) return null;
-  try {
-    return Math.ceil((new Date(d).getTime() - Date.now()) / 86_400_000);
-  } catch {
-    return null;
-  }
+  const t = new Date(d).getTime();
+  if (Number.isNaN(t)) return null;
+  return Math.ceil((t - Date.now()) / 86_400_000);
 }
 
 function normaliseRag(v: unknown): "G" | "A" | "R" | null {
@@ -95,16 +97,21 @@ async function setProjectStatus(formData: FormData) {
   if (uErr) throw uErr;
   if (!user) redirect("/login");
 
-  const projectId = (formData.get("project_id") as string) || "";
-  const status = (formData.get("status") as string) || "";
-  const next = (formData.get("next") as string) || "/projects";
+  const activeOrgId = await getActiveOrgId();
+  if (!activeOrgId) redirect("/settings?err=no_active_org");
+
+  const projectId = safeStr(formData.get("project_id")).trim();
+  const status = safeStr(formData.get("status")).trim().toLowerCase();
+  const next = safeStr(formData.get("next")).trim() || "/projects";
 
   if (!projectId || !["active", "closed"].includes(status)) redirect(next);
 
   const { error } = await supabase
     .from("projects")
     .update({ status })
-    .eq("id", projectId);
+    .eq("id", projectId)
+    .eq("organisation_id", activeOrgId)
+    .is("deleted_at", null);
 
   if (error) throw error;
   redirect(next);
@@ -1042,12 +1049,28 @@ export default async function ProjectsPage({
         dangerouslySetInnerHTML={{
           __html: `
             (function () {
+              function getCurrentValue() {
+                var inp = document.getElementById('sq');
+                return inp ? String(inp.value || '') : '';
+              }
+
+              function withUpdatedQuery(href) {
+                try {
+                  var url = new URL(href, window.location.origin);
+                  url.searchParams.set('q', getCurrentValue());
+                  return url.pathname + url.search;
+                } catch {
+                  return href;
+                }
+              }
+
               function boot() {
                 var inp = document.getElementById('sq');
                 var lbl = document.getElementById('row-count');
                 if (!inp) return;
-                inp.addEventListener('input', function () {
-                  var q = this.value.toLowerCase();
+
+                function applyFilter() {
+                  var q = String(inp.value || '').toLowerCase();
                   var rows = document.querySelectorAll('.p-row');
                   var n = 0;
                   rows.forEach(function (r) {
@@ -1056,8 +1079,24 @@ export default async function ProjectsPage({
                     if (show) n++;
                   });
                   if (lbl) lbl.textContent = n + ' project' + (n !== 1 ? 's' : '');
+                }
+
+                inp.addEventListener('input', applyFilter);
+
+                document.querySelectorAll('[data-preserve-query="true"]').forEach(function (el) {
+                  el.addEventListener('click', function (e) {
+                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                    if (el.target === '_blank') return;
+                    var href = el.getAttribute('href');
+                    if (!href) return;
+                    e.preventDefault();
+                    window.location.href = withUpdatedQuery(href);
+                  });
                 });
+
+                applyFilter();
               }
+
               document.readyState === 'loading'
                 ? document.addEventListener('DOMContentLoaded', boot)
                 : boot();
@@ -1174,7 +1213,8 @@ export default async function ProjectsPage({
             {(["Active", "Closed", "All"] as const).map((f) => (
               <Link
                 key={f}
-                href={`/projects?filter=${f}&sort=${sortMode}&q=${encodeURIComponent(query)}`}
+                href={`/projects?filter=${encodeURIComponent(f)}&sort=${encodeURIComponent(sortMode)}&q=${encodeURIComponent(query)}`}
+                data-preserve-query="true"
                 className={`f-tab${filter === f ? " active" : ""}`}
               >
                 {f}
@@ -1207,7 +1247,8 @@ export default async function ProjectsPage({
             {(["Newest", "A-Z"] as const).map((s) => (
               <Link
                 key={s}
-                href={`/projects?filter=${filter}&sort=${s}&q=${encodeURIComponent(query)}`}
+                href={`/projects?filter=${encodeURIComponent(filter)}&sort=${encodeURIComponent(s)}&q=${encodeURIComponent(query)}`}
+                data-preserve-query="true"
                 className={`s-tab${sortMode === s ? " active" : ""}`}
               >
                 {s}
@@ -1237,7 +1278,7 @@ export default async function ProjectsPage({
           if (p.start_date && p.finish_date) {
             const s = new Date(p.start_date).getTime();
             const e = new Date(p.finish_date).getTime();
-            if (e > s) {
+            if (!Number.isNaN(s) && !Number.isNaN(e) && e > s) {
               tlPct = Math.min(
                 100,
                 Math.max(0, Math.round(((Date.now() - s) / (e - s)) * 100)),
@@ -1317,7 +1358,7 @@ export default async function ProjectsPage({
                 {
                   "--accent": colour,
                   animationDelay: `${Math.min(i * 0.03, 0.25)}s`,
-                } as any
+                } as React.CSSProperties
               }
             >
               <div className="c-main">

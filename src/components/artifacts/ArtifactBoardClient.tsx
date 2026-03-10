@@ -140,22 +140,22 @@ function normalizeArtifactLink(href: string) {
     qIdx >= 0 && hashIdx >= 0
       ? Math.min(qIdx, hashIdx)
       : qIdx >= 0
-      ? qIdx
-      : hashIdx >= 0
-      ? hashIdx
-      : -1;
+        ? qIdx
+        : hashIdx >= 0
+          ? hashIdx
+          : -1;
 
   const path = cutIdx >= 0 ? raw.slice(0, cutIdx) : raw;
   const tail = cutIdx >= 0 ? raw.slice(cutIdx) : "";
 
   const fixedPath = path
-    .replace(/\/RAID(\/|$)/g, "/raid$1")
-    .replace(/\/WBS(\/|$)/g, "/wbs$1")
-    .replace(/\/SCHEDULE(\/|$)/g, "/schedule$1")
-    .replace(/\/CHANGE(\/|$)/g, "/change$1")
-    .replace(/\/CHANGES(\/|$)/g, "/change$1")
-    .replace(/\/CHANGE_REQUESTS(\/|$)/g, "/change$1")
-    .replace(/\/ARTIFACTS(\/|$)/g, "/artifacts$1");
+    .replace(/\/raid(\/|$)/gi, "/raid$1")
+    .replace(/\/wbs(\/|$)/gi, "/wbs$1")
+    .replace(/\/schedule(\/|$)/gi, "/schedule$1")
+    .replace(/\/change(\/|$)/gi, "/change$1")
+    .replace(/\/changes(\/|$)/gi, "/change$1")
+    .replace(/\/change_requests(\/|$)/gi, "/change$1")
+    .replace(/\/artifacts(\/|$)/gi, "/artifacts$1");
 
   return `${fixedPath}${tail}`;
 }
@@ -196,6 +196,8 @@ function aiItemHref(args: { item: any; fallbackProjectRef: string }) {
     "";
   const projectRef = projectUuid || projectHuman || fallbackProjectRef;
 
+  if (!projectRef) return "/projects";
+
   const kind = safeLower(item?.itemType || item?.kind || item?.type || "");
 
   const artifactId = safeStr(
@@ -206,7 +208,7 @@ function aiItemHref(args: { item: any; fallbackProjectRef: string }) {
       ""
   ).trim();
 
-  if (projectRef && artifactId && looksLikeUuid(artifactId)) {
+  if (artifactId && looksLikeUuid(artifactId)) {
     const qs = new URLSearchParams();
     qs.set("artifactId", artifactId);
 
@@ -376,9 +378,11 @@ function isVirtualRow(row: ArtifactBoardRow) {
   return id.startsWith("__") || !looksLikeUuid(id);
 }
 
-function rowHref(projectRef: string, projectUuid: string, row: ArtifactBoardRow) {
+function rowHref(projectRef: string, row: ArtifactBoardRow) {
   const direct = safeStr((row as any).href).trim();
   if (direct) return normalizeArtifactLink(direct);
+
+  if (!projectRef) return "/projects";
 
   const tk = rowTypeKey(row);
   if (tk === "CHANGE_REQUESTS" || tk === "CHANGE" || tk === "CHANGE_REQUEST")
@@ -561,10 +565,10 @@ function ArtifactTableRow({
     !row.deletedAt;
 
   const canClone = !virtual && isBoardManageable;
-  const canMakeCurrent = !virtual && opensArtifact;
+  const canMakeCurrent = !virtual && opensArtifact && isBoardManageable;
 
   const phaseCfg = PHASE_CONFIG[row.phase];
-  const openHref = rowHref(projectRef, projectUuid, row);
+  const openHref = rowHref(projectRef, row);
 
   return (
     <div
@@ -665,7 +669,7 @@ function ArtifactTableRow({
               disabled={isMaking || !canMakeCurrent || !projectUuid || !looksLikeUuid(projectUuid)}
               className="p-1.5 rounded transition-colors disabled:opacity-30"
               style={{ color: "var(--green)" }}
-              title={canMakeCurrent ? "Set as current" : "Not available for modules" }
+              title={canMakeCurrent ? "Set as current" : "Not available for this row"}
             >
               {isMaking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
             </button>
@@ -991,7 +995,9 @@ function AiPanel({
       let data: any = null;
       try {
         data = text ? JSON.parse(text) : null;
-      } catch {}
+      } catch {
+        data = null;
+      }
 
       if (!res.ok) throw new Error(data?.error || data?.message || `Request failed (${res.status})`);
 
@@ -1004,11 +1010,8 @@ function AiPanel({
     }
   }
 
-  if (!open) return null;
-
   const items = extractDueSoon(result);
   const counts = extractCounts(result);
-
   const projectRef = projectHumanId || projectCode || projectUuid;
   const scopeLabel = scope === "org" ? "All projects" : "This project";
 
@@ -1035,6 +1038,8 @@ function AiPanel({
       .map(([k, v]) => ({ key: k, ...v }))
       .sort((a, b) => a.sortKey.localeCompare(b.sortKey));
   }, [items, scope]);
+
+  if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh]">
@@ -1408,19 +1413,20 @@ export default function ArtifactBoardClient(props: {
   const [phaseSet, setPhaseSet] = useState<Set<Phase>>(new Set());
 
   const toggleStatus = (s: UiStatus) => {
-    const next = new Set(statusSet);
-    next.has(s) ? next.delete(s) : next.add(s);
-    setStatusSet(next);
+    setStatusSet((prev) => {
+      const next = new Set(prev);
+      next.has(s) ? next.delete(s) : next.add(s);
+      return next;
+    });
   };
 
-  const togglePhase = useCallback(
-    (p: Phase) => {
-      const next = new Set(phaseSet);
+  const togglePhase = useCallback((p: Phase) => {
+    setPhaseSet((prev) => {
+      const next = new Set(prev);
       next.has(p) ? next.delete(p) : next.add(p);
-      setPhaseSet(next);
-    },
-    [phaseSet]
-  );
+      return next;
+    });
+  }, []);
 
   const clearAll = () => {
     setSearch("");
@@ -1473,9 +1479,9 @@ export default function ArtifactBoardClient(props: {
 
   const openRow = useCallback(
     (row: ArtifactBoardRow) => {
-      router.push(rowHref(projectRef, projectUuid, row));
+      router.push(rowHref(projectRef, row));
     },
-    [projectRef, projectUuid, router]
+    [projectRef, router]
   );
 
   const handleClone = async (id: string) => {
@@ -1497,7 +1503,7 @@ export default function ArtifactBoardClient(props: {
       if (!res?.ok) throw new Error(res?.error ?? "Clone failed");
       if (res.newArtifactId) router.push(`/projects/${projectRef}/artifacts/${res.newArtifactId}`);
     } catch (e: any) {
-      setActionError(e.message);
+      setActionError(e?.message || "Clone failed");
     } finally {
       setCloningId("");
     }
@@ -1514,7 +1520,7 @@ export default function ArtifactBoardClient(props: {
       if (!res?.ok) throw new Error(res?.error ?? "Delete failed");
       router.refresh();
     } catch (e: any) {
-      setActionError(e.message);
+      setActionError(e?.message || "Delete failed");
     } finally {
       setDeletingId("");
     }
@@ -1529,7 +1535,7 @@ export default function ArtifactBoardClient(props: {
       await setArtifactCurrentAction({ projectId: projectUuid, artifactId: id });
       router.refresh();
     } catch (e: any) {
-      setActionError(e.message);
+      setActionError(e?.message || "Set current failed");
     } finally {
       setMakingCurrentId("");
     }
