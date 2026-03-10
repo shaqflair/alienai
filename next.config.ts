@@ -1,11 +1,26 @@
 import type { NextConfig } from "next";
-const isVercel = process.env.VERCEL === "1" || process.env.VERCEL === "true";
+
 const isTauri = process.env.TAURI_BUILD === "true";
+const isVercel = process.env.VERCEL === "1" || process.env.VERCEL === "true";
+
+const SERVER_ONLY_PACKAGES = [
+  "@sparticuz/chromium",
+  "puppeteer-core",
+  "puppeteer",
+  "pdfkit",
+  "@napi-rs/canvas",
+  "postmark",
+  "resend",
+  "stripe",
+  "exceljs",
+  "html-to-docx",
+];
+
 const nextConfig: NextConfig = {
-  // Keep if you truly need it, but try to remove ASAP.
   typescript: {
     ignoreBuildErrors: true,
   },
+
   images: {
     unoptimized: isTauri,
     remotePatterns: [
@@ -16,28 +31,53 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  // Tauri/static export friendliness (recommended)
+
   ...(isTauri
     ? {
         output: "export",
         trailingSlash: true,
       }
-    : {
-        // Only for server builds (e.g., Vercel / self-host)
-        ...(isVercel
-          ? {
-              output: "standalone",
-              serverExternalPackages: [
-                "puppeteer-core",
-                "@sparticuz/chromium",
-                "puppeteer",
-              ],
-              // Removed outputFileTracingIncludes for @sparticuz/chromium —
-              // it caused Vercel builds to hang indefinitely (~170MB binary).
-              // Chromium is loaded at runtime via the serverExternalPackages
-              // exclusion above, so tracing is not needed.
-            }
-          : {}),
-      }),
+    : isVercel
+    ? {
+        output: "standalone",
+        serverExternalPackages: SERVER_ONLY_PACKAGES,
+        outputFileTracingIncludes: {
+          "/api/**": ["./node_modules/@sparticuz/chromium/**"],
+        },
+      }
+    : {}),
+
+  async headers() {
+    if (isTauri) return [];
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), interest-cohort=()" },
+          { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+          {
+            key: "Content-Security-Policy",
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+              "style-src 'self' 'unsafe-inline'",
+              "img-src 'self' data: blob: https:",
+              "font-src 'self' data:",
+              "connect-src 'self' https://*.supabase.co https://api.openai.com https://api.anthropic.com wss://*.supabase.co",
+              "media-src 'self'",
+              "object-src 'none'",
+              "frame-ancestors 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
+            ].join("; "),
+          },
+        ],
+      },
+    ];
+  },
 };
+
 export default nextConfig;
