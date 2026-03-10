@@ -1,4 +1,4 @@
-﻿{
+{
   
   "crons": [
     { "path": "/api/cron/exec-intel/generate",      "schedule": "0 6 * * *" },
