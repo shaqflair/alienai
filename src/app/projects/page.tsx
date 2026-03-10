@@ -3,22 +3,13 @@ import "server-only";
 
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { portfolioGlobalCss } from "@/lib/ui/portfolioTheme";
-import { getActiveOrgId } from "@/utils/org/active-org";
 import { createClient } from "@/utils/supabase/server";
+import { getActiveOrgId } from "@/utils/org/active-org";
 import CreateProjectModal from "./_components/CreateProjectModal";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-type SearchParams = Promise<{
-  filter?: string;
-  sort?: string;
-  q?: string;
-}>;
-
-type Rag = "G" | "A" | "R" | null;
 
 type Project = {
   id: string;
@@ -34,193 +25,61 @@ type Project = {
   pm_user_id?: string | null;
   pm_name?: string | null;
   health?: number | null;
-  rag?: Rag;
+  rag?: "G" | "A" | "R" | null;
 };
 
-type MemberRow = {
-  project_id: string | null;
-  role: string | null;
-  removed_at: string | null;
-};
-
-type ProjectRow = {
-  id: string;
-  title: string | null;
-  project_code: string | null;
-  colour: string | null;
-  status: string | null;
-  resource_status: string | null;
-  start_date: string | null;
-  finish_date: string | null;
-  created_at: string;
-  organisation_id: string;
-  deleted_at: string | null;
-  project_manager_id: string | null;
-  pm_user_id: string | null;
-  pm_name: string | null;
-};
-
-type RagRow = {
-  project_id: string | null;
-  health: number | null;
-  rag: string | null;
-  created_at: string | null;
-};
-
-type ProfileRow = {
-  id: string | null;
-  user_id: string | null;
-  full_name: string | null;
-  email: string | null;
-};
-
-function toStr(value: unknown): string {
-  return typeof value === "string" ? value : value == null ? "" : String(value);
+function safeStr(x: unknown) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
-function toNullableTrimmed(value: unknown): string | null {
-  const s = toStr(value).trim();
-  return s || null;
+function fmtShort(d: string | null | undefined) {
+  if (!d) return null;
+  try {
+    return new Date(d).toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "2-digit",
+    });
+  } catch {
+    return null;
+  }
 }
 
-function formatDate(
-  value: string | null | undefined,
-  mode: "short" | "long" = "long",
-): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-
-  return date.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: mode === "short" ? "2-digit" : "numeric",
-  });
+function fmtLong(d: string | null | undefined) {
+  if (!d) return null;
+  try {
+    return new Date(d).toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  } catch {
+    return null;
+  }
 }
 
-function daysUntil(dateValue: string | null | undefined): number | null {
-  if (!dateValue) return null;
-  const date = new Date(dateValue);
-  if (Number.isNaN(date.getTime())) return null;
-  return Math.ceil((date.getTime() - Date.now()) / 86_400_000);
+function daysUntil(d: string | null | undefined): number | null {
+  if (!d) return null;
+  try {
+    return Math.ceil((new Date(d).getTime() - Date.now()) / 86_400_000);
+  } catch {
+    return null;
+  }
 }
 
-function normaliseRag(value: unknown): Rag {
-  const s = toStr(value).trim().toUpperCase();
+function normaliseRag(v: unknown): "G" | "A" | "R" | null {
+  const s = String(v ?? "").trim().toUpperCase();
   if (s === "G" || s === "GREEN") return "G";
   if (s === "A" || s === "AMBER" || s === "Y") return "A";
   if (s === "R" || s === "RED") return "R";
   return null;
 }
 
-function ragLabel(rag: Rag): string {
+function ragLabel(rag: "G" | "A" | "R" | null | undefined) {
   if (rag === "G") return "Green";
   if (rag === "A") return "Amber";
   if (rag === "R") return "Red";
   return "";
-}
-
-function isClosedStatus(status: string | null | undefined): boolean {
-  return toStr(status).trim().toLowerCase() === "closed";
-}
-
-function getStatusLabel(project: Project): "Closed" | "Pipeline" | "Active" {
-  if (isClosedStatus(project.status)) return "Closed";
-  if (project.resource_status === "pipeline") return "Pipeline";
-  return "Active";
-}
-
-function getStatusClassName(project: Project): string {
-  if (isClosedStatus(project.status)) return "statusClosed";
-  if (project.resource_status === "pipeline") return "statusPipeline";
-  return "statusActive";
-}
-
-function getTimelineProgress(startDate: string | null, finishDate: string | null): number {
-  if (!startDate || !finishDate) return 0;
-
-  const start = new Date(startDate).getTime();
-  const finish = new Date(finishDate).getTime();
-  if (Number.isNaN(start) || Number.isNaN(finish) || finish <= start) return 0;
-
-  const now = Date.now();
-  return Math.min(100, Math.max(0, Math.round(((now - start) / (finish - start)) * 100)));
-}
-
-function getTimelineState(project: Project) {
-  const accent = project.colour || "var(--ui-accent)";
-  const remaining = daysUntil(project.finish_date);
-
-  const label =
-    remaining == null
-      ? ""
-      : remaining < 0
-        ? `${Math.abs(remaining)}d overdue`
-        : remaining === 0
-          ? "Due today"
-          : `${remaining}d left`;
-
-  const tone =
-    remaining == null
-      ? "neutral"
-      : remaining < 0
-        ? "danger"
-        : remaining < 30
-          ? "warning"
-          : "normal";
-
-  const fillColor =
-    tone === "danger"
-      ? "var(--ui-danger)"
-      : tone === "warning"
-        ? "var(--ui-warning)"
-        : accent;
-
-  return {
-    progress: getTimelineProgress(project.start_date, project.finish_date),
-    label,
-    tone,
-    fillColor,
-  } as const;
-}
-
-function getHealthState(project: Project) {
-  const rag = normaliseRag(project.rag);
-  const health = project.health ?? null;
-
-  const tone =
-    rag === "G"
-      ? "good"
-      : rag === "A"
-        ? "warning"
-        : rag === "R"
-          ? "danger"
-          : health == null
-            ? "neutral"
-            : health >= 85
-              ? "good"
-              : health >= 70
-                ? "warning"
-                : "danger";
-
-  return { rag, health, tone } as const;
-}
-
-function matchesQuery(project: Project, query: string): boolean {
-  if (!query) return true;
-  const q = query.toLowerCase();
-
-  return (
-    project.title.toLowerCase().includes(q) ||
-    (project.project_code ?? "").toLowerCase().includes(q) ||
-    (project.pm_name ?? "").toLowerCase().includes(q)
-  );
-}
-
-function healthTone(value: number): "good" | "warning" | "danger" {
-  if (value >= 90) return "good";
-  if (value >= 70) return "warning";
-  return "danger";
 }
 
 async function setProjectStatus(formData: FormData) {
@@ -229,665 +88,1375 @@ async function setProjectStatus(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
-    error: authError,
+    error: uErr,
   } = await supabase.auth.getUser();
 
-  if (authError) throw authError;
+  if (uErr) throw uErr;
   if (!user) redirect("/login");
 
-  const projectId = toStr(formData.get("project_id")).trim();
-  const status = toStr(formData.get("status")).trim().toLowerCase();
-  const next = toStr(formData.get("next")).trim() || "/projects";
+  const projectId = (formData.get("project_id") as string) || "";
+  const status = (formData.get("status") as string) || "";
+  const next = (formData.get("next") as string) || "/projects";
 
-  if (!projectId || !["active", "closed"].includes(status)) {
-    redirect(next);
-  }
+  if (!projectId || !["active", "closed"].includes(status)) redirect(next);
 
-  const { error } = await supabase.from("projects").update({ status }).eq("id", projectId);
+  const { error } = await supabase
+    .from("projects")
+    .update({ status })
+    .eq("id", projectId);
 
   if (error) throw error;
-
   redirect(next);
-}
-
-async function getProjectsForUser(
-  userId: string,
-  activeOrgId: string,
-): Promise<{
-  projects: Project[];
-  roleMap: Record<string, string | null>;
-}> {
-  const supabase = await createClient();
-
-  const { data: memberRows, error: memberError } = await supabase
-    .from("project_members")
-    .select("project_id, role, removed_at")
-    .eq("user_id", userId)
-    .is("removed_at", null)
-    .limit(20000);
-
-  if (memberError) throw memberError;
-
-  const typedMembers = (memberRows ?? []) as MemberRow[];
-
-  const memberProjectIds = typedMembers
-    .map((row) => toNullableTrimmed(row.project_id))
-    .filter((value): value is string => Boolean(value));
-
-  const roleMap = Object.fromEntries(
-    typedMembers.map((row) => [toStr(row.project_id), row.role ?? null]),
-  ) as Record<string, string | null>;
-
-  if (memberProjectIds.length === 0) {
-    return { projects: [], roleMap };
-  }
-
-  const { data: projectRows, error: projectError } = await supabase
-    .from("projects")
-    .select(
-      "id, title, project_code, colour, status, resource_status, start_date, finish_date, created_at, organisation_id, deleted_at, project_manager_id, pm_user_id, pm_name",
-    )
-    .in("id", memberProjectIds)
-    .eq("organisation_id", activeOrgId)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false })
-    .limit(20000);
-
-  if (projectError) throw projectError;
-
-  const typedProjects = (projectRows ?? []) as ProjectRow[];
-  const projectIds = typedProjects.map((project) => project.id);
-
-  const pmUserIds = Array.from(
-    new Set(
-      typedProjects
-        .map((project) => toNullableTrimmed(project.pm_user_id))
-        .filter((value): value is string => Boolean(value)),
-    ),
-  );
-
-  const pmProfileIds = Array.from(
-    new Set(
-      typedProjects
-        .map((project) => toNullableTrimmed(project.project_manager_id))
-        .filter((value): value is string => Boolean(value)),
-    ),
-  );
-
-  const ragMap = new Map<string, { health: number | null; rag: Rag }>();
-  const profileByUserId = new Map<string, { full_name: string | null; email: string | null }>();
-  const profileById = new Map<string, { full_name: string | null; email: string | null }>();
-
-  if (projectIds.length > 0) {
-    const { data: ragRows, error: ragError } = await supabase
-      .from("project_rag_scores")
-      .select("project_id, health, rag, created_at")
-      .in("project_id", projectIds)
-      .order("created_at", { ascending: false });
-
-    if (ragError) throw ragError;
-
-    for (const row of (ragRows ?? []) as RagRow[]) {
-      const projectId = toNullableTrimmed(row.project_id);
-      if (!projectId || ragMap.has(projectId)) continue;
-
-      const health =
-        row.health == null || Number.isNaN(Number(row.health)) ? null : Number(row.health);
-
-      ragMap.set(projectId, {
-        health,
-        rag: normaliseRag(row.rag),
-      });
-    }
-  }
-
-  if (pmUserIds.length > 0) {
-    const { data: rows, error } = await supabase
-      .from("profiles")
-      .select("id, user_id, full_name, email")
-      .in("user_id", pmUserIds);
-
-    if (error) throw error;
-
-    for (const row of (rows ?? []) as ProfileRow[]) {
-      const userId = toNullableTrimmed(row.user_id);
-      if (!userId) continue;
-
-      profileByUserId.set(userId, {
-        full_name: row.full_name ?? null,
-        email: row.email ?? null,
-      });
-    }
-  }
-
-  if (pmProfileIds.length > 0) {
-    const { data: rows, error } = await supabase
-      .from("profiles")
-      .select("id, user_id, full_name, email")
-      .in("id", pmProfileIds);
-
-    if (error) throw error;
-
-    for (const row of (rows ?? []) as ProfileRow[]) {
-      const id = toNullableTrimmed(row.id);
-      if (!id) continue;
-
-      profileById.set(id, {
-        full_name: row.full_name ?? null,
-        email: row.email ?? null,
-      });
-    }
-  }
-
-  const projects: Project[] = typedProjects.map((project) => {
-    const projectId = project.id;
-    const pmUserId = toNullableTrimmed(project.pm_user_id);
-    const projectManagerId = toNullableTrimmed(project.project_manager_id);
-    const storedPmName = toNullableTrimmed(project.pm_name);
-
-    const fromUser = pmUserId ? profileByUserId.get(pmUserId) : null;
-    const fromProfile = projectManagerId ? profileById.get(projectManagerId) : null;
-
-    const resolvedPmName =
-      storedPmName ||
-      toNullableTrimmed(fromUser?.full_name) ||
-      toNullableTrimmed(fromUser?.email) ||
-      toNullableTrimmed(fromProfile?.full_name) ||
-      toNullableTrimmed(fromProfile?.email) ||
-      null;
-
-    return {
-      id: projectId,
-      title: project.title?.trim() || "Untitled",
-      project_code: project.project_code ?? null,
-      colour: project.colour ?? null,
-      status: project.status ?? null,
-      resource_status: project.resource_status ?? null,
-      start_date: project.start_date ?? null,
-      finish_date: project.finish_date ?? null,
-      created_at: project.created_at,
-      pm_user_id: pmUserId,
-      project_manager_id: projectManagerId,
-      pm_name: resolvedPmName,
-      health: ragMap.get(projectId)?.health ?? null,
-      rag: ragMap.get(projectId)?.rag ?? null,
-    };
-  });
-
-  return { projects, roleMap };
 }
 
 export default async function ProjectsPage({
   searchParams,
 }: {
-  searchParams?: SearchParams;
+  searchParams?: Promise<{ filter?: string; sort?: string; q?: string }>;
 }) {
   const supabase = await createClient();
 
   const {
     data: { user },
-    error: authError,
+    error: authErr,
   } = await supabase.auth.getUser();
 
-  if (authError) throw authError;
+  if (authErr) throw authErr;
   if (!user) redirect("/login");
 
   const activeOrgId = await getActiveOrgId();
   if (!activeOrgId) redirect("/settings?err=no_active_org");
 
-  const { projects, roleMap } = await getProjectsForUser(user.id, activeOrgId);
+  const { data: memberRows, error: memErr } = await supabase
+    .from("project_members")
+    .select("project_id, role, removed_at")
+    .eq("user_id", user.id)
+    .is("removed_at", null)
+    .limit(20000);
+
+  if (memErr) throw memErr;
+
+  const memberProjectIds = (memberRows ?? [])
+    .map((r: any) => String(r?.project_id || "").trim())
+    .filter(Boolean);
+
+  const roleMap = Object.fromEntries(
+    (memberRows ?? []).map((r: any) => [String(r.project_id), r.role]),
+  );
+
+  let projects: Project[] = [];
+
+  if (memberProjectIds.length > 0) {
+    const { data: pData, error: pErr } = await supabase
+      .from("projects")
+      .select(
+        "id, title, project_code, colour, status, resource_status, start_date, finish_date, created_at, organisation_id, deleted_at, project_manager_id, pm_user_id, pm_name",
+      )
+      .in("id", memberProjectIds)
+      .eq("organisation_id", activeOrgId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(20000);
+
+    if (pErr) throw pErr;
+
+    const projectIds = (pData ?? []).map((p: any) => String(p.id));
+
+    const pmUserIds = Array.from(
+      new Set(
+        (pData ?? [])
+          .map((p: any) => safeStr(p?.pm_user_id).trim())
+          .filter(Boolean),
+      ),
+    );
+
+    const pmProfileIds = Array.from(
+      new Set(
+        (pData ?? [])
+          .map((p: any) => safeStr(p?.project_manager_id).trim())
+          .filter(Boolean),
+      ),
+    );
+
+    const ragMap = new Map<string, { health: number | null; rag: "G" | "A" | "R" | null }>();
+    const pmByUserIdMap = new Map<string, { full_name?: string | null; email?: string | null }>();
+    const pmByIdMap = new Map<string, { full_name?: string | null; email?: string | null }>();
+
+    if (projectIds.length > 0) {
+      const { data: ragData } = await supabase
+        .from("project_rag_scores")
+        .select("project_id, health, rag, created_at")
+        .in("project_id", projectIds)
+        .order("created_at", { ascending: false });
+
+      if (ragData) {
+        for (const r of ragData as any[]) {
+          const pid = String(r?.project_id ?? "");
+          if (!pid || ragMap.has(pid)) continue;
+
+          ragMap.set(pid, {
+            health:
+              r?.health == null || Number.isNaN(Number(r.health))
+                ? null
+                : Number(r.health),
+            rag: normaliseRag(r?.rag),
+          });
+        }
+      }
+    }
+
+    if (pmUserIds.length > 0) {
+      const { data: profilesByUserId } = await supabase
+        .from("profiles")
+        .select("id, user_id, full_name, email")
+        .in("user_id", pmUserIds);
+
+      for (const row of (profilesByUserId ?? []) as any[]) {
+        const userId = safeStr(row?.user_id).trim();
+        if (userId) {
+          pmByUserIdMap.set(userId, {
+            full_name: row?.full_name ?? null,
+            email: row?.email ?? null,
+          });
+        }
+      }
+    }
+
+    if (pmProfileIds.length > 0) {
+      const { data: profilesById } = await supabase
+        .from("profiles")
+        .select("id, user_id, full_name, email")
+        .in("id", pmProfileIds);
+
+      for (const row of (profilesById ?? []) as any[]) {
+        const id = safeStr(row?.id).trim();
+        if (id) {
+          pmByIdMap.set(id, {
+            full_name: row?.full_name ?? null,
+            email: row?.email ?? null,
+          });
+        }
+      }
+    }
+
+    projects = (pData ?? []).map((p: any) => {
+      const projectId = String(p.id);
+      const pmUserId = safeStr(p?.pm_user_id).trim() || null;
+      const projectManagerId = safeStr(p?.project_manager_id).trim() || null;
+      const storedPmName = safeStr(p?.pm_name).trim() || null;
+
+      const pmByUserId = pmUserId ? pmByUserIdMap.get(pmUserId) : null;
+      const pmById = projectManagerId ? pmByIdMap.get(projectManagerId) : null;
+
+      const resolvedPmName =
+        storedPmName ||
+        safeStr(pmByUserId?.full_name).trim() ||
+        safeStr(pmByUserId?.email).trim() ||
+        safeStr(pmById?.full_name).trim() ||
+        safeStr(pmById?.email).trim() ||
+        null;
+
+      return {
+        id: projectId,
+        title: String(p.title ?? "Untitled"),
+        project_code: p.project_code ?? null,
+        colour: p.colour ?? null,
+        status: p.status ?? null,
+        resource_status: p.resource_status ?? null,
+        start_date: p.start_date ?? null,
+        finish_date: p.finish_date ?? null,
+        created_at: String(p.created_at),
+        pm_user_id: pmUserId,
+        project_manager_id: projectManagerId,
+        pm_name: resolvedPmName,
+        health: ragMap.get(projectId)?.health ?? null,
+        rag: ragMap.get(projectId)?.rag ?? null,
+      };
+    });
+  }
 
   const sp = (await searchParams) ?? {};
   const filter = (sp.filter ?? "Active").trim();
   const sortMode = (sp.sort ?? "Newest").trim();
-  const query = (sp.q ?? "").trim();
+  const query = (sp.q ?? "").trim().toLowerCase();
 
-  const filtered = [...projects]
-    .filter((project) => {
-      if (filter === "Active") return !isClosedStatus(project.status);
-      if (filter === "Closed") return isClosedStatus(project.status);
+  const filtered = projects
+    .filter((p) => {
+      const st = (p.status ?? "active").toLowerCase();
+      if (filter === "Active") return st !== "closed";
+      if (filter === "Closed") return st === "closed";
       return true;
     })
-    .filter((project) => matchesQuery(project, query))
+    .filter(
+      (p) =>
+        !query ||
+        p.title.toLowerCase().includes(query) ||
+        (p.project_code ?? "").toLowerCase().includes(query) ||
+        (p.pm_name ?? "").toLowerCase().includes(query),
+    )
     .sort((a, b) => {
-      if (sortMode === "A-Z") {
-        return a.title.localeCompare(b.title);
-      }
+      if (sortMode === "A-Z") return a.title.localeCompare(b.title);
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
 
-  const activeCount = projects.filter((project) => !isClosedStatus(project.status)).length;
-  const closedCount = projects.filter((project) => isClosedStatus(project.status)).length;
-  const atRiskCount = projects.filter(
-    (project) => !isClosedStatus(project.status) && normaliseRag(project.rag) === "R",
+  const activeCt = projects.filter(
+    (p) => (p.status ?? "active").toLowerCase() !== "closed",
   ).length;
 
-  const averageHealth = (() => {
+  const closedCt = projects.filter(
+    (p) => (p.status ?? "").toLowerCase() === "closed",
+  ).length;
+
+  const atRiskCt = projects.filter(
+    (p) => (p.status ?? "active").toLowerCase() !== "closed" && p.rag === "R",
+  ).length;
+
+  const healthAvg = (() => {
     const scored = projects.filter(
-      (project) => !isClosedStatus(project.status) && project.health != null,
+      (p) =>
+        (p.status ?? "active").toLowerCase() !== "closed" && p.health != null,
     );
-    if (scored.length === 0) return null;
+    if (!scored.length) return null;
     return Math.round(
-      scored.reduce((sum, project) => sum + (project.health ?? 0), 0) / scored.length,
+      scored.reduce((s, p) => s + (p.health ?? 0), 0) / scored.length,
     );
   })();
 
-  const todayLabel = new Date().toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-
   return (
     <>
-      <style>{portfolioGlobalCss()}</style>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600;700&family=DM+Mono:wght@300;400;500&display=swap');
 
-      <div
-        className="min-h-screen bg-[var(--ui-bg)] text-[var(--ui-text)]"
-        style={{ fontFamily: "var(--ui-font-sans)" }}
-      >
-        <div className="border-b border-[var(--ui-border)] bg-[var(--ui-panel)]">
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ui-muted)]">
-                Portfolio
-              </div>
-              <h1 className="text-xl font-semibold tracking-tight">Projects</h1>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+          --white: #ffffff;
+          --off: #f7f7f7;
+          --off-2: #fafafa;
+          --rule: #e9e9e9;
+          --rule-heavy: #1f1f1f;
+          --ink: #0a0a0a;
+          --ink-2: #333333;
+          --ink-3: #666666;
+          --ink-4: #999999;
+          --amber: #b45309;
+          --amber-bg: #fffbeb;
+          --red: #b91c1c;
+          --red-bg: #fef2f2;
+          --green: #166534;
+          --green-bg: #f0fdf4;
+          --font: 'Familjen Grotesk', 'Helvetica Neue', sans-serif;
+          --mono: 'DM Mono', 'Courier New', monospace;
+          --shadow-soft: 0 10px 30px rgba(0,0,0,0.04);
+        }
+
+        html, body {
+          background: var(--white);
+          color: var(--ink);
+          font-family: var(--font);
+          -webkit-font-smoothing: antialiased;
+        }
+
+        .page {
+          min-height: 100vh;
+          background: linear-gradient(to bottom, #ffffff 0%, #ffffff 280px, #fcfcfc 100%);
+        }
+
+        .topbar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0 60px;
+          height: 52px;
+          border-bottom: 1px solid var(--rule);
+          background: rgba(255,255,255,0.92);
+          backdrop-filter: blur(8px);
+          position: sticky;
+          top: 0;
+          z-index: 60;
+        }
+
+        .topbar-left {
+          display: flex;
+          align-items: center;
+          gap: 24px;
+        }
+
+        .topbar-title {
+          color: var(--ink);
+          font-weight: 700;
+          font-size: 14px;
+          letter-spacing: -0.01em;
+        }
+
+        .topbar-right {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+        }
+
+        .btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 8px 14px;
+          font-family: var(--font);
+          font-size: 12px;
+          font-weight: 600;
+          border: 1px solid var(--rule);
+          color: var(--ink-2);
+          background: var(--white);
+          text-decoration: none;
+          cursor: pointer;
+          letter-spacing: 0.01em;
+          transition: border-color 0.15s, color 0.15s, background 0.15s, transform 0.15s;
+        }
+
+        .btn:hover {
+          border-color: var(--ink-3);
+          color: var(--ink);
+          transform: translateY(-1px);
+        }
+
+        .masthead {
+          padding: 18px 60px 0;
+          border-bottom: 1px solid var(--rule-heavy);
+          background: var(--white);
+        }
+
+        .mast-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.85fr);
+          gap: 24px;
+          padding-bottom: 20px;
+          align-items: start;
+        }
+
+        .mast-left {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          min-width: 0;
+          padding-top: 4px;
+        }
+
+        .eyebrow {
+          font-family: var(--mono);
+          font-size: 10px;
+          font-weight: 500;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          color: var(--ink-4);
+        }
+
+        .page-title {
+          font-size: clamp(38px, 5vw, 54px);
+          font-weight: 700;
+          color: var(--ink);
+          letter-spacing: -0.045em;
+          line-height: 0.96;
+        }
+
+        .page-subtitle {
+          font-size: 14px;
+          color: var(--ink-3);
+          line-height: 1.65;
+          max-width: 760px;
+        }
+
+        .mast-right {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          align-self: start;
+        }
+
+        .summary-card {
+          border: 1px solid var(--rule);
+          background: linear-gradient(180deg, #ffffff 0%, #fcfcfc 100%);
+          box-shadow: var(--shadow-soft);
+        }
+
+        .summary-copy {
+          padding: 15px 18px 14px;
+          border-bottom: 1px solid var(--rule);
+          font-size: 13px;
+          font-weight: 400;
+          color: var(--ink-3);
+          line-height: 1.55;
+        }
+
+        .kpi-strip {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+        }
+
+        .kpi-cell {
+          padding: 14px 18px;
+          border-right: 1px solid var(--rule);
+          min-width: 0;
+        }
+
+        .kpi-cell:last-child {
+          border-right: none;
+        }
+
+        .kpi-num {
+          font-family: var(--mono);
+          font-size: 28px;
+          font-weight: 500;
+          color: var(--ink);
+          line-height: 1;
+          letter-spacing: -0.04em;
+        }
+
+        .kpi-lbl {
+          font-family: var(--mono);
+          font-size: 9px;
+          font-weight: 500;
+          color: var(--ink-4);
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+          margin-top: 6px;
+        }
+
+        .toolbar {
+          display: flex;
+          align-items: stretch;
+          border-bottom: 1px solid var(--rule);
+          background: rgba(255,255,255,0.92);
+          backdrop-filter: blur(10px);
+          position: sticky;
+          top: 56px;
+          z-index: 50;
+        }
+
+        .filter-tabs {
+          display: flex;
+          border-right: 1px solid var(--rule);
+        }
+
+        .f-tab {
+          display: flex;
+          align-items: center;
+          padding: 0 24px;
+          height: 50px;
+          font-family: var(--mono);
+          font-size: 10px;
+          font-weight: 500;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          text-decoration: none;
+          color: var(--ink-4);
+          border-right: 1px solid var(--rule);
+          transition: color 0.12s, background 0.12s;
+          white-space: nowrap;
+          position: relative;
+        }
+
+        .f-tab:last-child {
+          border-right: none;
+        }
+
+        .f-tab:hover {
+          color: var(--ink-2);
+          background: var(--off-2);
+        }
+
+        .f-tab.active {
+          color: var(--ink);
+        }
+
+        .f-tab.active::after {
+          content: '';
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          height: 2px;
+          background: var(--ink);
+        }
+
+        .f-count {
+          margin-left: 7px;
+          font-size: 9px;
+          color: var(--ink-4);
+        }
+
+        .search-zone {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 0 20px;
+          flex: 1;
+          min-width: 0;
+        }
+
+        .search-zone input {
+          border: none;
+          outline: none;
+          background: transparent;
+          font-family: var(--font);
+          font-size: 13px;
+          font-weight: 400;
+          color: var(--ink);
+          width: 100%;
+          padding: 15px 0;
+        }
+
+        .search-zone input::placeholder {
+          color: var(--ink-4);
+        }
+
+        .sort-tabs {
+          display: flex;
+          border-left: 1px solid var(--rule);
+        }
+
+        .s-tab {
+          display: flex;
+          align-items: center;
+          padding: 0 20px;
+          height: 50px;
+          font-family: var(--mono);
+          font-size: 10px;
+          font-weight: 500;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          text-decoration: none;
+          color: var(--ink-4);
+          border-left: 1px solid var(--rule);
+          transition: color 0.12s, background 0.12s;
+        }
+
+        .s-tab:hover {
+          color: var(--ink-2);
+          background: var(--off-2);
+        }
+
+        .s-tab.active {
+          color: var(--ink);
+        }
+
+        .col-header {
+          display: grid;
+          grid-template-columns: 1fr 150px 130px 110px 36px;
+          padding: 0 60px;
+          height: 40px;
+          align-items: center;
+          background: var(--off);
+          border-bottom: 1px solid var(--rule);
+        }
+
+        .ch {
+          font-family: var(--mono);
+          font-size: 9px;
+          font-weight: 500;
+          color: var(--ink-4);
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+        }
+
+        .ch-r {
+          text-align: right;
+        }
+
+        .p-row {
+          display: grid;
+          grid-template-columns: 1fr 150px 130px 110px 36px;
+          padding: 0 60px;
+          border-bottom: 1px solid var(--rule);
+          background: var(--white);
+          cursor: pointer;
+          transition: background 0.12s;
+          animation: rowIn 0.25s ease both;
+          position: relative;
+          text-decoration: none;
+          color: inherit;
+        }
+
+        .p-row:hover {
+          background: #fcfcfc;
+        }
+
+        .p-row:hover .row-arrow {
+          opacity: 1;
+          transform: translateX(0);
+        }
+
+        .p-row::before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: 0;
+          bottom: 0;
+          width: 3px;
+          background: var(--accent, transparent);
+        }
+
+        @keyframes rowIn {
+          from { opacity: 0; transform: translateY(2px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .c-main {
+          padding: 18px 24px 18px 0;
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          justify-content: center;
+        }
+
+        .row-name-line {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+
+        .row-name {
+          font-size: 15px;
+          font-weight: 650;
+          color: var(--ink);
+          letter-spacing: -0.01em;
+          text-decoration: none;
+        }
+
+        .row-name:hover {
+          text-decoration: underline;
+          text-underline-offset: 3px;
+        }
+
+        .row-code {
+          font-family: var(--mono);
+          font-size: 10px;
+          font-weight: 400;
+          color: var(--ink-4);
+          letter-spacing: 0.04em;
+        }
+
+        .row-meta {
+          font-size: 11px;
+          font-weight: 400;
+          color: var(--ink-4);
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .rm-sep {
+          color: var(--rule);
+        }
+
+        .c-tl {
+          padding: 0 16px;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          gap: 5px;
+          border-left: 1px solid var(--rule);
+        }
+
+        .tl-dates {
+          display: flex;
+          justify-content: space-between;
+          font-family: var(--mono);
+          font-size: 9px;
+          color: var(--ink-4);
+        }
+
+        .tl-bar {
+          height: 2px;
+          background: var(--rule);
+          position: relative;
+          overflow: hidden;
+        }
+
+        .tl-fill {
+          position: absolute;
+          left: 0;
+          top: 0;
+          height: 100%;
+        }
+
+        .tl-days {
+          font-family: var(--mono);
+          font-size: 9px;
+          font-weight: 500;
+          text-align: right;
+          letter-spacing: 0.03em;
+        }
+
+        .tl-ok { color: #0f172a; }
+        .tl-warn { color: var(--amber); }
+        .tl-over { color: var(--red); }
+        .tl-nil { color: var(--ink-4); }
+
+        .c-health {
+          padding: 0 16px;
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          border-left: 1px solid var(--rule);
+          gap: 8px;
+        }
+
+        .h-num {
+          font-family: var(--mono);
+          font-size: 14px;
+          font-weight: 500;
+        }
+
+        .h-g { color: var(--green); }
+        .h-a { color: var(--amber); }
+        .h-r { color: var(--red); }
+        .h-n { color: var(--ink-4); }
+
+        .rag-pill {
+          font-family: var(--mono);
+          font-size: 9px;
+          font-weight: 500;
+          padding: 4px 8px;
+          letter-spacing: 0.08em;
+          border-radius: 999px;
+          text-transform: uppercase;
+          line-height: 1;
+        }
+
+        .rp-g { background: var(--green-bg); color: var(--green); }
+        .rp-a { background: var(--amber-bg); color: var(--amber); }
+        .rp-r { background: var(--red-bg); color: var(--red); }
+
+        .c-status {
+          padding: 0 16px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-left: 1px solid var(--rule);
+        }
+
+        .st-pill {
+          font-family: var(--mono);
+          font-size: 9px;
+          font-weight: 500;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          padding: 6px 10px;
+          white-space: nowrap;
+          border-radius: 999px;
+        }
+
+        .st-active {
+          background: var(--green-bg);
+          color: var(--green);
+          border: none;
+          box-shadow: none;
+        }
+
+        .st-closed {
+          background: var(--off);
+          color: var(--ink-4);
+          border: 1px solid var(--rule);
+        }
+
+        .st-pipeline {
+          background: #f8fafc;
+          color: #475569;
+          border: 1px solid #e2e8f0;
+        }
+
+        .c-arrow {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          border-left: 1px solid var(--rule);
+          padding-left: 10px;
+        }
+
+        .row-arrow {
+          font-size: 16px;
+          color: var(--ink-3);
+          opacity: 0;
+          transform: translateX(-4px);
+          transition: opacity 0.12s, transform 0.12s;
+        }
+
+        .row-actions-panel {
+          position: absolute;
+          right: 60px;
+          top: 50%;
+          transform: translateY(-50%);
+          display: flex;
+          gap: 0;
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 0.12s;
+        }
+
+        .p-row:hover .row-actions-panel {
+          opacity: 1;
+          pointer-events: auto;
+        }
+
+        .ra-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          padding: 6px 12px;
+          font-family: var(--mono);
+          font-size: 9px;
+          font-weight: 400;
+          letter-spacing: 0.09em;
+          text-transform: uppercase;
+          border: 1px solid var(--rule);
+          border-right: none;
+          color: var(--ink-3);
+          background: var(--white);
+          text-decoration: none;
+          cursor: pointer;
+          transition: background 0.08s, color 0.08s, border-color 0.08s;
+        }
+
+        .ra-btn:last-child {
+          border-right: 1px solid var(--rule);
+        }
+
+        .ra-btn:hover {
+          background: var(--ink);
+          color: var(--white);
+          border-color: var(--ink);
+          z-index: 2;
+          position: relative;
+        }
+
+        .ra-close {
+          color: var(--amber);
+        }
+
+        .ra-close:hover {
+          background: var(--amber);
+          color: var(--white);
+          border-color: var(--amber);
+        }
+
+        .empty {
+          padding: 88px 60px;
+          border-bottom: 1px solid var(--rule);
+          background: var(--white);
+        }
+
+        .empty-rule {
+          width: 32px;
+          height: 2px;
+          background: var(--ink-4);
+          margin-bottom: 20px;
+        }
+
+        .empty-h {
+          font-size: 28px;
+          font-weight: 600;
+          color: var(--ink);
+          letter-spacing: -0.02em;
+          margin-bottom: 10px;
+        }
+
+        .empty-sub {
+          font-size: 13px;
+          color: var(--ink-3);
+          font-weight: 400;
+        }
+
+        .page-footer {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 16px 60px;
+          border-top: 1px solid var(--rule);
+          background: var(--white);
+        }
+
+        .footer-txt {
+          font-family: var(--mono);
+          font-size: 10px;
+          font-weight: 400;
+          color: var(--ink-4);
+          letter-spacing: 0.08em;
+        }
+
+        .js-hidden {
+          display: none !important;
+        }
+
+        @media (max-width: 1100px) {
+          .masthead, .topbar, .page-footer {
+            padding-left: 32px;
+            padding-right: 32px;
+          }
+
+          .col-header, .p-row {
+            padding-left: 32px;
+            padding-right: 32px;
+            grid-template-columns: 1fr 90px 36px;
+          }
+
+          .c-tl, .c-health, .c-status {
+            display: none;
+          }
+
+          .col-header .ch:nth-child(2),
+          .col-header .ch:nth-child(3),
+          .col-header .ch:nth-child(4) {
+            display: none;
+          }
+
+          .row-actions-panel {
+            right: 32px;
+          }
+
+          .mast-grid {
+            grid-template-columns: 1fr;
+            gap: 20px;
+          }
+
+          .mast-right {
+            max-width: none;
+          }
+        }
+
+        @media (max-width: 768px) {
+          .masthead, .topbar, .page-footer {
+            padding-left: 20px;
+            padding-right: 20px;
+          }
+
+          .col-header, .p-row {
+            padding-left: 20px;
+            padding-right: 20px;
+          }
+
+          .page-title {
+            font-size: 38px;
+          }
+
+          .kpi-strip {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .row-actions-panel {
+            display: none;
+          }
+
+          .row-arrow {
+            opacity: 1;
+            transform: none;
+          }
+
+          .toolbar {
+            top: 56px;
+          }
+        }
+      `}</style>
+
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+            (function () {
+              function boot() {
+                var inp = document.getElementById('sq');
+                var lbl = document.getElementById('row-count');
+                if (!inp) return;
+                inp.addEventListener('input', function () {
+                  var q = this.value.toLowerCase();
+                  var rows = document.querySelectorAll('.p-row');
+                  var n = 0;
+                  rows.forEach(function (r) {
+                    var show = !q || (r.dataset.s || '').includes(q);
+                    r.classList.toggle('js-hidden', !show);
+                    if (show) n++;
+                  });
+                  if (lbl) lbl.textContent = n + ' project' + (n !== 1 ? 's' : '');
+                });
+              }
+              document.readyState === 'loading'
+                ? document.addEventListener('DOMContentLoaded', boot)
+                : boot();
+            })();
+          `,
+        }}
+      />
+
+      <div className="page">
+        <div className="topbar">
+          <div className="topbar-left">
+            <span className="topbar-title">Portfolio</span>
+          </div>
+
+          <div className="topbar-right">
+            <Link href="/artifacts" className="btn">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                />
+                <path d="M14 2v6h6" stroke="currentColor" strokeWidth="1.8" />
+              </svg>
+              Artifacts
+            </Link>
+            <CreateProjectModal activeOrgId={activeOrgId ?? ""} userId={user.id} />
+          </div>
+        </div>
+
+        <div className="masthead">
+          <div className="mast-grid">
+            <div className="mast-left">
+              <div className="eyebrow">Portfolio Command Centre</div>
+              <div className="page-title">Portfolio Projects</div>
+              <p className="page-subtitle">
+                Monitor delivery health, track milestones, and manage governance
+                across all active work in one place.
+              </p>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Link
-                href="/artifacts"
-                className="inline-flex items-center rounded-xl border border-[var(--ui-border)] bg-[var(--ui-panel)] px-3 py-2 text-sm font-medium text-[var(--ui-text)] shadow-sm transition hover:bg-[var(--ui-panelAlt)]"
-              >
-                Artifacts
-              </Link>
-              <CreateProjectModal activeOrgId={activeOrgId} userId={user.id} />
+            <div className="mast-right">
+              <div className="summary-card">
+                <div className="summary-copy">
+                  Portfolio overview for your active organisation. Review live
+                  project inventory, scan risk posture, and move directly into
+                  execution or governance actions.
+                </div>
+
+                <div className="kpi-strip">
+                  <div className="kpi-cell">
+                    <div className="kpi-num">{projects.length}</div>
+                    <div className="kpi-lbl">Total</div>
+                  </div>
+
+                  <div className="kpi-cell">
+                    <div className="kpi-num">{activeCt}</div>
+                    <div className="kpi-lbl">Active</div>
+                  </div>
+
+                  <div className="kpi-cell">
+                    <div className="kpi-num" style={{ color: "#999999" }}>
+                      {closedCt}
+                    </div>
+                    <div className="kpi-lbl">Closed</div>
+                  </div>
+
+                  {atRiskCt > 0 && (
+                    <div className="kpi-cell">
+                      <div className="kpi-num" style={{ color: "#b91c1c" }}>
+                        {atRiskCt}
+                      </div>
+                      <div className="kpi-lbl">At Risk</div>
+                    </div>
+                  )}
+
+                  {healthAvg != null && (
+                    <div
+                      className="kpi-cell"
+                      style={{
+                        background:
+                          healthAvg >= 90
+                            ? "var(--green-bg)"
+                            : healthAvg >= 70
+                              ? "var(--amber-bg)"
+                              : "var(--red-bg)",
+                      }}
+                    >
+                      <div
+                        className="kpi-num"
+                        style={{
+                          color:
+                            healthAvg >= 90
+                              ? "#166534"
+                              : healthAvg >= 70
+                                ? "#b45309"
+                                : "#b91c1c",
+                        }}
+                      >
+                        {healthAvg}
+                        <span style={{ fontSize: 14, fontWeight: 300 }}>%</span>
+                      </div>
+                      <div className="kpi-lbl">Avg Health</div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        <main className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-          <section className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.9fr)]">
-            <div className="rounded-3xl border border-[var(--ui-border)] bg-[var(--ui-panel)] p-6 shadow-sm">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--ui-muted)]">
-                Portfolio command centre
+        <div className="toolbar">
+          <div className="filter-tabs">
+            {(["Active", "Closed", "All"] as const).map((f) => (
+              <Link
+                key={f}
+                href={`/projects?filter=${f}&sort=${sortMode}&q=${encodeURIComponent(query)}`}
+                className={`f-tab${filter === f ? " active" : ""}`}
+              >
+                {f}
+                <span className="f-count">
+                  {f === "Active" ? activeCt : f === "Closed" ? closedCt : projects.length}
+                </span>
+              </Link>
+            ))}
+          </div>
+
+          <div className="search-zone">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+              <circle cx="11" cy="11" r="8" stroke="#bbbbbb" strokeWidth="1.5" />
+              <path
+                d="m21 21-4.35-4.35"
+                stroke="#bbbbbb"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
+            <input
+              id="sq"
+              placeholder="Search projects"
+              defaultValue={query}
+              autoComplete="off"
+            />
+          </div>
+
+          <div className="sort-tabs">
+            {(["Newest", "A-Z"] as const).map((s) => (
+              <Link
+                key={s}
+                href={`/projects?filter=${filter}&sort=${s}&q=${encodeURIComponent(query)}`}
+                className={`s-tab${sortMode === s ? " active" : ""}`}
+              >
+                {s}
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        <div className="col-header">
+          <div className="ch">Project</div>
+          <div className="ch">Timeline</div>
+          <div className="ch ch-r">Health</div>
+          <div className="ch" style={{ textAlign: "center" }}>
+            Status
+          </div>
+          <div className="ch" />
+        </div>
+
+        {filtered.map((p, i) => {
+          const colour = p.colour || "#111111";
+          const isActive = (p.status ?? "active").toLowerCase() !== "closed";
+          const health = p.health;
+          const rag = normaliseRag(p.rag);
+          const daysLeft = daysUntil(p.finish_date);
+
+          let tlPct = 0;
+          if (p.start_date && p.finish_date) {
+            const s = new Date(p.start_date).getTime();
+            const e = new Date(p.finish_date).getTime();
+            if (e > s) {
+              tlPct = Math.min(
+                100,
+                Math.max(0, Math.round(((Date.now() - s) / (e - s)) * 100)),
+              );
+            }
+          }
+
+          const tlColor =
+            daysLeft == null
+              ? colour
+              : daysLeft < 0
+                ? "var(--red)"
+                : daysLeft < 30
+                  ? "var(--amber)"
+                  : colour;
+
+          const tlCls =
+            daysLeft == null
+              ? "tl-nil"
+              : daysLeft < 0
+                ? "tl-over"
+                : daysLeft < 30
+                  ? "tl-warn"
+                  : "tl-ok";
+
+          const tlLabel =
+            daysLeft == null
+              ? ""
+              : daysLeft < 0
+                ? `${Math.abs(daysLeft)}d overdue`
+                : daysLeft === 0
+                  ? "Due today"
+                  : `${daysLeft}d left`;
+
+          const hCls =
+            health == null
+              ? rag === "G"
+                ? "h-g"
+                : rag === "A"
+                  ? "h-a"
+                  : rag === "R"
+                    ? "h-r"
+                    : "h-n"
+              : rag === "G"
+                ? "h-g"
+                : rag === "A"
+                  ? "h-a"
+                  : rag === "R"
+                    ? "h-r"
+                    : health >= 85
+                      ? "h-g"
+                      : health >= 70
+                        ? "h-a"
+                        : "h-r";
+
+          const rpCls =
+            rag === "G" ? "rp-g" : rag === "A" ? "rp-a" : rag === "R" ? "rp-r" : "";
+
+          const stCls = !isActive
+            ? "st-closed"
+            : p.resource_status === "pipeline"
+              ? "st-pipeline"
+              : "st-active";
+
+          const stLabel = !isActive
+            ? "Closed"
+            : p.resource_status === "pipeline"
+              ? "Pipeline"
+              : "Active";
+
+          return (
+            <div
+              key={p.id}
+              className="p-row"
+              data-s={`${p.title} ${p.project_code ?? ""} ${p.pm_name ?? ""}`.toLowerCase()}
+              style={
+                {
+                  "--accent": colour,
+                  animationDelay: `${Math.min(i * 0.03, 0.25)}s`,
+                } as any
+              }
+            >
+              <div className="c-main">
+                <div className="row-name-line">
+                  <Link href={`/projects/${p.id}`} className="row-name">
+                    {p.title}
+                  </Link>
+                  {p.project_code && <span className="row-code">{p.project_code}</span>}
+                </div>
+
+                <div className="row-meta">
+                  <span>{p.pm_name?.trim() || "Unassigned"}</span>
+                  <span className="rm-sep">|</span>
+                  <span>{fmtLong(p.created_at)}</span>
+                  {roleMap[p.id] && (
+                    <>
+                      <span className="rm-sep">|</span>
+                      <span style={{ textTransform: "capitalize" }}>
+                        {String(roleMap[p.id])}
+                      </span>
+                    </>
+                  )}
+                </div>
               </div>
-              <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
-                Portfolio Projects
-              </h2>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--ui-muted)]">
-                Monitor delivery health, track milestones, and move into project execution,
-                governance, and team coordination from one portfolio view.
-              </p>
-            </div>
 
-            <div className="rounded-3xl border border-[var(--ui-border)] bg-[var(--ui-panel)] p-6 shadow-sm">
-              <p className="text-sm leading-6 text-[var(--ui-muted)]">
-                Portfolio overview for your active organisation. Review live project inventory,
-                scan risk posture, and jump directly into action.
-              </p>
-
-              <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <MetricCard label="Total" value={projects.length} />
-                <MetricCard label="Active" value={activeCount} />
-                <MetricCard label="Closed" value={closedCount} tone="neutral" />
-                {atRiskCount > 0 ? (
-                  <MetricCard label="At Risk" value={atRiskCount} tone="danger" />
-                ) : averageHealth != null ? (
-                  <MetricCard
-                    label="Avg Health"
-                    value={`${averageHealth}%`}
-                    tone={healthTone(averageHealth)}
+              <div className="c-tl">
+                <div className="tl-dates">
+                  <span>{fmtShort(p.start_date) ?? ""}</span>
+                  <span>{fmtShort(p.finish_date) ?? ""}</span>
+                </div>
+                <div className="tl-bar">
+                  <div
+                    className="tl-fill"
+                    style={{ width: `${tlPct}%`, background: tlColor }}
                   />
+                </div>
+                <div className={`tl-days ${tlCls}`}>{tlLabel}</div>
+              </div>
+
+              <div className="c-health">
+                {health != null ? (
+                  <>
+                    {rag && <span className={`rag-pill ${rpCls}`}>{ragLabel(rag)}</span>}
+                    <span className={`h-num ${hCls}`}>{health}%</span>
+                  </>
+                ) : rag ? (
+                  <span className={`rag-pill ${rpCls}`}>{ragLabel(rag)}</span>
                 ) : (
-                  <MetricCard label="Coverage" value="—" tone="neutral" />
+                  <span className="h-num h-n"></span>
                 )}
               </div>
-            </div>
-          </section>
 
-          <section className="overflow-hidden rounded-3xl border border-[var(--ui-border)] bg-[var(--ui-panel)] shadow-sm">
-            <div className="flex flex-col gap-4 border-b border-[var(--ui-border)] p-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex flex-wrap gap-2">
-                {(["Active", "Closed", "All"] as const).map((item) => {
-                  const count =
-                    item === "Active"
-                      ? activeCount
-                      : item === "Closed"
-                        ? closedCount
-                        : projects.length;
-
-                  const active = filter === item;
-
-                  return (
-                    <Link
-                      key={item}
-                      href={`/projects?filter=${item}&sort=${sortMode}&q=${encodeURIComponent(query)}`}
-                      className={`inline-flex items-center rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition ${
-                        active
-                          ? "bg-[var(--ui-text)] text-white"
-                          : "border border-[var(--ui-border)] bg-[var(--ui-panel)] text-[var(--ui-muted)] hover:bg-[var(--ui-panelAlt)]"
-                      }`}
-                    >
-                      {item}
-                      <span className="ml-2 opacity-80">{count}</span>
-                    </Link>
-                  );
-                })}
+              <div className="c-status">
+                <span className={`st-pill ${stCls}`}>{stLabel}</span>
               </div>
 
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <form method="get" className="flex items-center gap-2">
-                  <input type="hidden" name="filter" value={filter} />
-                  <input type="hidden" name="sort" value={sortMode} />
+              <div className="c-arrow">
+                <span className="row-arrow">&#8594;</span>
+              </div>
+
+              <div className="row-actions-panel">
+                <Link href={`/projects/${p.id}`} className="ra-btn">
+                  Overview &#8594;
+                </Link>
+                <Link href={`/projects/${p.id}/artifacts`} className="ra-btn">
+                  Artifacts
+                </Link>
+                <Link href={`/projects/${p.id}/members`} className="ra-btn">
+                  Members
+                </Link>
+
+                <form action={setProjectStatus} style={{ display: "contents" }}>
+                  <input type="hidden" name="project_id" value={p.id} />
                   <input
-                    type="search"
-                    name="q"
-                    defaultValue={query}
-                    placeholder="Search projects"
-                    className="w-full min-w-[220px] rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-panelAlt)] px-4 py-2.5 text-sm outline-none transition placeholder:text-[var(--ui-muted)] focus:border-[var(--ui-accent)] sm:w-72"
+                    type="hidden"
+                    name="status"
+                    value={isActive ? "closed" : "active"}
                   />
+                  <input type="hidden" name="next" value="/projects" />
+                  <button
+                    type="submit"
+                    className={`ra-btn ${isActive ? "ra-close" : ""}`}
+                  >
+                    {isActive ? "Close" : "Reopen"}
+                  </button>
                 </form>
-
-                <div className="flex gap-2">
-                  {(["Newest", "A-Z"] as const).map((item) => {
-                    const active = sortMode === item;
-                    return (
-                      <Link
-                        key={item}
-                        href={`/projects?filter=${filter}&sort=${item}&q=${encodeURIComponent(query)}`}
-                        className={`inline-flex items-center rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition ${
-                          active
-                            ? "bg-[var(--ui-accentSoft)] text-[var(--ui-accent)]"
-                            : "border border-[var(--ui-border)] text-[var(--ui-muted)] hover:bg-[var(--ui-panelAlt)]"
-                        }`}
-                      >
-                        {item}
-                      </Link>
-                    );
-                  })}
-                </div>
               </div>
             </div>
+          );
+        })}
 
-            {filtered.length > 0 ? (
-              <>
-                <div className="hidden grid-cols-[minmax(0,1.4fr)_180px_150px_120px] gap-4 border-b border-[var(--ui-border)] bg-[var(--ui-panelAlt)] px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ui-muted)] md:grid">
-                  <div>Project</div>
-                  <div>Timeline</div>
-                  <div className="text-right">Health</div>
-                  <div className="text-center">Status</div>
-                </div>
-
-                <div className="divide-y divide-[var(--ui-border)]">
-                  {filtered.map((project) => {
-                    const health = getHealthState(project);
-                    const timeline = getTimelineState(project);
-                    const isClosed = isClosedStatus(project.status);
-
-                    return (
-                      <div
-                        key={project.id}
-                        className="group relative border-l-4 px-4 py-4 transition hover:bg-[var(--ui-panelAlt)]"
-                        style={{ borderLeftColor: project.colour || "var(--ui-accent)" }}
-                      >
-                        <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_180px_150px_120px] md:items-center">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Link
-                                href={`/projects/${project.id}`}
-                                className="truncate text-base font-semibold tracking-tight text-[var(--ui-text)] hover:underline"
-                              >
-                                {project.title}
-                              </Link>
-                              {project.project_code ? (
-                                <span className="rounded-full bg-[var(--ui-panelAlt)] px-2.5 py-1 text-[11px] font-medium text-[var(--ui-muted)]">
-                                  {project.project_code}
-                                </span>
-                              ) : null}
-                            </div>
-
-                            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--ui-muted)]">
-                              <span>{project.pm_name?.trim() || "Unassigned"}</span>
-                              <span className="hidden sm:inline">•</span>
-                              <span>{formatDate(project.created_at, "long") || "—"}</span>
-                              {roleMap[project.id] ? (
-                                <>
-                                  <span className="hidden sm:inline">•</span>
-                                  <span className="capitalize">{String(roleMap[project.id])}</span>
-                                </>
-                              ) : null}
-                            </div>
-
-                            <div className="mt-3 flex flex-wrap gap-2 md:hidden">
-                              <InlineInfo
-                                label="Start"
-                                value={formatDate(project.start_date, "short") || "—"}
-                              />
-                              <InlineInfo
-                                label="Finish"
-                                value={formatDate(project.finish_date, "short") || "—"}
-                              />
-                              <InlineInfo label="Timeline" value={timeline.label || "—"} />
-                              <InlineInfo
-                                label="Health"
-                                value={
-                                  health.health != null
-                                    ? `${health.health}%`
-                                    : health.rag
-                                      ? ragLabel(health.rag)
-                                      : "—"
-                                }
-                              />
-                            </div>
-                          </div>
-
-                          <div className="hidden md:block">
-                            <div className="flex justify-between text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--ui-muted)]">
-                              <span>{formatDate(project.start_date, "short") || "—"}</span>
-                              <span>{formatDate(project.finish_date, "short") || "—"}</span>
-                            </div>
-                            <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--ui-border)]">
-                              <div
-                                className="h-full rounded-full"
-                                style={{
-                                  width: `${timeline.progress}%`,
-                                  background: timeline.fillColor,
-                                }}
-                              />
-                            </div>
-                            <div
-                              className={`mt-2 text-right text-xs font-medium ${
-                                timeline.tone === "danger"
-                                  ? "text-[var(--ui-danger)]"
-                                  : timeline.tone === "warning"
-                                    ? "text-[var(--ui-warning)]"
-                                    : timeline.tone === "neutral"
-                                      ? "text-[var(--ui-muted)]"
-                                      : "text-[var(--ui-text)]"
-                              }`}
-                            >
-                              {timeline.label || "—"}
-                            </div>
-                          </div>
-
-                          <div className="hidden justify-end md:flex">
-                            {health.health != null ? (
-                              <div className="flex items-center gap-2">
-                                {health.rag ? <RagBadge rag={health.rag} /> : null}
-                                <span
-                                  className={`text-sm font-semibold ${
-                                    health.tone === "good"
-                                      ? "text-[var(--ui-success)]"
-                                      : health.tone === "warning"
-                                        ? "text-[var(--ui-warning)]"
-                                        : health.tone === "danger"
-                                          ? "text-[var(--ui-danger)]"
-                                          : "text-[var(--ui-muted)]"
-                                  }`}
-                                >
-                                  {health.health}%
-                                </span>
-                              </div>
-                            ) : health.rag ? (
-                              <RagBadge rag={health.rag} />
-                            ) : (
-                              <span className="text-sm text-[var(--ui-muted)]">—</span>
-                            )}
-                          </div>
-
-                          <div className="hidden items-center justify-center md:flex">
-                            <span
-                              className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${getStatusClassName(
-                                project,
-                              )}`}
-                            >
-                              {getStatusLabel(project)}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          <Link
-                            href={`/projects/${project.id}`}
-                            className="inline-flex items-center rounded-xl border border-[var(--ui-border)] bg-[var(--ui-panel)] px-3 py-2 text-sm font-medium transition hover:bg-[var(--ui-panelAlt)]"
-                          >
-                            Overview
-                          </Link>
-                          <Link
-                            href={`/projects/${project.id}/artifacts`}
-                            className="inline-flex items-center rounded-xl border border-[var(--ui-border)] bg-[var(--ui-panel)] px-3 py-2 text-sm font-medium transition hover:bg-[var(--ui-panelAlt)]"
-                          >
-                            Artifacts
-                          </Link>
-                          <Link
-                            href={`/projects/${project.id}/members`}
-                            className="inline-flex items-center rounded-xl border border-[var(--ui-border)] bg-[var(--ui-panel)] px-3 py-2 text-sm font-medium transition hover:bg-[var(--ui-panelAlt)]"
-                          >
-                            Members
-                          </Link>
-
-                          <form action={setProjectStatus}>
-                            <input type="hidden" name="project_id" value={project.id} />
-                            <input
-                              type="hidden"
-                              name="status"
-                              value={isClosed ? "active" : "closed"}
-                            />
-                            <input type="hidden" name="next" value="/projects" />
-                            <button
-                              type="submit"
-                              className={`inline-flex items-center rounded-xl border px-3 py-2 text-sm font-medium transition ${
-                                isClosed
-                                  ? "border-[var(--ui-border)] bg-[var(--ui-panel)] hover:bg-[var(--ui-panelAlt)]"
-                                  : "border-[var(--ui-warning)]/20 bg-[var(--ui-warningSoft)] text-[var(--ui-warning)] hover:opacity-90"
-                              }`}
-                            >
-                              {isClosed ? "Reopen" : "Close"}
-                            </button>
-                          </form>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            ) : (
-              <div className="px-4 py-16 text-center">
-                <div className="mx-auto max-w-xl">
-                  <h3 className="text-2xl font-semibold tracking-tight text-[var(--ui-text)]">
-                    {projects.length === 0 ? "No projects yet." : "Nothing matches your filters."}
-                  </h3>
-                  <p className="mt-3 text-sm leading-6 text-[var(--ui-muted)]">
-                    {projects.length === 0
-                      ? "Create your first project to get started."
-                      : "Try adjusting the search term, filter, or sort order."}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            <div className="flex items-center justify-between border-t border-[var(--ui-border)] px-4 py-3 text-xs font-medium uppercase tracking-[0.14em] text-[var(--ui-muted)]">
-              <span>
-                {filtered.length} project{filtered.length !== 1 ? "s" : ""}
-              </span>
-              <span>{todayLabel}</span>
+        {filtered.length === 0 && (
+          <div className="empty">
+            <div className="empty-rule" />
+            <div className="empty-h">
+              {projects.length === 0 ? "No projects yet." : "Nothing matches your filters."}
             </div>
-          </section>
-        </main>
+            <p className="empty-sub">
+              {projects.length === 0
+                ? "Create your first project to get started."
+                : "Try adjusting the search term or filter."}
+            </p>
+          </div>
+        )}
 
-        <style>{`
-          .statusActive {
-            background: var(--ui-successSoft);
-            color: var(--ui-success);
-          }
-
-          .statusClosed {
-            background: var(--ui-panelAlt);
-            color: var(--ui-muted);
-            border-color: var(--ui-border);
-          }
-
-          .statusPipeline {
-            background: var(--ui-accentSoft);
-            color: var(--ui-accent);
-          }
-        `}</style>
+        <div className="page-footer">
+          <span className="footer-txt" id="row-count">
+            {filtered.length} project{filtered.length !== 1 ? "s" : ""}
+          </span>
+          <span className="footer-txt">
+            {new Date().toLocaleDateString("en-GB", {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            })}
+          </span>
+        </div>
       </div>
     </>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  tone = "default",
-}: {
-  label: string;
-  value: string | number;
-  tone?: "default" | "neutral" | "danger" | "good" | "warning";
-}) {
-  const toneClass =
-    tone === "danger"
-      ? "bg-[var(--ui-dangerSoft)] text-[var(--ui-danger)]"
-      : tone === "good"
-        ? "bg-[var(--ui-successSoft)] text-[var(--ui-success)]"
-        : tone === "warning"
-          ? "bg-[var(--ui-warningSoft)] text-[var(--ui-warning)]"
-          : tone === "neutral"
-            ? "bg-[var(--ui-panelAlt)] text-[var(--ui-muted)]"
-            : "bg-[var(--ui-panelAlt)] text-[var(--ui-text)]";
-
-  return (
-    <div className={`rounded-2xl px-4 py-3 ${toneClass}`}>
-      <div className="text-2xl font-semibold tracking-tight">{value}</div>
-      <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.16em] opacity-80">
-        {label}
-      </div>
-    </div>
-  );
-}
-
-function RagBadge({ rag }: { rag: Exclude<Rag, null> }) {
-  const cls =
-    rag === "G"
-      ? "bg-[var(--ui-successSoft)] text-[var(--ui-success)]"
-      : rag === "A"
-        ? "bg-[var(--ui-warningSoft)] text-[var(--ui-warning)]"
-        : "bg-[var(--ui-dangerSoft)] text-[var(--ui-danger)]";
-
-  return (
-    <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${cls}`}>
-      {ragLabel(rag)}
-    </span>
-  );
-}
-
-function InlineInfo({ label, value }: { label: string; value: string }) {
-  return (
-    <span className="rounded-full bg-[var(--ui-panelAlt)] px-2.5 py-1 text-[11px] font-medium text-[var(--ui-muted)]">
-      {label}: {value}
-    </span>
   );
 }

@@ -1,7 +1,8 @@
 // FILE: src/app/layout.tsx
 //
 // Root layout -- wraps all pages with the sidebar shell.
-// The sidebar shell itself decides when to hide on auth routes.
+// The sidebar is only shown for authenticated routes.
+// Auth pages (/login, /signup, /invite/*, /auth/*) get no sidebar.
 //
 // ΛLIΞNΛ Enterprise Upgrade:
 // ✓ Neon AI branding
@@ -9,10 +10,8 @@
 // ✓ PWA install support
 // ✓ Cosmic AI background
 // ✓ Enterprise metadata
-// ✓ Global dynamic rendering to prevent accidental prerender hangs
 
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
 import { DM_Sans, DM_Mono } from "next/font/google";
 import { createClient } from "@/utils/supabase/server";
 import SidebarShell from "@/components/nav/SidebarShell";
@@ -36,33 +35,41 @@ const dmMono = DM_Mono({
   display: "swap",
 });
 
-const ALIENA_LOGO_URL =
-  "https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png";
-
 export const metadata: Metadata = {
   title: {
     template: "%s | ΛLIΞNΛ",
     default: "ΛLIΞNΛ",
   },
   description: "ΛLIΞNΛ — AI Governance & Delivery Intelligence Platform",
+
   icons: {
-    icon: ALIENA_LOGO_URL,
-    shortcut: ALIENA_LOGO_URL,
-    apple: ALIENA_LOGO_URL,
+    icon: "https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png",
+    shortcut:
+      "https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png",
+    apple:
+      "https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png",
   },
+
   openGraph: {
     title: "ΛLIΞNΛ",
     description: "AI Governance Intelligence Platform",
-    images: [ALIENA_LOGO_URL],
+    images: [
+      "https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png",
+    ],
   },
+
+  themeColor: "#0a0d14",
   manifest: "/manifest.json",
 };
 
-export default async function RootLayout({
-  children,
-}: {
-  children: ReactNode;
-}) {
+// Routes that should NOT show the sidebar
+const AUTH_PREFIXES = ["/login", "/signup", "/auth", "/invite", "/reset-password", "/verify"];
+
+function isAuthRoute(pathname: string): boolean {
+  return AUTH_PREFIXES.some((p) => pathname.startsWith(p));
+}
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
   let userName: string | null = null;
   let orgName: string | null = null;
   let activeProjectCount = 0;
@@ -80,6 +87,8 @@ export default async function RootLayout({
         user.email ||
         null;
 
+      // ✅ Determine ACTIVE organisation (profiles.active_organisation_id)
+      // Fallback: first membership if active org is null/unset
       let orgId: string | null = null;
 
       try {
@@ -105,12 +114,13 @@ export default async function RootLayout({
             .limit(1)
             .maybeSingle();
 
-          orgId = (memRow?.organisation_id as string | null) ?? null;
+          orgId = memRow?.organisation_id ?? null;
         } catch {
           // ignore
         }
       }
 
+      // ✅ Fetch org name + project count for ACTIVE org
       if (orgId) {
         try {
           const { data: orgRow } = await supabase
@@ -119,7 +129,7 @@ export default async function RootLayout({
             .eq("id", orgId)
             .maybeSingle();
 
-          orgName = (orgRow?.name as string | null) ?? null;
+          orgName = orgRow?.name ?? null;
         } catch {
           // ignore
         }
@@ -146,20 +156,27 @@ export default async function RootLayout({
   return (
     <html lang="en" className={`${dmSans.variable} ${dmMono.variable}`}>
       <head>
+        {/* Cosmic theme */}
         <meta name="theme-color" content="#0a0d14" />
+
+        {/* PWA */}
         <link rel="manifest" href="/manifest.json" />
-        <link rel="preload" href={ALIENA_LOGO_URL} as="image" />
+
+        {/* Preload logo */}
+        <link
+          rel="preload"
+          href="https://bjsyepwyaghnnderckgk.supabase.co/storage/v1/object/public/Aliena/Futuristic%20cosmic%20eye%20logo.png"
+          as="image"
+        />
       </head>
 
-      <body className="bg-[#000810] font-sans antialiased text-slate-100">
+      <body className="text-slate-100 antialiased font-sans bg-[#000810]">
+        {/* Global cosmic background (fixed, behind everything) */}
         <CosmosBackdrop />
 
+        {/* App content above the canvas */}
         <div className="relative z-10">
-          <SidebarShell
-            userName={userName}
-            orgName={orgName}
-            projectCount={activeProjectCount}
-          >
+          <SidebarShell userName={userName} orgName={orgName} projectCount={activeProjectCount}>
             {children}
           </SidebarShell>
         </div>
