@@ -2,24 +2,21 @@
   "name": "alienai",
   "version": "0.1.0",
   "private": true,
-  "scripts": {
-    "preinstall": "node -e \"const v=process.versions.node; const [maj]=v.split('.').map(Number); if (maj!==20) { console.error('\\n? Wrong Node version: '+v+'\\n? Use Node 20.x (recommended: 20.19.6).\\n   If you use nvm-windows: nvm use 20.19.6\\n'); process.exit(1); }\"",
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint",
-    "typecheck": "tsc --noEmit",
-    "clean": "rimraf .next out dist",
-
-    "build:tauri:web": "cross-env TAURI_BUILD=true next build",
-    "build:tauri": "cross-env TAURI_BUILD=true tauri build",
-
-    "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "cross-env TAURI_BUILD=true tauri build",
-
-    "desktop": "pnpm build:tauri:web && pnpm tauri:build"
-  },
+"scripts": {
+  "preinstall": "node -e \"const v=process.versions.node; const [maj]=v.split('.').map(Number); if (maj!==20) { console.error('\\n? Wrong Node version: '+v+'\\n? Use Node 20.x (recommended: 20.19.6).\\n   If you use nvm-windows: nvm use 20.19.6\\n'); process.exit(1); }\"",
+  "dev": "next dev",
+  "build": "next build --webpack",
+  "start": "next start",
+  "lint": "eslint",
+  "typecheck": "tsc --noEmit",
+  "clean": "rimraf .next out dist",
+  "build:tauri:web": "cross-env TAURI_BUILD=true next build --webpack",
+  "build:tauri": "cross-env TAURI_BUILD=true tauri build",
+  "tauri": "tauri",
+  "tauri:dev": "tauri dev",
+  "tauri:build": "cross-env TAURI_BUILD=true tauri build",
+  "desktop": "pnpm build:tauri:web && pnpm tauri:build"
+}
 
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
