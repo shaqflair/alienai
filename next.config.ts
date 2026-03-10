@@ -58,59 +58,82 @@ const nextConfig: NextConfig = {
   // ─── Security: HTTP → HTTPS redirect ────────────────────────────────────────
   // Forces all HTTP traffic to HTTPS on Vercel / server targets.
   // Skipped for Tauri (static export, no server).
-  async redirects() {
-    if (isTauri) return [];
-    return [
-      {
-        source: "/(.*)",
-        has: [{ type: "header", key: "x-forwarded-proto", value: "http" }],
-        destination: "https://www.aliena.co.uk/:path*",
-        permanent: true,
-      },
-    ];
-  },
+  ...(!isTauri && {
+    async redirects() {
+      return [
+        {
+          source: "/(.*)",
+          has: [
+            {
+              type: "header",
+              key: "x-forwarded-proto",
+              value: "http",
+            },
+          ],
+          destination: "https://www.aliena.co.uk/:path*",
+          permanent: true,
+        },
+      ];
+    },
+  }),
 
   // ─── Security headers ───────────────────────────────────────────────────────
   // Applied on all server targets. Skipped for Tauri static export.
-  async headers() {
-    if (isTauri) return [];
-    return [
-      {
-        source: "/(.*)",
-        headers: [
-          // Prevent clickjacking — no iframing of any page
-          { key: "X-Frame-Options", value: "DENY" },
-          // Prevent MIME-type sniffing
-          { key: "X-Content-Type-Options", value: "nosniff" },
-          // Control referrer information sent to other sites
-          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          // Restrict browser features not needed by the app
-          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), interest-cohort=()" },
-          // HSTS — force HTTPS for 2 years, include subdomains
-          { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
-          // Content Security Policy
-          // Note: 'unsafe-inline' and 'unsafe-eval' are required by Next.js.
-          // Tighten once you have a nonce-based CSP in place.
-          {
-            key: "Content-Security-Policy",
-            value: [
-              "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-              "style-src 'self' 'unsafe-inline'",
-              "img-src 'self' data: blob: https:",
-              "font-src 'self' data:",
-              "connect-src 'self' https://*.supabase.co https://api.openai.com https://api.anthropic.com wss://*.supabase.co",
-              "media-src 'self'",
-              "object-src 'none'",
-              "frame-ancestors 'none'",
-              "base-uri 'self'",
-              "form-action 'self'",
-            ].join("; "),
-          },
-        ],
-      },
-    ];
-  },
+  ...(!isTauri && {
+    async headers() {
+      return [
+        {
+          source: "/(.*)",
+          headers: [
+            // Prevent clickjacking — no iframing of any page
+            {
+              key: "X-Frame-Options",
+              value: "DENY",
+            },
+            // Prevent MIME-type sniffing
+            {
+              key: "X-Content-Type-Options",
+              value: "nosniff",
+            },
+            // Control referrer information sent to other sites
+            {
+              key: "Referrer-Policy",
+              value: "strict-origin-when-cross-origin",
+            },
+            // Restrict browser features not needed by the app
+            {
+              key: "Permissions-Policy",
+              value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+            },
+            // HSTS — force HTTPS for 2 years, include subdomains
+            {
+              key: "Strict-Transport-Security",
+              value: "max-age=63072000; includeSubDomains; preload",
+            },
+            // Content Security Policy
+            // Note: 'unsafe-inline' and 'unsafe-eval' are required for Next.js.
+            // Tighten these once you have a nonce-based CSP in place.
+            {
+              key: "Content-Security-Policy",
+              value: [
+                "default-src 'self'",
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+                "style-src 'self' 'unsafe-inline'",
+                "img-src 'self' data: blob: https:",
+                "font-src 'self' data:",
+                "connect-src 'self' https://*.supabase.co https://api.openai.com https://api.anthropic.com wss://*.supabase.co",
+                "media-src 'self'",
+                "object-src 'none'",
+                "frame-ancestors 'none'",
+                "base-uri 'self'",
+                "form-action 'self'",
+              ].join("; "),
+            },
+          ],
+        },
+      ];
+    },
+  }),
 
   // ─── Experimental ───────────────────────────────────────────────────────────
   experimental: {
