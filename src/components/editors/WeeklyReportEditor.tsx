@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 /* ═══════════════════════════════════════════════════════════════
-   TYPES (unchanged)
+   TYPES
 ═══════════════════════════════════════════════════════════════ */
 
 type Rag = "green" | "amber" | "red";
@@ -46,8 +46,27 @@ type UpdateArtifactJsonArgs = {
 };
 type UpdateArtifactJsonResult = { ok: boolean; error?: string };
 
+/* ── NEW: Project health props passed in from the server page ── */
+export type ProjectHealthProps = {
+  /** 0-100 composite health score */
+  healthScore: number | null;
+  scheduleHealth: number | null;
+  raidHealth: number | null;
+  budgetHealth: number | null;
+  governanceHealth: number | null;
+  /** Human-readable detail strings surfaced in health tooltips */
+  scheduleDetail?: { total: number; overdue: number; critical: number; avgSlipDays: number };
+  raidDetail?: { total: number; highRisk: number; overdue: number };
+  budgetDetail?: { budgetDays: number | null; allocatedDays: number; utilisationPct: number | null };
+  governanceDetail?: { pendingApprovalCount: number; openChangeRequests: number };
+  /** Pre-built resource summary lines from the resource plan */
+  resourceLines?: string[];
+  /** Project finish date for context */
+  finishDate?: string | null;
+};
+
 /* ═══════════════════════════════════════════════════════════════
-   UTILS — all original logic preserved byte-for-byte
+   UTILS
 ═══════════════════════════════════════════════════════════════ */
 
 function safeStr(x: any) {
@@ -70,10 +89,7 @@ function fmtUkDate(iso: string | null | undefined) {
   if (!isIsoYmd(v)) return v || "";
   const d = new Date(`${v}T00:00:00Z`);
   return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
+    day: "2-digit", month: "short", year: "numeric", timeZone: "UTC",
   }).format(d);
 }
 
@@ -85,16 +101,8 @@ function defaultModel(): WeeklyReportV1 {
     project: { id: null, code: null, name: null, managerName: null, managerEmail: null },
     period: { from: isoDate(from), to: isoDate(to) },
     summary: { rag: "green", headline: "Weekly delivery update", narrative: "Summary of progress, risks, and next steps." },
-    delivered: [],
-    milestones: [],
-    changes: [],
-    raid: [],
-    planNextWeek: [],
-    resourceSummary: [],
-    keyDecisions: [],
-    blockers: [],
-    metrics: {},
-    meta: {},
+    delivered: [], milestones: [], changes: [], raid: [], planNextWeek: [],
+    resourceSummary: [], keyDecisions: [], blockers: [], metrics: {}, meta: {},
   };
 }
 
@@ -147,7 +155,6 @@ function normalizeWeeklyReportV1(x: any, fallback?: WeeklyReportV1): WeeklyRepor
   if (!x || typeof x !== "object") return null;
   const extractedProject = extractProjectFromAny(x) ?? fb.project ?? null;
 
-  // weekly_report doc style
   if ((x?.type === "weekly_report" || x?.type === "weeklyreport") && (x?.periodFrom || x?.periodTo || x?.executiveSummary)) {
     const ragRaw = safeStr(x?.rag).toLowerCase();
     const rag: Rag = ragRaw === "red" ? "red" : ragRaw === "amber" ? "amber" : "green";
@@ -171,7 +178,6 @@ function normalizeWeeklyReportV1(x: any, fallback?: WeeklyReportV1): WeeklyRepor
     };
   }
 
-  // delivery_report model
   if (x?.version === 1 && x?.period && x?.sections) {
     const sec = x.sections || {};
     const exec = sec.executive_summary || {};
@@ -200,13 +206,14 @@ function normalizeWeeklyReportV1(x: any, fallback?: WeeklyReportV1): WeeklyRepor
     };
   }
 
-  // classic WeeklyReportV1
   if (x?.version === 1 && x?.period && x?.summary) {
     const v = x as WeeklyReportV1;
     return {
       ...v, project: extractProjectFromAny(v) ?? fb.project,
-      delivered: Array.isArray(v.delivered) ? v.delivered : [], milestones: Array.isArray(v.milestones) ? v.milestones : [],
-      changes: Array.isArray(v.changes) ? v.changes : [], raid: Array.isArray(v.raid) ? v.raid : [],
+      delivered: Array.isArray(v.delivered) ? v.delivered : [],
+      milestones: Array.isArray(v.milestones) ? v.milestones : [],
+      changes: Array.isArray(v.changes) ? v.changes : [],
+      raid: Array.isArray(v.raid) ? v.raid : [],
       planNextWeek: Array.isArray(v.planNextWeek) ? v.planNextWeek : [],
       resourceSummary: Array.isArray((v as any)?.resourceSummary) ? (v as any).resourceSummary : [],
       keyDecisions: Array.isArray((v as any)?.keyDecisions) ? (v as any).keyDecisions : [],
@@ -223,7 +230,100 @@ async function downloadViaFetch(url: string, filename: string) {
   if (!res.ok) throw new Error(`Export failed (${res.status})`);
   const blob = await res.blob();
   const objectUrl = URL.createObjectURL(blob);
-  try { const a = document.createElement("a"); a.href = objectUrl; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); } finally { URL.revokeObjectURL(objectUrl); }
+  try {
+    const a = document.createElement("a");
+    a.href = objectUrl; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+  } finally { URL.revokeObjectURL(objectUrl); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HEALTH → RAG DERIVATION
+═══════════════════════════════════════════════════════════════ */
+
+function deriveRagFromHealth(healthScore: number | null): Rag {
+  if (healthScore == null) return "green";
+  if (healthScore >= 85) return "green";
+  if (healthScore >= 70) return "amber";
+  return "red";
+}
+
+/**
+ * Builds human-readable resource summary lines from health detail objects.
+ * These are shown in section 4 (Resources) of the report.
+ */
+function buildResourceLines(health: ProjectHealthProps): string[] {
+  const lines: string[] = [];
+
+  if (health.resourceLines && health.resourceLines.length > 0) {
+    return health.resourceLines;
+  }
+
+  const { budgetDetail, scheduleDetail } = health;
+
+  if (budgetDetail?.utilisationPct != null) {
+    const { allocatedDays, budgetDays, utilisationPct } = budgetDetail;
+    const trend =
+      utilisationPct <= 90 ? "on track"
+      : utilisationPct <= 100 ? "approaching budget limit"
+      : "over budget";
+    lines.push(
+      `${allocatedDays}d allocated of ${budgetDays ?? "?"}d budget (${utilisationPct}% utilisation) — ${trend}.`
+    );
+  }
+
+  if (scheduleDetail?.total != null && scheduleDetail.total > 0) {
+    const { total, overdue, critical, avgSlipDays } = scheduleDetail;
+    if (overdue > 0) {
+      lines.push(
+        `${overdue} of ${total} milestone${total !== 1 ? "s" : ""} overdue${critical > 0 ? `, ${critical} on critical path` : ""}. Average baseline slip: ${avgSlipDays}d.`
+      );
+    } else {
+      lines.push(`All ${total} milestones on track.`);
+    }
+  }
+
+  return lines;
+}
+
+/**
+ * Builds a context block passed to the AI so it can write a grounded
+ * executive narrative instead of generic filler.
+ */
+function buildHealthContext(health: ProjectHealthProps): string {
+  const ragLabel = deriveRagFromHealth(health.healthScore);
+  const lines: string[] = [
+    `Overall health score: ${health.healthScore ?? "unknown"}% (RAG: ${ragLabel.toUpperCase()})`,
+  ];
+
+  if (health.scheduleHealth != null) {
+    const d = health.scheduleDetail;
+    lines.push(
+      `Schedule health: ${health.scheduleHealth}%${d ? ` — ${d.total} milestones, ${d.overdue} overdue, avg slip ${d.avgSlipDays}d` : ""}.`
+    );
+  }
+  if (health.raidHealth != null) {
+    const d = health.raidDetail;
+    lines.push(
+      `RAID health: ${health.raidHealth}%${d ? ` — ${d.total} open items, ${d.highRisk} high-risk, ${d.overdue} past due` : ""}.`
+    );
+  }
+  if (health.budgetHealth != null) {
+    const d = health.budgetDetail;
+    lines.push(
+      `Budget health: ${health.budgetHealth}%${d?.utilisationPct != null ? ` — ${d.utilisationPct}% utilisation (${d.allocatedDays}d of ${d.budgetDays ?? "?"}d)` : ""}.`
+    );
+  }
+  if (health.governanceHealth != null) {
+    const d = health.governanceDetail;
+    lines.push(
+      `Governance health: ${health.governanceHealth}%${d ? ` — ${d.pendingApprovalCount} pending approvals, ${d.openChangeRequests} open change requests` : ""}.`
+    );
+  }
+  if (health.finishDate) {
+    lines.push(`Project delivery deadline: ${health.finishDate}.`);
+  }
+  return lines.join("\n");
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -262,6 +362,13 @@ const INPUT_CLS =
 const IconSpark = () => (
   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 3v18M3 12h18M5.636 5.636l12.728 12.728M18.364 5.636L5.636 18.364" />
+  </svg>
+);
+
+const IconSync = () => (
+  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
+    <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
   </svg>
 );
 
@@ -307,12 +414,298 @@ const IconLink = () => (
   </svg>
 );
 
+const IconHistory = () => (
+  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 3v6h6" />
+    <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" />
+    <path d="M12 7v5l4 2" />
+  </svg>
+);
+
+const IconArrowLeft = () => (
+  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M19 12H5M12 19l-7-7 7-7" />
+  </svg>
+);
+
 const Spinner = ({ className }: { className?: string }) => (
   <svg className={cx("animate-spin", className || "w-4 h-4")} viewBox="0 0 24 24" fill="none">
     <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-20" />
     <path d="M12 2a10 10 0 019.95 9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
   </svg>
 );
+
+/* ═══════════════════════════════════════════════════════════════
+   HEALTH BADGE — inline indicator shown next to RAG dropdown
+═══════════════════════════════════════════════════════════════ */
+
+function HealthBadge({ health }: { health: ProjectHealthProps }) {
+  if (health.healthScore == null) return null;
+  const rag = deriveRagFromHealth(health.healthScore);
+  const cfg = RAG_CONFIG[rag];
+  return (
+    <span className={cx(
+      "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border",
+      cfg.bg, cfg.border, cfg.text,
+    )}>
+      <span className={cx("w-2 h-2 rounded-full", cfg.dot)} />
+      Project health: {health.healthScore}%
+    </span>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   REPORT HISTORY DRAWER
+═══════════════════════════════════════════════════════════════ */
+
+type HistoryItem = {
+  artifactId: string;
+  title: string | null;
+  period: { from: string; to: string } | null;
+  rag: Rag | null;
+  headline: string | null;
+  savedAt: string;
+  contentJson: any;
+};
+
+function fmtSavedAt(iso: string): string {
+  if (!iso) return "";
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      day: "2-digit", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC",
+    }).format(new Date(iso));
+  } catch { return iso; }
+}
+
+function HistoryPreviewSection({ label, items }: { label: string; items: Array<{ text: string }> }) {
+  if (!items?.length) return null;
+  return (
+    <div>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">{label}</p>
+      <ul className="space-y-1">
+        {items.map((it, i) => (
+          <li key={i} className="flex items-start gap-2 text-[13px] text-gray-700">
+            <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-gray-300 shrink-0" />
+            {it.text}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ReportHistoryDrawer({
+  isOpen,
+  onClose,
+  reports,
+  loading,
+  error,
+  onLoadReport,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  reports: HistoryItem[];
+  loading: boolean;
+  error: string | null;
+  onLoadReport: (contentJson: any, periodLabel: string) => void;
+}) {
+  const [preview, setPreview] = useState<HistoryItem | null>(null);
+
+  // Reset preview when drawer closes
+  useEffect(() => { if (!isOpen) setPreview(null); }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const cj = preview?.contentJson as WeeklyReportV1 | null;
+  const previewRag = preview?.rag ? RAG_CONFIG[preview.rag] : RAG_CONFIG.green;
+  const previewPeriod = preview?.period
+    ? `${fmtUkDate(preview.period.from)} — ${fmtUkDate(preview.period.to)}`
+    : "Unknown period";
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
+        onClick={onClose}
+        aria-hidden
+      />
+
+      {/* Drawer */}
+      <div className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-md bg-white shadow-2xl flex flex-col overflow-hidden">
+
+        {/* Drawer header */}
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 shrink-0">
+          {preview ? (
+            <button
+              type="button"
+              onClick={() => setPreview(null)}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+              title="Back to list"
+            >
+              <IconArrowLeft />
+            </button>
+          ) : null}
+          <div className="flex-1 min-w-0">
+            <h2 className="text-[14px] font-semibold text-gray-900">
+              {preview ? "Report preview" : "Report history"}
+            </h2>
+            {preview && (
+              <p className="text-[12px] text-gray-500 truncate">{previewPeriod}</p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+          >
+            <IconX />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto">
+
+          {/* ── LIST VIEW ── */}
+          {!preview && (
+            <div className="p-4 space-y-2">
+              {loading && (
+                <div className="flex items-center justify-center py-16 gap-3 text-gray-400">
+                  <Spinner className="w-5 h-5" />
+                  <span className="text-[13px]">Loading history…</span>
+                </div>
+              )}
+              {error && !loading && (
+                <div className="px-4 py-3 rounded-xl bg-rose-50 border border-rose-200 text-[13px] text-rose-700">
+                  {error}
+                </div>
+              )}
+              {!loading && !error && reports.length === 0 && (
+                <div className="py-16 text-center">
+                  <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-3">
+                    <IconHistory />
+                  </div>
+                  <p className="text-[14px] font-medium text-gray-700 mb-1">No previous reports</p>
+                  <p className="text-[13px] text-gray-400">Saved reports will appear here.</p>
+                </div>
+              )}
+              {!loading && reports.map((r) => {
+                const cfg = r.rag ? RAG_CONFIG[r.rag] : RAG_CONFIG.green;
+                const periodLabel = r.period
+                  ? `${fmtUkDate(r.period.from)} — ${fmtUkDate(r.period.to)}`
+                  : r.title || "Report";
+                return (
+                  <button
+                    key={r.artifactId}
+                    type="button"
+                    onClick={() => setPreview(r)}
+                    className="w-full text-left rounded-xl border border-gray-100 hover:border-gray-200 bg-white hover:bg-gray-50 p-4 transition-all group"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className={cx("w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5", cfg.bg, `ring-1 ${cfg.ring}`)}>
+                        <span className={cx("w-2.5 h-2.5 rounded-full", cfg.dot)} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-semibold text-gray-800 truncate group-hover:text-violet-700 transition-colors">
+                          {periodLabel}
+                        </p>
+                        {r.headline && (
+                          <p className="text-[12px] text-gray-500 mt-0.5 line-clamp-2 leading-relaxed">
+                            {r.headline}
+                          </p>
+                        )}
+                        <p className="text-[11px] text-gray-400 mt-1.5 font-medium">
+                          Saved {fmtSavedAt(r.savedAt)}
+                        </p>
+                      </div>
+                      <svg className="w-4 h-4 text-gray-300 group-hover:text-violet-400 transition-colors shrink-0 mt-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M9 18l6-6-6-6" />
+                      </svg>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* ── PREVIEW VIEW ── */}
+          {preview && cj && (
+            <div className="p-5 space-y-5">
+
+              {/* RAG + headline */}
+              <div className={cx("rounded-xl p-4 border", previewRag.bg, previewRag.border)}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={cx("w-2.5 h-2.5 rounded-full shrink-0", previewRag.dot)} />
+                  <span className={cx("text-[12px] font-semibold uppercase tracking-wide", previewRag.text)}>
+                    {previewRag.label}
+                  </span>
+                </div>
+                {cj.summary?.headline && (
+                  <p className="text-[14px] font-semibold text-gray-800 leading-snug">
+                    {cj.summary.headline}
+                  </p>
+                )}
+              </div>
+
+              {/* Narrative */}
+              {cj.summary?.narrative && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Executive summary</p>
+                  <p className="text-[13px] text-gray-700 leading-relaxed">{cj.summary.narrative}</p>
+                </div>
+              )}
+
+              {/* Sections */}
+              <HistoryPreviewSection label="Completed this week" items={cj.delivered ?? []} />
+              <HistoryPreviewSection label="Planned next week" items={cj.planNextWeek ?? []} />
+              <HistoryPreviewSection label="Key decisions" items={(cj.keyDecisions ?? []) as any} />
+              <HistoryPreviewSection label="Blockers" items={(cj.blockers ?? []) as any} />
+              <HistoryPreviewSection label="Resource summary" items={cj.resourceSummary ?? []} />
+
+              {/* Milestones */}
+              {cj.milestones?.length ? (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Milestones</p>
+                  <div className="space-y-1">
+                    {cj.milestones.map((m, i) => (
+                      <div key={i} className="flex items-center gap-2 text-[13px] text-gray-700">
+                        <span className={cx("w-1.5 h-1.5 rounded-full shrink-0", m.status === "done" ? "bg-green-500" : m.status === "at_risk" ? "bg-amber-500" : "bg-gray-300")} />
+                        <span className="flex-1 truncate">{m.name}</span>
+                        {m.due && <span className="text-[11px] text-gray-400 shrink-0">{fmtUkDate(m.due)}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+
+        {/* Footer — only shown in preview */}
+        {preview && (
+          <div className="px-5 py-4 border-t border-gray-100 shrink-0 bg-white">
+            <button
+              type="button"
+              onClick={() => {
+                const label = preview.period
+                  ? `${fmtUkDate(preview.period.from)} — ${fmtUkDate(preview.period.to)}`
+                  : preview.title || "this report";
+                onLoadReport(preview.contentJson, label);
+              }}
+              className="w-full py-2.5 px-4 rounded-xl text-[13px] font-semibold bg-violet-600 text-white hover:bg-violet-700 transition-colors shadow-sm"
+            >
+              Load into editor
+            </button>
+            <p className="text-center text-[11px] text-gray-400 mt-2">
+              This will replace your current unsaved changes
+            </p>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
 
 /* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
@@ -324,12 +717,15 @@ export default function WeeklyReportEditor({
   initialJson,
   readOnly,
   updateArtifactJsonAction,
+  health,
 }: {
   projectId: string;
   artifactId: string;
   initialJson: any;
   readOnly: boolean;
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
+  /** Pass project health + resource data from the server page for auto-population */
+  health?: ProjectHealthProps;
 }) {
   const seed = useMemo<WeeklyReportV1>(() => {
     const parsed = parseMaybeJson(initialJson);
@@ -342,25 +738,34 @@ export default function WeeklyReportEditor({
   const [busySave, setBusySave] = useState(false);
   const [busyPdf, setBusyPdf] = useState(false);
   const [busyPpt, setBusyPpt] = useState(false);
+  const [busySync, setBusySync] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+
+  // History drawer
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyErr, setHistoryErr] = useState<string | null>(null);
 
   const initialSnapshot = useRef<string>(JSON.stringify(seed));
   const lastArtifactIdRef = useRef<string>("");
+  const autoSyncedRef = useRef(false);
 
-  // Hard reset on artifact switch
+  /* ── Hard reset on artifact switch ── */
   useEffect(() => {
     if (artifactId && lastArtifactIdRef.current && lastArtifactIdRef.current !== artifactId) {
       setModel(seed);
       initialSnapshot.current = JSON.stringify(seed);
-      setErr(null);
-      setSaveMsg(null);
+      setErr(null); setSaveMsg(null); setSyncMsg(null);
+      autoSyncedRef.current = false;
     }
     lastArtifactIdRef.current = artifactId;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [artifactId, seed]);
 
-  // Soft rehydrate when seed changes AND not dirty
+  /* ── Soft rehydrate when seed changes AND not dirty ── */
   useEffect(() => {
     const isDirty = JSON.stringify(model) !== initialSnapshot.current;
     if (!isDirty) {
@@ -369,6 +774,28 @@ export default function WeeklyReportEditor({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed]);
+
+  /* ── AUTO-SYNC on first load when the report is in its default state ──
+     If the saved report still has the placeholder narrative / default RAG,
+     we silently sync RAG + resources from project health data.            */
+  useEffect(() => {
+    if (autoSyncedRef.current) return;
+    if (!health) return;
+    if (readOnly) return;
+
+    const isDefaultNarrative =
+      model.summary.narrative === "Summary of progress, risks, and next steps.";
+    const isDefaultHeadline =
+      model.summary.headline === "Weekly delivery update";
+    const hasNoResources = (model.resourceSummary ?? []).length === 0;
+
+    // Only auto-sync when the report looks like it hasn't been touched yet
+    if (isDefaultNarrative && isDefaultHeadline && hasNoResources) {
+      autoSyncedRef.current = true;
+      applyHealthSync(false); // silent — no toast
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [health, model.summary.narrative, model.summary.headline]);
 
   const dirty = JSON.stringify(model) !== initialSnapshot.current;
 
@@ -387,7 +814,168 @@ export default function WeeklyReportEditor({
     });
   }
 
-  /* ── Async handlers — identical logic to original ── */
+  /* ═══════════════════════════════════════════════════════════════
+     SYNC FROM PROJECT HEALTH
+     Derives RAG, populates resource section, and (optionally) 
+     rewrites the headline + narrative using a lightweight AI call.
+  ═══════════════════════════════════════════════════════════════ */
+
+  async function applyHealthSync(showToast = true) {
+    if (!health) return;
+    setBusySync(true);
+    setErr(null);
+
+    try {
+      const derivedRag = deriveRagFromHealth(health.healthScore);
+      const resourceLines = buildResourceLines(health);
+      const healthContext = buildHealthContext(health);
+
+      // Call the AI narrative endpoint — merges all 7 fields if it succeeds,
+      // falls back to deterministic values if the endpoint isn't wired yet.
+      let headline  = model.summary.headline;
+      let narrative = model.summary.narrative;
+
+      try {
+        const res = await fetch("/api/ai/events", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            eventType: "weekly_report_narrative",
+            projectId,
+            payload: {
+              artifactId,
+              period: model.period,
+              ragStatus: derivedRag,
+              healthContext,
+              projectName: model.project?.name ?? "",
+              projectCode: model.project?.code ?? "",
+              managerName: model.project?.managerName ?? "",
+            },
+          }),
+        });
+
+        const json = await res.json().catch(() => ({}));
+
+        if (res.ok && json?.ok) {
+          // Merge all 7 fields returned by the narrative generator.
+          // Only replace list fields when the AI returned non-empty arrays
+          // so a partial response never blanks out existing content.
+          setModel((prev) => ({
+            ...prev,
+            summary: {
+              ...prev.summary,
+              rag: derivedRag,
+              headline:  safeStr(json.headline)  || prev.summary.headline,
+              narrative: safeStr(json.narrative) || prev.summary.narrative,
+            },
+            delivered:       json.delivered?.length       ? json.delivered       : prev.delivered,
+            planNextWeek:    json.planNextWeek?.length     ? json.planNextWeek    : prev.planNextWeek,
+            resourceSummary: json.resourceSummary?.length  ? json.resourceSummary : resourceLines.map((t) => ({ text: t })),
+            keyDecisions:    json.keyDecisions?.length     ? json.keyDecisions    : prev.keyDecisions,
+            blockers:        json.blockers?.length         ? json.blockers        : prev.blockers,
+          }));
+
+          if (showToast) {
+            setSyncMsg(`Synced from project health (${health.healthScore ?? "?"}% → ${derivedRag.toUpperCase()}).`);
+            setTimeout(() => setSyncMsg(null), 4000);
+          }
+          return; // skip deterministic fallback
+        }
+
+        // AI responded but returned no usable content — fall through to deterministic
+        headline  = buildFallbackHeadline(health, derivedRag, model);
+        narrative = buildFallbackNarrative(health, derivedRag, model);
+      } catch {
+        // Network or endpoint not yet implemented — use deterministic fallback
+        headline  = buildFallbackHeadline(health, derivedRag, model);
+        narrative = buildFallbackNarrative(health, derivedRag, model);
+      }
+
+      // Deterministic path: sets summary + resources only
+      setModel((prev) => ({
+        ...prev,
+        summary: { ...prev.summary, rag: derivedRag, headline, narrative },
+        resourceSummary: resourceLines.map((t) => ({ text: t })),
+      }));
+
+      if (showToast) {
+        setSyncMsg(`Synced from project health (${health.healthScore ?? "?"}% → ${derivedRag.toUpperCase()}).`);
+        setTimeout(() => setSyncMsg(null), 4000);
+      }
+    } catch (e: any) {
+      setErr(e?.message ?? "Sync failed");
+    } finally {
+      setBusySync(false);
+    }
+  }
+
+  /* ── Deterministic fallback headline ── */
+  function buildFallbackHeadline(h: ProjectHealthProps, rag: Rag, m: WeeklyReportV1): string {
+    const projLabel = safeStr(m.project?.name || m.project?.code) || "Project";
+    const ragLabel = rag === "green" ? "On Track" : rag === "amber" ? "At Risk" : "Critical";
+    return `${projLabel} — ${ragLabel} (${h.healthScore ?? "?"}% health)`;
+  }
+
+  /* ── Deterministic fallback narrative ── */
+  function buildFallbackNarrative(h: ProjectHealthProps, rag: Rag, m: WeeklyReportV1): string {
+    const ragDesc =
+      rag === "green"
+        ? "The project is progressing well and remains on track for delivery."
+        : rag === "amber"
+        ? "The project has some areas of concern that require attention to maintain the delivery timeline."
+        : "The project is in a critical state. Immediate executive attention is required to address blockers and restore the delivery trajectory.";
+
+    const parts: string[] = [ragDesc];
+
+    if (h.scheduleHealth != null && h.scheduleDetail) {
+      const { overdue, total, critical, avgSlipDays } = h.scheduleDetail;
+      if (overdue > 0) {
+        parts.push(
+          `Schedule health is at ${h.scheduleHealth}% with ${overdue} of ${total} milestone${total !== 1 ? "s" : ""} overdue${critical > 0 ? `, including ${critical} on the critical path` : ""}. Average baseline slip is ${avgSlipDays} day${avgSlipDays !== 1 ? "s" : ""}.`
+        );
+      } else {
+        parts.push(`All ${total} schedule milestone${total !== 1 ? "s" : ""} are on track.`);
+      }
+    }
+
+    if (h.raidHealth != null && h.raidDetail) {
+      const { highRisk, total } = h.raidDetail;
+      if (highRisk > 0) {
+        parts.push(
+          `${highRisk} of ${total} open RAID item${total !== 1 ? "s" : ""} are rated high-risk and are being actively managed.`
+        );
+      }
+    }
+
+    if (h.budgetDetail?.utilisationPct != null) {
+      const pct = h.budgetDetail.utilisationPct;
+      if (pct > 100) {
+        parts.push(`Budget utilisation is at ${pct}%, exceeding the approved envelope. A budget review is recommended.`);
+      } else if (pct > 90) {
+        parts.push(`Budget utilisation is at ${pct}%, approaching the approved limit. Close monitoring is in place.`);
+      }
+    }
+
+    if (h.governanceDetail) {
+      const { pendingApprovalCount, openChangeRequests } = h.governanceDetail;
+      if (pendingApprovalCount > 0 || openChangeRequests > 0) {
+        const items: string[] = [];
+        if (pendingApprovalCount > 0) items.push(`${pendingApprovalCount} approval${pendingApprovalCount !== 1 ? "s" : ""} pending`);
+        if (openChangeRequests > 0) items.push(`${openChangeRequests} open change request${openChangeRequests !== 1 ? "s" : ""}`);
+        parts.push(`Governance: ${items.join(" and ")}.`);
+      }
+    }
+
+    if (h.finishDate) {
+      parts.push(`Delivery deadline: ${h.finishDate}.`);
+    }
+
+    return parts.join(" ");
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     GENERATE (AI full report)
+  ═══════════════════════════════════════════════════════════════ */
 
   async function generate() {
     setErr(null); setSaveMsg(null); setBusyGen(true);
@@ -398,7 +986,14 @@ export default function WeeklyReportEditor({
         body: JSON.stringify({
           eventType: "delivery_report",
           projectId,
-          payload: { artifactId, period: model.period, windowDays: 7 },
+          payload: {
+            artifactId,
+            period: model.period,
+            windowDays: 7,
+            // Pass health context so the AI produces a grounded narrative
+            healthContext: health ? buildHealthContext(health) : undefined,
+            derivedRag: health ? deriveRagFromHealth(health.healthScore) : undefined,
+          },
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -417,24 +1012,35 @@ export default function WeeklyReportEditor({
         managerEmail: (report.project?.managerEmail ?? safeStr(json?.project_manager_email)) ?? null,
       };
 
-      const generatedAt = new Date().toISOString();
+      // Override RAG with the health-derived value so it's always consistent
+      const finalRag = health ? deriveRagFromHealth(health.healthScore) : report.summary.rag;
+
+      // Merge resource lines from the resource plan if the AI left them empty
+      const finalResources =
+        report.resourceSummary && report.resourceSummary.length > 0
+          ? report.resourceSummary
+          : health
+          ? buildResourceLines(health).map((t) => ({ text: t }))
+          : [];
+
       const nextModel: WeeklyReportV1 = {
         ...report,
         project: mergedProject,
+        summary: { ...report.summary, rag: finalRag },
+        resourceSummary: finalResources,
         meta: {
           ...(report.meta ?? {}),
-          generated_at: generatedAt,
+          generated_at: new Date().toISOString(),
           sources: {
             ...(report.meta?.sources ?? {}),
             snapshot: {
               period: report.period,
-              rag: report.summary?.rag,
+              rag: finalRag,
+              healthScore: health?.healthScore ?? null,
               milestones: Array.isArray(report.milestones)
                 ? report.milestones.map((m) => ({
-                    name: safeStr(m?.name),
-                    due: safeStr(m?.due) || null,
-                    status: safeStr(m?.status) || null,
-                    critical: !!m?.critical,
+                    name: safeStr(m?.name), due: safeStr(m?.due) || null,
+                    status: safeStr(m?.status) || null, critical: !!m?.critical,
                   }))
                 : [],
             },
@@ -448,6 +1054,10 @@ export default function WeeklyReportEditor({
       setBusyGen(false);
     }
   }
+
+  /* ═══════════════════════════════════════════════════════════════
+     SAVE / EXPORT
+  ═══════════════════════════════════════════════════════════════ */
 
   async function save() {
     setErr(null); setSaveMsg(null);
@@ -495,7 +1105,38 @@ export default function WeeklyReportEditor({
     }
   }
 
-  /* ── Derived display values ── */
+  /* ── History ── */
+
+  async function openHistory() {
+    setHistoryErr(null);
+    setShowHistory(true);
+    setHistoryLoading(true);
+    try {
+      const url = `/api/artifacts/weekly-report/history?projectId=${encodeURIComponent(projectId)}&artifactId=${encodeURIComponent(artifactId)}&limit=50`;
+      const res = await fetch(url, { cache: "no-store" });
+      const json = await res.json().catch(() => ({}));
+      if (!json?.ok) throw new Error(json?.error || "Failed to load history");
+      setHistoryItems(Array.isArray(json.reports) ? json.reports : []);
+    } catch (e: any) {
+      setHistoryErr(e?.message ?? "Could not load report history");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  function loadHistoryItem(contentJson: any, periodLabel: string) {
+    const parsed = normalizeWeeklyReportV1(contentJson, model);
+    if (!parsed) {
+      setErr("Could not load that report — the data format was not recognised.");
+      return;
+    }
+    setModel(parsed);
+    initialSnapshot.current = JSON.stringify(parsed);
+    setShowHistory(false);
+    setSaveMsg(`Loaded report: ${periodLabel}. Save to keep it.`);
+  }
+
+    /* ── Derived display values ── */
 
   const rag = RAG_CONFIG[model.summary.rag];
   const periodUk = `${fmtUkDate(model.period.from)} \u2014 ${fmtUkDate(model.period.to)}`;
@@ -517,7 +1158,6 @@ export default function WeeklyReportEditor({
 
             {/* Left: Title cluster */}
             <div className="flex items-center gap-4 min-w-0">
-              {/* RAG indicator */}
               <div className={cx(
                 "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
                 "ring-2", rag.ring, rag.bg,
@@ -551,7 +1191,24 @@ export default function WeeklyReportEditor({
             <div className="flex items-center gap-2">
               <ActionBtn icon={<IconPdf />} label="PDF" busy={busyPdf} onClick={exportPdf} />
               <ActionBtn icon={<IconPpt />} label="PPT" busy={busyPpt} onClick={exportPpt} />
+              <ActionBtn
+                icon={<IconHistory />}
+                label="History"
+                onClick={openHistory}
+                title="Browse and restore previous weekly reports"
+              />
               <div className="w-px h-6 bg-gray-200 mx-1" />
+              {/* Sync from project health — only shown when health data is available */}
+              {health && !readOnly && (
+                <ActionBtn
+                  icon={busySync ? <Spinner /> : <IconSync />}
+                  label={busySync ? "Syncing\u2026" : "Sync health"}
+                  busy={busySync}
+                  onClick={() => applyHealthSync(true)}
+                  disabled={busySync}
+                  title="Derive RAG, resources and narrative from live project health data"
+                />
+              )}
               <ActionBtn
                 icon={busyGen ? <Spinner /> : <IconSpark />}
                 label={busyGen ? "Generating\u2026" : "Generate"}
@@ -591,6 +1248,13 @@ export default function WeeklyReportEditor({
             <button onClick={() => setSaveMsg(null)} className="p-1 rounded-md hover:bg-emerald-100 transition-colors"><IconX /></button>
           </div>
         )}
+        {syncMsg && (
+          <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-blue-50 border border-blue-200 text-[13px] text-blue-700">
+            <span className="w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center text-[10px] font-bold shrink-0">↻</span>
+            <span className="flex-1">{syncMsg}</span>
+            <button onClick={() => setSyncMsg(null)} className="p-1 rounded-md hover:bg-blue-100 transition-colors"><IconX /></button>
+          </div>
+        )}
 
         {/* ── Project meta + Period + RAG ── */}
         <Card>
@@ -622,6 +1286,18 @@ export default function WeeklyReportEditor({
                   </select>
                 </FieldLabel>
               </div>
+
+              {/* Health badge — shows the live project health score as context */}
+              {health?.healthScore != null && (
+                <div className="flex items-center gap-2 pt-1 flex-wrap">
+                  <HealthBadge health={health} />
+                  {!readOnly && (
+                    <span className="text-[11px] text-gray-400">
+                      RAG auto-derived from health score — override manually above if needed.
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* RAG badge */}
@@ -653,8 +1329,8 @@ export default function WeeklyReportEditor({
                 value={model.summary.narrative}
                 onChange={(e) => setField("summary.narrative", e.target.value)}
                 disabled={readOnly}
-                className={cx(INPUT_CLS, "min-h-[120px] resize-y")}
-                placeholder="What happened this week \u2014 highlights, blockers, decisions."
+                className={cx(INPUT_CLS, "min-h-[140px] resize-y")}
+                placeholder="Executive summary — what happened this week, key highlights, blockers, decisions."
               />
             </FieldLabel>
           </div>
@@ -686,6 +1362,12 @@ export default function WeeklyReportEditor({
         <div className="grid gap-6 md:grid-cols-3">
           <Card>
             <SectionHeader number={4} title="Resources" count={(model.resourceSummary ?? []).length} color="violet" />
+            {/* Show a note when resource data was auto-populated */}
+            {health?.budgetDetail && (model.resourceSummary ?? []).length > 0 && (
+              <p className="mt-2 text-[11px] text-gray-400 italic">
+                Auto-populated from resource plan — edit as needed.
+              </p>
+            )}
             <SectionList
               items={(model.resourceSummary ?? []).map((x) => x.text)}
               readOnly={readOnly}
@@ -715,6 +1397,16 @@ export default function WeeklyReportEditor({
           </Card>
         </div>
       </main>
+
+      {/* History drawer */}
+      <ReportHistoryDrawer
+        isOpen={showHistory}
+        onClose={() => setShowHistory(false)}
+        reports={historyItems}
+        loading={historyLoading}
+        error={historyErr}
+        onLoadReport={loadHistoryItem}
+      />
     </div>
   );
 }
@@ -740,15 +1432,16 @@ function FieldLabel({ label, children }: { label: string; children: React.ReactN
   );
 }
 
-function SectionHeader({ number, title, count, color = "gray" }: { number: number; title: string; count?: number; color?: string }) {
+function SectionHeader({ number, title, count, color = "gray" }: {
+  number: number; title: string; count?: number; color?: string;
+}) {
   const dotColor: Record<string, string> = {
     emerald: "bg-emerald-500", blue: "bg-blue-500", violet: "bg-violet-500",
     amber: "bg-amber-500", rose: "bg-rose-500", gray: "bg-gray-400",
   };
-
   return (
     <div className="flex items-center gap-3">
-      <div className={cx("w-6 h-6 rounded-lg flex items-center justify-center text-[11px] font-bold text-white", dotColor[color] || dotColor.gray)}>
+      <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[11px] font-bold text-white ${dotColor[color] || dotColor.gray}`}>
         {number}
       </div>
       <h2 className="text-[14px] font-semibold text-gray-900 tracking-tight">{title}</h2>
@@ -762,25 +1455,24 @@ function SectionHeader({ number, title, count, color = "gray" }: { number: numbe
 }
 
 function ActionBtn({
-  icon, label, busy, onClick, disabled, primary, accent,
+  icon, label, busy, onClick, disabled, primary, accent, title,
 }: {
   icon: React.ReactNode; label: string; busy?: boolean; onClick: () => void;
-  disabled?: boolean; primary?: boolean; accent?: boolean;
+  disabled?: boolean; primary?: boolean; accent?: boolean; title?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled || busy}
-      className={cx(
-        "inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all",
-        "disabled:opacity-50 disabled:cursor-not-allowed",
+      title={title}
+      className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
         primary
           ? "bg-gray-900 text-white hover:bg-gray-800 shadow-sm"
           : accent
           ? "bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100"
-          : "bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 shadow-sm",
-      )}
+          : "bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 shadow-sm"
+      }`}
     >
       {icon}
       <span className="hidden sm:inline">{label}</span>
@@ -789,7 +1481,7 @@ function ActionBtn({
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   LIST COMPONENTS — logic unchanged, design upgraded
+   LIST COMPONENTS
 ═══════════════════════════════════════════════════════════════ */
 
 function SectionList({
@@ -804,7 +1496,6 @@ function SectionList({
           <p className="text-[13px] text-gray-400">No items yet</p>
         </div>
       )}
-
       {items.map((t, idx) => (
         <div key={idx} className="group flex items-start gap-2">
           <span className="mt-2.5 w-1.5 h-1.5 rounded-full bg-gray-300 shrink-0" />
@@ -812,7 +1503,7 @@ function SectionList({
             value={t}
             readOnly={readOnly}
             onChange={(e) => { const next = items.slice(); next[idx] = e.target.value; onChange(next); }}
-            className={cx(INPUT_CLS, "flex-1")}
+            className={`${INPUT_CLS} flex-1`}
             placeholder={placeholder}
           />
           {!readOnly && (
@@ -820,14 +1511,12 @@ function SectionList({
               type="button"
               onClick={() => onChange(items.filter((_, i) => i !== idx))}
               className="mt-1.5 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
-              title="Remove"
             >
               <IconX />
             </button>
           )}
         </div>
       ))}
-
       {!readOnly && (
         <button
           type="button"
@@ -849,7 +1538,6 @@ function SectionLinkList({
   placeholderText: string; placeholderLink: string;
 }) {
   const safeItems = Array.isArray(items) ? items : [];
-
   return (
     <div className="mt-4 space-y-3">
       {safeItems.length === 0 && (
@@ -857,7 +1545,6 @@ function SectionLinkList({
           <p className="text-[13px] text-gray-400">No items yet</p>
         </div>
       )}
-
       {safeItems.map((it, idx) => (
         <div key={idx} className="group space-y-1.5 p-3 rounded-xl bg-gray-50/60 border border-gray-100 hover:border-gray-200 transition-colors">
           <div className="flex items-start gap-2">
@@ -865,7 +1552,7 @@ function SectionLinkList({
               value={it.text}
               readOnly={readOnly}
               onChange={(e) => { const next = safeItems.slice(); next[idx] = { ...next[idx], text: e.target.value }; onChange(next); }}
-              className={cx(INPUT_CLS, "flex-1 bg-white")}
+              className={`${INPUT_CLS} flex-1 bg-white`}
               placeholder={placeholderText}
             />
             {!readOnly && (
@@ -873,13 +1560,11 @@ function SectionLinkList({
                 type="button"
                 onClick={() => onChange(safeItems.filter((_, i) => i !== idx))}
                 className="mt-1.5 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
-                title="Remove"
               >
                 <IconX />
               </button>
             )}
           </div>
-
           <div className="flex items-center gap-2">
             <span className="text-gray-400 shrink-0"><IconLink /></span>
             <input
@@ -887,30 +1572,23 @@ function SectionLinkList({
               readOnly={readOnly}
               onChange={(e) => {
                 const next = safeItems.slice();
-                const v = safeStr(e.target.value) || null;
-                next[idx] = { ...next[idx], link: v };
+                next[idx] = { ...next[idx], link: safeStr(e.target.value) || null };
                 onChange(next);
               }}
-              className={cx(INPUT_CLS, "flex-1 bg-white text-[12px]")}
+              className={`${INPUT_CLS} flex-1 bg-white text-[12px]`}
               placeholder={placeholderLink}
             />
           </div>
-
           {it.link && (
             <div className="pl-5">
-              <a
-                className="inline-flex items-center gap-1 text-[11px] text-violet-600 hover:text-violet-800 hover:underline font-medium transition-colors"
-                href={it.link}
-                target="_blank"
-                rel="noreferrer"
-              >
+              <a className="inline-flex items-center gap-1 text-[11px] text-violet-600 hover:text-violet-800 hover:underline font-medium transition-colors"
+                href={it.link} target="_blank" rel="noreferrer">
                 <IconLink /> Open link
               </a>
             </div>
           )}
         </div>
       ))}
-
       {!readOnly && (
         <button
           type="button"

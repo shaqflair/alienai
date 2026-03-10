@@ -4,34 +4,17 @@ import "server-only";
 import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
 
-const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
+type RagLetter = "G" | "A" | "R";
 
-function safeNum(x: any) {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function safeStr(x: any) {
-  return typeof x === "string" ? x : x == null ? "" : String(x);
-}
-
-function looksLikeUuid(s: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    String(s || "").trim()
-  );
-}
-
-function ragFromHealth(health: number): "G" | "A" | "R" {
-  if (health >= 75) return "G";
-  if (health >= 55) return "A";
-  return "R";
-}
-
-function clamp01to100(x: any) {
-  const n = Number(x);
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, Math.min(100, Math.round(n)));
-}
+type ProjectRow = {
+  id: string;
+  title: string;
+  client_name?: string | null;
+  project_code?: any;
+  department?: string | null;
+  project_manager?: string | null;
+  project_manager_id?: string | null;
+};
 
 type HomeOk = {
   ok: true;
@@ -39,7 +22,7 @@ type HomeOk = {
   isExec: boolean;
   roles: string[];
   active_org_id: string | null;
-  projects: { id: string; title: string; client_name?: string | null; project_code?: any; department?: string | null; project_manager?: string | null; project_manager_id?: string | null }[];
+  projects: ProjectRow[];
   kpis: {
     portfolioHealth: number;
     openRisks: number;
@@ -49,10 +32,37 @@ type HomeOk = {
     openLessons: number;
   };
   approvals: { count: number; items: any[] };
-  rag: { project_id: string; title: string; rag: "G" | "A" | "R"; health: number }[];
+  rag: { project_id: string; title: string; rag: RagLetter; health: number }[];
 };
 
 type HomeErr = { ok: false; error: string; meta?: any };
+
+function safeNum(x: unknown) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function safeStr(x: unknown) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function looksLikeUuid(s: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(s || "").trim(),
+  );
+}
+
+function ragFromHealth(health: number): RagLetter {
+  if (health >= 75) return "G";
+  if (health >= 55) return "A";
+  return "R";
+}
+
+function clamp01to100(x: unknown) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
 
 function roleIsExec(roles: string[]) {
   const set = new Set(roles.map((r) => String(r || "").toLowerCase()));
@@ -65,178 +75,164 @@ function roleIsExec(roles: string[]) {
   );
 }
 
+function emptyHome(user: { id: string; email?: string | null }, activeOrgId: string | null): HomeOk {
+  return {
+    ok: true,
+    user,
+    isExec: false,
+    roles: [],
+    active_org_id: activeOrgId,
+    projects: [],
+    kpis: {
+      portfolioHealth: 0,
+      openRisks: 0,
+      highRisks: 0,
+      forecastVariance: 0,
+      milestonesDue: 0,
+      openLessons: 0,
+    },
+    approvals: { count: 0, items: [] },
+    rag: [],
+  };
+}
+
+function mapProjectRow(p: any): ProjectRow {
+  return {
+    id: safeStr(p?.id).trim(),
+    title: safeStr(p?.title).trim(),
+    client_name: safeStr(p?.client_name).trim() || null,
+    project_code: p?.project_code ?? null,
+    department: safeStr(p?.department).trim() || null,
+    project_manager: safeStr(p?.project_manager).trim() || null,
+    project_manager_id: safeStr(p?.project_manager_id).trim() || null,
+  };
+}
+
 /**
- * ✅ Load active projects for org using projects_active view.
- * Falls back to projects table if the view is missing (dev safety).
+ * Preferred source: projects_active
+ * Fallback: projects
+ *
+ * Returns active project rows for the org, preserving fields used by HomePage filters.
  */
-async function loadActiveProjectsForOrg(supabase: any, orgId: string) {
-  // 1) Preferred: projects_active (filters out deleted/closed/cancelled/completed)
+async function loadActiveProjectsForOrg(supabase: any, orgId: string): Promise<ProjectRow[]> {
   try {
     const { data, error } = await supabase
       .from("projects_active")
-      .select("id,title,client_name,project_code,created_at")
+      .select(
+        "id,title,client_name,project_code,department,project_manager,project_manager_id,created_at",
+      )
       .eq("organisation_id", orgId)
       .order("created_at", { ascending: false })
-      .limit(12);
+      .limit(200);
 
     if (!error && Array.isArray(data)) {
-      return data.map((p: any) => ({
-        id: String(p?.id || "").trim(),
-        title: safeStr(p?.title).trim(),
-        client_name: safeStr(p?.client_name).trim() || null,
-        project_code: p?.project_code ?? null,
-      }));
+      return data.map(mapProjectRow).filter((p) => p.id);
     }
   } catch {
-    // ignore
+    // dev-safe fallback below
   }
 
-  // 2) Fallback: projects table (best-effort: at least exclude deleted)
-  const { data: projects, error: projErr } = await supabase
+  const { data, error } = await supabase
     .from("projects")
-    .select("id, title, client_name, project_code, department, project_manager, project_manager_id, created_at, deleted_at")
+    .select(
+      "id,title,client_name,project_code,department,project_manager,project_manager_id,created_at,deleted_at,status",
+    )
     .eq("organisation_id", orgId)
     .is("deleted_at", null)
     .neq("status", "closed")
     .order("created_at", { ascending: false })
     .limit(200);
 
-  if (projErr) throw new Error(projErr.message || "Failed to load projects");
-  const projList = Array.isArray(projects) ? projects : [];
-  return projList.map((p: any) => ({
-    id: String(p?.id || "").trim(),
-    title: safeStr(p?.title).trim(),
-    client_name: safeStr(p?.client_name).trim() || null,
-    project_code: p?.project_code ?? null,
-  }));
+  if (error) {
+    throw new Error(error.message || "Failed to load projects");
+  }
+
+  return (Array.isArray(data) ? data : []).map(mapProjectRow).filter((p) => p.id);
 }
 
-/**
- * Production-grade homepage loader:
- * - Validates active org cookie against org memberships
- * - Scopes projects + KPIs to active org
- * - Uses projects_active for dashboard-grade filtering
- */
-export async function getHomeData(): Promise<HomeOk | HomeErr> {
-  const supabase = await createClient();
-
-  // --- Auth
-  const { data: auth, error: authErr } = await supabase.auth.getUser();
-  if (authErr) return { ok: false, error: authErr.message || "Auth error" };
-  const user = auth?.user;
-  if (!user) return { ok: false, error: "Not authenticated" };
-
-  // --- Read active org cookie (Next 16: cookies() is async)
-  const cookieStore = await cookies();
-  const cookieOrgId = safeStr(cookieStore.get("active_org_id")?.value).trim();
-
-  // --- Org memberships (source of truth)
-  const { data: orgMems, error: orgMemErr } = await supabase
+async function loadMemberships(supabase: any, userId: string) {
+  const { data, error } = await supabase
     .from("organisation_members")
     .select("organisation_id, role, removed_at, created_at")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .is("removed_at", null)
     .order("created_at", { ascending: true })
     .limit(100);
 
-  if (orgMemErr) {
-    return { ok: false, error: orgMemErr.message || "Failed to load organisation membership" };
+  if (error) {
+    throw new Error(error.message || "Failed to load organisation membership");
   }
 
-  const memberships = Array.isArray(orgMems) ? orgMems : [];
+  return Array.isArray(data) ? data : [];
+}
+
+function resolveActiveOrgId(memberships: any[], cookieOrgId: string): string | null {
   const memberOrgIds = new Set(
-    memberships.map((m: any) => safeStr(m?.organisation_id).trim()).filter(Boolean)
+    memberships.map((m: any) => safeStr(m?.organisation_id).trim()).filter(Boolean),
   );
 
-  // If user has no org membership, return minimal safe payload
-  if (memberOrgIds.size === 0) {
-    return {
-      ok: true,
-      user: { id: user.id, email: user.email },
-      isExec: false,
-      roles: [],
-      active_org_id: null,
-      projects: [],
-      kpis: {
-        portfolioHealth: 0,
-        openRisks: 0,
-        highRisks: 0,
-        forecastVariance: 0,
-        milestonesDue: 0,
-        openLessons: 0,
-      },
-      approvals: { count: 0, items: [] },
-      rag: [],
-    };
-  }
-
-  // --- Resolve active org (cookie must be valid membership)
-  let activeOrgId: string | null = null;
-
   if (cookieOrgId && looksLikeUuid(cookieOrgId) && memberOrgIds.has(cookieOrgId)) {
-    activeOrgId = cookieOrgId;
-  } else {
-    activeOrgId = safeStr(memberships[0]?.organisation_id).trim() || null;
+    return cookieOrgId;
   }
 
-  // --- Roles (exec mode driven by org role)
-  const orgRoles = memberships
-    .filter((m: any) => safeStr(m?.organisation_id).trim() === activeOrgId)
-    .map((m: any) => safeStr(m?.role).toLowerCase())
-    .filter(Boolean);
+  return safeStr(memberships[0]?.organisation_id).trim() || null;
+}
 
-  const roles = Array.from(new Set(orgRoles));
-  const isExec = roleIsExec(roles);
+function resolveOrgRoles(memberships: any[], activeOrgId: string | null): string[] {
+  if (!activeOrgId) return [];
 
-  // --- Projects list (ACTIVE ONLY)
-  let projList: { id: string; title: string; client_name?: string | null; project_code?: any }[] = [];
-  try {
-    projList = activeOrgId ? await loadActiveProjectsForOrg(supabase, activeOrgId) : [];
-  } catch (e: any) {
-    return { ok: false, error: e?.message || "Failed to load projects" };
-  }
+  return Array.from(
+    new Set(
+      memberships
+        .filter((m: any) => safeStr(m?.organisation_id).trim() === activeOrgId)
+        .map((m: any) => safeStr(m?.role).toLowerCase().trim())
+        .filter(Boolean),
+    ),
+  );
+}
 
-  const projectIds = projList.map((p: any) => p?.id).filter(Boolean);
-  const projectIdsSafe = projectIds.length ? projectIds : [ZERO_UUID];
-
-  // --- Open lessons (scoped to active projects)
-  const { count: openLessonsCount } = await supabase
+async function loadOpenLessonsCount(supabase: any, projectIds: string[]) {
+  const { count } = await supabase
     .from("lessons_learned")
     .select("id", { count: "exact", head: true })
-    .in("project_id", projectIdsSafe)
+    .in("project_id", projectIds)
     .eq("status", "Open");
 
-  // --- RAID risks (scoped)
+  return safeNum(count);
+}
+
+async function loadRaidCounts(supabase: any, projectIds: string[]) {
   let openRisks = 0;
   let highRisks = 0;
 
   try {
-    const { count } = await supabase
+    const { count: openCount } = await supabase
       .from("raid_items")
       .select("id", { count: "exact", head: true })
-      .in("project_id", projectIdsSafe)
+      .in("project_id", projectIds)
       .eq("type", "Risk")
       .in("status", ["Open", "In Progress"]);
 
-    openRisks = safeNum(count);
+    openRisks = safeNum(openCount);
 
-    // severity might be numeric or text; this can throw, safe-fallback below
-    const { count: hi } = await supabase
+    const { count: highCount } = await supabase
       .from("raid_items")
       .select("id", { count: "exact", head: true })
-      .in("project_id", projectIdsSafe)
+      .in("project_id", projectIds)
       .eq("type", "Risk")
       .in("status", ["Open", "In Progress"])
       .gte("severity", 70);
 
-    highRisks = safeNum(hi);
+    highRisks = safeNum(highCount);
   } catch {
     openRisks = 0;
     highRisks = 0;
   }
 
-  // --- Approval inbox (pending tasks for user)
-  // ✅ Enrich with project_code so HomePage can link using /projects/:project_code/...
+  return { openRisks, highRisks };
+}
+
+async function loadApprovalInbox(supabase: any, userId: string) {
   let approvalsCount = 0;
   let approvalItems: any[] = [];
 
@@ -244,7 +240,7 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
     const { data: tasks } = await supabase
       .from("change_approvals")
       .select("id, change_id, project_id, approval_role, status, created_at")
-      .eq("approver_user_id", user.id)
+      .eq("approver_user_id", userId)
       .eq("status", "pending")
       .order("created_at", { ascending: false })
       .limit(10);
@@ -254,10 +250,9 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
 
     const changeIds = taskRows.map((t: any) => t?.change_id).filter(Boolean);
     const taskProjectIds = Array.from(
-      new Set(taskRows.map((t: any) => String(t?.project_id || "").trim()).filter(Boolean))
+      new Set(taskRows.map((t: any) => safeStr(t?.project_id).trim()).filter(Boolean)),
     );
 
-    // Load change details
     let changes: any[] = [];
     if (changeIds.length) {
       const { data: changeRows } = await supabase
@@ -269,10 +264,8 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
       changes = Array.isArray(changeRows) ? changeRows : [];
     }
 
-    // Load project meta for link correctness (prefer projects_active but fallback ok)
-    let projMeta: any[] = [];
+    let projectMeta: any[] = [];
     if (taskProjectIds.length) {
-      // Try view first
       try {
         const { data: pm } = await supabase
           .from("projects_active")
@@ -280,13 +273,12 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
           .in("id", taskProjectIds)
           .limit(200);
 
-        projMeta = Array.isArray(pm) ? pm : [];
+        projectMeta = Array.isArray(pm) ? pm : [];
       } catch {
-        projMeta = [];
+        projectMeta = [];
       }
 
-      // Fallback if view missing or empty
-      if (!projMeta.length) {
+      if (!projectMeta.length) {
         const { data: pm2 } = await supabase
           .from("projects")
           .select("id,title,project_code,deleted_at")
@@ -294,31 +286,32 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
           .is("deleted_at", null)
           .limit(200);
 
-        projMeta = Array.isArray(pm2) ? pm2 : [];
+        projectMeta = Array.isArray(pm2) ? pm2 : [];
       }
     }
 
-    const projById = new Map<string, any>();
-    for (const p of projMeta) projById.set(String(p?.id || "").trim(), p);
+    const projectById = new Map<string, any>();
+    for (const p of projectMeta) {
+      projectById.set(safeStr(p?.id).trim(), p);
+    }
 
     approvalItems = taskRows.slice(0, 6).map((t: any) => {
       const change = changes.find((c) => c.id === t.change_id) || null;
-      const pid = String(t?.project_id || change?.project_id || "").trim();
-      const pm = pid ? projById.get(pid) : null;
+      const pid = safeStr(t?.project_id || change?.project_id).trim();
+      const project = pid ? projectById.get(pid) : null;
 
       return {
         ...t,
         change,
-        project: pm
+        project: project
           ? {
-              id: String(pm?.id || "").trim(),
-              title: safeStr(pm?.title).trim() || null,
-              project_code: pm?.project_code ?? null,
+              id: safeStr(project?.id).trim(),
+              title: safeStr(project?.title).trim() || null,
+              project_code: project?.project_code ?? null,
             }
           : null,
-        // convenience fields (optional)
-        project_code: pm?.project_code ?? null,
-        project_title: safeStr(pm?.title).trim() || null,
+        project_code: project?.project_code ?? null,
+        project_title: safeStr(project?.title).trim() || null,
       };
     });
   } catch {
@@ -326,8 +319,19 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
     approvalItems = [];
   }
 
-  // --- Portfolio Health / RAG roll-up (lightweight heuristic fallback)
-  const rag = projList.slice(0, 8).map((p: any, i: number) => {
+  return {
+    count: approvalsCount,
+    items: approvalItems,
+  };
+}
+
+function buildRag(
+  projects: ProjectRow[],
+  openRisks: number,
+  highRisks: number,
+  openLessons: number,
+) {
+  return projects.slice(0, 8).map((p, i) => {
     const health = clamp01to100(
       Math.max(
         25,
@@ -336,10 +340,10 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
           85 -
             (highRisks ? 8 : 0) -
             (openRisks > 10 ? 10 : 0) -
-            (safeNum(openLessonsCount) > 5 ? 6 : 0) -
-            i
-        )
-      )
+            (openLessons > 5 ? 6 : 0) -
+            i,
+        ),
+      ),
     );
 
     return {
@@ -349,14 +353,70 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
       health,
     };
   });
+}
+
+export async function getHomeData(): Promise<HomeOk | HomeErr> {
+  const supabase = await createClient();
+
+  const {
+    data: auth,
+    error: authErr,
+  } = await supabase.auth.getUser();
+
+  if (authErr) {
+    return { ok: false, error: authErr.message || "Auth error" };
+  }
+
+  const user = auth?.user;
+  if (!user) {
+    return { ok: false, error: "Not authenticated" };
+  }
+
+  const cookieStore = await cookies();
+  const cookieOrgId = safeStr(cookieStore.get("active_org_id")?.value).trim();
+
+  let memberships: any[] = [];
+  try {
+    memberships = await loadMemberships(supabase, user.id);
+  } catch (e: any) {
+    return { ok: false, error: e?.message || "Failed to load organisation membership" };
+  }
+
+  if (memberships.length === 0) {
+    return emptyHome({ id: user.id, email: user.email }, null);
+  }
+
+  const activeOrgId = resolveActiveOrgId(memberships, cookieOrgId);
+  const roles = resolveOrgRoles(memberships, activeOrgId);
+  const isExec = roleIsExec(roles);
+
+  let projects: ProjectRow[] = [];
+  try {
+    projects = activeOrgId ? await loadActiveProjectsForOrg(supabase, activeOrgId) : [];
+  } catch (e: any) {
+    return { ok: false, error: e?.message || "Failed to load projects" };
+  }
+
+  const projectIds = projects.map((p) => p.id).filter(Boolean);
+
+  const [openLessons, raidCounts, approvals] = await Promise.all([
+    projectIds.length ? loadOpenLessonsCount(supabase, projectIds) : Promise.resolve(0),
+    projectIds.length
+      ? loadRaidCounts(supabase, projectIds)
+      : Promise.resolve({ openRisks: 0, highRisks: 0 }),
+    loadApprovalInbox(supabase, user.id),
+  ]);
+
+  const rag = buildRag(
+    projects,
+    raidCounts.openRisks,
+    raidCounts.highRisks,
+    openLessons,
+  );
 
   const portfolioHealth = rag.length
     ? Math.round(rag.reduce((sum, r) => sum + safeNum(r.health), 0) / rag.length)
     : 0;
-
-  // Keep placeholders as 0 (avoid ghost numbers; UI loads real KPIs from APIs)
-  const forecastVariance = 0;
-  const milestonesDue = 0;
 
   return {
     ok: true,
@@ -364,19 +424,16 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
     isExec,
     roles,
     active_org_id: activeOrgId,
-    projects: projList,
+    projects,
     kpis: {
       portfolioHealth,
-      openRisks,
-      highRisks,
-      forecastVariance,
-      milestonesDue,
-      openLessons: safeNum(openLessonsCount),
+      openRisks: raidCounts.openRisks,
+      highRisks: raidCounts.highRisks,
+      forecastVariance: 0,
+      milestonesDue: 0,
+      openLessons,
     },
-    approvals: {
-      count: approvalsCount,
-      items: approvalItems,
-    },
+    approvals,
     rag,
   };
 }

@@ -18,10 +18,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { resolveOrgActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
 
-// Puppeteer / Chromium
-import puppeteer from "puppeteer";
-import puppeteerCore from "puppeteer-core";
-import chromium from "@sparticuz/chromium";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -806,13 +802,32 @@ function renderPdfHtml(summary: ExecSummary) {
 
 async function renderPdfFromHtml(html: string) {
   const isProd = process.env.NODE_ENV === "production";
-  const executablePath = isProd ? await chromium.executablePath() : undefined;
 
-  const browser = await (isProd ? puppeteerCore : puppeteer).launch({
-    args: isProd ? chromium.args : ["--no-sandbox", "--disable-setuid-sandbox"],
-    executablePath,
-    headless: true,
-  } as any);
+  let browser: any = null;
+
+  if (isProd) {
+    const puppeteerCoreMod = await import("puppeteer-core");
+    const chromiumMod = await import("@sparticuz/chromium");
+
+    const puppeteerCore = (puppeteerCoreMod as any).default || puppeteerCoreMod;
+    const chromium = (chromiumMod as any).default || chromiumMod;
+
+    const executablePath = await chromium.executablePath();
+
+    browser = await puppeteerCore.launch({
+      args: chromium.args,
+      executablePath,
+      headless: true,
+    } as any);
+  } else {
+    const puppeteerMod = await import("puppeteer");
+    const puppeteer = (puppeteerMod as any).default || puppeteerMod;
+
+    browser = await puppeteer.launch({
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      headless: true,
+    } as any);
+  }
 
   try {
     const page = await browser.newPage();
@@ -820,15 +835,17 @@ async function renderPdfFromHtml(html: string) {
     await page.setCacheEnabled(false);
     await page.setContent(html, { waitUntil: ["domcontentloaded", "networkidle0"] });
     await page.evaluateHandle("document.fonts && document.fonts.ready");
+
     const pdf = await page.pdf({
       format: "A4",
       printBackground: true,
       preferCSSPageSize: true,
       margin: { top: "12mm", bottom: "12mm", left: "12mm", right: "12mm" },
     });
+
     return pdf;
   } finally {
-    await browser.close();
+    if (browser) await browser.close();
   }
 }
 

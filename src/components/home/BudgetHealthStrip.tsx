@@ -1,4 +1,5 @@
-﻿"use client";
+﻿//src/components/home/BudgetHealthStrip.tsx
+"use client";
 
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";

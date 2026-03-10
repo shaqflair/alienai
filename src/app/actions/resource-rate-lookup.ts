@@ -1,3 +1,4 @@
+src\app\actions\resource-rate-lookup.ts
 "use server";
 import { createClient } from "@/utils/supabase/server";
 import type { ResourceRateType, ResourceType } from "@/components/artifacts/FinancialPlanEditor";
