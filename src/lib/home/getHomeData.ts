@@ -1,4 +1,4 @@
-﻿// src/lib/home/getHomeData.ts
+// src/lib/home/getHomeData.ts
 import "server-only";
 
 import { cookies } from "next/headers";
@@ -371,8 +371,8 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
   let projects: ProjectRow[] = [];
   try {
     projects = activeOrgId ? await loadActiveProjectsForOrg(supabase, activeOrgId) : [];
-  } catch (e: any) {
-    return { ok: false, error: e?.message || "Failed to load projects" };
+  } catch {
+    projects = [];
   }
 
   const projectIds = projects.map((p) => p.id).filter(Boolean);
