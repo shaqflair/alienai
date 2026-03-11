@@ -376,6 +376,7 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
   }
 
   const projectIds = projects.map((p) => p.id).filter(Boolean);
+  if (projectIds.length === 0) return emptyHome({ id: user.id, email: user.email }, activeOrgId);
 
   const [openLessons, raidCounts, approvals] = await Promise.all([
     projectIds.length ? loadOpenLessonsCount(supabase, projectIds) : Promise.resolve(0),
