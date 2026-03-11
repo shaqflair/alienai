@@ -1332,7 +1332,7 @@ export default function ArtifactBoardClient(props: {
 
   return (
     <>
-      <style jsx global>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         ${portfolioGlobalCss()}
         .notion-board, .notion-board * { font-family: var(--ui-font-sans); }
         .artifact-mono { font-family: var(--ui-font-mono) !important; }
@@ -1366,7 +1366,7 @@ export default function ArtifactBoardClient(props: {
         .notion-board ::-webkit-scrollbar-thumb:hover { background: #cccccc; }
         @media (max-width: 1100px) { .artifact-stats-row { display: none; } }
         @media (max-width: 900px) { .toolbar-search-wrap { flex-direction: column; align-items: stretch; } }
-      `}</style>
+      ` }} />
 
       <div className="notion-board min-h-screen" style={{ WebkitFontSmoothing: "antialiased" }}>
         <header className="sticky top-0 z-40" style={{ background: "rgba(255,255,255,0.92)", backdropFilter: "blur(8px)", borderBottom: "1px solid var(--ui-border)" }}>
