@@ -1027,3 +1027,19 @@ export async function renameArtifactTitle(
     throw e;
   }
 }
+
+/* =========================
+   SET ARTIFACT CURRENT ACTION (alias used by ArtifactBoardClient)
+========================= */
+
+export async function setArtifactCurrentAction(args: {
+  projectId: string;
+  artifactId: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await setArtifactCurrent(args);
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Failed to set current" };
+  }
+}
