@@ -129,7 +129,7 @@ function isAuthError(e: any): boolean {
     msg.includes("token expired") ||
     msg.includes("refresh_token_not_found") ||
     msg.includes("user not found") ||
-    msg.includes("session_not_found") ||
+    msg.includes("session_not_found") || msg.includes("auth session missing") ||
     (msg.includes("auth") && msg.includes("error"))
   );
 }
