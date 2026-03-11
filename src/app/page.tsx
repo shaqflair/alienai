@@ -11,10 +11,11 @@ export default async function Page() {
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) redirect("/login");
   const data = await getHomeData();
-  if (!data?.ok) return <pre style={{color:"red",padding:"2rem"}}>{JSON.stringify(data,null,2)}</pre>;
+  if (!data?.ok) redirect("/login");
   return (
     <Suspense fallback={null}>
       <HomePage data={data} />
     </Suspense>
   );
 }
+

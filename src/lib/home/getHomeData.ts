@@ -1,4 +1,4 @@
-// src/lib/home/getHomeData.ts
+﻿// src/lib/home/getHomeData.ts
 import "server-only";
 
 import { cookies } from "next/headers";
@@ -12,8 +12,7 @@ type ProjectRow = {
   client_name?: string | null;
   project_code?: any;
   department?: string | null;
-  project_manager?: string | null;
-  project_manager_id?: string | null;
+  
 };
 
 type HomeOk = {
@@ -103,8 +102,7 @@ function mapProjectRow(p: any): ProjectRow {
     client_name: safeStr(p?.client_name).trim() || null,
     project_code: p?.project_code ?? null,
     department: safeStr(p?.department).trim() || null,
-    project_manager: safeStr(p?.project_manager).trim() || null,
-    project_manager_id: safeStr(p?.project_manager_id).trim() || null,
+    
   };
 }
 
@@ -113,7 +111,7 @@ async function loadActiveProjectsForOrg(supabase: any, orgId: string): Promise<P
     const { data, error } = await supabase
       .from("projects_active")
       .select(
-        "id,title,client_name,project_code,department,project_manager,project_manager_id,created_at",
+        "id,title,client_name,project_code,department,created_at",
       )
       .eq("organisation_id", orgId)
       .order("created_at", { ascending: false })
@@ -129,7 +127,7 @@ async function loadActiveProjectsForOrg(supabase: any, orgId: string): Promise<P
   const { data, error } = await supabase
     .from("projects")
     .select(
-      "id,title,client_name,project_code,department,project_manager,project_manager_id,created_at,deleted_at,status",
+      "id,title,client_name,project_code,department,created_at,deleted_at,status",
     )
     .eq("organisation_id", orgId)
     .is("deleted_at", null)
@@ -412,3 +410,5 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
     rag,
   };
 }
+
+
