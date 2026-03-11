@@ -108,12 +108,6 @@ function mapProjectRow(p: any): ProjectRow {
   };
 }
 
-/**
- * Preferred source: projects_active
- * Fallback: projects
- *
- * Returns active project rows for the org, preserving fields used by HomePage filters.
- */
 async function loadActiveProjectsForOrg(supabase: any, orgId: string): Promise<ProjectRow[]> {
   try {
     const { data, error } = await supabase
@@ -129,7 +123,7 @@ async function loadActiveProjectsForOrg(supabase: any, orgId: string): Promise<P
       return data.map(mapProjectRow).filter((p) => p.id);
     }
   } catch {
-    // dev-safe fallback below
+    // fallback below
   }
 
   const { data, error } = await supabase
@@ -143,9 +137,7 @@ async function loadActiveProjectsForOrg(supabase: any, orgId: string): Promise<P
     .order("created_at", { ascending: false })
     .limit(200);
 
-  if (error) {
-    throw new Error(error.message || "Failed to load projects");
-  }
+  if (error) throw new Error(error.message || "Failed to load projects");
 
   return (Array.isArray(data) ? data : []).map(mapProjectRow).filter((p) => p.id);
 }
@@ -159,9 +151,7 @@ async function loadMemberships(supabase: any, userId: string) {
     .order("created_at", { ascending: true })
     .limit(100);
 
-  if (error) {
-    throw new Error(error.message || "Failed to load organisation membership");
-  }
+  if (error) throw new Error(error.message || "Failed to load organisation membership");
 
   return Array.isArray(data) ? data : [];
 }
@@ -319,10 +309,7 @@ async function loadApprovalInbox(supabase: any, userId: string) {
     approvalItems = [];
   }
 
-  return {
-    count: approvalsCount,
-    items: approvalItems,
-  };
+  return { count: approvalsCount, items: approvalItems };
 }
 
 function buildRag(
@@ -358,19 +345,12 @@ function buildRag(
 export async function getHomeData(): Promise<HomeOk | HomeErr> {
   const supabase = await createClient();
 
-  const {
-    data: auth,
-    error: authErr,
-  } = await supabase.auth.getUser();
+  const { data: auth, error: authErr } = await supabase.auth.getUser();
 
-  if (authErr) {
-    return { ok: false, error: authErr.message || "Auth error" };
-  }
+  if (authErr) return { ok: false, error: authErr.message || "Auth error" };
 
   const user = auth?.user;
-  if (!user) {
-    return { ok: false, error: "Not authenticated" };
-  }
+  if (!user) return { ok: false, error: "Not authenticated" };
 
   const cookieStore = await cookies();
   const cookieOrgId = safeStr(cookieStore.get("active_org_id")?.value).trim();
@@ -407,12 +387,7 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
     loadApprovalInbox(supabase, user.id),
   ]);
 
-  const rag = buildRag(
-    projects,
-    raidCounts.openRisks,
-    raidCounts.highRisks,
-    openLessons,
-  );
+  const rag = buildRag(projects, raidCounts.openRisks, raidCounts.highRisks, openLessons);
 
   const portfolioHealth = rag.length
     ? Math.round(rag.reduce((sum, r) => sum + safeNum(r.health), 0) / rag.length)
