@@ -22,12 +22,7 @@ export async function getActiveOrgId(): Promise<string | null> {
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
-    const orgId = data?.organisation_id ?? null;
-    if (orgId) {
-      // Persist it so subsequent requests are fast
-      cookieStore.set(COOKIE_NAME, orgId, { path: "/", sameSite: "lax" });
-    }
-    return orgId;
+    return data?.organisation_id ?? null;
   } catch {
     return null;
   }
