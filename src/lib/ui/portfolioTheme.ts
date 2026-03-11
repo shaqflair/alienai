@@ -73,7 +73,6 @@ export const PORTFOLIO_CSS_VARS = {
   "--ui-shadow-soft": PORTFOLIO_THEME.shadowSoft,
   "--ui-font-sans": PORTFOLIO_FONTS.sans,
   "--ui-font-mono": PORTFOLIO_FONTS.mono,
-
   // legacy bridge vars for older portfolio pages
   "--white": PORTFOLIO_THEME.white,
   "--off": PORTFOLIO_THEME.surface,
@@ -99,16 +98,9 @@ export function portfolioGlobalCss(selector = ":root"): string {
   const lines = Object.entries(PORTFOLIO_CSS_VARS).map(
     ([key, value]) => `  ${key}: ${value};`,
   );
-
   return `${selector} {\n${lines.join("\n")}\n}`;
 }
 
-export function portfolioVarsStyle(
-  selector = ":root",
-): {
-  __html: string;
-} {
-  return {
-    __html: portfolioGlobalCss(selector),
-  };
+export function portfolioVarsStyle(selector = ":root"): { __html: string } {
+  return { __html: portfolioGlobalCss(selector) };
 }
