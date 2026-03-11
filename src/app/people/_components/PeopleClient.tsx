@@ -2,7 +2,7 @@
 // FILE: src/app/people/_components/PeopleClient.tsx
 
 import { useState, useTransition } from "react";
-import { upsertPerson, togglePersonActive, upsertRateCard, deleteRateCard } from "../actions";
+import { upsertPerson, togglePersonActive, toggleCapacityInclusion, upsertRateCard, deleteRateCard } from "../actions";
 
 /* =============================================================================
    TYPES
@@ -16,6 +16,7 @@ export type PersonRow = {
   employmentType:      string;
   defaultCapacityDays: number;
   isActive:            boolean;
+  includeInCapacity:   boolean;   // ← NEW
   availableFrom:       string | null;
   rateCardId:          string | null;
   rateCardLabel:       string | null;
@@ -38,7 +39,6 @@ export type RateCard = {
    CONSTANTS
 ============================================================================= */
 
-// DEPARTMENTS removed — now dynamically sourced from org data + common fallbacks
 const COMMON_DEPARTMENTS = [
   "Design","Engineering","Analytics","Delivery",
   "Product","Marketing","Operations","Finance","HR","Legal","Sales",
@@ -66,10 +66,6 @@ const CAPACITY_OPTIONS = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
 /* =============================================================================
    HELPERS
 ============================================================================= */
-
-function cx(...xs: Array<string | false | null | undefined>) {
-  return xs.filter(Boolean).join(" ");
-}
 
 function initials(name: string) {
   return name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
@@ -155,6 +151,80 @@ function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
 }
 
 /* =============================================================================
+   CAPACITY TOGGLE
+============================================================================= */
+
+function CapacityToggle({
+  person,
+  organisationId,
+  isAdmin,
+}: {
+  person:         PersonRow;
+  organisationId: string;
+  isAdmin:        boolean;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const included = person.includeInCapacity;
+
+  if (!isAdmin) {
+    return (
+      <span style={{
+        display: "inline-flex", alignItems: "center", gap: 4,
+        fontSize: 10, fontWeight: 600,
+        color: included ? "#059669" : "#94a3b8",
+        background: included ? "rgba(236,253,245,0.8)" : "rgba(241,245,249,0.8)",
+        border: `1px solid ${included ? "rgba(110,231,183,0.6)" : "rgba(226,232,240,0.6)"}`,
+        borderRadius: 20, padding: "2px 8px",
+      }}>
+        <span style={{
+          width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+          background: included ? "#10b981" : "#cbd5e1",
+        }} />
+        {included ? "In capacity" : "Excluded"}
+      </span>
+    );
+  }
+
+  function handleToggle() {
+    const fd = new FormData();
+    fd.set("person_id",           person.personId);
+    fd.set("organisation_id",     organisationId);
+    fd.set("include_in_capacity", String(!included));
+    startTransition(async () => { await toggleCapacityInclusion(fd); });
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleToggle}
+      disabled={isPending}
+      title={included
+        ? "Click to exclude from capacity planning"
+        : "Click to include in capacity planning"}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 5,
+        fontSize: 10, fontWeight: 700,
+        cursor: isPending ? "not-allowed" : "pointer",
+        color: included ? "#059669" : "#94a3b8",
+        background: included ? "rgba(236,253,245,0.8)" : "rgba(241,245,249,0.8)",
+        border: `1px solid ${included ? "rgba(110,231,183,0.6)" : "rgba(226,232,240,0.6)"}`,
+        borderRadius: 20, padding: "3px 10px",
+        transition: "all 0.15s",
+        opacity: isPending ? 0.6 : 1,
+        fontFamily: "'DM Sans', sans-serif",
+      }}
+    >
+      <span style={{
+        width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+        background: included ? "#10b981" : "#cbd5e1",
+        transition: "background 0.15s",
+      }} />
+      {isPending ? "..." : included ? "In capacity" : "Excluded"}
+    </button>
+  );
+}
+
+/* =============================================================================
    EDIT/ADD PERSON MODAL
 ============================================================================= */
 
@@ -166,7 +236,7 @@ function PersonModal({
   jobTitleSuggestions = [],
   departmentSuggestions = [],
 }: {
-  person:                PersonRow | null; // null = add new
+  person:                PersonRow | null;
   rateCards:             RateCard[];
   organisationId:        string;
   onClose:               () => void;
@@ -261,7 +331,6 @@ function PersonModal({
           display: "flex", flexDirection: "column", gap: "16px",
           maxHeight: "70vh", overflowY: "auto",
         }}>
-
           {/* Name + Job title */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
             <div>
@@ -549,9 +618,7 @@ function RateCardPanel({
         }}>
           <div>
             <div style={{ fontSize: "15px", fontWeight: 800, color: "#0f172a" }}>Rate cards</div>
-            <div style={{ fontSize: "12px", color: "#94a3b8" }}>
-              Shared across your organisation
-            </div>
+            <div style={{ fontSize: "12px", color: "#94a3b8" }}>Shared across your organisation</div>
           </div>
           <button type="button" onClick={onClose} style={{
             background: "none", border: "none", color: "#94a3b8",
@@ -624,9 +691,7 @@ function RateCardPanel({
                 <Input value={notes} onChange={e => setNotes(e.target.value)}
                   placeholder="Optional description" />
               </div>
-              {error && (
-                <div style={{ fontSize: "12px", color: "#dc2626" }}>{error}</div>
-              )}
+              {error && <div style={{ fontSize: "12px", color: "#dc2626" }}>{error}</div>}
               <div style={{ display: "flex", gap: "8px" }}>
                 <button type="button" onClick={() => setAdding(false)} style={{
                   flex: 1, padding: "8px", borderRadius: "7px",
@@ -666,10 +731,11 @@ function RateCardPanel({
 ============================================================================= */
 
 function PersonCard({
-  person, organisationId, onEdit,
+  person, organisationId, isAdmin, onEdit,
 }: {
   person:         PersonRow;
   organisationId: string;
+  isAdmin:        boolean;
   onEdit:         (p: PersonRow) => void;
 }) {
   const [isPending, startTransition] = useTransition();
@@ -698,7 +764,8 @@ function PersonCard({
       <Avatar name={person.fullName} size={40} />
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        {/* Name + status badges */}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
           <span style={{ fontSize: "14px", fontWeight: 700, color: "#0f172a" }}>
             {person.fullName}
           </span>
@@ -723,13 +790,21 @@ function PersonCard({
               padding: "1px 6px", fontWeight: 700,
             }}>Contractor</span>
           )}
+          {/* Capacity inclusion toggle — inline next to name badges */}
+          <CapacityToggle
+            person={person}
+            organisationId={organisationId}
+            isAdmin={isAdmin}
+          />
         </div>
+
         <div style={{ fontSize: "12px", color: "#64748b", marginTop: "2px" }}>
-          {[person.jobTitle, person.department].filter(Boolean).join(" . ") || "--"}
+          {[person.jobTitle, person.department].filter(Boolean).join(" · ") || "--"}
         </div>
+
         <div style={{
           display: "flex", gap: "12px", marginTop: "6px",
-          fontSize: "11px", color: "#94a3b8",
+          fontSize: "11px", color: "#94a3b8", flexWrap: "wrap",
         }}>
           <span>
             <strong style={{ color: "#00b8db", fontFamily: "'DM Mono', monospace" }}>
@@ -835,6 +910,7 @@ export default function PeopleClient({
   const [search,        setSearch]        = useState("");
   const [deptFilter,    setDeptFilter]    = useState("");
   const [showInactive,  setShowInactive]  = useState(false);
+  const [capacityOnly,  setCapacityOnly]  = useState(false); // ← NEW filter
 
   const departments = Array.from(
     new Set(people.map(p => p.department).filter(Boolean))
@@ -842,6 +918,7 @@ export default function PeopleClient({
 
   const filtered = people.filter(p => {
     if (!showInactive && !p.isActive) return false;
+    if (capacityOnly && !p.includeInCapacity) return false;
     if (deptFilter && p.department !== deptFilter) return false;
     if (search) {
       const q = search.toLowerCase();
@@ -851,8 +928,9 @@ export default function PeopleClient({
     return true;
   });
 
-  const activeCount   = people.filter(p => p.isActive).length;
-  const inactiveCount = people.filter(p => !p.isActive).length;
+  const activeCount    = people.filter(p => p.isActive).length;
+  const inactiveCount  = people.filter(p => !p.isActive).length;
+  const capacityCount  = people.filter(p => p.isActive && p.includeInCapacity).length;
 
   return (
     <>
@@ -889,7 +967,10 @@ export default function PeopleClient({
             <h1 style={{ fontSize: "22px", fontWeight: 800, color: "#0f172a",
                          margin: 0, marginBottom: "4px" }}>People</h1>
             <p style={{ fontSize: "13px", color: "#94a3b8", margin: 0 }}>
-              {activeCount} active . {inactiveCount} inactive
+              {activeCount} active · {inactiveCount} inactive ·{" "}
+              <span style={{ color: "#059669", fontWeight: 600 }}>
+                {capacityCount} in capacity planning
+              </span>
             </p>
           </div>
           <div style={{ display: "flex", gap: "8px" }}>
@@ -955,6 +1036,20 @@ export default function PeopleClient({
             Show inactive
           </label>
 
+          {/* ← NEW: capacity filter */}
+          <label style={{
+            display: "flex", alignItems: "center", gap: "6px",
+            fontSize: "12px", color: "#059669", fontWeight: 600, cursor: "pointer",
+          }}>
+            <input
+              type="checkbox"
+              checked={capacityOnly}
+              onChange={e => setCapacityOnly(e.target.checked)}
+              style={{ accentColor: "#10b981" }}
+            />
+            Capacity only
+          </label>
+
           {(search || deptFilter) && (
             <button type="button" onClick={() => { setSearch(""); setDeptFilter(""); }} style={{
               background: "none", border: "none", color: "#94a3b8",
@@ -987,6 +1082,7 @@ export default function PeopleClient({
                 key={p.personId}
                 person={p}
                 organisationId={organisationId}
+                isAdmin={isAdmin}
                 onEdit={setEditPerson}
               />
             ))}

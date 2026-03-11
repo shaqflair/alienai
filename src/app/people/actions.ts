@@ -244,3 +244,34 @@ export async function deleteRateCard(formData: FormData) {
   if (error) throwDb(error, "rate_cards.delete");
   revalidatePath("/people");
 }
+/* =============================================================================
+   toggleCapacityInclusion
+   Flips include_in_capacity on a profile.
+   Admin-only — prevents self-removal by non-admins.
+============================================================================= */
+
+export async function toggleCapacityInclusion(formData: FormData) {
+  const supabase = await createClient();
+  const user     = await requireUser(supabase);
+
+  const person_id           = norm(formData.get("person_id"));
+  const organisation_id     = norm(formData.get("organisation_id"));
+  const include_in_capacity = norm(formData.get("include_in_capacity")) === "true";
+
+  if (!person_id || !isUuid(person_id))             throw new Error("Invalid person_id");
+  if (!organisation_id || !isUuid(organisation_id)) throw new Error("Invalid org");
+
+  const role = await requireOrgMember(supabase, user.id, organisation_id);
+  if (role !== "admin") throw new Error("Only org admins can change capacity inclusion");
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ include_in_capacity, updated_at: new Date().toISOString() })
+    .eq("user_id", person_id);
+
+  if (error) throwDb(error, "profiles.toggle_capacity");
+
+  revalidatePath("/people");
+  revalidatePath("/heatmap");
+  revalidatePath("/resources");
+}

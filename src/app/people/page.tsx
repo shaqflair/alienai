@@ -52,6 +52,7 @@ export default async function PeoplePage() {
             user_id, full_name, job_title, department,
             employment_type, default_capacity_days,
             is_active, available_from, rate_card_id,
+            include_in_capacity,
             rate_cards:rate_cards!profiles_rate_card_id_fkey (
               id, label, rate_per_day, currency
             )
@@ -88,7 +89,6 @@ export default async function PeoplePage() {
   }));
 
   // -- Build utilisation map from recent allocations -------------------------
-  // personId -> { totalDays, projectIds, weeklyUtils }
   const utilMap = new Map<string, { totalDays: number; projectIds: Set<string>; utils: number[] }>();
   for (const a of allocRes.data ?? []) {
     const pid  = String(a.person_id);
@@ -108,7 +108,6 @@ export default async function PeoplePage() {
       const utilData = utilMap.get(pid);
       const cap      = parseFloat(String(p.default_capacity_days ?? 5));
 
-      // Avg util over 8 weeks
       const avgUtil = utilData
         ? Math.min(Math.round((utilData.totalDays / (cap * 8)) * 100), 200)
         : 0;
@@ -123,6 +122,7 @@ export default async function PeoplePage() {
         employmentType:      safeStr(p.employment_type || "full_time"),
         defaultCapacityDays: cap,
         isActive:            p.is_active !== false,
+        includeInCapacity:   p.include_in_capacity !== false,   // ← NEW
         availableFrom:       p.available_from ? safeStr(p.available_from) : null,
         rateCardId:          p.rate_card_id   ? safeStr(p.rate_card_id)   : null,
         rateCardLabel:       rc?.label        ? safeStr(rc.label)          : null,
@@ -140,7 +140,6 @@ export default async function PeoplePage() {
     return a.fullName.localeCompare(b.fullName);
   });
 
-  // Derive unique job titles and departments for autocomplete suggestions
   const existingJobTitles = [...new Set(
     (profileRes.data ?? []).map((p: any) => p.job_title).filter(Boolean)
   )].sort() as string[];
