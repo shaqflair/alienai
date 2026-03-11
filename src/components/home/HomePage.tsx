@@ -286,7 +286,7 @@ function filtersToSearchParams(f: PortfolioFilters): URLSearchParams {
   return sp;
 }
 
-// \u2705 HP-F1: Translate projectId[] \u2192 code[] + name[] that backend routes understand.
+// HP-F1: Translate projectId[] to code[] + name[] that backend routes understand.
 function deriveApiFilters(f: PortfolioFilters, projectOptions: ProjectOption[]): PortfolioFilters {
   const selectedIds = new Set(f.projectId ?? []);
   if (!selectedIds.size) return f;
@@ -308,7 +308,7 @@ function deriveApiFilters(f: PortfolioFilters, projectOptions: ProjectOption[]):
   };
 }
 
-// \u2705 HP-F4: appendFiltersToApi calls deriveApiFilters so all 6 API widgets respect filters
+// HP-F4: appendFiltersToApi calls deriveApiFilters so all 6 API widgets respect filters
 function appendFiltersToApi(baseUrl: string, f: PortfolioFilters, projectOptions: ProjectOption[] = []): string {
   try {
     const derived = deriveApiFilters(f, projectOptions);
@@ -1009,7 +1009,7 @@ function FilterDrawer({
   projectOptions: ProjectOption[];
   pmOptions: { id: string; name: string }[];
   deptOptions: { value: string; label: string }[];
-  searchInputRef: React.RefObject<HTMLInputElement>;  // \u2705 HP-F2
+  searchInputRef: React.RefObject<HTMLInputElement>;
 }) {
   const [local, setLocal] = useState<PortfolioFilters>(filters);
   useEffect(() => { if (open) setLocal(filters); }, [open, filters]);
@@ -1139,7 +1139,6 @@ export default function HomePage({ data }: { data: HomeData }) {
   const filtersActive = useMemo(() => hasActiveFilters(urlFilters), [urlFilters]);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
-  // \u2705 HP-F2: Ref for search input inside the drawer
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const openDrawerFocusSearch = useCallback(() => {
@@ -1183,8 +1182,6 @@ export default function HomePage({ data }: { data: HomeData }) {
   const [recentWins, setRecentWins] = useState<RecentWin[]>([]);
   const [winsLoading, setWinsLoading] = useState(true);
 
-  // --- Filter option derivation ---
-
   const projectOptions = useMemo<ProjectOption[]>(() => {
     return (Array.isArray(projects) ? projects : [])
       .map((p: any) => ({
@@ -1214,8 +1211,6 @@ export default function HomePage({ data }: { data: HomeData }) {
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b)).map((d) => ({ value: d, label: d }));
   }, [projects]);
-
-  // --- Client-side filtered projects ---
 
   const filteredProjectsClient = useMemo(() => {
     const rows = Array.isArray(projects) ? [...projects] : [];
@@ -1282,8 +1277,6 @@ export default function HomePage({ data }: { data: HomeData }) {
   }, [rag]);
 
   const ragAgg = useMemo(() => calcRagAgg(rag as any, activeProjects as any), [rag, activeProjects]);
-
-  // --- Data fetching (all API calls pass derived filters) ---
 
   useEffect(() => {
     if (!ok) return;
@@ -1474,8 +1467,6 @@ export default function HomePage({ data }: { data: HomeData }) {
     return () => { c = true; };
   }, [ok, dueWindowDays, urlFilters]);
 
-  // --- Derived values ---
-
   const apiScore = phData?.ok ? clamp01to100(phData.portfolio_health) : null;
   const fallbackScore = ragAgg.scored ? ragAgg.avgHealth : clamp01to100(kpis.portfolioHealth);
   const portfolioScore = (apiScore != null && apiScore > 0) ? apiScore : fallbackScore;
@@ -1489,7 +1480,7 @@ export default function HomePage({ data }: { data: HomeData }) {
     return m2;
   }, [approvalItems]);
 
-  // \u2705 HP-F3: Explicit sum — zero stays 0, no || fallback swallowing it
+  // HP-F3: Explicit sum — zero stays 0, no || fallback swallowing it
   const raidDueTotal = useMemo(() => {
     if (!raidPanel) return 0;
     const typedAvailable =
@@ -1574,7 +1565,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   return (
     <>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'); *, *::before, *::after { box-sizing: border-box; } body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important; -webkit-font-smoothing: antialiased; }`}</style>
+      <style dangerouslySetInnerHTML={{ __html: `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'); *, *::before, *::after { box-sizing: border-box; } body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important; -webkit-font-smoothing: antialiased; }` }} />
       <LazyMotion features={domAnimation}>
         <RejectionModal
           open={!!rejectModal} title={rejectModal?.title || ""}
@@ -1621,7 +1612,6 @@ export default function HomePage({ data }: { data: HomeData }) {
 
                 <div className="h-5 w-px bg-gray-200 mx-1" />
 
-                {/* \u2705 HP-F2 + HP-UI1: Search icon focuses drawer input; active when drawer open */}
                 <button type="button" onClick={openDrawerFocusSearch}
                   className={["h-9 w-9 rounded-xl border flex items-center justify-center transition-colors",
                     drawerOpen ? "bg-gray-900 border-gray-900" : "bg-white border-gray-200 hover:bg-gray-50"].join(" ")}
@@ -1629,7 +1619,6 @@ export default function HomePage({ data }: { data: HomeData }) {
                   <Search className={["h-4 w-4", drawerOpen ? "text-white" : "text-gray-700"].join(" ")} />
                 </button>
 
-                {/* \u2705 HP-UI1: Filter — active when filters applied OR drawer open */}
                 <button type="button" onClick={() => setDrawerOpen((v) => !v)}
                   className={["h-9 w-9 rounded-xl border flex items-center justify-center transition-colors",
                     drawerOpen || filtersActive ? "bg-gray-900 border-gray-900" : "bg-white border-gray-200 hover:bg-gray-50"].join(" ")}
@@ -1655,7 +1644,6 @@ export default function HomePage({ data }: { data: HomeData }) {
           </header>
 
           <main className="max-w-screen-2xl mx-auto px-6 py-6 space-y-5">
-            {/* Active filter strip */}
             {filtersActive && (
               <div className="bg-white border border-gray-100 rounded-2xl px-4 py-3 flex items-center justify-between gap-3"
                 style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
@@ -1676,7 +1664,6 @@ export default function HomePage({ data }: { data: HomeData }) {
               </div>
             )}
 
-            {/* KPI Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <KpiCard label="Portfolio Health" value={`${phScoreForUi}%`}
                 sub={ragAgg.scored ? `${ragAgg.g} Green \u00b7 ${ragAgg.a} Amber \u00b7 ${ragAgg.r} Red` : "vs last period"}
@@ -1698,7 +1685,6 @@ export default function HomePage({ data }: { data: HomeData }) {
                 onClick={() => router.push("/budget")} delay={0.15} />
             </div>
 
-            {/* Resource Activity + AI Insights */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 p-6" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
                 <div className="flex items-start justify-between mb-2">
@@ -1746,12 +1732,9 @@ export default function HomePage({ data }: { data: HomeData }) {
               </div>
             </div>
 
-            {/* Governance Intelligence */}
             <GovernanceIntelligence days={numericWindowDays} />
 
-            {/* Projects + Sidebar */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* Left column */}
               <div className="lg:col-span-2 space-y-4">
                 {ragAgg.scored > 0 && (
                   <m.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
@@ -1814,9 +1797,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                 </div>
               </div>
 
-              {/* Sidebar */}
               <div className="space-y-4">
-                {/* Upcoming Milestones */}
                 <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
                   <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-50">
                     <div className="h-8 w-8 rounded-xl bg-blue-50 flex items-center justify-center">
@@ -1872,7 +1853,6 @@ export default function HomePage({ data }: { data: HomeData }) {
                   </div>
                 </div>
 
-                {/* Recent Wins */}
                 <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
                   <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-50">
                     <div className="h-8 w-8 rounded-xl bg-green-50 flex items-center justify-center">
