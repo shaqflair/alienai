@@ -27,7 +27,7 @@
 //                 from the parent server component. Admins bypass all project-level checks.
 //
 // Aliena $100M polish:
-//   ✅ UI-POLISH1: Add Executive AI assistant avatar button in header (Ask ΛLIΞNΛ)
+//   ✅ UI-POLISH1: Add Executive AI assistant avatar button in header (Ask ΛliΞnΛ)
 //                 Opens governance drawer with curated actions + deep links
 
 "use client";
@@ -1085,7 +1085,7 @@ function CockpitHeader({
 
       <div className="flex items-center gap-3">
         {/* ✅ Aliena assistant avatar */}
-        <AIAssistantAvatar label="Ask ΛLIΞNΛ — executive actions" onClick={onAskAliena} />
+        <AIAssistantAvatar label="Ask ΛliΞnΛ — executive actions" onClick={onAskAliena} />
 
         {label && (
           <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-medium">
@@ -1154,7 +1154,7 @@ export default function ExecutiveCockpitClient({
     []
   );
 
-  // ✅ UI-POLISH1: Curated “Ask ΛLIΞNΛ” drawer
+  // ✅ UI-POLISH1: Curated "Ask ΛliΞnΛ" drawer
   const openAskAliena = React.useCallback(() => {
     const curated = [
       {
@@ -1188,7 +1188,7 @@ export default function ExecutiveCockpitClient({
     ];
 
     openDrawer({
-      title: "Ask ΛLIΞNΛ",
+      title: "Ask ΛliΞnΛ",
       subtitle: "Executive actions, insights and deep links",
       tone: "cyan",
       items: curated,
