@@ -1,4 +1,4 @@
-import type { NextConfig } from "next";
+﻿import type { NextConfig } from "next";
 
 const isTauri = process.env.TAURI_BUILD === "true";
 const isVercel = process.env.VERCEL === "1" || process.env.VERCEL === "true";
@@ -60,9 +60,9 @@ const nextConfig: NextConfig = {
             value: [
               "default-src 'self'",
               "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-              "style-src 'self' 'unsafe-inline'",
+              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "img-src 'self' data: blob: https:",
-              "font-src 'self' data:",
+              "font-src 'self' data: https://fonts.gstatic.com",
               "connect-src 'self' https://*.supabase.co https://api.openai.com https://api.anthropic.com wss://*.supabase.co",
               "media-src 'self'",
               "object-src 'none'",
@@ -78,3 +78,4 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+
