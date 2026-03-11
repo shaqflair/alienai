@@ -469,7 +469,7 @@ export default function InviteClient({
                   How it works
                 </div>
                 {[
-                  "Invitee receives a branded ResForce email",
+                  "Invitee receives a branded Aliena email",
                   "They click the link to create or log in",
                   "They're added to the org automatically",
                   "Invites expire after 7 days",

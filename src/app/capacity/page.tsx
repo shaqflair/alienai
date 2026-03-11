@@ -7,7 +7,7 @@ import { getActiveOrgId } from "@/utils/org/active-org";
 import CapacityClient from "./_components/CapacityClient";
 import type { ExceptionRow, PersonOption } from "./_components/CapacityClient";
 
-export const metadata = { title: "Leave & Capacity | ResForce" };
+export const metadata = { title: "Leave & Capacity | Aliena" };
 
 function safeStr(x: unknown) {
   return typeof x === "string" ? x : x == null ? "" : String(x);

@@ -6,7 +6,7 @@ import { getActiveOrgId } from "@/utils/org/active-org";
 import ReviewClient from "./_components/ReviewClient";
 
 export const dynamic  = "force-dynamic";
-export const metadata = { title: "Review Timesheets | ResForce" };
+export const metadata = { title: "Review Timesheets | Aliena" };
 
 function safeStr(x: unknown): string { return typeof x === "string" ? x : ""; }
 

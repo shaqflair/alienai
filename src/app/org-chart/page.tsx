@@ -5,7 +5,7 @@ import { getActiveOrgId } from "@/utils/org/active-org";
 import OrgChartClient from "./_components/OrgChartClient";
 
 export const dynamic  = "force-dynamic";
-export const metadata = { title: "Org Chart | ResForce" };
+export const metadata = { title: "Org Chart | Aliena" };
 
 function safeStr(x: unknown): string { return typeof x === "string" ? x : ""; }
 

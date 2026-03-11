@@ -6,7 +6,7 @@ import { getActiveOrgId } from "@/utils/org/active-org";
 import { fetchReportData } from "./_lib/reports-data";
 import ReportsClient from "./_components/ReportsClient";
 
-export const metadata = { title: "Reports | ResForce" };
+export const metadata = { title: "Reports | Aliena" };
 
 function defaultFrom() {
   const d = new Date();

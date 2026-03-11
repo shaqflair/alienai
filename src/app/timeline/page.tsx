@@ -6,7 +6,7 @@ import { getActiveOrgId } from "@/utils/org/active-org";
 import { fetchTimelineData } from "./_lib/timeline-data";
 import GanttClient from "./_components/GanttClient";
 
-export const metadata = { title: "Timeline | ResForce" };
+export const metadata = { title: "Timeline | Aliena" };
 export const revalidate = 60;
 
 export default async function TimelinePage() {

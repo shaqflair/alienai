@@ -4,7 +4,7 @@ import { createClient } from "@/utils/supabase/server";
 import OnboardingWizard from "./_components/OnboardingWizard";
 
 export const dynamic  = "force-dynamic";
-export const metadata = { title: "Get started | ResForce" };
+export const metadata = { title: "Get started | Aliena" };
 
 export default async function OnboardingPage() {
   const supabase = await createClient();

@@ -56,9 +56,9 @@ function Page({ title, body, actions, note }: {
           padding: "24px 28px",
         }}>
           <div style={{ fontSize: "20px", fontWeight: 900, color: "white",
-                        letterSpacing: "-0.3px" }}>ResForce</div>
+                        letterSpacing: "-0.3px" }}>Aliena</div>
           <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.65)",
-                        marginTop: "2px" }}>Resource management</div>
+                        marginTop: "2px" }}>Governance intelligence</div>
         </div>
         <div style={{ padding: "28px" }}>
           <h1 style={{ fontSize: "18px", fontWeight: 800, color: "#0f172a",

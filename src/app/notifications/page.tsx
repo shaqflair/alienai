@@ -5,7 +5,7 @@ import { getActiveOrgId } from "@/utils/org/active-org";
 import { computeAlerts } from "./_lib/notifications-engine";
 import NotificationsClient from "./_components/NotificationsClient";
 
-export const metadata = { title: "Notifications | ResForce" };
+export const metadata = { title: "Notifications | Aliena" };
 export const revalidate = 60;
 
 export default async function NotificationsPage() {

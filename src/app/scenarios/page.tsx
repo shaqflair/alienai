@@ -1,4 +1,4 @@
-// FILE: src/app/scenarios/page.tsx
+﻿// FILE: src/app/scenarios/page.tsx
 import "server-only";
 
 import { redirect } from "next/navigation";
@@ -9,7 +9,7 @@ import type {
   LivePerson, LiveProject, LiveAllocation, LiveException, Scenario,
 } from "./_lib/scenario-engine";
 
-export const metadata = { title: "What-if Simulator | ResForce" };
+export const metadata = { title: "What-if Simulator | Aliena" };
 
 function safeStr(x: unknown) {
   return typeof x === "string" ? x : x == null ? "" : String(x);

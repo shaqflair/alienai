@@ -54,7 +54,7 @@ function buildScenarioPrompt(body: any): string {
     ? `Conflict score: ${liveConflictScore} (live) → ${scenarioConflictScore} (scenario), delta: ${scoreDelta > 0 ? "+" : ""}${scoreDelta}`
     : `Current conflict score: ${liveConflictScore}`;
 
-  return `You are ResForce AI, an expert resource management advisor embedded in the What-If Scenario Simulator.
+  return `You are Aliena AI, an expert governance intelligence advisor embedded in the What-If Scenario Simulator.
 Today is ${today}.
 
 Your role:

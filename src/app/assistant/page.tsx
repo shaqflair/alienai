@@ -6,7 +6,7 @@ import { buildAssistantContext } from "./_lib/build-context";
 import AssistantClient from "./_components/AssistantClient";
 
 export const dynamic  = "force-dynamic";
-export const metadata = { title: "AI Assistant | ResForce" };
+export const metadata = { title: "AI Assistant | Aliena" };
 
 export default async function AssistantPage() {
   const supabase = await createClient();

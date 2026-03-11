@@ -104,7 +104,7 @@ export default async function SettingsProfilePage() {
         Organisation profile
       </h1>
       <p style={{ fontSize: "13px", color: "#94a3b8", margin: "0 0 28px" }}>
-        Basic info shown across ResForce and in exported documents.
+        Basic info shown across Aliena and in exported documents.
       </p>
 
       <form action={saveProfileAction}>

@@ -1,4 +1,4 @@
-import { getResendClient, getFromAddress } from "./resend";
+﻿import { getResendClient, getFromAddress } from "./resend";
 
 type SendEmailArgs = {
   to: string | string[];

@@ -414,7 +414,7 @@ export function buildDigestHtml(alerts: Alert[], orgName: string, appUrl: string
                 display: inline-block; margin-top: 6px;
                 font-size: 11px; color: ${colour}; font-weight: 600;
                 text-decoration: none;
-              ">View in ResForce -></a>
+              ">View in Aliena -></a>
             </div>
           </div>
         </td>
@@ -450,7 +450,7 @@ export function buildDigestHtml(alerts: Alert[], orgName: string, appUrl: string
     <div style="background: linear-gradient(135deg, #0e7490 0%, #0891b2 100%);
                 padding: 24px 32px;">
       <div style="font-size: 20px; font-weight: 900; color: white; letter-spacing: -0.5px;">
-        ResForce
+        Aliena
       </div>
       <div style="font-size: 14px; color: rgba(255,255,255,0.75); margin-top: 4px;">
         Daily resource digest . ${orgName}
@@ -510,7 +510,7 @@ export function buildDigestHtml(alerts: Alert[], orgName: string, appUrl: string
     <!-- Footer -->
     <div style="background: #f8fafc; border-top: 1px solid #e2e8f0;
                 padding: 16px 32px; font-size: 11px; color: #94a3b8; text-align: center;">
-      ResForce . You're receiving this because you're an org admin .
+      Aliena . You're receiving this because you're an org admin .
       <a href="${appUrl}/settings" style="color: #0891b2;">Manage notifications</a>
     </div>
   </div>

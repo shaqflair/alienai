@@ -5,7 +5,7 @@ import { createClient } from "@/utils/supabase/server";
 import { getActiveOrgId } from "@/utils/org/active-org";
 import InviteClient, { type OrgInvite } from "./_components/InviteClient";
 
-export const metadata = { title: "Invite people | ResForce" };
+export const metadata = { title: "Invite people | Aliena" };
 export const dynamic  = "force-dynamic";
 
 export default async function InvitePage() {

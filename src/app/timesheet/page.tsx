@@ -7,7 +7,7 @@ import { getActiveOrgId }  from "@/utils/org/active-org";
 import TimesheetClient     from "./_components/TimesheetClient";
 
 export const dynamic  = "force-dynamic";
-export const metadata = { title: "Timesheet | ResForce" };
+export const metadata = { title: "Timesheet | Aliena" };
 
 function safeStr(x: unknown): string { return typeof x === "string" ? x : ""; }
 

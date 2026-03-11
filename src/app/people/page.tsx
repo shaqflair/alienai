@@ -11,7 +11,7 @@ function safeStr(x: unknown) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
-export const metadata = { title: "People | ResForce" };
+export const metadata = { title: "People | Aliena" };
 
 export default async function PeoplePage() {
   const supabase = await createClient();

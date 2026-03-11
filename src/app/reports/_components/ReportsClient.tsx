@@ -128,7 +128,7 @@ async function exportXlsx(data: ReportBundle, tab: ReportTab, dateFrom: string, 
     ], [28, 12, 8, 12, 12, 8, 18, 20, 14]);
     addSheet("Roles", roles, [28, 20, 10, 12, 12, 12, 10, 20]);
   }
-  XLSX.writeFile(wb, `ResForce_${tab}_${dateFrom}_${dateTo}.xlsx`);
+  XLSX.writeFile(wb, `Aliena_${tab}_${dateFrom}_${dateTo}.xlsx`);
 }
 
 function buildClipboardText(data: ReportBundle, tab: ReportTab): string {

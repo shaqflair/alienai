@@ -195,7 +195,7 @@ export function formatSystemPrompt(ctx: AssistantContext): string {
   const allocatedPeopleNow = new Set(upcoming.map(a => a.personName));
   const freeNow = people.filter(p => !allocatedPeopleNow.has(p.name));
 
-  return `You are ResForce AI, a resource management assistant for ${orgName}.
+  return `You are Aliena AI, a governance intelligence assistant for ${orgName}.
 Today's date is ${today}.
 
 You have access to real-time data about the organisation's team, projects, and allocations.
