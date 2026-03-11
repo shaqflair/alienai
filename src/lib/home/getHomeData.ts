@@ -102,33 +102,13 @@ function mapProjectRow(p: any): ProjectRow {
     client_name: safeStr(p?.client_name).trim() || null,
     project_code: p?.project_code ?? null,
     department: safeStr(p?.department).trim() || null,
-    
   };
 }
 
 async function loadActiveProjectsForOrg(supabase: any, orgId: string): Promise<ProjectRow[]> {
-  try {
-    const { data, error } = await supabase
-      .from("projects_active")
-      .select(
-        "id,title,client_name,project_code,department,created_at",
-      )
-      .eq("organisation_id", orgId)
-      .order("created_at", { ascending: false })
-      .limit(200);
-
-    if (!error && Array.isArray(data)) {
-      return data.map(mapProjectRow).filter((p) => p.id);
-    }
-  } catch {
-    // fallback below
-  }
-
   const { data, error } = await supabase
     .from("projects")
-    .select(
-      "id,title,client_name,project_code,department,created_at,deleted_at,status",
-    )
+    .select("id,title,client_name,project_code,department,created_at,deleted_at,status")
     .eq("organisation_id", orgId)
     .is("deleted_at", null)
     .neq("status", "closed")
@@ -254,28 +234,14 @@ async function loadApprovalInbox(supabase: any, userId: string) {
 
     let projectMeta: any[] = [];
     if (taskProjectIds.length) {
-      try {
-        const { data: pm } = await supabase
-          .from("projects_active")
-          .select("id,title,project_code")
-          .in("id", taskProjectIds)
-          .limit(200);
+      const { data: pm } = await supabase
+        .from("projects")
+        .select("id,title,project_code,deleted_at")
+        .in("id", taskProjectIds)
+        .is("deleted_at", null)
+        .limit(200);
 
-        projectMeta = Array.isArray(pm) ? pm : [];
-      } catch {
-        projectMeta = [];
-      }
-
-      if (!projectMeta.length) {
-        const { data: pm2 } = await supabase
-          .from("projects")
-          .select("id,title,project_code,deleted_at")
-          .in("id", taskProjectIds)
-          .is("deleted_at", null)
-          .limit(200);
-
-        projectMeta = Array.isArray(pm2) ? pm2 : [];
-      }
+      projectMeta = Array.isArray(pm) ? pm : [];
     }
 
     const projectById = new Map<string, any>();
@@ -379,10 +345,8 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
   if (projectIds.length === 0) return emptyHome({ id: user.id, email: user.email }, activeOrgId);
 
   const [openLessons, raidCounts, approvals] = await Promise.all([
-    projectIds.length ? loadOpenLessonsCount(supabase, projectIds) : Promise.resolve(0),
-    projectIds.length
-      ? loadRaidCounts(supabase, projectIds)
-      : Promise.resolve({ openRisks: 0, highRisks: 0 }),
+    loadOpenLessonsCount(supabase, projectIds),
+    loadRaidCounts(supabase, projectIds),
     loadApprovalInbox(supabase, user.id),
   ]);
 
@@ -411,5 +375,3 @@ export async function getHomeData(): Promise<HomeOk | HomeErr> {
     rag,
   };
 }
-
-
