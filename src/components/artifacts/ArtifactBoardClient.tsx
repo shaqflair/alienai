@@ -30,12 +30,7 @@ import {
   Clock,
 } from "lucide-react";
 import { portfolioGlobalCss } from "@/lib/ui/portfolioTheme";
-// NOTE: verify this path matches your server-actions file location
-import {
-  cloneArtifactAction,
-  deleteDraftArtifactAction,
-  setArtifactCurrentAction,
-} from "@/app/projects/[id]/artifacts/actions";
+
 
 /* =========================================================
    Types
@@ -1176,6 +1171,9 @@ function AiPanel({
 ========================================================= */
 
 export default function ArtifactBoardClient(props: {
+  cloneArtifactAction?: (fd: FormData) => Promise<{ ok: boolean; newArtifactId?: string; error?: string }>;
+  deleteDraftArtifactAction?: (args: { artifactId: string; projectId: string }) => Promise<{ ok: boolean; error?: string }>;
+  setArtifactCurrentAction?: (args: { projectId: string; artifactId: string }) => Promise<{ ok: boolean; error?: string }>;
   projectHumanId: string;
   projectUuid?: string;
   projectCode?: string | null;
@@ -1183,7 +1181,13 @@ export default function ArtifactBoardClient(props: {
   rows?: ArtifactBoardRow[];
   projectId?: string;
   artifacts?: any[];
+  cloneArtifactAction?: (fd: FormData) => Promise<{ ok: boolean; newArtifactId?: string; error?: string }>;
+  deleteDraftArtifactAction?: (args: { artifactId: string; projectId: string }) => Promise<{ ok: boolean; error?: string }>;
+  setArtifactCurrentAction?: (args: { projectId: string; artifactId: string }) => Promise<{ ok: boolean; error?: string }>;
 }) {
+  const cloneArtifactAction = props.cloneArtifactAction ?? (async () => ({ ok: false as const, error: "not provided" }));
+  const deleteDraftArtifactAction = props.deleteDraftArtifactAction ?? (async () => ({ ok: false as const, error: "not provided" }));
+  const setArtifactCurrentAction = props.setArtifactCurrentAction ?? (async () => ({ ok: false as const, error: "not provided" }));
   const router = useRouter();
 
   const projectHumanId = safeStr(props.projectHumanId).trim();
