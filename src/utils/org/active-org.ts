@@ -6,7 +6,31 @@ const COOKIE_NAME = "active_org_id";
 
 export async function getActiveOrgId(): Promise<string | null> {
   const cookieStore = await cookies();
-  return cookieStore.get(COOKIE_NAME)?.value ?? null;
+  const fromCookie = cookieStore.get(COOKIE_NAME)?.value ?? null;
+  if (fromCookie) return fromCookie;
+
+  // Cookie not set — fall back to first org membership in DB
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+    const { data } = await supabase
+      .from("organisation_members")
+      .select("organisation_id")
+      .eq("user_id", user.id)
+      .is("removed_at", null)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    const orgId = data?.organisation_id ?? null;
+    if (orgId) {
+      // Persist it so subsequent requests are fast
+      cookieStore.set(COOKIE_NAME, orgId, { path: "/", sameSite: "lax" });
+    }
+    return orgId;
+  } catch {
+    return null;
+  }
 }
 
 export async function requireOrgId(): Promise<string> {
@@ -28,9 +52,7 @@ export async function requireOrgContext(): Promise<{
   const { data: { user }, error: authErr } = await supabase.auth.getUser();
   if (authErr) throw new Error(authErr.message);
   if (!user) redirect("/login");
-
   const orgId = await requireOrgId();
-
   const { data: membership, error: memErr } = await supabase
     .from("organisation_members")
     .select("role")
@@ -38,10 +60,8 @@ export async function requireOrgContext(): Promise<{
     .eq("user_id", user.id)
     .is("removed_at", null)
     .maybeSingle();
-
   if (memErr) throw new Error(memErr.message);
   if (!membership) throw new Error(`User is not a member of organisation ${orgId}.`);
-
   return { orgId, userId: user.id, supabase };
 }
 
@@ -52,7 +72,6 @@ export async function requireOrgAdminContext(): Promise<{
   supabase: Awaited<ReturnType<typeof createClient>>;
 }> {
   const { orgId, userId, supabase } = await requireOrgContext();
-
   const { data: membership, error } = await supabase
     .from("organisation_members")
     .select("role")
@@ -60,12 +79,10 @@ export async function requireOrgAdminContext(): Promise<{
     .eq("user_id", userId)
     .is("removed_at", null)
     .maybeSingle();
-
   if (error) throw new Error(error.message);
   const role = membership?.role as string;
   if (role !== "admin" && role !== "owner") {
     throw new Error("Admin or owner role required for this action.");
   }
-
   return { orgId, userId, role: role as "admin" | "owner", supabase };
 }
