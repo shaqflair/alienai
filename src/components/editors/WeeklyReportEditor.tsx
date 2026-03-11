@@ -248,10 +248,6 @@ function deriveRagFromHealth(healthScore: number | null): Rag {
   return "red";
 }
 
-/**
- * Builds human-readable resource summary lines from health detail objects.
- * These are shown in section 4 (Resources) of the report.
- */
 function buildResourceLines(health: ProjectHealthProps): string[] {
   const lines: string[] = [];
 
@@ -286,10 +282,6 @@ function buildResourceLines(health: ProjectHealthProps): string[] {
   return lines;
 }
 
-/**
- * Builds a context block passed to the AI so it can write a grounded
- * executive narrative instead of generic filler.
- */
 function buildHealthContext(health: ProjectHealthProps): string {
   const ragLabel = deriveRagFromHealth(health.healthScore);
   const lines: string[] = [
@@ -395,6 +387,16 @@ const IconPpt = () => (
   </svg>
 );
 
+const IconWord = () => (
+  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="9" y1="13" x2="9" y2="17" />
+    <line x1="15" y1="13" x2="15" y2="17" />
+    <line x1="9" y1="15" x2="15" y2="15" />
+  </svg>
+);
+
 const IconPlus = () => (
   <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
     <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
@@ -436,7 +438,7 @@ const Spinner = ({ className }: { className?: string }) => (
 );
 
 /* ═══════════════════════════════════════════════════════════════
-   HEALTH BADGE — inline indicator shown next to RAG dropdown
+   HEALTH BADGE
 ═══════════════════════════════════════════════════════════════ */
 
 function HealthBadge({ health }: { health: ProjectHealthProps }) {
@@ -496,12 +498,7 @@ function HistoryPreviewSection({ label, items }: { label: string; items: Array<{
 }
 
 function ReportHistoryDrawer({
-  isOpen,
-  onClose,
-  reports,
-  loading,
-  error,
-  onLoadReport,
+  isOpen, onClose, reports, loading, error, onLoadReport,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -512,7 +509,6 @@ function ReportHistoryDrawer({
 }) {
   const [preview, setPreview] = useState<HistoryItem | null>(null);
 
-  // Reset preview when drawer closes
   useEffect(() => { if (!isOpen) setPreview(null); }, [isOpen]);
 
   if (!isOpen) return null;
@@ -525,49 +521,24 @@ function ReportHistoryDrawer({
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
-        onClick={onClose}
-        aria-hidden
-      />
-
-      {/* Drawer */}
+      <div className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm" onClick={onClose} aria-hidden />
       <div className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-md bg-white shadow-2xl flex flex-col overflow-hidden">
-
-        {/* Drawer header */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 shrink-0">
           {preview ? (
-            <button
-              type="button"
-              onClick={() => setPreview(null)}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
-              title="Back to list"
-            >
+            <button type="button" onClick={() => setPreview(null)} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors" title="Back to list">
               <IconArrowLeft />
             </button>
           ) : null}
           <div className="flex-1 min-w-0">
-            <h2 className="text-[14px] font-semibold text-gray-900">
-              {preview ? "Report preview" : "Report history"}
-            </h2>
-            {preview && (
-              <p className="text-[12px] text-gray-500 truncate">{previewPeriod}</p>
-            )}
+            <h2 className="text-[14px] font-semibold text-gray-900">{preview ? "Report preview" : "Report history"}</h2>
+            {preview && <p className="text-[12px] text-gray-500 truncate">{previewPeriod}</p>}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
-          >
+          <button type="button" onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
             <IconX />
           </button>
         </div>
 
-        {/* Body */}
         <div className="flex-1 overflow-y-auto">
-
-          {/* ── LIST VIEW ── */}
           {!preview && (
             <div className="p-4 space-y-2">
               {loading && (
@@ -577,47 +548,28 @@ function ReportHistoryDrawer({
                 </div>
               )}
               {error && !loading && (
-                <div className="px-4 py-3 rounded-xl bg-rose-50 border border-rose-200 text-[13px] text-rose-700">
-                  {error}
-                </div>
+                <div className="px-4 py-3 rounded-xl bg-rose-50 border border-rose-200 text-[13px] text-rose-700">{error}</div>
               )}
               {!loading && !error && reports.length === 0 && (
                 <div className="py-16 text-center">
-                  <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-3">
-                    <IconHistory />
-                  </div>
+                  <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-3"><IconHistory /></div>
                   <p className="text-[14px] font-medium text-gray-700 mb-1">No previous reports</p>
                   <p className="text-[13px] text-gray-400">Saved reports will appear here.</p>
                 </div>
               )}
               {!loading && reports.map((r) => {
                 const cfg = r.rag ? RAG_CONFIG[r.rag] : RAG_CONFIG.green;
-                const periodLabel = r.period
-                  ? `${fmtUkDate(r.period.from)} — ${fmtUkDate(r.period.to)}`
-                  : r.title || "Report";
+                const periodLabel = r.period ? `${fmtUkDate(r.period.from)} — ${fmtUkDate(r.period.to)}` : r.title || "Report";
                 return (
-                  <button
-                    key={r.artifactId}
-                    type="button"
-                    onClick={() => setPreview(r)}
-                    className="w-full text-left rounded-xl border border-gray-100 hover:border-gray-200 bg-white hover:bg-gray-50 p-4 transition-all group"
-                  >
+                  <button key={r.artifactId} type="button" onClick={() => setPreview(r)} className="w-full text-left rounded-xl border border-gray-100 hover:border-gray-200 bg-white hover:bg-gray-50 p-4 transition-all group">
                     <div className="flex items-start gap-3">
                       <div className={cx("w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5", cfg.bg, `ring-1 ${cfg.ring}`)}>
                         <span className={cx("w-2.5 h-2.5 rounded-full", cfg.dot)} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-semibold text-gray-800 truncate group-hover:text-violet-700 transition-colors">
-                          {periodLabel}
-                        </p>
-                        {r.headline && (
-                          <p className="text-[12px] text-gray-500 mt-0.5 line-clamp-2 leading-relaxed">
-                            {r.headline}
-                          </p>
-                        )}
-                        <p className="text-[11px] text-gray-400 mt-1.5 font-medium">
-                          Saved {fmtSavedAt(r.savedAt)}
-                        </p>
+                        <p className="text-[13px] font-semibold text-gray-800 truncate group-hover:text-violet-700 transition-colors">{periodLabel}</p>
+                        {r.headline && <p className="text-[12px] text-gray-500 mt-0.5 line-clamp-2 leading-relaxed">{r.headline}</p>}
+                        <p className="text-[11px] text-gray-400 mt-1.5 font-medium">Saved {fmtSavedAt(r.savedAt)}</p>
                       </div>
                       <svg className="w-4 h-4 text-gray-300 group-hover:text-violet-400 transition-colors shrink-0 mt-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                         <path d="M9 18l6-6-6-6" />
@@ -629,41 +581,26 @@ function ReportHistoryDrawer({
             </div>
           )}
 
-          {/* ── PREVIEW VIEW ── */}
           {preview && cj && (
             <div className="p-5 space-y-5">
-
-              {/* RAG + headline */}
               <div className={cx("rounded-xl p-4 border", previewRag.bg, previewRag.border)}>
                 <div className="flex items-center gap-2 mb-2">
                   <span className={cx("w-2.5 h-2.5 rounded-full shrink-0", previewRag.dot)} />
-                  <span className={cx("text-[12px] font-semibold uppercase tracking-wide", previewRag.text)}>
-                    {previewRag.label}
-                  </span>
+                  <span className={cx("text-[12px] font-semibold uppercase tracking-wide", previewRag.text)}>{previewRag.label}</span>
                 </div>
-                {cj.summary?.headline && (
-                  <p className="text-[14px] font-semibold text-gray-800 leading-snug">
-                    {cj.summary.headline}
-                  </p>
-                )}
+                {cj.summary?.headline && <p className="text-[14px] font-semibold text-gray-800 leading-snug">{cj.summary.headline}</p>}
               </div>
-
-              {/* Narrative */}
               {cj.summary?.narrative && (
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Executive summary</p>
                   <p className="text-[13px] text-gray-700 leading-relaxed">{cj.summary.narrative}</p>
                 </div>
               )}
-
-              {/* Sections */}
               <HistoryPreviewSection label="Completed this week" items={cj.delivered ?? []} />
               <HistoryPreviewSection label="Planned next week" items={cj.planNextWeek ?? []} />
               <HistoryPreviewSection label="Key decisions" items={(cj.keyDecisions ?? []) as any} />
               <HistoryPreviewSection label="Blockers" items={(cj.blockers ?? []) as any} />
               <HistoryPreviewSection label="Resource summary" items={cj.resourceSummary ?? []} />
-
-              {/* Milestones */}
               {cj.milestones?.length ? (
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Milestones</p>
@@ -682,7 +619,6 @@ function ReportHistoryDrawer({
           )}
         </div>
 
-        {/* Footer — only shown in preview */}
         {preview && (
           <div className="px-5 py-4 border-t border-gray-100 shrink-0 bg-white">
             <button
@@ -697,9 +633,7 @@ function ReportHistoryDrawer({
             >
               Load into editor
             </button>
-            <p className="text-center text-[11px] text-gray-400 mt-2">
-              This will replace your current unsaved changes
-            </p>
+            <p className="text-center text-[11px] text-gray-400 mt-2">This will replace your current unsaved changes</p>
           </div>
         )}
       </div>
@@ -724,7 +658,6 @@ export default function WeeklyReportEditor({
   initialJson: any;
   readOnly: boolean;
   updateArtifactJsonAction?: (args: UpdateArtifactJsonArgs) => Promise<UpdateArtifactJsonResult>;
-  /** Pass project health + resource data from the server page for auto-population */
   health?: ProjectHealthProps;
 }) {
   const seed = useMemo<WeeklyReportV1>(() => {
@@ -738,12 +671,12 @@ export default function WeeklyReportEditor({
   const [busySave, setBusySave] = useState(false);
   const [busyPdf, setBusyPdf] = useState(false);
   const [busyPpt, setBusyPpt] = useState(false);
+  const [busyWord, setBusyWord] = useState(false);
   const [busySync, setBusySync] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
-  // History drawer
   const [showHistory, setShowHistory] = useState(false);
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -753,7 +686,6 @@ export default function WeeklyReportEditor({
   const lastArtifactIdRef = useRef<string>("");
   const autoSyncedRef = useRef(false);
 
-  /* ── Hard reset on artifact switch ── */
   useEffect(() => {
     if (artifactId && lastArtifactIdRef.current && lastArtifactIdRef.current !== artifactId) {
       setModel(seed);
@@ -765,7 +697,6 @@ export default function WeeklyReportEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [artifactId, seed]);
 
-  /* ── Soft rehydrate when seed changes AND not dirty ── */
   useEffect(() => {
     const isDirty = JSON.stringify(model) !== initialSnapshot.current;
     if (!isDirty) {
@@ -775,24 +706,16 @@ export default function WeeklyReportEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed]);
 
-  /* ── AUTO-SYNC on first load when the report is in its default state ──
-     If the saved report still has the placeholder narrative / default RAG,
-     we silently sync RAG + resources from project health data.            */
   useEffect(() => {
     if (autoSyncedRef.current) return;
     if (!health) return;
     if (readOnly) return;
-
-    const isDefaultNarrative =
-      model.summary.narrative === "Summary of progress, risks, and next steps.";
-    const isDefaultHeadline =
-      model.summary.headline === "Weekly delivery update";
+    const isDefaultNarrative = model.summary.narrative === "Summary of progress, risks, and next steps.";
+    const isDefaultHeadline = model.summary.headline === "Weekly delivery update";
     const hasNoResources = (model.resourceSummary ?? []).length === 0;
-
-    // Only auto-sync when the report looks like it hasn't been touched yet
     if (isDefaultNarrative && isDefaultHeadline && hasNoResources) {
       autoSyncedRef.current = true;
-      applyHealthSync(false); // silent — no toast
+      applyHealthSync(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [health, model.summary.narrative, model.summary.headline]);
@@ -816,25 +739,18 @@ export default function WeeklyReportEditor({
 
   /* ═══════════════════════════════════════════════════════════════
      SYNC FROM PROJECT HEALTH
-     Derives RAG, populates resource section, and (optionally) 
-     rewrites the headline + narrative using a lightweight AI call.
   ═══════════════════════════════════════════════════════════════ */
 
   async function applyHealthSync(showToast = true) {
     if (!health) return;
     setBusySync(true);
     setErr(null);
-
     try {
       const derivedRag = deriveRagFromHealth(health.healthScore);
       const resourceLines = buildResourceLines(health);
       const healthContext = buildHealthContext(health);
-
-      // Call the AI narrative endpoint — merges all 7 fields if it succeeds,
-      // falls back to deterministic values if the endpoint isn't wired yet.
       let headline  = model.summary.headline;
       let narrative = model.summary.narrative;
-
       try {
         const res = await fetch("/api/ai/events", {
           method: "POST",
@@ -843,28 +759,18 @@ export default function WeeklyReportEditor({
             eventType: "weekly_report_narrative",
             projectId,
             payload: {
-              artifactId,
-              period: model.period,
-              ragStatus: derivedRag,
-              healthContext,
-              projectName: model.project?.name ?? "",
-              projectCode: model.project?.code ?? "",
+              artifactId, period: model.period, ragStatus: derivedRag, healthContext,
+              projectName: model.project?.name ?? "", projectCode: model.project?.code ?? "",
               managerName: model.project?.managerName ?? "",
             },
           }),
         });
-
         const json = await res.json().catch(() => ({}));
-
         if (res.ok && json?.ok) {
-          // Merge all 7 fields returned by the narrative generator.
-          // Only replace list fields when the AI returned non-empty arrays
-          // so a partial response never blanks out existing content.
           setModel((prev) => ({
             ...prev,
             summary: {
-              ...prev.summary,
-              rag: derivedRag,
+              ...prev.summary, rag: derivedRag,
               headline:  safeStr(json.headline)  || prev.summary.headline,
               narrative: safeStr(json.narrative) || prev.summary.narrative,
             },
@@ -874,30 +780,23 @@ export default function WeeklyReportEditor({
             keyDecisions:    json.keyDecisions?.length     ? json.keyDecisions    : prev.keyDecisions,
             blockers:        json.blockers?.length         ? json.blockers        : prev.blockers,
           }));
-
           if (showToast) {
             setSyncMsg(`Synced from project health (${health.healthScore ?? "?"}% → ${derivedRag.toUpperCase()}).`);
             setTimeout(() => setSyncMsg(null), 4000);
           }
-          return; // skip deterministic fallback
+          return;
         }
-
-        // AI responded but returned no usable content — fall through to deterministic
         headline  = buildFallbackHeadline(health, derivedRag, model);
         narrative = buildFallbackNarrative(health, derivedRag, model);
       } catch {
-        // Network or endpoint not yet implemented — use deterministic fallback
         headline  = buildFallbackHeadline(health, derivedRag, model);
         narrative = buildFallbackNarrative(health, derivedRag, model);
       }
-
-      // Deterministic path: sets summary + resources only
       setModel((prev) => ({
         ...prev,
         summary: { ...prev.summary, rag: derivedRag, headline, narrative },
         resourceSummary: resourceLines.map((t) => ({ text: t })),
       }));
-
       if (showToast) {
         setSyncMsg(`Synced from project health (${health.healthScore ?? "?"}% → ${derivedRag.toUpperCase()}).`);
         setTimeout(() => setSyncMsg(null), 4000);
@@ -909,53 +808,35 @@ export default function WeeklyReportEditor({
     }
   }
 
-  /* ── Deterministic fallback headline ── */
   function buildFallbackHeadline(h: ProjectHealthProps, rag: Rag, m: WeeklyReportV1): string {
     const projLabel = safeStr(m.project?.name || m.project?.code) || "Project";
     const ragLabel = rag === "green" ? "On Track" : rag === "amber" ? "At Risk" : "Critical";
     return `${projLabel} — ${ragLabel} (${h.healthScore ?? "?"}% health)`;
   }
 
-  /* ── Deterministic fallback narrative ── */
   function buildFallbackNarrative(h: ProjectHealthProps, rag: Rag, m: WeeklyReportV1): string {
     const ragDesc =
-      rag === "green"
-        ? "The project is progressing well and remains on track for delivery."
-        : rag === "amber"
-        ? "The project has some areas of concern that require attention to maintain the delivery timeline."
-        : "The project is in a critical state. Immediate executive attention is required to address blockers and restore the delivery trajectory.";
-
+      rag === "green" ? "The project is progressing well and remains on track for delivery."
+      : rag === "amber" ? "The project has some areas of concern that require attention to maintain the delivery timeline."
+      : "The project is in a critical state. Immediate executive attention is required to address blockers and restore the delivery trajectory.";
     const parts: string[] = [ragDesc];
-
     if (h.scheduleHealth != null && h.scheduleDetail) {
       const { overdue, total, critical, avgSlipDays } = h.scheduleDetail;
       if (overdue > 0) {
-        parts.push(
-          `Schedule health is at ${h.scheduleHealth}% with ${overdue} of ${total} milestone${total !== 1 ? "s" : ""} overdue${critical > 0 ? `, including ${critical} on the critical path` : ""}. Average baseline slip is ${avgSlipDays} day${avgSlipDays !== 1 ? "s" : ""}.`
-        );
+        parts.push(`Schedule health is at ${h.scheduleHealth}% with ${overdue} of ${total} milestone${total !== 1 ? "s" : ""} overdue${critical > 0 ? `, including ${critical} on the critical path` : ""}. Average baseline slip is ${avgSlipDays} day${avgSlipDays !== 1 ? "s" : ""}.`);
       } else {
         parts.push(`All ${total} schedule milestone${total !== 1 ? "s" : ""} are on track.`);
       }
     }
-
     if (h.raidHealth != null && h.raidDetail) {
       const { highRisk, total } = h.raidDetail;
-      if (highRisk > 0) {
-        parts.push(
-          `${highRisk} of ${total} open RAID item${total !== 1 ? "s" : ""} are rated high-risk and are being actively managed.`
-        );
-      }
+      if (highRisk > 0) parts.push(`${highRisk} of ${total} open RAID item${total !== 1 ? "s" : ""} are rated high-risk and are being actively managed.`);
     }
-
     if (h.budgetDetail?.utilisationPct != null) {
       const pct = h.budgetDetail.utilisationPct;
-      if (pct > 100) {
-        parts.push(`Budget utilisation is at ${pct}%, exceeding the approved envelope. A budget review is recommended.`);
-      } else if (pct > 90) {
-        parts.push(`Budget utilisation is at ${pct}%, approaching the approved limit. Close monitoring is in place.`);
-      }
+      if (pct > 100) parts.push(`Budget utilisation is at ${pct}%, exceeding the approved envelope. A budget review is recommended.`);
+      else if (pct > 90) parts.push(`Budget utilisation is at ${pct}%, approaching the approved limit. Close monitoring is in place.`);
     }
-
     if (h.governanceDetail) {
       const { pendingApprovalCount, openChangeRequests } = h.governanceDetail;
       if (pendingApprovalCount > 0 || openChangeRequests > 0) {
@@ -965,16 +846,12 @@ export default function WeeklyReportEditor({
         parts.push(`Governance: ${items.join(" and ")}.`);
       }
     }
-
-    if (h.finishDate) {
-      parts.push(`Delivery deadline: ${h.finishDate}.`);
-    }
-
+    if (h.finishDate) parts.push(`Delivery deadline: ${h.finishDate}.`);
     return parts.join(" ");
   }
 
   /* ═══════════════════════════════════════════════════════════════
-     GENERATE (AI full report)
+     GENERATE
   ═══════════════════════════════════════════════════════════════ */
 
   async function generate() {
@@ -984,13 +861,9 @@ export default function WeeklyReportEditor({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          eventType: "delivery_report",
-          projectId,
+          eventType: "delivery_report", projectId,
           payload: {
-            artifactId,
-            period: model.period,
-            windowDays: 7,
-            // Pass health context so the AI produces a grounded narrative
+            artifactId, period: model.period, windowDays: 7,
             healthContext: health ? buildHealthContext(health) : undefined,
             derivedRag: health ? deriveRagFromHealth(health.healthScore) : undefined,
           },
@@ -998,11 +871,9 @@ export default function WeeklyReportEditor({
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Generate failed");
-
       const reportRaw = json?.report || json?.delivery_report || json?.ai?.report || json?.content_json;
       const report = normalizeWeeklyReportV1(parseMaybeJson(reportRaw), model);
       if (!report) throw new Error("Generator returned an unexpected payload shape.");
-
       const mergedProject: WeeklyReportProject = {
         ...(report.project ?? {}),
         id: (report.project?.id ?? safeStr(json?.project_id)) ?? null,
@@ -1011,37 +882,22 @@ export default function WeeklyReportEditor({
         managerName: (report.project?.managerName ?? safeStr(json?.project_manager_name)) ?? null,
         managerEmail: (report.project?.managerEmail ?? safeStr(json?.project_manager_email)) ?? null,
       };
-
-      // Override RAG with the health-derived value so it's always consistent
       const finalRag = health ? deriveRagFromHealth(health.healthScore) : report.summary.rag;
-
-      // Merge resource lines from the resource plan if the AI left them empty
       const finalResources =
-        report.resourceSummary && report.resourceSummary.length > 0
-          ? report.resourceSummary
-          : health
-          ? buildResourceLines(health).map((t) => ({ text: t }))
-          : [];
-
+        report.resourceSummary && report.resourceSummary.length > 0 ? report.resourceSummary
+        : health ? buildResourceLines(health).map((t) => ({ text: t })) : [];
       const nextModel: WeeklyReportV1 = {
-        ...report,
-        project: mergedProject,
+        ...report, project: mergedProject,
         summary: { ...report.summary, rag: finalRag },
         resourceSummary: finalResources,
         meta: {
-          ...(report.meta ?? {}),
-          generated_at: new Date().toISOString(),
+          ...(report.meta ?? {}), generated_at: new Date().toISOString(),
           sources: {
             ...(report.meta?.sources ?? {}),
             snapshot: {
-              period: report.period,
-              rag: finalRag,
-              healthScore: health?.healthScore ?? null,
+              period: report.period, rag: finalRag, healthScore: health?.healthScore ?? null,
               milestones: Array.isArray(report.milestones)
-                ? report.milestones.map((m) => ({
-                    name: safeStr(m?.name), due: safeStr(m?.due) || null,
-                    status: safeStr(m?.status) || null, critical: !!m?.critical,
-                  }))
+                ? report.milestones.map((m) => ({ name: safeStr(m?.name), due: safeStr(m?.due) || null, status: safeStr(m?.status) || null, critical: !!m?.critical }))
                 : [],
             },
           },
@@ -1062,10 +918,7 @@ export default function WeeklyReportEditor({
   async function save() {
     setErr(null); setSaveMsg(null);
     if (readOnly) return;
-    if (!updateArtifactJsonAction) {
-      setErr("Save action not wired. Pass updateArtifactJsonAction from the server host.");
-      return;
-    }
+    if (!updateArtifactJsonAction) { setErr("Save action not wired. Pass updateArtifactJsonAction from the server host."); return; }
     setBusySave(true);
     try {
       const res = await updateArtifactJsonAction({ artifactId, projectId, contentJson: model });
@@ -1105,12 +958,23 @@ export default function WeeklyReportEditor({
     }
   }
 
+  async function exportWord() {
+    setErr(null); setSaveMsg(null); setBusyWord(true);
+    try {
+      const url = `/api/artifacts/weekly-report/export/word?projectId=${encodeURIComponent(projectId)}&artifactId=${encodeURIComponent(artifactId)}&includeDraft=1`;
+      const fn = `Weekly Report - ${safeStr(model.project?.code) || "Project"} - ${model.period.from}_to_${model.period.to}.docx`;
+      await downloadViaFetch(url, fn);
+    } catch (e: any) {
+      setErr(e?.message ?? "Word export failed");
+    } finally {
+      setBusyWord(false);
+    }
+  }
+
   /* ── History ── */
 
   async function openHistory() {
-    setHistoryErr(null);
-    setShowHistory(true);
-    setHistoryLoading(true);
+    setHistoryErr(null); setShowHistory(true); setHistoryLoading(true);
     try {
       const url = `/api/artifacts/weekly-report/history?projectId=${encodeURIComponent(projectId)}&artifactId=${encodeURIComponent(artifactId)}&limit=50`;
       const res = await fetch(url, { cache: "no-store" });
@@ -1126,17 +990,14 @@ export default function WeeklyReportEditor({
 
   function loadHistoryItem(contentJson: any, periodLabel: string) {
     const parsed = normalizeWeeklyReportV1(contentJson, model);
-    if (!parsed) {
-      setErr("Could not load that report — the data format was not recognised.");
-      return;
-    }
+    if (!parsed) { setErr("Could not load that report — the data format was not recognised."); return; }
     setModel(parsed);
     initialSnapshot.current = JSON.stringify(parsed);
     setShowHistory(false);
     setSaveMsg(`Loaded report: ${periodLabel}. Save to keep it.`);
   }
 
-    /* ── Derived display values ── */
+  /* ── Derived display values ── */
 
   const rag = RAG_CONFIG[model.summary.rag];
   const periodUk = `${fmtUkDate(model.period.from)} \u2014 ${fmtUkDate(model.period.to)}`;
@@ -1158,31 +1019,15 @@ export default function WeeklyReportEditor({
 
             {/* Left: Title cluster */}
             <div className="flex items-center gap-4 min-w-0">
-              <div className={cx(
-                "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
-                "ring-2", rag.ring, rag.bg,
-              )}>
+              <div className={cx("w-10 h-10 rounded-xl flex items-center justify-center shrink-0", "ring-2", rag.ring, rag.bg)}>
                 <div className={cx("w-3 h-3 rounded-full", rag.dot)} />
               </div>
-
               <div className="min-w-0">
-                <h1 className="text-[15px] font-semibold text-gray-900 tracking-tight truncate">
-                  Weekly Report
-                </h1>
+                <h1 className="text-[15px] font-semibold text-gray-900 tracking-tight truncate">Weekly Report</h1>
                 <div className="flex items-center gap-2 text-[12px] text-gray-500">
                   <span className="font-mono">{periodUk}</span>
-                  {projCode && (
-                    <>
-                      <span className="text-gray-300">&middot;</span>
-                      <span className="font-medium text-gray-600">{projCode}</span>
-                    </>
-                  )}
-                  {dirty && (
-                    <>
-                      <span className="text-gray-300">&middot;</span>
-                      <span className="text-amber-600 font-medium">Unsaved</span>
-                    </>
-                  )}
+                  {projCode && (<><span className="text-gray-300">&middot;</span><span className="font-medium text-gray-600">{projCode}</span></>)}
+                  {dirty && (<><span className="text-gray-300">&middot;</span><span className="text-amber-600 font-medium">Unsaved</span></>)}
                 </div>
               </div>
             </div>
@@ -1191,14 +1036,9 @@ export default function WeeklyReportEditor({
             <div className="flex items-center gap-2">
               <ActionBtn icon={<IconPdf />} label="PDF" busy={busyPdf} onClick={exportPdf} />
               <ActionBtn icon={<IconPpt />} label="PPT" busy={busyPpt} onClick={exportPpt} />
-              <ActionBtn
-                icon={<IconHistory />}
-                label="History"
-                onClick={openHistory}
-                title="Browse and restore previous weekly reports"
-              />
+              <ActionBtn icon={<IconWord />} label="Word" busy={busyWord} onClick={exportWord} />
+              <ActionBtn icon={<IconHistory />} label="History" onClick={openHistory} title="Browse and restore previous weekly reports" />
               <div className="w-px h-6 bg-gray-200 mx-1" />
-              {/* Sync from project health — only shown when health data is available */}
               {health && !readOnly && (
                 <ActionBtn
                   icon={busySync ? <Spinner /> : <IconSync />}
@@ -1262,15 +1102,10 @@ export default function WeeklyReportEditor({
             <div className="space-y-3 flex-1 min-w-0">
               {(projName || pmName) && (
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
-                  {projName && (
-                    <span><span className="text-gray-400">Project</span>{" "}<span className="font-medium text-gray-800">{projName}</span></span>
-                  )}
-                  {pmName && (
-                    <span><span className="text-gray-400">PM</span>{" "}<span className="font-medium text-gray-800">{pmName}</span></span>
-                  )}
+                  {projName && <span><span className="text-gray-400">Project</span>{" "}<span className="font-medium text-gray-800">{projName}</span></span>}
+                  {pmName && <span><span className="text-gray-400">PM</span>{" "}<span className="font-medium text-gray-800">{pmName}</span></span>}
                 </div>
               )}
-
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <FieldLabel label="Period from">
                   <input type="date" value={model.period.from} onChange={(e) => setField("period.from", e.target.value)} disabled={readOnly} className={INPUT_CLS} />
@@ -1286,25 +1121,14 @@ export default function WeeklyReportEditor({
                   </select>
                 </FieldLabel>
               </div>
-
-              {/* Health badge — shows the live project health score as context */}
               {health?.healthScore != null && (
                 <div className="flex items-center gap-2 pt-1 flex-wrap">
                   <HealthBadge health={health} />
-                  {!readOnly && (
-                    <span className="text-[11px] text-gray-400">
-                      RAG auto-derived from health score — override manually above if needed.
-                    </span>
-                  )}
+                  {!readOnly && <span className="text-[11px] text-gray-400">RAG auto-derived from health score — override manually above if needed.</span>}
                 </div>
               )}
             </div>
-
-            {/* RAG badge */}
-            <div className={cx(
-              "shrink-0 px-4 py-3 rounded-xl border flex flex-col items-center gap-1.5 min-w-[100px]",
-              rag.bg, rag.border, rag.glow,
-            )}>
+            <div className={cx("shrink-0 px-4 py-3 rounded-xl border flex flex-col items-center gap-1.5 min-w-[100px]", rag.bg, rag.border, rag.glow)}>
               <div className={cx("w-4 h-4 rounded-full", rag.dot)} />
               <span className={cx("text-[11px] font-bold uppercase tracking-wider", rag.text)}>{rag.label}</span>
             </div>
@@ -1316,22 +1140,10 @@ export default function WeeklyReportEditor({
           <SectionHeader number={1} title="Executive Summary" />
           <div className="mt-4 space-y-3">
             <FieldLabel label="Headline">
-              <input
-                value={model.summary.headline}
-                onChange={(e) => setField("summary.headline", e.target.value)}
-                disabled={readOnly}
-                className={INPUT_CLS}
-                placeholder="One-line headline"
-              />
+              <input value={model.summary.headline} onChange={(e) => setField("summary.headline", e.target.value)} disabled={readOnly} className={INPUT_CLS} placeholder="One-line headline" />
             </FieldLabel>
             <FieldLabel label="Narrative">
-              <textarea
-                value={model.summary.narrative}
-                onChange={(e) => setField("summary.narrative", e.target.value)}
-                disabled={readOnly}
-                className={cx(INPUT_CLS, "min-h-[140px] resize-y")}
-                placeholder="Executive summary — what happened this week, key highlights, blockers, decisions."
-              />
+              <textarea value={model.summary.narrative} onChange={(e) => setField("summary.narrative", e.target.value)} disabled={readOnly} className={cx(INPUT_CLS, "min-h-[140px] resize-y")} placeholder="Executive summary — what happened this week, key highlights, blockers, decisions." />
             </FieldLabel>
           </div>
         </Card>
@@ -1340,21 +1152,11 @@ export default function WeeklyReportEditor({
         <div className="grid gap-6 md:grid-cols-2">
           <Card>
             <SectionHeader number={2} title="Completed This Period" count={model.delivered.length} color="emerald" />
-            <SectionList
-              items={model.delivered.map((x) => x.text)}
-              readOnly={readOnly}
-              onChange={(items) => setModel((p) => ({ ...p, delivered: items.map((t) => ({ text: t })) }))}
-              placeholder="What was delivered\u2026"
-            />
+            <SectionList items={model.delivered.map((x) => x.text)} readOnly={readOnly} onChange={(items) => setModel((p) => ({ ...p, delivered: items.map((t) => ({ text: t })) }))} placeholder="What was delivered\u2026" />
           </Card>
           <Card>
             <SectionHeader number={3} title="Next Period Focus" count={model.planNextWeek.length} color="blue" />
-            <SectionList
-              items={model.planNextWeek.map((x) => x.text)}
-              readOnly={readOnly}
-              onChange={(items) => setModel((p) => ({ ...p, planNextWeek: items.map((t) => ({ text: t })) }))}
-              placeholder="What\u2019s planned next\u2026"
-            />
+            <SectionList items={model.planNextWeek.map((x) => x.text)} readOnly={readOnly} onChange={(items) => setModel((p) => ({ ...p, planNextWeek: items.map((t) => ({ text: t })) }))} placeholder="What\u2019s planned next\u2026" />
           </Card>
         </div>
 
@@ -1362,43 +1164,22 @@ export default function WeeklyReportEditor({
         <div className="grid gap-6 md:grid-cols-3">
           <Card>
             <SectionHeader number={4} title="Resources" count={(model.resourceSummary ?? []).length} color="violet" />
-            {/* Show a note when resource data was auto-populated */}
             {health?.budgetDetail && (model.resourceSummary ?? []).length > 0 && (
-              <p className="mt-2 text-[11px] text-gray-400 italic">
-                Auto-populated from resource plan — edit as needed.
-              </p>
+              <p className="mt-2 text-[11px] text-gray-400 italic">Auto-populated from resource plan — edit as needed.</p>
             )}
-            <SectionList
-              items={(model.resourceSummary ?? []).map((x) => x.text)}
-              readOnly={readOnly}
-              onChange={(items) => setModel((p) => ({ ...p, resourceSummary: items.map((t) => ({ text: t })) }))}
-              placeholder="Resource note\u2026"
-            />
+            <SectionList items={(model.resourceSummary ?? []).map((x) => x.text)} readOnly={readOnly} onChange={(items) => setModel((p) => ({ ...p, resourceSummary: items.map((t) => ({ text: t })) }))} placeholder="Resource note\u2026" />
           </Card>
           <Card>
             <SectionHeader number={5} title="Key Decisions" count={(model.keyDecisions ?? []).length} color="amber" />
-            <SectionLinkList
-              items={model.keyDecisions ?? []}
-              readOnly={readOnly}
-              onChange={(items) => setModel((p) => ({ ...p, keyDecisions: items }))}
-              placeholderText="Decision\u2026"
-              placeholderLink="Link (optional)"
-            />
+            <SectionLinkList items={model.keyDecisions ?? []} readOnly={readOnly} onChange={(items) => setModel((p) => ({ ...p, keyDecisions: items }))} placeholderText="Decision\u2026" placeholderLink="Link (optional)" />
           </Card>
           <Card>
             <SectionHeader number={6} title="Blockers" count={(model.blockers ?? []).length} color="rose" />
-            <SectionLinkList
-              items={model.blockers ?? []}
-              readOnly={readOnly}
-              onChange={(items) => setModel((p) => ({ ...p, blockers: items }))}
-              placeholderText="Blocker\u2026"
-              placeholderLink="Link (optional)"
-            />
+            <SectionLinkList items={model.blockers ?? []} readOnly={readOnly} onChange={(items) => setModel((p) => ({ ...p, blockers: items }))} placeholderText="Blocker\u2026" placeholderLink="Link (optional)" />
           </Card>
         </div>
       </main>
 
-      {/* History drawer */}
       <ReportHistoryDrawer
         isOpen={showHistory}
         onClose={() => setShowHistory(false)}
@@ -1446,9 +1227,7 @@ function SectionHeader({ number, title, count, color = "gray" }: {
       </div>
       <h2 className="text-[14px] font-semibold text-gray-900 tracking-tight">{title}</h2>
       {count != null && (
-        <span className="ml-auto px-2 py-0.5 rounded-full bg-gray-100 text-[11px] font-semibold text-gray-500 tabular-nums">
-          {count}
-        </span>
+        <span className="ml-auto px-2 py-0.5 rounded-full bg-gray-100 text-[11px] font-semibold text-gray-500 tabular-nums">{count}</span>
       )}
     </div>
   );
@@ -1467,11 +1246,9 @@ function ActionBtn({
       disabled={disabled || busy}
       title={title}
       className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-        primary
-          ? "bg-gray-900 text-white hover:bg-gray-800 shadow-sm"
-          : accent
-          ? "bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100"
-          : "bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 shadow-sm"
+        primary ? "bg-gray-900 text-white hover:bg-gray-800 shadow-sm"
+        : accent ? "bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100"
+        : "bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 shadow-sm"
       }`}
     >
       {icon}
@@ -1491,38 +1268,24 @@ function SectionList({
 }) {
   return (
     <div className="mt-4 space-y-2">
-      {items.length === 0 && (
-        <div className="py-6 text-center">
-          <p className="text-[13px] text-gray-400">No items yet</p>
-        </div>
-      )}
+      {items.length === 0 && <div className="py-6 text-center"><p className="text-[13px] text-gray-400">No items yet</p></div>}
       {items.map((t, idx) => (
         <div key={idx} className="group flex items-start gap-2">
           <span className="mt-2.5 w-1.5 h-1.5 rounded-full bg-gray-300 shrink-0" />
           <input
-            value={t}
-            readOnly={readOnly}
+            value={t} readOnly={readOnly}
             onChange={(e) => { const next = items.slice(); next[idx] = e.target.value; onChange(next); }}
-            className={`${INPUT_CLS} flex-1`}
-            placeholder={placeholder}
+            className={`${INPUT_CLS} flex-1`} placeholder={placeholder}
           />
           {!readOnly && (
-            <button
-              type="button"
-              onClick={() => onChange(items.filter((_, i) => i !== idx))}
-              className="mt-1.5 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
-            >
+            <button type="button" onClick={() => onChange(items.filter((_, i) => i !== idx))} className="mt-1.5 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all">
               <IconX />
             </button>
           )}
         </div>
       ))}
       {!readOnly && (
-        <button
-          type="button"
-          onClick={() => onChange(items.concat([""]))}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-all"
-        >
+        <button type="button" onClick={() => onChange(items.concat([""]))} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-all">
           <IconPlus /> Add item
         </button>
       )}
@@ -1540,27 +1303,17 @@ function SectionLinkList({
   const safeItems = Array.isArray(items) ? items : [];
   return (
     <div className="mt-4 space-y-3">
-      {safeItems.length === 0 && (
-        <div className="py-6 text-center">
-          <p className="text-[13px] text-gray-400">No items yet</p>
-        </div>
-      )}
+      {safeItems.length === 0 && <div className="py-6 text-center"><p className="text-[13px] text-gray-400">No items yet</p></div>}
       {safeItems.map((it, idx) => (
         <div key={idx} className="group space-y-1.5 p-3 rounded-xl bg-gray-50/60 border border-gray-100 hover:border-gray-200 transition-colors">
           <div className="flex items-start gap-2">
             <input
-              value={it.text}
-              readOnly={readOnly}
+              value={it.text} readOnly={readOnly}
               onChange={(e) => { const next = safeItems.slice(); next[idx] = { ...next[idx], text: e.target.value }; onChange(next); }}
-              className={`${INPUT_CLS} flex-1 bg-white`}
-              placeholder={placeholderText}
+              className={`${INPUT_CLS} flex-1 bg-white`} placeholder={placeholderText}
             />
             {!readOnly && (
-              <button
-                type="button"
-                onClick={() => onChange(safeItems.filter((_, i) => i !== idx))}
-                className="mt-1.5 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
-              >
+              <button type="button" onClick={() => onChange(safeItems.filter((_, i) => i !== idx))} className="mt-1.5 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all">
                 <IconX />
               </button>
             )}
@@ -1568,21 +1321,14 @@ function SectionLinkList({
           <div className="flex items-center gap-2">
             <span className="text-gray-400 shrink-0"><IconLink /></span>
             <input
-              value={safeStr(it.link)}
-              readOnly={readOnly}
-              onChange={(e) => {
-                const next = safeItems.slice();
-                next[idx] = { ...next[idx], link: safeStr(e.target.value) || null };
-                onChange(next);
-              }}
-              className={`${INPUT_CLS} flex-1 bg-white text-[12px]`}
-              placeholder={placeholderLink}
+              value={safeStr(it.link)} readOnly={readOnly}
+              onChange={(e) => { const next = safeItems.slice(); next[idx] = { ...next[idx], link: safeStr(e.target.value) || null }; onChange(next); }}
+              className={`${INPUT_CLS} flex-1 bg-white text-[12px]`} placeholder={placeholderLink}
             />
           </div>
           {it.link && (
             <div className="pl-5">
-              <a className="inline-flex items-center gap-1 text-[11px] text-violet-600 hover:text-violet-800 hover:underline font-medium transition-colors"
-                href={it.link} target="_blank" rel="noreferrer">
+              <a className="inline-flex items-center gap-1 text-[11px] text-violet-600 hover:text-violet-800 hover:underline font-medium transition-colors" href={it.link} target="_blank" rel="noreferrer">
                 <IconLink /> Open link
               </a>
             </div>
@@ -1590,11 +1336,7 @@ function SectionLinkList({
         </div>
       ))}
       {!readOnly && (
-        <button
-          type="button"
-          onClick={() => onChange(safeItems.concat([{ text: "", link: null }]))}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-all"
-        >
+        <button type="button" onClick={() => onChange(safeItems.concat([{ text: "", link: null }]))} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-all">
           <IconPlus /> Add item
         </button>
       )}
