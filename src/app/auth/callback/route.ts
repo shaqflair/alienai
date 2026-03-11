@@ -1,4 +1,4 @@
-// src/app/auth/callback/route.ts
+﻿// src/app/auth/callback/route.ts
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -8,9 +8,9 @@ export const runtime = "nodejs";
 
 function safeNext(x: string | null) {
   // prevent open redirects
-  if (!x) return "/projects";
-  if (x.startsWith("http://") || x.startsWith("https://")) return "/projects";
-  if (!x.startsWith("/")) return "/projects";
+  if (!x) return "/";
+  if (x.startsWith("http://") || x.startsWith("https://")) return "/";
+  if (!x.startsWith("/")) return "/";
   return x;
 }
 
@@ -46,3 +46,4 @@ export async function GET(req: NextRequest) {
 
   return res;
 }
+

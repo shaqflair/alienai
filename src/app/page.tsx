@@ -1,4 +1,4 @@
-// src/app/page.tsx
+﻿// src/app/page.tsx
 import "server-only";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
@@ -11,7 +11,7 @@ export default async function Page() {
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) redirect("/login");
   const data = await getHomeData();
-  if (!data?.ok) redirect("/login");
+  if (!data?.ok) return <pre style={{color:"red",padding:"2rem"}}>{JSON.stringify(data,null,2)}</pre>;
   return (
     <Suspense fallback={null}>
       <HomePage data={data} />

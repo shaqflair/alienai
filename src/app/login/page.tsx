@@ -1,4 +1,4 @@
-// src/app/login/page.tsx
+﻿// src/app/login/page.tsx
 import "server-only";
 
 import { redirect } from "next/navigation";
@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 
 function safeNext(x: unknown) {
   const v = typeof x === "string" ? x : "";
-  if (!v) return "/projects";
+  if (!v) return "/";
   if (v.startsWith("http://") || v.startsWith("https://")) return "/projects";
   if (!v.startsWith("/")) return "/projects";
   return v;
@@ -38,3 +38,4 @@ export default async function AuthPage({
     </div>
   );
 }
+
