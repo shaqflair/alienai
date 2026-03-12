@@ -1441,9 +1441,25 @@ export default function HomePage({ data }: { data: HomeData }) {
   }, [ok, numericWindowDays, urlFilters, projectOptions]);
 
   useEffect(() => {
+    if (!ok) return;
+    let c = false;
+    runIdle(() => {
+      (async () => {
+        try {
+          const url = appendFiltersToApi(
+            `/api/portfolio/milestones-due?days=${numericWindowDays}`,
+            urlFilters,
+            projectOptions,
+          );
           const j: any = await fetchJson(url, { cache: "no-store" });
-          if (j?.ok && typeof j?.count === "number" && !c) setMilestonesDueLive(Math.max(0, j.count));
-        } catch {}
+          if (j?.ok && typeof j?.count === "number" && !c) {
+            setMilestonesDueLive(Math.max(0, j.count));
+          } else if (!c) {
+            setMilestonesDueLive(0);
+          }
+        } catch {
+          if (!c) setMilestonesDueLive(0);
+        }
       })();
     });
     return () => { c = true; };
