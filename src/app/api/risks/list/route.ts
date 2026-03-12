@@ -1,9 +1,10 @@
 // src/app/api/risks/list/route.ts
-// ✅ Org-scoped: all org members see portfolio-wide RAID items.
+// ✅ Portfolio-scoped: all org members see portfolio-wide RAID items.
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveOrgActiveProjectScope } from "@/lib/server/project-scope";
+import { resolveActiveProjectScope } from "@/lib/server/project-scope";
+import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export const runtime = "nodejs";
 
@@ -28,14 +29,19 @@ function safeStatus(x: string | null) {
   const v = String(x || "").trim().toLowerCase();
   if (!v || v === "all") return "all";
   const map: Record<string, string> = {
-    open: "Open", in_progress: "In Progress",
-    mitigated: "Mitigated", closed: "Closed", invalid: "Invalid",
+    open: "Open",
+    in_progress: "In Progress",
+    mitigated: "Mitigated",
+    closed: "Closed",
+    invalid: "Invalid",
   };
   return map[v] || "all";
 }
 
 function isoDateUTC(d: Date) {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(
+    d.getUTCDate(),
+  ).padStart(2, "0")}`;
 }
 
 function fmtDateUK(x: any): string | null {
@@ -45,16 +51,38 @@ function fmtDateUK(x: any): string | null {
   if (m) return `${m[3]}/${m[2]}/${m[1]}`;
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return null;
-  return `${String(d.getUTCDate()).padStart(2,"0")}/${String(d.getUTCMonth()+1).padStart(2,"0")}/${d.getUTCFullYear()}`;
+  return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(
+    2,
+    "0",
+  )}/${d.getUTCFullYear()}`;
 }
 
 function clamp01to100(n: any) {
-  const v = Number(n); if (!Number.isFinite(v)) return 0;
+  const v = Number(n);
+  if (!Number.isFinite(v)) return 0;
   return Math.max(0, Math.min(100, Math.round(v)));
 }
 
-function asIsoOrNull(x: any): string | null { return x ? String(x) : null; }
-function num(x: any, fallback = 0) { const n = Number(x); return Number.isFinite(n) ? n : fallback; }
+function asIsoOrNull(x: any): string | null {
+  return x ? String(x) : null;
+}
+function num(x: any, fallback = 0) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : fallback;
+}
+function uniqStrings(xs: any[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const x of xs || []) {
+    const s = String(x || "").trim();
+    if (!s) continue;
+    const k = s.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+}
 
 function currencySymbol(code: any) {
   const c = String(code || "GBP").trim().toUpperCase();
@@ -85,7 +113,9 @@ function buildScoreTooltip(components: any, modelVersion: any, scoredAt: any) {
       try {
         const compact = JSON.stringify(components);
         if (compact && compact !== "{}") lines.push(`Components: ${compact}`);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
   }
   return lines.join("\n");
@@ -111,14 +141,38 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
   }
 
-  // ✅ Org-wide scope
-  const scoped = await resolveOrgActiveProjectScope(supabase, userId);
-  const projectIds = scoped.projectIds;
+  // Shared portfolio scope first; fail-open fallback to membership scope
+  let scoped: any = null;
+  let projectIds: string[] = [];
+
+  try {
+    scoped = await resolvePortfolioScope(supabase, userId);
+    projectIds = uniqStrings(scoped?.projectIds || []);
+  } catch (e: any) {
+    scoped = { ok: false, error: String(e?.message || e), projectIds: [], meta: null };
+    projectIds = [];
+  }
+
+  if (!projectIds.length) {
+    const fallback = await resolveActiveProjectScope(supabase);
+    scoped = fallback;
+    projectIds = uniqStrings(fallback?.projectIds || []);
+  }
 
   if (!projectIds.length) {
     return NextResponse.json({
-      ok: true, scope, windowDays, type, status, items: [],
-      meta: { projectCount: 0, scope: "org", active_only: true },
+      ok: true,
+      scope,
+      windowDays,
+      type,
+      status,
+      items: [],
+      meta: {
+        projectCount: 0,
+        scope: "portfolio",
+        active_only: true,
+        scopeMeta: scoped?.meta ?? null,
+      },
     });
   }
 
@@ -137,10 +191,15 @@ export async function GET(req: Request) {
 
   const today = new Date();
   const todayStr = isoDateUTC(today);
-  const toStr = isoDateUTC(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + windowDays)));
+  const toStr = isoDateUTC(
+    new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + windowDays)),
+  );
 
-  if (scope === "window") q = q.gte("due_date", todayStr).lte("due_date", toStr);
-  else if (scope === "overdue") q = q.lt("due_date", todayStr).not("status", "in", '("Closed","Invalid")');
+  if (scope === "window") {
+    q = q.gte("due_date", todayStr).lte("due_date", toStr);
+  } else if (scope === "overdue") {
+    q = q.lt("due_date", todayStr).not("status", "in", '("Closed","Invalid")');
+  }
 
   const { data, error } = await q
     .order("due_date", { ascending: true, nullsFirst: false })
@@ -175,7 +234,10 @@ export async function GET(req: Request) {
       scoreByItem.set(id, {
         raid_item_id: id,
         score: (s as any).score ?? null,
-        components: (s as any).components && typeof (s as any).components === "object" ? (s as any).components : null,
+        components:
+          (s as any).components && typeof (s as any).components === "object"
+            ? (s as any).components
+            : null,
         model_version: (s as any).model_version ?? null,
         scored_at: asIsoOrNull((s as any).scored_at),
       });
@@ -183,7 +245,9 @@ export async function GET(req: Request) {
 
     const { data: preds, error: pErr } = await supabase
       .from("raid_sla_predictions")
-      .select("raid_item_id, breach_probability, days_to_breach, confidence, drivers, model_version, predicted_at")
+      .select(
+        "raid_item_id, breach_probability, days_to_breach, confidence, drivers, model_version, predicted_at",
+      )
       .in("raid_item_id", raidItemIds)
       .order("predicted_at", { ascending: false })
       .limit(cap);
@@ -206,7 +270,9 @@ export async function GET(req: Request) {
 
     const { data: fins, error: fErr } = await supabase
       .from("raid_financials")
-      .select("raid_item_id, currency, est_cost_impact, est_schedule_days, est_revenue_at_risk, est_penalties, updated_at")
+      .select(
+        "raid_item_id, currency, est_cost_impact, est_schedule_days, est_revenue_at_risk, est_penalties, updated_at",
+      )
       .in("raid_item_id", raidItemIds)
       .limit(Math.min(5000, raidItemIds.length));
 
@@ -232,7 +298,8 @@ export async function GET(req: Request) {
   const items = rows.map((r: any) => {
     const p = clamp01to100(r?.probability);
     const s = clamp01to100(r?.severity);
-    const basicScore = r?.probability == null || r?.severity == null ? null : Math.round((p * s) / 100);
+    const basicScore =
+      r?.probability == null || r?.severity == null ? null : Math.round((p * s) / 100);
     const aiScore = scoreByItem.get(r.id) || null;
     const pred = predByItem.get(r.id) || null;
     const fin = finByItem.get(r.id) || null;
@@ -258,7 +325,11 @@ export async function GET(req: Request) {
       score_components: aiScore?.components ?? null,
       score_model_version: aiScore?.model_version ?? null,
       score_scored_at: aiScore?.scored_at ?? null,
-      score_tooltip: buildScoreTooltip(aiScore?.components ?? null, aiScore?.model_version ?? null, aiScore?.scored_at ?? null),
+      score_tooltip: buildScoreTooltip(
+        aiScore?.components ?? null,
+        aiScore?.model_version ?? null,
+        aiScore?.scored_at ?? null,
+      ),
 
       sla_breach_probability: pred?.breach_probability ?? null,
       sla_days_to_breach: pred?.days_to_breach ?? null,
@@ -288,10 +359,20 @@ export async function GET(req: Request) {
   });
 
   return NextResponse.json({
-    ok: true, scope, windowDays, type, status, items,
+    ok: true,
+    scope,
+    windowDays,
+    type,
+    status,
+    items,
     meta: {
-      projectCount: projectIds.length, scope: "org", active_only: true,
-      optional_tables: { raid_financials: finOptionalError ? { ok: false, error: finOptionalError } : { ok: true } },
+      projectCount: projectIds.length,
+      scope: "portfolio",
+      active_only: true,
+      scopeMeta: scoped?.meta ?? null,
+      optional_tables: {
+        raid_financials: finOptionalError ? { ok: false, error: finOptionalError } : { ok: true },
+      },
     },
   });
 }

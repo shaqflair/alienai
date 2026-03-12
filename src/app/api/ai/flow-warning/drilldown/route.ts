@@ -1,22 +1,22 @@
 // src/app/api/ai/flow-warning/drilldown/route.ts
 //
-// REBUILT v2 — ORG-WIDE scope + active-only + safer debug meta
+// REBUILT v3 — portfolio scope + active-only + safer debug meta
 // Fixes:
-//   ✅ FW-F1: ORG-WIDE project scope via resolveOrgActiveProjectScope (dashboard aligned)
-//   ✅ FW-F2: Safe fallback to membership scope if org-scope fails
+//   ✅ FW-F1: Shared portfolio scope via resolvePortfolioScope (dashboard aligned)
+//   ✅ FW-F2: Safe fallback to membership scope if portfolio scope fails / yields none
 //   ✅ FW-F3: ACTIVE projects only (existing loadProjectsMap filter retained)
 //   ✅ FW-F4: no-store caching on ALL responses
 //   ✅ FW-F5: richer meta (scope_source + counts) so you can see why only N projects show
 //
 // Notes:
-// - The “only 7 projects” symptom was because this route previously scoped by project_members (membership-only).
-// - This version pulls *all org projects* (then filters to active) and runs the flow evidence across them.
+// - This version pulls shared org portfolio projects first (then filters to active)
+//   and runs the flow evidence across them.
 
 import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveOrgActiveProjectScope } from "@/lib/server/project-scope";
+import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export const runtime = "nodejs";
 
@@ -59,7 +59,14 @@ function normStr(x: any) {
 
 function isDoneStatus(s: any) {
   const v = normStr(s);
-  return v === "done" || v === "closed" || v === "completed" || v === "complete" || v === "cancelled" || v === "canceled";
+  return (
+    v === "done" ||
+    v === "closed" ||
+    v === "completed" ||
+    v === "complete" ||
+    v === "cancelled" ||
+    v === "canceled"
+  );
 }
 
 function asDate(x: any): Date | null {
@@ -67,8 +74,10 @@ function asDate(x: any): Date | null {
   const s = String(x).trim();
   if (!s) return null;
 
-  // Normalise to UTC — append Z if the string looks like a bare ISO datetime without timezone.
-  const normalised = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s) && !s.endsWith("Z") && !s.includes("+") ? s + "Z" : s;
+  const normalised =
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s) && !s.endsWith("Z") && !s.includes("+")
+      ? s + "Z"
+      : s;
 
   const d = new Date(normalised);
   return Number.isNaN(d.getTime()) ? null : d;
@@ -77,6 +86,20 @@ function asDate(x: any): Date | null {
 function ms(n: any) {
   const v = Number(n);
   return Number.isFinite(v) ? v : 0;
+}
+
+function uniqStrings(xs: any[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const x of xs || []) {
+    const s = String(x || "").trim();
+    if (!s) continue;
+    const k = s.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
 }
 
 /**
@@ -88,7 +111,6 @@ function fmtUkDateTime(x: any, withTime = false): string | null {
   const s = String(x).trim();
   if (!s) return null;
 
-  // date-only fast path
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (m) {
     const [, yyyy, mm, dd] = m;
@@ -96,8 +118,10 @@ function fmtUkDateTime(x: any, withTime = false): string | null {
     return `${dd}/${mm}/${yyyy}`;
   }
 
-  // Normalise bare ISO datetimes to UTC before parsing
-  const normalised = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s) && !s.endsWith("Z") && !s.includes("+") ? s + "Z" : s;
+  const normalised =
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s) && !s.endsWith("Z") && !s.includes("+")
+      ? s + "Z"
+      : s;
 
   const d = new Date(normalised);
   if (Number.isNaN(d.getTime())) return null;
@@ -126,7 +150,8 @@ function isActiveProjectRow(p: any): boolean {
   const deletedAt = (p as any)?.deleted_at ?? (p as any)?.removed_at ?? null;
   const archivedAt = (p as any)?.archived_at ?? null;
   const closedAt = (p as any)?.closed_at ?? null;
-  const completedAt = (p as any)?.completed_at ?? (p as any)?.end_date ?? (p as any)?.ended_at ?? null;
+  const completedAt =
+    (p as any)?.completed_at ?? (p as any)?.end_date ?? (p as any)?.ended_at ?? null;
 
   if (deletedAt) return false;
   if (archivedAt) return false;
@@ -138,7 +163,11 @@ function isActiveProjectRow(p: any): boolean {
   if ((p as any)?.is_live === false) return false;
   if (normStr((p as any)?.is_live) === "false") return false;
 
-  const statusLike = (p as any)?.status ?? (p as any)?.lifecycle_status ?? (p as any)?.delivery_status ?? null;
+  const statusLike =
+    (p as any)?.status ??
+    (p as any)?.lifecycle_status ??
+    (p as any)?.delivery_status ??
+    null;
   if (statusLike != null && isDoneStatus(statusLike)) return false;
 
   return true;
@@ -157,7 +186,10 @@ async function loadProjectsMap(supabase: any, projectIds: string[]) {
     } else {
       const msg = String((error as any)?.message || "");
       if (msg.toLowerCase().includes("column")) {
-        const { data: d2, error: e2 } = await supabase.from("projects").select(minimalSelect).in("id", projectIds);
+        const { data: d2, error: e2 } = await supabase
+          .from("projects")
+          .select(minimalSelect)
+          .in("id", projectIds);
         if (e2) throw new Error((e2 as any)?.message || "Failed to load projects");
         projRows = Array.isArray(d2) ? d2 : [];
       } else {
@@ -252,7 +284,6 @@ function computeBlockedSecondsFromEvents(args: {
     const typ = normStr(e?.event_type);
 
     if (typ === "blocked") {
-      // Skip duplicate "blocked" events — don't reset lastBlockStart
       if (!currentlyBlocked) {
         currentlyBlocked = true;
         lastBlockStart = t;
@@ -286,23 +317,31 @@ function computeBlockedSecondsFromEvents(args: {
 
 /* ------------------------------------------------------------------ */
 
-async function resolveOrgScopeProjectIds(supabase: any, userId: string) {
-  // Primary: org-wide helper (your dashboard standard)
+async function resolvePortfolioScopeProjectIds(supabase: any, userId: string) {
   try {
-    const scoped = await resolveOrgActiveProjectScope(supabase, userId);
-    const ids = Array.isArray((scoped as any)?.projectIds) ? (scoped as any).projectIds.filter(Boolean) : [];
+    const scoped = await resolvePortfolioScope(supabase, userId);
+    const ids = Array.isArray((scoped as any)?.projectIds)
+      ? (scoped as any).projectIds.filter(Boolean)
+      : [];
     const orgId = (scoped as any)?.organisationId ?? (scoped as any)?.orgId ?? null;
+
     return {
       projectIds: ids as string[],
-      meta: { kind: "resolveOrgActiveProjectScope", organisationId: orgId, helperMeta: (scoped as any)?.meta ?? null },
+      meta: {
+        kind: "resolvePortfolioScope",
+        organisationId: orgId,
+        helperMeta: (scoped as any)?.meta ?? null,
+      },
     };
   } catch (e: any) {
-    return { projectIds: [] as string[], meta: { kind: "resolveOrgActiveProjectScope", error: String(e?.message || e) } };
+    return {
+      projectIds: [] as string[],
+      meta: { kind: "resolvePortfolioScope", error: String(e?.message || e) },
+    };
   }
 }
 
 async function resolveMemberScopeProjectIds(supabase: any, userId: string) {
-  // Fallback: membership scope (project_members), same as old behaviour
   const { data: pmRows, error: pmErr } = await supabase
     .from("project_members")
     .select("project_id")
@@ -330,18 +369,18 @@ export async function GET(req: Request) {
     const projectIdParam = safeStr(url.searchParams.get("projectId"));
     const projectIdFilter = isUuid(projectIdParam) ? projectIdParam : null;
 
-    // ── ORG-WIDE scope (primary) with membership fallback
+    // ── Shared portfolio scope with membership fallback
     const scopeMeta: any = { source: null, fallback: null };
     let baseProjectIds: string[] = [];
 
-    const orgScoped = await resolveOrgScopeProjectIds(supabase, userId);
-    if (orgScoped.projectIds.length) {
-      baseProjectIds = orgScoped.projectIds;
-      scopeMeta.source = orgScoped.meta;
+    const portfolioScoped = await resolvePortfolioScopeProjectIds(supabase, userId);
+    if (portfolioScoped.projectIds.length) {
+      baseProjectIds = uniqStrings(portfolioScoped.projectIds);
+      scopeMeta.source = portfolioScoped.meta;
     } else {
-      scopeMeta.source = orgScoped.meta;
+      scopeMeta.source = portfolioScoped.meta;
       const memberScoped = await resolveMemberScopeProjectIds(supabase, userId);
-      baseProjectIds = memberScoped.projectIds;
+      baseProjectIds = uniqStrings(memberScoped.projectIds);
       scopeMeta.fallback = memberScoped.meta;
     }
 
@@ -358,7 +397,7 @@ export async function GET(req: Request) {
       });
     }
 
-    // ✅ ACTIVE projects only
+    // Active projects only
     const { project_map, activeIds } = await loadProjectsMap(supabase, baseProjectIds);
 
     let projectIds = activeIds;
@@ -371,7 +410,13 @@ export async function GET(req: Request) {
         projects_active: [],
         project_map: {},
         data: { blocked: [], wip: [], dueSoon: [], recentDone: [] },
-        meta: { ...scopeMeta, truncated: false, blocked_item_cap: 0, open_item_count: 0, counts: { base: baseProjectIds.length, active: 0 } },
+        meta: {
+          ...scopeMeta,
+          truncated: false,
+          blocked_item_cap: 0,
+          open_item_count: 0,
+          counts: { base: baseProjectIds.length, active: 0 },
+        },
       });
     }
 
@@ -379,7 +424,6 @@ export async function GET(req: Request) {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const sinceIso = since.toISOString();
 
-    // Work items (only active projects)
     const { data: allItems, error: wiErr } = await supabase
       .from("work_items")
       .select("id, project_id, title, stage, status, due_date, created_at, started_at, completed_at, updated_at")
@@ -390,7 +434,6 @@ export async function GET(req: Request) {
     const items = Array.isArray(allItems) ? allItems : [];
     const openItems = items.filter((it: any) => !isDoneStatus(it?.status) && !it?.completed_at);
 
-    // recentDone window respects `days`
     const recentDoneLookbackMs = Math.max(days * 2, 14) * 24 * 60 * 60 * 1000;
     const recentDone = items
       .filter((it: any) => it?.completed_at)
@@ -403,7 +446,6 @@ export async function GET(req: Request) {
 
     const openItemIds = openItems.map((it: any) => String(it?.id || "")).filter(Boolean);
 
-    // Chunked events query (by project_id)
     const EVENTS_CHUNK = 150;
     const EVENTS_LIMIT_PER_CHUNK = 5000;
 
@@ -426,7 +468,6 @@ export async function GET(req: Request) {
       evByItem.set(wid, arr);
     }
 
-    // Pre-window blocked/unblocked state (by work_item_id)
     const preStateByItem = new Map<
       string,
       { startBlocked: boolean; last_block_event_at: string | null; last_block_reason: string | null }
@@ -451,7 +492,7 @@ export async function GET(req: Request) {
       for (const e of preRows) {
         const wid = String((e as any)?.work_item_id || "").trim();
         if (!wid) continue;
-        if (preStateByItem.has(wid)) continue; // descending order — first hit is most recent
+        if (preStateByItem.has(wid)) continue;
 
         const typ = normStr((e as any)?.event_type);
         const startBlocked = typ === "blocked";
@@ -460,12 +501,12 @@ export async function GET(req: Request) {
         preStateByItem.set(wid, {
           startBlocked,
           last_block_event_at: startBlocked ? (String((e as any)?.created_at || "") || null) : null,
-          last_block_reason: startBlocked && typeof reason === "string" && reason.trim() ? reason.trim() : null,
+          last_block_reason:
+            startBlocked && typeof reason === "string" && reason.trim() ? reason.trim() : null,
         });
       }
     }
 
-    // Process open items for blocked
     const BLOCKED_ITEM_HARD_CAP = 5000;
     const openItemsForBlocked = openItems.slice(0, BLOCKED_ITEM_HARD_CAP);
     const truncated = openItems.length > BLOCKED_ITEM_HARD_CAP;
@@ -524,17 +565,18 @@ export async function GET(req: Request) {
 
     blocked.sort((a, b) => ms(b.blocked_seconds_window) - ms(a.blocked_seconds_window));
 
-    // WIP falls back to status when stage is null
     const wipMap = new Map<string, number>();
     for (const it of openItems) {
-      const st = safeStr((it as any)?.stage).trim() || safeStr((it as any)?.status).trim() || "unknown";
+      const st =
+        safeStr((it as any)?.stage).trim() ||
+        safeStr((it as any)?.status).trim() ||
+        "unknown";
       wipMap.set(st, (wipMap.get(st) || 0) + 1);
     }
     const wip = Array.from(wipMap.entries())
       .map(([stage, count]) => ({ stage, count }))
       .sort((a, b) => b.count - a.count);
 
-    // dueSoon includes overdue items (past due date) — urgent
     const dueSoonEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     const dueSoon = openItems
       .filter((it: any) => it?.due_date)
@@ -561,7 +603,6 @@ export async function GET(req: Request) {
         };
       });
 
-    // recentDone + UK dates
     const recentDoneOut = (recentDone || []).map((it: any) => {
       const pid = String(it?.project_id || "");
       return {
@@ -584,7 +625,6 @@ export async function GET(req: Request) {
       now: now.toISOString(),
       now_uk: fmtUkDateTime(now.toISOString(), true),
 
-      // IMPORTANT: return the base org-scope ids too (helps debug “why 7?”)
       projects: baseProjectIds,
       projects_active: projectIds,
       project_map,

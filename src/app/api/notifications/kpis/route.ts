@@ -1,13 +1,14 @@
-// src/app/api/notifications/kpis/route.ts — REBUILT v2 (ORG-wide + active-filter + no-store + debug-safe)
+// src/app/api/notifications/kpis/route.ts — REBUILT v3 (portfolio-scope + active-filter + no-store + debug-safe)
 //
 // Changes:
-//   ✅ NK-F1: ORG-WIDE scope first (all projects in user's organisation)
-//   ✅ NK-F2: Membership fallback if org-scope yields none
+//   ✅ NK-F1: Shared portfolio scope first via resolvePortfolioScope
+//   ✅ NK-F2: Membership fallback if portfolio scope yields none
 //   ✅ NK-F3: Shared active exclusion via filterActiveProjectIds (closed/deleted/cancelled/archived etc.)
-//   ✅ NK-F4: Cache-Control no-store on ALL responses (ok + err) (already strong)
+//   ✅ NK-F4: Cache-Control no-store on ALL responses (ok + err)
 //   ✅ NK-F5: Scope rules preserved for NULL project_id rows
 //            - if projectIds exist: (project_id IN ids) OR (project_id IS NULL)
 //            - if none: NULL only
+//   ✅ NK-F6: filterActiveProjectIds remains fail-open
 //
 // Notes:
 // - This route counts notifications for the authenticated user only.
@@ -17,11 +18,8 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import {
-  resolveOrgActiveProjectScope,
-  resolveActiveProjectScope,
-  filterActiveProjectIds,
-} from "@/lib/server/project-scope";
+import { resolveActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
+import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -158,15 +156,20 @@ export async function GET(req: Request) {
     const days = clampDays(url.searchParams.get("days"), 14);
     const sinceIso = daysAgoIso(days);
 
-    // ✅ ORG scope first, fallback to membership scope (signature-aligned: no userId arg)
+    // Shared portfolio scope first, then membership fallback
     let scoped: any = null;
     let scopedIdsRaw: string[] = [];
 
     try {
-      scoped = await resolveOrgActiveProjectScope(supabase);
+      scoped = await resolvePortfolioScope(supabase, userId);
       scopedIdsRaw = uniqStrings(scoped?.projectIds || []);
     } catch (e: any) {
-      scoped = { ok: false, error: String(e?.message || e || "org scope failed"), meta: null, projectIds: [] };
+      scoped = {
+        ok: false,
+        error: String(e?.message || e || "portfolio scope failed"),
+        meta: null,
+        projectIds: [],
+      };
       scopedIdsRaw = [];
     }
 
@@ -176,8 +179,45 @@ export async function GET(req: Request) {
       scopedIdsRaw = uniqStrings(fallback?.projectIds || []);
     }
 
-    // ✅ Shared active exclusion list (treat as string[])
-    const activeProjectIds = uniqStrings(await filterActiveProjectIds(supabase, scopedIdsRaw));
+    // Shared active exclusion list with fail-open preserved
+    let activeProjectIds = uniqStrings(scopedIdsRaw);
+    let activeFilterMeta: any = {
+      before: scopedIdsRaw.length,
+      after: scopedIdsRaw.length,
+      fail_open: false,
+    };
+
+    try {
+      const filtered = await filterActiveProjectIds(supabase, scopedIdsRaw);
+      const filteredIds = uniqStrings(
+        Array.isArray(filtered) ? filtered : (filtered as any)?.projectIds ?? [],
+      );
+
+      if (filteredIds.length > 0) {
+        activeProjectIds = filteredIds;
+        activeFilterMeta = {
+          before: scopedIdsRaw.length,
+          after: filteredIds.length,
+          fail_open: false,
+        };
+      } else {
+        activeProjectIds = uniqStrings(scopedIdsRaw);
+        activeFilterMeta = {
+          before: scopedIdsRaw.length,
+          after: scopedIdsRaw.length,
+          fail_open: true,
+          reason: "filterActiveProjectIds returned 0 rows",
+        };
+      }
+    } catch (e: any) {
+      activeProjectIds = uniqStrings(scopedIdsRaw);
+      activeFilterMeta = {
+        before: scopedIdsRaw.length,
+        after: scopedIdsRaw.length,
+        fail_open: true,
+        reason: String(e?.message || e),
+      };
+    }
 
     const base = () =>
       supabase
@@ -252,6 +292,7 @@ export async function GET(req: Request) {
         activeIds: activeProjectIds.length,
         projectIds: activeProjectIds.slice(0, 25),
         scopeMeta: scoped?.meta ?? null,
+        activeFilterMeta,
         perQuery: results,
       };
     }

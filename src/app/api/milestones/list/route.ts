@@ -1,9 +1,10 @@
-// src/app/api/milestones/list/route.ts — REBUILT (Org-scoped)
-// ✅ Uses resolveOrgActiveProjectScope instead of project_members query
+// src/app/api/milestones/list/route.ts — REBUILT (portfolio-scoped)
+// ✅ Uses resolvePortfolioScope instead of project_members / org-only resolver
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveOrgActiveProjectScope } from "@/lib/server/project-scope";
+import { resolveActiveProjectScope } from "@/lib/server/project-scope";
+import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export const runtime = "nodejs";
 
@@ -34,7 +35,9 @@ function safeStatus(x: string | null): StatusFilter {
 }
 
 function utcDateOnlyISO(d = new Date()) {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(
+    d.getUTCDate(),
+  ).padStart(2, "0")}`;
 }
 function addUtcDays(dateISO: string, days: number) {
   const [y, m, d] = dateISO.split("-").map(Number);
@@ -49,12 +52,22 @@ function fmtDateUK(x: any): string | null {
   if (m) return `${m[3]}/${m[2]}/${m[1]}`;
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return null;
-  return `${String(d.getUTCDate()).padStart(2,"0")}/${String(d.getUTCMonth()+1).padStart(2,"0")}/${d.getUTCFullYear()}`;
+  return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(
+    2,
+    "0",
+  )}/${d.getUTCFullYear()}`;
 }
-function safeStr(x: any) { return typeof x === "string" ? x : ""; }
-function num(x: any, fallback = 0) { const n = Number(x); return Number.isFinite(n) ? n : fallback; }
+function safeStr(x: any) {
+  return typeof x === "string" ? x : "";
+}
+function num(x: any, fallback = 0) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : fallback;
+}
 function isDoneStatus(s: any) {
-  return new Set(["done","completed","closed","cancelled","canceled"]).has(safeStr(s).trim().toLowerCase().replace(/\s+/g,"_"));
+  return new Set(["done", "completed", "closed", "cancelled", "canceled"]).has(
+    safeStr(s).trim().toLowerCase().replace(/\s+/g, "_"),
+  );
 }
 function safeIsoDateOnly(x: any): string | null {
   if (!x) return null;
@@ -71,66 +84,125 @@ function makeOpenHref(projectId: string, milestoneId: string, sourceArtifactId?:
   }
   return `/projects/${projectId}/schedule?milestoneId=${encodeURIComponent(milestoneId)}`;
 }
+function uniqStrings(xs: any[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const x of xs || []) {
+    const s = String(x || "").trim();
+    if (!s) continue;
+    const k = s.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+}
 
 export async function GET(req: Request) {
   const supabase = await createClient();
   const url = new URL(req.url);
 
-  const days   = clampDays(url.searchParams.get("days"), 30);
-  const scope  = safeScope(url.searchParams.get("scope"));
+  const days = clampDays(url.searchParams.get("days"), 30);
+  const scope = safeScope(url.searchParams.get("scope"));
   const status = safeStatus(url.searchParams.get("status"));
 
   const { data: auth } = await supabase.auth.getUser();
   const userId = auth?.user?.id;
   if (!userId) return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
 
-  // ✅ Org-wide scope — replaces member-only project_members query
-  const scoped     = await resolveOrgActiveProjectScope(supabase, userId);
-  const projectIds = (scoped?.projectIds ?? []).filter(Boolean);
+  // Shared portfolio scope first, membership fallback if empty / failed
+  let scoped: any = null;
+  let projectIds: string[] = [];
+
+  try {
+    scoped = await resolvePortfolioScope(supabase, userId);
+    projectIds = uniqStrings(scoped?.projectIds || []);
+  } catch (e: any) {
+    scoped = { ok: false, error: String(e?.message || e), projectIds: [], meta: null };
+    projectIds = [];
+  }
+
+  if (!projectIds.length) {
+    const fallback = await resolveActiveProjectScope(supabase);
+    scoped = fallback;
+    projectIds = uniqStrings(fallback?.projectIds || []);
+  }
 
   if (!projectIds.length) {
     return NextResponse.json({
-      ok: true, days, scope, status, count: 0,
+      ok: true,
+      days,
+      scope,
+      status,
+      count: 0,
       chips: { planned: 0, at_risk: 0, overdue: 0 },
-      kpis: { planned: 0, at_risk: 0, overdue: 0, ai_high_risk: 0, slip_avg_days: 0, slip_max_days: 0 },
+      kpis: {
+        planned: 0,
+        at_risk: 0,
+        overdue: 0,
+        ai_high_risk: 0,
+        slip_avg_days: 0,
+        slip_max_days: 0,
+      },
       items: [],
+      meta: {
+        projectCount: 0,
+        scope: "portfolio",
+        active_only: true,
+        scopeMeta: scoped?.meta ?? null,
+      },
     });
   }
 
   // KPI rollup
-  let kpis = { planned: 0, at_risk: 0, overdue: 0, ai_high_risk: 0, slip_avg_days: 0, slip_max_days: 0 };
+  let kpis = {
+    planned: 0,
+    at_risk: 0,
+    overdue: 0,
+    ai_high_risk: 0,
+    slip_avg_days: 0,
+    slip_max_days: 0,
+  };
   try {
     const { data, error } = await supabase.rpc("get_schedule_milestones_kpis_portfolio", {
-      p_project_ids: projectIds, p_window_days: days,
+      p_project_ids: projectIds,
+      p_window_days: days,
     });
     if (!error) {
       const row = Array.isArray(data) ? data[0] : data;
-      kpis.planned     = num(row?.planned);
-      kpis.at_risk     = num(row?.at_risk);
-      kpis.overdue     = num(row?.overdue);
+      kpis.planned = num(row?.planned);
+      kpis.at_risk = num(row?.at_risk);
+      kpis.overdue = num(row?.overdue);
       kpis.ai_high_risk = num(row?.ai_high_risk);
       kpis.slip_avg_days = num(row?.slip_avg_days);
       kpis.slip_max_days = num(row?.slip_max_days);
     }
-  } catch { /* keep zeros */ }
+  } catch {
+    /* keep zeros */
+  }
 
   // Milestones list
   let q = supabase
     .from("schedule_milestones")
     .select(`id, project_id, milestone_name, start_date, end_date, baseline_start, baseline_end,
       status, risk_score, ai_delay_prob, last_risk_reason, source_artifact_id,
-      projects:projects ( id, title )`)
+      projects:projects ( id, title, project_code )`)
     .in("project_id", projectIds);
 
   const todayStr = utcDateOnlyISO();
-  const toStr    = addUtcDays(todayStr, days);
+  const toStr = addUtcDays(todayStr, days);
 
   if (scope === "window") {
-    q = q.or(`and(end_date.gte.${todayStr},end_date.lte.${toStr}),and(end_date.is.null,start_date.gte.${todayStr},start_date.lte.${toStr})`);
+    q = q.or(
+      `and(end_date.gte.${todayStr},end_date.lte.${toStr}),and(end_date.is.null,start_date.gte.${todayStr},start_date.lte.${toStr})`,
+    );
   } else if (scope === "overdue") {
-    q = q.or(`end_date.lt.${todayStr},and(end_date.is.null,start_date.lt.${todayStr})`)
-      .not("status","ilike","%done%").not("status","ilike","%completed%")
-      .not("status","ilike","%closed%").not("status","ilike","%cancelled%");
+    q = q
+      .or(`end_date.lt.${todayStr},and(end_date.is.null,start_date.lt.${todayStr})`)
+      .not("status", "ilike", "%done%")
+      .not("status", "ilike", "%completed%")
+      .not("status", "ilike", "%closed%")
+      .not("status", "ilike", "%cancelled%");
   }
 
   if (status) {
@@ -138,10 +210,12 @@ export async function GET(req: Request) {
     else if (status === "in_progress") q = q.or("status.ilike.%in_progress%,status.ilike.%in progress%");
     else if (status === "completed") q = q.or("status.ilike.%completed%,status.ilike.%done%,status.ilike.%closed%");
     else if (status === "overdue") {
-      q = q.or(`end_date.lt.${todayStr},and(end_date.is.null,start_date.lt.${todayStr})`)
-        .not("status","ilike","%done%").not("status","ilike","%completed%");
+      q = q
+        .or(`end_date.lt.${todayStr},and(end_date.is.null,start_date.lt.${todayStr})`)
+        .not("status", "ilike", "%done%")
+        .not("status", "ilike", "%completed%");
     } else {
-      q = q.or(`status.ilike.%${status.replace(/_/g," ")}%,status.ilike.%${status}%`);
+      q = q.or(`status.ilike.%${status.replace(/_/g, " ")}%,status.ilike.%${status}%`);
     }
   }
 
@@ -149,32 +223,45 @@ export async function GET(req: Request) {
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   const out = (items || []).map((m: any) => {
-    const endISO   = safeIsoDateOnly(m?.end_date);
+    const endISO = safeIsoDateOnly(m?.end_date);
     const startISO = safeIsoDateOnly(m?.start_date);
-    const baseEndISO   = safeIsoDateOnly(m?.baseline_end);
+    const baseEndISO = safeIsoDateOnly(m?.baseline_end);
     const baseStartISO = safeIsoDateOnly(m?.baseline_start);
     const due_iso = endISO || startISO || null;
-    const curForSlip  = endISO || startISO || null;
+    const curForSlip = endISO || startISO || null;
     const baseForSlip = baseEndISO || baseStartISO || null;
-    const slipComputed = curForSlip && baseForSlip
-      ? Math.round((new Date(curForSlip+"T00:00:00Z").getTime() - new Date(baseForSlip+"T00:00:00Z").getTime()) / 86400000)
-      : null;
+    const slipComputed =
+      curForSlip && baseForSlip
+        ? Math.round(
+            (new Date(curForSlip + "T00:00:00Z").getTime() -
+              new Date(baseForSlip + "T00:00:00Z").getTime()) /
+              86400000,
+          )
+        : null;
     const slip_known = slipComputed !== null && Number.isFinite(Number(slipComputed));
-    const slip_days  = slip_known ? Number(slipComputed) : 0;
-    const pid  = safeStr(m.project_id);
-    const mid  = safeStr(m.id);
+    const slip_days = slip_known ? Number(slipComputed) : 0;
+    const pid = safeStr(m.project_id);
+    const mid = safeStr(m.id);
     const said = m?.source_artifact_id ? safeStr(m.source_artifact_id) : null;
     return {
-      id: mid, project_id: pid,
+      id: mid,
+      project_id: pid,
       project_title: m?.projects?.title || "Project",
+      project_code: m?.projects?.project_code ?? null,
       milestone_name: safeStr(m.milestone_name) || "(untitled)",
-      due_date: due_iso, due_date_uk: fmtDateUK(due_iso),
-      start_date: startISO, end_date: endISO,
-      baseline_start: baseStartISO, baseline_end: baseEndISO,
+      due_date: due_iso,
+      due_date_uk: fmtDateUK(due_iso),
+      start_date: startISO,
+      end_date: endISO,
+      baseline_start: baseStartISO,
+      baseline_end: baseEndISO,
       status: safeStr(m.status) || "planned",
-      risk_score: num(m.risk_score), ai_delay_prob: num(m.ai_delay_prob),
+      risk_score: num(m.risk_score),
+      ai_delay_prob: num(m.ai_delay_prob),
       last_risk_reason: safeStr(m.last_risk_reason),
-      slip_days, slip_known, slip_label: slip_known ? `${slip_days}d` : "—",
+      slip_days,
+      slip_known,
+      slip_label: slip_known ? `${slip_days}d` : "—",
       is_done: isDoneStatus(m.status),
       source_artifact_id: said,
       open_href: makeOpenHref(pid, mid, said),
@@ -182,10 +269,19 @@ export async function GET(req: Request) {
   });
 
   return NextResponse.json({
-    ok: true, days, scope, status,
+    ok: true,
+    days,
+    scope,
+    status,
     count: out.length,
     chips: { planned: num(kpis.planned), at_risk: num(kpis.at_risk), overdue: num(kpis.overdue) },
     kpis,
     items: out,
+    meta: {
+      projectCount: projectIds.length,
+      scope: "portfolio",
+      active_only: true,
+      scopeMeta: scoped?.meta ?? null,
+    },
   });
 }
