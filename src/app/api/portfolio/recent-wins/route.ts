@@ -1,18 +1,20 @@
-﻿// src/app/api/portfolio/recent-wins/route.ts — v5 (ORG-WIDE + ACTIVE FILTER + project_code href)
+﻿// src/app/api/portfolio/recent-wins/route.ts — v6 (ORG-WIDE + shared scope + ACTIVE FILTER + project_code href)
 // Proxies /api/success-stories/summary and adds budget wins
 //
 // Fixes / Adds:
-//   ✅ RW-F1: ORG-wide scope via resolveOrgActiveProjectScope
+//   ✅ RW-F1: ORG-wide scope via shared resolvePortfolioScope()
 //   ✅ RW-F2: Active-only project filtering via filterActiveProjectIds (normalized + FAIL-OPEN)
 //   ✅ RW-F3: All responses no-store
 //   ✅ RW-F4: Links prefer project_code (human id) else UUID fallback
 //   ✅ RW-F5: Better PID extraction + enrichment safety
+//   ✅ RW-F6: Removes duplicated org-scope resolution logic from route body
 
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveOrgActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
+import { filterActiveProjectIds } from "@/lib/server/project-scope";
+import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
@@ -71,14 +73,12 @@ async function normalizeActiveIds(supabase: any, rawIds: string[]) {
   try {
     const r: any = await filterActiveProjectIds(supabase, rawIds);
 
-    // string[]
     if (Array.isArray(r)) {
       const ids = r.filter(Boolean);
       if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
       return { ids, ok: true, error: null as string | null };
     }
 
-    // { projectIds }
     const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
     if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
     return { ids, ok: !r?.error, error: r?.error ? safeStr(r.error?.message || r.error) : null };
@@ -97,11 +97,15 @@ function extractProjectIdFromWin(w: any) {
   );
 }
 
-async function getBudgetWins(supabase: any, projectIds: string[], since: string, projById: Map<string, any>) {
+async function getBudgetWins(
+  supabase: any,
+  projectIds: string[],
+  since: string,
+  projById: Map<string, any>,
+) {
   const wins: any[] = [];
   if (!projectIds.length) return wins;
 
-  // Try project_financials first, then project_budgets, then budgets
   const tables = ["project_financials", "project_budgets", "budgets"];
 
   for (const table of tables) {
@@ -128,7 +132,6 @@ async function getBudgetWins(supabase: any, projectIds: string[], since: string,
       const underspend = budget - forecast;
       const pct = budget > 0 ? Math.round((actual / budget) * 100) : 0;
 
-      // Only count as a win if under budget (positive signal)
       if (underspend > 0 && pct <= 100) {
         wins.push({
           id: `budget_${f.id}`,
@@ -139,13 +142,12 @@ async function getBudgetWins(supabase: any, projectIds: string[], since: string,
           happened_at_uk: fmtDateUK(f?.updated_at || f?.period_end),
           project_id: pid || null,
           project_title: p?.title || null,
-          // ✅ RW-F4: prefer project_code else UUID
           href: projectHref(p, pid),
         });
       }
     }
 
-    break; // stop after first working table
+    break;
   }
 
   return wins;
@@ -162,7 +164,6 @@ async function handle(req: NextRequest, days: number, limit: number) {
     return withNoStore(NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 }));
   }
 
-  // Fetch summary from existing success-stories endpoint
   const baseUrl = new URL(req.url);
   const summaryUrl = `${baseUrl.origin}/api/success-stories/summary?days=${days}`;
 
@@ -183,17 +184,16 @@ async function handle(req: NextRequest, days: number, limit: number) {
     category: w?.category ?? w?.type ?? "other",
   }));
 
-  // ORG-wide scope
-  const scoped = await resolveOrgActiveProjectScope(supabase, user.id);
-  const scopedRaw: string[] = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
+  const sharedScope = await resolvePortfolioScope(user.id);
+  const organisationId = sharedScope.organisationId ?? null;
+  const scopeMeta = sharedScope.meta ?? {};
+  const scopedRaw: string[] = sharedScope.rawProjectIds ?? [];
 
-  // ✅ active filter (normalized + fail-open)
   const active = await normalizeActiveIds(supabase, scopedRaw);
   const projectIds = active.ids;
 
   const since = isoDaysAgo(days);
 
-  // Project details for enrichment
   const projById = new Map<string, any>();
   if (projectIds.length) {
     const { data: prows } = await supabase
@@ -205,7 +205,6 @@ async function handle(req: NextRequest, days: number, limit: number) {
     for (const p of prows ?? []) projById.set(String((p as any).id), p);
   }
 
-  // Enrich projById with project_ids from topWins not already loaded
   const winPids = [...new Set(topWins.map((w: any) => extractProjectIdFromWin(w)).filter(Boolean))];
   const missingPids = winPids.filter((pid) => !projById.has(pid));
 
@@ -219,9 +218,14 @@ async function handle(req: NextRequest, days: number, limit: number) {
     for (const p of extraProjs ?? []) projById.set(String((p as any).id), p);
   }
 
-  // PM name lookup
   const pmById = new Map<string, string>();
-  const pmIds = [...new Set([...projById.values()].map((p: any) => safeStr(p?.project_manager_id).trim()).filter(Boolean))];
+  const pmIds = [
+    ...new Set(
+      [...projById.values()]
+        .map((p: any) => safeStr(p?.project_manager_id).trim())
+        .filter(Boolean),
+    ),
+  ];
 
   if (pmIds.length) {
     const { data: pmRows } = await supabase
@@ -237,10 +241,8 @@ async function handle(req: NextRequest, days: number, limit: number) {
     }
   }
 
-  // Budget wins (scoped to ACTIVE org projects)
   const budgetWins = await getBudgetWins(supabase, projectIds, since, projById);
 
-  // Merge, sort, limit, enrich
   const allWins = [...topWins, ...budgetWins]
     .sort((a, b) => isoSortKey(b?.happened_at).localeCompare(isoSortKey(a?.happened_at)))
     .slice(0, limit)
@@ -254,7 +256,6 @@ async function handle(req: NextRequest, days: number, limit: number) {
       const projCode = safeStr(proj?.project_code || w?.project_code).trim() || null;
       const projName = safeStr(proj?.title || w?.project_title || w?.project_name).trim() || null;
 
-      // ✅ RW-F4: prefer project_code else UUID
       const href =
         w?.href ||
         (proj ? projectHref(proj, pid || null) : pid ? `/projects/${encodeURIComponent(pid)}` : null);
@@ -283,11 +284,11 @@ async function handle(req: NextRequest, days: number, limit: number) {
         budget_on_track: budgetWins.length,
       },
       meta: {
-        organisationId: scoped?.organisationId ?? null,
+        organisationId,
         since_iso: since,
         total_wins: summary?.meta?.total_wins ?? allWins.length,
         scope: {
-          ...(scoped?.meta ?? {}),
+          ...scopeMeta,
           scopedIdsRaw: scopedRaw.length,
           scopedIdsActive: projectIds.length,
           active_filter_ok: active.ok,
