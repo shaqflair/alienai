@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/resource-activity/route.ts — REBUILT v7 (ORG-WIDE + shared scope + filter-ready + ACTIVE FILTER normalized)
+﻿// src/app/api/portfolio/resource-activity/route.ts — REBUILT v8 (PORTFOLIO-SCOPE + shared scope + filter-ready + ACTIVE FILTER normalized)
 // Adds:
 //   ✅ RA-F1: Scope aligned with shared resolvePortfolioScope() (org-wide dashboard)
 //   ✅ RA-F2: Supports filters (GET + POST)
@@ -9,6 +9,7 @@
 //   ✅ RA-F6: active project filter applied (exclude closed/terminal projects) + fail-open safeguard
 //   ✅ RA-F7: normalize filterActiveProjectIds return contract (string[] OR { projectIds }) + fail-open
 //   ✅ RA-F8: removes duplicated org-scope resolution logic from route body
+//   ✅ RA-F9: resolvePortfolioScope signature fixed (supabase, userId)
 // Keeps:
 //   • forward-looking week ranges
 
@@ -294,10 +295,14 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
   const dateTo = weeks[weeks.length - 1] || isoDate(endMonday);
 
   // Shared org-wide project scope
-  const sharedScope = await resolvePortfolioScope(user.id);
+  const sharedScope = await resolvePortfolioScope(supabase, user.id);
   const orgId = sharedScope.organisationId ?? null;
   const scopeMeta = sharedScope.meta ?? {};
-  const scopedProjectIdsRaw: string[] = sharedScope.rawProjectIds ?? [];
+  const scopedProjectIdsRaw: string[] = Array.isArray(sharedScope.rawProjectIds)
+    ? sharedScope.rawProjectIds
+    : Array.isArray(sharedScope.projectIds)
+      ? sharedScope.projectIds
+      : [];
 
   const active = await normalizeActiveIds(supabase, scopedProjectIdsRaw);
   const scopedProjectIds = active.ids;
@@ -395,9 +400,9 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
 
   const exMap = new Map<string, Map<string, number>>();
   for (const ex of exceptions ?? []) {
-    const pid = String(ex.person_id);
+    const pid = String((ex as any).person_id);
     if (!exMap.has(pid)) exMap.set(pid, new Map());
-    exMap.get(pid)!.set(String(ex.week_start_date), parseFloat(String(ex.available_days)));
+    exMap.get(pid)!.set(String((ex as any).week_start_date), parseFloat(String((ex as any).available_days)));
   }
 
   // Allocations (filter by project_id if available)
@@ -455,13 +460,13 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
   for (const w of weeks) weekAllocMap.set(w, { confirmed: 0, soft: 0 });
 
   for (const a of allocs ?? []) {
-    const w = String(a.week_start_date);
+    const w = String((a as any).week_start_date);
     if (!weekAllocMap.has(w)) continue;
-    const days2 = parseFloat(String(a.days_allocated ?? 0));
-    const type = String(a.allocation_type ?? "confirmed").toLowerCase();
+    const daysAllocated = parseFloat(String((a as any).days_allocated ?? 0));
+    const type = String((a as any).allocation_type ?? "confirmed").toLowerCase();
     const entry = weekAllocMap.get(w)!;
-    if (type === "soft" || type === "pipeline") entry.soft += days2;
-    else entry.confirmed += days2;
+    if (type === "soft" || type === "pipeline") entry.soft += daysAllocated;
+    else entry.confirmed += daysAllocated;
   }
 
   const result = weeks.map((w) => {

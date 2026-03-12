@@ -1,4 +1,4 @@
-// src/app/api/portfolio/raid-panel/route.ts — REBUILT v6 (ORG-WIDE + shared scope + filter-ready + ACTIVE FILTER WIRED)
+// src/app/api/portfolio/raid-panel/route.ts — REBUILT v7 (PORTFOLIO-SCOPE + shared scope + filter-ready + ACTIVE FILTER WIRED)
 // Adds:
 //   ✅ RP-F1 filters (GET + POST)
 //   ✅ RP-F2 filters applied within shared org-wide portfolio scope
@@ -8,6 +8,7 @@
 //   ✅ RP-F5 no-store everywhere
 //   ✅ RP-F6 active project filter applied (exclude closed/terminal projects) + fail-open safeguard
 //   ✅ RP-F7 uses shared resolvePortfolioScope() helper
+//   ✅ RP-F8 resolvePortfolioScope signature fixed (supabase, auth.user.id)
 // Keeps:
 //   • normalizePanel / safeJson compatibility
 //   • fallback to get_portfolio_raid_hi_crit if main RPC fails
@@ -28,7 +29,9 @@ function clampDays(v: string | null, fallback = 30): 7 | 14 | 30 | 60 {
   if (s === "all") return 60;
   const n = Number(s);
   const allowed = new Set([7, 14, 30, 60]);
-  return Number.isFinite(n) && allowed.has(n) ? (n as 7 | 14 | 30 | 60) : (fallback as 7 | 14 | 30 | 60);
+  return Number.isFinite(n) && allowed.has(n)
+    ? (n as 7 | 14 | 30 | 60)
+    : (fallback as 7 | 14 | 30 | 60);
 }
 
 function safeStr(x: any) {
@@ -352,10 +355,7 @@ async function computeTypedCounts(opts: {
       .not("due_date", "is", null)
       .eq("type", type);
 
-    q =
-      mode === "due"
-        ? q.gte("due_date", todayISO).lte("due_date", endISO)
-        : q.lt("due_date", todayISO);
+    q = mode === "due" ? q.gte("due_date", todayISO).lte("due_date", endISO) : q.lt("due_date", todayISO);
 
     const r = await q;
     return Number(r.count ?? 0);
@@ -392,10 +392,14 @@ async function handle(req: Request, opts: { days: number; filters: PortfolioFilt
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr || !auth?.user) return err("Not authenticated", 401);
 
-  const sharedScope = await resolvePortfolioScope(auth.user.id);
+  const sharedScope = await resolvePortfolioScope(supabase, auth.user.id);
   const organisationId = sharedScope.organisationId ?? null;
   const scopeMeta = sharedScope.meta ?? {};
-  const scopedIdsRaw: string[] = sharedScope.rawProjectIds ?? [];
+  const scopedIdsRaw: string[] = Array.isArray(sharedScope.rawProjectIds)
+    ? sharedScope.rawProjectIds
+    : Array.isArray(sharedScope.projectIds)
+      ? sharedScope.projectIds
+      : [];
 
   const active = await normalizeActiveIds(supabase, scopedIdsRaw);
   const scopedIdsActive = active.ids;

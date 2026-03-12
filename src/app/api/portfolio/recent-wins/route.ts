@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/recent-wins/route.ts — v6 (ORG-WIDE + shared scope + ACTIVE FILTER + project_code href)
+﻿// src/app/api/portfolio/recent-wins/route.ts — v7 (PORTFOLIO-SCOPE + shared scope + ACTIVE FILTER + project_code href)
 // Proxies /api/success-stories/summary and adds budget wins
 //
 // Fixes / Adds:
@@ -8,6 +8,7 @@
 //   ✅ RW-F4: Links prefer project_code (human id) else UUID fallback
 //   ✅ RW-F5: Better PID extraction + enrichment safety
 //   ✅ RW-F6: Removes duplicated org-scope resolution logic from route body
+//   ✅ RW-F7: resolvePortfolioScope signature fixed (supabase, user.id)
 
 import "server-only";
 
@@ -27,7 +28,10 @@ function fmtDateUK(x: any): string | null {
   if (m) return `${m[3].padStart(2, "0")}/${m[2].padStart(2, "0")}/${m[1]}`;
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return null;
-  return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/${d.getUTCFullYear()}`;
+  return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(
+    2,
+    "0",
+  )}/${d.getUTCFullYear()}`;
 }
 
 function isoSortKey(x: any) {
@@ -51,7 +55,11 @@ function projectCodeLabel(pc: any): string {
   if (typeof pc === "string") return pc.trim();
   if (typeof pc === "number" && Number.isFinite(pc)) return String(pc);
   if (pc && typeof pc === "object") {
-    const v = safeStr(pc.project_code) || safeStr(pc.code) || safeStr(pc.value) || safeStr(pc.id);
+    const v =
+      safeStr(pc.project_code) ||
+      safeStr(pc.code) ||
+      safeStr(pc.value) ||
+      safeStr(pc.id);
     return v.trim();
   }
   return "";
@@ -75,13 +83,22 @@ async function normalizeActiveIds(supabase: any, rawIds: string[]) {
 
     if (Array.isArray(r)) {
       const ids = r.filter(Boolean);
-      if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
+      if (!ids.length && rawIds.length) {
+        return failOpen("active filter returned 0 ids; failing open");
+      }
       return { ids, ok: true, error: null as string | null };
     }
 
     const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
-    if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
-    return { ids, ok: !r?.error, error: r?.error ? safeStr(r.error?.message || r.error) : null };
+    if (!ids.length && rawIds.length) {
+      return failOpen("active filter returned 0 ids; failing open");
+    }
+
+    return {
+      ids,
+      ok: !r?.error,
+      error: r?.error ? safeStr(r.error?.message || r.error) : null,
+    };
   } catch (e: any) {
     return failOpen(safeStr(e?.message || e || "active filter failed"));
   }
@@ -111,7 +128,9 @@ async function getBudgetWins(
   for (const table of tables) {
     const { data, error } = await supabase
       .from(table)
-      .select("id, project_id, budget, actual_cost, forecast_cost, updated_at, period_end, approved_budget, spent_to_date")
+      .select(
+        "id, project_id, budget, actual_cost, forecast_cost, updated_at, period_end, approved_budget, spent_to_date",
+      )
       .in("project_id", projectIds)
       .gte("updated_at", since)
       .limit(200);
@@ -120,12 +139,12 @@ async function getBudgetWins(
     if (!Array.isArray(data) || !data.length) continue;
 
     for (const f of data) {
-      const pid = safeStr(f?.project_id).trim();
+      const pid = safeStr((f as any)?.project_id).trim();
       const p = projById.get(pid);
 
-      const budget = Number(f?.budget ?? f?.approved_budget ?? 0);
-      const actual = Number(f?.actual_cost ?? f?.spent_to_date ?? 0);
-      const forecast = Number(f?.forecast_cost ?? actual);
+      const budget = Number((f as any)?.budget ?? (f as any)?.approved_budget ?? 0);
+      const actual = Number((f as any)?.actual_cost ?? (f as any)?.spent_to_date ?? 0);
+      const forecast = Number((f as any)?.forecast_cost ?? actual);
 
       if (!budget || budget <= 0) continue;
 
@@ -134,12 +153,14 @@ async function getBudgetWins(
 
       if (underspend > 0 && pct <= 100) {
         wins.push({
-          id: `budget_${f.id}`,
+          id: `budget_${(f as any).id}`,
           category: "Commercial",
           title: "On Budget",
           summary: `Project tracking £${Math.round(underspend).toLocaleString("en-GB")} under budget (${pct}% spent).`,
-          happened_at: safeStr(f?.updated_at || f?.period_end).trim() || new Date().toISOString(),
-          happened_at_uk: fmtDateUK(f?.updated_at || f?.period_end),
+          happened_at:
+            safeStr((f as any)?.updated_at || (f as any)?.period_end).trim() ||
+            new Date().toISOString(),
+          happened_at_uk: fmtDateUK((f as any)?.updated_at || (f as any)?.period_end),
           project_id: pid || null,
           project_title: p?.title || null,
           href: projectHref(p, pid),
@@ -161,7 +182,9 @@ async function handle(req: NextRequest, days: number, limit: number) {
   } = await supabase.auth.getUser();
 
   if (authErr || !user) {
-    return withNoStore(NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 }));
+    return withNoStore(
+      NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 }),
+    );
   }
 
   const baseUrl = new URL(req.url);
@@ -173,7 +196,9 @@ async function handle(req: NextRequest, days: number, limit: number) {
   });
 
   if (!summaryRes.ok) {
-    return withNoStore(NextResponse.json({ ok: false, error: "Failed to fetch summary" }, { status: 502 }));
+    return withNoStore(
+      NextResponse.json({ ok: false, error: "Failed to fetch summary" }, { status: 502 }),
+    );
   }
 
   const summary = await summaryRes.json();
@@ -184,10 +209,14 @@ async function handle(req: NextRequest, days: number, limit: number) {
     category: w?.category ?? w?.type ?? "other",
   }));
 
-  const sharedScope = await resolvePortfolioScope(user.id);
+  const sharedScope = await resolvePortfolioScope(supabase, user.id);
   const organisationId = sharedScope.organisationId ?? null;
   const scopeMeta = sharedScope.meta ?? {};
-  const scopedRaw: string[] = sharedScope.rawProjectIds ?? [];
+  const scopedRaw: string[] = Array.isArray(sharedScope.rawProjectIds)
+    ? sharedScope.rawProjectIds
+    : Array.isArray(sharedScope.projectIds)
+      ? sharedScope.projectIds
+      : [];
 
   const active = await normalizeActiveIds(supabase, scopedRaw);
   const projectIds = active.ids;
@@ -235,7 +264,9 @@ async function handle(req: NextRequest, days: number, limit: number) {
       .limit(2000);
 
     for (const pm of pmRows ?? []) {
-      const name = safeStr((pm as any)?.full_name || (pm as any)?.display_name || (pm as any)?.name).trim();
+      const name = safeStr(
+        (pm as any)?.full_name || (pm as any)?.display_name || (pm as any)?.name,
+      ).trim();
       const uid = safeStr((pm as any)?.user_id || (pm as any)?.id).trim();
       if (uid && name) pmById.set(uid, name);
     }
@@ -254,7 +285,8 @@ async function handle(req: NextRequest, days: number, limit: number) {
       const pmName = (pmId && pmById.get(pmId)) || safeStr(proj?.project_manager).trim() || null;
 
       const projCode = safeStr(proj?.project_code || w?.project_code).trim() || null;
-      const projName = safeStr(proj?.title || w?.project_title || w?.project_name).trim() || null;
+      const projName =
+        safeStr(proj?.title || w?.project_title || w?.project_name).trim() || null;
 
       const href =
         w?.href ||
@@ -306,7 +338,9 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(20, Math.max(1, parseInt(url.searchParams.get("limit") ?? "8", 10)));
     return await handle(req, days, limit);
   } catch (e: any) {
-    return withNoStore(NextResponse.json({ ok: false, error: safeStr(e?.message || e) }, { status: 500 }));
+    return withNoStore(
+      NextResponse.json({ ok: false, error: safeStr(e?.message || e) }, { status: 500 }),
+    );
   }
 }
 
@@ -317,6 +351,8 @@ export async function POST(req: NextRequest) {
     const limit = Math.min(20, Math.max(1, parseInt(String(body?.limit ?? 8), 10)));
     return await handle(req, days, limit);
   } catch (e: any) {
-    return withNoStore(NextResponse.json({ ok: false, error: safeStr(e?.message || e) }, { status: 500 }));
+    return withNoStore(
+      NextResponse.json({ ok: false, error: safeStr(e?.message || e) }, { status: 500 }),
+    );
   }
 }

@@ -1,4 +1,4 @@
-// src/app/api/portfolio/raid-hi/route.ts — REBUILT v3 (ORG-WIDE + shared scope + ACTIVE FILTER normalized + no-store + project_code href)
+// src/app/api/portfolio/raid-hi/route.ts — REBUILT v4 (PORTFOLIO-SCOPE + shared scope + ACTIVE FILTER normalized + no-store + project_code href)
 // ✅ Org-scoped: all org members see high-severity RAID items across all active projects.
 // ✅ Auth-first: userId resolved before scope resolution.
 // ✅ Shared org-wide scope via resolvePortfolioScope().
@@ -6,6 +6,7 @@
 // ✅ No-store cache on all responses.
 // ✅ clampDays supports "all" → 60
 // ✅ Includes project title + project_code; links prefer project_code
+// ✅ resolvePortfolioScope signature fixed (supabase, userId)
 
 import "server-only";
 
@@ -127,9 +128,13 @@ export async function GET(req: NextRequest) {
     if (authErr || !userId) return jsonErr("Not authenticated", 401);
 
     // ✅ Shared org-wide scope
-    const scope = await resolvePortfolioScope(userId);
+    const scope = await resolvePortfolioScope(supabase, userId);
     const organisationId = scope.organisationId ?? null;
-    const scopedRaw: string[] = scope.rawProjectIds ?? [];
+    const scopedRaw: string[] = Array.isArray(scope.rawProjectIds)
+      ? scope.rawProjectIds
+      : Array.isArray(scope.projectIds)
+        ? scope.projectIds
+        : [];
     const scopeMeta = scope.meta ?? {};
 
     // ✅ Active-only filter (normalized + fail-open)

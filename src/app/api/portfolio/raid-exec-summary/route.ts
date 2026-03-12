@@ -1,6 +1,6 @@
-﻿// src/app/api/portfolio/raid-exec-summary/route.ts — REBUILT v10
+﻿// src/app/api/portfolio/raid-exec-summary/route.ts — REBUILT v11
 // Fixes / Adds:
-//   ✅ RES-F1: ORG-WIDE project scope via shared resolvePortfolioScope(userId)
+//   ✅ RES-F1: ORG-WIDE project scope via shared resolvePortfolioScope(supabase, userId)
 //   ✅ RES-F2: clampDays supports "all" → 60 (HomePage sends days=all)
 //   ✅ RES-F3: Cache-Control: no-store across ALL responses (json + md/pdf/pptx downloads)
 //   ✅ RES-F4: Supports dashboard filters (GET): name, code, pm, dept
@@ -9,6 +9,7 @@
 //   ✅ RES-F7: resolveOrgName tries active org first (if profiles.active_organisation_id exists), otherwise membership fallback
 //   ✅ RES-F8: Includes RAID public_id in executive items / exports
 //   ✅ RES-F9: Removes duplicated org-scope resolution logic from route body
+//   ✅ RES-F10: resolvePortfolioScope signature fixed everywhere
 // Keeps:
 //   ✅ resolveClientNameFromProjects fixed select("id, client_name")
 //   ✅ Puppeteer/Chromium pdf generation + PPTX generation
@@ -435,8 +436,15 @@ async function buildExecSummary(args: {
 
   const meta: any = { scope_source: null, filters: null };
 
-  const sharedScope = await resolvePortfolioScope(userId);
-  const baseProjectIds = uniqStrings(sharedScope?.rawProjectIds || []);
+  const sharedScope = await resolvePortfolioScope(supabase, userId);
+  const baseProjectIds = uniqStrings(
+    Array.isArray(sharedScope?.rawProjectIds)
+      ? sharedScope.rawProjectIds
+      : Array.isArray(sharedScope?.projectIds)
+        ? sharedScope.projectIds
+        : [],
+  );
+
   meta.scope_source = {
     kind: "resolvePortfolioScope",
     ok: Boolean(baseProjectIds.length),

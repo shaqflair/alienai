@@ -1,10 +1,12 @@
-// src/app/api/portfolio/health/route.ts — v10
-// Built on v9. Improvements:
+// src/app/api/portfolio/health/route.ts — v11
+// Built on v10. Improvements:
 //   ✅ FIX-1  resolveActiveProjectIds() keeps DB-first active filtering
 //   ✅ FIX-2  Fail-open remains limited to verified candidates, never raw closed leakage
 //   ✅ FIX-3  RAID scoring weights aligned with project page
 //   ✅ FIX-4  Uses shared resolvePortfolioScope() helper for org-wide scope reuse
 //   ✅ FIX-5  Removes duplicate org-project resolution logic from route body
+//   ✅ FIX-6  resolvePortfolioScope signature fixed (supabase, userId)
+//   ✅ FIX-7  raw/projectIds scope contract normalized safely
 //
 // Preserves: filters, degradation, no-store caching, PH-F1–F5.
 
@@ -652,10 +654,16 @@ async function handle(req: Request, method: "GET" | "POST") {
     }
 
     // 1) Resolve shared org-wide portfolio scope
-    const scope = await resolvePortfolioScope(auth.user.id);
+    const scope = await resolvePortfolioScope(supabase, auth.user.id);
     const scopeMeta = scope.meta ?? {};
     const orgId = scope.organisationId ?? null;
-    const scopedIdsRaw = scope.rawProjectIds ?? [];
+    const scopedIdsRaw = uniqStrings(
+      Array.isArray(scope.rawProjectIds)
+        ? scope.rawProjectIds
+        : Array.isArray(scope.projectIds)
+          ? scope.projectIds
+          : [],
+    );
 
     if (!orgId) {
       return jsonOk({

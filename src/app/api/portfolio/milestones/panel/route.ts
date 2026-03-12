@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/milestones/panel/route.ts — REBUILT v3 (ORG-WIDE + shared scope + filter-ready + active-only FAIL-OPEN)
+﻿// src/app/api/portfolio/milestones/panel/route.ts — REBUILT v4 (PORTFOLIO-SCOPE + shared scope + filter-ready + active-only FAIL-OPEN)
 // Adds / Fixes:
 //   ✅ MP-F1: Supports dashboard filters (GET + POST): name/code/pm/dept
 //   ✅ MP-F2: ORG-wide scope now uses shared resolvePortfolioScope() helper
@@ -6,6 +6,7 @@
 //   ✅ MP-F4: clampDays handles "all" → 60
 //   ✅ MP-F5: Cache-Control no-store everywhere
 //   ✅ MP-F6: Removes duplicated org-scope resolution logic from route body
+//   ✅ MP-F7: resolvePortfolioScope signature fixed (supabase, userId)
 // Keeps:
 //   • Uses get_schedule_milestones_kpis_portfolio RPC
 //
@@ -289,10 +290,16 @@ async function handle(
   if (authErr || !userId) return err("Not authenticated", 401);
 
   // ✅ Shared org-wide scope for dashboards
-  const scope = await resolvePortfolioScope(userId);
+  const scope = await resolvePortfolioScope(supabase, userId);
   const scopeMeta = scope.meta ?? {};
   const organisationId = scope.organisationId ?? null;
-  const scopedIdsRaw: string[] = scope.rawProjectIds ?? [];
+  const scopedIdsRaw: string[] = uniqStrings(
+    Array.isArray(scope.rawProjectIds)
+      ? scope.rawProjectIds
+      : Array.isArray(scope.projectIds)
+        ? scope.projectIds
+        : [],
+  );
 
   // ✅ Active-only (terminal exclusion) — FAIL-OPEN
   const active = await normalizeActiveIds(supabase, scopedIdsRaw);

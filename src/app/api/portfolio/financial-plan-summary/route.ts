@@ -1,8 +1,8 @@
-﻿// src/app/api/portfolio/financial-plan-summary/route.ts — v6
+﻿// src/app/api/portfolio/financial-plan-summary/route.ts — v7
 // FIX: content_json (not content), cost_lines/budgeted (not costLines/budget),
 //      flat response shape that HomePage expects (rag, variance_pct, total_approved_budget, …)
 //
-// Changes from v5.2:
+// Changes from v6:
 //   ✅ FPS-F7:  SELECT content_json instead of content
 //   ✅ FPS-F8:  Read cost_lines (snake_case) + line.budgeted to match FinancialPlanContent
 //   ✅ FPS-F9:  Use content.total_approved_budget as headline budget figure
@@ -10,6 +10,8 @@
 //               currency, project_count, project_ref, artifact_id) alongside portfolio/projects
 //   ✅ FPS-F11: Use shared resolvePortfolioScope() helper for org-wide scope reuse
 //   ✅ FPS-F12: Remove duplicated org scope resolution from route body
+//   ✅ FPS-F13: resolvePortfolioScope signature fixed (supabase, userId)
+//   ✅ FPS-F14: raw/projectIds scope contract normalized safely
 //
 import "server-only";
 
@@ -181,6 +183,11 @@ function looksMissingRelation(err: any) {
   return msg.includes("does not exist") || msg.includes("relation") || msg.includes("42p01");
 }
 
+function looksMissingColumn(err: any) {
+  const msg = String(err?.message || err || "").toLowerCase();
+  return msg.includes("column") && msg.includes("does not exist");
+}
+
 async function applyProjectFilters(
   supabase: any,
   scopedProjectIds: string[],
@@ -218,7 +225,7 @@ async function applyProjectFilters(
       break;
     }
     lastErr = error;
-    if (!looksMissingRelation(error)) break;
+    if (!(looksMissingRelation(error) || looksMissingColumn(error))) break;
   }
 
   if (!rows.length) {
@@ -274,10 +281,16 @@ async function handle(req: Request, filters: PortfolioFilters) {
   }
 
   // 1) Shared org-wide dashboard scope
-  const scope = await resolvePortfolioScope(user.id);
+  const scope = await resolvePortfolioScope(supabase, user.id);
   const scopeMeta = scope.meta ?? {};
   const organisationId = scope.organisationId ?? null;
-  const scopedProjectIdsRaw = scope.rawProjectIds ?? [];
+  const scopedProjectIdsRaw = uniqStrings(
+    Array.isArray(scope.rawProjectIds)
+      ? scope.rawProjectIds
+      : Array.isArray(scope.projectIds)
+        ? scope.projectIds
+        : [],
+  );
 
   const active = await normalizeActiveIds(supabase, scopedProjectIdsRaw);
   const scopedProjectIds = active.ids;

@@ -1,5 +1,5 @@
-﻿// src/app/api/portfolio/raid-list/route.ts — REBUILT v4
-// ✅ Org-scoped: all org members see portfolio-wide RAID items.
+﻿// src/app/api/portfolio/raid-list/route.ts — REBUILT v5
+// ✅ Portfolio-scoped: all org members see portfolio-wide RAID items.
 // ✅ Filters supported (GET + POST): name/code/pm/dept
 // ✅ Active-only project filter (exclude closed/terminal) with FAIL-OPEN safeguard
 // ✅ clampDays supports "all" → 60
@@ -7,6 +7,7 @@
 // ✅ Project links prefer project_code (human id)
 // ✅ Includes RAID public_id for display in dashboards / registers
 // ✅ Uses shared resolvePortfolioScope() for org-wide dashboard scope
+// ✅ resolvePortfolioScope signature fixed (supabase, userId)
 
 import "server-only";
 
@@ -58,7 +59,9 @@ function clampDays(x: any, fallback = 30): 7 | 14 | 30 | 60 {
   if (s === "all") return 60;
   const n = Number(s);
   const allowed = new Set([7, 14, 30, 60]);
-  return Number.isFinite(n) && allowed.has(n) ? (n as 7 | 14 | 30 | 60) : (fallback as 7 | 14 | 30 | 60);
+  return Number.isFinite(n) && allowed.has(n)
+    ? (n as 7 | 14 | 30 | 60)
+    : (fallback as 7 | 14 | 30 | 60);
 }
 
 function safeScope(x: any) {
@@ -343,10 +346,14 @@ async function handle(
   const userId = auth?.user?.id || null;
   if (authErr || !userId) return err("Not authenticated", 401);
 
-  const sharedScope = await resolvePortfolioScope(userId);
+  const sharedScope = await resolvePortfolioScope(supabase, userId);
   const organisationId = sharedScope.organisationId ?? null;
   const scopeMeta = sharedScope.meta ?? {};
-  const scopedRaw: string[] = sharedScope.rawProjectIds ?? [];
+  const scopedRaw: string[] = Array.isArray(sharedScope.rawProjectIds)
+    ? sharedScope.rawProjectIds
+    : Array.isArray(sharedScope.projectIds)
+      ? sharedScope.projectIds
+      : [];
 
   const active = await normalizeActiveIds(supabase, scopedRaw);
   const scopedActive = active.ids;
@@ -574,7 +581,10 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
 
     const scope = safeScope(body?.scope ?? url.searchParams.get("scope"));
-    const windowDays = clampDays(body?.window ?? body?.windowDays ?? url.searchParams.get("window"), 30);
+    const windowDays = clampDays(
+      body?.window ?? body?.windowDays ?? url.searchParams.get("window"),
+      30,
+    );
 
     const type = safeType(body?.type ?? url.searchParams.get("type"));
     const status = safeStatus(body?.status ?? url.searchParams.get("status"));

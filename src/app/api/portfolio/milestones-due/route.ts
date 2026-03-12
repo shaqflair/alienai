@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/milestones-due/route.ts — REBUILT v6 (ORG-WIDE + shared scope + filter-ready + ACTIVE FILTER normalized)
+﻿// src/app/api/portfolio/milestones-due/route.ts — REBUILT v7 (PORTFOLIO-SCOPE + shared scope + filter-ready + ACTIVE FILTER normalized)
 // Adds:
 //   ✅ MD-F1: Supports dashboard filters (project name, code, PM, department)
 //            - POST (recommended): { days, filters }
@@ -11,6 +11,7 @@
 //   ✅ MD-F3: active project filter applied (exclude closed/terminal projects) + FAIL-OPEN safeguard
 //   ✅ MD-F4: normalize filterActiveProjectIds return contract (string[] OR { projectIds })
 //   ✅ MD-F5: removes duplicated org-scope resolution logic from route body
+//   ✅ MD-F6: resolvePortfolioScope signature fixed and raw/projectIds normalized safely
 
 import "server-only";
 
@@ -28,7 +29,9 @@ function clampDays(x: string | null, fallback = 30): 7 | 14 | 30 | 60 {
   if (s === "all") return 60;
   const n = Number(s);
   const allowed = new Set([7, 14, 30, 60]);
-  return Number.isFinite(n) && allowed.has(n) ? (n as 7 | 14 | 30 | 60) : (fallback as 7 | 14 | 30 | 60);
+  return Number.isFinite(n) && allowed.has(n)
+    ? (n as 7 | 14 | 30 | 60)
+    : (fallback as 7 | 14 | 30 | 60);
 }
 
 function safeStr(x: any) {
@@ -67,6 +70,11 @@ function projectCodeLabel(pc: any): string {
 function looksMissingRelation(err: any) {
   const msg = String(err?.message || err || "").toLowerCase();
   return msg.includes("does not exist") || msg.includes("relation") || msg.includes("42p01");
+}
+
+function looksMissingColumn(err: any) {
+  const msg = String(err?.message || err || "").toLowerCase();
+  return msg.includes("column") && msg.includes("does not exist");
 }
 
 function num(x: any, fallback = 0) {
@@ -216,7 +224,7 @@ async function applyProjectFilters(
       break;
     }
     lastErr = error;
-    if (!looksMissingRelation(error)) break;
+    if (!(looksMissingRelation(error) || looksMissingColumn(error))) break;
   }
 
   if (!rows.length) {
@@ -282,19 +290,21 @@ async function handle(
 ) {
   const supabase = await createClient();
 
-  const {
-    data: auth,
-    error: authErr,
-  } = await supabase.auth.getUser();
-
+  const { data: auth, error: authErr } = await supabase.auth.getUser();
   const userId = auth?.user?.id || null;
   if (authErr || !userId) return err("Not authenticated", 401);
 
   // Shared org-wide scope
-  const scope = await resolvePortfolioScope(userId);
+  const scope = await resolvePortfolioScope(supabase, userId);
   const scopeMeta = scope.meta ?? {};
   const organisationId = scope.organisationId ?? null;
-  const scopedProjectIdsRaw = scope.rawProjectIds ?? [];
+  const scopedProjectIdsRaw = uniqStrings(
+    Array.isArray(scope.rawProjectIds)
+      ? scope.rawProjectIds
+      : Array.isArray(scope.projectIds)
+        ? scope.projectIds
+        : [],
+  );
 
   // Active filter (normalized + fail-open)
   const active = await normalizeActiveIds(supabase, scopedProjectIdsRaw);
