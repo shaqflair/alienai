@@ -11,18 +11,45 @@ type MemberRow = {
   role: OrgRole;
   full_name?: string | null;
   email?: string | null;
+  avatar_url?: string | null;
+  joined_at?: string | null;
+  isMe?: boolean;
 };
 
 type InviteStatus = "pending" | "accepted" | "revoked";
 
 type InviteRow = {
   id: string;
-  email: string;
+  email: string | null;
   role: "admin" | "member";
   status: InviteStatus;
   created_at?: string | null;
   token?: string | null;
 };
+
+function safeText(v: unknown) {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function displayName(m: MemberRow) {
+  return safeText(m.full_name) || safeText(m.email) || safeText(m.user_id) || "Unknown member";
+}
+
+function displayEmail(m: MemberRow) {
+  return safeText(m.email);
+}
+
+function fmtDate(iso?: string | null) {
+  const s = safeText(iso);
+  if (!s) return "";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
+  return d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
 
 function Pill({
   children,
@@ -40,7 +67,11 @@ function Pill({
       ? "border-gray-200 bg-gray-50 text-gray-500"
       : "border-gray-200 bg-white text-gray-700";
 
-  return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${cls}`}>{children}</span>;
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${cls}`}>
+      {children}
+    </span>
+  );
 }
 
 function ConfirmInline({
@@ -119,10 +150,17 @@ export default function OrgMembersClient(props: {
   const manage = props.myRole === "admin" || props.myRole === "owner";
 
   const sortedMembers = useMemo(() => {
-    return [...(props.members ?? [])].sort((a, b) => roleRank(a.role) - roleRank(b.role));
+    return [...(props.members ?? [])].sort((a, b) => {
+      const byRole = roleRank(a.role) - roleRank(b.role);
+      if (byRole !== 0) return byRole;
+      return displayName(a).localeCompare(displayName(b));
+    });
   }, [props.members]);
 
-  const owner = useMemo(() => sortedMembers.find((m) => m.role === "owner") ?? null, [sortedMembers]);
+  const owner = useMemo(
+    () => sortedMembers.find((m) => m.role === "owner") ?? null,
+    [sortedMembers]
+  );
 
   const pendingInvites = useMemo(() => {
     return (props.invites ?? []).filter((i) => i.status === "pending");
@@ -204,7 +242,7 @@ export default function OrgMembersClient(props: {
         {owner ? (
           <div className="mt-2 text-sm">
             <span className="text-gray-500">Current owner:</span>{" "}
-            <span className="font-medium">{owner.full_name || owner.email || owner.user_id}</span>
+            <span className="font-medium">{displayName(owner)}</span>
           </div>
         ) : null}
       </div>
@@ -293,12 +331,20 @@ export default function OrgMembersClient(props: {
             <tbody>
               {sortedMembers.map((m) => {
                 const isOwner = m.role === "owner";
+                const name = displayName(m);
+                const email = displayEmail(m);
+                const joined = fmtDate(m.joined_at);
 
                 return (
                   <tr key={m.user_id} className="border-b last:border-b-0">
                     <td className="py-2 pr-3">
-                      <div className="font-medium">{m.full_name || m.email || m.user_id}</div>
-                      {m.email ? <div className="text-xs text-gray-500">{m.email}</div> : null}
+                      <div className="font-medium">
+                        {name}
+                        {m.isMe ? <span className="ml-2 text-xs text-gray-500">(You)</span> : null}
+                      </div>
+                      {email ? <div className="text-xs text-gray-500">{email}</div> : null}
+                      {!email ? <div className="text-xs text-gray-400">{m.user_id}</div> : null}
+                      {joined ? <div className="text-xs text-gray-400">Joined {joined}</div> : null}
                     </td>
 
                     <td className="py-2 pr-3">
@@ -410,12 +456,14 @@ export default function OrgMembersClient(props: {
             <tbody>
               {visibleInvites.map((inv) => {
                 const path = invitePath(inv.token);
+                const inviteEmailValue = safeText(inv.email);
+                const created = fmtDate(inv.created_at);
 
                 return (
                   <tr key={inv.id} className="border-b last:border-b-0">
                     <td className="py-2 pr-3">
-                      <div className="font-medium">{inv.email}</div>
-                      {inv.created_at ? <div className="text-xs text-gray-500">{inv.created_at}</div> : null}
+                      <div className="font-medium">{inviteEmailValue || "—"}</div>
+                      {created ? <div className="text-xs text-gray-500">{created}</div> : null}
                     </td>
 
                     <td className="py-2 pr-3">
