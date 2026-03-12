@@ -537,19 +537,57 @@ async function handle(req: Request, method: "GET" | "POST") {
     filters = parseFiltersFromBody(body);
   }
 
-  // 1. Resolve raw scope from org membership
-  const scoped    = await resolveOrgActiveProjectScope(supabase, auth.user.id);
-  const scopeMeta = (scoped as any)?.meta ?? (scoped as any) ?? {};
-  const orgId     = (scoped as any)?.organisationId ?? (scopeMeta as any)?.organisationId ?? null;
+// 1. Resolve active org, then fetch org-wide projects
+const scoped = await resolveOrgActiveProjectScope(supabase, auth.user.id);
+const scopeMeta = (scoped as any)?.meta ?? (scoped as any) ?? {};
+const orgId =
+  (scoped as any)?.organisationId ??
+  (scopeMeta as any)?.organisationId ??
+  null;
 
-  const scopedIdsRaw: string[] = Array.isArray((scoped as any)?.scopedIdsRaw)
-    ? (scoped as any).scopedIdsRaw
-    : Array.isArray(scopeMeta?.scopedIdsRaw)
-      ? scopeMeta.scopedIdsRaw
-      : Array.isArray((scoped as any)?.projectIds)
-        ? (scoped as any).projectIds
-        : [];
+if (!orgId) {
+  return jsonOk({
+    projectCount: 0,
+    score: 0,
+    parts: { schedule: 0, raid: 0, flow: 0, approvals: 0, activity: 0 },
+    schedule: null,
+    raid: null,
+    approvals: { pending: 0, source: null, ok: true, error: null },
+    activity: { stale7d: 0, ok: true, meta: {} },
+    meta: {
+      organisationId: null,
+      days: daysParam,
+      windowDays,
+      activeFilter: {
+        rawCount: 0,
+        activeCount: 0,
+        finalCount: 0,
+        notes: ["No active organisation resolved."],
+      },
+      filters: { applied: false, filters, notes: [] },
+      scope: { ...scopeMeta, scopedIdsRaw: [], scopedIdsActive: [], source: "org-none", orgScope: null },
+      notes: ["No active organisation in scope."],
+    },
+  });
+}
 
+const { data: orgProjects, error: orgProjectsErr } = await supabase
+  .from("projects")
+  .select("id")
+  .eq("organisation_id", orgId)
+  .is("deleted_at", null)
+  .limit(20000);
+
+if (orgProjectsErr) {
+  return jsonErr("Failed to resolve organisation projects", 500, {
+    organisationId: orgId,
+    detail: orgProjectsErr.message,
+  });
+}
+
+const scopedIdsRaw: string[] = (orgProjects ?? [])
+  .map((p: any) => String(p?.id || "").trim())
+  .filter(Boolean);
   // ✅ FIX-1 + FIX-2: direct DB filter — replaces the old helper-only approach
   const activeNotes: string[] = [];
   const activeIds = await resolveActiveProjectIds(supabase, scopedIdsRaw, orgId, activeNotes);
