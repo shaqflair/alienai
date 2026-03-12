@@ -1,25 +1,92 @@
 "use server";
 // src/app/actions/org-admin.ts
+
 import "server-only";
+
 import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 
 export type OrgRole = "owner" | "admin" | "member";
+type InviteRole = "admin" | "member";
 
-function normRole(x: any): OrgRole {
-  const r = String(x ?? "").trim().toLowerCase();
+function safeStr(x: unknown) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function isUuid(x: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(x || "").trim()
+  );
+}
+
+function normRole(x: unknown): OrgRole {
+  const r = safeStr(x).trim().toLowerCase();
   if (r === "owner" || r === "admin" || r === "member") return r;
   return "member";
 }
 
-function safeStr(x: any) {
-  return typeof x === "string" ? x : x == null ? "" : String(x);
+function normInviteRole(x: unknown): InviteRole {
+  const r = safeStr(x).trim().toLowerCase();
+  return r === "admin" ? "admin" : "member";
+}
+
+function isEmailLike(v: string) {
+  const s = safeStr(v).trim();
+  return s.includes("@") && s.includes(".");
+}
+
+function sbErrText(e: any) {
+  if (!e) return "Unknown error";
+  if (typeof e === "string") return e;
+  if (e instanceof Error) return e.message;
+  if (typeof e?.message === "string") return e.message;
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
+}
+
+async function updateActiveOrganisationInProfile(
+  sb: any,
+  userId: string,
+  organisationId: string | null
+) {
+  const first = await sb
+    .from("profiles")
+    .update({ active_organisation_id: organisationId })
+    .eq("user_id", userId);
+
+  if (!first.error) return;
+
+  const msg = sbErrText(first.error).toLowerCase();
+  const looksLikeColumnMismatch =
+    msg.includes("column") ||
+    msg.includes("user_id") ||
+    msg.includes("schema") ||
+    msg.includes("does not exist");
+
+  if (!looksLikeColumnMismatch) {
+    throw new Error(sbErrText(first.error));
+  }
+
+  const second = await sb
+    .from("profiles")
+    .update({ active_organisation_id: organisationId })
+    .eq("id", userId);
+
+  if (second.error) {
+    throw new Error(sbErrText(second.error));
+  }
 }
 
 /**
  * Returns your active role in the org, or null if not a current member.
  */
 export async function getMyOrgRole(organisationId: string): Promise<OrgRole | null> {
+  const orgId = safeStr(organisationId).trim();
+  if (!orgId || !isUuid(orgId)) return null;
+
   const sb = await createClient();
   const { data: auth, error: authErr } = await sb.auth.getUser();
   if (authErr) throw authErr;
@@ -28,13 +95,14 @@ export async function getMyOrgRole(organisationId: string): Promise<OrgRole | nu
   const { data, error } = await sb
     .from("organisation_members")
     .select("role, removed_at")
-    .eq("organisation_id", organisationId)
+    .eq("organisation_id", orgId)
     .eq("user_id", auth.user.id)
     .is("removed_at", null)
     .maybeSingle();
 
   if (error) throw error;
   if (!data) return null;
+
   return normRole(data.role);
 }
 
@@ -42,9 +110,13 @@ export async function getMyOrgRole(organisationId: string): Promise<OrgRole | nu
  * Throws if the current user is not owner/admin of the org.
  */
 export async function requireOrgAdmin(organisationId: string) {
-  const role = await getMyOrgRole(organisationId);
+  const orgId = safeStr(organisationId).trim();
+  if (!orgId || !isUuid(orgId)) throw new Error("Invalid organisation id");
+
+  const role = await getMyOrgRole(orgId);
   if (!role) throw new Error("Not a member of this organisation");
   if (!(role === "owner" || role === "admin")) throw new Error("Admin permission required");
+
   return { role };
 }
 
@@ -61,7 +133,7 @@ export async function isOrgAdmin(organisationId: string): Promise<boolean> {
 }
 
 /* ------------------------------------------------------------------ */
-/* Server Actions used by src/app/settings/page.tsx                    */
+/* Server Actions                                                      */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -70,42 +142,57 @@ export async function isOrgAdmin(organisationId: string): Promise<boolean> {
  */
 export async function createOrganisation(formData: FormData) {
   const sb = await createClient();
+
   const { data: auth, error: authErr } = await sb.auth.getUser();
   if (authErr) throw authErr;
   if (!auth?.user) throw new Error("Not authenticated");
 
+  const userId = safeStr(auth.user.id).trim();
+  if (!userId || !isUuid(userId)) throw new Error("Invalid authenticated user");
+
   const name = safeStr(formData.get("name")).trim();
   if (!name) throw new Error("Organisation name is required");
+  if (name.length > 120) throw new Error("Organisation name is too long");
 
   const { data: org, error: orgErr } = await sb
     .from("organisations")
-    .insert({ name })
+    .insert({ name, created_by: userId })
     .select("id")
     .single();
 
   if (orgErr) throw new Error(orgErr.message);
+  if (!org?.id) throw new Error("Failed to create organisation");
 
-  const { error: memErr } = await sb
-    .from("organisation_members")
-    .insert({ organisation_id: org.id, user_id: auth.user.id, role: "owner" });
+  const { error: memErr } = await sb.from("organisation_members").insert({
+    organisation_id: org.id,
+    user_id: userId,
+    role: "owner",
+    removed_at: null,
+  });
 
-  if (memErr) throw new Error(memErr.message);
+  if (memErr) {
+    await sb.from("organisations").delete().eq("id", org.id);
+    throw new Error(`Organisation created but owner membership failed: ${memErr.message}`);
+  }
+
+  await updateActiveOrganisationInProfile(sb, userId, org.id);
 
   redirect("/settings");
 }
 
 /**
- * Rename the active organisation.
+ * Rename organisation.
  * Form fields: org_id (string), name (string)
  */
 export async function renameOrganisation(formData: FormData) {
   const sb = await createClient();
 
   const orgId = safeStr(formData.get("org_id")).trim();
-  const name  = safeStr(formData.get("name")).trim();
+  const name = safeStr(formData.get("name")).trim();
 
-  if (!orgId) throw new Error("org_id is required");
-  if (!name)  throw new Error("Organisation name is required");
+  if (!orgId || !isUuid(orgId)) throw new Error("org_id is required");
+  if (!name) throw new Error("Organisation name is required");
+  if (name.length > 120) throw new Error("Organisation name is too long");
 
   await requireOrgAdmin(orgId);
 
@@ -120,26 +207,33 @@ export async function renameOrganisation(formData: FormData) {
 }
 
 /**
- * Invite a user to the active organisation by email.
+ * Invite a user to an organisation by email.
  * Form fields: org_id (string), email (string), role ("member" | "admin")
  *
- * NOTE: Requires an invites table or Supabase Auth invite flow.
- * Currently inserts into organisation_invites - wire up email sending separately.
+ * Inserts into organisation_invites. Email sending can be wired separately.
  */
 export async function inviteToOrganisation(formData: FormData) {
   const sb = await createClient();
 
   const orgId = safeStr(formData.get("org_id")).trim();
   const email = safeStr(formData.get("email")).trim().toLowerCase();
-  const role  = normRole(formData.get("role"));
+  const role = normInviteRole(formData.get("role"));
 
-  if (!orgId) throw new Error("org_id is required");
+  if (!orgId || !isUuid(orgId)) throw new Error("org_id is required");
   if (!email) throw new Error("Email is required");
+  if (!isEmailLike(email)) throw new Error("Valid email is required");
 
   await requireOrgAdmin(orgId);
 
-  const { data: auth } = await sb.auth.getUser();
-  const invitedBy = auth?.user?.id ?? null;
+  const {
+    data: { user },
+    error: authErr,
+  } = await sb.auth.getUser();
+
+  if (authErr) throw authErr;
+  if (!user) throw new Error("Not authenticated");
+
+  const invitedBy = safeStr(user.id).trim() || null;
 
   const { error } = await sb
     .from("organisation_invites")

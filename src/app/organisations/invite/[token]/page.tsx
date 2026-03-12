@@ -1,162 +1,215 @@
-﻿// FILE: src/app/organisations/invite/[token]/page.tsx
+﻿// src/app/api/organisation-invites/accept/route.ts
 import "server-only";
-import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
-import { createClient } from "@/utils/supabase/server";
 
-export const runtime    = "nodejs";
-export const dynamic    = "force-dynamic";
+import { NextResponse } from "next/server";
+import { createClient } from "@/utils/supabase/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function safeParam(x: unknown): string {
-  return typeof x === "string" ? x : "";
+function noStoreJson(payload: any, status = 200) {
+  const res = NextResponse.json(payload, { status });
+  res.headers.set("Cache-Control", "no-store, max-age=0");
+  return res;
 }
 
-async function acceptOrgInvite(token: string, cookieHeader: string) {
-  const base =
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.APP_ORIGIN ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    "";
-
-  const url = `${base.replace(/\/+$/, "")}/api/organisation-invites/accept`;
-
-  const res = await fetch(url, {
-    method:  "POST",
-    headers: { "Content-Type": "application/json", Cookie: cookieHeader },
-    body:    JSON.stringify({ token }),
-    cache:   "no-store",
-  });
-
-  return res.json().catch(() => ({ ok: false, error: "Invalid response" }));
+function ok(data: Record<string, any> = {}, status = 200) {
+  return noStoreJson({ ok: true, ...data }, status);
 }
 
-function Page({ title, body, actions, note }: {
-  title:    string;
-  body:     string;
-  actions?: React.ReactNode;
-  note?:    string;
-}) {
-  return (
-    <div style={{
-      minHeight: "100vh", background: "#f8fafc",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
-      padding: "24px",
-    }}>
-      <div style={{
-        maxWidth: "440px", width: "100%",
-        background: "white", borderRadius: "20px",
-        border: "1.5px solid #e2e8f0",
-        boxShadow: "0 8px 40px rgba(0,0,0,0.08)",
-        overflow: "hidden",
-      }}>
-        <div style={{
-          background: "linear-gradient(135deg,#0e7490 0%,#0891b2 100%)",
-          padding: "24px 28px",
-        }}>
-          <div style={{ fontSize: "20px", fontWeight: 900, color: "white",
-                        letterSpacing: "-0.3px" }}>Aliena</div>
-          <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.65)",
-                        marginTop: "2px" }}>Governance intelligence</div>
-        </div>
-        <div style={{ padding: "28px" }}>
-          <h1 style={{ fontSize: "18px", fontWeight: 800, color: "#0f172a",
-                       margin: "0 0 10px" }}>{title}</h1>
-          <p style={{ fontSize: "13px", color: "#475569", margin: "0 0 20px",
-                      lineHeight: 1.6 }}>{body}</p>
-          {actions && <div style={{ display: "flex", gap: "8px" }}>{actions}</div>}
-          {note && (
-            <div style={{
-              marginTop: "16px", padding: "12px 14px",
-              background: "#f8fafc", borderRadius: "8px",
-              border: "1px solid #e2e8f0",
-              fontSize: "11px", color: "#94a3b8", lineHeight: 1.5,
-            }}>{note}</div>
-          )}
-        </div>
-      </div>
-    </div>
+function err(error: string, status = 400, extra?: Record<string, any>) {
+  return noStoreJson({ ok: false, error, ...(extra || {}) }, status);
+}
+
+function safeStr(x: unknown) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function safeLower(x: unknown) {
+  return safeStr(x).trim().toLowerCase();
+}
+
+function isUuid(x: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(x || "").trim()
   );
 }
 
-function Btn({ href, children, primary }: {
-  href: string; children: React.ReactNode; primary?: boolean;
-}) {
-  return (
-    <a href={href} style={{
-      display: "inline-flex", alignItems: "center",
-      padding: "9px 18px", borderRadius: "9px",
-      fontSize: "13px", fontWeight: 700, textDecoration: "none",
-      background: primary ? "#0e7490" : "white",
-      color:      primary ? "white"   : "#475569",
-      border:     primary ? "none"    : "1.5px solid #e2e8f0",
-      boxShadow:  primary ? "0 2px 12px rgba(14,116,144,0.25)" : "none",
-    }}>{children}</a>
-  );
+function normaliseInviteRole(x: unknown): "admin" | "member" {
+  const r = safeLower(x);
+  return r === "admin" ? "admin" : "member";
 }
 
-export default async function OrgInviteTokenPage({
-  params,
-}: {
-  params: { token?: string } | Promise<{ token?: string }>;
-}) {
-  const p     = await Promise.resolve(params as any);
-  const token = safeParam(p?.token).trim();
-
-  if (!token) {
-    return (
-      <Page
-        title="Invalid invite link"
-        body="This invite link is missing a token and cannot be used."
-        actions={<Btn href="/projects" primary>Go to projects</Btn>}
-      />
-    );
-  }
-
-  const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
-
-  if (!auth?.user) {
-    redirect(`/login?next=${encodeURIComponent(`/organisations/invite/${encodeURIComponent(token)}`)}`);
-  }
-
-  const cookieStore  = await cookies();
-  const cookieHeader = cookieStore.getAll().map(c => `${c.name}=${c.value}`).join("; ");
-
-  let result: any;
+export async function POST(req: Request) {
   try {
-    result = await acceptOrgInvite(token, cookieHeader);
+    const sb = await createClient();
+    const { data: auth, error: authErr } = await sb.auth.getUser();
+
+    if (authErr) return err(authErr.message, 401);
+    if (!auth?.user) return err("Not authenticated", 401);
+
+    const userId = safeStr(auth.user.id).trim();
+    const myEmail = safeLower(auth.user.email);
+
+    if (!userId || !isUuid(userId)) return err("Invalid authenticated user", 401);
+    if (!myEmail) return err("User email missing", 400);
+
+    const body = await req.json().catch(() => ({}));
+    const token = safeStr((body as any)?.token).trim();
+
+    if (!token) return err("Missing token", 400);
+
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!url || !serviceKey) {
+      return err("Server misconfigured (missing service role env)", 500);
+    }
+
+    const admin = createAdminClient(url, serviceKey);
+
+    const { data: inv, error: invErr } = await admin
+      .from("organisation_invites")
+      .select(
+        "id, organisation_id, email, role, status, expires_at, accepted_at, accepted_by"
+      )
+      .eq("token", token)
+      .maybeSingle();
+
+    if (invErr) return err(invErr.message, 400);
+    if (!inv) return err("Invite not found", 404);
+
+    const organisationId = safeStr(inv.organisation_id).trim();
+    if (!organisationId || !isUuid(organisationId)) {
+      return err("Invite is linked to an invalid organisation", 400);
+    }
+
+    const invEmail = safeLower(inv.email);
+    if (invEmail && invEmail !== myEmail) {
+      return err("Invite email mismatch", 403);
+    }
+
+    if (inv.expires_at && new Date(inv.expires_at).getTime() < Date.now()) {
+      return err("Invite expired", 400);
+    }
+
+    const role = normaliseInviteRole(inv.role);
+
+    // Idempotent path:
+    // If invite is already accepted, still make sure membership exists and
+    // the user's active org is switched correctly.
+    if (safeLower(inv.status) === "accepted") {
+      const { data: existingMember, error: existingMemberErr } = await admin
+        .from("organisation_members")
+        .select("organisation_id, user_id, role, removed_at")
+        .eq("organisation_id", organisationId)
+        .eq("user_id", userId)
+        .is("removed_at", null)
+        .maybeSingle();
+
+      if (existingMemberErr) return err(existingMemberErr.message, 400);
+
+      if (!existingMember) {
+        const { error: restoreErr } = await admin
+          .from("organisation_members")
+          .upsert(
+            {
+              organisation_id: organisationId,
+              user_id: userId,
+              role,
+              removed_at: null,
+            },
+            { onConflict: "organisation_id,user_id" }
+          );
+
+        if (restoreErr) return err(restoreErr.message, 400);
+      }
+
+      const { error: profileErr } = await admin
+        .from("profiles")
+        .update({ active_organisation_id: organisationId })
+        .eq("user_id", userId);
+
+      if (profileErr) {
+        return err("Invite was accepted, but failed to switch active organisation", 500, {
+          organisation_id: organisationId,
+        });
+      }
+
+      return ok({
+        accepted: true,
+        already_accepted: true,
+        organisation_id: organisationId,
+        role,
+      });
+    }
+
+    if (safeLower(inv.status) !== "pending") {
+      return err(`Invite is ${safeStr(inv.status) || "not usable"}`, 400);
+    }
+
+    // Ensure membership exists before marking the invite as accepted.
+    // This prevents "accepted" invites with no actual org membership.
+    const { error: upErr } = await admin
+      .from("organisation_members")
+      .upsert(
+        {
+          organisation_id: organisationId,
+          user_id: userId,
+          role,
+          removed_at: null,
+        },
+        { onConflict: "organisation_id,user_id" }
+      );
+
+    if (upErr) return err(upErr.message, 400);
+
+    // Set the user's active organisation immediately after membership creation.
+    // This is critical for org-scoped dashboards and portfolio queries.
+    const { error: profileErr } = await admin
+      .from("profiles")
+      .update({ active_organisation_id: organisationId })
+      .eq("user_id", userId);
+
+    if (profileErr) {
+      return err("Membership created, but failed to switch active organisation", 500, {
+        organisation_id: organisationId,
+      });
+    }
+
+    const { data: upd, error: accErr } = await admin
+      .from("organisation_invites")
+      .update({
+        status: "accepted",
+        accepted_at: new Date().toISOString(),
+        accepted_by: userId,
+      })
+      .eq("id", inv.id)
+      .eq("status", "pending")
+      .select("id")
+      .maybeSingle();
+
+    if (accErr) return err(accErr.message, 400);
+
+    // If another request accepted it first, treat it as success as long as
+    // membership and active org were already completed above.
+    if (!upd) {
+      return ok({
+        accepted: true,
+        race_recovered: true,
+        organisation_id: organisationId,
+        role,
+      });
+    }
+
+    return ok({
+      accepted: true,
+      organisation_id: organisationId,
+      role,
+    });
   } catch (e: any) {
-    return (
-      <Page
-        title="Something went wrong"
-        body={String(e?.message ?? "Unable to process the invite.")}
-        actions={<><Btn href="/login">Log in</Btn><Btn href="/projects" primary>Go to projects</Btn></>}
-        note="The invite may be expired, revoked, or intended for a different email address."
-      />
-    );
+    return err(e?.message || "Unknown error", 500);
   }
-
-  if (!result?.ok) {
-    return (
-      <Page
-        title="Couldn't accept invite"
-        body={String(result?.error || "Unable to accept invite.")}
-        actions={<><Btn href="/login">Log in</Btn><Btn href="/projects" primary>Go to projects</Btn></>}
-        note="The invite may be expired, revoked, already accepted, or intended for a different email."
-      />
-    );
-  }
-
-  const orgId = String(result?.organisation_id || "").trim();
-  if (orgId) redirect("/people?joined=1");
-
-  return (
-    <Page
-      title="You're in!"
-      body="You've been added to the organisation successfully."
-      actions={<Btn href="/projects" primary>Go to projects</Btn>}
-    />
-  );
 }

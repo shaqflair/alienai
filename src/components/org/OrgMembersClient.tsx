@@ -13,21 +13,34 @@ type MemberRow = {
   email?: string | null;
 };
 
+type InviteStatus = "pending" | "accepted" | "revoked";
+
 type InviteRow = {
   id: string;
   email: string;
   role: "admin" | "member";
-  status: "pending" | "accepted" | "revoked";
+  status: InviteStatus;
   created_at?: string | null;
-  token?: string | null; // for copy link
+  token?: string | null;
 };
 
-function Pill({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center rounded-full border bg-white px-2 py-0.5 text-xs">
-      {children}
-    </span>
-  );
+function Pill({
+  children,
+  tone = "default",
+}: {
+  children: React.ReactNode;
+  tone?: "default" | "success" | "warn" | "muted";
+}) {
+  const cls =
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : tone === "warn"
+      ? "border-amber-200 bg-amber-50 text-amber-700"
+      : tone === "muted"
+      ? "border-gray-200 bg-gray-50 text-gray-500"
+      : "border-gray-200 bg-white text-gray-700";
+
+  return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${cls}`}>{children}</span>;
 }
 
 function ConfirmInline({
@@ -44,7 +57,7 @@ function ConfirmInline({
   if (!armed) {
     return (
       <button
-        className="rounded border px-2 py-1 text-sm hover:bg-gray-50"
+        className="rounded border px-2 py-1 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
         type="button"
         disabled={disabled}
         onClick={() => setArmed(true)}
@@ -58,7 +71,7 @@ function ConfirmInline({
     <span className="inline-flex items-center gap-2">
       <span className="text-sm text-red-600">Are you sure?</span>
       <button
-        className="rounded border border-red-300 px-2 py-1 text-sm hover:bg-red-50"
+        className="rounded border border-red-300 px-2 py-1 text-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
         type="button"
         disabled={disabled}
         onClick={onConfirm}
@@ -66,7 +79,7 @@ function ConfirmInline({
         Confirm
       </button>
       <button
-        className="rounded border px-2 py-1 text-sm hover:bg-gray-50"
+        className="rounded border px-2 py-1 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
         type="button"
         disabled={disabled}
         onClick={() => setArmed(false)}
@@ -86,6 +99,12 @@ function roleRank(r: OrgRole) {
   return r === "owner" ? 0 : r === "admin" ? 1 : 2;
 }
 
+function inviteStatusTone(status: InviteStatus): "default" | "success" | "warn" | "muted" {
+  if (status === "accepted") return "success";
+  if (status === "pending") return "warn";
+  return "muted";
+}
+
 export default function OrgMembersClient(props: {
   organisationId: string;
   myRole: OrgRole;
@@ -95,6 +114,7 @@ export default function OrgMembersClient(props: {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [err, setErr] = useState("");
+  const [showInviteHistory, setShowInviteHistory] = useState(false);
 
   const manage = props.myRole === "admin" || props.myRole === "owner";
 
@@ -104,8 +124,24 @@ export default function OrgMembersClient(props: {
 
   const owner = useMemo(() => sortedMembers.find((m) => m.role === "owner") ?? null, [sortedMembers]);
 
+  const pendingInvites = useMemo(() => {
+    return (props.invites ?? []).filter((i) => i.status === "pending");
+  }, [props.invites]);
+
+  const historicalInvites = useMemo(() => {
+    return (props.invites ?? []).filter((i) => i.status !== "pending");
+  }, [props.invites]);
+
+  const visibleInvites = showInviteHistory
+    ? [...pendingInvites, ...historicalInvites]
+    : pendingInvites;
+
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"member" | "admin">("member");
+
+  async function readJsonSafe(r: Response) {
+    return r.json().catch(() => ({}));
+  }
 
   async function apiPost(url: string, body: any) {
     const r = await fetch(url, {
@@ -113,8 +149,9 @@ export default function OrgMembersClient(props: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const j = await r.json().catch(() => ({}));
-    if (!j?.ok) throw new Error(j?.error || "Request failed");
+
+    const j = await readJsonSafe(r);
+    if (!r.ok || !j?.ok) throw new Error(j?.error || "Request failed");
     return j;
   }
 
@@ -124,15 +161,16 @@ export default function OrgMembersClient(props: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const j = await r.json().catch(() => ({}));
-    if (!j?.ok) throw new Error(j?.error || "Request failed");
+
+    const j = await readJsonSafe(r);
+    if (!r.ok || !j?.ok) throw new Error(j?.error || "Request failed");
     return j;
   }
 
   async function apiDelete(url: string) {
     const r = await fetch(url, { method: "DELETE" });
-    const j = await r.json().catch(() => ({}));
-    if (!j?.ok) throw new Error(j?.error || "Request failed");
+    const j = await readJsonSafe(r);
+    if (!r.ok || !j?.ok) throw new Error(j?.error || "Request failed");
     return j;
   }
 
@@ -143,12 +181,13 @@ export default function OrgMembersClient(props: {
 
   async function copyInvite(token?: string | null) {
     const p = invitePath(token);
-    if (!p) return;
+    if (!p || typeof window === "undefined") return;
+
     const absolute = `${window.location.origin}${p}`;
     try {
       await navigator.clipboard.writeText(absolute);
     } catch {
-      // ignore
+      setErr("Could not copy invite link.");
     }
   }
 
@@ -156,9 +195,8 @@ export default function OrgMembersClient(props: {
     <div className="space-y-8 text-gray-900">
       {err ? <div className="rounded border bg-red-50 p-3 text-sm text-red-700">{err}</div> : null}
 
-      {/* Governance hint */}
       <div className="rounded border bg-white p-4 text-sm text-gray-700">
-        <div className="font-medium mb-1">Single-owner governance</div>
+        <div className="mb-1 font-medium">Single-owner governance</div>
         <div className="text-xs text-gray-500">
           The <b>owner</b> cannot be removed or demoted here. Ownership transfer happens in{" "}
           <b>Organisation settings → Governance</b>.
@@ -171,7 +209,6 @@ export default function OrgMembersClient(props: {
         ) : null}
       </div>
 
-      {/* Invite */}
       {manage ? (
         <div className="space-y-3 rounded border bg-white p-4">
           <div className="font-medium">Invite member</div>
@@ -203,7 +240,7 @@ export default function OrgMembersClient(props: {
 
             <button
               type="button"
-              className="rounded border px-3 py-2 hover:bg-gray-50"
+              className="rounded border px-3 py-2 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={pending || !inviteEmail.trim() || !isEmailLike(inviteEmail)}
               onClick={() => {
                 setErr("");
@@ -215,6 +252,7 @@ export default function OrgMembersClient(props: {
                       role: inviteRole,
                     });
                     setInviteEmail("");
+                    setInviteRole("member");
                     router.refresh();
                   } catch (e: any) {
                     setErr(e?.message || "Invite failed");
@@ -226,15 +264,16 @@ export default function OrgMembersClient(props: {
             </button>
           </div>
 
-          <div className="text-xs text-gray-500">Invites produce a shareable link. Email sending can come later.</div>
+          <div className="text-xs text-gray-500">
+            Invites produce a shareable link. Email sending can come later.
+          </div>
         </div>
       ) : (
         <div className="rounded border bg-white p-4 text-sm text-gray-600">
-          You can view members. Only <b>owners/admins</b> can invite/remove/change roles.
+          You can view members. Only <b>owners/admins</b> can invite, remove, or change roles.
         </div>
       )}
 
-      {/* Members */}
       <div className="rounded border bg-white p-4">
         <div className="mb-3 flex items-center justify-between">
           <div className="font-medium">Organisation members</div>
@@ -286,7 +325,6 @@ export default function OrgMembersClient(props: {
                             });
                           }}
                         >
-                          {/* owner is intentionally NOT available here */}
                           <option value="member">member</option>
                           <option value="admin">admin</option>
                         </select>
@@ -304,7 +342,6 @@ export default function OrgMembersClient(props: {
                             setErr("");
                             startTransition(async () => {
                               try {
-                                // Backend should soft-remove (removed_at = now()).
                                 await apiDelete(
                                   `/api/organisation-members?organisationId=${encodeURIComponent(
                                     props.organisationId
@@ -337,11 +374,25 @@ export default function OrgMembersClient(props: {
         </div>
       </div>
 
-      {/* Invites */}
       <div className="rounded border bg-white p-4">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex items-center justify-between gap-3">
           <div className="font-medium">Invites</div>
-          <Pill>{(props.invites ?? []).filter((i) => i.status === "pending").length} pending</Pill>
+          <div className="flex items-center gap-2">
+            <Pill tone="warn">{pendingInvites.length} pending</Pill>
+            {historicalInvites.length > 0 ? (
+              <button
+                type="button"
+                className="rounded border px-2 py-1 text-xs hover:bg-gray-50"
+                onClick={() => setShowInviteHistory((v) => !v)}
+              >
+                {showInviteHistory ? "Hide history" : `Show history (${historicalInvites.length})`}
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mb-3 text-xs text-gray-500">
+          Accepted invites should appear in <b>Organisation members</b>. The table below is focused on pending invite management.
         </div>
 
         <div className="overflow-auto">
@@ -350,75 +401,84 @@ export default function OrgMembersClient(props: {
               <tr className="border-b">
                 <th className="py-2 pr-3">Email</th>
                 <th className="py-2 pr-3">Role</th>
+                <th className="py-2 pr-3">Status</th>
                 <th className="py-2 pr-3">Link</th>
                 <th className="py-2 pr-3">Actions</th>
               </tr>
             </thead>
 
             <tbody>
-              {(props.invites ?? []).map((inv) => (
-                <tr key={inv.id} className="border-b last:border-b-0">
-                  <td className="py-2 pr-3">
-                    <div className="font-medium">{inv.email}</div>
-                    <div className="text-xs text-gray-500">{inv.status}</div>
-                  </td>
+              {visibleInvites.map((inv) => {
+                const path = invitePath(inv.token);
 
-                  <td className="py-2 pr-3">
-                    <Pill>{inv.role}</Pill>
-                  </td>
+                return (
+                  <tr key={inv.id} className="border-b last:border-b-0">
+                    <td className="py-2 pr-3">
+                      <div className="font-medium">{inv.email}</div>
+                      {inv.created_at ? <div className="text-xs text-gray-500">{inv.created_at}</div> : null}
+                    </td>
 
-                  <td className="py-2 pr-3">
-                    {inv.token ? (
-                      <div className="flex items-center gap-2">
-                        <input
-                          readOnly
-                          className="w-[320px] rounded border bg-white px-2 py-1 text-xs text-gray-900"
-                          value={`${typeof window !== "undefined" ? window.location.origin : ""}${invitePath(inv.token)}`}
+                    <td className="py-2 pr-3">
+                      <Pill>{inv.role}</Pill>
+                    </td>
+
+                    <td className="py-2 pr-3">
+                      <Pill tone={inviteStatusTone(inv.status)}>{inv.status}</Pill>
+                    </td>
+
+                    <td className="py-2 pr-3">
+                      {inv.token && inv.status === "pending" ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            readOnly
+                            className="w-[320px] rounded border bg-white px-2 py-1 text-xs text-gray-900"
+                            value={path}
+                          />
+                          <button
+                            type="button"
+                            className="rounded border px-2 py-1 text-sm hover:bg-gray-50"
+                            onClick={() => copyInvite(inv.token)}
+                          >
+                            Copy
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
+                    </td>
+
+                    <td className="py-2 pr-3">
+                      {manage && inv.status === "pending" ? (
+                        <ConfirmInline
+                          label="Revoke"
+                          disabled={pending}
+                          onConfirm={() => {
+                            setErr("");
+                            startTransition(async () => {
+                              try {
+                                await apiPatch("/api/organisation-invites", {
+                                  id: inv.id,
+                                  status: "revoked",
+                                });
+                                router.refresh();
+                              } catch (e: any) {
+                                setErr(e?.message || "Revoke failed");
+                              }
+                            });
+                          }}
                         />
-                        <button
-                          type="button"
-                          className="rounded border px-2 py-1 text-sm hover:bg-gray-50"
-                          onClick={() => copyInvite(inv.token)}
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-gray-400">—</span>
-                    )}
-                  </td>
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
 
-                  <td className="py-2 pr-3">
-                    {manage ? (
-                      <ConfirmInline
-                        label="Revoke"
-                        disabled={pending || inv.status !== "pending"}
-                        onConfirm={() => {
-                          setErr("");
-                          startTransition(async () => {
-                            try {
-                              await apiPatch("/api/organisation-invites", {
-                                id: inv.id,
-                                status: "revoked",
-                              });
-                              router.refresh();
-                            } catch (e: any) {
-                              setErr(e?.message || "Revoke failed");
-                            }
-                          });
-                        }}
-                      />
-                    ) : (
-                      <span className="text-xs text-gray-400">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-
-              {(props.invites ?? []).length === 0 ? (
+              {visibleInvites.length === 0 ? (
                 <tr>
-                  <td className="py-4 text-gray-500" colSpan={4}>
-                    No invites.
+                  <td className="py-4 text-gray-500" colSpan={5}>
+                    {showInviteHistory ? "No invites." : "No pending invites."}
                   </td>
                 </tr>
               ) : null}

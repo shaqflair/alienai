@@ -1,15 +1,26 @@
 import "server-only";
+
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-function jsonErr(error: string, status = 400) {
-  return NextResponse.json({ ok: false, error }, { status });
+function noStoreJson(payload: any, status = 200) {
+  const res = NextResponse.json(payload, { status });
+  res.headers.set("Cache-Control", "no-store, max-age=0");
+  return res;
 }
-function safeStr(x: any) {
-  return typeof x === "string" ? x : "";
+
+function jsonErr(error: string, status = 400, extra?: Record<string, any>) {
+  return noStoreJson({ ok: false, error, ...(extra || {}) }, status);
 }
+
+function safeStr(x: unknown) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
 function sbErrText(e: any) {
   if (!e) return "Unknown error";
   if (typeof e === "string") return e;
@@ -21,42 +32,106 @@ function sbErrText(e: any) {
     return String(e);
   }
 }
+
 function isUuid(x: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test((x || "").trim());
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(x || "").trim()
+  );
+}
+
+function isSafeNext(next: string) {
+  if (!next) return false;
+  if (!next.startsWith("/")) return false;
+  if (next.startsWith("//")) return false;
+  return true;
+}
+
+async function updateActiveOrganisation(sb: any, userId: string, orgId: string) {
+  // Primary path: profiles.user_id
+  const first = await sb
+    .from("profiles")
+    .update({ active_organisation_id: orgId })
+    .eq("user_id", userId);
+
+  if (!first.error) return { ok: true as const, used: "user_id" as const };
+
+  const firstMsg = sbErrText(first.error).toLowerCase();
+
+  // Fallback only for schema-shape issues, not general permission/data errors.
+  const looksLikeColumnIssue =
+    firstMsg.includes("column") ||
+    firstMsg.includes("user_id") ||
+    firstMsg.includes("schema") ||
+    firstMsg.includes("does not exist");
+
+  if (!looksLikeColumnIssue) {
+    return { ok: false as const, error: first.error };
+  }
+
+  // Fallback path: profiles.id
+  const second = await sb
+    .from("profiles")
+    .update({ active_organisation_id: orgId })
+    .eq("id", userId);
+
+  if (!second.error) return { ok: true as const, used: "id" as const };
+
+  return { ok: false as const, error: second.error };
 }
 
 export async function POST(req: Request) {
-  const sb = await createClient();
-  const { data: auth, error: authErr } = await sb.auth.getUser();
-  if (authErr) return jsonErr(sbErrText(authErr), 401);
-  if (!auth?.user) return jsonErr("Not authenticated", 401);
+  try {
+    const sb = await createClient();
 
-  const form = await req.formData();
-  const orgId = safeStr(form.get("org_id")).trim();
-  const next = safeStr(form.get("next")).trim() || "/settings";
+    const { data: auth, error: authErr } = await sb.auth.getUser();
+    if (authErr) return jsonErr(sbErrText(authErr), 401);
+    if (!auth?.user) return jsonErr("Not authenticated", 401);
 
-  if (!orgId) return jsonErr("Missing org_id", 400);
-  if (!isUuid(orgId)) return jsonErr("Invalid org_id", 400);
+    const userId = safeStr(auth.user.id).trim();
+    if (!userId || !isUuid(userId)) {
+      return jsonErr("Invalid authenticated user", 401);
+    }
 
-  const { data: member, error } = await sb
-    .from("organisation_members")
-    .select("organisation_id")
-    .eq("user_id", auth.user.id)
-    .eq("organisation_id", orgId)
-    .maybeSingle();
+    const form = await req.formData();
+    const orgId = safeStr(form.get("org_id")).trim();
+    const nextRaw = safeStr(form.get("next")).trim();
+    const next = isSafeNext(nextRaw) ? nextRaw : "/organisations";
 
-  if (error) return jsonErr(sbErrText(error), 400);
-  if (!member) return jsonErr("You are not a member of that organisation.", 403);
+    if (!orgId) return jsonErr("Missing org_id", 400);
+    if (!isUuid(orgId)) return jsonErr("Invalid org_id", 400);
 
-  // ✅ Redirect back to settings so UI refreshes with new cookie
-  const res = NextResponse.redirect(new URL(next, req.url), 303);
+    const { data: member, error: memberErr } = await sb
+      .from("organisation_members")
+      .select("organisation_id, removed_at")
+      .eq("user_id", userId)
+      .eq("organisation_id", orgId)
+      .is("removed_at", null)
+      .maybeSingle();
 
-  res.cookies.set("active_org_id", orgId, {
-    path: "/",
-    sameSite: "lax",
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-  });
+    if (memberErr) return jsonErr(sbErrText(memberErr), 400);
+    if (!member) return jsonErr("You are not a member of that organisation.", 403);
 
-  return res;
+    const profileUpdate = await updateActiveOrganisation(sb, userId, orgId);
+
+    if (!profileUpdate.ok) {
+      return jsonErr(
+        `Failed to switch active organisation: ${sbErrText(profileUpdate.error)}`,
+        500
+      );
+    }
+
+    const res = NextResponse.redirect(new URL(next, req.url), 303);
+    res.headers.set("Cache-Control", "no-store, max-age=0");
+
+    res.cookies.set("active_org_id", orgId, {
+      path: "/",
+      sameSite: "lax",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+    });
+
+    return res;
+  } catch (e: any) {
+    return jsonErr(e?.message || "Unknown error", 500);
+  }
 }

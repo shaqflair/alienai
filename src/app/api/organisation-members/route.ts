@@ -1,115 +1,206 @@
 // FILE: src/app/api/organisation-members/route.ts
 import "server-only";
+
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
-export const runtime  = "nodejs";
-export const dynamic  = "force-dynamic";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+/* ---------------- response helpers ---------------- */
 
 function json(payload: any, status = 200) {
   const res = NextResponse.json(payload, { status });
-  res.headers.set("Cache-Control", "no-store");
+  res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;
 }
-function ok(data: any)               { return json({ ok: true,  ...data }); }
-function bad(error: string, s = 400) { return json({ ok: false, error }, s); }
-function safeStr(x: any): string     { return typeof x === "string" ? x : ""; }
-function isUuid(x: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test((x||"").trim());
+
+function ok(data: any = {}, status = 200) {
+  return json({ ok: true, ...data }, status);
 }
 
-async function requireAdmin(sb: any, orgId: string, userId: string) {
-  const { data } = await sb
+function bad(error: string, status = 400, extra?: Record<string, any>) {
+  return json({ ok: false, error, ...(extra || {}) }, status);
+}
+
+function safeStr(x: unknown): string {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function isUuid(x: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(x || "").trim()
+  );
+}
+
+type OrgRole = "owner" | "admin" | "member";
+
+function normalizeRole(x: unknown): OrgRole {
+  const v = safeStr(x).trim().toLowerCase();
+  if (v === "owner") return "owner";
+  if (v === "admin") return "admin";
+  return "member";
+}
+
+function sbErrText(e: any) {
+  if (!e) return "Unknown error";
+  if (typeof e === "string") return e;
+  if (e instanceof Error) return e.message;
+  if (typeof e?.message === "string") return e.message;
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
+}
+
+/* ---------------- auth helpers ---------------- */
+
+async function getActiveMembership(sb: any, organisationId: string, userId: string) {
+  const { data, error } = await sb
     .from("organisation_members")
-    .select("role")
-    .eq("organisation_id", orgId)
+    .select("organisation_id, user_id, role, removed_at")
+    .eq("organisation_id", organisationId)
     .eq("user_id", userId)
     .is("removed_at", null)
     .maybeSingle();
-  const role = safeStr(data?.role).toLowerCase();
+
+  if (error) throw new Error(error.message);
+  return data ?? null;
+}
+
+async function requireAdmin(sb: any, organisationId: string, userId: string) {
+  const data = await getActiveMembership(sb, organisationId, userId);
+  const role = normalizeRole(data?.role);
   return role === "admin" || role === "owner";
 }
 
-// -- PATCH: update role ------------------------------------------------------
+/* ---------------- PATCH: update role ---------------- */
+
 export async function PATCH(req: Request) {
-  const sb = await createClient();
-  const { data: { user }, error: authErr } = await sb.auth.getUser();
-  if (authErr) return bad(authErr.message, 401);
-  if (!user)   return bad("Not authenticated", 401);
+  try {
+    const sb = await createClient();
+    const {
+      data: { user },
+      error: authErr,
+    } = await sb.auth.getUser();
 
-  const body           = await req.json().catch(() => ({}));
-  const organisation_id = safeStr(body?.organisation_id).trim();
-  const target_user_id  = safeStr(body?.user_id).trim();
-  const role            = safeStr(body?.role).trim().toLowerCase();
+    if (authErr) return bad(authErr.message, 401);
+    if (!user) return bad("Not authenticated", 401);
 
-  if (!isUuid(organisation_id)) return bad("Invalid organisation_id", 400);
-  if (!isUuid(target_user_id))  return bad("Invalid user_id", 400);
-  if (role !== "admin" && role !== "member") return bad("Invalid role", 400);
+    const body = await req.json().catch(() => ({}));
 
-  const isAdmin = await requireAdmin(sb, organisation_id, user.id);
-  if (!isAdmin) return bad("Admin access required", 403);
+    const organisationId = safeStr((body as any)?.organisation_id).trim();
+    const targetUserId = safeStr((body as any)?.user_id).trim();
+    const nextRoleRaw = safeStr((body as any)?.role).trim().toLowerCase();
 
-  // Cannot change owner role via this endpoint
-  const { data: target } = await sb
-    .from("organisation_members")
-    .select("role")
-    .eq("organisation_id", organisation_id)
-    .eq("user_id", target_user_id)
-    .is("removed_at", null)
-    .maybeSingle();
+    if (!isUuid(organisationId)) return bad("Invalid organisation_id", 400);
+    if (!isUuid(targetUserId)) return bad("Invalid user_id", 400);
+    if (nextRoleRaw !== "admin" && nextRoleRaw !== "member") {
+      return bad("Invalid role", 400);
+    }
 
-  if (safeStr(target?.role).toLowerCase() === "owner")
-    return bad("Cannot change owner role. Use transfer ownership instead.", 400);
+    const isAdmin = await requireAdmin(sb, organisationId, user.id);
+    if (!isAdmin) return bad("Admin access required", 403);
 
-  const { error } = await sb
-    .from("organisation_members")
-    .update({ role })
-    .eq("organisation_id", organisation_id)
-    .eq("user_id", target_user_id);
+    const target = await getActiveMembership(sb, organisationId, targetUserId);
+    if (!target) return bad("Target member not found", 404);
 
-  if (error) return bad(error.message, 400);
-  return ok({ updated: true, role });
+    const targetRole = normalizeRole(target.role);
+    if (targetRole === "owner") {
+      return bad("Cannot change owner role. Use transfer ownership instead.", 400);
+    }
+
+    const nextRole = normalizeRole(nextRoleRaw);
+    if (targetRole === nextRole) {
+      return ok({ updated: true, unchanged: true, role: nextRole });
+    }
+
+    const { error } = await sb
+      .from("organisation_members")
+      .update({ role: nextRole })
+      .eq("organisation_id", organisationId)
+      .eq("user_id", targetUserId)
+      .is("removed_at", null);
+
+    if (error) return bad(sbErrText(error), 400);
+
+    return ok({
+      updated: true,
+      organisation_id: organisationId,
+      user_id: targetUserId,
+      role: nextRole,
+    });
+  } catch (e: any) {
+    return bad(e?.message || "Unknown error", 500);
+  }
 }
 
-// -- DELETE: remove member ---------------------------------------------------
+/* ---------------- DELETE: remove member ---------------- */
+
 export async function DELETE(req: Request) {
-  const sb = await createClient();
-  const { data: { user }, error: authErr } = await sb.auth.getUser();
-  if (authErr) return bad(authErr.message, 401);
-  if (!user)   return bad("Not authenticated", 401);
+  try {
+    const sb = await createClient();
+    const {
+      data: { user },
+      error: authErr,
+    } = await sb.auth.getUser();
 
-  const body           = await req.json().catch(() => ({}));
-  const organisation_id = safeStr(body?.organisation_id).trim();
-  const target_user_id  = safeStr(body?.user_id).trim();
+    if (authErr) return bad(authErr.message, 401);
+    if (!user) return bad("Not authenticated", 401);
 
-  if (!isUuid(organisation_id)) return bad("Invalid organisation_id", 400);
-  if (!isUuid(target_user_id))  return bad("Invalid user_id", 400);
+    // Support both querystring delete calls and JSON body delete calls.
+    const url = new URL(req.url);
 
-  // Cannot remove self
-  if (target_user_id === user.id) return bad("Cannot remove yourself", 400);
+    let body: Record<string, any> = {};
+    try {
+      body = await req.json();
+    } catch {
+      body = {};
+    }
 
-  const isAdmin = await requireAdmin(sb, organisation_id, user.id);
-  if (!isAdmin) return bad("Admin access required", 403);
+    const organisationId = safeStr(
+      body.organisation_id ?? body.organisationId ?? url.searchParams.get("organisation_id") ?? url.searchParams.get("organisationId")
+    ).trim();
 
-  // Cannot remove owner
-  const { data: target } = await sb
-    .from("organisation_members")
-    .select("role")
-    .eq("organisation_id", organisation_id)
-    .eq("user_id", target_user_id)
-    .is("removed_at", null)
-    .maybeSingle();
+    const targetUserId = safeStr(
+      body.user_id ?? body.userId ?? url.searchParams.get("user_id") ?? url.searchParams.get("userId")
+    ).trim();
 
-  if (safeStr(target?.role).toLowerCase() === "owner")
-    return bad("Cannot remove the owner. Transfer ownership first.", 400);
+    if (!isUuid(organisationId)) return bad("Invalid organisation_id", 400);
+    if (!isUuid(targetUserId)) return bad("Invalid user_id", 400);
 
-  // Soft remove
-  const { error } = await sb
-    .from("organisation_members")
-    .update({ removed_at: new Date().toISOString() })
-    .eq("organisation_id", organisation_id)
-    .eq("user_id", target_user_id);
+    if (targetUserId === user.id) {
+      return bad("Cannot remove yourself. Use leave organisation instead.", 400);
+    }
 
-  if (error) return bad(error.message, 400);
-  return ok({ removed: true });
+    const isAdmin = await requireAdmin(sb, organisationId, user.id);
+    if (!isAdmin) return bad("Admin access required", 403);
+
+    const target = await getActiveMembership(sb, organisationId, targetUserId);
+    if (!target) return bad("Target member not found", 404);
+
+    const targetRole = normalizeRole(target.role);
+    if (targetRole === "owner") {
+      return bad("Cannot remove the owner. Transfer ownership first.", 400);
+    }
+
+    const { error } = await sb
+      .from("organisation_members")
+      .update({ removed_at: new Date().toISOString() })
+      .eq("organisation_id", organisationId)
+      .eq("user_id", targetUserId)
+      .is("removed_at", null);
+
+    if (error) return bad(sbErrText(error), 400);
+
+    return ok({
+      removed: true,
+      organisation_id: organisationId,
+      user_id: targetUserId,
+    });
+  } catch (e: any) {
+    return bad(e?.message || "Unknown error", 500);
+  }
 }
