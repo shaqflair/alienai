@@ -1322,73 +1322,75 @@ export default function HomePage({ data }: { data: HomeData }) {
     return () => { c = true; };
   }, [ok, urlFilters, numericWindowDays, projectOptions]);
 
-  useEffect(() => {
-    if (!ok) return;
-    let c = false;
+useEffect(() => {
+  if (!ok) return;
+  let c = false;
+
+  runIdle(() => {
     (async () => {
       try {
-        setApprovalsLoading(true);
-        const j: any = await fetchJson("/api/approvals?limit=20", { cache: "no-store" });
-        if (!c && j?.ok) setApprovalItems(Array.isArray(j?.items) ? j.items : Array.isArray(j?.approvals) ? j.approvals : []);
-        else if (!c) setApprovalItems(ok ? (data as any).approvals?.items || [] : []);
+        setDueLoading(true);
+
+        const apiFilters = deriveApiFilters(urlFilters, projectOptions);
+
+        const j = await fetchJson<ArtifactDueResp>("/api/ai/events", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({
+            eventType: "artifact_due",
+            windowDays: dueWindowDays,
+            filters: apiFilters,
+          }),
+        });
+
+        if (!j || !j.ok) return;
+
+        const ai = (j as any).ai as ArtifactDueAi;
+        const list = Array.isArray(ai?.dueSoon) ? ai.dueSoon : [];
+
+        const merged = list
+          .sort((a: any, b: any) => {
+            const ta = a?.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+            const tb = b?.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+            return ta - tb;
+          })
+          .slice(0, 20)
+          .map((x: any) => ({
+            ...x,
+            title:
+              safeStr(x?.title || x?.name || x?.artifact_title || x?.milestone_title).trim() ||
+              "Untitled",
+            dueDate: x?.dueDate || x?.due_date || x?.due_at || x?.deadline || null,
+            ownerLabel:
+              x?.ownerLabel || x?.owner_label || x?.owner_name || x?.assignee_name || null,
+            ownerEmail:
+              x?.ownerEmail || x?.owner_email || x?.assignee_email || null,
+            link: safeStr(x?.link || x?.href || x?.url || x?.project_link).trim() || null,
+            meta: {
+              ...x?.meta,
+              project_code:
+                x?.meta?.project_code || x?.project_code || x?.project_human_id || null,
+              project_name:
+                x?.meta?.project_name || x?.project_name || x?.project_title || null,
+            },
+          }));
+
+        if (!c) {
+          setDueItems(merged);
+          setDueUpdatedAt(new Date().toISOString());
+        }
       } catch {
-        if (!c) setApprovalItems(ok ? (data as any).approvals?.items || [] : []);
-      } finally { if (!c) setApprovalsLoading(false); }
+      } finally {
+        if (!c) setDueLoading(false);
+      }
     })();
-    return () => { c = true; };
-  }, [ok, data]);
+  });
 
-  useEffect(() => {
-    if (!ok) return;
-    let c = false;
-    runIdle(() => {
-      (async () => {
-        try {
-          const url = appendFiltersToApi(`/api/portfolio/health?days=${numericWindowDays}`, urlFilters, projectOptions);
-          const j = await fetchJson<PortfolioHealthApi>(url, { cache: "no-store" });
-          if (!j || !j.ok) return;
-          if (!c) setPhData(j);
-        } catch {}
-      })();
-    });
-    return () => { c = true; };
-  }, [ok, numericWindowDays, urlFilters, projectOptions]);
-
-  useEffect(() => {
-    if (!ok) return;
-    const prev = prevWindowDays(numericWindowDays);
-    let c = false;
-    runIdle(() => {
-      (async () => {
-        try {
-          const url = appendFiltersToApi(`/api/portfolio/health?days=${prev}`, urlFilters, projectOptions);
-          const j = await fetchJson<PortfolioHealthApi>(url, { cache: "no-store" });
-          if (!j || !j.ok) return;
-          if (!c) setPhPrevScore(clamp01to100((j as any).portfolio_health));
-        } catch {}
-      })();
-    });
-    return () => { c = true; };
-  }, [ok, numericWindowDays, urlFilters, projectOptions]);
-
-  useEffect(() => {
-    let c = false;
-    runIdle(() => {
-      (async () => {
-        try {
-          setInsightsLoading(true);
-          const url = appendFiltersToApi(`/api/ai/briefing?days=${numericWindowDays}`, urlFilters, projectOptions);
-          const j: any = await fetchJson(url, { cache: "no-store" });
-          if (!j?.ok) throw new Error();
-          if (!c) setInsights(orderBriefingInsights(Array.isArray(j?.insights) ? j.insights : []));
-        } catch {
-          if (!c) setInsights([]);
-        } finally { if (!c) setInsightsLoading(false); }
-      })();
-    });
-    return () => { c = true; };
-  }, [numericWindowDays, urlFilters, projectOptions]);
-
+  return () => {
+    c = true;
+  };
+}, [ok, dueWindowDays, urlFilters, projectOptions]);
   useEffect(() => {
     if (!ok) return;
     let c = false;
