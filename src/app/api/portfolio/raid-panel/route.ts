@@ -1,12 +1,13 @@
-// src/app/api/portfolio/raid-panel/route.ts — REBUILT v5 (ORG-WIDE + filter-ready + ACTIVE FILTER WIRED)
+// src/app/api/portfolio/raid-panel/route.ts — REBUILT v6 (ORG-WIDE + shared scope + filter-ready + ACTIVE FILTER WIRED)
 // Adds:
 //   ✅ RP-F1 filters (GET + POST)
-//   ✅ RP-F2 filters applied within resolveOrgActiveProjectScope (org-wide dashboard)
+//   ✅ RP-F2 filters applied within shared org-wide portfolio scope
 //   ✅ RP-F3 typed-count guardrail
 // Fixes:
 //   ✅ RP-F4 clampDays handles "all" → 60
 //   ✅ RP-F5 no-store everywhere
 //   ✅ RP-F6 active project filter applied (exclude closed/terminal projects) + fail-open safeguard
+//   ✅ RP-F7 uses shared resolvePortfolioScope() helper
 // Keeps:
 //   • normalizePanel / safeJson compatibility
 //   • fallback to get_portfolio_raid_hi_crit if main RPC fails
@@ -15,7 +16,8 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveOrgActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
+import { filterActiveProjectIds } from "@/lib/server/project-scope";
+import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export const runtime = "nodejs";
 
@@ -26,7 +28,7 @@ function clampDays(v: string | null, fallback = 30): 7 | 14 | 30 | 60 {
   if (s === "all") return 60;
   const n = Number(s);
   const allowed = new Set([7, 14, 30, 60]);
-  return Number.isFinite(n) && allowed.has(n) ? (n as any) : (fallback as any);
+  return Number.isFinite(n) && allowed.has(n) ? (n as 7 | 14 | 30 | 60) : (fallback as 7 | 14 | 30 | 60);
 }
 
 function safeStr(x: any) {
@@ -52,7 +54,11 @@ function projectCodeLabel(pc: any): string {
   if (typeof pc === "string") return pc.trim();
   if (typeof pc === "number" && Number.isFinite(pc)) return String(pc);
   if (pc && typeof pc === "object") {
-    const v = safeStr(pc.project_code) || safeStr(pc.code) || safeStr(pc.value) || safeStr(pc.id);
+    const v =
+      safeStr(pc.project_code) ||
+      safeStr(pc.code) ||
+      safeStr(pc.value) ||
+      safeStr(pc.id);
     return v.trim();
   }
   return "";
@@ -124,15 +130,54 @@ function looksMissingRelation(err: any) {
   return msg.includes("does not exist") || msg.includes("relation") || msg.includes("42p01");
 }
 
+function looksMissingColumn(err: any) {
+  const msg = String(err?.message || err || "").toLowerCase();
+  return msg.includes("column") && msg.includes("does not exist");
+}
+
 function ok(data: any, status = 200) {
   const res = NextResponse.json({ ok: true, ...data }, { status });
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;
 }
+
 function err(message: string, status = 400, meta?: any) {
   const res = NextResponse.json({ ok: false, error: message, meta }, { status });
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;
+}
+
+async function normalizeActiveIds(supabase: any, rawIds: string[]) {
+  const failOpen = (reason: string) => ({
+    ids: rawIds,
+    ok: false,
+    error: reason,
+  });
+
+  try {
+    const r: any = await filterActiveProjectIds(supabase, rawIds);
+
+    if (Array.isArray(r)) {
+      const ids = r.filter(Boolean);
+      if (!ids.length && rawIds.length) {
+        return failOpen("active filter returned 0 ids; failing open");
+      }
+      return { ids, ok: true, error: null as string | null };
+    }
+
+    const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
+    if (!ids.length && rawIds.length) {
+      return failOpen("active filter returned 0 ids; failing open");
+    }
+
+    return {
+      ids,
+      ok: !r?.error,
+      error: r?.error ? safeStr(r.error?.message || r.error) : null,
+    };
+  } catch (e: any) {
+    return failOpen(safeStr(e?.message || e || "active filter failed"));
+  }
 }
 
 /* ---------------- filters ---------------- */
@@ -154,10 +199,18 @@ function hasAnyFilters(f: PortfolioFilters) {
 }
 
 function parseFiltersFromUrl(url: URL): PortfolioFilters {
-  const name = uniqStrings(url.searchParams.getAll("name").flatMap((x) => x.split(",")).map((s) => s.trim()));
-  const code = uniqStrings(url.searchParams.getAll("code").flatMap((x) => x.split(",")).map((s) => s.trim()));
-  const pm = uniqStrings(url.searchParams.getAll("pm").flatMap((x) => x.split(",")).map((s) => s.trim()));
-  const dept = uniqStrings(url.searchParams.getAll("dept").flatMap((x) => x.split(",")).map((s) => s.trim()));
+  const name = uniqStrings(
+    url.searchParams.getAll("name").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
+  const code = uniqStrings(
+    url.searchParams.getAll("code").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
+  const pm = uniqStrings(
+    url.searchParams.getAll("pm").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
+  const dept = uniqStrings(
+    url.searchParams.getAll("dept").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
 
   const out: PortfolioFilters = {};
   if (name.length) out.projectName = name;
@@ -170,10 +223,18 @@ function parseFiltersFromUrl(url: URL): PortfolioFilters {
 function parseFiltersFromBody(body: any): PortfolioFilters {
   const f = body?.filters ?? body?.filter ?? body?.where ?? null;
   const out: PortfolioFilters = {};
-  const names = uniqStrings(f?.projectName ?? f?.projectNames ?? f?.name ?? f?.project_name);
-  const codes = uniqStrings(f?.projectCode ?? f?.projectCodes ?? f?.code ?? f?.project_code);
-  const pms = uniqStrings(f?.projectManagerId ?? f?.projectManagerIds ?? f?.pm ?? f?.project_manager_id);
-  const depts = uniqStrings(f?.department ?? f?.departments ?? f?.dept);
+  const names = uniqStrings(
+    f?.projectName ?? f?.projectNames ?? f?.name ?? f?.project_name,
+  );
+  const codes = uniqStrings(
+    f?.projectCode ?? f?.projectCodes ?? f?.code ?? f?.project_code,
+  );
+  const pms = uniqStrings(
+    f?.projectManagerId ?? f?.projectManagerIds ?? f?.pm ?? f?.project_manager_id,
+  );
+  const depts = uniqStrings(
+    f?.department ?? f?.departments ?? f?.dept,
+  );
 
   if (names.length) out.projectName = names;
   if (codes.length) out.projectCode = codes;
@@ -182,7 +243,11 @@ function parseFiltersFromBody(body: any): PortfolioFilters {
   return out;
 }
 
-async function applyProjectFilters(supabase: any, scopedProjectIds: string[], filters: PortfolioFilters) {
+async function applyProjectFilters(
+  supabase: any,
+  scopedProjectIds: string[],
+  filters: PortfolioFilters,
+) {
   const meta: any = { applied: false, filters, notes: [] as string[] };
   if (!scopedProjectIds.length) return { projectIds: [], meta: { ...meta, applied: true } };
   if (!hasAnyFilters(filters)) return { projectIds: scopedProjectIds, meta };
@@ -198,14 +263,19 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
   let lastErr: any = null;
 
   for (const sel of selectSets) {
-    const { data, error } = await supabase.from("projects").select(sel).in("id", scopedProjectIds).limit(10000);
+    const { data, error } = await supabase
+      .from("projects")
+      .select(sel)
+      .in("id", scopedProjectIds)
+      .limit(10000);
+
     if (!error && Array.isArray(data)) {
       rows = data;
       lastErr = null;
       break;
     }
     lastErr = error;
-    if (!looksMissingRelation(error)) break;
+    if (!(looksMissingRelation(error) || looksMissingColumn(error))) break;
   }
 
   if (!rows.length) {
@@ -229,14 +299,12 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
 
     if (pmSet.size) {
       const pm = safeStr(p?.project_manager_id).trim();
-      if (!pm) return false;
-      if (!pmSet.has(pm)) return false;
+      if (!pm || !pmSet.has(pm)) return false;
     }
 
     if (deptNeedles.length) {
       const dept = safeStr(p?.department).toLowerCase().trim();
-      if (!dept) return false;
-      if (!deptNeedles.some((d) => dept.includes(d))) return false;
+      if (!dept || !deptNeedles.some((d) => dept.includes(d))) return false;
     }
 
     return true;
@@ -284,7 +352,10 @@ async function computeTypedCounts(opts: {
       .not("due_date", "is", null)
       .eq("type", type);
 
-    q = mode === "due" ? q.gte("due_date", todayISO).lte("due_date", endISO) : q.lt("due_date", todayISO);
+    q =
+      mode === "due"
+        ? q.gte("due_date", todayISO).lte("due_date", endISO)
+        : q.lt("due_date", todayISO);
 
     const r = await q;
     return Number(r.count ?? 0);
@@ -321,29 +392,15 @@ async function handle(req: Request, opts: { days: number; filters: PortfolioFilt
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr || !auth?.user) return err("Not authenticated", 401);
 
-  // ✅ ORG-WIDE scope for dashboards
-  const scoped = await resolveOrgActiveProjectScope(supabase, auth.user.id);
-  const scopedIdsRaw: string[] = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
+  const sharedScope = await resolvePortfolioScope(auth.user.id);
+  const organisationId = sharedScope.organisationId ?? null;
+  const scopeMeta = sharedScope.meta ?? {};
+  const scopedIdsRaw: string[] = sharedScope.rawProjectIds ?? [];
 
-  // ✅ RP-F6: active filter + fail-open safeguard
-  let scopedIdsActive: string[] = [];
-  let active_filter_ok = true;
-  let active_filter_error: string | null = null;
-
-  try {
-    scopedIdsActive = await filterActiveProjectIds(supabase, scopedIdsRaw);
-
-    // FAIL-OPEN: never allow false-zeroing the org dashboard
-    if (!scopedIdsActive.length && scopedIdsRaw.length) {
-      scopedIdsActive = scopedIdsRaw;
-      active_filter_ok = false;
-      active_filter_error = "active filter returned 0 ids; failing open to raw scope";
-    }
-  } catch (e: any) {
-    scopedIdsActive = scopedIdsRaw; // fail-open
-    active_filter_ok = false;
-    active_filter_error = safeStr(e?.message || e || "active filter failed");
-  }
+  const active = await normalizeActiveIds(supabase, scopedIdsRaw);
+  const scopedIdsActive = active.ids;
+  const active_filter_ok = active.ok;
+  const active_filter_error = active.error;
 
   const filtered = await applyProjectFilters(supabase, scopedIdsActive, opts.filters);
   const projectIds = filtered.projectIds;
@@ -354,9 +411,9 @@ async function handle(req: Request, opts: { days: number; filters: PortfolioFilt
       meta: {
         project_count: 0,
         active_only: true,
-        organisationId: scoped.organisationId ?? null,
+        organisationId,
         scope: {
-          ...(scoped.meta || {}),
+          ...scopeMeta,
           scopedIdsRaw: scopedIdsRaw.length,
           scopedIdsActive: scopedIdsActive.length,
           active_filter_ok,
@@ -376,7 +433,12 @@ async function handle(req: Request, opts: { days: number; filters: PortfolioFilt
 
   let typed: TypedCounts;
   try {
-    typed = await computeTypedCounts({ supabase, projectIds, days: opts.days, openStatuses });
+    typed = await computeTypedCounts({
+      supabase,
+      projectIds,
+      days: opts.days,
+      openStatuses,
+    });
   } catch {
     typed = {
       risk_due: 0,
@@ -411,9 +473,9 @@ async function handle(req: Request, opts: { days: number; filters: PortfolioFilt
       meta: {
         project_count: projectIds.length,
         active_only: true,
-        organisationId: scoped.organisationId ?? null,
+        organisationId,
         scope: {
-          ...(scoped.meta || {}),
+          ...scopeMeta,
           scopedIdsRaw: scopedIdsRaw.length,
           scopedIdsActive: scopedIdsActive.length,
           active_filter_ok,
@@ -424,7 +486,6 @@ async function handle(req: Request, opts: { days: number; filters: PortfolioFilt
     });
   }
 
-  // fallback RPC
   const { data: hiData, error: hiErr } = await supabase.rpc("get_portfolio_raid_hi_crit", {
     p_project_ids: projectIds,
     p_days: opts.days,
@@ -438,9 +499,16 @@ async function handle(req: Request, opts: { days: number; filters: PortfolioFilt
     panel: {
       ...emptyPanel(opts.days),
       ...typed,
-      due_total: num(typed.risk_due) + num(typed.issue_due) + num(typed.dependency_due) + num(typed.assumption_due),
+      due_total:
+        num(typed.risk_due) +
+        num(typed.issue_due) +
+        num(typed.dependency_due) +
+        num(typed.assumption_due),
       overdue_total:
-        num(typed.risk_overdue) + num(typed.issue_overdue) + num(typed.dependency_overdue) + num(typed.assumption_overdue),
+        num(typed.risk_overdue) +
+        num(typed.issue_overdue) +
+        num(typed.dependency_overdue) +
+        num(typed.assumption_overdue),
       risk_hi: num(hiPanel?.risk_hi),
       issue_hi: num(hiPanel?.issue_hi),
       dependency_hi: num(hiPanel?.dependency_hi),
@@ -450,11 +518,11 @@ async function handle(req: Request, opts: { days: number; filters: PortfolioFilt
     meta: {
       project_count: projectIds.length,
       active_only: true,
-      organisationId: scoped.organisationId ?? null,
+      organisationId,
       used_fallback: true,
       rpc_error: panelErr.message,
       scope: {
-        ...(scoped.meta || {}),
+        ...scopeMeta,
         scopedIdsRaw: scopedIdsRaw.length,
         scopedIdsActive: scopedIdsActive.length,
         active_filter_ok,
