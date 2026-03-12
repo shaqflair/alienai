@@ -12,6 +12,10 @@
 //            Was: `(r+i+d+a) || due_total` which silently used RPC total when items truly = 0.
 //   ✅ HP-F4: appendFiltersToApi now calls deriveApiFilters so all 6 API widgets respect
 //            project-selection filters end-to-end.
+//   ✅ HP-F5: openRisksValue derived variable — shows kpis.openRisks only before raidPanel
+//            arrives; once raidPanel is set uses raidDueTotal (which can safely be 0).
+//   ✅ HP-F6: milestonesDueLive initialised as null — renders "…" until the live API
+//            responds, never pre-populates from the stale SSR kpi fallback.
 //
 // UI polish:
 //   ✅ HP-UI1: Search / Filter / Notification bell no longer look "greyed out"
@@ -1168,7 +1172,11 @@ export default function HomePage({ data }: { data: HomeData }) {
   const [approvalsLoading, setApprovalsLoading] = useState(true);
   const [pendingIds, setPendingIds] = useState<Record<string, true>>({});
   const [rejectModal, setRejectModal] = useState<{ taskId: string; title: string } | null>(null);
-  const [milestonesDueLive, setMilestonesDueLive] = useState<number>(Number(kpis.milestonesDue || 0));
+
+  // HP-F6: null initial state — renders "…" until the live API responds,
+  // never pre-populates from the stale SSR kpi fallback.
+  const [milestonesDueLive, setMilestonesDueLive] = useState<number | null>(null);
+
   const [raidPanel, setRaidPanel] = useState<RaidPanel | null>(null);
   const [raidLoading, setRaidLoading] = useState(false);
   const [dueWindowDays, setDueWindowDays] = useState<7 | 14 | 30>(14);
@@ -1444,6 +1452,11 @@ export default function HomePage({ data }: { data: HomeData }) {
     return num(raidPanel.due_total);
   }, [raidPanel]);
 
+  // HP-F5: Show kpis.openRisks only before raidPanel arrives; once set,
+  // use raidDueTotal which can correctly be 0. null while still loading.
+  const openRisksValue =
+    raidPanel ? raidDueTotal : raidLoading ? null : Number(kpis.openRisks || 0);
+
   const raidHighSeverity = num(raidPanel?.risk_hi) + num(raidPanel?.issue_hi);
 
   const fpHasData = fpSummary?.ok === true;
@@ -1622,14 +1635,22 @@ export default function HomePage({ data }: { data: HomeData }) {
                 icon={<Activity className="h-5 w-5" />} colorKey={phColorKey}
                 trendLabel={phDelta != null && phDelta !== 0 ? `${Math.abs(Math.round(phDelta))}` : undefined}
                 onClick={() => router.push(appendFiltersToUrl("/insights", urlFilters))} delay={0} />
-              <KpiCard label="Open Risks" value={raidLoading ? "\u2026" : `${raidDueTotal || kpis.openRisks}`}
+
+              {/* HP-F5: openRisksValue — null while loading, raidDueTotal once panel arrives */}
+              <KpiCard
+                label="Open Risks"
+                value={openRisksValue == null ? "\u2026" : `${openRisksValue}`}
                 sub="high priority" icon={<AlertTriangle className="h-5 w-5" />} colorKey="amber"
                 trendLabel={raidHighSeverity > 0 ? `${raidHighSeverity}` : undefined}
                 onClick={() => router.push(appendFiltersToUrl(`/insights?tab=raid&days=${numericWindowDays}`, urlFilters))} delay={0.05} />
-              <KpiCard label="Milestones Due" value={`${milestonesDueLive}`}
+
+              {/* HP-F6: milestonesDueLive — null until live API responds */}
+              <KpiCard label="Milestones Due"
+                value={milestonesDueLive == null ? "\u2026" : `${milestonesDueLive}`}
                 sub={`next ${windowDays === "all" ? "60" : windowDays} days`}
                 icon={<Clock3 className="h-5 w-5" />} colorKey="blue"
                 onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${numericWindowDays}`, urlFilters))} delay={0.1} />
+
               <KpiCard label="Budget Health" value={fpVarianceLabel}
                 sub={fpHasData ? `Budget ${fpRag === "G" ? "on track" : fpRag === "A" ? "watch" : "over"}` : "variance"}
                 icon={<DollarSign className="h-5 w-5" />} colorKey={fpColorKey}
