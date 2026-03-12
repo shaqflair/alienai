@@ -1322,75 +1322,66 @@ export default function HomePage({ data }: { data: HomeData }) {
     return () => { c = true; };
   }, [ok, urlFilters, numericWindowDays, projectOptions]);
 
-useEffect(() => {
-  if (!ok) return;
-  let c = false;
-
-  runIdle(() => {
-    (async () => {
-      try {
-        setDueLoading(true);
-
-        const apiFilters = deriveApiFilters(urlFilters, projectOptions);
-
-        const j = await fetchJson<ArtifactDueResp>("/api/ai/events", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          cache: "no-store",
-          body: JSON.stringify({
-            eventType: "artifact_due",
-            windowDays: dueWindowDays,
-            filters: apiFilters,
-          }),
-        });
-
-        if (!j || !j.ok) return;
-
-        const ai = (j as any).ai as ArtifactDueAi;
-        const list = Array.isArray(ai?.dueSoon) ? ai.dueSoon : [];
-
-        const merged = list
-          .sort((a: any, b: any) => {
-            const ta = a?.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-            const tb = b?.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-            return ta - tb;
-          })
-          .slice(0, 20)
-          .map((x: any) => ({
-            ...x,
-            title:
-              safeStr(x?.title || x?.name || x?.artifact_title || x?.milestone_title).trim() ||
-              "Untitled",
-            dueDate: x?.dueDate || x?.due_date || x?.due_at || x?.deadline || null,
-            ownerLabel:
-              x?.ownerLabel || x?.owner_label || x?.owner_name || x?.assignee_name || null,
-            ownerEmail:
-              x?.ownerEmail || x?.owner_email || x?.assignee_email || null,
-            link: safeStr(x?.link || x?.href || x?.url || x?.project_link).trim() || null,
-            meta: {
-              ...x?.meta,
-              project_code:
-                x?.meta?.project_code || x?.project_code || x?.project_human_id || null,
-              project_name:
-                x?.meta?.project_name || x?.project_name || x?.project_title || null,
-            },
-          }));
-
-        if (!c) {
-          setDueItems(merged);
-          setDueUpdatedAt(new Date().toISOString());
+  useEffect(() => {
+    if (!ok) return;
+    let c = false;
+    runIdle(() => {
+      (async () => {
+        try {
+          setDueLoading(true);
+          const apiFilters = deriveApiFilters(urlFilters, projectOptions);
+          const j = await fetchJson<ArtifactDueResp>("/api/ai/events", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            cache: "no-store",
+            body: JSON.stringify({
+              eventType: "artifact_due",
+              windowDays: dueWindowDays,
+              filters: apiFilters,
+            }),
+          });
+          if (!j || !j.ok) return;
+          const ai = (j as any).ai as ArtifactDueAi;
+          const list = Array.isArray(ai?.dueSoon) ? ai.dueSoon : [];
+          const merged = list
+            .sort((a: any, b: any) => {
+              const ta = a?.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+              const tb = b?.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+              return ta - tb;
+            })
+            .slice(0, 20)
+            .map((x: any) => ({
+              ...x,
+              title:
+                safeStr(x?.title || x?.name || x?.artifact_title || x?.milestone_title).trim() ||
+                "Untitled",
+              dueDate: x?.dueDate || x?.due_date || x?.due_at || x?.deadline || null,
+              ownerLabel:
+                x?.ownerLabel || x?.owner_label || x?.owner_name || x?.assignee_name || null,
+              ownerEmail:
+                x?.ownerEmail || x?.owner_email || x?.assignee_email || null,
+              link: safeStr(x?.link || x?.href || x?.url || x?.project_link).trim() || null,
+              meta: {
+                ...x?.meta,
+                project_code:
+                  x?.meta?.project_code || x?.project_code || x?.project_human_id || null,
+                project_name:
+                  x?.meta?.project_name || x?.project_name || x?.project_title || null,
+              },
+            }));
+          if (!c) {
+            setDueItems(merged);
+            setDueUpdatedAt(new Date().toISOString());
+          }
+        } catch {
+        } finally {
+          if (!c) setDueLoading(false);
         }
-      } catch {
-      } finally {
-        if (!c) setDueLoading(false);
-      }
-    })();
-  });
+      })();
+    });
+    return () => { c = true; };
+  }, [ok, dueWindowDays, urlFilters, projectOptions]);
 
-  return () => {
-    c = true;
-  };
-}, [ok, dueWindowDays, urlFilters, projectOptions]);
   useEffect(() => {
     if (!ok) return;
     let c = false;
@@ -1427,54 +1418,6 @@ useEffect(() => {
     });
     return () => { c = true; };
   }, [ok, numericWindowDays, urlFilters, projectOptions]);
-
-  useEffect(() => {
-    if (!ok) return;
-    let c = false;
-    runIdle(() => {
-      (async () => {
-        try {
-          setDueLoading(true);
-       const apiFilters = deriveApiFilters(urlFilters, projectOptions);
-
-const j = await fetchJson<ArtifactDueResp>("/api/ai/events", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  cache: "no-store",
-  body: JSON.stringify({
-    eventType: "artifact_due",
-    windowDays: dueWindowDays,
-    filters: apiFilters,
-  }),
-});});          if (!j || !j.ok) return;
-          const ai = (j as any).ai as ArtifactDueAi;
-          const list = Array.isArray(ai?.dueSoon) ? ai.dueSoon : [];
-          const merged = list
-            .sort((a: any, b: any) => {
-              const ta = a?.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-              const tb = b?.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-              return ta - tb;
-            })
-            .slice(0, 20)
-            .map((x: any) => ({
-              ...x,
-              title: safeStr(x?.title || x?.name || x?.artifact_title || x?.milestone_title).trim() || "Untitled",
-              dueDate: x?.dueDate || x?.due_date || x?.due_at || x?.deadline || null,
-              ownerLabel: x?.ownerLabel || x?.owner_label || x?.owner_name || x?.assignee_name || null,
-              ownerEmail: x?.ownerEmail || x?.owner_email || x?.assignee_email || null,
-              link: safeStr(x?.link || x?.href || x?.url || x?.project_link).trim() || null,
-              meta: {
-                ...x?.meta,
-                project_code: x?.meta?.project_code || x?.project_code || x?.project_human_id || null,
-                project_name: x?.meta?.project_name || x?.project_name || x?.project_title || null,
-              },
-            }));
-          if (!c) { setDueItems(merged); setDueUpdatedAt(new Date().toISOString()); }
-        } catch {} finally { if (!c) setDueLoading(false); }
-      })();
-    });
-    return () => { c = true; };
-  }, [ok, dueWindowDays, urlFilters]);
 
   const apiScore = phData?.ok ? clamp01to100(phData.portfolio_health) : null;
   const fallbackScore = ragAgg.scored ? ragAgg.avgHealth : clamp01to100(kpis.portfolioHealth);
@@ -1741,10 +1684,10 @@ const j = await fetchJson<ArtifactDueResp>("/api/ai/events", {
               </div>
             </div>
 
-          <GovernanceIntelligence
-  days={numericWindowDays}
-  filters={deriveApiFilters(urlFilters, projectOptions)}
-/>
+            <GovernanceIntelligence
+              days={numericWindowDays}
+              filters={deriveApiFilters(urlFilters, projectOptions)}
+            />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2 space-y-4">
