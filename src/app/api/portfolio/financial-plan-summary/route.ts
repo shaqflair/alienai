@@ -1,19 +1,22 @@
-﻿// src/app/api/portfolio/financial-plan-summary/route.ts — v5.2
+﻿// src/app/api/portfolio/financial-plan-summary/route.ts — v6
 // FIX: content_json (not content), cost_lines/budgeted (not costLines/budget),
 //      flat response shape that HomePage expects (rag, variance_pct, total_approved_budget, …)
 //
-// Changes from v5.1:
-//   ✅ FPS-F7: SELECT content_json instead of content
-//   ✅ FPS-F8: Read cost_lines (snake_case) + line.budgeted to match FinancialPlanContent
-//   ✅ FPS-F9: Use content.total_approved_budget as headline budget figure
+// Changes from v5.2:
+//   ✅ FPS-F7:  SELECT content_json instead of content
+//   ✅ FPS-F8:  Read cost_lines (snake_case) + line.budgeted to match FinancialPlanContent
+//   ✅ FPS-F9:  Use content.total_approved_budget as headline budget figure
 //   ✅ FPS-F10: Return flat fields (rag, variance_pct, total_approved_budget, total_spent,
 //               currency, project_count, project_ref, artifact_id) alongside portfolio/projects
+//   ✅ FPS-F11: Use shared resolvePortfolioScope() helper for org-wide scope reuse
+//   ✅ FPS-F12: Remove duplicated org scope resolution from route body
 //
 import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveOrgActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
+import { filterActiveProjectIds } from "@/lib/server/project-scope";
+import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export const runtime = "nodejs";
 
@@ -48,7 +51,11 @@ function projectCodeLabel(pc: any): string {
   if (typeof pc === "string") return pc.trim();
   if (typeof pc === "number" && Number.isFinite(pc)) return String(pc);
   if (pc && typeof pc === "object") {
-    const v = safeStr(pc.project_code) || safeStr(pc.code) || safeStr(pc.value) || safeStr(pc.id);
+    const v =
+      safeStr(pc.project_code) ||
+      safeStr(pc.code) ||
+      safeStr(pc.value) ||
+      safeStr(pc.id);
     return v.trim();
   }
   return "";
@@ -57,7 +64,11 @@ function projectCodeLabel(pc: any): string {
 function safeJson(x: any): any {
   if (!x) return null;
   if (typeof x === "object") return x;
-  try { return JSON.parse(String(x)); } catch { return null; }
+  try {
+    return JSON.parse(String(x));
+  } catch {
+    return null;
+  }
 }
 
 function num(x: any, fallback = 0) {
@@ -74,16 +85,28 @@ function ragFromVariancePct(pct: number | null): "G" | "A" | "R" {
 
 async function normalizeActiveIds(supabase: any, rawIds: string[]) {
   const failOpen = (reason: string) => ({ ids: rawIds, ok: false, error: reason });
+
   try {
     const r: any = await filterActiveProjectIds(supabase, rawIds);
+
     if (Array.isArray(r)) {
       const ids = r.filter(Boolean);
-      if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
+      if (!ids.length && rawIds.length) {
+        return failOpen("active filter returned 0 ids; failing open");
+      }
       return { ids, ok: true, error: null as string | null };
     }
+
     const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
-    if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
-    return { ids, ok: !r?.error, error: r?.error ? safeStr(r.error?.message || r.error) : null };
+    if (!ids.length && rawIds.length) {
+      return failOpen("active filter returned 0 ids; failing open");
+    }
+
+    return {
+      ids,
+      ok: !r?.error,
+      error: r?.error ? safeStr(r.error?.message || r.error) : null,
+    };
   } catch (e: any) {
     return failOpen(safeStr(e?.message || e || "active filter failed"));
   }
@@ -108,14 +131,23 @@ function hasAnyFilters(f: PortfolioFilters) {
 }
 
 function parseFiltersFromUrl(url: URL): PortfolioFilters {
-  const name = uniqStrings(url.searchParams.getAll("name").flatMap(x => x.split(",")).map(s => s.trim()));
-  const code = uniqStrings(url.searchParams.getAll("code").flatMap(x => x.split(",")).map(s => s.trim()));
-  const pm   = uniqStrings(url.searchParams.getAll("pm").flatMap(x => x.split(",")).map(s => s.trim()));
-  const dept = uniqStrings(url.searchParams.getAll("dept").flatMap(x => x.split(",")).map(s => s.trim()));
+  const name = uniqStrings(
+    url.searchParams.getAll("name").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
+  const code = uniqStrings(
+    url.searchParams.getAll("code").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
+  const pm = uniqStrings(
+    url.searchParams.getAll("pm").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
+  const dept = uniqStrings(
+    url.searchParams.getAll("dept").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
+
   const out: PortfolioFilters = {};
   if (name.length) out.projectName = name;
   if (code.length) out.projectCode = code;
-  if (pm.length)   out.projectManagerId = pm;
+  if (pm.length) out.projectManagerId = pm;
   if (dept.length) out.department = dept;
   return out;
 }
@@ -123,13 +155,23 @@ function parseFiltersFromUrl(url: URL): PortfolioFilters {
 function parseFiltersFromBody(body: any): PortfolioFilters {
   const f = body?.filters ?? body?.filter ?? body?.where ?? null;
   const out: PortfolioFilters = {};
-  const names = uniqStrings(f?.projectName ?? f?.projectNames ?? f?.name ?? f?.project_name);
-  const codes = uniqStrings(f?.projectCode ?? f?.projectCodes ?? f?.code ?? f?.project_code);
-  const pms   = uniqStrings(f?.projectManagerId ?? f?.projectManagerIds ?? f?.pm ?? f?.project_manager_id);
-  const depts = uniqStrings(f?.department ?? f?.departments ?? f?.dept);
+
+  const names = uniqStrings(
+    f?.projectName ?? f?.projectNames ?? f?.name ?? f?.project_name,
+  );
+  const codes = uniqStrings(
+    f?.projectCode ?? f?.projectCodes ?? f?.code ?? f?.project_code,
+  );
+  const pms = uniqStrings(
+    f?.projectManagerId ?? f?.projectManagerIds ?? f?.pm ?? f?.project_manager_id,
+  );
+  const depts = uniqStrings(
+    f?.department ?? f?.departments ?? f?.dept,
+  );
+
   if (names.length) out.projectName = names;
   if (codes.length) out.projectCode = codes;
-  if (pms.length)   out.projectManagerId = pms;
+  if (pms.length) out.projectManagerId = pms;
   if (depts.length) out.department = depts;
   return out;
 }
@@ -139,10 +181,19 @@ function looksMissingRelation(err: any) {
   return msg.includes("does not exist") || msg.includes("relation") || msg.includes("42p01");
 }
 
-async function applyProjectFilters(supabase: any, scopedProjectIds: string[], filters: PortfolioFilters) {
+async function applyProjectFilters(
+  supabase: any,
+  scopedProjectIds: string[],
+  filters: PortfolioFilters,
+) {
   const meta: any = { applied: false, filters, notes: [] as string[] };
-  if (!scopedProjectIds.length) return { projectIds: [], meta: { ...meta, applied: true } };
-  if (!hasAnyFilters(filters)) return { projectIds: scopedProjectIds, meta };
+
+  if (!scopedProjectIds.length) {
+    return { projectIds: [], meta: { ...meta, applied: true } };
+  }
+  if (!hasAnyFilters(filters)) {
+    return { projectIds: scopedProjectIds, meta };
+  }
 
   const selectSets = [
     "id, title, project_code, project_manager_id, department, colour, start_date, finish_date, resource_status",
@@ -155,8 +206,17 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
   let lastErr: any = null;
 
   for (const sel of selectSets) {
-    const { data, error } = await supabase.from("projects").select(sel).in("id", scopedProjectIds).limit(10000);
-    if (!error && Array.isArray(data)) { rows = data; lastErr = null; break; }
+    const { data, error } = await supabase
+      .from("projects")
+      .select(sel)
+      .in("id", scopedProjectIds)
+      .limit(10000);
+
+    if (!error && Array.isArray(data)) {
+      rows = data;
+      lastErr = null;
+      break;
+    }
     lastErr = error;
     if (!looksMissingRelation(error)) break;
   }
@@ -168,28 +228,32 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
     return { projectIds: scopedProjectIds, meta };
   }
 
-  const nameNeedles = (filters.projectName ?? []).map(s => s.toLowerCase());
-  const codeNeedles = (filters.projectCode ?? []).map(s => s.toLowerCase());
-  const pmSet       = new Set((filters.projectManagerId ?? []).map(s => s));
-  const deptNeedles = (filters.department ?? []).map(s => s.toLowerCase());
+  const nameNeedles = (filters.projectName ?? []).map((s) => s.toLowerCase());
+  const codeNeedles = (filters.projectCode ?? []).map((s) => s.toLowerCase());
+  const pmSet = new Set((filters.projectManagerId ?? []).map((s) => s));
+  const deptNeedles = (filters.department ?? []).map((s) => s.toLowerCase());
 
-  const filtered = rows.filter(p => {
+  const filtered = rows.filter((p) => {
     const title = safeStr(p?.title).toLowerCase();
-    const code  = projectCodeLabel(p?.project_code).toLowerCase();
-    if (nameNeedles.length && !nameNeedles.some(n => title.includes(n))) return false;
-    if (codeNeedles.length && !codeNeedles.some(c => code.includes(c))) return false;
+    const code = projectCodeLabel(p?.project_code).toLowerCase();
+
+    if (nameNeedles.length && !nameNeedles.some((n) => title.includes(n))) return false;
+    if (codeNeedles.length && !codeNeedles.some((c) => code.includes(c))) return false;
+
     if (pmSet.size) {
       const pm = safeStr(p?.project_manager_id).trim();
       if (!pm || !pmSet.has(pm)) return false;
     }
+
     if (deptNeedles.length) {
       const dept = safeStr(p?.department).toLowerCase().trim();
-      if (!dept || !deptNeedles.some(d => dept.includes(d))) return false;
+      if (!dept || !deptNeedles.some((d) => dept.includes(d))) return false;
     }
+
     return true;
   });
 
-  const outIds = filtered.map(p => String(p?.id || "").trim()).filter(Boolean);
+  const outIds = filtered.map((p) => String(p?.id || "").trim()).filter(Boolean);
   meta.applied = true;
   meta.counts = { before: scopedProjectIds.length, after: outIds.length };
   return { projectIds: outIds, meta, projectRows: rows };
@@ -200,24 +264,31 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
 async function handle(req: Request, filters: PortfolioFilters) {
   const supabase = await createClient();
 
-  const { data: { user }, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !user) return noStoreJson({ ok: false, error: "Unauthorized" }, 401);
+  const {
+    data: { user },
+    error: authErr,
+  } = await supabase.auth.getUser();
 
-  // 1) ORG-wide dashboard scope
-  const scoped = await resolveOrgActiveProjectScope(supabase, user.id);
-  const scopedProjectIdsRaw = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
+  if (authErr || !user) {
+    return noStoreJson({ ok: false, error: "Unauthorized" }, 401);
+  }
+
+  // 1) Shared org-wide dashboard scope
+  const scope = await resolvePortfolioScope(user.id);
+  const scopeMeta = scope.meta ?? {};
+  const organisationId = scope.organisationId ?? null;
+  const scopedProjectIdsRaw = scope.rawProjectIds ?? [];
 
   const active = await normalizeActiveIds(supabase, scopedProjectIdsRaw);
   const scopedProjectIds = active.ids;
 
-  // 2) apply filters
+  // 2) Apply filters
   const filtered = await applyProjectFilters(supabase, scopedProjectIds, filters);
   const projectIds = filtered.projectIds;
 
   if (!projectIds.length) {
     return noStoreJson({
       ok: true,
-      // flat fields for HomePage
       total_approved_budget: 0,
       total_spent: 0,
       variance_pct: null,
@@ -226,13 +297,18 @@ async function handle(req: Request, filters: PortfolioFilters) {
       currency: "GBP",
       project_ref: null,
       artifact_id: null,
-      // structured fields for BudgetHealthStrip / what-if
-      portfolio: { totalBudget: 0, totalForecast: 0, totalActual: 0, projectCount: 0, withPlanCount: 0 },
+      portfolio: {
+        totalBudget: 0,
+        totalForecast: 0,
+        totalActual: 0,
+        projectCount: 0,
+        withPlanCount: 0,
+      },
       projects: [],
       meta: {
-        organisationId: scoped?.organisationId ?? null,
+        organisationId,
         scope: {
-          ...(scoped?.meta ?? {}),
+          ...scopeMeta,
           scopedIdsRaw: scopedProjectIdsRaw.length,
           scopedIdsActive: scopedProjectIds.length,
           active_filter_ok: active.ok,
@@ -243,25 +319,28 @@ async function handle(req: Request, filters: PortfolioFilters) {
     });
   }
 
-  // 3) fetch project details
+  // 3) Fetch project details
   let projects: any[] = [];
   if (Array.isArray((filtered as any).projectRows) && (filtered as any).projectRows.length) {
     const allow = new Set(projectIds);
-    projects = (filtered as any).projectRows.filter((p: any) => allow.has(String(p?.id || "").trim()));
-    projects.sort((a: any, b: any) => safeStr(a?.title).localeCompare(safeStr(b?.title)));
+    projects = (filtered as any).projectRows.filter((p: any) =>
+      allow.has(String(p?.id || "").trim()),
+    );
+    projects.sort((a: any, b: any) =>
+      safeStr(a?.title).localeCompare(safeStr(b?.title)),
+    );
   } else {
     const { data: projRows, error: projErr } = await supabase
       .from("projects")
       .select("id, title, project_code, colour, start_date, finish_date, resource_status")
       .in("id", projectIds)
       .order("title", { ascending: true });
+
     if (projErr) return noStoreJson({ ok: false, error: projErr.message }, 500);
     projects = projRows ?? [];
   }
 
-  // 4) fetch latest financial_plan artifact per project
-  //    ✅ FPS-F7: select both content_json AND legacy content column
-  //    Artifacts saved before the content_json migration only have data in `content`.
+  // 4) Fetch latest financial_plan artifact per project
   const { data: artifacts, error: artErr } = await supabase
     .from("artifacts")
     .select("id, project_id, content_json, content, updated_at")
@@ -278,7 +357,7 @@ async function handle(req: Request, filters: PortfolioFilters) {
     if (pid && !planByProject.has(pid)) planByProject.set(pid, artifact);
   }
 
-  // 5) best-effort role lookup
+  // 5) Best-effort role lookup
   let roleByProject = new Map<string, string>();
   try {
     const { data: memberships } = await supabase
@@ -291,44 +370,37 @@ async function handle(req: Request, filters: PortfolioFilters) {
 
     for (const m of memberships ?? []) {
       const pid = String((m as any)?.project_id || "").trim();
-      if (pid && !roleByProject.has(pid))
+      if (pid && !roleByProject.has(pid)) {
         roleByProject.set(pid, safeStr((m as any)?.role).trim() || "viewer");
+      }
     }
   } catch {
     roleByProject = new Map();
   }
 
   // 6) Per-project summaries
-  //    ✅ FPS-F8: Read cost_lines (snake_case) + line.budgeted to match FinancialPlanContent
-  //    ✅ FPS-F9: Use content.total_approved_budget as the headline budget figure
   const summaries = (projects ?? []).map((project: any) => {
-    const pid      = String(project?.id || "").trim();
+    const pid = String(project?.id || "").trim();
     const artifact = planByProject.get(pid);
-    // ✅ prefer content_json (new), fall back to content (legacy pre-migration artifacts)
-    const content  = safeJson(artifact?.content_json) ?? safeJson(artifact?.content);
+    const content = safeJson(artifact?.content_json) ?? safeJson(artifact?.content);
 
     let totalApprovedBudget = 0;
-    let totalBudgeted       = 0; // sum of cost_lines.budgeted
-    let totalForecast       = 0;
-    let totalActual         = 0;
-    let currency            = "GBP";
-    let hasFinancialPlan    = false;
+    let totalBudgeted = 0;
+    let totalForecast = 0;
+    let totalActual = 0;
+    let currency = "GBP";
+    let hasFinancialPlan = false;
 
     if (content && typeof content === "object") {
       hasFinancialPlan = true;
 
-      // ── Headline approved budget ──
-      // Handle both snake_case (new content_json) and camelCase (legacy content column)
       totalApprovedBudget = num(
-        content.total_approved_budget ?? content.totalApprovedBudget, 0
+        content.total_approved_budget ?? content.totalApprovedBudget,
+        0,
       );
 
-      // Currency (both formats)
       if (content.currency) currency = safeStr(content.currency);
 
-      // ── Cost lines: handle snake_case (new) and camelCase (legacy) ──
-      // New:    cost_lines[].budgeted / .forecast / .actual
-      // Legacy: costLines[].budget   / .forecast / .actual
       const costLines = Array.isArray(content.cost_lines)
         ? content.cost_lines
         : Array.isArray(content.costLines)
@@ -336,78 +408,81 @@ async function handle(req: Request, filters: PortfolioFilters) {
           : [];
 
       for (const line of costLines) {
-        // budgeted (new) or budget (legacy)
         totalBudgeted += num((line as any)?.budgeted ?? (line as any)?.budget, 0);
         totalForecast += num((line as any)?.forecast, 0);
-        totalActual   += num((line as any)?.actual,   0);
+        totalActual += num((line as any)?.actual, 0);
       }
 
-      // Also accumulate from monthly_data / monthlyData if cost lines are empty
       if (costLines.length === 0) {
         const monthlyData = content.monthly_data ?? content.monthlyData ?? {};
         try {
           for (const [, months] of Object.entries(monthlyData) as any) {
             for (const [, vals] of Object.entries(months as any)) {
               const v = vals as any;
-              totalBudgeted += num(v?.budget,   0);
-              totalForecast += num(v?.forecast,  0);
-              totalActual   += num(v?.actual,    0);
+              totalBudgeted += num(v?.budget, 0);
+              totalForecast += num(v?.forecast, 0);
+              totalActual += num(v?.actual, 0);
             }
           }
-        } catch { /* ignore */ }
+        } catch {}
       }
     }
 
-    // Use total_approved_budget as the budget denominator if cost lines are zero
-    const effectiveBudget = totalApprovedBudget > 0
-      ? totalApprovedBudget
-      : totalBudgeted;
+    const effectiveBudget =
+      totalApprovedBudget > 0 ? totalApprovedBudget : totalBudgeted;
 
-    const variancePct = effectiveBudget > 0
-      ? Math.round(((totalForecast - effectiveBudget) / effectiveBudget) * 1000) / 10
-      : null;
+    const variancePct =
+      effectiveBudget > 0
+        ? Math.round(((totalForecast - effectiveBudget) / effectiveBudget) * 1000) /
+          10
+        : null;
 
-    const burnPct = effectiveBudget > 0
-      ? Math.round((totalActual / effectiveBudget) * 100)
-      : 0;
+    const burnPct =
+      effectiveBudget > 0
+        ? Math.round((totalActual / effectiveBudget) * 100)
+        : 0;
 
-    // Monthly breakdown (kept for what-if simulator)
-    const monthlyBreakdown: Record<string, { budget: number; forecast: number; actual: number }> = {};
+    const monthlyBreakdown: Record<
+      string,
+      { budget: number; forecast: number; actual: number }
+    > = {};
+
     if (content?.monthly_data) {
       try {
         for (const [, months] of Object.entries(content.monthly_data) as any) {
           for (const [monthKey, vals] of Object.entries(months as any)) {
             const v = vals as any;
-            if (!monthlyBreakdown[monthKey])
+            if (!monthlyBreakdown[monthKey]) {
               monthlyBreakdown[monthKey] = { budget: 0, forecast: 0, actual: 0 };
-            monthlyBreakdown[monthKey].budget   += num(v?.budget,   0);
+            }
+            monthlyBreakdown[monthKey].budget += num(v?.budget, 0);
             monthlyBreakdown[monthKey].forecast += num(v?.forecast, 0);
-            monthlyBreakdown[monthKey].actual   += num(v?.actual,   0);
+            monthlyBreakdown[monthKey].actual += num(v?.actual, 0);
           }
         }
-      } catch { /* ignore */ }
+      } catch {}
     }
 
     return {
-      projectId:        pid,
-      projectCode:      project?.project_code ?? null,
+      projectId: pid,
+      projectCode: project?.project_code ?? null,
       projectCodeLabel: projectCodeLabel(project?.project_code) || null,
-      title:            project?.title ?? "Project",
-      colour:           project?.colour ?? "#00b8db",
-      status:           project?.resource_status ?? "confirmed",
-      startDate:        project?.start_date  ?? null,
-      finishDate:       project?.finish_date ?? null,
-      role:             roleByProject.get(pid) || "viewer",
+      title: project?.title ?? "Project",
+      colour: project?.colour ?? "#00b8db",
+      status: project?.resource_status ?? "confirmed",
+      startDate: project?.start_date ?? null,
+      finishDate: project?.finish_date ?? null,
+      role: roleByProject.get(pid) || "viewer",
       hasFinancialPlan,
-      artifactId:       artifact?.id ?? null,
-      lastUpdated:      artifact?.updated_at ?? null,
+      artifactId: artifact?.id ?? null,
+      lastUpdated: artifact?.updated_at ?? null,
       currency,
       totals: {
         approvedBudget: totalApprovedBudget,
-        budget:         effectiveBudget,
-        forecast:       totalForecast,
-        actual:         totalActual,
-        variance:       totalForecast - effectiveBudget,
+        budget: effectiveBudget,
+        forecast: totalForecast,
+        actual: totalActual,
+        variance: totalForecast - effectiveBudget,
         variancePct,
         burnPct,
       },
@@ -418,57 +493,69 @@ async function handle(req: Request, filters: PortfolioFilters) {
   // 7) Portfolio-level aggregates
   const withPlan = summaries.filter((p: any) => p.hasFinancialPlan);
 
-  const portTotalApproved = withPlan.reduce((s: number, p: any) => s + num(p.totals.approvedBudget, 0), 0);
-  const portTotalForecast = withPlan.reduce((s: number, p: any) => s + num(p.totals.forecast,       0), 0);
-  const portTotalActual   = withPlan.reduce((s: number, p: any) => s + num(p.totals.actual,         0), 0);
-  const portTotalBudget   = withPlan.reduce((s: number, p: any) => s + num(p.totals.budget,         0), 0);
+  const portTotalApproved = withPlan.reduce(
+    (s: number, p: any) => s + num(p.totals.approvedBudget, 0),
+    0,
+  );
+  const portTotalForecast = withPlan.reduce(
+    (s: number, p: any) => s + num(p.totals.forecast, 0),
+    0,
+  );
+  const portTotalActual = withPlan.reduce(
+    (s: number, p: any) => s + num(p.totals.actual, 0),
+    0,
+  );
+  const portTotalBudget = withPlan.reduce(
+    (s: number, p: any) => s + num(p.totals.budget, 0),
+    0,
+  );
 
-  const effectivePortBudget = portTotalApproved > 0 ? portTotalApproved : portTotalBudget;
+  const effectivePortBudget =
+    portTotalApproved > 0 ? portTotalApproved : portTotalBudget;
 
-  const portfolioVariancePct = effectivePortBudget > 0
-    ? Math.round(((portTotalForecast - effectivePortBudget) / effectivePortBudget) * 1000) / 10
-    : null;
+  const portfolioVariancePct =
+    effectivePortBudget > 0
+      ? Math.round(((portTotalForecast - effectivePortBudget) / effectivePortBudget) * 1000) /
+        10
+      : null;
 
   const portfolioRag = ragFromVariancePct(portfolioVariancePct);
 
-  // First project with a plan (for navigation in BudgetHealthStrip)
-  const firstPlanProject  = withPlan[0];
+  const firstPlanProject = withPlan[0];
   const portfolioCurrency = firstPlanProject?.currency ?? "GBP";
 
   const portfolio = {
-    totalBudget:    effectivePortBudget,
-    totalForecast:  portTotalForecast,
-    totalActual:    portTotalActual,
-    projectCount:   summaries.length,
-    withPlanCount:  withPlan.length,
-    variancePct:    portfolioVariancePct,
-    rag:            portfolioRag,
+    totalBudget: effectivePortBudget,
+    totalForecast: portTotalForecast,
+    totalActual: portTotalActual,
+    projectCount: summaries.length,
+    withPlanCount: withPlan.length,
+    variancePct: portfolioVariancePct,
+    rag: portfolioRag,
   };
 
   return noStoreJson({
     ok: true,
 
-    // ✅ FPS-F10: Flat fields expected by HomePage + BudgetHealthStrip
-    total_approved_budget:   effectivePortBudget > 0 ? effectivePortBudget : null,
-    total_spent:             portTotalActual  > 0 ? portTotalActual  : null,
-    variance_pct:            portfolioVariancePct,
-    pending_exposure_pct:    null,
-    rag:                     portfolioRag,
-    currency:                portfolioCurrency,
-    project_ref:             firstPlanProject?.projectId ?? null,
-    artifact_id:             firstPlanProject?.artifactId ?? null,
-    project_count:           summaries.length,
+    total_approved_budget: effectivePortBudget > 0 ? effectivePortBudget : null,
+    total_spent: portTotalActual > 0 ? portTotalActual : null,
+    variance_pct: portfolioVariancePct,
+    pending_exposure_pct: null,
+    rag: portfolioRag,
+    currency: portfolioCurrency,
+    project_ref: firstPlanProject?.projectId ?? null,
+    artifact_id: firstPlanProject?.artifactId ?? null,
+    project_count: summaries.length,
 
-    // Structured fields for BudgetHealthStrip detail view + what-if simulator
     portfolio,
     projects: summaries,
     meta: {
-      organisationId: scoped?.organisationId ?? null,
+      organisationId,
       scope: {
-        ...(scoped?.meta ?? {}),
-        scopedIdsRaw:       scopedProjectIdsRaw.length,
-        scopedIdsActive:    scopedProjectIds.length,
-        active_filter_ok:   active.ok,
+        ...scopeMeta,
+        scopedIdsRaw: scopedProjectIdsRaw.length,
+        scopedIdsActive: scopedProjectIds.length,
+        active_filter_ok: active.ok,
         active_filter_error: active.error,
       },
       filters: filtered.meta,
