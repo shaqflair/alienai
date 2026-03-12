@@ -1433,11 +1433,18 @@ export default function HomePage({ data }: { data: HomeData }) {
       (async () => {
         try {
           setDueLoading(true);
-          const j = await fetchJson<ArtifactDueResp>("/api/ai/events", {
-            method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
-            body: JSON.stringify({ eventType: "artifact_due", windowDays: dueWindowDays, filters: urlFilters }),
-          });
-          if (!j || !j.ok) return;
+       const apiFilters = deriveApiFilters(urlFilters, projectOptions);
+
+const j = await fetchJson<ArtifactDueResp>("/api/ai/events", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  cache: "no-store",
+  body: JSON.stringify({
+    eventType: "artifact_due",
+    windowDays: dueWindowDays,
+    filters: apiFilters,
+  }),
+});});          if (!j || !j.ok) return;
           const ai = (j as any).ai as ArtifactDueAi;
           const list = Array.isArray(ai?.dueSoon) ? ai.dueSoon : [];
           const merged = list
@@ -1732,7 +1739,10 @@ export default function HomePage({ data }: { data: HomeData }) {
               </div>
             </div>
 
-            <GovernanceIntelligence days={numericWindowDays} />
+          <GovernanceIntelligence
+  days={numericWindowDays}
+  filters={deriveApiFilters(urlFilters, projectOptions)}
+/>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2 space-y-4">
