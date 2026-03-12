@@ -1,15 +1,13 @@
 import "server-only";
 
-import { createClient } from "@/utils/supabase/server";
 import {
   resolveOrgActiveProjectScope,
   filterActiveProjectIds,
 } from "@/lib/server/project-scope";
 
-export async function resolvePortfolioScope(userId?: string | null) {
-  const supabase = await createClient();
-
+export async function resolvePortfolioScope(supabase: any, userId?: string | null) {
   let uid = userId ?? null;
+
   if (!uid) {
     const {
       data: { user },
@@ -22,6 +20,7 @@ export async function resolvePortfolioScope(userId?: string | null) {
         organisationId: null,
         rawProjectIds: [] as string[],
         activeProjectIds: [] as string[],
+        projectIds: [] as string[],
         meta: { reason: "auth_error", detail: error.message },
         supabase,
         userId: null,
@@ -37,6 +36,7 @@ export async function resolvePortfolioScope(userId?: string | null) {
       organisationId: null,
       rawProjectIds: [] as string[],
       activeProjectIds: [] as string[],
+      projectIds: [] as string[],
       meta: { reason: "no_user" },
       supabase,
       userId: null,
@@ -57,13 +57,20 @@ export async function resolvePortfolioScope(userId?: string | null) {
       ? scopeMeta.scopedIdsRaw
       : [];
 
-  const activeProjectIds = await filterActiveProjectIds(supabase, rawProjectIds);
+  const activeFiltered = await filterActiveProjectIds(supabase, rawProjectIds);
+
+  const activeProjectIds = Array.isArray(activeFiltered)
+    ? activeFiltered.filter(Boolean)
+    : Array.isArray((activeFiltered as any)?.projectIds)
+      ? (activeFiltered as any).projectIds.filter(Boolean)
+      : rawProjectIds;
 
   return {
     ok: true,
     organisationId,
     rawProjectIds,
     activeProjectIds,
+    projectIds: rawProjectIds,
     meta: {
       ...scopeMeta,
       rawCount: rawProjectIds.length,
