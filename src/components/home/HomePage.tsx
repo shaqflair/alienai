@@ -1,14 +1,4 @@
-// src/components/home/HomePage.tsx — POLISHED v9.4
-//
-// Fixes vs v9.3:
-//   ✅ HP-CTA1: Restored Governance Control Center CTA panel after removing inline
-//              GovernanceIntelligence section.
-//   ✅ HP-CTA2: CTA routes to /governance instead of rendering a second heavy view inline.
-//
-// Fixes vs v9.2:
-//   ✅ HP-VIEW1: Removed embedded GovernanceIntelligence section from HomePage.
-//               Home page now remains a single, clean Organisation Portfolio Overview
-//               instead of rendering a second governance control view underneath.
+// src/components/home/HomePage.tsx — POLISHED v9.2
 //
 // Fixes vs v9.1:
 //   ✅ HP-F7: Portfolio Health KPI no longer falls back to kpis.portfolioHealth or
@@ -43,13 +33,13 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import GovernanceIntelligence from "@/components/executive/GovernanceIntelligence";
 import { LazyMotion, domAnimation, m, AnimatePresence } from "framer-motion";
 import {
   Bell,
   Sparkles,
   AlertTriangle,
   ShieldCheck,
-  Shield,
   Clock3,
   Trophy,
   CheckCircle2,
@@ -74,9 +64,9 @@ import ResourceActivityChart, { type ResourceWeek } from "@/components/home/Reso
 
 type PortfolioFilters = {
   q?: string;
-  projectId?: string[];
-  projectName?: string[];
-  projectCode?: string[];
+  projectId?: string[]; // UI pill selection — UUID[]
+  projectName?: string[]; // legacy / derived
+  projectCode?: string[]; // legacy / derived
   projectManagerId?: string[];
   department?: string[];
 };
@@ -308,6 +298,7 @@ function filtersToSearchParams(f: PortfolioFilters): URLSearchParams {
   return sp;
 }
 
+// HP-F1: Translate projectId[] to code[] + name[] that backend routes understand.
 function deriveApiFilters(f: PortfolioFilters, projectOptions: ProjectOption[]): PortfolioFilters {
   const selectedIds = new Set(f.projectId ?? []);
   if (!selectedIds.size) return f;
@@ -329,6 +320,7 @@ function deriveApiFilters(f: PortfolioFilters, projectOptions: ProjectOption[]):
   };
 }
 
+// HP-F4: appendFiltersToApi calls deriveApiFilters so all 6 API widgets respect filters
 function appendFiltersToApi(baseUrl: string, f: PortfolioFilters, projectOptions: ProjectOption[] = []): string {
   try {
     const derived = deriveApiFilters(f, projectOptions);
@@ -440,6 +432,11 @@ function scoreToRag(score: number): RagLetter {
   if (s >= 70) return "A";
   return "R";
 }
+function prevWindowDays(cur: 7 | 14 | 30 | 60): 7 | 14 | 30 | 60 {
+  if (cur === 7) return 14;
+  if (cur === 14) return 30;
+  return 60;
+}
 function projectCodeLabel(pc: any): string {
   if (typeof pc === "string") return pc.trim();
   if (typeof pc === "number" && Number.isFinite(pc)) return String(pc);
@@ -451,7 +448,7 @@ function projectCodeLabel(pc: any): string {
 }
 function dueDateLabel(iso: string | null | undefined) {
   const s = safeStr(iso).trim();
-  if (!s) return "—";
+  if (!s) return "\u2014";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s;
   return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
@@ -485,7 +482,6 @@ function calcRagAgg(
     scored++;
     if (hit.rag === "G") g++;
     else if (hit.rag === "A") a++;
-    else r++;
     const h = Number(hit.health);
     vals.push(Number.isFinite(h) && h > 0 ? clamp01to100(h) : hit.rag === "G" ? 90 : hit.rag === "A" ? 78 : 45);
   }
@@ -520,12 +516,12 @@ function ragDotColor(r: RagLetter) {
 }
 function winTypeIcon(type: string): string {
   const t = (type ?? "").toLowerCase();
-  if (t.includes("risk")) return "⚠";
-  if (t.includes("commercial") || t.includes("budget")) return "£";
-  if (t.includes("learning") || t.includes("lesson")) return "✎";
-  if (t.includes("change") || t.includes("governance")) return "✓";
-  if (t.includes("milestone") || t.includes("delivery")) return "⚑";
-  return "★";
+  if (t.includes("risk"))                                return "\u26a0";
+  if (t.includes("commercial") || t.includes("budget")) return "\u00a3";
+  if (t.includes("learning") || t.includes("lesson"))   return "\u270e";
+  if (t.includes("change") || t.includes("governance")) return "\u2713";
+  if (t.includes("milestone") || t.includes("delivery"))return "\u2691";
+  return "\u2605";
 }
 function useDebounced<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -569,7 +565,7 @@ function RejectionModal({
             <label className="block text-xs font-medium text-gray-600 mb-1.5">Reason (optional)</label>
             <textarea
               value={reason} onChange={(e) => setReason(e.target.value)}
-              placeholder="Provide context…" rows={3} autoFocus
+              placeholder="Provide context\u2026" rows={3} autoFocus
               className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 resize-none outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
             />
             <div className="flex gap-2.5 mt-4">
@@ -873,9 +869,9 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
   const dotColor = rag ? ragDotColor(rag) : "#d1d5db";
   const ragLabel = rag === "G" ? "Green" : rag === "A" ? "Amber" : rag === "R" ? "Red" : "Unscored";
   const ragLogic =
-    rag === "G" ? `Health ≥ 85% (${health}%). Delivery signals are strong across schedule, RAID, workflow approvals and activity.`
-    : rag === "A" ? `Health 70–84% (${health}%). Some signals need attention — review slippage, open risks/issues, or approval queues.`
-    : rag === "R" ? `Health < 70% (${health}%). Significant delivery risk — prioritise an immediate review and corrective actions.`
+    rag === "G" ? `Health \u2265 85% (${health}%). Delivery signals are strong across schedule, RAID, workflow approvals and activity.`
+    : rag === "A" ? `Health 70\u201384% (${health}%). Some signals need attention \u2014 review slippage, open risks/issues, or approval queues.`
+    : rag === "R" ? `Health < 70% (${health}%). Significant delivery risk \u2014 prioritise an immediate review and corrective actions.`
     : "No health score calculated yet for this project.";
 
   return (
@@ -892,12 +888,12 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
           style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.13)" }}>
           <div className="flex items-center gap-2 mb-1.5">
             <div className="h-3 w-3 rounded-full shrink-0" style={{ background: dotColor }} />
-            <span className="text-xs font-bold text-gray-900">{ragLabel}{health != null ? ` — ${health}%` : ""}</span>
+            <span className="text-xs font-bold text-gray-900">{ragLabel}{health != null ? ` \u2014 ${health}%` : ""}</span>
           </div>
           <p className="text-[11px] text-gray-500 leading-relaxed">{ragLogic}</p>
           <div className="mt-2 pt-2 border-t border-gray-100 text-[10px] text-gray-400">
-            Thresholds: <span className="text-green-600 font-semibold">Green ≥ 85%</span>{" · "}
-            <span className="text-amber-600 font-semibold">Amber 70–84%</span>{" · "}
+            Thresholds: <span className="text-green-600 font-semibold">Green \u2265 85%</span>{" \u00b7 "}
+            <span className="text-amber-600 font-semibold">Amber 70\u201384%</span>{" \u00b7 "}
             <span className="text-red-500 font-semibold">Red {"<"} 70%</span>
           </div>
         </div>
@@ -911,7 +907,7 @@ function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLette
         <div className="flex-1 h-2 rounded-full bg-gray-100 overflow-hidden">
           <div className="h-full rounded-full" style={{ width: `${health ?? 0}%`, background: dotColor, transition: "width 0.6s ease" }} />
         </div>
-        <span className="text-xs font-bold text-gray-600 w-8 text-right">{health != null ? `${health}%` : "—"}</span>
+        <span className="text-xs font-bold text-gray-600 w-8 text-right">{health != null ? `${health}%` : "\u2014"}</span>
       </div>
       <ChevronRight className="h-3.5 w-3.5 text-gray-300 group-hover:text-gray-500 shrink-0 transition-colors" />
     </div>
@@ -1069,7 +1065,7 @@ function FilterDrawer({
                   <input
                     ref={searchInputRef}
                     value={local.q ?? ""} onChange={(e) => setLocal((p) => ({ ...p, q: e.target.value }))}
-                    placeholder="Project name, code, PM, department…"
+                    placeholder="Project name, code, PM, department\u2026"
                     className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
                   />
                   {local.q ? (
@@ -1088,7 +1084,7 @@ function FilterDrawer({
                     return (
                       <button key={p.id} type="button" onClick={() => toggle("projectId", p.id)}
                         className={["px-3 py-1.5 rounded-full text-xs border", pill(on)].join(" ")}
-                        title={p.code ? `${p.name} • ${p.code}` : p.name}>
+                        title={p.code ? `${p.name} \u2022 ${p.code}` : p.name}>
                         {p.code ? `${p.name} (${p.code})` : p.name}
                       </button>
                     );
@@ -1180,14 +1176,17 @@ export default function HomePage({ data }: { data: HomeData }) {
   const [phPrevScore, setPhPrevScore] = useState<number | null>(null);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(true);
-
   const [approvalItems, setApprovalItems] = useState<any[]>([]);
+  const [approvalsLoading, setApprovalsLoading] = useState(true);
   const [pendingIds, setPendingIds] = useState<Record<string, true>>({});
   const [rejectModal, setRejectModal] = useState<{ taskId: string; title: string } | null>(null);
 
+  // HP-F6: null initial state — renders "…" until the live API responds,
+  // never pre-populates from the stale SSR kpi fallback.
   const [milestonesDueLive, setMilestonesDueLive] = useState<number | null>(null);
 
   const [raidPanel, setRaidPanel] = useState<RaidPanel | null>(null);
+  const [raidLoading, setRaidLoading] = useState(false);
   const [dueWindowDays, setDueWindowDays] = useState<7 | 14 | 30>(14);
   const [dueLoading, setDueLoading] = useState(false);
   const [dueItems, setDueItems] = useState<DueDigestItem[]>([]);
@@ -1405,6 +1404,7 @@ export default function HomePage({ data }: { data: HomeData }) {
     runIdle(() => {
       (async () => {
         try {
+          setRaidLoading(true);
           const url = appendFiltersToApi(`/api/portfolio/raid-panel?days=${numericWindowDays}`, urlFilters, projectOptions);
           const j: any = await fetchJson(url, { cache: "no-store" });
           if (!j?.ok || !j?.panel) return;
@@ -1414,12 +1414,13 @@ export default function HomePage({ data }: { data: HomeData }) {
             risk_due: num(p.risk_due), issue_due: num(p.issue_due), dependency_due: num(p.dependency_due),
             assumption_due: num(p.assumption_due), risk_hi: num(p.risk_hi), issue_hi: num(p.issue_hi),
           });
-        } catch {}
+        } catch {} finally { if (!c) setRaidLoading(false); }
       })();
     });
     return () => { c = true; };
   }, [ok, numericWindowDays, urlFilters, projectOptions]);
 
+  // HP-F7: Fetch live portfolio health score — phScoreForUi stays null until this resolves.
   useEffect(() => {
     if (!ok) return;
     let cancelled = false;
@@ -1464,29 +1465,9 @@ export default function HomePage({ data }: { data: HomeData }) {
     return () => { c = true; };
   }, [ok, numericWindowDays, urlFilters, projectOptions]);
 
-  useEffect(() => {
-    if (!ok) return;
-    let c = false;
-    setInsightsLoading(true);
-    runIdle(() => {
-      (async () => {
-        try {
-          const url = appendFiltersToApi(`/api/ai/briefing?days=${numericWindowDays}`, urlFilters, projectOptions);
-          const j: any = await fetchJson(url, { cache: "no-store" });
-          if (!c) {
-            const next = j?.ok && Array.isArray(j.insights) ? orderBriefingInsights(j.insights) : [];
-            setInsights(next);
-          }
-        } catch {
-          if (!c) setInsights([]);
-        } finally {
-          if (!c) setInsightsLoading(false);
-        }
-      })();
-    });
-    return () => { c = true; };
-  }, [ok, numericWindowDays, urlFilters, projectOptions]);
-
+  // HP-F7: Use live API score when available and > 0. Fall back to ragAgg.avgHealth
+  // (derived from per-project RAG data already on the page) if the API returns 0 or
+  // hasn't resolved yet. Never falls back to the stale SSR kpis.portfolioHealth value.
   const apiScore = phData?.ok ? clamp01to100(phData.portfolio_health) : null;
   const ragFallback = ragAgg.scored ? ragAgg.avgHealth : null;
   const phScoreForUi = (apiScore != null && apiScore > 0) ? apiScore : ragFallback;
@@ -1499,6 +1480,7 @@ export default function HomePage({ data }: { data: HomeData }) {
     return m2;
   }, [approvalItems]);
 
+  // HP-F3: Explicit sum — zero stays 0, no || fallback swallowing it
   const raidDueTotal = useMemo(() => {
     if (!raidPanel) return 0;
     const typedAvailable =
@@ -1510,14 +1492,23 @@ export default function HomePage({ data }: { data: HomeData }) {
     return num(raidPanel.due_total);
   }, [raidPanel]);
 
+  // HP-F5 (revised): Show null until raidPanel arrives — no kpis.openRisks fallback.
   const openRisksValue = raidPanel ? raidDueTotal : null;
+
   const raidHighSeverity = num(raidPanel?.risk_hi) + num(raidPanel?.issue_hi);
 
   const fpHasData = fpSummary?.ok === true;
   const fpVariancePct = fpHasData ? (fpSummary as any).variance_pct : null;
   const fpVarianceNum = fpVariancePct != null && Number.isFinite(Number(fpVariancePct)) ? Math.round(Number(fpVariancePct) * 10) / 10 : null;
-  const fpVarianceLabel = fpVarianceNum != null ? (fpVarianceNum === 0 ? "±0%" : `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%`) : fpLoading ? "…" : "—";
+  const fpVarianceLabel = fpVarianceNum != null ? (fpVarianceNum === 0 ? "\u00b10%" : `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%`) : fpLoading ? "\u2026" : "\u2014";
   const fpRag = fpHasData ? ((fpSummary as any).rag as RagLetter) : null;
+  const firstProjectRef = useMemo(() => {
+    const fp = fpSummary?.ok ? (fpSummary as any).project_ref : null;
+    if (fp) return fp;
+    const p = sortedProjects[0] as any;
+    if (!p) return "";
+    return safeStr(p?.id);
+  }, [fpSummary, sortedProjects]);
 
   async function decide(taskId: string, decision: "approve" | "reject", comment = "") {
     const item = byId.get(taskId);
@@ -1560,10 +1551,6 @@ export default function HomePage({ data }: { data: HomeData }) {
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 250);
   }, [activeProjects]);
 
-  useEffect(() => {
-    if (phScoreForUi != null) setPhPrevScore((prev) => (prev == null ? phScoreForUi : prev));
-  }, [phScoreForUi]);
-
   if (!ok) {
     return (
       <div className="min-h-screen bg-gray-50 grid place-items-center p-10">
@@ -1598,6 +1585,7 @@ export default function HomePage({ data }: { data: HomeData }) {
         />
         <div className="min-h-screen" style={{ background: "#f8fafc" }}>
 
+          {/* Top Nav */}
           <header className="sticky top-0 z-30 bg-white border-b border-gray-100" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
             <div className="max-w-screen-2xl mx-auto px-6 h-14 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
@@ -1607,7 +1595,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                 <div className="flex items-baseline gap-2.5">
                   <span className="font-bold text-gray-900 text-base">Organisation Portfolio</span>
                   <span className="hidden md:block text-xs text-gray-400">
-                    Enterprise project portfolio overview{filtersActive ? ` • filtered (${activeProjects.length})` : ""}
+                    Enterprise project portfolio overview{filtersActive ? ` \u2022 filtered (${activeProjects.length})` : ""}
                   </span>
                 </div>
               </div>
@@ -1666,10 +1654,10 @@ export default function HomePage({ data }: { data: HomeData }) {
                   <span className="font-semibold text-gray-700">Active filters:</span>{" "}
                   <span className="truncate">
                     {urlFilters.q ? `q="${urlFilters.q}" ` : ""}
-                    {urlFilters.projectId?.length ?? 0 ? `• Projects ${urlFilters.projectId!.length} ` : ""}
-                    {urlFilters.projectCode?.length ?? 0 ? `• Codes ${urlFilters.projectCode!.length} ` : ""}
-                    {urlFilters.projectManagerId?.length ?? 0 ? `• PM ${urlFilters.projectManagerId!.length} ` : ""}
-                    {urlFilters.department?.length ?? 0 ? `• Dept ${urlFilters.department!.length} ` : ""}
+                    {urlFilters.projectId?.length ?? 0 ? `\u2022 Projects ${urlFilters.projectId!.length} ` : ""}
+                    {urlFilters.projectCode?.length ?? 0 ? `\u2022 Codes ${urlFilters.projectCode!.length} ` : ""}
+                    {urlFilters.projectManagerId?.length ?? 0 ? `\u2022 PM ${urlFilters.projectManagerId!.length} ` : ""}
+                    {urlFilters.department?.length ?? 0 ? `\u2022 Dept ${urlFilters.department!.length} ` : ""}
                   </span>
                 </div>
                 <button onClick={clearFilters}
@@ -1680,10 +1668,11 @@ export default function HomePage({ data }: { data: HomeData }) {
             )}
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* HP-F7: phScoreForUi — null until live /api/portfolio/health resolves */}
               <KpiCard
                 label="Portfolio Health"
-                value={phScoreForUi == null ? "…" : `${phScoreForUi}%`}
-                sub={ragAgg.scored ? `${ragAgg.g} Green · ${ragAgg.a} Amber · ${ragAgg.r} Red` : "live portfolio score"}
+                value={phScoreForUi == null ? "\u2026" : `${phScoreForUi}%`}
+                sub={ragAgg.scored ? `${ragAgg.g} Green \u00b7 ${ragAgg.a} Amber \u00b7 ${ragAgg.r} Red` : "live portfolio score"}
                 icon={<Activity className="h-5 w-5" />}
                 colorKey={phScoreForUi == null ? "blue" : phColorKey}
                 trendLabel={phDelta != null && phDelta !== 0 ? `${Math.abs(Math.round(phDelta))}` : undefined}
@@ -1691,74 +1680,34 @@ export default function HomePage({ data }: { data: HomeData }) {
                 delay={0}
               />
 
+              {/* HP-F5: openRisksValue — null while loading, raidDueTotal once panel arrives */}
               <KpiCard
                 label="Open Risks"
-                value={openRisksValue == null ? "…" : `${openRisksValue}`}
-                sub="high priority"
-                icon={<AlertTriangle className="h-5 w-5" />}
-                colorKey="amber"
+                value={openRisksValue == null ? "\u2026" : `${openRisksValue}`}
+                sub="high priority" icon={<AlertTriangle className="h-5 w-5" />} colorKey="amber"
                 trendLabel={raidHighSeverity > 0 ? `${raidHighSeverity}` : undefined}
-                onClick={() => router.push(appendFiltersToUrl(`/insights?tab=raid&days=${numericWindowDays}`, urlFilters))}
-                delay={0.05}
-              />
+                onClick={() => router.push(appendFiltersToUrl(`/insights?tab=raid&days=${numericWindowDays}`, urlFilters))} delay={0.05} />
 
-              <KpiCard
-                label="Milestones Due"
-                value={milestonesDueLive == null ? "…" : `${milestonesDueLive}`}
+              {/* HP-F6: milestonesDueLive — null until live API responds */}
+              <KpiCard label="Milestones Due"
+                value={milestonesDueLive == null ? "\u2026" : `${milestonesDueLive}`}
                 sub={`next ${windowDays === "all" ? "60" : windowDays} days`}
-                icon={<Clock3 className="h-5 w-5" />}
-                colorKey="blue"
-                onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${numericWindowDays}`, urlFilters))}
-                delay={0.1}
-              />
+                icon={<Clock3 className="h-5 w-5" />} colorKey="blue"
+                onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${numericWindowDays}`, urlFilters))} delay={0.1} />
 
-              <KpiCard
-                label="Budget Health"
-                value={fpVarianceLabel}
+              <KpiCard label="Budget Health" value={fpVarianceLabel}
                 sub={fpHasData ? `Budget ${fpRag === "G" ? "on track" : fpRag === "A" ? "watch" : "over"}` : "variance"}
-                icon={<DollarSign className="h-5 w-5" />}
-                colorKey={fpColorKey}
+                icon={<DollarSign className="h-5 w-5" />} colorKey={fpColorKey}
                 trendLabel={fpVarianceNum != null && fpVarianceNum !== 0 ? fpVarianceLabel : undefined}
-                onClick={() => router.push("/budget")}
-                delay={0.15}
-              />
+                onClick={() => router.push("/budget")} delay={0.15} />
             </div>
-
-            {/* Governance Control Center */}
-            <m.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.35, delay: 0.12, ease: [0.16, 1, 0.3, 1] }}
-              className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-white p-5 shadow-sm flex items-center justify-between gap-4"
-            >
-              <div className="flex items-center gap-4 min-w-0">
-                <div className="h-10 w-10 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0">
-                  <Shield className="h-5 w-5 text-indigo-600" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-gray-900">Governance Control Center</div>
-                  <div className="text-xs text-gray-500 truncate">
-                    Monitor approvals, risks, delivery signals and AI governance insights
-                  </div>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => router.push("/governance")}
-                className="inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-600 text-white px-4 py-2 text-sm font-semibold hover:bg-indigo-700 transition shrink-0"
-              >
-                Open Control Center
-                <ArrowUpRight className="h-4 w-4" />
-              </button>
-            </m.div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 p-6" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
                 <div className="flex items-start justify-between mb-2">
                   <div>
                     <h3 className="font-semibold text-gray-900">Resource Activity</h3>
-                    <p className="text-xs text-gray-400 mt-0.5">Week-on-week capacity vs demand (FTE) · {windowDays === "all" ? "60" : windowDays} days</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Week-on-week capacity vs demand (FTE) \u00b7 {windowDays === "all" ? "60" : windowDays} days</p>
                   </div>
                   <div className="flex items-center gap-4 text-xs text-gray-400 mt-1">
                     <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#93c5fd" }} />Capacity</span>
@@ -1800,6 +1749,11 @@ export default function HomePage({ data }: { data: HomeData }) {
               </div>
             </div>
 
+            <GovernanceIntelligence
+              days={numericWindowDays}
+              filters={deriveApiFilters(urlFilters, projectOptions)}
+            />
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2 space-y-4">
                 {ragAgg.scored > 0 && (
@@ -1814,9 +1768,9 @@ export default function HomePage({ data }: { data: HomeData }) {
                     </div>
                     <div className="grid grid-cols-3 gap-3">
                       {[
-                        { rag: "G" as RagLetter, count: ragAgg.g, icon: <CheckCircle2 className="h-4 w-4 text-green-600" />, label: "Green", threshold: "≥ 85% health", from: "#f0fdf4", border: "#dcfce7" },
-                        { rag: "A" as RagLetter, count: ragAgg.a, icon: <AlertTriangle className="h-4 w-4 text-amber-600" />, label: "Amber", threshold: "70–84% health", from: "#fffbeb", border: "#fef3c7" },
-                        { rag: "R" as RagLetter, count: ragAgg.r, icon: <AlertTriangle className="h-4 w-4 text-red-500" />, label: "Red", threshold: "< 70% health", from: "#fef2f2", border: "#fecaca" },
+                        { rag: "G" as RagLetter, count: ragAgg.g, icon: <CheckCircle2 className="h-4 w-4 text-green-600" />, label: "Green", threshold: "\u2265 85% health", from: "#f0fdf4", border: "#dcfce7" },
+                        { rag: "A" as RagLetter, count: ragAgg.a, icon: <AlertTriangle className="h-4 w-4 text-amber-600" />, label: "Amber", threshold: "70\u201384% health", from: "#fffbeb", border: "#fef3c7" },
+                        { rag: "R" as RagLetter, count: ragAgg.r, icon: <AlertTriangle className="h-4 w-4 text-red-500" />,   label: "Red",   threshold: "< 70% health",   from: "#fef2f2", border: "#fecaca" },
                       ].map(({ rag: r, count, icon, label, threshold, from, border }) => (
                         <div key={r} className="rounded-xl p-4 cursor-pointer transition-all hover:brightness-[0.97]"
                           style={{ background: from, border: `1px solid ${border}` }}
@@ -1856,7 +1810,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                   {sortedProjects.length > 9 && (
                     <div className="px-6 py-3 border-t border-gray-50 text-center">
                       <button onClick={() => router.push(appendFiltersToUrl("/projects", urlFilters))} className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-                        View all {activeProjects.length} projects →
+                        View all {activeProjects.length} projects \u2192
                       </button>
                     </div>
                   )}
@@ -1893,7 +1847,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                         <p className="text-sm text-gray-400">Nothing due in {dueWindowDays} days</p>
                         <button onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))}
                           className="mt-2 text-xs text-blue-600 hover:text-blue-700 font-medium">
-                          View milestone list →
+                          View milestone list \u2192
                         </button>
                       </div>
                     ) : (
@@ -1913,7 +1867,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                     {dueItems.length > 8 && (
                       <button onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))}
                         className="w-full text-xs text-blue-600 hover:text-blue-700 font-medium py-2 text-center border-t border-gray-50 mt-1">
-                        View all {dueItems.length} milestones →
+                        View all {dueItems.length} milestones \u2192
                       </button>
                     )}
                   </div>
@@ -1959,3 +1913,4 @@ export default function HomePage({ data }: { data: HomeData }) {
     </>
   );
 }
+
