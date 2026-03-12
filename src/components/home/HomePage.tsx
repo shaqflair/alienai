@@ -1,4 +1,9 @@
-// src/components/home/HomePage.tsx — POLISHED v9.3
+// src/components/home/HomePage.tsx — POLISHED v9.4
+//
+// Fixes vs v9.3:
+//   ✅ HP-CTA1: Restored Governance Control Center CTA panel after removing inline
+//              GovernanceIntelligence section.
+//   ✅ HP-CTA2: CTA routes to /governance instead of rendering a second heavy view inline.
 //
 // Fixes vs v9.2:
 //   ✅ HP-VIEW1: Removed embedded GovernanceIntelligence section from HomePage.
@@ -44,6 +49,7 @@ import {
   Sparkles,
   AlertTriangle,
   ShieldCheck,
+  Shield,
   Clock3,
   Trophy,
   CheckCircle2,
@@ -68,9 +74,9 @@ import ResourceActivityChart, { type ResourceWeek } from "@/components/home/Reso
 
 type PortfolioFilters = {
   q?: string;
-  projectId?: string[]; // UI pill selection — UUID[]
-  projectName?: string[]; // legacy / derived
-  projectCode?: string[]; // legacy / derived
+  projectId?: string[];
+  projectName?: string[];
+  projectCode?: string[];
   projectManagerId?: string[];
   department?: string[];
 };
@@ -302,7 +308,6 @@ function filtersToSearchParams(f: PortfolioFilters): URLSearchParams {
   return sp;
 }
 
-// HP-F1: Translate projectId[] to code[] + name[] that backend routes understand.
 function deriveApiFilters(f: PortfolioFilters, projectOptions: ProjectOption[]): PortfolioFilters {
   const selectedIds = new Set(f.projectId ?? []);
   if (!selectedIds.size) return f;
@@ -324,7 +329,6 @@ function deriveApiFilters(f: PortfolioFilters, projectOptions: ProjectOption[]):
   };
 }
 
-// HP-F4: appendFiltersToApi calls deriveApiFilters so all 6 API widgets respect filters
 function appendFiltersToApi(baseUrl: string, f: PortfolioFilters, projectOptions: ProjectOption[] = []): string {
   try {
     const derived = deriveApiFilters(f, projectOptions);
@@ -436,11 +440,6 @@ function scoreToRag(score: number): RagLetter {
   if (s >= 70) return "A";
   return "R";
 }
-function prevWindowDays(cur: 7 | 14 | 30 | 60): 7 | 14 | 30 | 60 {
-  if (cur === 7) return 14;
-  if (cur === 14) return 30;
-  return 60;
-}
 function projectCodeLabel(pc: any): string {
   if (typeof pc === "string") return pc.trim();
   if (typeof pc === "number" && Number.isFinite(pc)) return String(pc);
@@ -521,11 +520,11 @@ function ragDotColor(r: RagLetter) {
 }
 function winTypeIcon(type: string): string {
   const t = (type ?? "").toLowerCase();
-  if (t.includes("risk"))                                return "⚠";
+  if (t.includes("risk")) return "⚠";
   if (t.includes("commercial") || t.includes("budget")) return "£";
-  if (t.includes("learning") || t.includes("lesson"))   return "✎";
+  if (t.includes("learning") || t.includes("lesson")) return "✎";
   if (t.includes("change") || t.includes("governance")) return "✓";
-  if (t.includes("milestone") || t.includes("delivery"))return "⚑";
+  if (t.includes("milestone") || t.includes("delivery")) return "⚑";
   return "★";
 }
 function useDebounced<T>(value: T, delay: number): T {
@@ -1182,17 +1181,13 @@ export default function HomePage({ data }: { data: HomeData }) {
   const [insights, setInsights] = useState<Insight[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(true);
 
-  // kept for existing modal scaffolding if reused later
   const [approvalItems, setApprovalItems] = useState<any[]>([]);
   const [pendingIds, setPendingIds] = useState<Record<string, true>>({});
   const [rejectModal, setRejectModal] = useState<{ taskId: string; title: string } | null>(null);
 
-  // HP-F6: null initial state — renders "…" until the live API responds,
-  // never pre-populates from the stale SSR kpi fallback.
   const [milestonesDueLive, setMilestonesDueLive] = useState<number | null>(null);
 
   const [raidPanel, setRaidPanel] = useState<RaidPanel | null>(null);
-  const [raidLoading, setRaidLoading] = useState(false);
   const [dueWindowDays, setDueWindowDays] = useState<7 | 14 | 30>(14);
   const [dueLoading, setDueLoading] = useState(false);
   const [dueItems, setDueItems] = useState<DueDigestItem[]>([]);
@@ -1410,7 +1405,6 @@ export default function HomePage({ data }: { data: HomeData }) {
     runIdle(() => {
       (async () => {
         try {
-          setRaidLoading(true);
           const url = appendFiltersToApi(`/api/portfolio/raid-panel?days=${numericWindowDays}`, urlFilters, projectOptions);
           const j: any = await fetchJson(url, { cache: "no-store" });
           if (!j?.ok || !j?.panel) return;
@@ -1420,13 +1414,12 @@ export default function HomePage({ data }: { data: HomeData }) {
             risk_due: num(p.risk_due), issue_due: num(p.issue_due), dependency_due: num(p.dependency_due),
             assumption_due: num(p.assumption_due), risk_hi: num(p.risk_hi), issue_hi: num(p.issue_hi),
           });
-        } catch {} finally { if (!c) setRaidLoading(false); }
+        } catch {}
       })();
     });
     return () => { c = true; };
   }, [ok, numericWindowDays, urlFilters, projectOptions]);
 
-  // HP-F7: Fetch live portfolio health score — phScoreForUi stays null until this resolves.
   useEffect(() => {
     if (!ok) return;
     let cancelled = false;
@@ -1525,13 +1518,6 @@ export default function HomePage({ data }: { data: HomeData }) {
   const fpVarianceNum = fpVariancePct != null && Number.isFinite(Number(fpVariancePct)) ? Math.round(Number(fpVariancePct) * 10) / 10 : null;
   const fpVarianceLabel = fpVarianceNum != null ? (fpVarianceNum === 0 ? "±0%" : `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%`) : fpLoading ? "…" : "—";
   const fpRag = fpHasData ? ((fpSummary as any).rag as RagLetter) : null;
-  const firstProjectRef = useMemo(() => {
-    const fp = fpSummary?.ok ? (fpSummary as any).project_ref : null;
-    if (fp) return fp;
-    const p = sortedProjects[0] as any;
-    if (!p) return "";
-    return safeStr(p?.id);
-  }, [fpSummary, sortedProjects]);
 
   async function decide(taskId: string, decision: "approve" | "reject", comment = "") {
     const item = byId.get(taskId);
@@ -1611,6 +1597,7 @@ export default function HomePage({ data }: { data: HomeData }) {
           searchInputRef={searchInputRef}
         />
         <div className="min-h-screen" style={{ background: "#f8fafc" }}>
+
           <header className="sticky top-0 z-30 bg-white border-b border-gray-100" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
             <div className="max-w-screen-2xl mx-auto px-6 h-14 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
@@ -1707,22 +1694,64 @@ export default function HomePage({ data }: { data: HomeData }) {
               <KpiCard
                 label="Open Risks"
                 value={openRisksValue == null ? "…" : `${openRisksValue}`}
-                sub="high priority" icon={<AlertTriangle className="h-5 w-5" />} colorKey="amber"
+                sub="high priority"
+                icon={<AlertTriangle className="h-5 w-5" />}
+                colorKey="amber"
                 trendLabel={raidHighSeverity > 0 ? `${raidHighSeverity}` : undefined}
-                onClick={() => router.push(appendFiltersToUrl(`/insights?tab=raid&days=${numericWindowDays}`, urlFilters))} delay={0.05} />
+                onClick={() => router.push(appendFiltersToUrl(`/insights?tab=raid&days=${numericWindowDays}`, urlFilters))}
+                delay={0.05}
+              />
 
-              <KpiCard label="Milestones Due"
+              <KpiCard
+                label="Milestones Due"
                 value={milestonesDueLive == null ? "…" : `${milestonesDueLive}`}
                 sub={`next ${windowDays === "all" ? "60" : windowDays} days`}
-                icon={<Clock3 className="h-5 w-5" />} colorKey="blue"
-                onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${numericWindowDays}`, urlFilters))} delay={0.1} />
+                icon={<Clock3 className="h-5 w-5" />}
+                colorKey="blue"
+                onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${numericWindowDays}`, urlFilters))}
+                delay={0.1}
+              />
 
-              <KpiCard label="Budget Health" value={fpVarianceLabel}
+              <KpiCard
+                label="Budget Health"
+                value={fpVarianceLabel}
                 sub={fpHasData ? `Budget ${fpRag === "G" ? "on track" : fpRag === "A" ? "watch" : "over"}` : "variance"}
-                icon={<DollarSign className="h-5 w-5" />} colorKey={fpColorKey}
+                icon={<DollarSign className="h-5 w-5" />}
+                colorKey={fpColorKey}
                 trendLabel={fpVarianceNum != null && fpVarianceNum !== 0 ? fpVarianceLabel : undefined}
-                onClick={() => router.push("/budget")} delay={0.15} />
+                onClick={() => router.push("/budget")}
+                delay={0.15}
+              />
             </div>
+
+            {/* Governance Control Center */}
+            <m.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35, delay: 0.12, ease: [0.16, 1, 0.3, 1] }}
+              className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-white p-5 shadow-sm flex items-center justify-between gap-4"
+            >
+              <div className="flex items-center gap-4 min-w-0">
+                <div className="h-10 w-10 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0">
+                  <Shield className="h-5 w-5 text-indigo-600" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-gray-900">Governance Control Center</div>
+                  <div className="text-xs text-gray-500 truncate">
+                    Monitor approvals, risks, delivery signals and AI governance insights
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => router.push("/governance")}
+                className="inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-600 text-white px-4 py-2 text-sm font-semibold hover:bg-indigo-700 transition shrink-0"
+              >
+                Open Control Center
+                <ArrowUpRight className="h-4 w-4" />
+              </button>
+            </m.div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 p-6" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
@@ -1787,7 +1816,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                       {[
                         { rag: "G" as RagLetter, count: ragAgg.g, icon: <CheckCircle2 className="h-4 w-4 text-green-600" />, label: "Green", threshold: "≥ 85% health", from: "#f0fdf4", border: "#dcfce7" },
                         { rag: "A" as RagLetter, count: ragAgg.a, icon: <AlertTriangle className="h-4 w-4 text-amber-600" />, label: "Amber", threshold: "70–84% health", from: "#fffbeb", border: "#fef3c7" },
-                        { rag: "R" as RagLetter, count: ragAgg.r, icon: <AlertTriangle className="h-4 w-4 text-red-500" />,   label: "Red",   threshold: "< 70% health",   from: "#fef2f2", border: "#fecaca" },
+                        { rag: "R" as RagLetter, count: ragAgg.r, icon: <AlertTriangle className="h-4 w-4 text-red-500" />, label: "Red", threshold: "< 70% health", from: "#fef2f2", border: "#fecaca" },
                       ].map(({ rag: r, count, icon, label, threshold, from, border }) => (
                         <div key={r} className="rounded-xl p-4 cursor-pointer transition-all hover:brightness-[0.97]"
                           style={{ background: from, border: `1px solid ${border}` }}
