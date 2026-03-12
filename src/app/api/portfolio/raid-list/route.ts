@@ -1,4 +1,4 @@
-﻿// src/app/api/portfolio/raid-list/route.ts — REBUILT v3
+﻿// src/app/api/portfolio/raid-list/route.ts — REBUILT v4
 // ✅ Org-scoped: all org members see portfolio-wide RAID items.
 // ✅ Filters supported (GET + POST): name/code/pm/dept
 // ✅ Active-only project filter (exclude closed/terminal) with FAIL-OPEN safeguard
@@ -6,12 +6,14 @@
 // ✅ No-store cache on all responses.
 // ✅ Project links prefer project_code (human id)
 // ✅ Includes RAID public_id for display in dashboards / registers
+// ✅ Uses shared resolvePortfolioScope() for org-wide dashboard scope
 
 import "server-only";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveOrgActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
+import { filterActiveProjectIds } from "@/lib/server/project-scope";
+import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export const runtime = "nodejs";
 
@@ -56,7 +58,7 @@ function clampDays(x: any, fallback = 30): 7 | 14 | 30 | 60 {
   if (s === "all") return 60;
   const n = Number(s);
   const allowed = new Set([7, 14, 30, 60]);
-  return Number.isFinite(n) && allowed.has(n) ? (n as any) : (fallback as any);
+  return Number.isFinite(n) && allowed.has(n) ? (n as 7 | 14 | 30 | 60) : (fallback as 7 | 14 | 30 | 60);
 }
 
 function safeScope(x: any) {
@@ -84,7 +86,9 @@ function safeStatus(x: any) {
 }
 
 function isoDateUTC(d: Date) {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(
+    d.getUTCDate(),
+  ).padStart(2, "0")}`;
 }
 
 function fmtDateUK(x: any): string | null {
@@ -94,7 +98,10 @@ function fmtDateUK(x: any): string | null {
   if (m) return `${m[3]}/${m[2]}/${m[1]}`;
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return null;
-  return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/${d.getUTCFullYear()}`;
+  return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(
+    2,
+    "0",
+  )}/${d.getUTCFullYear()}`;
 }
 
 function clamp01to100(n: any) {
@@ -119,7 +126,11 @@ function projectCodeLabel(pc: any): string {
   if (typeof pc === "string") return pc.trim();
   if (typeof pc === "number" && Number.isFinite(pc)) return String(pc);
   if (pc && typeof pc === "object") {
-    const v = safeStr(pc.project_code) || safeStr(pc.code) || safeStr(pc.value) || safeStr(pc.id);
+    const v =
+      safeStr(pc.project_code) ||
+      safeStr(pc.code) ||
+      safeStr(pc.value) ||
+      safeStr(pc.id);
     return v.trim();
   }
   return "";
@@ -147,13 +158,21 @@ async function normalizeActiveIds(supabase: any, rawIds: string[]) {
 
     if (Array.isArray(r)) {
       const ids = r.filter(Boolean);
-      if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
+      if (!ids.length && rawIds.length) {
+        return failOpen("active filter returned 0 ids; failing open");
+      }
       return { ids, ok: true, error: null as string | null };
     }
 
     const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
-    if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
-    return { ids, ok: !r?.error, error: r?.error ? safeStr(r.error?.message || r.error) : null };
+    if (!ids.length && rawIds.length) {
+      return failOpen("active filter returned 0 ids; failing open");
+    }
+    return {
+      ids,
+      ok: !r?.error,
+      error: r?.error ? safeStr(r.error?.message || r.error) : null,
+    };
   } catch (e: any) {
     return failOpen(safeStr(e?.message || e || "active filter failed"));
   }
@@ -178,10 +197,18 @@ function hasAnyFilters(f: PortfolioFilters) {
 }
 
 function parseFiltersFromUrl(url: URL): PortfolioFilters {
-  const name = uniqStrings(url.searchParams.getAll("name").flatMap((x) => x.split(",")).map((s) => s.trim()));
-  const code = uniqStrings(url.searchParams.getAll("code").flatMap((x) => x.split(",")).map((s) => s.trim()));
-  const pm = uniqStrings(url.searchParams.getAll("pm").flatMap((x) => x.split(",")).map((s) => s.trim()));
-  const dept = uniqStrings(url.searchParams.getAll("dept").flatMap((x) => x.split(",")).map((s) => s.trim()));
+  const name = uniqStrings(
+    url.searchParams.getAll("name").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
+  const code = uniqStrings(
+    url.searchParams.getAll("code").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
+  const pm = uniqStrings(
+    url.searchParams.getAll("pm").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
+  const dept = uniqStrings(
+    url.searchParams.getAll("dept").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
 
   const out: PortfolioFilters = {};
   if (name.length) out.projectName = name;
@@ -194,10 +221,18 @@ function parseFiltersFromUrl(url: URL): PortfolioFilters {
 function parseFiltersFromBody(body: any): PortfolioFilters {
   const f = body?.filters ?? body?.filter ?? body?.where ?? null;
   const out: PortfolioFilters = {};
-  const names = uniqStrings(f?.projectName ?? f?.projectNames ?? f?.name ?? f?.project_name);
-  const codes = uniqStrings(f?.projectCode ?? f?.projectCodes ?? f?.code ?? f?.project_code);
-  const pms = uniqStrings(f?.projectManagerId ?? f?.projectManagerIds ?? f?.pm ?? f?.project_manager_id);
-  const depts = uniqStrings(f?.department ?? f?.departments ?? f?.dept);
+  const names = uniqStrings(
+    f?.projectName ?? f?.projectNames ?? f?.name ?? f?.project_name,
+  );
+  const codes = uniqStrings(
+    f?.projectCode ?? f?.projectCodes ?? f?.code ?? f?.project_code,
+  );
+  const pms = uniqStrings(
+    f?.projectManagerId ?? f?.projectManagerIds ?? f?.pm ?? f?.project_manager_id,
+  );
+  const depts = uniqStrings(
+    f?.department ?? f?.departments ?? f?.dept,
+  );
 
   if (names.length) out.projectName = names;
   if (codes.length) out.projectCode = codes;
@@ -217,7 +252,11 @@ function looksMissingColumn(error: any) {
 }
 
 /** Filter projects within candidate scope (best-effort if optional cols don't exist) */
-async function applyProjectFilters(supabase: any, scopedProjectIds: string[], filters: PortfolioFilters) {
+async function applyProjectFilters(
+  supabase: any,
+  scopedProjectIds: string[],
+  filters: PortfolioFilters,
+) {
   const meta: any = { applied: false, filters, notes: [] as string[] };
   if (!scopedProjectIds.length) return { projectIds: [], meta: { ...meta, applied: true } };
   if (!hasAnyFilters(filters)) return { projectIds: scopedProjectIds, meta };
@@ -233,7 +272,12 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
   let lastErr: any = null;
 
   for (const sel of selectSets) {
-    const { data, error } = await supabase.from("projects").select(sel).in("id", scopedProjectIds).limit(20000);
+    const { data, error } = await supabase
+      .from("projects")
+      .select(sel)
+      .in("id", scopedProjectIds)
+      .limit(20000);
+
     if (!error && Array.isArray(data)) {
       rows = data;
       lastErr = null;
@@ -259,19 +303,17 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
     const title = safeStr(p?.title).toLowerCase();
     const code = projectCodeLabel(p?.project_code).toLowerCase();
 
-    if (nameNeedles.length && !nameNeedles.some((n) => title.includes(n))) return false;
-    if (codeNeedles.length && !codeNeedles.some((c) => code.includes(c))) return false;
+    if (nameNeedles.length && !nameNeedles.some((needle) => title.includes(needle))) return false;
+    if (codeNeedles.length && !codeNeedles.some((needle) => code.includes(needle))) return false;
 
     if (pmSet.size) {
       const pm = safeStr(p?.project_manager_id).trim();
-      if (!pm) return false;
-      if (!pmSet.has(pm)) return false;
+      if (!pm || !pmSet.has(pm)) return false;
     }
 
     if (deptNeedles.length) {
       const dept = safeStr(p?.department).toLowerCase().trim();
-      if (!dept) return false;
-      if (!deptNeedles.some((d) => dept.includes(d))) return false;
+      if (!dept || !deptNeedles.some((needle) => dept.includes(needle))) return false;
     }
 
     return true;
@@ -285,16 +327,26 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
 
 /* ---------------- core handler ---------------- */
 
-async function handle(req: Request, opts: { scope: string; windowDays: 7 | 14 | 30 | 60; type: string; status: string; filters: PortfolioFilters }) {
+async function handle(
+  req: Request,
+  opts: {
+    scope: string;
+    windowDays: 7 | 14 | 30 | 60;
+    type: string;
+    status: string;
+    filters: PortfolioFilters;
+  },
+) {
   const supabase = await createClient();
-  const url = new URL(req.url);
 
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   const userId = auth?.user?.id || null;
   if (authErr || !userId) return err("Not authenticated", 401);
 
-  const scoped = await resolveOrgActiveProjectScope(supabase, userId);
-  const scopedRaw: string[] = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
+  const sharedScope = await resolvePortfolioScope(userId);
+  const organisationId = sharedScope.organisationId ?? null;
+  const scopeMeta = sharedScope.meta ?? {};
+  const scopedRaw: string[] = sharedScope.rawProjectIds ?? [];
 
   const active = await normalizeActiveIds(supabase, scopedRaw);
   const scopedActive = active.ids;
@@ -311,10 +363,15 @@ async function handle(req: Request, opts: { scope: string; windowDays: 7 | 14 | 
       items: [],
       meta: {
         scope: "org",
-        organisationId: (scoped as any)?.organisationId ?? (scoped as any)?.orgId ?? null,
+        organisationId,
         projectCount: 0,
         active_only: true,
-        scopeCounts: { scopedIdsRaw: scopedRaw.length, scopedIdsActive: scopedActive.length, scopedIdsFiltered: 0 },
+        scopeMeta,
+        scopeCounts: {
+          scopedIdsRaw: scopedRaw.length,
+          scopedIdsActive: scopedActive.length,
+          scopedIdsFiltered: 0,
+        },
         active_filter_ok: active.ok,
         active_filter_error: active.error,
         filters: filtered.meta,
@@ -344,12 +401,16 @@ async function handle(req: Request, opts: { scope: string; windowDays: 7 | 14 | 
 
   const today = new Date();
   const todayStr = isoDateUTC(today);
-  const toStr = isoDateUTC(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + opts.windowDays)));
+  const toStr = isoDateUTC(
+    new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + opts.windowDays)),
+  );
 
   if (opts.scope === "window") q = q.gte("due_date", todayStr).lte("due_date", toStr);
   else if (opts.scope === "overdue") q = q.lt("due_date", todayStr);
 
-  const { data, error } = await q.order("due_date", { ascending: true, nullsFirst: false }).limit(200);
+  const { data, error } = await q
+    .order("due_date", { ascending: true, nullsFirst: false })
+    .limit(200);
 
   if (error) return err(error.message || "Query failed", 500);
 
@@ -406,7 +467,8 @@ async function handle(req: Request, opts: { scope: string; windowDays: 7 | 14 | 
     const p = clamp01to100(r?.probability);
     const s = clamp01to100(r?.severity);
 
-    const basicScore = r?.probability == null || r?.severity == null ? null : Math.round((p * s) / 100);
+    const basicScore =
+      r?.probability == null || r?.severity == null ? null : Math.round((p * s) / 100);
     const score = ai?.score ?? basicScore ?? null;
 
     const cur = String(fin?.currency ?? "GBP").toUpperCase();
@@ -469,10 +531,15 @@ async function handle(req: Request, opts: { scope: string; windowDays: 7 | 14 | 
     items,
     meta: {
       scope: "org",
-      organisationId: (scoped as any)?.organisationId ?? (scoped as any)?.orgId ?? null,
+      organisationId,
       active_only: true,
+      scopeMeta,
       projectCount: projectIds.length,
-      scopeCounts: { scopedIdsRaw: scopedRaw.length, scopedIdsActive: scopedActive.length, scopedIdsFiltered: projectIds.length },
+      scopeCounts: {
+        scopedIdsRaw: scopedRaw.length,
+        scopedIdsActive: scopedActive.length,
+        scopedIdsFiltered: projectIds.length,
+      },
       active_filter_ok: active.ok,
       active_filter_error: active.error,
       filters: filtered.meta,
