@@ -1,6 +1,6 @@
-﻿// src/app/api/portfolio/resource-activity/route.ts — REBUILT v6.1 (ORG-WIDE + filter-ready + ACTIVE FILTER normalized)
+﻿// src/app/api/portfolio/resource-activity/route.ts — REBUILT v7 (ORG-WIDE + shared scope + filter-ready + ACTIVE FILTER normalized)
 // Adds:
-//   ✅ RA-F1: Scope aligned with resolveOrgActiveProjectScope (org-wide dashboard)
+//   ✅ RA-F1: Scope aligned with shared resolvePortfolioScope() (org-wide dashboard)
 //   ✅ RA-F2: Supports filters (GET + POST)
 //   ✅ RA-F3: Allocation filtering by project_id if available; graceful fallback if not
 // Fixes:
@@ -8,6 +8,7 @@
 //   ✅ RA-F5: no-store caching
 //   ✅ RA-F6: active project filter applied (exclude closed/terminal projects) + fail-open safeguard
 //   ✅ RA-F7: normalize filterActiveProjectIds return contract (string[] OR { projectIds }) + fail-open
+//   ✅ RA-F8: removes duplicated org-scope resolution logic from route body
 // Keeps:
 //   • forward-looking week ranges
 
@@ -15,7 +16,8 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveOrgActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
+import { filterActiveProjectIds } from "@/lib/server/project-scope";
+import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export const runtime = "nodejs";
 
@@ -44,7 +46,11 @@ function projectCodeLabel(pc: any): string {
   if (typeof pc === "string") return pc.trim();
   if (typeof pc === "number" && Number.isFinite(pc)) return String(pc);
   if (pc && typeof pc === "object") {
-    const v = safeStr(pc.project_code) || safeStr(pc.code) || safeStr(pc.value) || safeStr(pc.id);
+    const v =
+      safeStr(pc.project_code) ||
+      safeStr(pc.code) ||
+      safeStr(pc.value) ||
+      safeStr(pc.id);
     return v.trim();
   }
   return "";
@@ -102,10 +108,18 @@ function hasAnyFilters(f: PortfolioFilters) {
 }
 
 function parseFiltersFromUrl(url: URL): PortfolioFilters {
-  const name = uniqStrings(url.searchParams.getAll("name").flatMap((x) => x.split(",")).map((s) => s.trim()));
-  const code = uniqStrings(url.searchParams.getAll("code").flatMap((x) => x.split(",")).map((s) => s.trim()));
-  const pm = uniqStrings(url.searchParams.getAll("pm").flatMap((x) => x.split(",")).map((s) => s.trim()));
-  const dept = uniqStrings(url.searchParams.getAll("dept").flatMap((x) => x.split(",")).map((s) => s.trim()));
+  const name = uniqStrings(
+    url.searchParams.getAll("name").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
+  const code = uniqStrings(
+    url.searchParams.getAll("code").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
+  const pm = uniqStrings(
+    url.searchParams.getAll("pm").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
+  const dept = uniqStrings(
+    url.searchParams.getAll("dept").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
 
   const out: PortfolioFilters = {};
   if (name.length) out.projectName = name;
@@ -118,10 +132,18 @@ function parseFiltersFromUrl(url: URL): PortfolioFilters {
 function parseFiltersFromBody(body: any): PortfolioFilters {
   const f = body?.filters ?? body?.filter ?? body?.where ?? null;
   const out: PortfolioFilters = {};
-  const names = uniqStrings(f?.projectName ?? f?.projectNames ?? f?.name ?? f?.project_name);
-  const codes = uniqStrings(f?.projectCode ?? f?.projectCodes ?? f?.code ?? f?.project_code);
-  const pms = uniqStrings(f?.projectManagerId ?? f?.projectManagerIds ?? f?.pm ?? f?.project_manager_id);
-  const depts = uniqStrings(f?.department ?? f?.departments ?? f?.dept);
+  const names = uniqStrings(
+    f?.projectName ?? f?.projectNames ?? f?.name ?? f?.project_name,
+  );
+  const codes = uniqStrings(
+    f?.projectCode ?? f?.projectCodes ?? f?.code ?? f?.project_code,
+  );
+  const pms = uniqStrings(
+    f?.projectManagerId ?? f?.projectManagerIds ?? f?.pm ?? f?.project_manager_id,
+  );
+  const depts = uniqStrings(
+    f?.department ?? f?.departments ?? f?.dept,
+  );
 
   if (names.length) out.projectName = names;
   if (codes.length) out.projectCode = codes;
@@ -131,10 +153,18 @@ function parseFiltersFromBody(body: any): PortfolioFilters {
 }
 
 // Filter projects *within* user scope, best-effort even if optional columns don't exist.
-async function applyProjectFilters(supabase: any, scopedProjectIds: string[], filters: PortfolioFilters) {
+async function applyProjectFilters(
+  supabase: any,
+  scopedProjectIds: string[],
+  filters: PortfolioFilters,
+) {
   const meta: any = { applied: false, filters, notes: [] as string[] };
-  if (!scopedProjectIds.length) return { projectIds: [], meta: { ...meta, applied: true } };
-  if (!hasAnyFilters(filters)) return { projectIds: scopedProjectIds, meta };
+  if (!scopedProjectIds.length) {
+    return { projectIds: [], meta: { ...meta, applied: true } };
+  }
+  if (!hasAnyFilters(filters)) {
+    return { projectIds: scopedProjectIds, meta };
+  }
 
   const selectSets = [
     "id, title, project_code, project_manager_id, department",
@@ -147,14 +177,18 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
   let lastErr: any = null;
 
   for (const sel of selectSets) {
-    const { data, error } = await supabase.from("projects").select(sel).in("id", scopedProjectIds).limit(10000);
+    const { data, error } = await supabase
+      .from("projects")
+      .select(sel)
+      .in("id", scopedProjectIds)
+      .limit(10000);
+
     if (!error && Array.isArray(data)) {
       rows = data;
       lastErr = null;
       break;
     }
     lastErr = error;
-    // tolerate optional column misses / relation misses
     if (!(looksMissingRelation(error) || looksMissingColumn(error))) break;
   }
 
@@ -179,14 +213,12 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
 
     if (pmSet.size) {
       const pm = safeStr(p?.project_manager_id).trim();
-      if (!pm) return false;
-      if (!pmSet.has(pm)) return false;
+      if (!pm || !pmSet.has(pm)) return false;
     }
 
     if (deptNeedles.length) {
       const dept = safeStr(p?.department).toLowerCase().trim();
-      if (!dept) return false;
-      if (!deptNeedles.some((d) => dept.includes(d))) return false;
+      if (!dept || !deptNeedles.some((d) => dept.includes(d))) return false;
     }
 
     return true;
@@ -210,17 +242,23 @@ async function normalizeActiveIds(supabase: any, rawIds: string[]) {
   try {
     const r: any = await filterActiveProjectIds(supabase, rawIds);
 
-    // string[]
     if (Array.isArray(r)) {
       const ids = r.filter(Boolean);
-      if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
+      if (!ids.length && rawIds.length) {
+        return failOpen("active filter returned 0 ids; failing open");
+      }
       return { ids, ok: true, error: null as string | null };
     }
 
-    // { projectIds }
     const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
-    if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
-    return { ids, ok: !r?.error, error: r?.error ? safeStr(r.error?.message || r.error) : null };
+    if (!ids.length && rawIds.length) {
+      return failOpen("active filter returned 0 ids; failing open");
+    }
+    return {
+      ids,
+      ok: !r?.error,
+      error: r?.error ? safeStr(r.error?.message || r.error) : null,
+    };
   } catch (e: any) {
     return failOpen(safeStr(e?.message || e || "active filter failed"));
   }
@@ -233,11 +271,14 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
   const { data: auth, error: authErr } = await supabase.auth.getUser();
 
   const user = auth?.user ?? null;
-  if (authErr || !user) return withNoStore(NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 }));
+  if (authErr || !user) {
+    return withNoStore(
+      NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 }),
+    );
+  }
 
   const days = Math.min(90, Math.max(7, Number.isFinite(opts.days) ? opts.days : 30));
 
-  // Week range: start from this week, forward by `days`
   const today = new Date();
   const startMonday = getMondayOf(today);
   const endMonday = getMondayOf(addDays(today, days - 1));
@@ -252,53 +293,64 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
   const dateFrom = weeks[0] || isoDate(startMonday);
   const dateTo = weeks[weeks.length - 1] || isoDate(endMonday);
 
-  // ── ORG-WIDE project scope (dashboard)
-  const scoped = await resolveOrgActiveProjectScope(supabase, user.id);
-  const scopedProjectIdsRaw: string[] = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
+  // Shared org-wide project scope
+  const sharedScope = await resolvePortfolioScope(user.id);
+  const orgId = sharedScope.organisationId ?? null;
+  const scopeMeta = sharedScope.meta ?? {};
+  const scopedProjectIdsRaw: string[] = sharedScope.rawProjectIds ?? [];
 
-  // ✅ RA-F6/RA-F7: active filter + fail-open safeguard (normalized return)
   const active = await normalizeActiveIds(supabase, scopedProjectIdsRaw);
   const scopedProjectIds = active.ids;
 
-  // Apply dashboard filters (within active org scope)
   const filtered = await applyProjectFilters(supabase, scopedProjectIds, opts.filters);
   const projectIds = filtered.projectIds;
 
-  // ── Org members (capacity is org-wide)
-  const orgId = (scoped as any)?.organisationId ?? (scoped as any)?.orgId ?? null;
-
-  // If orgId cannot be resolved, degrade gracefully (don’t 400 the whole chart)
+  // If orgId cannot be resolved, degrade gracefully
   if (!orgId) {
     return withNoStore(
       NextResponse.json({
         ok: true,
-        weeks: weeks.map((w) => ({ weekStart: w, capacity: 0, allocated: 0, pipeline: 0, utilisationPct: 0 })),
+        weeks: weeks.map((w) => ({
+          weekStart: w,
+          capacity: 0,
+          allocated: 0,
+          pipeline: 0,
+          utilisationPct: 0,
+        })),
         dateFrom,
         dateTo,
         meta: {
           note: "No active organisation resolved; returning empty capacity series.",
           organisationId: null,
           scope: {
-            ...(scoped as any)?.meta,
+            ...scopeMeta,
             scopedIdsRaw: scopedProjectIdsRaw.length,
             scopedIdsActive: scopedProjectIds.length,
             active_filter_ok: active.ok,
             active_filter_error: active.error,
           },
           filters: filtered.meta,
-          projects: { scoped: scopedProjectIdsRaw.length, active: scopedProjectIds.length, filtered: projectIds.length },
+          projects: {
+            scoped: scopedProjectIdsRaw.length,
+            active: scopedProjectIds.length,
+            filtered: projectIds.length,
+          },
         },
       }),
     );
   }
 
+  // Org members (capacity is org-wide)
   const { data: members } = await supabase
     .from("organisation_members")
     .select("user_id")
     .eq("organisation_id", orgId)
     .is("removed_at", null);
 
-  const memberUserIds = (members ?? []).map((m: any) => String(m.user_id)).filter(Boolean);
+  const memberUserIds = (members ?? [])
+    .map((m: any) => String(m.user_id))
+    .filter(Boolean);
+
   if (!memberUserIds.length) {
     return withNoStore(
       NextResponse.json({
@@ -309,7 +361,7 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
         meta: {
           organisationId: orgId,
           scope: {
-            ...(scoped as any)?.meta,
+            ...scopeMeta,
             scopedIdsRaw: scopedProjectIdsRaw.length,
             scopedIdsActive: scopedProjectIds.length,
             active_filter_ok: active.ok,
@@ -321,7 +373,7 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
     );
   }
 
-  // ── Profiles (default capacity)
+  // Profiles (default capacity)
   const { data: profiles } = await supabase
     .from("profiles")
     .select("user_id, default_capacity_days, is_active")
@@ -333,7 +385,7 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
     defaultCap.set(String(p.user_id), parseFloat(String(p.default_capacity_days ?? 5)));
   }
 
-  // ── Capacity exceptions
+  // Capacity exceptions
   const { data: exceptions } = await supabase
     .from("capacity_exceptions")
     .select("person_id, week_start_date, available_days")
@@ -348,7 +400,7 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
     exMap.get(pid)!.set(String(ex.week_start_date), parseFloat(String(ex.available_days)));
   }
 
-  // ── Allocations (filter by project_id if available)
+  // Allocations (filter by project_id if available)
   let allocs: any[] = [];
   const allocMeta: any = { projectFiltering: false, note: null as string | null };
 
@@ -369,7 +421,7 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
 
         rows = rows.filter((r: any) => {
           const pid = safeStr(r?.project_id).trim();
-          if (!pid) return !filteringActive; // keep unlinked only when not actively filtering
+          if (!pid) return !filteringActive;
           return allow.has(pid);
         });
 
@@ -378,7 +430,10 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
 
       allocs = rows;
     } else {
-      if (looksMissingColumn(withProjectId.error) || looksMissingRelation(withProjectId.error)) {
+      if (
+        looksMissingColumn(withProjectId.error) ||
+        looksMissingRelation(withProjectId.error)
+      ) {
         const fallback = await supabase
           .from("allocations")
           .select("person_id, week_start_date, days_allocated, allocation_type")
@@ -396,7 +451,6 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
     }
   }
 
-  // Map: weekStart → { confirmed, soft }
   const weekAllocMap = new Map<string, { confirmed: number; soft: number }>();
   for (const w of weeks) weekAllocMap.set(w, { confirmed: 0, soft: 0 });
 
@@ -438,14 +492,18 @@ async function handle(req: NextRequest, opts: { days: number; filters: Portfolio
       meta: {
         organisationId: orgId,
         scope: {
-          ...(scoped as any)?.meta,
+          ...scopeMeta,
           scopedIdsRaw: scopedProjectIdsRaw.length,
           scopedIdsActive: scopedProjectIds.length,
           active_filter_ok: active.ok,
           active_filter_error: active.error,
         },
         filters: filtered.meta,
-        projects: { scoped: scopedProjectIdsRaw.length, active: scopedProjectIds.length, filtered: projectIds.length },
+        projects: {
+          scoped: scopedProjectIdsRaw.length,
+          active: scopedProjectIds.length,
+          filtered: projectIds.length,
+        },
         allocations: allocMeta,
       },
     }),
@@ -462,7 +520,9 @@ export async function GET(req: NextRequest) {
     return await handle(req, { days, filters });
   } catch (e: any) {
     console.error("[resource-activity][GET]", e);
-    return withNoStore(NextResponse.json({ ok: false, error: safeStr(e?.message || e) }, { status: 500 }));
+    return withNoStore(
+      NextResponse.json({ ok: false, error: safeStr(e?.message || e) }, { status: 500 }),
+    );
   }
 }
 
@@ -474,6 +534,8 @@ export async function POST(req: NextRequest) {
     return await handle(req, { days, filters });
   } catch (e: any) {
     console.error("[resource-activity][POST]", e);
-    return withNoStore(NextResponse.json({ ok: false, error: safeStr(e?.message || e) }, { status: 500 }));
+    return withNoStore(
+      NextResponse.json({ ok: false, error: safeStr(e?.message || e) }, { status: 500 }),
+    );
   }
 }
