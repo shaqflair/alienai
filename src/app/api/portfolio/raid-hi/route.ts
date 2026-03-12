@@ -1,6 +1,7 @@
-// src/app/api/portfolio/raid-hi/route.ts — REBUILT v2 (ORG-WIDE + ACTIVE FILTER normalized + no-store + project_code href)
+// src/app/api/portfolio/raid-hi/route.ts — REBUILT v3 (ORG-WIDE + shared scope + ACTIVE FILTER normalized + no-store + project_code href)
 // ✅ Org-scoped: all org members see high-severity RAID items across all active projects.
 // ✅ Auth-first: userId resolved before scope resolution.
+// ✅ Shared org-wide scope via resolvePortfolioScope().
 // ✅ Active-only project filter (exclude closed/terminal) with FAIL-OPEN safeguard.
 // ✅ No-store cache on all responses.
 // ✅ clampDays supports "all" → 60
@@ -10,7 +11,8 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveOrgActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
+import { filterActiveProjectIds } from "@/lib/server/project-scope";
+import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export const runtime = "nodejs";
 
@@ -49,7 +51,11 @@ function projectCodeLabel(pc: any): string {
   if (typeof pc === "string") return pc.trim();
   if (typeof pc === "number" && Number.isFinite(pc)) return String(pc);
   if (pc && typeof pc === "object") {
-    const v = safeStr(pc.project_code) || safeStr(pc.code) || safeStr(pc.value) || safeStr(pc.id);
+    const v =
+      safeStr(pc.project_code) ||
+      safeStr(pc.code) ||
+      safeStr(pc.value) ||
+      safeStr(pc.id);
     return v.trim();
   }
   return "";
@@ -66,11 +72,9 @@ function raidHref(project: any, projectIdFallback?: string | null) {
 }
 
 function isHighSeverity(r: any): boolean {
-  // Score-based (numeric) takes precedence: treat ≥ 70 as high.
   const score = Number(r?.score ?? r?.severity_score ?? r?.ai_score ?? NaN);
   if (Number.isFinite(score)) return score >= 70;
 
-  // String-based severity label fallback.
   const sev = String(r?.severity ?? r?.impact ?? "").trim().toLowerCase();
   return sev === "high" || sev === "critical" || sev === "very high";
 }
@@ -85,17 +89,24 @@ async function normalizeActiveIds(supabase: any, rawIds: string[]) {
   try {
     const r: any = await filterActiveProjectIds(supabase, rawIds);
 
-    // string[]
     if (Array.isArray(r)) {
       const ids = r.filter(Boolean);
-      if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
+      if (!ids.length && rawIds.length) {
+        return failOpen("active filter returned 0 ids; failing open");
+      }
       return { ids, ok: true, error: null as string | null };
     }
 
-    // { projectIds }
     const ids = Array.isArray(r?.projectIds) ? r.projectIds.filter(Boolean) : [];
-    if (!ids.length && rawIds.length) return failOpen("active filter returned 0 ids; failing open");
-    return { ids, ok: !r?.error, error: r?.error ? safeStr(r.error?.message || r.error) : null };
+    if (!ids.length && rawIds.length) {
+      return failOpen("active filter returned 0 ids; failing open");
+    }
+
+    return {
+      ids,
+      ok: !r?.error,
+      error: r?.error ? safeStr(r.error?.message || r.error) : null,
+    };
   } catch (e: any) {
     return failOpen(safeStr(e?.message || e || "active filter failed"));
   }
@@ -115,9 +126,11 @@ export async function GET(req: NextRequest) {
     const userId = auth?.user?.id;
     if (authErr || !userId) return jsonErr("Not authenticated", 401);
 
-    // ✅ Org-wide scope
-    const scoped = await resolveOrgActiveProjectScope(supabase, userId);
-    const scopedRaw: string[] = Array.isArray(scoped?.projectIds) ? scoped.projectIds.filter(Boolean) : [];
+    // ✅ Shared org-wide scope
+    const scope = await resolvePortfolioScope(userId);
+    const organisationId = scope.organisationId ?? null;
+    const scopedRaw: string[] = scope.rawProjectIds ?? [];
+    const scopeMeta = scope.meta ?? {};
 
     // ✅ Active-only filter (normalized + fail-open)
     const active = await normalizeActiveIds(supabase, scopedRaw);
@@ -133,15 +146,14 @@ export async function GET(req: NextRequest) {
           active_only: true,
           projectCount: 0,
           reason: "no_active_projects_in_org",
-          organisationId: (scoped as any)?.organisationId ?? null,
+          organisationId,
+          scopeMeta,
           active_filter_ok: active.ok,
           active_filter_error: active.error,
         },
       });
     }
 
-    // Pull latest score per item if available (best-effort, schema-safe)
-    // We’ll query raid_items first then enrich.
     const { data: baseRows, error: baseErr } = await supabase
       .from("raid_items")
       .select(
@@ -157,7 +169,6 @@ export async function GET(req: NextRequest) {
       .limit(300);
 
     if (baseErr) {
-      // Degrade gracefully — schema differences across envs should not 500.
       return jsonOk({
         window_days: days,
         since,
@@ -169,6 +180,8 @@ export async function GET(req: NextRequest) {
           degraded: true,
           reason: "raid_query_failed",
           message: baseErr.message,
+          organisationId,
+          scopeMeta,
           active_filter_ok: active.ok,
           active_filter_error: active.error,
         },
@@ -217,7 +230,8 @@ export async function GET(req: NextRequest) {
       meta: {
         scope: "org",
         active_only: true,
-        organisationId: (scoped as any)?.organisationId ?? null,
+        organisationId,
+        scopeMeta,
         projectCount: projectIds.length,
         total_raw: all.length,
         total_hi: items.length,
