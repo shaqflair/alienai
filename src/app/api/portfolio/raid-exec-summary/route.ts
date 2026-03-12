@@ -1,6 +1,6 @@
-﻿// src/app/api/portfolio/raid-exec-summary/route.ts — REBUILT v9
+﻿// src/app/api/portfolio/raid-exec-summary/route.ts — REBUILT v10
 // Fixes / Adds:
-//   ✅ RES-F1: ORG-WIDE project scope via resolveOrgActiveProjectScope(supabase, userId) (dashboard aligned)
+//   ✅ RES-F1: ORG-WIDE project scope via shared resolvePortfolioScope(userId)
 //   ✅ RES-F2: clampDays supports "all" → 60 (HomePage sends days=all)
 //   ✅ RES-F3: Cache-Control: no-store across ALL responses (json + md/pdf/pptx downloads)
 //   ✅ RES-F4: Supports dashboard filters (GET): name, code, pm, dept
@@ -8,6 +8,7 @@
 //   ✅ RES-F6: Active-only filter uses filterActiveProjectIds but FAIL-OPEN if helper returns 0 / errors
 //   ✅ RES-F7: resolveOrgName tries active org first (if profiles.active_organisation_id exists), otherwise membership fallback
 //   ✅ RES-F8: Includes RAID public_id in executive items / exports
+//   ✅ RES-F9: Removes duplicated org-scope resolution logic from route body
 // Keeps:
 //   ✅ resolveClientNameFromProjects fixed select("id, client_name")
 //   ✅ Puppeteer/Chromium pdf generation + PPTX generation
@@ -16,8 +17,8 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { resolveOrgActiveProjectScope, filterActiveProjectIds } from "@/lib/server/project-scope";
-
+import { filterActiveProjectIds } from "@/lib/server/project-scope";
+import { resolvePortfolioScope } from "@/lib/server/portfolio-scope";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -147,7 +148,11 @@ function projectCodeLabel(pc: any): string {
   if (typeof pc === "string") return pc.trim();
   if (typeof pc === "number" && Number.isFinite(pc)) return String(pc);
   if (pc && typeof pc === "object") {
-    const v = safeStr(pc.project_code) || safeStr(pc.code) || safeStr(pc.value) || safeStr(pc.id);
+    const v =
+      safeStr(pc.project_code) ||
+      safeStr(pc.code) ||
+      safeStr(pc.value) ||
+      safeStr(pc.id);
     return v.trim();
   }
   return "";
@@ -172,10 +177,18 @@ function hasAnyFilters(f: PortfolioFilters) {
 }
 
 function parseFiltersFromUrl(url: URL): PortfolioFilters {
-  const name = uniqStrings(url.searchParams.getAll("name").flatMap((x) => x.split(",")).map((s) => s.trim()));
-  const code = uniqStrings(url.searchParams.getAll("code").flatMap((x) => x.split(",")).map((s) => s.trim()));
-  const pm = uniqStrings(url.searchParams.getAll("pm").flatMap((x) => x.split(",")).map((s) => s.trim()));
-  const dept = uniqStrings(url.searchParams.getAll("dept").flatMap((x) => x.split(",")).map((s) => s.trim()));
+  const name = uniqStrings(
+    url.searchParams.getAll("name").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
+  const code = uniqStrings(
+    url.searchParams.getAll("code").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
+  const pm = uniqStrings(
+    url.searchParams.getAll("pm").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
+  const dept = uniqStrings(
+    url.searchParams.getAll("dept").flatMap((x) => x.split(",")).map((s) => s.trim()),
+  );
 
   const out: PortfolioFilters = {};
   if (name.length) out.projectName = name;
@@ -195,7 +208,11 @@ function looksMissingColumn(err: any) {
   return msg.includes("column") && msg.includes("does not exist");
 }
 
-async function applyProjectFilters(supabase: any, scopedProjectIds: string[], filters: PortfolioFilters) {
+async function applyProjectFilters(
+  supabase: any,
+  scopedProjectIds: string[],
+  filters: PortfolioFilters,
+) {
   const meta: any = { applied: false, filters, notes: [] as string[] };
   if (!scopedProjectIds.length) return { projectIds: [], meta: { ...meta, applied: true } };
   if (!hasAnyFilters(filters)) return { projectIds: scopedProjectIds, meta };
@@ -211,7 +228,12 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
   let lastErr: any = null;
 
   for (const sel of selectSets) {
-    const { data, error } = await supabase.from("projects").select(sel).in("id", scopedProjectIds).limit(20000);
+    const { data, error } = await supabase
+      .from("projects")
+      .select(sel)
+      .in("id", scopedProjectIds)
+      .limit(20000);
+
     if (!error && Array.isArray(data)) {
       rows = data;
       lastErr = null;
@@ -237,19 +259,17 @@ async function applyProjectFilters(supabase: any, scopedProjectIds: string[], fi
     const title = safeStr(p?.title).toLowerCase();
     const code = projectCodeLabel(p?.project_code).toLowerCase();
 
-    if (nameNeedles.length && !nameNeedles.some((n) => title.includes(n))) return false;
-    if (codeNeedles.length && !codeNeedles.some((c) => code.includes(c))) return false;
+    if (nameNeedles.length && !nameNeedles.some((needle) => title.includes(needle))) return false;
+    if (codeNeedles.length && !codeNeedles.some((needle) => code.includes(needle))) return false;
 
     if (pmSet.size) {
       const pm = safeStr(p?.project_manager_id).trim();
-      if (!pm) return false;
-      if (!pmSet.has(pm)) return false;
+      if (!pm || !pmSet.has(pm)) return false;
     }
 
     if (deptNeedles.length) {
       const dept = safeStr(p?.department).toLowerCase().trim();
-      if (!dept) return false;
-      if (!deptNeedles.some((d) => dept.includes(d))) return false;
+      if (!dept || !deptNeedles.some((needle) => dept.includes(needle))) return false;
     }
 
     return true;
@@ -320,7 +340,11 @@ async function resolveOrgName(supabase: any, userId: string) {
 
     const activeOrgId = safeStr(prof?.active_organisation_id).trim();
     if (!pErr && activeOrgId) {
-      const { data: orgRow, error: oErr } = await supabase.from("organisations").select("id,name").eq("id", activeOrgId).maybeSingle();
+      const { data: orgRow, error: oErr } = await supabase
+        .from("organisations")
+        .select("id,name")
+        .eq("id", activeOrgId)
+        .maybeSingle();
       if (!oErr) {
         const nm = safeStr(orgRow?.name).trim();
         if (nm) return nm;
@@ -350,7 +374,12 @@ async function resolveOrgName(supabase: any, userId: string) {
 
 async function resolveClientNameFromProjects(supabase: any, projectIds: string[]) {
   try {
-    const { data, error } = await supabase.from("projects").select("id, client_name").in("id", projectIds).limit(2000);
+    const { data, error } = await supabase
+      .from("projects")
+      .select("id, client_name")
+      .in("id", projectIds)
+      .limit(2000);
+
     if (error) return null;
 
     const names = (data || [])
@@ -375,7 +404,9 @@ async function normalizeActiveIdsFailOpen(supabase: any, baseIds: string[]) {
 
     if (Array.isArray(r)) {
       const ids = r.filter(Boolean);
-      if (!ids.length && baseIds.length) return failOpen("active filter returned 0 ids; failing open");
+      if (!ids.length && baseIds.length) {
+        return failOpen("active filter returned 0 ids; failing open");
+      }
       return { ids, ok: true, error: null as string | null };
     }
 
@@ -383,7 +414,9 @@ async function normalizeActiveIdsFailOpen(supabase: any, baseIds: string[]) {
     const ok = r?.ok !== false;
     const errMsg = r?.error ? safeStr(r.error?.message || r.error) : null;
 
-    if (!ids.length && baseIds.length) return failOpen(errMsg || "active filter returned 0 ids; failing open");
+    if (!ids.length && baseIds.length) {
+      return failOpen(errMsg || "active filter returned 0 ids; failing open");
+    }
     return { ids, ok, error: errMsg };
   } catch (e: any) {
     return failOpen(safeStr(e?.message || e || "active filter failed"));
@@ -402,12 +435,18 @@ async function buildExecSummary(args: {
 
   const meta: any = { scope_source: null, filters: null };
 
-  const orgScoped: any = await resolveOrgActiveProjectScope(supabase, userId);
-  const baseProjectIds = uniqStrings(orgScoped?.projectIds || []);
-  meta.scope_source = { kind: "resolveOrgActiveProjectScope", ok: Boolean(baseProjectIds.length), meta: orgScoped?.meta ?? null };
-  meta.organisationId = orgScoped?.organisationId ?? orgScoped?.orgId ?? null;
+  const sharedScope = await resolvePortfolioScope(userId);
+  const baseProjectIds = uniqStrings(sharedScope?.rawProjectIds || []);
+  meta.scope_source = {
+    kind: "resolvePortfolioScope",
+    ok: Boolean(baseProjectIds.length),
+    meta: sharedScope?.meta ?? null,
+  };
+  meta.organisationId = sharedScope?.organisationId ?? null;
 
-  if (!baseProjectIds.length) return { ok: false, error: "No accessible projects found.", meta };
+  if (!baseProjectIds.length) {
+    return { ok: false, error: "No accessible projects found.", meta };
+  }
 
   const active = await normalizeActiveIdsFailOpen(supabase, baseProjectIds);
   const activeProjectIds = uniqStrings(active.ids || []);
@@ -418,7 +457,9 @@ async function buildExecSummary(args: {
     error: active.error ?? null,
   };
 
-  if (!activeProjectIds.length) return { ok: false, error: "No active projects found.", meta };
+  if (!activeProjectIds.length) {
+    return { ok: false, error: "No active projects found.", meta };
+  }
 
   const filtered = await applyProjectFilters(supabase, activeProjectIds, filters);
   meta.filters = filtered.meta;
@@ -442,7 +483,14 @@ async function buildExecSummary(args: {
           : "No RAID items match the selected horizon.",
         generated_at: new Date().toISOString(),
       },
-      kpis: { total_items: 0, overdue_open: 0, high_score: 0, sla_hot: 0, exposure_total: 0, exposure_total_fmt: moneyGBP(0) },
+      kpis: {
+        total_items: 0,
+        overdue_open: 0,
+        high_score: 0,
+        sla_hot: 0,
+        exposure_total: 0,
+        exposure_total_fmt: moneyGBP(0),
+      },
       wow: null,
       sections: [
         { key: "top_score", title: "Top Risks by Score", items: [] },
@@ -450,7 +498,14 @@ async function buildExecSummary(args: {
         { key: "exposure", title: "Financial Exposure Hotspots", items: [] },
         { key: "decisions", title: "Decisions Required (Next Actions)", items: [] },
       ],
-      meta: { ...meta, projectCounts: { base: baseProjectIds.length, active: activeProjectIds.length, filtered: 0 } },
+      meta: {
+        ...meta,
+        projectCounts: {
+          base: baseProjectIds.length,
+          active: activeProjectIds.length,
+          filtered: 0,
+        },
+      },
     };
   }
 
@@ -459,12 +514,17 @@ async function buildExecSummary(args: {
     resolveClientNameFromProjects(supabase, projectIds),
   ]);
 
-  const org_name = dbOrg || safeStr(process.env.ORG_NAME || process.env.NEXT_PUBLIC_ORG_NAME).trim() || null;
+  const org_name =
+    dbOrg ||
+    safeStr(process.env.ORG_NAME || process.env.NEXT_PUBLIC_ORG_NAME).trim() ||
+    null;
   const client_name = (dbClient || null) as string | null;
 
   const today = new Date();
   const todayStr = isoDateUTC(today);
-  const to = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + days));
+  const to = new Date(
+    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + days),
+  );
   const toStr = isoDateUTC(to);
 
   let raidQ = supabase
@@ -522,7 +582,9 @@ async function buildExecSummary(args: {
   if (raidItemIds.length) {
     const { data: preds } = await supabase
       .from("raid_sla_predictions")
-      .select("raid_item_id, breach_probability, days_to_breach, confidence, drivers, model_version, predicted_at")
+      .select(
+        "raid_item_id, breach_probability, days_to_breach, confidence, drivers, model_version, predicted_at",
+      )
       .in("raid_item_id", raidItemIds)
       .order("predicted_at", { ascending: false })
       .limit(10000);
@@ -537,7 +599,9 @@ async function buildExecSummary(args: {
   if (raidItemIds.length) {
     const { data: fins } = await supabase
       .from("raid_financials")
-      .select("raid_item_id, currency, est_cost_impact, est_schedule_days, est_revenue_at_risk, est_penalties, updated_at")
+      .select(
+        "raid_item_id, currency, est_cost_impact, est_schedule_days, est_revenue_at_risk, est_penalties, updated_at",
+      )
       .in("raid_item_id", raidItemIds)
       .limit(10000);
 
@@ -554,7 +618,8 @@ async function buildExecSummary(args: {
 
     const p = clamp01to100(r?.probability);
     const s = clamp01to100(r?.severity);
-    const basicScore = r?.probability == null || r?.severity == null ? null : Math.round((p * s) / 100);
+    const basicScore =
+      r?.probability == null || r?.severity == null ? null : Math.round((p * s) / 100);
 
     const aiScore = scoreByItem.get(r.id) || null;
     const pred = predByItem.get(r.id) || null;
@@ -622,8 +687,14 @@ async function buildExecSummary(args: {
       const abp = n(a.sla_breach_probability, -1) ?? -1;
       const bbp = n(b.sla_breach_probability, -1) ?? -1;
       if (bbp !== abp) return bbp - abp;
-      const ad = a.sla_days_to_breach == null ? 9999 : (n(a.sla_days_to_breach, 9999) as number);
-      const bd = b.sla_days_to_breach == null ? 9999 : (n(b.sla_days_to_breach, 9999) as number);
+      const ad =
+        a.sla_days_to_breach == null
+          ? 9999
+          : (n(a.sla_days_to_breach, 9999) as number);
+      const bd =
+        b.sla_days_to_breach == null
+          ? 9999
+          : (n(b.sla_days_to_breach, 9999) as number);
       return ad - bd;
     })
     .slice(0, top)
@@ -639,7 +710,10 @@ async function buildExecSummary(args: {
     .filter((x) => (n(x.exposure_total, 0) || 0) > 0)
     .sort((a, b) => (n(b.exposure_total, 0) || 0) - (n(a.exposure_total, 0) || 0))
     .slice(0, top)
-    .map((x) => ({ ...x, note: `Exposure ${x.exposure_total_fmt || "—"} (cost + revenue risk + penalties).` }));
+    .map((x) => ({
+      ...x,
+      note: `Exposure ${x.exposure_total_fmt || "—"} (cost + revenue risk + penalties).`,
+    }));
 
   const decisions = [...enriched]
     .filter((x) => x.overdue || (x.due_date && x.due_date <= toStr))
@@ -653,7 +727,9 @@ async function buildExecSummary(args: {
     .slice(0, top)
     .map((x) => ({
       ...x,
-      prompt: x.overdue ? `Confirm owner/action plan and rebaseline due date.` : `Confirm mitigation and next update before ${x.due_date}.`,
+      prompt: x.overdue
+        ? "Confirm owner/action plan and rebaseline due date."
+        : `Confirm mitigation and next update before ${x.due_date}.`,
     }));
 
   return {
@@ -681,7 +757,11 @@ async function buildExecSummary(args: {
     ],
     meta: {
       ...meta,
-      projectCounts: { base: baseProjectIds.length, active: activeProjectIds.length, filtered: projectIds.length },
+      projectCounts: {
+        base: baseProjectIds.length,
+        active: activeProjectIds.length,
+        filtered: projectIds.length,
+      },
     },
   };
 }
@@ -702,7 +782,8 @@ function renderPdfHtml(summary: ExecSummary) {
   const orgSecondary = summary.org_name ? summary.org_name : "—";
 
   const logoUrl =
-    safeStr(process.env.BRANDING_LOGO_URL || process.env.NEXT_PUBLIC_BRANDING_LOGO_URL).trim() || BRAND_LOGO_URL;
+    safeStr(process.env.BRANDING_LOGO_URL || process.env.NEXT_PUBLIC_BRANDING_LOGO_URL).trim() ||
+    BRAND_LOGO_URL;
 
   const k = summary.kpis;
 
@@ -728,21 +809,31 @@ function renderPdfHtml(summary: ExecSummary) {
                   );
                 }
                 if (bp != null) {
-                  pills.push(`<span class="pill ${bp >= 70 ? "pill-warn" : "pill-neutral"}">SLA: ${esc(bp)}%</span>`);
+                  pills.push(
+                    `<span class="pill ${bp >= 70 ? "pill-warn" : "pill-neutral"}">SLA: ${esc(bp)}%</span>`,
+                  );
                 }
-                if (x.exposure_total_fmt) pills.push(`<span class="pill pill-neutral">Exposure: ${esc(x.exposure_total_fmt)}</span>`);
-                if (x.owner_label) pills.push(`<span class="pill pill-neutral">Owner: ${esc(x.owner_label)}</span>`);
+                if (x.exposure_total_fmt) {
+                  pills.push(
+                    `<span class="pill pill-neutral">Exposure: ${esc(x.exposure_total_fmt)}</span>`,
+                  );
+                }
+                if (x.owner_label) {
+                  pills.push(`<span class="pill pill-neutral">Owner: ${esc(x.owner_label)}</span>`);
+                }
                 const note = x.note || x.prompt ? `<div class="note">${esc(x.note || x.prompt)}</div>` : "";
-                return `<div class="item"><div class="item-meta">${esc(x.project_title || "Project")} • ${esc(
-                  x.type || "RAID",
-                )}</div><div class="item-title">${x.public_id ? `<span class="item-id">${esc(x.public_id)}</span> ` : ""}${esc(
+                return `<div class="item"><div class="item-meta">${esc(
+                  x.project_title || "Project",
+                )} • ${esc(x.type || "RAID")}</div><div class="item-title">${
+                  x.public_id ? `<span class="item-id">${esc(x.public_id)}</span> ` : ""
+                }${esc(
                   x.title || "Untitled",
                 )}</div><div class="pills">${pills.join("")}</div>${note}</div>`;
               })
               .join("");
-      return `<div class="card"><div class="card-title-row"><div class="card-title">${esc(sec.title)}</div><div class="muted">${
-        items.length
-      } item(s)</div></div><div class="items">${rows}</div></div>`;
+      return `<div class="card"><div class="card-title-row"><div class="card-title">${esc(
+        sec.title,
+      )}</div><div class="muted">${items.length} item(s)</div></div><div class="items">${rows}</div></div>`;
     })
     .join("");
 
@@ -784,7 +875,9 @@ function renderPdfHtml(summary: ExecSummary) {
   </style></head><body><div class="page"><div class="header">
   <div class="brandrow"><div class="brandleft"><div class="logo">${
     logoUrl ? `<img src="${esc(logoUrl)}" alt="Logo"/>` : `<div class="wordmark">ΛLIENΛ</div>`
-  }</div><div><div class="clientname">${esc(clientPrimary)}</div><div class="orgline"><b>Organisation:</b> ${esc(orgSecondary)}</div></div></div>
+  }</div><div><div class="clientname">${esc(clientPrimary)}</div><div class="orgline"><b>Organisation:</b> ${esc(
+    orgSecondary,
+  )}</div></div></div>
   <div class="kicker">Executive Summary • next ${esc(summary.days)} days • scope: ${esc(summary.scope)}</div></div>
   <div class="title">Portfolio RAID Brief</div><div class="headline">${esc(summary.summary.headline)}</div>
   <div class="gen">Generated: ${esc(gen)}</div>
@@ -890,7 +983,8 @@ async function renderPptxFromSummary(summary: ExecSummary) {
   pptx.layout = "LAYOUT_WIDE";
 
   const logoUrl =
-    safeStr(process.env.BRANDING_LOGO_URL || process.env.NEXT_PUBLIC_BRANDING_LOGO_URL).trim() || BRAND_LOGO_URL;
+    safeStr(process.env.BRANDING_LOGO_URL || process.env.NEXT_PUBLIC_BRANDING_LOGO_URL).trim() ||
+    BRAND_LOGO_URL;
   const logoData = await fetchAsDataUri(logoUrl);
 
   const title = "Portfolio RAID Brief";
@@ -939,7 +1033,14 @@ async function renderPptxFromSummary(summary: ExecSummary) {
 
         s.addText(header, { x: 0.8, y, w: 12.2, h: 0.25, fontSize: 11, bold: true });
         s.addText(metaLine, { x: 0.8, y: y + 0.25, w: 12.2, h: 0.25, fontSize: 9 });
-        s.addText(safeStr(it.title || "Untitled"), { x: 0.8, y: y + 0.5, w: 12.2, h: 0.35, fontSize: 12, bold: true });
+        s.addText(safeStr(it.title || "Untitled"), {
+          x: 0.8,
+          y: y + 0.5,
+          w: 12.2,
+          h: 0.35,
+          fontSize: 12,
+          bold: true,
+        });
         const note = safeStr(it.note || it.prompt || "").trim();
         if (note) s.addText(note, { x: 0.8, y: y + 0.85, w: 12.2, h: 0.4, fontSize: 10 });
 
@@ -968,11 +1069,20 @@ export async function GET(req: NextRequest) {
     const scope = clampScope(url.searchParams.get("scope"));
     const download = safeStr(url.searchParams.get("download")).trim() === "1";
     const format = clampFormat(url.searchParams.get("format"));
-
     const filters = parseFiltersFromUrl(url);
 
-    const exec = await buildExecSummary({ supabase, userId: auth.user.id, scope, days, top, filters });
-    if (!(exec as any).ok) return jsonErr((exec as any).error || "Failed", 500, (exec as any).meta);
+    const exec = await buildExecSummary({
+      supabase,
+      userId: auth.user.id,
+      scope,
+      days,
+      top,
+      filters,
+    });
+
+    if (!(exec as any).ok) {
+      return jsonErr((exec as any).error || "Failed", 500, (exec as any).meta);
+    }
 
     const summary = exec as ExecSummary;
 
@@ -999,6 +1109,7 @@ export async function GET(req: NextRequest) {
         }
         lines.push(``);
       }
+
       return new NextResponse(Buffer.from(lines.join("\n")), {
         status: 200,
         headers: {
@@ -1012,11 +1123,15 @@ export async function GET(req: NextRequest) {
     if (format === "pptx") {
       const pptxBuf = await renderPptxFromSummary(summary);
       const base =
-        sanitizeFilename(summary.client_name || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
+        sanitizeFilename(summary.client_name || "") ||
+        sanitizeFilename(summary.org_name || "") ||
+        "portfolio_raid_brief";
+
       return new NextResponse(Buffer.from(pptxBuf), {
         status: 200,
         headers: {
-          "content-type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+          "content-type":
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
           "content-disposition": `attachment; filename="${base}_raid_brief_${days}d.pptx"`,
           "cache-control": "no-store, max-age=0",
         },
@@ -1026,7 +1141,10 @@ export async function GET(req: NextRequest) {
     const html = renderPdfHtml(summary);
     const pdf = await renderPdfFromHtml(html);
     const base =
-      sanitizeFilename(summary.client_name || "") || sanitizeFilename(summary.org_name || "") || "portfolio_raid_brief";
+      sanitizeFilename(summary.client_name || "") ||
+      sanitizeFilename(summary.org_name || "") ||
+      "portfolio_raid_brief";
+
     return new NextResponse(Buffer.from(pdf), {
       status: 200,
       headers: {
