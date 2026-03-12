@@ -1,13 +1,4 @@
 // src/lib/server/project-scope.ts
-// Scope resolution helpers for org-wide portfolio dashboards + safe fallbacks.
-//
-// Exports:
-//  - resolveActiveProjectScope (member-safe)
-//  - resolveOrgActiveProjectScope (org-wide project ids)
-//  - filterActiveProjectIds (active/terminal exclusion; FAIL-OPEN)
-//
-// NOTE: Routes in this repo expect scoped.organisationId + scoped.projectIds + scoped.meta
-
 import "server-only";
 
 type SupabaseLike = any;
@@ -28,8 +19,7 @@ function uniq(ids: any[]): string[] {
   const seen = new Set<string>();
   for (const v of ids || []) {
     const s = safeStr(v).trim();
-    if (!s) continue;
-    if (seen.has(s)) continue;
+    if (!s || seen.has(s)) continue;
     seen.add(s);
     out.push(s);
   }
@@ -43,7 +33,6 @@ async function getUserId(supabase: SupabaseLike, userId?: string | null): Promis
 }
 
 async function getActiveOrgId(supabase: SupabaseLike, userId: string): Promise<string | null> {
-  // 1) profiles.active_organisation_id (try both user_id and id for schema drift)
   {
     const { data, error } = await supabase
       .from("profiles")
@@ -51,9 +40,8 @@ async function getActiveOrgId(supabase: SupabaseLike, userId: string): Promise<s
       .eq("user_id", userId)
       .maybeSingle();
 
-    if (!error) {
-      const v = data?.active_organisation_id;
-      if (v) return String(v);
+    if (!error && data?.active_organisation_id) {
+      return String(data.active_organisation_id);
     }
   }
 
@@ -64,13 +52,11 @@ async function getActiveOrgId(supabase: SupabaseLike, userId: string): Promise<s
       .eq("id", userId)
       .maybeSingle();
 
-    if (!error) {
-      const v = data?.active_organisation_id;
-      if (v) return String(v);
+    if (!error && data?.active_organisation_id) {
+      return String(data.active_organisation_id);
     }
   }
 
-  // 2) fallback: first org membership — only if profile had no active_organisation_id
   {
     const { data, error } = await supabase
       .from("organisation_members")
@@ -89,17 +75,30 @@ async function getActiveOrgId(supabase: SupabaseLike, userId: string): Promise<s
 }
 
 async function tryProjectsByOrg(supabase: SupabaseLike, orgId: string) {
-  // Try common org FK column names in projects table
   const orgCols = ["organisation_id", "org_id", "organization_id"];
+  const notes: string[] = [];
+
   for (const col of orgCols) {
-    const { data, error } = await supabase.from("projects").select("id").eq(col, orgId).is("deleted_at", null).neq("status", "closed").limit(20000);
-    if (!error && Array.isArray(data)) return uniq(data.map((r: any) => r?.id));
+    const { data, error } = await supabase
+      .from("projects")
+      .select("id")
+      .eq(col, orgId)
+      .limit(20000);
+
+    if (!error && Array.isArray(data)) {
+      return {
+        ids: uniq(data.map((r: any) => r?.id)),
+        meta: { sourceColumn: col, notes },
+      };
+    }
+
+    if (error) notes.push(`${col}: ${error.message}`);
   }
-  return [];
+
+  return { ids: [], meta: { sourceColumn: null, notes } };
 }
 
 async function tryProjectsByMembership(supabase: SupabaseLike, userId: string) {
-  // project_memberships
   {
     const { data, error } = await supabase
       .from("project_memberships")
@@ -112,7 +111,6 @@ async function tryProjectsByMembership(supabase: SupabaseLike, userId: string) {
     }
   }
 
-  // project_members
   {
     const { data, error } = await supabase
       .from("project_members")
@@ -130,15 +128,21 @@ async function tryProjectsByMembership(supabase: SupabaseLike, userId: string) {
 
 /**
  * Member-scope:
- * - Prefer membership tables
- * - Fail-open fallback to org projects if orgId is known
+ * prefer explicit project membership, but fail-open to org projects if org is known.
  */
 export async function resolveActiveProjectScope(
   supabase: SupabaseLike,
   userId?: string | null,
 ): Promise<ActiveScope> {
   const uid = await getUserId(supabase, userId);
-  if (!uid) return { organisationId: null, projectIds: [], mode: "member", meta: { reason: "no_user" } };
+  if (!uid) {
+    return {
+      organisationId: null,
+      projectIds: [],
+      mode: "member",
+      meta: { reason: "no_user", scopedIdsRaw: [] },
+    };
+  }
 
   const organisationId = await getActiveOrgId(supabase, uid);
 
@@ -148,72 +152,92 @@ export async function resolveActiveProjectScope(
       organisationId,
       projectIds: memberIds,
       mode: "member",
-      meta: { source: "membership", memberCount: memberIds.length },
+      meta: {
+        source: "membership",
+        memberCount: memberIds.length,
+        scopedIdsRaw: memberIds,
+      },
     };
   }
 
-  // fallback to org projects (better than empty)
   if (organisationId) {
-    const orgIds = await tryProjectsByOrg(supabase, organisationId);
+    const org = await tryProjectsByOrg(supabase, organisationId);
     return {
       organisationId,
-      projectIds: orgIds,
+      projectIds: org.ids,
       mode: "member",
-      meta: { source: "org_fallback_from_member", orgCount: orgIds.length },
+      meta: {
+        source: "org_fallback_from_member",
+        orgCount: org.ids.length,
+        scopedIdsRaw: org.ids,
+        orgColumn: org.meta.sourceColumn,
+        orgNotes: org.meta.notes,
+      },
     };
   }
 
-  return { organisationId: null, projectIds: [], mode: "member", meta: { reason: "no_memberships_no_org" } };
+  return {
+    organisationId: null,
+    projectIds: [],
+    mode: "member",
+    meta: { reason: "no_memberships_no_org", scopedIdsRaw: [] },
+  };
 }
 
 /**
  * ORG-wide scope:
- * returns *all* projects in the user’s active organisation.
- * Fail-open to member scope if orgId missing or schema doesn’t match.
+ * return all projects in the active organisation.
+ * DO NOT fall back to member scope once an org is resolved.
  */
 export async function resolveOrgActiveProjectScope(
   supabase: SupabaseLike,
   userId?: string | null,
 ): Promise<ActiveScope> {
   const uid = await getUserId(supabase, userId);
-  if (!uid) return { organisationId: null, projectIds: [], mode: "org", meta: { reason: "no_user" } };
-
-  const organisationId = await getActiveOrgId(supabase, uid);
-  if (!organisationId) {
-    const fallback = await resolveActiveProjectScope(supabase, uid);
-    return { ...fallback, meta: { ...(fallback.meta || {}), orgScope: "missing_org" } };
-  }
-
-  const orgProjectIds = await tryProjectsByOrg(supabase, organisationId);
-
-  if (!orgProjectIds.length) {
-    const fallback = await resolveActiveProjectScope(supabase, uid);
+  if (!uid) {
     return {
-      ...fallback,
-      organisationId,
-      meta: { ...(fallback.meta || {}), orgScope: "no_projects_found_or_schema_mismatch" },
+      organisationId: null,
+      projectIds: [],
+      mode: "org",
+      meta: { reason: "no_user", scopedIdsRaw: [] },
     };
   }
 
+  const organisationId = await getActiveOrgId(supabase, uid);
+  if (!organisationId) {
+    return {
+      organisationId: null,
+      projectIds: [],
+      mode: "org",
+      meta: { reason: "missing_org", scopedIdsRaw: [] },
+    };
+  }
+
+  const org = await tryProjectsByOrg(supabase, organisationId);
+
   return {
     organisationId,
-    projectIds: orgProjectIds,
+    projectIds: org.ids,
     mode: "org",
-    meta: { source: "org_projects", orgCount: orgProjectIds.length },
+    meta: {
+      source: "org_projects",
+      orgCount: org.ids.length,
+      scopedIdsRaw: org.ids,
+      orgColumn: org.meta.sourceColumn,
+      orgNotes: org.meta.notes,
+      orgScope: "strict_org",
+    },
   };
 }
 
 /**
  * Active-only filter (terminal state exclusion).
- * Contract: returns string[] (NOT an object) to match dashboard routes.
- *
- * FAIL-OPEN: if filter can't be applied due to schema drift, return input ids unchanged.
- *
- * IMPORTANT:
- * - Do NOT treat planned finish dates (e.g., end_date) as “completed”.
- * - Only terminal timestamps (closed_at/completed_at/ended_at/etc.) or terminal statuses should exclude a project.
+ * FAIL-OPEN if schema drift prevents filtering.
  */
-export async function filterActiveProjectIds(supabase: SupabaseLike, projectIds: string[]): Promise<string[]> {
+export async function filterActiveProjectIds(
+  supabase: SupabaseLike,
+  projectIds: string[],
+): Promise<string[]> {
   const ids = uniq(projectIds);
   if (!ids.length) return [];
 
@@ -223,22 +247,30 @@ export async function filterActiveProjectIds(supabase: SupabaseLike, projectIds:
 
   let rows: any[] = [];
   try {
-    const { data, error } = await supabase.from("projects").select(wide).in("id", ids).limit(20000);
+    const { data, error } = await supabase
+      .from("projects")
+      .select(wide)
+      .in("id", ids)
+      .limit(20000);
 
     if (!error && Array.isArray(data)) {
       rows = data;
     } else {
       const msg = safeStr(error?.message).toLowerCase();
-      // schema drift → fail-open via minimal select
       if (msg.includes("column") || msg.includes("does not exist")) {
-        const { data: d2, error: e2 } = await supabase.from("projects").select(minimal).in("id", ids).limit(20000);
-        if (e2 || !Array.isArray(d2)) return ids; // fail-open
+        const { data: d2, error: e2 } = await supabase
+          .from("projects")
+          .select(minimal)
+          .in("id", ids)
+          .limit(20000);
+
+        if (e2 || !Array.isArray(d2)) return ids;
         return uniq(d2.map((r: any) => r?.id));
       }
-      return ids; // fail-open on other errors too
+      return ids;
     }
   } catch {
-    return ids; // fail-open
+    return ids;
   }
 
   const norm = (v: any) => safeStr(v).trim().toLowerCase();
@@ -260,7 +292,6 @@ export async function filterActiveProjectIds(supabase: SupabaseLike, projectIds:
   const active = rows.filter((p: any) => {
     if (!p) return false;
 
-    // hard excludes
     const deletedAt = p.deleted_at ?? p.removed_at ?? null;
     const archivedAt = p.archived_at ?? null;
     const closedAt = p.closed_at ?? null;
@@ -268,11 +299,9 @@ export async function filterActiveProjectIds(supabase: SupabaseLike, projectIds:
     const endedAt = p.ended_at ?? null;
 
     if (deletedAt || archivedAt || closedAt || completedAt || endedAt) return false;
-
     if (p.is_archived === true || norm(p.is_archived) === "true") return false;
     if (p.is_live === false || norm(p.is_live) === "false") return false;
 
-    // status-like excludes
     const statusLike = p.status ?? p.lifecycle_status ?? p.delivery_status ?? null;
     if (statusLike != null && isTerminalStatus(statusLike)) return false;
 
@@ -280,6 +309,5 @@ export async function filterActiveProjectIds(supabase: SupabaseLike, projectIds:
   });
 
   const out = uniq(active.map((r: any) => r?.id));
-  // If for any reason we filtered everything (bad data), fail-open to avoid zeroing dashboards
   return out.length ? out : ids;
 }
