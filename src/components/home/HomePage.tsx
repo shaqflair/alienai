@@ -1,32 +1,11 @@
-// src/components/home/HomePage.tsx — POLISHED v9.2
+// src/components/home/HomePage.tsx — POLISHED v9.3
 //
-// Fixes vs v9.1:
-//   ✅ HP-F7: Portfolio Health KPI no longer falls back to kpis.portfolioHealth or
-//            ragAgg.avgHealth. phScoreForUi is null until /api/portfolio/health resolves,
-//            rendering "…" in the meantime. Fetch effect added (deps: ok, numericWindowDays,
-//            urlFilters, projectOptions).
-//   ✅ HP-F5 (revised): openRisksValue no longer falls back to kpis.openRisks at all —
-//            it stays null until raidPanel arrives, then always uses raidDueTotal.
-//
-// Fixes vs v9:
-//   ✅ HP-F1: projectId[] filter is now translated to code/name params before API calls.
-//            Backend routes (health, raid, milestones-due, resource-activity, recent-wins,
-//            financial-plan-summary) only accept name/code/pm/dept — selected projectId[] UUIDs
-//            are now mapped to projectCode[] + projectName[] via deriveApiFilters().
-//   ✅ HP-F2: Search icon focuses the search <input> inside the already-open drawer rather
-//            than blindly calling setDrawerOpen(true) again (removes silent UX dead-end when
-//            drawer is already open).
-//   ✅ HP-F3: raidDueTotal no longer uses `||` fallback — zero typed counts correctly stays 0.
-//            Was: `(r+i+d+a) || due_total` which silently used RPC total when items truly = 0.
-//   ✅ HP-F4: appendFiltersToApi now calls deriveApiFilters so all 6 API widgets respect
-//            project-selection filters end-to-end.
-//   ✅ HP-F5: openRisksValue stays null until raidPanel arrives, then uses live raidDueTotal only.
-//   ✅ HP-F6: milestonesDueLive initialised as null — renders "…" until the live API
-//            responds, never pre-populates from the stale SSR kpi fallback.
-//
-// UI polish:
-//   ✅ HP-UI1: Search / Filter / Notification bell no longer look "greyed out"
-//             — active styling when drawer open, filters active, or unread present.
+// Fixes vs v9.2:
+//   ✅ HP-F8: Added live AI insights fetch effect (/api/ai/briefing) with safe response parsing.
+//   ✅ HP-F9: Removed dead approval / rejection modal state and unused decision helpers.
+//   ✅ HP-F10: Portfolio Health still waits for /api/portfolio/health before rendering a score.
+//   ✅ HP-F11: Resource Activity fetch retained and cleaned.
+//   ✅ HP-F12: General cleanup of unused state / dead branches for a cleaner full file.
 
 "use client";
 
@@ -250,6 +229,16 @@ type RecentWin = {
 
 type ProjectOption = { id: string; name: string; code: string | null };
 
+type AiBriefingResp =
+  | { ok: false; error?: string }
+  | {
+      ok: true;
+      insights?: any[];
+      items?: any[];
+      briefing?: any[];
+      data?: any[];
+    };
+
 /* --- Utils ---------------------------------------------------------------- */
 
 function safeStr(x: any) {
@@ -325,7 +314,7 @@ function filtersToSearchParams(f: PortfolioFilters): URLSearchParams {
   return sp;
 }
 
-// HP-F1: Translate projectId[] to code[] + name[] that backend routes understand.
+// Translate projectId[] to code[] + name[] that backend routes understand.
 function deriveApiFilters(
   f: PortfolioFilters,
   projectOptions: ProjectOption[],
@@ -350,7 +339,6 @@ function deriveApiFilters(
   };
 }
 
-// HP-F4: appendFiltersToApi calls deriveApiFilters so all API widgets respect filters
 function appendFiltersToApi(
   baseUrl: string,
   f: PortfolioFilters,
@@ -494,7 +482,7 @@ function projectCodeLabel(pc: any): string {
 }
 function dueDateLabel(iso: string | null | undefined) {
   const s = safeStr(iso).trim();
-  if (!s) return "\u2014";
+  if (!s) return "—";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s;
   return d.toLocaleDateString(undefined, {
@@ -597,12 +585,12 @@ function ragDotColor(r: RagLetter) {
 }
 function winTypeIcon(type: string): string {
   const t = (type ?? "").toLowerCase();
-  if (t.includes("risk")) return "\u26a0";
-  if (t.includes("commercial") || t.includes("budget")) return "\u00a3";
-  if (t.includes("learning") || t.includes("lesson")) return "\u270e";
-  if (t.includes("change") || t.includes("governance")) return "\u2713";
-  if (t.includes("milestone") || t.includes("delivery")) return "\u2691";
-  return "\u2605";
+  if (t.includes("risk")) return "⚠";
+  if (t.includes("commercial") || t.includes("budget")) return "£";
+  if (t.includes("learning") || t.includes("lesson")) return "✎";
+  if (t.includes("change") || t.includes("governance")) return "✓";
+  if (t.includes("milestone") || t.includes("delivery")) return "⚑";
+  return "★";
 }
 function useDebounced<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -613,87 +601,45 @@ function useDebounced<T>(value: T, delay: number): T {
   return debounced;
 }
 
-/* --- Rejection Modal ----------------------------------------------------- */
+function normaliseInsightSeverity(v: any): "high" | "medium" | "info" {
+  const s = safeStr(v).toLowerCase();
+  if (s === "high" || s === "critical" || s === "red") return "high";
+  if (s === "medium" || s === "amber" || s === "warning") return "medium";
+  return "info";
+}
 
-function RejectionModal({
-  open,
-  title,
-  onConfirm,
-  onCancel,
-}: {
-  open: boolean;
-  title: string;
-  onConfirm: (reason: string) => void;
-  onCancel: () => void;
-}) {
-  const [reason, setReason] = useState("");
-  useEffect(() => {
-    if (!open) setReason("");
-  }, [open]);
+function normaliseInsights(raw: any): Insight[] {
+  const candidates = Array.isArray(raw?.insights)
+    ? raw.insights
+    : Array.isArray(raw?.items)
+      ? raw.items
+      : Array.isArray(raw?.briefing)
+        ? raw.briefing
+        : Array.isArray(raw?.data)
+          ? raw.data
+          : [];
 
-  return (
-    <AnimatePresence>
-      {open && (
-        <>
-          <m.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[60] bg-black/30"
-            onClick={onCancel}
-          />
-          <m.div
-            initial={{ opacity: 0, scale: 0.96, y: 8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96 }}
-            transition={{ duration: 0.18 }}
-            className="fixed left-1/2 top-1/2 z-[70] w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl"
-          >
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-red-100 bg-red-50">
-                <X className="h-4 w-4 text-red-500" />
-              </div>
-              <div>
-                <div className="font-semibold text-gray-900">
-                  Reject change request
-                </div>
-                <div className="max-w-xs truncate text-sm text-gray-500">
-                  {title}
-                </div>
-              </div>
-            </div>
-            <label className="mb-1.5 block text-xs font-medium text-gray-600">
-              Reason (optional)
-            </label>
-            <textarea
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Provide context…"
-              rows={3}
-              autoFocus
-              className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-            />
-            <div className="mt-4 flex gap-2.5">
-              <button
-                type="button"
-                onClick={onCancel}
-                className="h-9 flex-1 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => onConfirm(reason)}
-                className="h-9 flex-1 rounded-xl bg-red-500 text-sm font-semibold text-white hover:bg-red-600"
-              >
-                Confirm rejection
-              </button>
-            </div>
-          </m.div>
-        </>
-      )}
-    </AnimatePresence>
-  );
+  return candidates
+    .map((x: any, i: number) => ({
+      id:
+        safeStr(x?.id).trim() ||
+        `insight-${i}-${safeStr(x?.title || x?.headline || x?.summary).slice(0, 24)}`,
+      severity: normaliseInsightSeverity(
+        x?.severity || x?.priority || x?.level || x?.rag,
+      ),
+      title:
+        safeStr(x?.title || x?.headline || x?.name).trim() || "Untitled insight",
+      body:
+        safeStr(
+          x?.body || x?.summary || x?.description || x?.detail || x?.message,
+        ).trim() || "No detail available.",
+      href:
+        safeStr(
+          x?.href || x?.link || x?.url || x?.route || x?.deep_link,
+        ).trim() || undefined,
+    }))
+    .filter((x: Insight) => x.title && x.body)
+    .slice(0, 8);
 }
 
 /* --- Notification Bell ---------------------------------------------------- */
@@ -1116,6 +1062,7 @@ function KpiCard({
     </m.div>
   );
 }
+
 /* --- Insight Card --------------------------------------------------------- */
 
 function InsightCard({
@@ -1196,11 +1143,11 @@ function ProjectRow({
     rag === "G" ? "Green" : rag === "A" ? "Amber" : rag === "R" ? "Red" : "Unscored";
   const ragLogic =
     rag === "G"
-      ? `Health \u2265 85% (${health}%). Delivery signals are strong across schedule, RAID, workflow approvals and activity.`
+      ? `Health ≥ 85% (${health}%). Delivery signals are strong across schedule, RAID, workflow approvals and activity.`
       : rag === "A"
-        ? `Health 70\u201384% (${health}%). Some signals need attention \u2014 review slippage, open risks/issues, or approval queues.`
+        ? `Health 70–84% (${health}%). Some signals need attention — review slippage, open risks/issues, or approval queues.`
         : rag === "R"
-          ? `Health < 70% (${health}%). Significant delivery risk \u2014 prioritise an immediate review and corrective actions.`
+          ? `Health < 70% (${health}%). Significant delivery risk — prioritise an immediate review and corrective actions.`
           : "No health score calculated yet for this project.";
 
   return (
@@ -1232,15 +1179,15 @@ function ProjectRow({
             <div className="h-3 w-3 shrink-0 rounded-full" style={{ background: dotColor }} />
             <span className="text-xs font-bold text-gray-900">
               {ragLabel}
-              {health != null ? ` \u2014 ${health}%` : ""}
+              {health != null ? ` — ${health}%` : ""}
             </span>
           </div>
           <p className="text-[11px] leading-relaxed text-gray-500">{ragLogic}</p>
           <div className="mt-2 border-t border-gray-100 pt-2 text-[10px] text-gray-400">
-            Thresholds: <span className="font-semibold text-green-600">Green \u2265 85%</span>
-            {" \u00b7 "}
-            <span className="font-semibold text-amber-600">Amber 70\u201384%</span>
-            {" \u00b7 "}
+            Thresholds: <span className="font-semibold text-green-600">Green ≥ 85%</span>
+            {" · "}
+            <span className="font-semibold text-amber-600">Amber 70–84%</span>
+            {" · "}
             <span className="font-semibold text-red-500">Red {"<"} 70%</span>
           </div>
         </div>
@@ -1271,7 +1218,7 @@ function ProjectRow({
           />
         </div>
         <span className="w-8 text-right text-xs font-bold text-gray-600">
-          {health != null ? `${health}%` : "\u2014"}
+          {health != null ? `${health}%` : "—"}
         </span>
       </div>
 
@@ -1570,7 +1517,7 @@ function FilterDrawer({
                     ref={searchInputRef}
                     value={local.q ?? ""}
                     onChange={(e) => setLocal((p) => ({ ...p, q: e.target.value }))}
-                    placeholder="Project name, code, PM, department\u2026"
+                    placeholder="Project name, code, PM, department…"
                     className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
                   />
                   {local.q ? (
@@ -1597,7 +1544,7 @@ function FilterDrawer({
                         type="button"
                         onClick={() => toggle("projectId", p.id)}
                         className={["rounded-full border px-3 py-1.5 text-xs", pill(on)].join(" ")}
-                        title={p.code ? `${p.name} \u2022 ${p.code}` : p.name}
+                        title={p.code ? `${p.name} • ${p.code}` : p.name}
                       >
                         {p.code ? `${p.name} (${p.code})` : p.name}
                       </button>
@@ -1740,16 +1687,9 @@ export default function HomePage({ data }: { data: HomeData }) {
   );
 
   const [phData, setPhData] = useState<PortfolioHealthApi | null>(null);
-  const [phPrevScore] = useState<number | null>(null);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(true);
-  const [approvalItems, setApprovalItems] = useState<any[]>([]);
-  const [pendingIds, setPendingIds] = useState<Record<string, true>>({});
-  const [rejectModal, setRejectModal] = useState<{ taskId: string; title: string } | null>(
-    null,
-  );
 
-  // HP-F6: null initial state — renders "…" until the live API responds.
   const [milestonesDueLive, setMilestonesDueLive] = useState<number | null>(null);
 
   const [raidPanel, setRaidPanel] = useState<RaidPanel | null>(null);
@@ -1922,12 +1862,45 @@ export default function HomePage({ data }: { data: HomeData }) {
         });
         if (!cancelled && j?.ok && Array.isArray(j.weeks)) {
           setResourceWeeks(j.weeks);
+        } else if (!cancelled) {
+          setResourceWeeks([]);
         }
       } catch {
+        if (!cancelled) setResourceWeeks([]);
       } finally {
         if (!cancelled) setResourceLoading(false);
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ok, numericWindowDays, urlFilters, projectOptions]);
+
+  useEffect(() => {
+    if (!ok) return;
+    let cancelled = false;
+    setInsightsLoading(true);
+
+    runIdle(() => {
+      (async () => {
+        try {
+          const url = appendFiltersToApi(
+            `/api/ai/briefing?days=${numericWindowDays}`,
+            urlFilters,
+            projectOptions,
+          );
+          const j = await fetchJson<AiBriefingResp>(url, { cache: "no-store" });
+          if (!cancelled) {
+            setInsights(j && (j as any).ok ? normaliseInsights(j) : []);
+          }
+        } catch {
+          if (!cancelled) setInsights([]);
+        } finally {
+          if (!cancelled) setInsightsLoading(false);
+        }
+      })();
+    });
 
     return () => {
       cancelled = true;
@@ -1949,8 +1922,12 @@ export default function HomePage({ data }: { data: HomeData }) {
           const j: any = await fetchJson(url, { cache: "no-store" });
           if (j?.ok && typeof j?.count === "number" && !c) {
             setMilestonesDueLive(Math.max(0, j.count));
+          } else if (!c) {
+            setMilestonesDueLive(0);
           }
-        } catch {}
+        } catch {
+          if (!c) setMilestonesDueLive(0);
+        }
       })();
     });
 
@@ -1976,8 +1953,11 @@ export default function HomePage({ data }: { data: HomeData }) {
         });
         if (!cancelled && j?.ok && Array.isArray(j.wins)) {
           setRecentWins(j.wins);
+        } else if (!cancelled) {
+          setRecentWins([]);
         }
       } catch {
+        if (!cancelled) setRecentWins([]);
       } finally {
         if (!cancelled) setWinsLoading(false);
       }
@@ -2004,6 +1984,7 @@ export default function HomePage({ data }: { data: HomeData }) {
           const j = await fetchJson<FinancialPlanSummary>(url, { cache: "no-store" });
           if (!c) setFpSummary(j ?? null);
         } catch {
+          if (!c) setFpSummary(null);
         } finally {
           if (!c) setFpLoading(false);
         }
@@ -2034,7 +2015,10 @@ export default function HomePage({ data }: { data: HomeData }) {
               filters: apiFilters,
             }),
           });
-          if (!j || !j.ok) return;
+          if (!j || !j.ok) {
+            if (!c) setDueItems([]);
+            return;
+          }
 
           const ai = (j as any).ai as ArtifactDueAi;
           const list = Array.isArray(ai?.dueSoon) ? ai.dueSoon : [];
@@ -2083,6 +2067,7 @@ export default function HomePage({ data }: { data: HomeData }) {
             setDueUpdatedAt(new Date().toISOString());
           }
         } catch {
+          if (!c) setDueItems([]);
         } finally {
           if (!c) setDueLoading(false);
         }
@@ -2108,7 +2093,10 @@ export default function HomePage({ data }: { data: HomeData }) {
             projectOptions,
           );
           const j: any = await fetchJson(url, { cache: "no-store" });
-          if (!j?.ok || !j?.panel) return;
+          if (!j?.ok || !j?.panel) {
+            if (!c) setRaidPanel(null);
+            return;
+          }
 
           const p = j.panel;
           if (!c) {
@@ -2125,6 +2113,7 @@ export default function HomePage({ data }: { data: HomeData }) {
             });
           }
         } catch {
+          if (!c) setRaidPanel(null);
         } finally {
           if (!c) setRaidLoading(false);
         }
@@ -2149,8 +2138,10 @@ export default function HomePage({ data }: { data: HomeData }) {
             projectOptions,
           );
           const j = await fetchJson<PortfolioHealthApi>(url, { cache: "no-store" });
-          if (!cancelled && j?.ok) setPhData(j);
-        } catch {}
+          if (!cancelled) setPhData(j?.ok ? j : null);
+        } catch {
+          if (!cancelled) setPhData(null);
+        }
       })();
     });
 
@@ -2162,14 +2153,6 @@ export default function HomePage({ data }: { data: HomeData }) {
   const apiScore = phData?.ok ? clamp01to100(phData.portfolio_health) : null;
   const phScoreForUi = apiScore;
   const phRag = scoreToRag(phScoreForUi ?? 0);
-  const phDelta =
-    phPrevScore != null && phScoreForUi != null ? phScoreForUi - phPrevScore : null;
-
-  const byId = useMemo(() => {
-    const m2 = new Map<string, any>();
-    for (const it of approvalItems) m2.set(String(it?.id || ""), it);
-    return m2;
-  }, [approvalItems]);
 
   const raidDueTotal = useMemo(() => {
     if (!raidPanel) return 0;
@@ -2204,41 +2187,12 @@ export default function HomePage({ data }: { data: HomeData }) {
   const fpVarianceLabel =
     fpVarianceNum != null
       ? fpVarianceNum === 0
-        ? "\u00b10%"
+        ? "±0%"
         : `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%`
       : fpLoading
-        ? "\u2026"
-        : "\u2014";
+        ? "…"
+        : "—";
   const fpRag = fpHasData ? ((fpSummary as any).rag as RagLetter) : null;
-
-  async function decide(taskId: string, decision: "approve" | "reject", comment = "") {
-    const item = byId.get(taskId);
-    if (!item) return;
-
-    setPendingIds((p) => ({ ...p, [taskId]: true }));
-    setApprovalItems((items) => items.filter((x) => String(x?.id || "") !== taskId));
-
-    try {
-      const r = await fetch("/api/approvals/decision", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ approval_task_id: taskId, decision, comment }),
-      });
-      const j = await r.json();
-      if (!j?.ok) throw new Error(j?.error || "Decision failed");
-    } catch (e: any) {
-      setApprovalItems((items) =>
-        items.some((x) => String(x?.id || "") === taskId) ? items : [item, ...items],
-      );
-      alert(e?.message || "Decision failed");
-    } finally {
-      setPendingIds((p) => {
-        const next = { ...p };
-        delete next[taskId];
-        return next;
-      });
-    }
-  }
 
   const exportProjectsCsv = useCallback(() => {
     const rows = (activeProjects as any[]).map((p) => ({
@@ -2281,7 +2235,14 @@ export default function HomePage({ data }: { data: HomeData }) {
     );
   }
 
-  const phColorKey = phRag === "G" ? "green" : phRag === "A" ? "amber" : "red";
+  const phColorKey = phScoreForUi == null
+    ? "blue"
+    : phRag === "G"
+      ? "green"
+      : phRag === "A"
+        ? "amber"
+        : "red";
+
   const fpColorKey =
     !fpHasData ? "blue" : fpRag === "G" ? "green" : fpRag === "A" ? "amber" : "red";
   const allDueItems = dueItems.slice(0, 8);
@@ -2295,18 +2256,6 @@ export default function HomePage({ data }: { data: HomeData }) {
         }}
       />
       <LazyMotion features={domAnimation}>
-        <RejectionModal
-          open={!!rejectModal}
-          title={rejectModal?.title || ""}
-          onConfirm={(reason) => {
-            if (rejectModal) {
-              decide(rejectModal.taskId, "reject", reason);
-              setRejectModal(null);
-            }
-          }}
-          onCancel={() => setRejectModal(null)}
-        />
-
         <FilterDrawer
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
@@ -2341,7 +2290,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                   </span>
                   <span className="hidden text-xs text-gray-400 md:block">
                     Enterprise project portfolio overview
-                    {filtersActive ? ` \u2022 filtered (${activeProjects.length})` : ""}
+                    {filtersActive ? ` • filtered (${activeProjects.length})` : ""}
                   </span>
                 </div>
               </div>
@@ -2445,16 +2394,16 @@ export default function HomePage({ data }: { data: HomeData }) {
                   <span className="truncate">
                     {urlFilters.q ? `q="${urlFilters.q}" ` : ""}
                     {urlFilters.projectId?.length ?? 0
-                      ? `\u2022 Projects ${urlFilters.projectId!.length} `
+                      ? `• Projects ${urlFilters.projectId!.length} `
                       : ""}
                     {urlFilters.projectCode?.length ?? 0
-                      ? `\u2022 Codes ${urlFilters.projectCode!.length} `
+                      ? `• Codes ${urlFilters.projectCode!.length} `
                       : ""}
                     {urlFilters.projectManagerId?.length ?? 0
-                      ? `\u2022 PM ${urlFilters.projectManagerId!.length} `
+                      ? `• PM ${urlFilters.projectManagerId!.length} `
                       : ""}
                     {urlFilters.department?.length ?? 0
-                      ? `\u2022 Dept ${urlFilters.department!.length} `
+                      ? `• Dept ${urlFilters.department!.length} `
                       : ""}
                   </span>
                 </div>
@@ -2470,27 +2419,22 @@ export default function HomePage({ data }: { data: HomeData }) {
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
               <KpiCard
                 label="Portfolio Health"
-                value={phScoreForUi == null ? "\u2026" : `${phScoreForUi}%`}
+                value={phScoreForUi == null ? "…" : `${phScoreForUi}%`}
                 sub={
                   ragAgg.scored
-                    ? `${ragAgg.g} Green \u00b7 ${ragAgg.a} Amber \u00b7 ${ragAgg.r} Red`
+                    ? `${ragAgg.g} Green · ${ragAgg.a} Amber · ${ragAgg.r} Red`
                     : "live portfolio score"
                 }
                 icon={<Activity className="h-5 w-5" />}
-                colorKey={phScoreForUi == null ? "blue" : phColorKey}
-                trendLabel={
-                  phDelta != null && phDelta !== 0
-                    ? `${Math.abs(Math.round(phDelta))}`
-                    : undefined
-                }
+                colorKey={phColorKey}
                 onClick={() => router.push(appendFiltersToUrl("/insights", urlFilters))}
                 delay={0}
               />
 
               <KpiCard
                 label="Open Risks"
-                value={openRisksValue == null ? "\u2026" : `${openRisksValue}`}
-                sub="high priority"
+                value={openRisksValue == null ? "…" : `${openRisksValue}`}
+                sub={raidLoading ? "loading RAID signals" : "high priority"}
                 icon={<AlertTriangle className="h-5 w-5" />}
                 colorKey="amber"
                 trendLabel={raidHighSeverity > 0 ? `${raidHighSeverity}` : undefined}
@@ -2507,7 +2451,7 @@ export default function HomePage({ data }: { data: HomeData }) {
 
               <KpiCard
                 label="Milestones Due"
-                value={milestonesDueLive == null ? "\u2026" : `${milestonesDueLive}`}
+                value={milestonesDueLive == null ? "…" : `${milestonesDueLive}`}
                 sub={`next ${windowDays === "all" ? "60" : windowDays} days`}
                 icon={<Clock3 className="h-5 w-5" />}
                 colorKey="blue"
@@ -2548,7 +2492,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                   <div>
                     <h3 className="font-semibold text-gray-900">Resource Activity</h3>
                     <p className="mt-0.5 text-xs text-gray-400">
-                      Week-on-week capacity vs demand (FTE) \u00b7{" "}
+                      Week-on-week capacity vs demand (FTE) ·{" "}
                       {windowDays === "all" ? "60" : windowDays} days
                     </p>
                   </div>
@@ -2666,7 +2610,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                           count: ragAgg.g,
                           icon: <CheckCircle2 className="h-4 w-4 text-green-600" />,
                           label: "Green",
-                          threshold: "\u2265 85% health",
+                          threshold: "≥ 85% health",
                           from: "#f0fdf4",
                           border: "#dcfce7",
                         },
@@ -2675,7 +2619,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                           count: ragAgg.a,
                           icon: <AlertTriangle className="h-4 w-4 text-amber-600" />,
                           label: "Amber",
-                          threshold: "70\u201384% health",
+                          threshold: "70–84% health",
                           from: "#fffbeb",
                           border: "#fef3c7",
                         },
@@ -2788,7 +2732,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                         onClick={() => router.push(appendFiltersToUrl("/projects", urlFilters))}
                         className="text-sm font-medium text-blue-600 hover:text-blue-700"
                       >
-                        View all {activeProjects.length} projects \u2192
+                        View all {activeProjects.length} projects →
                       </button>
                     </div>
                   )}
@@ -2857,7 +2801,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                           }
                           className="mt-2 text-xs font-medium text-blue-600 hover:text-blue-700"
                         >
-                          View milestone list \u2192
+                          View milestone list →
                         </button>
                       </div>
                     ) : (
@@ -2897,7 +2841,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                         }
                         className="mt-1 w-full border-t border-gray-50 py-2 text-center text-xs font-medium text-blue-600 hover:text-blue-700"
                       >
-                        View all {dueItems.length} milestones \u2192
+                        View all {dueItems.length} milestones →
                       </button>
                     )}
                   </div>
