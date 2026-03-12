@@ -4,6 +4,16 @@ import { redirect } from "next/navigation";
 
 const COOKIE_NAME = "active_org_id";
 
+function safeStr(x: unknown) {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function isUuid(x: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(x || "").trim()
+  );
+}
+
 async function setActiveOrgCookie(orgId: string) {
   const cookieStore = await cookies();
   cookieStore.set(COOKIE_NAME, orgId, {
@@ -44,6 +54,8 @@ async function userHasMembership(
   userId: string,
   orgId: string
 ) {
+  if (!isUuid(orgId)) return false;
+
   const { data, error } = await supabase
     .from("organisation_members")
     .select("organisation_id")
@@ -56,39 +68,106 @@ async function userHasMembership(
   return !!data;
 }
 
+async function getProfileActiveOrgId(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string
+): Promise<string | null> {
+  const byUserId = await supabase
+    .from("profiles")
+    .select("active_organisation_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!byUserId.error) {
+    const orgId = safeStr(byUserId.data?.active_organisation_id).trim();
+    return isUuid(orgId) ? orgId : null;
+  }
+
+  const msg = String(byUserId.error?.message ?? "").toLowerCase();
+  const looksLikeSchemaMismatch =
+    msg.includes("column") ||
+    msg.includes("user_id") ||
+    msg.includes("schema") ||
+    msg.includes("does not exist");
+
+  if (!looksLikeSchemaMismatch) {
+    throw new Error(byUserId.error.message);
+  }
+
+  const byId = await supabase
+    .from("profiles")
+    .select("active_organisation_id")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (byId.error) throw new Error(byId.error.message);
+
+  const orgId = safeStr(byId.data?.active_organisation_id).trim();
+  return isUuid(orgId) ? orgId : null;
+}
+
+async function persistProfileActiveOrg(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  orgId: string
+) {
+  const first = await supabase
+    .from("profiles")
+    .update({ active_organisation_id: orgId })
+    .eq("user_id", userId);
+
+  if (!first.error) return;
+
+  const msg = String(first.error?.message ?? "").toLowerCase();
+  const looksLikeSchemaMismatch =
+    msg.includes("column") ||
+    msg.includes("user_id") ||
+    msg.includes("schema") ||
+    msg.includes("does not exist");
+
+  if (!looksLikeSchemaMismatch) {
+    throw new Error(first.error.message);
+  }
+
+  const second = await supabase
+    .from("profiles")
+    .update({ active_organisation_id: orgId })
+    .eq("id", userId);
+
+  if (second.error) throw new Error(second.error.message);
+}
+
 export async function getActiveOrgId(): Promise<string | null> {
   const cookieStore = await cookies();
-  const cookieOrgId = cookieStore.get(COOKIE_NAME)?.value ?? null;
+  const cookieOrgId = safeStr(cookieStore.get(COOKIE_NAME)?.value).trim() || null;
 
   const { supabase, user } = await getUserFromSupabase();
 
-  // 1) cookie first, but only if valid membership still exists
-  if (cookieOrgId) {
-    const valid = await userHasMembership(supabase, user.id, cookieOrgId);
-    if (valid) return cookieOrgId;
-    await clearActiveOrgCookie();
-  }
-
-  // 2) profile active org fallback
-  const { data: profile, error: profileErr } = await supabase
-    .from("profiles")
-    .select("active_organisation_id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (profileErr) throw new Error(profileErr.message);
-
-  const profileOrgId = profile?.active_organisation_id ?? null;
+  // 1) Canonical source: profile active org
+  const profileOrgId = await getProfileActiveOrgId(supabase, user.id);
 
   if (profileOrgId) {
     const valid = await userHasMembership(supabase, user.id, profileOrgId);
     if (valid) {
-      await setActiveOrgCookie(profileOrgId);
+      if (cookieOrgId !== profileOrgId) {
+        await setActiveOrgCookie(profileOrgId);
+      }
       return profileOrgId;
     }
   }
 
-  // 3) single-membership auto-bind fallback
+  // 2) Cookie fallback only if profile is empty/invalid
+  if (cookieOrgId) {
+    const valid = await userHasMembership(supabase, user.id, cookieOrgId);
+    if (valid) {
+      await persistProfileActiveOrg(supabase, user.id, cookieOrgId);
+      await setActiveOrgCookie(cookieOrgId);
+      return cookieOrgId;
+    }
+    await clearActiveOrgCookie();
+  }
+
+  // 3) Single-membership auto-bind fallback
   const { data: memberships, error: memErr } = await supabase
     .from("organisation_members")
     .select("organisation_id")
@@ -99,25 +178,16 @@ export async function getActiveOrgId(): Promise<string | null> {
 
   const uniqueOrgIds = Array.from(
     new Set((memberships ?? []).map((m) => m.organisation_id).filter(Boolean))
-  );
+  ).filter((x): x is string => isUuid(String(x)));
 
   if (uniqueOrgIds.length === 1) {
     const orgId = uniqueOrgIds[0];
-
-    const { error: updateErr } = await supabase
-      .from("profiles")
-      .update({ active_organisation_id: orgId })
-      .eq("user_id", user.id);
-
-    if (updateErr) {
-      console.warn("Failed to persist active_organisation_id:", updateErr.message);
-    }
-
+    await persistProfileActiveOrg(supabase, user.id, orgId);
     await setActiveOrgCookie(orgId);
     return orgId;
   }
 
-  // 4) no org or multi-org without explicit selection
+  // 4) No org or multi-org without explicit selection
   return null;
 }
 
@@ -182,7 +252,7 @@ export async function requireOrgAdminContext(): Promise<{
 
   if (error) throw new Error(error.message);
 
-  const role = membership?.role as string;
+  const role = String(membership?.role || "").toLowerCase();
   if (role !== "admin" && role !== "owner") {
     throw new Error("Admin or owner role required for this action.");
   }
