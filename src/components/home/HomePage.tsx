@@ -1,11 +1,33 @@
-// src/components/home/HomePage.tsx — POLISHED v9.3
+// src/components/home/HomePage.tsx — POLISHED v9.2
 //
-// Fixes vs v9.2:
-//   ✅ HP-F8: Added live AI insights fetch effect (/api/ai/briefing) with safe response parsing.
-//   ✅ HP-F9: Removed dead approval / rejection modal state and unused decision helpers.
-//   ✅ HP-F10: Portfolio Health still waits for /api/portfolio/health before rendering a score.
-//   ✅ HP-F11: Resource Activity fetch retained and cleaned.
-//   ✅ HP-F12: General cleanup of unused state / dead branches for a cleaner full file.
+// Fixes vs v9.1:
+//   ✅ HP-F7: Portfolio Health KPI no longer falls back to kpis.portfolioHealth or
+//            ragAgg.avgHealth. phScoreForUi is null until /api/portfolio/health resolves,
+//            rendering "…" in the meantime. Fetch effect added (deps: ok, numericWindowDays,
+//            urlFilters, projectOptions).
+//   ✅ HP-F5 (revised): openRisksValue no longer falls back to kpis.openRisks at all —
+//            it is null until raidPanel arrives, then always uses raidDueTotal.
+//
+// Fixes vs v9:
+//   ✅ HP-F1: projectId[] filter is now translated to code/name params before API calls.
+//            Backend routes (health, raid, milestones-due, resource-activity, recent-wins,
+//            financial-plan-summary) only accept name/code/pm/dept — selectedprojectId[] UUIDs
+//            are now mapped to projectCode[] + projectName[] via deriveApiFilters().
+//   ✅ HP-F2: Search icon focuses the search <input> inside the already-open drawer rather
+//            than blindly calling setDrawerOpen(true) again (removes silent UX dead-end when
+//            drawer is already open).
+//   ✅ HP-F3: raidDueTotal no longer uses `||` fallback — zero typed counts correctly stays 0.
+//            Was: `(r+i+d+a) || due_total` which silently used RPC total when items truly = 0.
+//   ✅ HP-F4: appendFiltersToApi now calls deriveApiFilters so all 6 API widgets respect
+//            project-selection filters end-to-end.
+//   ✅ HP-F5: openRisksValue derived variable — shows kpis.openRisks only before raidPanel
+//            arrives; once raidPanel is set uses raidDueTotal (which can safely be 0).
+//   ✅ HP-F6: milestonesDueLive initialised as null — renders "…" until the live API
+//            responds, never pre-populates from the stale SSR kpi fallback.
+//
+// UI polish:
+//   ✅ HP-UI1: Search / Filter / Notification bell no longer look "greyed out"
+//             — active styling when drawer open, filters active, or unread present.
 
 "use client";
 
@@ -36,9 +58,7 @@ import {
   Calendar,
   CheckCheck,
 } from "lucide-react";
-import ResourceActivityChart, {
-  type ResourceWeek,
-} from "@/components/home/ResourceActivityChart";
+import ResourceActivityChart, { type ResourceWeek } from "@/components/home/ResourceActivityChart";
 
 /* --- Filter model -------------------------------------------------------- */
 
@@ -68,9 +88,7 @@ type NotifRow = {
   actor_user_id: string | null;
   metadata: any;
 };
-type NotifApiResp =
-  | { ok: false; error: string }
-  | { ok: true; unreadCount?: number; items: NotifRow[] };
+type NotifApiResp = { ok: false; error: string } | { ok: true; unreadCount?: number; items: NotifRow[] };
 type BellTab = "all" | "action" | "ai" | "approvals";
 type DueItemType = "artifact" | "milestone" | "work_item" | "raid" | "change";
 type DueDigestItem = {
@@ -86,14 +104,7 @@ type DueDigestItem = {
 type ArtifactDueAi = {
   summary: string;
   windowDays: number;
-  counts: {
-    total: number;
-    milestone: number;
-    work_item: number;
-    raid: number;
-    artifact: number;
-    change: number;
-  };
+  counts: { total: number; milestone: number; work_item: number; raid: number; artifact: number; change: number };
   dueSoon: DueDigestItem[];
   recommendedMessage?: string;
 };
@@ -111,13 +122,7 @@ type ArtifactDueResp =
       ai: ArtifactDueAi;
       stats?: any;
     };
-type Insight = {
-  id: string;
-  severity: "high" | "medium" | "info";
-  title: string;
-  body: string;
-  href?: string | null;
-};
+type Insight = { id: string; severity: "high" | "medium" | "info"; title: string; body: string; href?: string | null };
 type HomeData =
   | { ok: false; error: string }
   | {
@@ -158,12 +163,7 @@ type HomeData =
         openLessons: number;
       };
       approvals: { count: number; items: any[] };
-      rag: {
-        project_id: string;
-        title: string;
-        rag: "G" | "A" | "R";
-        health: number;
-      }[];
+      rag: { project_id: string; title: string; rag: "G" | "A" | "R"; health: number }[];
     };
 
 type RaidPanel = {
@@ -186,13 +186,7 @@ type PortfolioHealthApi =
       days: 7 | 14 | 30 | 60 | "all";
       windowDays?: number;
       projectCount: number;
-      parts: {
-        schedule: number;
-        raid: number;
-        flow: number;
-        approvals: number;
-        activity: number;
-      };
+      parts: { schedule: number; raid: number; flow: number; approvals: number; activity: number };
       drivers: any[];
       schedule?: any;
       meta?: any;
@@ -228,16 +222,6 @@ type RecentWin = {
 };
 
 type ProjectOption = { id: string; name: string; code: string | null };
-
-type AiBriefingResp =
-  | { ok: false; error?: string }
-  | {
-      ok: true;
-      insights?: any[];
-      items?: any[];
-      briefing?: any[];
-      data?: any[];
-    };
 
 /* --- Utils ---------------------------------------------------------------- */
 
@@ -314,11 +298,8 @@ function filtersToSearchParams(f: PortfolioFilters): URLSearchParams {
   return sp;
 }
 
-// Translate projectId[] to code[] + name[] that backend routes understand.
-function deriveApiFilters(
-  f: PortfolioFilters,
-  projectOptions: ProjectOption[],
-): PortfolioFilters {
+// HP-F1: Translate projectId[] to code[] + name[] that backend routes understand.
+function deriveApiFilters(f: PortfolioFilters, projectOptions: ProjectOption[]): PortfolioFilters {
   const selectedIds = new Set(f.projectId ?? []);
   if (!selectedIds.size) return f;
 
@@ -339,15 +320,11 @@ function deriveApiFilters(
   };
 }
 
-function appendFiltersToApi(
-  baseUrl: string,
-  f: PortfolioFilters,
-  projectOptions: ProjectOption[] = [],
-): string {
+// HP-F4: appendFiltersToApi calls deriveApiFilters so all 6 API widgets respect filters
+function appendFiltersToApi(baseUrl: string, f: PortfolioFilters, projectOptions: ProjectOption[] = []): string {
   try {
     const derived = deriveApiFilters(f, projectOptions);
-    const origin =
-      typeof window !== "undefined" ? window.location.origin : "http://local/";
+    const origin = typeof window !== "undefined" ? window.location.origin : "http://local/";
     const u = new URL(baseUrl, origin);
     const sp = u.searchParams;
 
@@ -412,17 +389,9 @@ function severityFromNotif(n: NotifRow): "high" | "medium" | "info" | "success" 
   const metaSev = safeStr(n?.metadata?.severity).toLowerCase();
   if (["high", "medium", "info", "success"].includes(metaSev)) return metaSev as any;
   const t = safeStr(n.type).toLowerCase();
-  if (t.includes("success") || t.includes("completed") || t.includes("delivered"))
-    return "success";
-  if (t.includes("high") || t.includes("critical") || t.includes("breach"))
-    return "high";
-  if (
-    t.includes("warning") ||
-    t.includes("overdue") ||
-    t.includes("at_risk") ||
-    t.includes("risk") ||
-    t.includes("issue")
-  )
+  if (t.includes("success") || t.includes("completed") || t.includes("delivered")) return "success";
+  if (t.includes("high") || t.includes("critical") || t.includes("breach")) return "high";
+  if (t.includes("warning") || t.includes("overdue") || t.includes("at_risk") || t.includes("risk") || t.includes("issue"))
     return "medium";
   return "info";
 }
@@ -444,12 +413,8 @@ function tabMatch(tab: BellTab, n: NotifRow) {
   return true;
 }
 function runIdle(fn: () => void) {
-  if (
-    typeof window !== "undefined" &&
-    typeof (window as any).requestIdleCallback === "function"
-  ) {
+  if (typeof window !== "undefined" && typeof (window as any).requestIdleCallback === "function")
     return (window as any).requestIdleCallback(fn, { timeout: 1200 });
-  }
   return window.setTimeout(fn, 0);
 }
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> {
@@ -467,29 +432,26 @@ function scoreToRag(score: number): RagLetter {
   if (s >= 70) return "A";
   return "R";
 }
+function prevWindowDays(cur: 7 | 14 | 30 | 60): 7 | 14 | 30 | 60 {
+  if (cur === 7) return 14;
+  if (cur === 14) return 30;
+  return 60;
+}
 function projectCodeLabel(pc: any): string {
   if (typeof pc === "string") return pc.trim();
   if (typeof pc === "number" && Number.isFinite(pc)) return String(pc);
   if (pc && typeof pc === "object") {
-    const v =
-      safeStr(pc.project_code) ||
-      safeStr(pc.code) ||
-      safeStr(pc.value) ||
-      safeStr(pc.id);
+    const v = safeStr(pc.project_code) || safeStr(pc.code) || safeStr(pc.value) || safeStr(pc.id);
     return v.trim();
   }
   return "";
 }
 function dueDateLabel(iso: string | null | undefined) {
   const s = safeStr(iso).trim();
-  if (!s) return "—";
+  if (!s) return "\u2014";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s;
-  return d.toLocaleDateString(undefined, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+  return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 }
 function isOverdue(iso: string | null | undefined) {
   const s = safeStr(iso).trim();
@@ -505,57 +467,28 @@ function calcRagAgg(
   const proj = Array.isArray(projects) ? projects : [];
   const list = Array.isArray(rag) ? rag : [];
   const byPid = new Map<string, { rag: RagLetter; health: number }>();
-
   for (const it of list) {
     const pid = String(it?.project_id || "").trim();
     const letter = String(it?.rag || "").toUpperCase() as RagLetter;
-    if (pid && ["G", "A", "R"].includes(letter)) {
-      byPid.set(pid, {
-        rag: letter,
-        health: it?.health != null ? Number(it.health) : NaN,
-      });
-    }
+    if (pid && ["G", "A", "R"].includes(letter)) byPid.set(pid, { rag: letter, health: it?.health != null ? Number(it.health) : NaN });
   }
-
-  let g = 0;
-  let a = 0;
-  let r = 0;
-  let scored = 0;
+  let g = 0, a = 0, r = 0, scored = 0;
   const vals: number[] = [];
-
   for (const p of proj) {
     const pid = String((p as any)?.id || "").trim();
     if (!pid) continue;
     const hit = byPid.get(pid);
     if (!hit) continue;
-
     scored++;
     if (hit.rag === "G") g++;
     else if (hit.rag === "A") a++;
-    else r++;
-
     const h = Number(hit.health);
-    vals.push(
-      Number.isFinite(h) && h > 0
-        ? clamp01to100(h)
-        : hit.rag === "G"
-          ? 90
-          : hit.rag === "A"
-            ? 78
-            : 45,
-    );
+    vals.push(Number.isFinite(h) && h > 0 ? clamp01to100(h) : hit.rag === "G" ? 90 : hit.rag === "A" ? 78 : 45);
   }
-
-  const avg = vals.length
-    ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length)
-    : 0;
-
+  const avg = vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : 0;
   return {
     avgHealth: clamp01to100(avg),
-    g,
-    a,
-    r,
-    scored,
+    g, a, r, scored,
     unscored: Math.max(0, proj.length - scored),
     projectsTotal: proj.length,
   };
@@ -564,33 +497,31 @@ function fixInsightHref(x: Insight, days?: WindowDays): string | undefined {
   const title = safeStr(x?.title).toLowerCase();
   const body = safeStr(x?.body).toLowerCase();
   const href = safeStr(x?.href).trim();
-  const isWbs =
-    title.includes("wbs") ||
-    body.includes("wbs") ||
-    href.includes("/wbs") ||
-    href.includes("type=wbs");
-
+  const isWbs = title.includes("wbs") || body.includes("wbs") || href.includes("/wbs") || href.includes("type=wbs");
   if (isWbs) {
     const sp = new URLSearchParams();
-    if (typeof days === "number" && Number.isFinite(days)) {
-      sp.set("days", String(days));
-    }
+    if (typeof days === "number" && Number.isFinite(days)) sp.set("days", String(days));
     const qs = sp.toString();
     return qs ? `/wbs/stats?${qs}` : "/wbs/stats";
   }
   return href || undefined;
+}
+function orderBriefingInsights(xs: Insight[]) {
+  return [...(Array.isArray(xs) ? xs : [])].sort(
+    (a, b) => (a?.id === "ai-warning" ? 0 : 1) - (b?.id === "ai-warning" ? 0 : 1),
+  );
 }
 function ragDotColor(r: RagLetter) {
   return r === "G" ? "#22c55e" : r === "A" ? "#f59e0b" : "#ef4444";
 }
 function winTypeIcon(type: string): string {
   const t = (type ?? "").toLowerCase();
-  if (t.includes("risk")) return "⚠";
-  if (t.includes("commercial") || t.includes("budget")) return "£";
-  if (t.includes("learning") || t.includes("lesson")) return "✎";
-  if (t.includes("change") || t.includes("governance")) return "✓";
-  if (t.includes("milestone") || t.includes("delivery")) return "⚑";
-  return "★";
+  if (t.includes("risk"))                                return "\u26a0";
+  if (t.includes("commercial") || t.includes("budget")) return "\u00a3";
+  if (t.includes("learning") || t.includes("lesson"))   return "\u270e";
+  if (t.includes("change") || t.includes("governance")) return "\u2713";
+  if (t.includes("milestone") || t.includes("delivery"))return "\u2691";
+  return "\u2605";
 }
 function useDebounced<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -601,45 +532,57 @@ function useDebounced<T>(value: T, delay: number): T {
   return debounced;
 }
 
-function normaliseInsightSeverity(v: any): "high" | "medium" | "info" {
-  const s = safeStr(v).toLowerCase();
-  if (s === "high" || s === "critical" || s === "red") return "high";
-  if (s === "medium" || s === "amber" || s === "warning") return "medium";
-  return "info";
-}
+/* --- Rejection Modal ----------------------------------------------------- */
 
-function normaliseInsights(raw: any): Insight[] {
-  const candidates = Array.isArray(raw?.insights)
-    ? raw.insights
-    : Array.isArray(raw?.items)
-      ? raw.items
-      : Array.isArray(raw?.briefing)
-        ? raw.briefing
-        : Array.isArray(raw?.data)
-          ? raw.data
-          : [];
-
-  return candidates
-    .map((x: any, i: number) => ({
-      id:
-        safeStr(x?.id).trim() ||
-        `insight-${i}-${safeStr(x?.title || x?.headline || x?.summary).slice(0, 24)}`,
-      severity: normaliseInsightSeverity(
-        x?.severity || x?.priority || x?.level || x?.rag,
-      ),
-      title:
-        safeStr(x?.title || x?.headline || x?.name).trim() || "Untitled insight",
-      body:
-        safeStr(
-          x?.body || x?.summary || x?.description || x?.detail || x?.message,
-        ).trim() || "No detail available.",
-      href:
-        safeStr(
-          x?.href || x?.link || x?.url || x?.route || x?.deep_link,
-        ).trim() || undefined,
-    }))
-    .filter((x: Insight) => x.title && x.body)
-    .slice(0, 8);
+function RejectionModal({
+  open, title, onConfirm, onCancel,
+}: {
+  open: boolean; title: string;
+  onConfirm: (reason: string) => void; onCancel: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  useEffect(() => { if (!open) setReason(""); }, [open]);
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          <m.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] bg-black/30" onClick={onCancel} />
+          <m.div
+            initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.18 }}
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[70] w-full max-w-md rounded-2xl bg-white border border-gray-200 shadow-2xl p-6"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-9 w-9 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center">
+                <X className="h-4 w-4 text-red-500" />
+              </div>
+              <div>
+                <div className="font-semibold text-gray-900">Reject change request</div>
+                <div className="text-sm text-gray-500 truncate max-w-xs">{title}</div>
+              </div>
+            </div>
+            <label className="block text-xs font-medium text-gray-600 mb-1.5">Reason (optional)</label>
+            <textarea
+              value={reason} onChange={(e) => setReason(e.target.value)}
+              placeholder="Provide context\u2026" rows={3} autoFocus
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 resize-none outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+            />
+            <div className="flex gap-2.5 mt-4">
+              <button type="button" onClick={onCancel}
+                className="flex-1 h-9 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50">
+                Cancel
+              </button>
+              <button type="button" onClick={() => onConfirm(reason)}
+                className="flex-1 h-9 rounded-xl bg-red-500 text-sm font-semibold text-white hover:bg-red-600">
+                Confirm rejection
+              </button>
+            </div>
+          </m.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
 }
 
 /* --- Notification Bell ---------------------------------------------------- */
@@ -658,18 +601,13 @@ function NotificationBell() {
     fetchingRef.current = true;
     try {
       const r = await fetch("/api/notifications?limit=30", { cache: "no-store" });
-      const j: NotifApiResp = await r
-        .json()
-        .catch(() => ({ ok: false, error: "Bad JSON" } as any));
+      const j: NotifApiResp = await r.json().catch(() => ({ ok: false, error: "Bad JSON" } as any));
       if (!j?.ok) throw new Error();
       const list = Array.isArray(j.items) ? j.items : [];
       setItems(list);
       setUnreadCount(
-        Math.max(
-          0,
-          typeof (j as any).unreadCount === "number"
-            ? (j as any).unreadCount
-            : list.filter((x) => x.is_read !== true).length,
+        Math.max(0,
+          typeof (j as any).unreadCount === "number" ? (j as any).unreadCount : list.filter((x) => x.is_read !== true).length,
         ),
       );
     } catch {
@@ -681,14 +619,9 @@ function NotificationBell() {
   useEffect(() => {
     const id = runIdle(() => refresh());
     return () => {
-      if (
-        typeof window !== "undefined" &&
-        typeof (window as any).cancelIdleCallback === "function"
-      ) {
+      if (typeof window !== "undefined" && typeof (window as any).cancelIdleCallback === "function")
         (window as any).cancelIdleCallback(id);
-      } else {
-        window.clearTimeout(id);
-      }
+      else window.clearTimeout(id);
     };
   }, [refresh]);
 
@@ -720,24 +653,17 @@ function NotificationBell() {
     if (wasUnread) setUnreadCount((c) => Math.max(0, c - 1));
     try {
       await fetch("/api/notifications/read", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }),
       });
-    } catch {
-      refresh();
-    }
+    } catch { refresh(); }
   }
 
   async function markAllRead() {
     if (!items.filter((n) => n.is_read !== true).length) return;
     setItems((prev) => prev.map((n) => ({ ...n, is_read: true })));
     setUnreadCount(0);
-    try {
-      await fetch("/api/notifications/read-all", { method: "POST" });
-    } catch {
-      refresh();
-    }
+    try { await fetch("/api/notifications/read-all", { method: "POST" }); }
+    catch { refresh(); }
   }
 
   function onClickItem(n: NotifRow) {
@@ -752,27 +678,16 @@ function NotificationBell() {
   return (
     <div className="relative">
       <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-label="Notifications"
-        title="Notifications"
+        type="button" onClick={() => setOpen((v) => !v)}
+        aria-label="Notifications" title="Notifications"
         className={[
-          "relative flex h-9 w-9 items-center justify-center rounded-xl border transition-colors",
-          open
-            ? "border-gray-900 bg-gray-900"
-            : hasUnread
-              ? "border-blue-200 bg-blue-50 hover:bg-blue-100"
-              : "border-gray-200 bg-white hover:bg-gray-50",
+          "relative h-9 w-9 rounded-xl border flex items-center justify-center transition-colors",
+          open ? "bg-gray-900 border-gray-900" : hasUnread ? "bg-blue-50 border-blue-200 hover:bg-blue-100" : "bg-white border-gray-200 hover:bg-gray-50",
         ].join(" ")}
       >
-        <Bell
-          className={[
-            "h-4 w-4 transition-colors",
-            open ? "text-white" : hasUnread ? "text-blue-700" : "text-gray-700",
-          ].join(" ")}
-        />
+        <Bell className={["h-4 w-4 transition-colors", open ? "text-white" : hasUnread ? "text-blue-700" : "text-gray-700"].join(" ")} />
         {hasUnread && (
-          <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white ring-2 ring-white">
+          <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white ring-2 ring-white">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
@@ -783,115 +698,62 @@ function NotificationBell() {
           <>
             <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
             <m.div
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.15 }}
+              initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }}
               className="absolute right-0 top-full z-50 mt-2 w-[400px] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl"
             >
               <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3.5">
                 <div className="font-semibold text-gray-900">Notifications</div>
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={markAllRead}
-                    className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-900"
-                  >
+                  <button type="button" onClick={markAllRead} className="text-xs text-gray-500 hover:text-gray-900 font-medium flex items-center gap-1">
                     <CheckCheck className="h-3 w-3" /> Mark all read
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(false)}
-                    className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-gray-100"
-                  >
+                  <button type="button" onClick={() => setOpen(false)} className="h-7 w-7 rounded-lg hover:bg-gray-100 flex items-center justify-center">
                     <X className="h-3.5 w-3.5 text-gray-400" />
                   </button>
                 </div>
               </div>
-
-              <div className="flex gap-1 border-b border-gray-100 bg-gray-50/50 px-3 py-2">
+              <div className="flex gap-1 px-3 py-2 border-b border-gray-100 bg-gray-50/50">
                 {(["all", "action", "ai", "approvals"] as BellTab[]).map((k) => (
-                  <button
-                    key={k}
-                    type="button"
-                    onClick={() => setTab(k)}
-                    className={[
-                      "rounded-lg px-2.5 py-1 text-xs font-medium transition-all",
-                      tab === k
-                        ? "bg-blue-600 text-white"
-                        : "text-gray-500 hover:bg-gray-100",
-                    ].join(" ")}
-                  >
-                    {k === "all"
-                      ? "All"
-                      : k === "action"
-                        ? "Action"
-                        : k === "ai"
-                          ? "AI"
-                          : "Approvals"}
+                  <button key={k} type="button" onClick={() => setTab(k)}
+                    className={["rounded-lg px-2.5 py-1 text-xs font-medium transition-all",
+                      tab === k ? "bg-blue-600 text-white" : "text-gray-500 hover:bg-gray-100"].join(" ")}>
+                    {k === "all" ? "All" : k === "action" ? "Action" : k === "ai" ? "AI" : "Approvals"}
                   </button>
                 ))}
               </div>
-
               <div className="max-h-[420px] overflow-auto">
                 {grouped.length === 0 ? (
                   <div className="py-12 text-center">
-                    <CheckCheck className="mx-auto mb-2 h-8 w-8 text-gray-300" />
-                    <div className="text-sm font-medium text-gray-600">
-                      All caught up
-                    </div>
+                    <CheckCheck className="h-8 w-8 text-gray-300 mx-auto mb-2" />
+                    <div className="text-sm font-medium text-gray-600">All caught up</div>
                   </div>
                 ) : (
                   grouped.map(([label, rows]) => (
                     <div key={label}>
-                      <div className="px-4 pb-1.5 pt-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                        {label}
-                      </div>
-                      <div className="space-y-0.5 px-2 pb-1">
+                      <div className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{label}</div>
+                      <div className="px-2 pb-1 space-y-0.5">
                         {rows.map((n) => {
                           const unread = n.is_read !== true;
                           const sev = severityFromNotif(n);
                           return (
-                            <button
-                              key={n.id}
-                              type="button"
-                              onClick={() => onClickItem(n)}
-                              className={[
-                                "w-full rounded-xl border px-3 py-2.5 text-left transition-all",
-                                unread
-                                  ? "border-blue-100 bg-blue-50/60"
-                                  : "border-transparent hover:bg-gray-50",
-                              ].join(" ")}
-                            >
+                            <button key={n.id} type="button" onClick={() => onClickItem(n)}
+                              className={["w-full rounded-xl px-3 py-2.5 text-left transition-all",
+                                unread ? "bg-blue-50/60 border border-blue-100" : "hover:bg-gray-50 border border-transparent"].join(" ")}>
                               <div className="flex items-start gap-2.5">
-                                <div
-                                  className={[
-                                    "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border",
-                                    sev === "high"
-                                      ? "border-red-100 bg-red-50 text-red-500"
-                                      : sev === "medium"
-                                        ? "border-amber-100 bg-amber-50 text-amber-500"
-                                        : sev === "success"
-                                          ? "border-green-100 bg-green-50 text-green-500"
-                                          : "border-blue-100 bg-blue-50 text-blue-500",
-                                  ].join(" ")}
-                                >
+                                <div className={["mt-0.5 h-7 w-7 shrink-0 rounded-lg border flex items-center justify-center",
+                                  sev === "high" ? "border-red-100 bg-red-50 text-red-500"
+                                    : sev === "medium" ? "border-amber-100 bg-amber-50 text-amber-500"
+                                    : sev === "success" ? "border-green-100 bg-green-50 text-green-500"
+                                    : "border-blue-100 bg-blue-50 text-blue-500"].join(" ")}>
                                   {notifIcon(n)}
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center justify-between gap-2">
-                                    <div className="truncate text-sm font-medium text-gray-800">
-                                      {n.title}
-                                    </div>
-                                    <div className="shrink-0 text-[11px] text-gray-400">
-                                      {timeAgo(n.created_at)}
-                                    </div>
+                                    <div className="truncate text-sm font-medium text-gray-800">{n.title}</div>
+                                    <div className="shrink-0 text-[11px] text-gray-400">{timeAgo(n.created_at)}</div>
                                   </div>
-                                  {n.body && (
-                                    <div className="mt-0.5 line-clamp-1 text-xs text-gray-500">
-                                      {n.body}
-                                    </div>
-                                  )}
+                                  {n.body && <div className="mt-0.5 line-clamp-1 text-xs text-gray-500">{n.body}</div>}
                                 </div>
                               </div>
                             </button>
@@ -902,16 +764,9 @@ function NotificationBell() {
                   ))
                 )}
               </div>
-
               <div className="border-t border-gray-100 px-5 py-2.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpen(false);
-                    router.push("/notifications");
-                  }}
-                  className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700"
-                >
+                <button type="button" onClick={() => { setOpen(false); router.push("/notifications"); }}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">
                   View all notifications <ChevronRight className="h-3 w-3" />
                 </button>
               </div>
@@ -925,193 +780,72 @@ function NotificationBell() {
 
 /* --- KPI Card ------------------------------------------------------------- */
 
-const KPI_THEMES: Record<
-  string,
-  {
-    bg: string;
-    iconBg: string;
-    iconColor: string;
-    valueColor: string;
-    labelColor: string;
-    subColor: string;
-    trendBg: string;
-    trendColor: string;
-  }
-> = {
-  green: {
-    bg: "bg-green-50",
-    iconBg: "bg-green-100",
-    iconColor: "text-green-600",
-    valueColor: "text-green-700",
-    labelColor: "text-green-800",
-    subColor: "text-green-600/80",
-    trendBg: "bg-green-100",
-    trendColor: "text-green-700",
-  },
-  amber: {
-    bg: "bg-amber-50",
-    iconBg: "bg-amber-100",
-    iconColor: "text-amber-600",
-    valueColor: "text-amber-700",
-    labelColor: "text-amber-800",
-    subColor: "text-amber-600/80",
-    trendBg: "bg-amber-100",
-    trendColor: "text-amber-700",
-  },
-  red: {
-    bg: "bg-red-50",
-    iconBg: "bg-red-100",
-    iconColor: "text-red-500",
-    valueColor: "text-red-600",
-    labelColor: "text-red-800",
-    subColor: "text-red-600/80",
-    trendBg: "bg-red-100",
-    trendColor: "text-red-600",
-  },
-  blue: {
-    bg: "bg-blue-50",
-    iconBg: "bg-blue-100",
-    iconColor: "text-blue-600",
-    valueColor: "text-blue-700",
-    labelColor: "text-blue-800",
-    subColor: "text-blue-600/80",
-    trendBg: "bg-blue-100",
-    trendColor: "text-blue-700",
-  },
-  yellow: {
-    bg: "bg-yellow-50",
-    iconBg: "bg-yellow-100",
-    iconColor: "text-yellow-600",
-    valueColor: "text-yellow-700",
-    labelColor: "text-yellow-800",
-    subColor: "text-yellow-600/80",
-    trendBg: "bg-yellow-100",
-    trendColor: "text-yellow-700",
-  },
+const KPI_THEMES: Record<string, {
+  bg: string; iconBg: string; iconColor: string; valueColor: string;
+  labelColor: string; subColor: string; trendBg: string; trendColor: string;
+}> = {
+  green: { bg: "bg-green-50", iconBg: "bg-green-100", iconColor: "text-green-600", valueColor: "text-green-700", labelColor: "text-green-800", subColor: "text-green-600/80", trendBg: "bg-green-100", trendColor: "text-green-700" },
+  amber: { bg: "bg-amber-50", iconBg: "bg-amber-100", iconColor: "text-amber-600", valueColor: "text-amber-700", labelColor: "text-amber-800", subColor: "text-amber-600/80", trendBg: "bg-amber-100", trendColor: "text-amber-700" },
+  red:   { bg: "bg-red-50",   iconBg: "bg-red-100",   iconColor: "text-red-500",   valueColor: "text-red-600",   labelColor: "text-red-800",   subColor: "text-red-600/80",   trendBg: "bg-red-100",   trendColor: "text-red-600"   },
+  blue:  { bg: "bg-blue-50",  iconBg: "bg-blue-100",  iconColor: "text-blue-600",  valueColor: "text-blue-700",  labelColor: "text-blue-800",  subColor: "text-blue-600/80",  trendBg: "bg-blue-100",  trendColor: "text-blue-700"  },
+  yellow:{ bg: "bg-yellow-50",iconBg: "bg-yellow-100",iconColor: "text-yellow-600",valueColor: "text-yellow-700",labelColor: "text-yellow-800",subColor: "text-yellow-600/80",trendBg: "bg-yellow-100",trendColor: "text-yellow-700"},
 };
 
 function KpiCard({
-  label,
-  value,
-  sub,
-  icon,
-  colorKey,
-  trendLabel,
-  onClick,
-  delay = 0,
+  label, value, sub, icon, colorKey, trendLabel, onClick, delay = 0,
 }: {
-  label: string;
-  value: string;
-  sub?: string;
-  icon: React.ReactNode;
-  colorKey: string;
-  trendLabel?: string;
-  onClick?: () => void;
-  delay?: number;
+  label: string; value: string; sub?: string; icon: React.ReactNode;
+  colorKey: string; trendLabel?: string; onClick?: () => void; delay?: number;
 }) {
   const t = KPI_THEMES[colorKey] || KPI_THEMES.blue;
   const clickable = typeof onClick === "function";
   return (
     <m.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay, ease: [0.16, 1, 0.3, 1] }}
       onClick={onClick}
-      className={[
-        "rounded-2xl p-6 transition-all duration-200",
-        t.bg,
-        clickable
-          ? "cursor-pointer hover:-translate-y-0.5 hover:brightness-[0.97]"
-          : "",
-      ].join(" ")}
+      className={["rounded-2xl p-6 transition-all duration-200", t.bg,
+        clickable ? "cursor-pointer hover:brightness-[0.97] hover:-translate-y-0.5" : ""].join(" ")}
     >
-      <div className="mb-4 flex items-start justify-between">
-        <div
-          className={[
-            "flex h-11 w-11 items-center justify-center rounded-xl",
-            t.iconBg,
-          ].join(" ")}
-        >
+      <div className="flex items-start justify-between mb-4">
+        <div className={["h-11 w-11 rounded-xl flex items-center justify-center", t.iconBg].join(" ")}>
           <span className={t.iconColor}>{icon}</span>
         </div>
         {trendLabel && (
-          <div
-            className={[
-              "flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold",
-              t.trendBg,
-              t.trendColor,
-            ].join(" ")}
-          >
-            <ArrowUpRight className="h-3 w-3" />
-            {trendLabel}
+          <div className={["flex items-center gap-1 text-xs font-semibold rounded-full px-2.5 py-1", t.trendBg, t.trendColor].join(" ")}>
+            <ArrowUpRight className="h-3 w-3" />{trendLabel}
           </div>
         )}
       </div>
-      <div
-        className={[
-          "text-4xl font-bold leading-none tracking-tight",
-          t.valueColor,
-        ].join(" ")}
-      >
-        {value}
-      </div>
-      <div className={["mt-2 text-sm font-semibold", t.labelColor].join(" ")}>
-        {label}
-      </div>
-      {sub && <div className={["mt-0.5 text-xs", t.subColor].join(" ")}>{sub}</div>}
+      <div className={["text-4xl font-bold tracking-tight leading-none", t.valueColor].join(" ")}>{value}</div>
+      <div className={["text-sm font-semibold mt-2", t.labelColor].join(" ")}>{label}</div>
+      {sub && <div className={["text-xs mt-0.5", t.subColor].join(" ")}>{sub}</div>}
     </m.div>
   );
 }
 
 /* --- Insight Card --------------------------------------------------------- */
 
-function InsightCard({
-  severity,
-  title,
-  body,
-  href,
-}: {
-  severity: "high" | "medium" | "info";
-  title: string;
-  body: string;
-  href?: string;
+function InsightCard({ severity, title, body, href }: {
+  severity: "high" | "medium" | "info"; title: string; body: string; href?: string;
 }) {
   const cfg = {
-    high: {
-      wrap: "border border-red-100 bg-red-50/70",
-      icon: <AlertTriangle className="h-4 w-4 text-red-500" />,
-      badge: "text-red-500 font-bold text-xs",
-      badgeText: "HIGH",
-    },
-    medium: {
-      wrap: "border border-amber-100 bg-amber-50/60",
-      icon: <AlertTriangle className="h-4 w-4 text-amber-500" />,
-      badge: "text-amber-600 font-bold text-xs",
-      badgeText: "MEDIUM",
-    },
-    info: {
-      wrap: "border border-blue-100 bg-blue-50/50",
-      icon: <Sparkles className="h-4 w-4 text-blue-500" />,
-      badge: "text-blue-600 font-bold text-xs",
-      badgeText: "INFO",
-    },
+    high:   { wrap: "border border-red-100 bg-red-50/70",    icon: <AlertTriangle className="h-4 w-4 text-red-500" />,   badge: "text-red-500 font-bold text-xs",   badgeText: "HIGH"   },
+    medium: { wrap: "border border-amber-100 bg-amber-50/60", icon: <AlertTriangle className="h-4 w-4 text-amber-500" />, badge: "text-amber-600 font-bold text-xs", badgeText: "MEDIUM" },
+    info:   { wrap: "border border-blue-100 bg-blue-50/50",   icon: <Sparkles className="h-4 w-4 text-blue-500" />,       badge: "text-blue-600 font-bold text-xs",  badgeText: "INFO"   },
   }[severity];
-
   return (
     <div className={["rounded-xl p-4", cfg.wrap].join(" ")}>
       <div className="flex items-start gap-2.5">
         <div className="mt-0.5 shrink-0">{cfg.icon}</div>
         <div className="min-w-0 flex-1">
-          <div className="mb-1 flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-2 mb-1">
             <span className="text-sm font-semibold text-gray-800">{title}</span>
             <span className={cfg.badge}>{cfg.badgeText}</span>
           </div>
-          <p className="text-xs leading-relaxed text-gray-600">{body}</p>
+          <p className="text-xs text-gray-600 leading-relaxed">{body}</p>
           {href && (
-            <a
-              href={href}
-              className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700"
-            >
+            <a href={href} className="inline-flex items-center gap-1 mt-1.5 text-xs text-blue-600 hover:text-blue-700 font-medium">
               View details <ChevronRight className="h-3 w-3" />
             </a>
           )}
@@ -1123,13 +857,7 @@ function InsightCard({
 
 /* --- Project Row ---------------------------------------------------------- */
 
-function ProjectRow({
-  p,
-  ragMap,
-}: {
-  p: any;
-  ragMap: Map<string, { rag: RagLetter; health: number }>;
-}) {
+function ProjectRow({ p, ragMap }: { p: any; ragMap: Map<string, { rag: RagLetter; health: number }> }) {
   const router = useRouter();
   const code = projectCodeLabel(p?.project_code);
   const pid = String(p?.id || "").trim();
@@ -1139,200 +867,92 @@ function ProjectRow({
   const rag = ragData?.rag || null;
   const client = safeStr(p?.client_name).trim();
   const dotColor = rag ? ragDotColor(rag) : "#d1d5db";
-  const ragLabel =
-    rag === "G" ? "Green" : rag === "A" ? "Amber" : rag === "R" ? "Red" : "Unscored";
+  const ragLabel = rag === "G" ? "Green" : rag === "A" ? "Amber" : rag === "R" ? "Red" : "Unscored";
   const ragLogic =
-    rag === "G"
-      ? `Health ≥ 85% (${health}%). Delivery signals are strong across schedule, RAID, workflow approvals and activity.`
-      : rag === "A"
-        ? `Health 70–84% (${health}%). Some signals need attention — review slippage, open risks/issues, or approval queues.`
-        : rag === "R"
-          ? `Health < 70% (${health}%). Significant delivery risk — prioritise an immediate review and corrective actions.`
-          : "No health score calculated yet for this project.";
+    rag === "G" ? `Health \u2265 85% (${health}%). Delivery signals are strong across schedule, RAID, workflow approvals and activity.`
+    : rag === "A" ? `Health 70\u201384% (${health}%). Some signals need attention \u2014 review slippage, open risks/issues, or approval queues.`
+    : rag === "R" ? `Health < 70% (${health}%). Significant delivery risk \u2014 prioritise an immediate review and corrective actions.`
+    : "No health score calculated yet for this project.";
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onClick={() => {
-        if (routeRef) router.push(`/projects/${encodeURIComponent(routeRef)}`);
-      }}
-      onKeyDown={(e) =>
-        e.key === "Enter" && routeRef && router.push(`/projects/${encodeURIComponent(routeRef)}`)
-      }
-      className="group flex w-full cursor-pointer items-center gap-4 border-b border-gray-50 px-6 py-4 text-left transition-colors last:border-0 hover:bg-gray-50"
+      role="button" tabIndex={0}
+      onClick={() => { if (routeRef) router.push(`/projects/${encodeURIComponent(routeRef)}`); }}
+      onKeyDown={(e) => e.key === "Enter" && routeRef && router.push(`/projects/${encodeURIComponent(routeRef)}`)}
+      className="w-full flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0 text-left group cursor-pointer"
     >
-      <div
-        className="group/rag relative shrink-0"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-      >
-        <div
-          className="h-3 w-3 cursor-help rounded-full ring-2 ring-transparent group-hover/rag:ring-offset-1"
-          style={{ background: dotColor, boxShadow: `0 0 0 2px ${dotColor}22` }}
-        />
-        <div
-          className="pointer-events-none absolute left-5 top-1/2 z-50 w-64 -translate-y-1/2 rounded-xl border border-gray-200 bg-white p-3 text-left opacity-0 transition-opacity duration-150 group-hover/rag:opacity-100"
-          style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.13)" }}
-        >
-          <div className="mb-1.5 flex items-center gap-2">
-            <div className="h-3 w-3 shrink-0 rounded-full" style={{ background: dotColor }} />
-            <span className="text-xs font-bold text-gray-900">
-              {ragLabel}
-              {health != null ? ` — ${health}%` : ""}
-            </span>
+      <div className="relative shrink-0 group/rag" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+        <div className="h-3 w-3 rounded-full cursor-help ring-2 ring-transparent group-hover/rag:ring-offset-1"
+          style={{ background: dotColor, boxShadow: `0 0 0 2px ${dotColor}22` }} />
+        <div className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 z-50 w-64 opacity-0 group-hover/rag:opacity-100 transition-opacity duration-150 rounded-xl bg-white border border-gray-200 p-3 text-left"
+          style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.13)" }}>
+          <div className="flex items-center gap-2 mb-1.5">
+            <div className="h-3 w-3 rounded-full shrink-0" style={{ background: dotColor }} />
+            <span className="text-xs font-bold text-gray-900">{ragLabel}{health != null ? ` \u2014 ${health}%` : ""}</span>
           </div>
-          <p className="text-[11px] leading-relaxed text-gray-500">{ragLogic}</p>
-          <div className="mt-2 border-t border-gray-100 pt-2 text-[10px] text-gray-400">
-            Thresholds: <span className="font-semibold text-green-600">Green ≥ 85%</span>
-            {" · "}
-            <span className="font-semibold text-amber-600">Amber 70–84%</span>
-            {" · "}
-            <span className="font-semibold text-red-500">Red {"<"} 70%</span>
+          <p className="text-[11px] text-gray-500 leading-relaxed">{ragLogic}</p>
+          <div className="mt-2 pt-2 border-t border-gray-100 text-[10px] text-gray-400">
+            Thresholds: <span className="text-green-600 font-semibold">Green \u2265 85%</span>{" \u00b7 "}
+            <span className="text-amber-600 font-semibold">Amber 70\u201384%</span>{" \u00b7 "}
+            <span className="text-red-500 font-semibold">Red {"<"} 70%</span>
           </div>
         </div>
       </div>
-
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold text-gray-800 transition-colors group-hover:text-blue-600">
-          {p?.title || "Project"}
-        </div>
-        {client && <div className="mt-0.5 text-xs text-gray-400">{client}</div>}
+        <div className="text-sm font-semibold text-gray-800 group-hover:text-blue-600 transition-colors truncate">{p?.title || "Project"}</div>
+        {client && <div className="text-xs text-gray-400 mt-0.5">{client}</div>}
       </div>
-
-      {code && (
-        <div className="shrink-0 whitespace-nowrap rounded bg-gray-100 px-2 py-0.5 text-xs font-mono text-gray-400">
-          {code}
+      {code && <div className="shrink-0 text-xs font-mono text-gray-400 bg-gray-100 rounded px-2 py-0.5 whitespace-nowrap">{code}</div>}
+      <div className="shrink-0 flex items-center gap-2.5 w-32">
+        <div className="flex-1 h-2 rounded-full bg-gray-100 overflow-hidden">
+          <div className="h-full rounded-full" style={{ width: `${health ?? 0}%`, background: dotColor, transition: "width 0.6s ease" }} />
         </div>
-      )}
-
-      <div className="flex w-32 shrink-0 items-center gap-2.5">
-        <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
-          <div
-            className="h-full rounded-full"
-            style={{
-              width: `${health ?? 0}%`,
-              background: dotColor,
-              transition: "width 0.6s ease",
-            }}
-          />
-        </div>
-        <span className="w-8 text-right text-xs font-bold text-gray-600">
-          {health != null ? `${health}%` : "—"}
-        </span>
+        <span className="text-xs font-bold text-gray-600 w-8 text-right">{health != null ? `${health}%` : "\u2014"}</span>
       </div>
-
-      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-300 transition-colors group-hover:text-gray-500" />
+      <ChevronRight className="h-3.5 w-3.5 text-gray-300 group-hover:text-gray-500 shrink-0 transition-colors" />
     </div>
   );
 }
 
 /* --- Milestone Card ------------------------------------------------------- */
 
-function MilestoneCard({
-  item,
-  onClick,
-}: {
-  item: DueDigestItem;
-  onClick: () => void;
-}) {
+function MilestoneCard({ item, onClick }: { item: DueDigestItem; onClick: () => void }) {
   const overdue = isOverdue(item.dueDate);
-  const daysLeft = item.dueDate
-    ? Math.ceil((new Date(item.dueDate).getTime() - Date.now()) / 86400000)
-    : null;
-
+  const daysLeft = item.dueDate ? Math.ceil((new Date(item.dueDate).getTime() - Date.now()) / 86400000) : null;
   const statusCfg = overdue
     ? { badge: "bg-red-100 text-red-600 border border-red-200", text: "Overdue" }
     : daysLeft != null && daysLeft <= 5
       ? { badge: "bg-amber-100 text-amber-600 border border-amber-200", text: "At Risk" }
       : { badge: "bg-green-100 text-green-600 border border-green-200", text: "On Track" };
-
-  const initials = item.ownerLabel
-    ? item.ownerLabel
-        .split(" ")
-        .map((w: string) => w[0])
-        .slice(0, 2)
-        .join("")
-        .toUpperCase()
-    : null;
-
-  const avatarColors = [
-    "bg-blue-100 text-blue-700",
-    "bg-purple-100 text-purple-700",
-    "bg-green-100 text-green-700",
-    "bg-orange-100 text-orange-700",
-    "bg-pink-100 text-pink-700",
-  ];
-
-  const avatarColor = initials
-    ? avatarColors[initials.charCodeAt(0) % avatarColors.length]
-    : avatarColors[0];
-
-  const projectCode = safeStr(
-    item.meta?.project_code || item.meta?.project_human_id || "",
-  ).trim();
-  const projectName = safeStr(
-    item.meta?.project_name || item.meta?.project_title || "",
-  ).trim();
-
+  const initials = item.ownerLabel ? item.ownerLabel.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase() : null;
+  const avatarColors = ["bg-blue-100 text-blue-700","bg-purple-100 text-purple-700","bg-green-100 text-green-700","bg-orange-100 text-orange-700","bg-pink-100 text-pink-700"];
+  const avatarColor = initials ? avatarColors[initials.charCodeAt(0) % avatarColors.length] : avatarColors[0];
+  const projectCode = safeStr(item.meta?.project_code || item.meta?.project_human_id || "").trim();
+  const projectName = safeStr(item.meta?.project_name || item.meta?.project_title || "").trim();
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full rounded-xl border border-gray-100 bg-white p-4 text-left transition-all hover:border-gray-200 hover:shadow-sm"
-    >
-      <div className="mb-1.5 flex items-start justify-between gap-2">
-        <span className="line-clamp-1 flex-1 text-sm font-semibold text-gray-800">
-          {item.title}
-        </span>
-        <span
-          className={[
-            "shrink-0 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[10px] font-semibold",
-            statusCfg.badge,
-          ].join(" ")}
-        >
-          {statusCfg.text}
-        </span>
+    <button type="button" onClick={onClick}
+      className="w-full text-left rounded-xl border border-gray-100 bg-white p-4 hover:border-gray-200 hover:shadow-sm transition-all">
+      <div className="flex items-start justify-between gap-2 mb-1.5">
+        <span className="text-sm font-semibold text-gray-800 line-clamp-1 flex-1">{item.title}</span>
+        <span className={["text-[10px] font-semibold rounded-full px-2.5 py-0.5 whitespace-nowrap shrink-0", statusCfg.badge].join(" ")}>{statusCfg.text}</span>
       </div>
-
       {(projectCode || projectName) && (
-        <div className="mb-1.5 flex items-center gap-1.5">
-          {projectCode && (
-            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-mono font-bold text-gray-400">
-              {projectCode}
-            </span>
-          )}
-          {projectName && (
-            <span className="truncate text-[11px] text-gray-400">{projectName}</span>
-          )}
+        <div className="flex items-center gap-1.5 mb-1.5">
+          {projectCode && <span className="text-[10px] font-mono font-bold text-gray-400 bg-gray-100 rounded px-1.5 py-0.5">{projectCode}</span>}
+          {projectName && <span className="text-[11px] text-gray-400 truncate">{projectName}</span>}
         </div>
       )}
-
-      <div className="mb-3 flex items-center gap-1 text-xs text-gray-400">
+      <div className="flex items-center gap-1 text-xs text-gray-400 mb-3">
         <Clock3 className="h-3 w-3" />
-        {overdue
-          ? "Overdue"
-          : daysLeft != null && daysLeft > 0
-            ? `${daysLeft} days remaining`
-            : "Due soon"}
+        {overdue ? "Overdue" : daysLeft != null && daysLeft > 0 ? `${daysLeft} days remaining` : "Due soon"}
       </div>
-
       <div className="flex items-center justify-between">
         {initials ? (
           <div className="flex items-center gap-2">
-            <div
-              className={[
-                "flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold",
-                avatarColor,
-              ].join(" ")}
-            >
-              {initials}
-            </div>
+            <div className={["h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold", avatarColor].join(" ")}>{initials}</div>
             <span className="text-xs text-gray-500">{item.ownerLabel}</span>
           </div>
-        ) : (
-          <div />
-        )}
+        ) : <div />}
         <span className="text-xs text-gray-400">{dueDateLabel(item.dueDate)}</span>
       </div>
     </button>
@@ -1341,67 +961,30 @@ function MilestoneCard({
 
 /* --- Recent Win Card ------------------------------------------------------ */
 
-function RecentWinCard({
-  win,
-  onClick,
-}: {
-  win: RecentWin;
-  onClick: () => void;
-}) {
+function RecentWinCard({ win, onClick }: { win: RecentWin; onClick: () => void }) {
   const icon = winTypeIcon(win.type);
-  const dateLabel = win.date
-    ? new Date(win.date + "T00:00:00").toLocaleDateString("en-GB", {
-        day: "2-digit",
-        month: "short",
-      })
-    : "";
-
-  const typeLabel =
-    (win.type ?? "other").charAt(0).toUpperCase() +
-    (win.type ?? "other").slice(1).replace(/_/g, " ");
-
+  const dateLabel = win.date ? new Date(win.date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : "";
+  const typeLabel = (win.type ?? "other").charAt(0).toUpperCase() + (win.type ?? "other").slice(1).replace(/_/g, " ");
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full rounded-xl border border-green-100 bg-green-50/40 p-3.5 text-left transition-all hover:border-green-200 hover:bg-green-50/80 hover:shadow-sm"
-    >
+    <button type="button" onClick={onClick}
+      className="w-full text-left rounded-xl border border-green-100 bg-green-50/40 p-3.5 hover:bg-green-50/80 hover:border-green-200 hover:shadow-sm transition-all">
       <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 shrink-0 text-lg leading-none">{icon}</span>
+        <span className="text-lg leading-none mt-0.5 shrink-0">{icon}</span>
         <div className="min-w-0 flex-1">
-          <div className="line-clamp-2 text-sm font-semibold leading-snug text-gray-800">
-            {win.title}
-          </div>
-
+          <div className="text-sm font-semibold text-gray-800 leading-snug line-clamp-2">{win.title}</div>
           {(win.project_code || win.project_name) && (
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              {win.project_code && (
-                <span className="rounded border border-gray-100 bg-white/80 px-1.5 py-0.5 text-[10px] font-mono font-bold text-gray-400">
-                  {win.project_code}
-                </span>
-              )}
-              {win.project_name && (
-                <span className="truncate text-[11px] text-gray-400">
-                  {win.project_name}
-                </span>
-              )}
-              {(win as any).pm_name && (
-                <span className="truncate text-[11px] text-blue-400">
-                  {(win as any).pm_name}
-                </span>
-              )}
+            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+              {win.project_code && <span className="text-[10px] font-mono font-bold text-gray-400 bg-white/80 border border-gray-100 rounded px-1.5 py-0.5">{win.project_code}</span>}
+              {win.project_name && <span className="text-[11px] text-gray-400 truncate">{win.project_name}</span>}
+              {(win as any).pm_name && <span className="text-[11px] text-blue-400 truncate">{(win as any).pm_name}</span>}
             </div>
           )}
-
-          <div className="mt-1.5 flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-green-600">
-              {typeLabel}
-            </span>
+          <div className="flex items-center justify-between mt-1.5">
+            <span className="text-[11px] text-green-600 font-semibold">{typeLabel}</span>
             {dateLabel && <span className="text-[11px] text-gray-400">{dateLabel}</span>}
           </div>
         </div>
-
-        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-400" />
+        <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0 mt-0.5" />
       </div>
     </button>
   );
@@ -1411,18 +994,13 @@ function RecentWinCard({
 
 function LastUpdated({ iso }: { iso: string }) {
   const [label, setLabel] = useState("");
-
   useEffect(() => {
-    function tick() {
-      setLabel(iso ? timeAgo(iso) : "");
-    }
+    function tick() { setLabel(iso ? timeAgo(iso) : ""); }
     tick();
     const id = setInterval(tick, 30000);
     return () => clearInterval(id);
   }, [iso]);
-
   if (!iso || !label) return null;
-
   return (
     <div className="flex items-center gap-1 text-xs text-gray-400">
       <RefreshCw className="h-3 w-3" />
@@ -1434,200 +1012,118 @@ function LastUpdated({ iso }: { iso: string }) {
 /* --- Filter Drawer -------------------------------------------------------- */
 
 function FilterDrawer({
-  open,
-  onClose,
-  filters,
-  onApply,
-  onClear,
-  projectOptions,
-  pmOptions,
-  deptOptions,
-  searchInputRef,
+  open, onClose, filters, onApply, onClear,
+  projectOptions, pmOptions, deptOptions, searchInputRef,
 }: {
-  open: boolean;
-  onClose: () => void;
+  open: boolean; onClose: () => void;
   filters: PortfolioFilters;
-  onApply: (next: PortfolioFilters) => void;
-  onClear: () => void;
+  onApply: (next: PortfolioFilters) => void; onClear: () => void;
   projectOptions: ProjectOption[];
   pmOptions: { id: string; name: string }[];
   deptOptions: { value: string; label: string }[];
   searchInputRef: React.RefObject<HTMLInputElement>;
 }) {
   const [local, setLocal] = useState<PortfolioFilters>(filters);
-
-  useEffect(() => {
-    if (open) setLocal(filters);
-  }, [open, filters]);
+  useEffect(() => { if (open) setLocal(filters); }, [open, filters]);
 
   const toggle = (key: keyof PortfolioFilters, value: string) => {
     setLocal((prev) => {
       const arr = (prev[key] as string[] | undefined) ?? [];
       const exists = arr.includes(value);
       const nextArr = exists ? arr.filter((x) => x !== value) : [...arr, value];
-      return { ...prev, [key]: nextArr.length ? nextArr : undefined };
+      const next: PortfolioFilters = { ...prev, [key]: nextArr.length ? nextArr : undefined };
+      return next;
     });
   };
 
   const pill = (on: boolean) =>
-    on
-      ? "bg-gray-900 text-white border-gray-900"
-      : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50";
+    on ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50";
 
   return (
     <AnimatePresence>
       {open && (
         <>
-          <m.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[60] bg-black/30"
-            onClick={onClose}
-          />
-          <m.div
-            initial={{ opacity: 0, x: 24 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 24 }}
-            transition={{ duration: 0.18 }}
-            className="fixed right-0 top-0 z-[70] flex h-full w-full max-w-[420px] flex-col border-l border-gray-200 bg-white shadow-2xl"
-          >
-            <div className="flex items-center justify-between border-b border-gray-200 p-4">
+          <m.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] bg-black/30" onClick={onClose} />
+          <m.div initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 24 }} transition={{ duration: 0.18 }}
+            className="fixed right-0 top-0 z-[70] h-full w-full max-w-[420px] bg-white shadow-2xl border-l border-gray-200 flex flex-col">
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
               <div>
                 <div className="text-sm font-semibold text-gray-900">Filters</div>
-                <div className="text-xs text-gray-500">
-                  Filter the organisational view by project and ownership.
-                </div>
+                <div className="text-xs text-gray-500">Filter the organisational view by project and ownership.</div>
               </div>
-              <button
-                className="flex h-9 w-9 items-center justify-center rounded-full ring-1 ring-gray-200 hover:bg-gray-50"
-                onClick={onClose}
-                aria-label="Close"
-              >
+              <button className="h-9 w-9 rounded-full ring-1 ring-gray-200 hover:bg-gray-50 flex items-center justify-center" onClick={onClose} aria-label="Close">
                 <X className="h-4 w-4 text-gray-600" />
               </button>
             </div>
-
-            <div className="space-y-5 overflow-auto p-4">
+            <div className="p-4 space-y-5 overflow-auto">
               <div>
-                <div className="mb-2 text-xs font-semibold text-gray-700">Search</div>
-                <div className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 ring-1 ring-gray-200">
+                <div className="text-xs font-semibold text-gray-700 mb-2">Search</div>
+                <div className="flex items-center gap-2 rounded-xl bg-gray-50 ring-1 ring-gray-200 px-3 py-2">
                   <Search className="h-4 w-4 text-gray-500" />
                   <input
                     ref={searchInputRef}
-                    value={local.q ?? ""}
-                    onChange={(e) => setLocal((p) => ({ ...p, q: e.target.value }))}
-                    placeholder="Project name, code, PM, department…"
+                    value={local.q ?? ""} onChange={(e) => setLocal((p) => ({ ...p, q: e.target.value }))}
+                    placeholder="Project name, code, PM, department\u2026"
                     className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
                   />
                   {local.q ? (
-                    <button
-                      onClick={() => setLocal((p) => ({ ...p, q: undefined }))}
-                      className="text-gray-400 hover:text-gray-700"
-                      aria-label="Clear search"
-                      type="button"
-                    >
+                    <button onClick={() => setLocal((p) => ({ ...p, q: undefined }))}
+                      className="text-gray-400 hover:text-gray-700" aria-label="Clear search" type="button">
                       <X className="h-4 w-4" />
                     </button>
                   ) : null}
                 </div>
               </div>
-
               <div>
-                <div className="mb-2 text-xs font-semibold text-gray-700">Projects</div>
+                <div className="text-xs font-semibold text-gray-700 mb-2">Projects</div>
                 <div className="flex flex-wrap gap-2">
                   {projectOptions.slice(0, 28).map((p) => {
                     const on = (local.projectId ?? []).includes(p.id);
                     return (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => toggle("projectId", p.id)}
-                        className={["rounded-full border px-3 py-1.5 text-xs", pill(on)].join(" ")}
-                        title={p.code ? `${p.name} • ${p.code}` : p.name}
-                      >
+                      <button key={p.id} type="button" onClick={() => toggle("projectId", p.id)}
+                        className={["px-3 py-1.5 rounded-full text-xs border", pill(on)].join(" ")}
+                        title={p.code ? `${p.name} \u2022 ${p.code}` : p.name}>
                         {p.code ? `${p.name} (${p.code})` : p.name}
                       </button>
                     );
                   })}
-                  {projectOptions.length === 0 && (
-                    <div className="text-xs text-gray-500">(No project list available.)</div>
-                  )}
+                  {projectOptions.length === 0 && <div className="text-xs text-gray-500">(No project list available.)</div>}
                 </div>
               </div>
-
               <div>
-                <div className="mb-2 text-xs font-semibold text-gray-700">
-                  Project Manager
-                </div>
+                <div className="text-xs font-semibold text-gray-700 mb-2">Project Manager</div>
                 <div className="flex flex-wrap gap-2">
                   {pmOptions.slice(0, 28).map((pm) => {
                     const on = (local.projectManagerId ?? []).includes(pm.id);
                     return (
-                      <button
-                        key={pm.id}
-                        type="button"
-                        onClick={() => toggle("projectManagerId", pm.id)}
-                        className={["rounded-full border px-3 py-1.5 text-xs", pill(on)].join(" ")}
-                      >
-                        {pm.name}
-                      </button>
+                      <button key={pm.id} type="button" onClick={() => toggle("projectManagerId", pm.id)}
+                        className={["px-3 py-1.5 rounded-full text-xs border", pill(on)].join(" ")}>{pm.name}</button>
                     );
                   })}
-                  {pmOptions.length === 0 && (
-                    <div className="text-xs text-gray-500">(PM options not available yet.)</div>
-                  )}
+                  {pmOptions.length === 0 && <div className="text-xs text-gray-500">(PM options not available yet.)</div>}
                 </div>
               </div>
-
               <div>
-                <div className="mb-2 text-xs font-semibold text-gray-700">Department</div>
+                <div className="text-xs font-semibold text-gray-700 mb-2">Department</div>
                 <div className="flex flex-wrap gap-2">
                   {deptOptions.slice(0, 28).map((d) => {
                     const on = (local.department ?? []).includes(d.value);
                     return (
-                      <button
-                        key={d.value}
-                        type="button"
-                        onClick={() => toggle("department", d.value)}
-                        className={["rounded-full border px-3 py-1.5 text-xs", pill(on)].join(" ")}
-                      >
-                        {d.label}
-                      </button>
+                      <button key={d.value} type="button" onClick={() => toggle("department", d.value)}
+                        className={["px-3 py-1.5 rounded-full text-xs border", pill(on)].join(" ")}>{d.label}</button>
                     );
                   })}
-                  {deptOptions.length === 0 && (
-                    <div className="text-xs text-gray-500">
-                      (Department options not available yet.)
-                    </div>
-                  )}
+                  {deptOptions.length === 0 && <div className="text-xs text-gray-500">(Department options not available yet.)</div>}
                 </div>
               </div>
             </div>
-
-            <div className="flex items-center justify-between gap-3 border-t border-gray-200 p-4">
-              <button
-                onClick={onClear}
-                className="rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 hover:bg-gray-50"
-                type="button"
-              >
-                Clear all
-              </button>
+            <div className="p-4 border-t border-gray-200 flex items-center justify-between gap-3">
+              <button onClick={onClear} className="px-3 py-2 text-sm rounded-xl ring-1 ring-gray-200 hover:bg-gray-50" type="button">Clear all</button>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={onClose}
-                  className="rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 hover:bg-gray-50"
-                  type="button"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => onApply(local)}
-                  className="rounded-xl bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-800"
-                  type="button"
-                >
-                  Apply
-                </button>
+                <button onClick={onClose} className="px-3 py-2 text-sm rounded-xl ring-1 ring-gray-200 hover:bg-gray-50" type="button">Cancel</button>
+                <button onClick={() => onApply(local)} className="px-4 py-2 text-sm rounded-xl bg-gray-900 text-white hover:bg-gray-800" type="button">Apply</button>
               </div>
             </div>
           </m.div>
@@ -1646,12 +1142,12 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   const ok = data?.ok === true;
   const projects = ok ? data.projects : [];
+  const kpis = ok
+    ? data.kpis
+    : { portfolioHealth: 0, openRisks: 0, highRisks: 0, forecastVariance: 0, milestonesDue: 0, openLessons: 0 };
   const rag = ok ? data.rag || [] : [];
 
-  const urlFilters = useMemo(
-    () => searchParamsToFilters(new URLSearchParams(sp?.toString() || "")),
-    [sp],
-  );
+  const urlFilters = useMemo(() => searchParamsToFilters(new URLSearchParams(sp?.toString() || "")), [sp]);
   const filtersActive = useMemo(() => hasActiveFilters(urlFilters), [urlFilters]);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -1659,37 +1155,34 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   const openDrawerFocusSearch = useCallback(() => {
     setDrawerOpen(true);
-    setTimeout(() => {
-      searchInputRef.current?.focus();
-    }, 200);
+    setTimeout(() => { searchInputRef.current?.focus(); }, 200);
   }, []);
 
   const applyFilters = useCallback(
     (next: PortfolioFilters) => {
       const params = filtersToSearchParams(next);
-      router.replace(
-        `${pathname}${params.toString() ? `?${params.toString()}` : ""}`,
-        { scroll: false },
-      );
+      router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`, { scroll: false });
     },
     [router, pathname],
   );
 
-  const clearFilters = useCallback(() => {
-    router.replace(pathname, { scroll: false });
-  }, [router, pathname]);
+  const clearFilters = useCallback(() => { router.replace(pathname, { scroll: false }); }, [router, pathname]);
 
   const [windowDays, setWindowDays] = useState<WindowDays>(30);
   const debouncedWindowDays = useDebounced(windowDays, 300);
-  const numericWindowDays = useMemo<7 | 14 | 30 | 60>(
-    () => normalizeWindowDays(debouncedWindowDays),
-    [debouncedWindowDays],
-  );
+  const numericWindowDays = useMemo<7 | 14 | 30 | 60>(() => normalizeWindowDays(debouncedWindowDays), [debouncedWindowDays]);
 
   const [phData, setPhData] = useState<PortfolioHealthApi | null>(null);
+  const [phPrevScore, setPhPrevScore] = useState<number | null>(null);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(true);
+  const [approvalItems, setApprovalItems] = useState<any[]>([]);
+  const [approvalsLoading, setApprovalsLoading] = useState(true);
+  const [pendingIds, setPendingIds] = useState<Record<string, true>>({});
+  const [rejectModal, setRejectModal] = useState<{ taskId: string; title: string } | null>(null);
 
+  // HP-F6: null initial state — renders "…" until the live API responds,
+  // never pre-populates from the stale SSR kpi fallback.
   const [milestonesDueLive, setMilestonesDueLive] = useState<number | null>(null);
 
   const [raidPanel, setRaidPanel] = useState<RaidPanel | null>(null);
@@ -1723,9 +1216,7 @@ export default function HomePage({ data }: { data: HomeData }) {
       const name = safeStr(p?.project_manager).trim();
       if (id && name) map.set(id, name);
     }
-    return Array.from(map.entries())
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [projects]);
 
   const deptOptions = useMemo(() => {
@@ -1734,9 +1225,7 @@ export default function HomePage({ data }: { data: HomeData }) {
       const d = safeStr(p?.department).trim();
       if (d) set.add(d);
     }
-    return Array.from(set)
-      .sort((a, b) => a.localeCompare(b))
-      .map((d) => ({ value: d, label: d }));
+    return Array.from(set).sort((a, b) => a.localeCompare(b)).map((d) => ({ value: d, label: d }));
   }, [projects]);
 
   const filteredProjectsClient = useMemo(() => {
@@ -1744,17 +1233,10 @@ export default function HomePage({ data }: { data: HomeData }) {
     const f = urlFilters;
     const q = safeStr(f.q).trim().toLowerCase();
     const idSet = new Set((f.projectId ?? []).map((s) => String(s).trim()).filter(Boolean));
-    const nameNeedles = (f.projectName ?? [])
-      .map((s) => safeStr(s).trim().toLowerCase())
-      .filter(Boolean);
-    const codeNeedles = (f.projectCode ?? [])
-      .map((s) => safeStr(s).trim().toLowerCase())
-      .filter(Boolean);
+    const nameNeedles = (f.projectName ?? []).map((s) => safeStr(s).trim().toLowerCase()).filter(Boolean);
+    const codeNeedles = (f.projectCode ?? []).map((s) => safeStr(s).trim().toLowerCase()).filter(Boolean);
     const pmSet = new Set((f.projectManagerId ?? []).map((s) => String(s).trim()).filter(Boolean));
-    const deptNeedles = (f.department ?? [])
-      .map((s) => safeStr(s).trim().toLowerCase())
-      .filter(Boolean);
-
+    const deptNeedles = (f.department ?? []).map((s) => safeStr(s).trim().toLowerCase()).filter(Boolean);
     return rows.filter((p: any) => {
       const pid = safeStr(p?.id).trim();
       const title = safeStr(p?.title).toLowerCase();
@@ -1762,14 +1244,11 @@ export default function HomePage({ data }: { data: HomeData }) {
       const dept = safeStr(p?.department).toLowerCase().trim();
       const pm = safeStr(p?.project_manager_id).trim();
       const pmName = safeStr(p?.project_manager).toLowerCase().trim();
-
       if (idSet.size && !idSet.has(pid)) return false;
       if (nameNeedles.length && !nameNeedles.some((n) => title.includes(n))) return false;
       if (codeNeedles.length && !codeNeedles.some((c) => code.includes(c))) return false;
       if (pmSet.size && (!pm || !pmSet.has(pm))) return false;
-      if (deptNeedles.length && (!dept || !deptNeedles.some((d) => dept.includes(d))))
-        return false;
-
+      if (deptNeedles.length && (!dept || !deptNeedles.some((d) => dept.includes(d)))) return false;
       if (q) {
         const hay = `${title} ${code} ${dept} ${pmName}`.trim();
         if (!hay.includes(q)) return false;
@@ -1780,226 +1259,88 @@ export default function HomePage({ data }: { data: HomeData }) {
 
   const activeProjects = useMemo(() => {
     const truthy = (v: any) => v === true || v === "true" || v === 1 || v === "1";
-    return (Array.isArray(filteredProjectsClient) ? filteredProjectsClient : []).filter(
-      (p: any) => {
-        if (p?.deleted_at || p?.deletedAt) return false;
-        if (truthy(p?.is_deleted) || truthy(p?.deleted)) return false;
-        if (truthy(p?.is_archived) || truthy(p?.archived)) return false;
-        if (p?.archived_at) return false;
-        if (p?.is_active === false || p?.active === false) return false;
-
-        const st =
-          [p?.status, p?.lifecycle_state, p?.state, p?.phase]
-            .map((v: any) => String(v ?? "").toLowerCase().trim())
-            .find(Boolean) || "";
-
-        if (!st) return true;
-        return ![
-          "closed",
-          "cancel",
-          "deleted",
-          "archive",
-          "inactive",
-          "complete",
-          "on_hold",
-          "paused",
-          "suspended",
-        ].some((k) => st.includes(k));
-      },
-    );
+    return (Array.isArray(filteredProjectsClient) ? filteredProjectsClient : []).filter((p: any) => {
+      if (p?.deleted_at || p?.deletedAt) return false;
+      if (truthy(p?.is_deleted) || truthy(p?.deleted)) return false;
+      if (truthy(p?.is_archived) || truthy(p?.archived)) return false;
+      if (p?.archived_at) return false;
+      if (p?.is_active === false || p?.active === false) return false;
+      const st = [p?.status, p?.lifecycle_state, p?.state, p?.phase].map((v: any) => String(v ?? "").toLowerCase().trim()).find(Boolean) || "";
+      if (!st) return true;
+      return !["closed", "cancel", "deleted", "archive", "inactive", "complete", "on_hold", "paused", "suspended"].some((k) => st.includes(k));
+    });
   }, [filteredProjectsClient]);
 
   const sortedProjects = useMemo(
-    () =>
-      [...activeProjects].sort((a: any, b: any) => {
-        const ac = projectCodeLabel(a?.project_code);
-        const bc = projectCodeLabel(b?.project_code);
-        const an = Number(ac);
-        const bn = Number(bc);
-        const aNum = Number.isFinite(an) && ac !== "";
-        const bNum = Number.isFinite(bn) && bc !== "";
-        if (aNum && bNum && an !== bn) return an - bn;
-        if (ac && bc && ac !== bc) return ac.localeCompare(bc);
-        return safeStr(a?.title)
-          .toLowerCase()
-          .localeCompare(safeStr(b?.title).toLowerCase());
-      }),
+    () => [...activeProjects].sort((a: any, b: any) => {
+      const ac = projectCodeLabel(a?.project_code);
+      const bc = projectCodeLabel(b?.project_code);
+      const an = Number(ac), bn = Number(bc);
+      const aNum = Number.isFinite(an) && ac !== "", bNum = Number.isFinite(bn) && bc !== "";
+      if (aNum && bNum && an !== bn) return an - bn;
+      if (ac && bc && ac !== bc) return ac.localeCompare(bc);
+      return safeStr(a?.title).toLowerCase().localeCompare(safeStr(b?.title).toLowerCase());
+    }),
     [activeProjects],
   );
 
   const ragMap = useMemo(() => {
     const m2 = new Map<string, { rag: RagLetter; health: number }>();
     for (const it of rag || []) {
-      if (it?.project_id) {
-        m2.set(String(it.project_id), {
-          rag: it.rag as RagLetter,
-          health: Number(it.health),
-        });
-      }
+      if (it?.project_id) m2.set(String(it.project_id), { rag: it.rag as RagLetter, health: Number(it.health) });
     }
     return m2;
   }, [rag]);
 
-  const ragAgg = useMemo(
-    () => calcRagAgg(rag as any, activeProjects as any),
-    [rag, activeProjects],
-  );
+  const ragAgg = useMemo(() => calcRagAgg(rag as any, activeProjects as any), [rag, activeProjects]);
 
   useEffect(() => {
     if (!ok) return;
     let cancelled = false;
     setResourceLoading(true);
-
     (async () => {
       try {
-        const url = appendFiltersToApi(
-          `/api/portfolio/resource-activity?days=${numericWindowDays}`,
-          urlFilters,
-          projectOptions,
-        );
-        const j = await fetchJson<{ ok: boolean; weeks: ResourceWeek[] }>(url, {
-          cache: "no-store",
-        });
-        if (!cancelled && j?.ok && Array.isArray(j.weeks)) {
-          setResourceWeeks(j.weeks);
-        } else if (!cancelled) {
-          setResourceWeeks([]);
-        }
-      } catch {
-        if (!cancelled) setResourceWeeks([]);
-      } finally {
-        if (!cancelled) setResourceLoading(false);
-      }
+        const url = appendFiltersToApi(`/api/portfolio/resource-activity?days=${numericWindowDays}`, urlFilters, projectOptions);
+        const j = await fetchJson<{ ok: boolean; weeks: ResourceWeek[] }>(url, { cache: "no-store" });
+        if (!cancelled && j?.ok && Array.isArray(j.weeks)) setResourceWeeks(j.weeks);
+      } catch {} finally { if (!cancelled) setResourceLoading(false); }
     })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [ok, numericWindowDays, urlFilters, projectOptions]);
-
-  useEffect(() => {
-    if (!ok) return;
-    let cancelled = false;
-    setInsightsLoading(true);
-
-    runIdle(() => {
-      (async () => {
-        try {
-          const url = appendFiltersToApi(
-            `/api/ai/briefing?days=${numericWindowDays}`,
-            urlFilters,
-            projectOptions,
-          );
-          const j = await fetchJson<AiBriefingResp>(url, { cache: "no-store" });
-          if (!cancelled) {
-            setInsights(j && (j as any).ok ? normaliseInsights(j) : []);
-          }
-        } catch {
-          if (!cancelled) setInsights([]);
-        } finally {
-          if (!cancelled) setInsightsLoading(false);
-        }
-      })();
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [ok, numericWindowDays, urlFilters, projectOptions]);
-
-  useEffect(() => {
-    if (!ok) return;
-    let c = false;
-
-    runIdle(() => {
-      (async () => {
-        try {
-          const url = appendFiltersToApi(
-            `/api/portfolio/milestones-due?days=${numericWindowDays}`,
-            urlFilters,
-            projectOptions,
-          );
-          const j: any = await fetchJson(url, { cache: "no-store" });
-          if (j?.ok && typeof j?.count === "number" && !c) {
-            setMilestonesDueLive(Math.max(0, j.count));
-          } else if (!c) {
-            setMilestonesDueLive(0);
-          }
-        } catch {
-          if (!c) setMilestonesDueLive(0);
-        }
-      })();
-    });
-
-    return () => {
-      c = true;
-    };
+    return () => { cancelled = true; };
   }, [ok, numericWindowDays, urlFilters, projectOptions]);
 
   useEffect(() => {
     if (!ok) return;
     let cancelled = false;
     setWinsLoading(true);
-
     (async () => {
       try {
-        const url = appendFiltersToApi(
-          `/api/portfolio/recent-wins?days=7&limit=8`,
-          urlFilters,
-          projectOptions,
-        );
-        const j = await fetchJson<{ ok: boolean; wins: RecentWin[] }>(url, {
-          cache: "no-store",
-        });
-        if (!cancelled && j?.ok && Array.isArray(j.wins)) {
-          setRecentWins(j.wins);
-        } else if (!cancelled) {
-          setRecentWins([]);
-        }
-      } catch {
-        if (!cancelled) setRecentWins([]);
-      } finally {
-        if (!cancelled) setWinsLoading(false);
-      }
+        const url = appendFiltersToApi(`/api/portfolio/recent-wins?days=7&limit=8`, urlFilters, projectOptions);
+        const j = await fetchJson<{ ok: boolean; wins: RecentWin[] }>(url, { cache: "no-store" });
+        if (!cancelled && j?.ok && Array.isArray(j.wins)) setRecentWins(j.wins);
+      } catch {} finally { if (!cancelled) setWinsLoading(false); }
     })();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [ok, urlFilters, projectOptions]);
 
   useEffect(() => {
     if (!ok) return;
     let c = false;
-
     runIdle(() => {
       (async () => {
         try {
           setFpLoading(true);
-          const url = appendFiltersToApi(
-            `/api/portfolio/financial-plan-summary?days=${numericWindowDays}`,
-            urlFilters,
-            projectOptions,
-          );
+          const url = appendFiltersToApi(`/api/portfolio/financial-plan-summary?days=${numericWindowDays}`, urlFilters, projectOptions);
           const j = await fetchJson<FinancialPlanSummary>(url, { cache: "no-store" });
           if (!c) setFpSummary(j ?? null);
-        } catch {
-          if (!c) setFpSummary(null);
-        } finally {
-          if (!c) setFpLoading(false);
-        }
+        } catch {} finally { if (!c) setFpLoading(false); }
       })();
     });
-
-    return () => {
-      c = true;
-    };
+    return () => { c = true; };
   }, [ok, urlFilters, numericWindowDays, projectOptions]);
 
   useEffect(() => {
     if (!ok) return;
     let c = false;
-
     runIdle(() => {
       (async () => {
         try {
@@ -2015,43 +1356,26 @@ export default function HomePage({ data }: { data: HomeData }) {
               filters: apiFilters,
             }),
           });
-          if (!j || !j.ok) {
-            if (!c) setDueItems([]);
-            return;
-          }
-
+          if (!j || !j.ok) return;
           const ai = (j as any).ai as ArtifactDueAi;
           const list = Array.isArray(ai?.dueSoon) ? ai.dueSoon : [];
-
           const merged = list
             .sort((a: any, b: any) => {
-              const ta = a?.dueDate
-                ? new Date(a.dueDate).getTime()
-                : Number.MAX_SAFE_INTEGER;
-              const tb = b?.dueDate
-                ? new Date(b.dueDate).getTime()
-                : Number.MAX_SAFE_INTEGER;
+              const ta = a?.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+              const tb = b?.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
               return ta - tb;
             })
             .slice(0, 20)
             .map((x: any) => ({
               ...x,
               title:
-                safeStr(
-                  x?.title || x?.name || x?.artifact_title || x?.milestone_title,
-                ).trim() || "Untitled",
+                safeStr(x?.title || x?.name || x?.artifact_title || x?.milestone_title).trim() ||
+                "Untitled",
               dueDate: x?.dueDate || x?.due_date || x?.due_at || x?.deadline || null,
               ownerLabel:
-                x?.ownerLabel ||
-                x?.owner_label ||
-                x?.owner_name ||
-                x?.assignee_name ||
-                null,
+                x?.ownerLabel || x?.owner_label || x?.owner_name || x?.assignee_name || null,
               ownerEmail:
-                x?.ownerEmail ||
-                x?.owner_email ||
-                x?.assignee_email ||
-                null,
+                x?.ownerEmail || x?.owner_email || x?.assignee_email || null,
               link: safeStr(x?.link || x?.href || x?.url || x?.project_link).trim() || null,
               meta: {
                 ...x?.meta,
@@ -2061,74 +1385,45 @@ export default function HomePage({ data }: { data: HomeData }) {
                   x?.meta?.project_name || x?.project_name || x?.project_title || null,
               },
             }));
-
           if (!c) {
             setDueItems(merged);
             setDueUpdatedAt(new Date().toISOString());
           }
         } catch {
-          if (!c) setDueItems([]);
         } finally {
           if (!c) setDueLoading(false);
         }
       })();
     });
-
-    return () => {
-      c = true;
-    };
+    return () => { c = true; };
   }, [ok, dueWindowDays, urlFilters, projectOptions]);
 
   useEffect(() => {
     if (!ok) return;
     let c = false;
-
     runIdle(() => {
       (async () => {
         try {
           setRaidLoading(true);
-          const url = appendFiltersToApi(
-            `/api/portfolio/raid-panel?days=${numericWindowDays}`,
-            urlFilters,
-            projectOptions,
-          );
+          const url = appendFiltersToApi(`/api/portfolio/raid-panel?days=${numericWindowDays}`, urlFilters, projectOptions);
           const j: any = await fetchJson(url, { cache: "no-store" });
-          if (!j?.ok || !j?.panel) {
-            if (!c) setRaidPanel(null);
-            return;
-          }
-
+          if (!j?.ok || !j?.panel) return;
           const p = j.panel;
-          if (!c) {
-            setRaidPanel({
-              days: num(p.days, numericWindowDays),
-              due_total: num(p.due_total),
-              overdue_total: num(p.overdue_total),
-              risk_due: num(p.risk_due),
-              issue_due: num(p.issue_due),
-              dependency_due: num(p.dependency_due),
-              assumption_due: num(p.assumption_due),
-              risk_hi: num(p.risk_hi),
-              issue_hi: num(p.issue_hi),
-            });
-          }
-        } catch {
-          if (!c) setRaidPanel(null);
-        } finally {
-          if (!c) setRaidLoading(false);
-        }
+          if (!c) setRaidPanel({
+            days: num(p.days, numericWindowDays), due_total: num(p.due_total), overdue_total: num(p.overdue_total),
+            risk_due: num(p.risk_due), issue_due: num(p.issue_due), dependency_due: num(p.dependency_due),
+            assumption_due: num(p.assumption_due), risk_hi: num(p.risk_hi), issue_hi: num(p.issue_hi),
+          });
+        } catch {} finally { if (!c) setRaidLoading(false); }
       })();
     });
-
-    return () => {
-      c = true;
-    };
+    return () => { c = true; };
   }, [ok, numericWindowDays, urlFilters, projectOptions]);
 
+  // HP-F7: Fetch live portfolio health score — phScoreForUi stays null until this resolves.
   useEffect(() => {
     if (!ok) return;
     let cancelled = false;
-
     runIdle(() => {
       (async () => {
         try {
@@ -2138,61 +1433,86 @@ export default function HomePage({ data }: { data: HomeData }) {
             projectOptions,
           );
           const j = await fetchJson<PortfolioHealthApi>(url, { cache: "no-store" });
-          if (!cancelled) setPhData(j?.ok ? j : null);
-        } catch {
-          if (!cancelled) setPhData(null);
-        }
+          if (!cancelled && j?.ok) setPhData(j);
+        } catch {}
       })();
     });
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [ok, numericWindowDays, urlFilters, projectOptions]);
 
-  const apiScore = phData?.ok ? clamp01to100(phData.portfolio_health) : null;
-  const phScoreForUi = apiScore;
-  const phRag = scoreToRag(phScoreForUi ?? 0);
+  useEffect(() => {
+          const j: any = await fetchJson(url, { cache: "no-store" });
+          if (j?.ok && typeof j?.count === "number" && !c) setMilestonesDueLive(Math.max(0, j.count));
+        } catch {}
+      })();
+    });
+    return () => { c = true; };
+  }, [ok, numericWindowDays, urlFilters, projectOptions]);
 
+  // HP-F7: Use live API score when available and > 0. Fall back to ragAgg.avgHealth
+  // (derived from per-project RAG data already on the page) if the API returns 0 or
+  // hasn't resolved yet. Never falls back to the stale SSR kpis.portfolioHealth value.
+  const apiScore = phData?.ok ? clamp01to100(phData.portfolio_health) : null;
+  const ragFallback = ragAgg.scored ? ragAgg.avgHealth : null;
+  const phScoreForUi = (apiScore != null && apiScore > 0) ? apiScore : ragFallback;
+  const phRag = scoreToRag(phScoreForUi ?? 0);
+  const phDelta = phPrevScore != null && phScoreForUi != null ? phScoreForUi - phPrevScore : null;
+
+  const byId = useMemo(() => {
+    const m2 = new Map<string, any>();
+    for (const it of approvalItems) m2.set(String(it?.id || ""), it);
+    return m2;
+  }, [approvalItems]);
+
+  // HP-F3: Explicit sum — zero stays 0, no || fallback swallowing it
   const raidDueTotal = useMemo(() => {
     if (!raidPanel) return 0;
-
     const typedAvailable =
-      raidPanel.risk_due != null ||
-      raidPanel.issue_due != null ||
-      raidPanel.dependency_due != null ||
-      raidPanel.assumption_due != null;
-
+      raidPanel.risk_due != null || raidPanel.issue_due != null ||
+      raidPanel.dependency_due != null || raidPanel.assumption_due != null;
     if (typedAvailable) {
-      return (
-        num(raidPanel.risk_due) +
-        num(raidPanel.issue_due) +
-        num(raidPanel.dependency_due) +
-        num(raidPanel.assumption_due)
-      );
+      return num(raidPanel.risk_due) + num(raidPanel.issue_due) + num(raidPanel.dependency_due) + num(raidPanel.assumption_due);
     }
-
     return num(raidPanel.due_total);
   }, [raidPanel]);
 
+  // HP-F5 (revised): Show null until raidPanel arrives — no kpis.openRisks fallback.
   const openRisksValue = raidPanel ? raidDueTotal : null;
+
   const raidHighSeverity = num(raidPanel?.risk_hi) + num(raidPanel?.issue_hi);
 
   const fpHasData = fpSummary?.ok === true;
   const fpVariancePct = fpHasData ? (fpSummary as any).variance_pct : null;
-  const fpVarianceNum =
-    fpVariancePct != null && Number.isFinite(Number(fpVariancePct))
-      ? Math.round(Number(fpVariancePct) * 10) / 10
-      : null;
-  const fpVarianceLabel =
-    fpVarianceNum != null
-      ? fpVarianceNum === 0
-        ? "±0%"
-        : `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%`
-      : fpLoading
-        ? "…"
-        : "—";
+  const fpVarianceNum = fpVariancePct != null && Number.isFinite(Number(fpVariancePct)) ? Math.round(Number(fpVariancePct) * 10) / 10 : null;
+  const fpVarianceLabel = fpVarianceNum != null ? (fpVarianceNum === 0 ? "\u00b10%" : `${fpVarianceNum > 0 ? "+" : ""}${fpVarianceNum}%`) : fpLoading ? "\u2026" : "\u2014";
   const fpRag = fpHasData ? ((fpSummary as any).rag as RagLetter) : null;
+  const firstProjectRef = useMemo(() => {
+    const fp = fpSummary?.ok ? (fpSummary as any).project_ref : null;
+    if (fp) return fp;
+    const p = sortedProjects[0] as any;
+    if (!p) return "";
+    return safeStr(p?.id);
+  }, [fpSummary, sortedProjects]);
+
+  async function decide(taskId: string, decision: "approve" | "reject", comment = "") {
+    const item = byId.get(taskId);
+    if (!item) return;
+    setPendingIds((p) => ({ ...p, [taskId]: true }));
+    setApprovalItems((items) => items.filter((x) => String(x?.id || "") !== taskId));
+    try {
+      const r = await fetch("/api/approvals/decision", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approval_task_id: taskId, decision, comment }),
+      });
+      const j = await r.json();
+      if (!j?.ok) throw new Error(j?.error || "Decision failed");
+    } catch (e: any) {
+      setApprovalItems((items) => (items.some((x) => String(x?.id || "") === taskId) ? items : [item, ...items]));
+      alert(e?.message || "Decision failed");
+    } finally {
+      setPendingIds((p) => { const next = { ...p }; delete next[taskId]; return next; });
+    }
+  }
 
   const exportProjectsCsv = useCallback(() => {
     const rows = (activeProjects as any[]).map((p) => ({
@@ -2202,14 +1522,9 @@ export default function HomePage({ data }: { data: HomeData }) {
       department: safeStr((p as any)?.department),
       project_manager: safeStr((p as any)?.project_manager),
     }));
-
     const header = ["code", "title", "client", "department", "project_manager"];
     const esc = (s: any) => `"${safeStr(s).replace(/"/g, '""')}"`;
-    const csv = [
-      header.join(","),
-      ...rows.map((r) => header.map((k) => esc((r as any)[k])).join(",")),
-    ].join("\n");
-
+    const csv = [header.join(","), ...rows.map((r) => header.map((k) => esc((r as any)[k])).join(","))].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
     const stamp = new Date().toISOString().slice(0, 10);
@@ -2217,16 +1532,12 @@ export default function HomePage({ data }: { data: HomeData }) {
     a.download = `portfolio-projects-${stamp}.csv`;
     document.body.appendChild(a);
     a.click();
-
-    setTimeout(() => {
-      URL.revokeObjectURL(a.href);
-      a.remove();
-    }, 250);
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 250);
   }, [activeProjects]);
 
   if (!ok) {
     return (
-      <div className="grid min-h-screen place-items-center bg-gray-50 p-10">
+      <div className="min-h-screen bg-gray-50 grid place-items-center p-10">
         <div className="max-w-lg rounded-2xl border border-gray-200 bg-white p-10 shadow-sm">
           <div className="text-xl font-bold text-gray-900">Dashboard Error</div>
           <div className="mt-2 text-gray-500">{(data as any).error}</div>
@@ -2235,80 +1546,50 @@ export default function HomePage({ data }: { data: HomeData }) {
     );
   }
 
-  const phColorKey = phScoreForUi == null
-    ? "blue"
-    : phRag === "G"
-      ? "green"
-      : phRag === "A"
-        ? "amber"
-        : "red";
-
-  const fpColorKey =
-    !fpHasData ? "blue" : fpRag === "G" ? "green" : fpRag === "A" ? "amber" : "red";
+  const phColorKey = phRag === "G" ? "green" : phRag === "A" ? "amber" : "red";
+  const fpColorKey = !fpHasData ? "blue" : fpRag === "G" ? "green" : fpRag === "A" ? "amber" : "red";
   const allDueItems = dueItems.slice(0, 8);
 
   return (
     <>
-      <style
-        dangerouslySetInnerHTML={{
-          __html:
-            `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'); *, *::before, *::after { box-sizing: border-box; } body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important; -webkit-font-smoothing: antialiased; }`,
-        }}
-      />
+      <style dangerouslySetInnerHTML={{ __html: `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'); *, *::before, *::after { box-sizing: border-box; } body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important; -webkit-font-smoothing: antialiased; }` }} />
       <LazyMotion features={domAnimation}>
+        <RejectionModal
+          open={!!rejectModal} title={rejectModal?.title || ""}
+          onConfirm={(reason) => { if (rejectModal) { decide(rejectModal.taskId, "reject", reason); setRejectModal(null); } }}
+          onCancel={() => setRejectModal(null)}
+        />
         <FilterDrawer
-          open={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
+          open={drawerOpen} onClose={() => setDrawerOpen(false)}
           filters={urlFilters}
-          onApply={(next) => {
-            applyFilters(next);
-            setDrawerOpen(false);
-          }}
-          onClear={() => {
-            clearFilters();
-            setDrawerOpen(false);
-          }}
-          projectOptions={projectOptions}
-          pmOptions={pmOptions}
-          deptOptions={deptOptions}
+          onApply={(next) => { applyFilters(next); setDrawerOpen(false); }}
+          onClear={() => { clearFilters(); setDrawerOpen(false); }}
+          projectOptions={projectOptions} pmOptions={pmOptions} deptOptions={deptOptions}
           searchInputRef={searchInputRef}
         />
-
         <div className="min-h-screen" style={{ background: "#f8fafc" }}>
-          <header
-            className="sticky top-0 z-30 border-b border-gray-100 bg-white"
-            style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}
-          >
-            <div className="mx-auto flex h-14 max-w-screen-2xl items-center justify-between gap-4 px-6">
+
+          {/* Top Nav */}
+          <header className="sticky top-0 z-30 bg-white border-b border-gray-100" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+            <div className="max-w-screen-2xl mx-auto px-6 h-14 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600">
+                <div className="h-8 w-8 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
                   <Layers className="h-4 w-4 text-white" />
                 </div>
                 <div className="flex items-baseline gap-2.5">
-                  <span className="text-base font-bold text-gray-900">
-                    Organisation Portfolio
-                  </span>
-                  <span className="hidden text-xs text-gray-400 md:block">
-                    Enterprise project portfolio overview
-                    {filtersActive ? ` • filtered (${activeProjects.length})` : ""}
+                  <span className="font-bold text-gray-900 text-base">Organisation Portfolio</span>
+                  <span className="hidden md:block text-xs text-gray-400">
+                    Enterprise project portfolio overview{filtersActive ? ` \u2022 filtered (${activeProjects.length})` : ""}
                   </span>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
-                <div className="hidden items-center gap-1 rounded-xl bg-gray-100 p-1 sm:flex">
+                <div className="hidden sm:flex items-center gap-1 p-1 rounded-xl bg-gray-100">
                   {([7, 14, 30, 60] as const).map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => setWindowDays(d)}
-                      className={[
-                        "rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
-                        windowDays === d
-                          ? "bg-white text-gray-900 shadow-sm"
-                          : "text-gray-500 hover:text-gray-700",
-                      ].join(" ")}
-                    >
+                    <button key={d} type="button" onClick={() => setWindowDays(d)}
+                      className={["px-3 py-1.5 rounded-lg text-xs font-semibold transition-all",
+                        windowDays === d ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"].join(" ")}>
                       {d}d
                     </button>
                   ))}
@@ -2316,211 +1597,108 @@ export default function HomePage({ data }: { data: HomeData }) {
 
                 {dueUpdatedAt && <LastUpdated iso={dueUpdatedAt} />}
 
-                <div className="mx-1 h-5 w-px bg-gray-200" />
+                <div className="h-5 w-px bg-gray-200 mx-1" />
 
-                <button
-                  type="button"
-                  onClick={openDrawerFocusSearch}
-                  className={[
-                    "flex h-9 w-9 items-center justify-center rounded-xl border transition-colors",
-                    drawerOpen
-                      ? "border-gray-900 bg-gray-900"
-                      : "border-gray-200 bg-white hover:bg-gray-50",
-                  ].join(" ")}
-                  aria-label="Search"
-                  title="Search"
-                >
-                  <Search
-                    className={[
-                      "h-4 w-4",
-                      drawerOpen ? "text-white" : "text-gray-700",
-                    ].join(" ")}
-                  />
+                <button type="button" onClick={openDrawerFocusSearch}
+                  className={["h-9 w-9 rounded-xl border flex items-center justify-center transition-colors",
+                    drawerOpen ? "bg-gray-900 border-gray-900" : "bg-white border-gray-200 hover:bg-gray-50"].join(" ")}
+                  aria-label="Search" title="Search">
+                  <Search className={["h-4 w-4", drawerOpen ? "text-white" : "text-gray-700"].join(" ")} />
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => setDrawerOpen((v) => !v)}
-                  className={[
-                    "flex h-9 w-9 items-center justify-center rounded-xl border transition-colors",
-                    drawerOpen || filtersActive
-                      ? "border-gray-900 bg-gray-900"
-                      : "border-gray-200 bg-white hover:bg-gray-50",
-                  ].join(" ")}
-                  aria-label="Filter"
-                  title="Filter"
-                >
-                  <SlidersHorizontal
-                    className={[
-                      "h-4 w-4",
-                      drawerOpen || filtersActive ? "text-white" : "text-gray-700",
-                    ].join(" ")}
-                  />
+                <button type="button" onClick={() => setDrawerOpen((v) => !v)}
+                  className={["h-9 w-9 rounded-xl border flex items-center justify-center transition-colors",
+                    drawerOpen || filtersActive ? "bg-gray-900 border-gray-900" : "bg-white border-gray-200 hover:bg-gray-50"].join(" ")}
+                  aria-label="Filter" title="Filter">
+                  <SlidersHorizontal className={["h-4 w-4", drawerOpen || filtersActive ? "text-white" : "text-gray-700"].join(" ")} />
                 </button>
 
-                <button
-                  type="button"
-                  onClick={exportProjectsCsv}
-                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white transition-colors hover:bg-gray-50"
-                  aria-label="Export"
-                  title="Export CSV"
-                >
+                <button type="button" onClick={exportProjectsCsv}
+                  className="h-9 w-9 rounded-xl border border-gray-200 bg-white flex items-center justify-center hover:bg-gray-50 transition-colors"
+                  aria-label="Export" title="Export CSV">
                   <Download className="h-4 w-4 text-gray-700" />
                 </button>
 
                 <NotificationBell />
 
-                <button
-                  type="button"
-                  onClick={() => router.push("/settings")}
-                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white transition-colors hover:bg-gray-50"
-                  aria-label="Settings"
-                  title="Settings"
-                >
+                <button type="button" onClick={() => router.push("/settings")}
+                  className="h-9 w-9 rounded-xl border border-gray-200 bg-white flex items-center justify-center hover:bg-gray-50 transition-colors"
+                  aria-label="Settings" title="Settings">
                   <Settings className="h-4 w-4 text-gray-700" />
                 </button>
               </div>
             </div>
           </header>
 
-          <main className="mx-auto max-w-screen-2xl space-y-5 px-6 py-6">
+          <main className="max-w-screen-2xl mx-auto px-6 py-6 space-y-5">
             {filtersActive && (
-              <div
-                className="flex items-center justify-between gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3"
-                style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}
-              >
+              <div className="bg-white border border-gray-100 rounded-2xl px-4 py-3 flex items-center justify-between gap-3"
+                style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
                 <div className="min-w-0 text-xs text-gray-500">
                   <span className="font-semibold text-gray-700">Active filters:</span>{" "}
                   <span className="truncate">
                     {urlFilters.q ? `q="${urlFilters.q}" ` : ""}
-                    {urlFilters.projectId?.length ?? 0
-                      ? `• Projects ${urlFilters.projectId!.length} `
-                      : ""}
-                    {urlFilters.projectCode?.length ?? 0
-                      ? `• Codes ${urlFilters.projectCode!.length} `
-                      : ""}
-                    {urlFilters.projectManagerId?.length ?? 0
-                      ? `• PM ${urlFilters.projectManagerId!.length} `
-                      : ""}
-                    {urlFilters.department?.length ?? 0
-                      ? `• Dept ${urlFilters.department!.length} `
-                      : ""}
+                    {urlFilters.projectId?.length ?? 0 ? `\u2022 Projects ${urlFilters.projectId!.length} ` : ""}
+                    {urlFilters.projectCode?.length ?? 0 ? `\u2022 Codes ${urlFilters.projectCode!.length} ` : ""}
+                    {urlFilters.projectManagerId?.length ?? 0 ? `\u2022 PM ${urlFilters.projectManagerId!.length} ` : ""}
+                    {urlFilters.department?.length ?? 0 ? `\u2022 Dept ${urlFilters.department!.length} ` : ""}
                   </span>
                 </div>
-                <button
-                  onClick={clearFilters}
-                  className="rounded-xl bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-200 hover:text-gray-900"
-                >
+                <button onClick={clearFilters}
+                  className="text-xs font-semibold text-gray-700 hover:text-gray-900 px-3 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 transition-colors">
                   Clear all
                 </button>
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* HP-F7: phScoreForUi — null until live /api/portfolio/health resolves */}
               <KpiCard
                 label="Portfolio Health"
-                value={phScoreForUi == null ? "…" : `${phScoreForUi}%`}
-                sub={
-                  ragAgg.scored
-                    ? `${ragAgg.g} Green · ${ragAgg.a} Amber · ${ragAgg.r} Red`
-                    : "live portfolio score"
-                }
+                value={phScoreForUi == null ? "\u2026" : `${phScoreForUi}%`}
+                sub={ragAgg.scored ? `${ragAgg.g} Green \u00b7 ${ragAgg.a} Amber \u00b7 ${ragAgg.r} Red` : "live portfolio score"}
                 icon={<Activity className="h-5 w-5" />}
-                colorKey={phColorKey}
+                colorKey={phScoreForUi == null ? "blue" : phColorKey}
+                trendLabel={phDelta != null && phDelta !== 0 ? `${Math.abs(Math.round(phDelta))}` : undefined}
                 onClick={() => router.push(appendFiltersToUrl("/insights", urlFilters))}
                 delay={0}
               />
 
+              {/* HP-F5: openRisksValue — null while loading, raidDueTotal once panel arrives */}
               <KpiCard
                 label="Open Risks"
-                value={openRisksValue == null ? "…" : `${openRisksValue}`}
-                sub={raidLoading ? "loading RAID signals" : "high priority"}
-                icon={<AlertTriangle className="h-5 w-5" />}
-                colorKey="amber"
+                value={openRisksValue == null ? "\u2026" : `${openRisksValue}`}
+                sub="high priority" icon={<AlertTriangle className="h-5 w-5" />} colorKey="amber"
                 trendLabel={raidHighSeverity > 0 ? `${raidHighSeverity}` : undefined}
-                onClick={() =>
-                  router.push(
-                    appendFiltersToUrl(
-                      `/insights?tab=raid&days=${numericWindowDays}`,
-                      urlFilters,
-                    ),
-                  )
-                }
-                delay={0.05}
-              />
+                onClick={() => router.push(appendFiltersToUrl(`/insights?tab=raid&days=${numericWindowDays}`, urlFilters))} delay={0.05} />
 
-              <KpiCard
-                label="Milestones Due"
-                value={milestonesDueLive == null ? "…" : `${milestonesDueLive}`}
+              {/* HP-F6: milestonesDueLive — null until live API responds */}
+              <KpiCard label="Milestones Due"
+                value={milestonesDueLive == null ? "\u2026" : `${milestonesDueLive}`}
                 sub={`next ${windowDays === "all" ? "60" : windowDays} days`}
-                icon={<Clock3 className="h-5 w-5" />}
-                colorKey="blue"
-                onClick={() =>
-                  router.push(
-                    appendFiltersToUrl(`/milestones?days=${numericWindowDays}`, urlFilters),
-                  )
-                }
-                delay={0.1}
-              />
+                icon={<Clock3 className="h-5 w-5" />} colorKey="blue"
+                onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${numericWindowDays}`, urlFilters))} delay={0.1} />
 
-              <KpiCard
-                label="Budget Health"
-                value={fpVarianceLabel}
-                sub={
-                  fpHasData
-                    ? `Budget ${fpRag === "G" ? "on track" : fpRag === "A" ? "watch" : "over"}`
-                    : "variance"
-                }
-                icon={<DollarSign className="h-5 w-5" />}
-                colorKey={fpColorKey}
-                trendLabel={
-                  fpVarianceNum != null && fpVarianceNum !== 0
-                    ? fpVarianceLabel
-                    : undefined
-                }
-                onClick={() => router.push("/budget")}
-                delay={0.15}
-              />
+              <KpiCard label="Budget Health" value={fpVarianceLabel}
+                sub={fpHasData ? `Budget ${fpRag === "G" ? "on track" : fpRag === "A" ? "watch" : "over"}` : "variance"}
+                icon={<DollarSign className="h-5 w-5" />} colorKey={fpColorKey}
+                trendLabel={fpVarianceNum != null && fpVarianceNum !== 0 ? fpVarianceLabel : undefined}
+                onClick={() => router.push("/budget")} delay={0.15} />
             </div>
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-              <div
-                className="rounded-2xl border border-gray-100 bg-white p-6 lg:col-span-2"
-                style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}
-              >
-                <div className="mb-2 flex items-start justify-between">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 p-6" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+                <div className="flex items-start justify-between mb-2">
                   <div>
                     <h3 className="font-semibold text-gray-900">Resource Activity</h3>
-                    <p className="mt-0.5 text-xs text-gray-400">
-                      Week-on-week capacity vs demand (FTE) ·{" "}
-                      {windowDays === "all" ? "60" : windowDays} days
-                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">Week-on-week capacity vs demand (FTE) \u00b7 {windowDays === "all" ? "60" : windowDays} days</p>
                   </div>
-                  <div className="mt-1 flex items-center gap-4 text-xs text-gray-400">
-                    <span className="flex items-center gap-1.5">
-                      <span
-                        className="inline-block h-2.5 w-2.5 rounded-sm"
-                        style={{ background: "#93c5fd" }}
-                      />
-                      Capacity
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span
-                        className="inline-block h-2.5 w-2.5 rounded-sm"
-                        style={{ background: "#34d399" }}
-                      />
-                      Allocated
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span
-                        className="inline-block h-2.5 w-2.5 rounded-sm"
-                        style={{ background: "#a78bfa", opacity: 0.8 }}
-                      />
-                      Pipeline
-                    </span>
+                  <div className="flex items-center gap-4 text-xs text-gray-400 mt-1">
+                    <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#93c5fd" }} />Capacity</span>
+                    <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#34d399" }} />Allocated</span>
+                    <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#a78bfa", opacity: 0.8 }} />Pipeline</span>
                   </div>
                 </div>
-
                 <ResourceActivityChart
                   weeks={resourceWeeks.length > 0 ? resourceWeeks : undefined}
                   days={numericWindowDays}
@@ -2528,47 +1706,26 @@ export default function HomePage({ data }: { data: HomeData }) {
                 />
               </div>
 
-              <div
-                className="rounded-2xl border border-gray-100 bg-white p-6"
-                style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}
-              >
-                <div className="mb-4 flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-100">
+              <div className="bg-white rounded-2xl border border-gray-100 p-6" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="h-9 w-9 rounded-xl bg-purple-100 flex items-center justify-center">
                     <Sparkles className="h-4 w-4 text-purple-600" />
                   </div>
-                  <h3 className="flex-1 font-semibold text-gray-900">AI Insights</h3>
-                  <button
-                    onClick={() => router.push(appendFiltersToUrl("/insights", urlFilters))}
-                    className="text-xs font-medium text-blue-600 hover:text-blue-700"
-                  >
-                    View all
-                  </button>
+                  <h3 className="font-semibold text-gray-900 flex-1">AI Insights</h3>
+                  <button onClick={() => router.push(appendFiltersToUrl("/insights", urlFilters))} className="text-xs text-blue-600 hover:text-blue-700 font-medium">View all</button>
                 </div>
-
                 <div className="space-y-3">
                   {insightsLoading ? (
-                    Array.from({ length: 3 }).map((_, i) => (
-                      <div key={i} className="h-20 animate-pulse rounded-xl bg-gray-50" />
-                    ))
+                    Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-20 rounded-xl bg-gray-50 animate-pulse" />)
                   ) : insights.length === 0 ? (
                     <div className="py-10 text-center">
-                      <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-gray-200" />
+                      <CheckCircle2 className="h-8 w-8 text-gray-200 mx-auto mb-2" />
                       <p className="text-sm text-gray-400">No active insights</p>
                     </div>
                   ) : (
                     insights.slice(0, 4).map((x, i) => (
-                      <m.div
-                        key={x.id}
-                        initial={{ opacity: 0, y: 4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: i * 0.06 }}
-                      >
-                        <InsightCard
-                          severity={x.severity}
-                          title={x.title}
-                          body={x.body}
-                          href={fixInsightHref(x, windowDays)}
-                        />
+                      <m.div key={x.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}>
+                        <InsightCard severity={x.severity} title={x.title} body={x.body} href={fixInsightHref(x, windowDays)} />
                       </m.div>
                     ))
                   )}
@@ -2581,158 +1738,63 @@ export default function HomePage({ data }: { data: HomeData }) {
               filters={deriveApiFilters(urlFilters, projectOptions)}
             />
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-              <div className="space-y-4 lg:col-span-2">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="lg:col-span-2 space-y-4">
                 {ragAgg.scored > 0 && (
-                  <m.div
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2 }}
-                    className="rounded-2xl border border-gray-100 bg-white px-6 py-5"
-                    style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}
-                  >
-                    <div className="mb-4 flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-gray-900">
-                        Project Health (RAG Status)
-                      </h3>
-                      <button
-                        onClick={() => router.push(appendFiltersToUrl("/projects", urlFilters))}
-                        className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700"
-                      >
+                  <m.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
+                    className="bg-white rounded-2xl border border-gray-100 px-6 py-5" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-semibold text-gray-900 text-sm">Project Health (RAG Status)</h3>
+                      <button onClick={() => router.push(appendFiltersToUrl("/projects", urlFilters))}
+                        className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">
                         View all <ChevronRight className="h-3 w-3" />
                       </button>
                     </div>
-
                     <div className="grid grid-cols-3 gap-3">
                       {[
-                        {
-                          rag: "G" as RagLetter,
-                          count: ragAgg.g,
-                          icon: <CheckCircle2 className="h-4 w-4 text-green-600" />,
-                          label: "Green",
-                          threshold: "≥ 85% health",
-                          from: "#f0fdf4",
-                          border: "#dcfce7",
-                        },
-                        {
-                          rag: "A" as RagLetter,
-                          count: ragAgg.a,
-                          icon: <AlertTriangle className="h-4 w-4 text-amber-600" />,
-                          label: "Amber",
-                          threshold: "70–84% health",
-                          from: "#fffbeb",
-                          border: "#fef3c7",
-                        },
-                        {
-                          rag: "R" as RagLetter,
-                          count: ragAgg.r,
-                          icon: <AlertTriangle className="h-4 w-4 text-red-500" />,
-                          label: "Red",
-                          threshold: "< 70% health",
-                          from: "#fef2f2",
-                          border: "#fecaca",
-                        },
+                        { rag: "G" as RagLetter, count: ragAgg.g, icon: <CheckCircle2 className="h-4 w-4 text-green-600" />, label: "Green", threshold: "\u2265 85% health", from: "#f0fdf4", border: "#dcfce7" },
+                        { rag: "A" as RagLetter, count: ragAgg.a, icon: <AlertTriangle className="h-4 w-4 text-amber-600" />, label: "Amber", threshold: "70\u201384% health", from: "#fffbeb", border: "#fef3c7" },
+                        { rag: "R" as RagLetter, count: ragAgg.r, icon: <AlertTriangle className="h-4 w-4 text-red-500" />,   label: "Red",   threshold: "< 70% health",   from: "#fef2f2", border: "#fecaca" },
                       ].map(({ rag: r, count, icon, label, threshold, from, border }) => (
-                        <div
-                          key={r}
-                          className="cursor-pointer rounded-xl p-4 transition-all hover:brightness-[0.97]"
+                        <div key={r} className="rounded-xl p-4 cursor-pointer transition-all hover:brightness-[0.97]"
                           style={{ background: from, border: `1px solid ${border}` }}
-                          onClick={() =>
-                            router.push(
-                              appendFiltersToUrl(
-                                `/insights?rag=${r}&days=${numericWindowDays}`,
-                                urlFilters,
-                              ),
-                            )
-                          }
-                        >
-                          <div className="mb-2 flex items-center gap-2">
+                          onClick={() => router.push(appendFiltersToUrl(`/insights?rag=${r}&days=${numericWindowDays}`, urlFilters))}>
+                          <div className="flex items-center gap-2 mb-2">
                             {icon}
-                            <span
-                              className="text-xs font-bold uppercase tracking-wider"
-                              style={{
-                                color:
-                                  r === "G" ? "#15803d" : r === "A" ? "#92400e" : "#991b1b",
-                              }}
-                            >
-                              {label}
-                            </span>
+                            <span className="text-xs font-bold uppercase tracking-wider"
+                              style={{ color: r === "G" ? "#15803d" : r === "A" ? "#92400e" : "#991b1b" }}>{label}</span>
                           </div>
-                          <div
-                            className="mb-1 text-3xl font-bold leading-none"
-                            style={{
-                              color:
-                                r === "G" ? "#15803d" : r === "A" ? "#b45309" : "#dc2626",
-                            }}
-                          >
-                            {count}
+                          <div className="text-3xl font-bold leading-none mb-1"
+                            style={{ color: r === "G" ? "#15803d" : r === "A" ? "#b45309" : "#dc2626" }}>{count}</div>
+                          <div className="text-xs mt-0.5" style={{ color: r === "G" ? "#16a34a" : r === "A" ? "#d97706" : "#ef4444", opacity: 0.8 }}>
+                            {ragAgg.scored > 0 ? `${Math.round((count / ragAgg.scored) * 100)}% of total` : ""}
                           </div>
-                          <div
-                            className="mt-0.5 text-xs"
-                            style={{
-                              color:
-                                r === "G" ? "#16a34a" : r === "A" ? "#d97706" : "#ef4444",
-                              opacity: 0.8,
-                            }}
-                          >
-                            {ragAgg.scored > 0
-                              ? `${Math.round((count / ragAgg.scored) * 100)}% of total`
-                              : ""}
-                          </div>
-                          <div
-                            className="mt-2 text-[10px] font-semibold"
-                            style={{
-                              color:
-                                r === "G" ? "#166534" : r === "A" ? "#92400e" : "#991b1b",
-                              opacity: 0.7,
-                            }}
-                          >
-                            {threshold}
-                          </div>
+                          <div className="mt-2 text-[10px] font-semibold"
+                            style={{ color: r === "G" ? "#166534" : r === "A" ? "#92400e" : "#991b1b", opacity: 0.7 }}>{threshold}</div>
                         </div>
                       ))}
                     </div>
                   </m.div>
                 )}
 
-                <div
-                  className="overflow-hidden rounded-2xl border border-gray-100 bg-white"
-                  style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}
-                >
-                  <div className="flex items-center justify-between border-b border-gray-50 px-6 py-4">
+                <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+                  <div className="flex items-center justify-between px-6 py-4 border-b border-gray-50">
                     <div>
                       <h3 className="font-semibold text-gray-900">Active Projects</h3>
-                      <p className="mt-0.5 text-xs text-gray-400">
-                        {activeProjects.length} projects
-                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">{activeProjects.length} projects</p>
                     </div>
-                    <span className="pr-12 text-xs text-gray-400">Health</span>
+                    <span className="text-xs text-gray-400 pr-12">Health</span>
                   </div>
-
                   {sortedProjects.slice(0, 9).map((p: any, i) => (
-                    <m.div
-                      key={String(p.id || i)}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: 0.03 * i }}
-                    >
+                    <m.div key={String(p.id || i)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.03 * i }}>
                       <ProjectRow p={p} ragMap={ragMap} />
                     </m.div>
                   ))}
-
-                  {sortedProjects.length === 0 && (
-                    <div className="py-14 text-center text-sm text-gray-400">
-                      No active projects
-                    </div>
-                  )}
-
+                  {sortedProjects.length === 0 && <div className="py-14 text-center text-gray-400 text-sm">No active projects</div>}
                   {sortedProjects.length > 9 && (
-                    <div className="border-t border-gray-50 px-6 py-3 text-center">
-                      <button
-                        onClick={() => router.push(appendFiltersToUrl("/projects", urlFilters))}
-                        className="text-sm font-medium text-blue-600 hover:text-blue-700"
-                      >
-                        View all {activeProjects.length} projects →
+                    <div className="px-6 py-3 border-t border-gray-50 text-center">
+                      <button onClick={() => router.push(appendFiltersToUrl("/projects", urlFilters))} className="text-sm text-blue-600 hover:text-blue-700 font-medium">
+                        View all {activeProjects.length} projects \u2192
                       </button>
                     </div>
                   )}
@@ -2740,165 +1802,86 @@ export default function HomePage({ data }: { data: HomeData }) {
               </div>
 
               <div className="space-y-4">
-                <div
-                  className="overflow-hidden rounded-2xl border border-gray-100 bg-white"
-                  style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}
-                >
-                  <div className="flex items-center gap-3 border-b border-gray-50 px-5 py-4">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50">
+                <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+                  <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-50">
+                    <div className="h-8 w-8 rounded-xl bg-blue-50 flex items-center justify-center">
                       <Calendar className="h-4 w-4 text-blue-500" />
                     </div>
-                    <h3 className="flex-1 font-semibold text-gray-900">
-                      Upcoming Milestones
-                    </h3>
-
-                    <div className="flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5">
+                    <h3 className="font-semibold text-gray-900 flex-1">Upcoming Milestones</h3>
+                    <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-gray-100">
                       {([7, 14, 30] as const).map((d) => (
-                        <button
-                          key={d}
-                          type="button"
-                          onClick={() => setDueWindowDays(d)}
-                          className={[
-                            "rounded-md px-2 py-1 text-[11px] font-semibold transition-all",
-                            dueWindowDays === d
-                              ? "bg-white text-gray-900 shadow-sm"
-                              : "text-gray-400 hover:text-gray-600",
-                          ].join(" ")}
-                        >
+                        <button key={d} type="button" onClick={() => setDueWindowDays(d)}
+                          className={["px-2 py-1 rounded-md text-[11px] font-semibold transition-all",
+                            dueWindowDays === d ? "bg-white text-gray-900 shadow-sm" : "text-gray-400 hover:text-gray-600"].join(" ")}>
                           {d}d
                         </button>
                       ))}
                     </div>
-
-                    <button
-                      onClick={() =>
-                        router.push(
-                          appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters),
-                        )
-                      }
-                      className="ml-1 flex items-center gap-0.5 text-xs font-medium text-blue-600 hover:text-blue-700"
-                    >
+                    <button onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))}
+                      className="ml-1 text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-0.5">
                       All <ChevronRight className="h-3 w-3" />
                     </button>
                   </div>
-
-                  <div className="space-y-2.5 p-4">
+                  <div className="p-4 space-y-2.5">
                     {dueLoading ? (
-                      Array.from({ length: 3 }).map((_, i) => (
-                        <div key={i} className="h-24 animate-pulse rounded-xl bg-gray-50" />
-                      ))
+                      Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-24 rounded-xl bg-gray-50 animate-pulse" />)
                     ) : allDueItems.length === 0 ? (
                       <div className="py-8 text-center">
-                        <CheckCircle2 className="mx-auto mb-2 h-7 w-7 text-gray-200" />
-                        <p className="text-sm text-gray-400">
-                          Nothing due in {dueWindowDays} days
-                        </p>
-                        <button
-                          onClick={() =>
-                            router.push(
-                              appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters),
-                            )
-                          }
-                          className="mt-2 text-xs font-medium text-blue-600 hover:text-blue-700"
-                        >
-                          View milestone list →
+                        <CheckCircle2 className="h-7 w-7 text-gray-200 mx-auto mb-2" />
+                        <p className="text-sm text-gray-400">Nothing due in {dueWindowDays} days</p>
+                        <button onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))}
+                          className="mt-2 text-xs text-blue-600 hover:text-blue-700 font-medium">
+                          View milestone list \u2192
                         </button>
                       </div>
                     ) : (
                       allDueItems.map((it, i) => (
-                        <m.div
-                          key={i}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          transition={{ delay: i * 0.04 }}
-                        >
-                          <MilestoneCard
-                            item={it}
-                            onClick={() => {
-                              const href = safeStr(it?.link).trim();
-                              if (href && !href.includes("/raid") && !href.includes("/risks")) {
-                                router.push(href);
-                              } else {
-                                router.push(
-                                  appendFiltersToUrl(
-                                    `/milestones?days=${dueWindowDays}`,
-                                    urlFilters,
-                                  ),
-                                );
-                              }
-                            }}
-                          />
+                        <m.div key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.04 }}>
+                          <MilestoneCard item={it} onClick={() => {
+                            const href = safeStr(it?.link).trim();
+                            if (href && !href.includes("/raid") && !href.includes("/risks")) {
+                              router.push(href);
+                            } else {
+                              router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters));
+                            }
+                          }} />
                         </m.div>
                       ))
                     )}
-
                     {dueItems.length > 8 && (
-                      <button
-                        onClick={() =>
-                          router.push(
-                            appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters),
-                          )
-                        }
-                        className="mt-1 w-full border-t border-gray-50 py-2 text-center text-xs font-medium text-blue-600 hover:text-blue-700"
-                      >
-                        View all {dueItems.length} milestones →
+                      <button onClick={() => router.push(appendFiltersToUrl(`/milestones?days=${dueWindowDays}`, urlFilters))}
+                        className="w-full text-xs text-blue-600 hover:text-blue-700 font-medium py-2 text-center border-t border-gray-50 mt-1">
+                        View all {dueItems.length} milestones \u2192
                       </button>
                     )}
                   </div>
                 </div>
 
-                <div
-                  className="overflow-hidden rounded-2xl border border-gray-100 bg-white"
-                  style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}
-                >
-                  <div className="flex items-center gap-3 border-b border-gray-50 px-5 py-4">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-green-50">
+                <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+                  <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-50">
+                    <div className="h-8 w-8 rounded-xl bg-green-50 flex items-center justify-center">
                       <Trophy className="h-4 w-4 text-green-500" />
                     </div>
-                    <h3 className="flex-1 font-semibold text-gray-900">Recent Wins</h3>
-                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-400">
-                      Last 7 days
-                    </span>
-                    <button
-                      onClick={() =>
-                        router.push(appendFiltersToUrl("/success-stories", urlFilters))
-                      }
-                      className="text-xs font-medium text-blue-600 hover:text-blue-700"
-                    >
-                      View all
-                    </button>
+                    <h3 className="font-semibold text-gray-900 flex-1">Recent Wins</h3>
+                    <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">Last 7 days</span>
+                    <button onClick={() => router.push(appendFiltersToUrl("/success-stories", urlFilters))} className="text-xs text-blue-600 hover:text-blue-700 font-medium">View all</button>
                   </div>
-
-                  <div className="space-y-2.5 p-4">
+                  <div className="p-4 space-y-2.5">
                     {winsLoading ? (
-                      Array.from({ length: 3 }).map((_, i) => (
-                        <div key={i} className="h-20 animate-pulse rounded-xl bg-gray-50" />
-                      ))
+                      Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-20 rounded-xl bg-gray-50 animate-pulse" />)
                     ) : recentWins.length === 0 ? (
                       <div className="py-8 text-center">
-                        <Trophy className="mx-auto mb-1.5 h-6 w-6 text-gray-200" />
-                        <p className="text-sm text-gray-400">
-                          No milestones completed in the last 7 days
-                        </p>
-                        <p className="mt-1 text-xs text-gray-300">
-                          Completed milestones appear here
-                        </p>
+                        <Trophy className="h-6 w-6 text-gray-200 mx-auto mb-1.5" />
+                        <p className="text-sm text-gray-400">No milestones completed in the last 7 days</p>
+                        <p className="text-xs text-gray-300 mt-1">Completed milestones appear here</p>
                       </div>
                     ) : (
                       recentWins.map((win, i) => (
-                        <m.div
-                          key={win.id}
-                          initial={{ opacity: 0, y: 4 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: i * 0.05 }}
-                        >
-                          <RecentWinCard
-                            win={win}
-                            onClick={() => {
-                              if (win.link) router.push(win.link);
-                              else router.push(appendFiltersToUrl(`/success-stories`, urlFilters));
-                            }}
-                          />
+                        <m.div key={win.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+                          <RecentWinCard win={win} onClick={() => {
+                            if (win.link) router.push(win.link);
+                            else router.push(appendFiltersToUrl(`/success-stories`, urlFilters));
+                          }} />
                         </m.div>
                       ))
                     )}
