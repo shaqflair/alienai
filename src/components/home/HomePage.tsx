@@ -58,7 +58,6 @@ import {
   CheckCheck,
 } from "lucide-react";
 import ResourceActivityChart, { type ResourceWeek } from "@/components/home/ResourceActivityChart";
-import GovernanceIntelligence from "@/components/executive/GovernanceIntelligence";
 
 /* --- Filter model -------------------------------------------------------- */
 
@@ -1707,7 +1706,7 @@ export default function HomePage({ data }: { data: HomeData }) {
                 <div className="flex items-start justify-between mb-2">
                   <div>
                     <h3 className="font-semibold text-gray-900">Resource Activity</h3>
-                    <p className="text-xs text-gray-400 mt-0.5">Week-on-week capacity vs demand (FTE) \u00b7 {windowDays === "all" ? "60" : windowDays} days</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Week-on-week capacity vs demand (FTE) &middot; {windowDays === "all" ? "60" : windowDays} days</p>
                   </div>
                   <div className="flex items-center gap-4 text-xs text-gray-400 mt-1">
                     <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#93c5fd" }} />Capacity</span>
@@ -1749,10 +1748,31 @@ export default function HomePage({ data }: { data: HomeData }) {
               </div>
             </div>
 
-            <GovernanceIntelligence
-              days={numericWindowDays}
-              filters={deriveApiFilters(urlFilters, projectOptions)}
-            />
+            <div
+              className="rounded-2xl border border-gray-100 bg-white px-6 py-5"
+              style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}
+            >
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-violet-500">
+                    Governance Intelligence
+                  </div>
+                  <h3 className="mt-1 text-base font-semibold text-gray-900">Control Center</h3>
+                  <p className="mt-1 max-w-2xl text-sm text-gray-500">
+                    Open the governance intelligence centre for approvals, control signals, oversight, and delivery decision support.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => router.push("/approvals")}
+                  className="inline-flex items-center gap-2 self-start rounded-2xl border border-violet-200 bg-violet-50 px-5 py-3 text-sm font-semibold text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-100"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  Control Center
+                  <ArrowUpRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2 space-y-4">
